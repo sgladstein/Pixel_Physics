@@ -8,6 +8,17 @@
 > the infrastructure they share. Original milestone numbers are kept as stable
 > identifiers; see [Execution order](#execution-order) for the actual sequence.
 
+> **Research reports:** the `research/` directory alongside this file holds
+> full, uncondensed research passes this plan's milestone sections only
+> summarize — [`research/m16-plant-biology.md`](research/m16-plant-biology.md),
+> [`research/m18-creature-biology.md`](research/m18-creature-biology.md),
+> [`research/m19-visual-polish.md`](research/m19-visual-polish.md). Written
+> out in full deliberately, separate from this document, so the source
+> material (citations, mechanisms, concrete algorithms) survives even if a
+> future session's context window doesn't retain the conversation that
+> produced it. Read the relevant report before implementing the milestone it
+> backs, not just this file's condensed version.
+
 ## Context
 
 The goal is a falling-sand style pixel physics engine — every cell in the world is a simulated pixel — intended as a foundation for building games, not as a one-off tech demo.
@@ -338,6 +349,107 @@ Then plants:
 ticks; moss spreads over damp stone and not over dry; two trees grown from the
 same seed differ; a forest burns and regrows.
 
+**Scientific accuracy directive**, added mid-session by explicit user
+request: when actually building this milestone, research real plant biology
+and try to make the mechanisms as scientifically grounded as the engine's
+material physics already is, not just visually plausible. Space colonization
+above is already a real botanical growth model, not an art trick — that
+standard should extend to the rest of M16, not stop at tree shape.
+
+**Full research reports: [`research/m16-plant-biology.md`](research/m16-plant-biology.md)**
+— the condensed version below; the full report has the deep-dive follow-up
+pass (gravitropism/hydrotropism antagonism, root branching via auxin
+priming oscillators, and auxin-canalization apical dominance — the single
+biggest lever for realistic tree shape) that this summary compresses.
+
+**Research findings, to build the rest of M16 against:**
+
+- **Root water uptake is a gradient-following process, not active pumping** —
+  real uptake follows a water-potential gradient (soil wetter than root
+  interior; roots actively pump mineral ions to *steepen* that gradient, water
+  itself moves passively), and root hairs only ever access water within
+  microns of them. Simulatable version: give a root cell a scalar "local
+  water deficit" that adjacent water satisfies directly and that otherwise
+  propagates one step per tick toward the plant's base (a cheap stand-in for
+  the real cohesion-tension column, not a full transport-network solve) —
+  closer to the real mechanism than "touch water, gain energy," and cheap
+  enough for a scheduler that only ticks a handful of active cells.
+  Roots should also grow preferentially toward cells with more neighbouring
+  water (real hydropatterning), not spread uniformly.
+- **Trees competing for light has a direct, citable sequel to the already-committed
+  space colonization paper**: Palubicki, Horel, Longay, Runions, Lane, Měch
+  &amp; Prusinkiewicz, ["Self-organizing tree models for image
+  synthesis"](https://algorithmicbotany.org/papers/selforg.sig2009.html)
+  (SIGGRAPH/ACM TOG 2009) adds light competition via **shadow propagation
+  into a coarse voxel grid** — each branch casts shadow into the grid, local
+  light value drives growth-direction weighting, shaded branches get
+  starved. This maps almost exactly onto the engine's *existing* M13 light
+  field rather than requiring a separate light model — a tree casting shadow
+  into that same grid, and growing toward locally brighter cells, is the
+  natural fit. (A 2025 Eurographics survey of light-model variants for this
+  algorithm family exists too — [Nauber, CGF
+  2025](https://onlinelibrary.wiley.com/doi/10.1111/cgf.15268) — abstract
+  accessible, full text paywalled.)
+- **Moss/lichen substrate rules should be moisture-and-shade-driven, not a
+  fixed "north side" rule.** Moss has no waterproof cuticle and can't
+  regulate internal water (poikilohydric) — it favours shaded surfaces
+  because shade slows evaporation and preserves dampness, not from any
+  directional pull. The correct simulatable rule is: spread probability as a
+  function of (local light-field value — lower is better, adjacent water or
+  humidity, temperature — lower favours less evaporation), which is both
+  more accurate and barely more expensive than the flat "damp stone" check
+  already planned.
+- **Real relative growth rates**, for tuning constants rather than guessing:
+  lichen ~0.5–8 mm/yr (some species far slower), moss ~0.5–4 cm/yr, trees
+  tens of cm/yr+ — roughly lichen ≪ moss ≪ tree by 1–2 orders of magnitude
+  at each step. A ratio around 1:10:100 is a reasonable anchor.
+
+**Deep-dive findings (root architecture and plant signaling), from the
+follow-up research pass — this is the part that actually answers "root
+growth" and "plant signaling":**
+
+- **Auxin canalization is the single biggest lever for realistic tree
+  shape**, and it's a directly implementable, already-formalized algorithm,
+  not an invention: Prusinkiewicz, Mündermann, Karwowski & Lane, ["Control
+  of bud activation by an auxin transport
+  switch"](https://www.pnas.org/doi/10.1073/pnas.0906696106) (PNAS 2009).
+  Each bud competes to establish a self-reinforcing auxin transport channel
+  toward the trunk (positive feedback, saturating, hysteretic — hard to
+  reverse once established); whichever channel wins suppresses the others.
+  This is the real mechanism behind a tree having one dominant leader with
+  suppressed side branches instead of an evenly bushy form — and it's the
+  real reason cutting a plant's top off makes it bush out (removing the
+  apical auxin source releases nearby buds from suppression). Simulatable
+  as two small scalars per node (auxin channel strength, cytokinin level
+  diffusing up from roots) updated with simple positive feedback each tick
+  — no PDE needed.
+- **Root growth direction is gravity vs. water, not water alone, and the
+  two genuinely fight rather than blend.** Root tips sense gravity via
+  amyloplasts sedimenting in columella cells, redirecting PIN auxin
+  carriers to bias growth downward; when water availability conflicts,
+  **MIZ1** actively suppresses the gravity response so the moisture
+  gradient wins instead — a real antagonism switch, not a weighted average.
+  Simulatable as a `gravity_bias` vector, a `water_bias` vector, and a
+  `miz_active` flag that zeroes gravity_bias when the local moisture
+  gradient crosses a threshold. Lateral roots grow at a genetically fixed
+  angle offset from their parent (a real "gravitropic setpoint angle") —
+  cheap to encode as a per-node constant rather than continuous flux math.
+- **Root branching should be periodic, not a flat per-tick probability.**
+  Real lateral roots are primed by an internal oscillator in the root tip
+  that marks roughly evenly-spaced sites as it grows, and only later do
+  local resource conditions decide whether a primed site actually branches.
+  Simulatable as a growth-tick counter per root tip: mark a "primed" site
+  every N ticks, branch only if local resource signal clears a threshold —
+  gives naturally regular spacing instead of noisy random branching.
+
+Full citation list (roots, phototropism mechanism, moss/lichen ecology,
+growth-rate sources, gravitropism, root branching, apical dominance,
+cytokinin, and an optional systemic stress-signaling mechanic not needed for
+the core build) is in
+[`research/m16-plant-biology.md`](research/m16-plant-biology.md); the
+points above (both blocks) are the load-bearing findings to actually build
+from.
+
 ---
 
 ### M17 — Structural integrity *(destructible building with no solver)*
@@ -395,6 +507,72 @@ Two things to get right early:
 **Verify:** a worm burrows through sand and cannot enter stone; a creature flees
 a fire it senses through the temperature field; killing one leaves a destructible
 corpse.
+
+**Scientific accuracy directive**, same standard as M16's, added mid-session
+by explicit user request: research real animal behaviour and physiology
+rather than inventing plausible-looking rules from scratch. Reynolds
+steering above is a real, citable model for *movement*, but it says nothing
+about *why* a creature moves where it does.
+
+**Full research report: [`research/m18-creature-biology.md`](research/m18-creature-biology.md)**
+— full citations and detail behind the condensed points below.
+
+**Research findings, to build the rest of M18 against:**
+
+- **Burrowing should be gated by substrate mechanics, not a material
+  whitelist.** Real peristaltic burrowing (earthworms) only works within a
+  narrow band of substrate resistance — displaceable/compactable ahead of
+  the animal, and able to flow back in behind it; too loose and there's
+  nothing to anchor against, too resistant (compacted/solid) and the animal
+  can't generate enough pressure to deform it (Kurth et al., *J. R. Soc.
+  Interface* 2018). "Can enter loose sand, can't enter stone" is *already*
+  roughly this, since sand is genuinely displaceable and stone isn't — the
+  refinement worth making is tying burrow cost/speed to the target
+  material's own physical properties (density, friction angle — both
+  already tracked per material) rather than a hardcoded material-kind check,
+  so the rule generalizes to future granular materials for free. Real energy
+  numbers are stark enough to justify a cost model: burrowing through loose
+  sand costs on the order of **26x more energy per metre than moving across
+  open ground** (Namib golden mole measurements) — worth reflecting as a
+  real movement-cost multiplier, not a flat "slower" tweak.
+- **Heat/fire sensing: the simplest well-studied mechanism is a direct fit.**
+  *C. elegans* thermotaxis — a single thermosensory neuron compares current
+  temperature against a remembered set-point and drives movement down the
+  gradient once above it — maps almost exactly onto "read the local
+  ambient-temperature field, flee down-gradient once above a threshold,"
+  which is both the scientifically grounded version *and* the cheap one; no
+  need to invent something more complex than what a real 302-neuron animal
+  actually uses for this exact behaviour.
+- **Give the worm an actual reason to move: foraging, not wandering.** The
+  Marginal Value Theorem (optimal foraging theory) predicts patch-leaving
+  behaviour from a simple rule: leave a patch once its local intake rate
+  drops below the environment's average. Simulatable as an internal
+  energy/hunger stat that depletes over time, is satisfied by consuming
+  material as the worm burrows, and triggers directed movement toward higher
+  local resource density with a leave-threshold — replaces "wander
+  randomly" with a real behavioural-ecology model at negligible extra cost.
+- **If multiple creature kinds interact, the Wa-Tor model is close to exact
+  prior art.** Dewdney's Wa-Tor (*Scientific American*, 1984) is a toroidal
+  grid where prey move/breed on timers and predators move toward prey, eat,
+  gain energy, and starve without food — a discretized Lotka-Volterra system
+  built for grid cells on timers, i.e. this engine's own active-site
+  scheduler shape almost exactly. Later CA variants (Cattaneo et al.) show
+  these local grid rules reproduce real predator-prey population oscillations.
+- **For the slime/fungus creature specifically**, *Physarum polycephalum*
+  foraging-algorithm models (Jeff Jones, 2010) and fungal-mycelium CA growth
+  models (nutrient uptake and translocation on a lattice) are direct
+  grounding — both are literally grid/network growth-and-pruning driven by
+  local nutrient gradients, the same shape as the plant root mechanic above,
+  which suggests a shared "consume local resource, propagate deficit,
+  grow/prune toward gradient" primitive could serve roots, fungus, and slime
+  creatures with one mechanism doing triple duty rather than three bespoke
+  ones.
+
+Full citation list (fire-sensing ranges by species, Braitenberg vehicles as a
+design philosophy for keeping each creature's rule-set small, Lenia/SmoothLife
+as adjacent-but-not-applicable continuous-field alife) is in this session's
+research notes; the five points above are the load-bearing findings to
+actually build from.
 
 ---
 
@@ -487,9 +665,181 @@ updated at each milestone commit, not just when something is added.
 - **M6** (rendering upgrade — bloom/emissive lighting): **deferred**. Needs
   live visual judgment a screenshot-and-reason-about-it loop can't substitute
   for; parked for a session where that's available, not abandoned.
-- **M5** (multithreading): in progress, out of the plan's stated order —
-  moved up ahead of M16/17/18 by explicit user decision once they were
-  available to weigh in on the design. See `README.md`'s M5 status section
-  for the safety design (no `unsafe`, contrary to what this plan originally
-  sketched) once it lands.
+- **M5** (multithreading): **done**, including an independent adversarial
+  review that found no data-race or corruption bugs (it specifically tried
+  to construct one across the two-active-chunks-sandwiching-a-passive-chunk
+  geometry, then disproved it by exact arithmetic on `MAX_REACH ==
+  CHUNK_SIZE / 2`) — out of the plan's stated order, moved up ahead of
+  M16/17/18 by explicit user decision once they were available to weigh in
+  on the design. Shipped with **no `unsafe` code**, contrary to what this
+  plan originally sketched (a single `unsafe` function handing out
+  overlapping mutable 3×3 chunk neighbourhoods) — a `CellSurface` trait plus
+  a per-pass exclusive-ownership-and-deferred-queue design turned out to
+  cover the same ground safely. ~3.6x speedup on the CA sweep alone (4
+  cores); the combined CA+field worst case dropped from ~28ms to ~11.5ms,
+  comfortably back under the 16.6ms/frame budget. Found and fixed one
+  pre-existing M14 bug along the way (a connected mass of cooling cells
+  could oscillate forever near — not at — ambient), plus a test-coverage
+  gap the review flagged (now closed: a test isolating the exact sandwiching
+  geometry at the cell level, which itself needed a second fix once written
+  — the first version's single-frame assertion didn't account for the
+  `moved`-flag deferral interacting with scan-direction parity). See
+  `README.md`'s M5 status section for the full writeup, including the proof
+  the design leans on and the subtler within-worker ordering bug that proof
+  alone didn't catch.
+- **M19** (visual polish) and the **M16/M18 scientific-accuracy research**:
+  added mid-session by explicit user request, all research complete (3
+  parallel agents for M19, 2 passes — an initial one plus a requested
+  deeper follow-up on root architecture and plant signaling — for M16, 1
+  pass for M18) and folded into this document, both as condensed summaries
+  inline (M16/M18's own "Scientific accuracy directive" text, M19's own
+  section above) and as full uncondensed reports in `research/` —
+  [`research/m16-plant-biology.md`](research/m16-plant-biology.md),
+  [`research/m18-creature-biology.md`](research/m18-creature-biology.md),
+  [`research/m19-visual-polish.md`](research/m19-visual-polish.md) — written
+  to disk specifically so the source material survives context loss between
+  sessions. None of this has been *built* yet — the research landing is
+  what's tracked here as done, implementation is still queued behind M5.
 - **M16/M17/M18/M8**: not started yet.
+
+---
+
+## M19 — Visual polish: make the engine beautiful
+
+Added mid-session by explicit user request, deliberately open-ended rather
+than scoped like the numbered milestones above: **explore how to improve the
+graphics and put deep effort into making the engine beautiful**, using
+multiple research agents where that helps rather than working through it
+alone. Everything up through M15 was built to be *correct* — every screenshot
+taken so far was to verify behaviour, not to judge whether it looks good.
+Nothing in the engine has yet been built or tuned with visual quality as the
+actual goal, and this milestone is where that starts.
+
+This is deliberately positioned **after** M5 and layered on top of, not
+instead of, the work already queued (M16–M18, M8) — it does not block them,
+and they do not block it. Concretely it overlaps with and very likely
+subsumes **M6** (dirty-region uploads, emissive lighting, bloom), which was
+deferred purely for lack of a human able to judge the result live, not
+because the work itself was in question; this milestone is the natural home
+for that work once it's unblocked, rather than a separate pass after it.
+
+### Research findings
+
+**Full research report: [`research/m19-visual-polish.md`](research/m19-visual-polish.md)**
+— full detail (concrete algorithms, code-level specifics, complete citation
+lists) behind the condensed summary below.
+
+Three parallel research passes: how other falling-sand engines actually
+render (not simulate) their materials, what `pixels`/wgpu concretely support
+for custom rendering, and pixel-art palette/colour theory. All three landed
+in the same place — **the highest-leverage wins here are CPU-side, need no
+shader pipeline at all, and are cheap enough to be weekend-scale work, not a
+rewrite** — which reframes M6 from "one big GPU pipeline" into a small set
+of independent, individually-shippable techniques.
+
+**Palette (Lospec community practice, and specifically how Resurrect 64 /
+Endesga 32 are built):** organize colours as **ramps in HSL**, one ramp per
+material family, not picked freehand per material as today. The rule that
+actually unifies a palette: shift hue *while* shifting value — darks rotate
+toward blue/purple and desaturate, lights rotate toward yellow and desaturate
+slightly — rather than just scaling brightness. Cap total distinct hues
+game-wide to a handful; distinguish adjacent materials (sand vs. water vs.
+gravel) by **hue**, not just value, since value-only differences vanish at
+small pixel sizes. Reserve peak saturation *and* peak lightness together
+exclusively for hot/emissive materials — that specific combination is what
+reads as "glowing" to the eye even with zero lighting engine involved, pure
+palette trick. [Resurrect 64](https://lospec.com/palette-list/resurrect-64)
+and [Endesga 32](https://lospec.com/palette-list/endesga-32) are both
+directly adoptable starting points that already span earth/fire/water/gas
+families in one cohesive grade, rather than designing 7+ ad hoc palettes from
+scratch.
+
+**Grain and glow, cheaper than expected (Sandspiel, The Powder Toy):**
+Sandspiel's whole "looks good despite being simple" reputation traces to one
+trick — an 8-bit per-particle register reused as a brightness jitter, so
+same-material pixels get organic ±brightness variation for free. This
+engine already has almost exactly that slot (`Cell::shade`, currently only
+used to pick a fixed palette entry) — modulating brightness *from* shade
+rather than only indexing a palette with it is nearly free. The Powder Toy's
+actual renderer (`Renderer.cpp`, real shipped C++, not a talk) has three
+techniques worth stealing directly, all CPU-side, no shader: `PMODE_GLOW`
+(draw a hot/lit pixel at full intensity, add the same colour at reduced
+alpha to its near neighbours, decaying over ~5px — a hand-rolled tiny radial
+blur per glowing pixel, not a full-screen pass); `PROP_HOT_GLOW`
+(temperature-driven colour modulation — above a threshold, shift RGB by a
+function of temperature rather than a flat lookup, which this engine's
+existing per-cell temperature already has everything needed to drive); and
+its heat/pressure debug visualizations (dark-blue-to-pink gradient by
+temperature), directly reusable for the M13 field grid's own display.
+
+**Noita's actual technique is not a lighting engine.** Public sources (the
+GDC talk and the community wiki) don't document per-pixel dynamic lighting —
+"darkness" is a particle-based fog/visibility layer, holes of soft radial
+falloff punched into it by light sources, additively stacked. That's a
+second buffer and a short list of active light sources, not a shader —
+squarely in reach without M6's originally-assumed custom pipeline.
+
+**A concrete, cheap path to real light propagation, reusing work already
+done:** the M13 field grid already carries a `light` channel at 1/8
+resolution, currently only lit by debug tools. A flood-fill/BFS light
+propagation (seed emitters — fire, lava — at full intensity, propagate to
+neighbours subtracting falloff per step, attenuate crossing solid material)
+populates it cheaply at that coarse resolution (documented prior art:
+[0fps.net's voxel/flood-fill lighting writeup](https://0fps.net/2018/02/21/voxel-lighting/)).
+Upsample and multiply over the frame the way Noita's fog layer does, and the
+existing field grid is doing double duty it was already positioned for.
+
+**If a custom GPU pass is still wanted later (true bloom, not the CPU
+radial-glow approximation):** confirmed this is a first-class, documented
+extension point, not a hack — `Pixels::render_with` hands over the raw
+`wgpu::CommandEncoder` and render target, and the crate ships a working
+`custom-shader` example (texture, sampler, bind group, WGSL pipeline,
+chained into the same encoder as the default scale blit) that's a direct
+template for a bloom pass fed from a separate emissive texture. This is real
+work (~1 week estimate, mostly wgpu bind-group plumbing) and still needs the
+live visual judgment M6 was deferred for — it stays the GPU-pipeline tier of
+this milestone, not a blocker for the CPU-side tier below.
+
+### Execution plan
+
+Reframed into tiers by how much they need a human watching, cheapest and
+most self-verifiable first:
+
+1. **Palette overhaul + per-cell brightness jitter + temperature-driven
+   colour shift + ordered (Bayer) dithering to kill flat-colour banding.**
+   All CPU-side, all inside the existing `render.rs`/`material.rs` model, no
+   new systems. Verifiable the same way M7/M15 were — the in-app framebuffer
+   dump — since "does this look like it has grain/isn't flat" is a much
+   lower judgment bar than "is this bloom kernel tuned well."
+2. **Powder-Toy-style radial glow around hot/burning cells, and fake
+   ambient-occlusion darkening for granular piles** (darken a solid cell by
+   its local enclosed-neighbour fraction — cheap, no new data needed).
+   Still CPU-side; still self-verifiable by screenshot comparison.
+3. **Coarse light propagation on the M13 field grid's existing `light`
+   channel**, Noita-fog-layer style. Bigger than 1–2 but still no shader
+   pipeline required.
+4. **A real GPU bloom pass via `Pixels::render_with`**, and any further
+   custom lighting — this tier is what M6 actually is, stays deferred for
+   the same reason it always was (needs a human watching it render, not a
+   correctness question), and is the natural place any of tiers 1–3 that
+   turn out to want GPU acceleration would move to later.
+
+Tiers 1–2 are square with what's already been proven safe to do unattended
+this session (self-verifiable via screenshot, no live judgment call); 3 is a
+reasonable stretch; 4 stays with M6. See the progress log for how far this
+actually got.
+
+---
+
+## Scientific accuracy for plants and creatures (M16, M18)
+
+Added mid-session by explicit user request, applying to both halves of the
+"life" work in this plan: when M16 (plants) and M18 (creatures) are actually
+built, do real research and try to make the mechanisms as scientifically
+accurate as possible, not just visually/behaviourally plausible. The
+directive is recorded inline in each milestone's own section above (search
+"Scientific accuracy directive") so it stays attached to the specific claims
+it constrains rather than living only as a disconnected note here; this
+entry exists so it's also visible without reading the full milestone text.
+Research toward this is being gathered ahead of actually starting M16/M18 —
+see the progress log for status.
