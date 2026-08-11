@@ -1240,6 +1240,50 @@ updated at each milestone commit, not just when something is added.
   `reclaim_if_tree_is_fully_dead`. `TreeState` itself still never shrinks —
   tips/roots index into it by position, and the id-stability guarantee that
   buys is exactly why the full fix needs a free list, not attempted here.
+- **Issue #4** (field sleeping): **done.** `field::step` now skips its whole
+  five-pass solve once `world.active_chunk_count() == 0 &&
+  world.fields_settled()` — both conditions, not the field's own
+  convergence alone, which is what keeps "a shockwave can cross the whole
+  screen" safe without any separate per-tile occupancy tracking: any CA
+  write (including painting a new wall) always dirties its own chunk,
+  forcing at least one more full pass, and within that pass a cell that
+  just became blocked resets to ambient (every pass skips writing to a
+  blocked cell) while the pre-block value is still what `is_converged`
+  compares against — a jump it will not miss. `is_converged` compares each
+  channel of the just-solved state against its pre-step value against a
+  small per-channel epsilon; `add_pressure_impulse`/`add_heat`/`add_light`/
+  `add_heat_local` clear the settled flag directly, since those bypass the
+  CA grid entirely. Measured via a new permanent `examples/ascii.rs` scene:
+  an isolated pressure impulse's worst frame drops from ~2.1 ms while
+  actively propagating to ~0.01 ms once settled — roughly 200x, and the
+  actual acceptance criterion the issue asked for (a measured number, not
+  an assertion). The continuously-active stress scenes are unaffected
+  (~24.6 ms serial / ~7.8 ms parallel, matching pre-#4 numbers, since a
+  scene that never settles never triggers the skip). Independent review
+  requested given `field.rs`'s history of three prior boundary-condition
+  bugs.
+- **Issue #7 + determinism §8b** (scheduler): **done.** Replaced
+  `scheduler.rs`'s `HashMap<ChunkCoord, Vec<ActiveSite>>` — which drained
+  and re-tested *every* pending site against `due` every frame regardless
+  of how many were actually due, and whose randomized-per-process iteration
+  order was the engine's one documented non-determinism source — with a
+  `BinaryHeap<Reverse<ActiveSite>>`, a min-heap on `next_frame` with
+  `(x, y, kind)` as a fully deterministic tiebreak via a hand-written `Ord`
+  impl (not derived field-order, which would have compared `x` before
+  `next_frame`). `scheduler::step` now peeks the minimum and stops the
+  instant it finds a not-yet-due site — true O(due · log n), no
+  full-structure rebuild every frame — fixing the performance half and the
+  determinism half with the same change, as the issue itself predicted.
+  Confirmed nothing actually depended on the old chunk-keyed lookup before
+  removing it (grepped every use; only ever iterated the whole structure).
+- **Issue #11** (reserve a slice field on `ChunkCoord`): **done.** Added
+  `pub slice: u32` (see the worldgen redesign above for what it's for),
+  always `0`. Every `ChunkCoord` in the codebase is built through exactly
+  two constructors (`new`, `containing`), both in `chunk.rs` — updating
+  those two hardcoded the new field, so none of the ~26 actual call sites
+  elsewhere needed to change at all (the issue's own estimate of "42
+  places" was counting call sites on the assumption the constructor
+  signature itself would need to change, which it didn't).
 
 ---
 

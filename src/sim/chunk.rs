@@ -35,11 +35,27 @@ pub const MAX_REACH: i32 = 32;
 pub struct ChunkCoord {
     pub x: i32,
     pub y: i32,
+    /// Reserved for M10's worldgen redesign (`Reports/worldgen-design.md`
+    /// §0, issue #11): a generic slice identifier for which 2D vertical
+    /// slice through the 3D coarse worldgen layer this chunk belongs to.
+    /// Always `0` today — the play world is one slice, and every
+    /// `ChunkCoord` is built through `new`/`containing` below, both of
+    /// which hardcode it, so nothing outside this file needed to change to
+    /// add this field. Deliberately not named `z`: a straight slice wants
+    /// a z-coordinate, but a route following a drainage network (the
+    /// currently open, still-undecided option in the worldgen report)
+    /// wants a route id instead, and a bare `slice` covers either without
+    /// committing to which. Reserved now rather than later because
+    /// `ChunkCoord` is the `HashMap` key for both `World::chunks` and
+    /// `World::fields` and will reach the save format once M10 lands —
+    /// adding a field to an already-shipped save format is a migration and
+    /// a compatibility break; adding one now, always zero, costs nothing.
+    pub slice: u32,
 }
 
 impl ChunkCoord {
     pub fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
+        Self { x, y, slice: 0 }
     }
 
     /// The chunk containing a world position.
@@ -52,6 +68,7 @@ impl ChunkCoord {
         Self {
             x: x.div_euclid(CHUNK_SIZE),
             y: y.div_euclid(CHUNK_SIZE),
+            slice: 0,
         }
     }
 
@@ -277,6 +294,16 @@ fn seed_from_coord(coord: ChunkCoord) -> u64 {
 mod tests {
     use super::*;
     use crate::sim::material;
+
+    #[test]
+    fn slice_defaults_to_zero_through_every_constructor() {
+        // Issue #11: reserved for M10's worldgen redesign, always zero
+        // today. Both constructors are checked directly (not inferred from
+        // the containing/new equality test below, which would pass even if
+        // both happened to agree on some other stray value).
+        assert_eq!(ChunkCoord::new(3, -7).slice, 0);
+        assert_eq!(ChunkCoord::containing(200, -5).slice, 0);
+    }
 
     #[test]
     fn chunk_coords_floor_toward_negative_infinity() {
