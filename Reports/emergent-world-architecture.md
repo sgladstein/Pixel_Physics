@@ -1,0 +1,580 @@
+# Architecture direction: emergent world, thin agents
+
+**Audience:** the coding agent working on Pixel Physics.
+**Reviewed at:** `b2ebea8` ("M8: start rigid bodies with connected-component labeling only"), branch `master`.
+**Status:** direction agreed with the repo owner. This document is the decision plus the work it implies.
+
+**Settled with the owner — do not re-litigate:**
+
+- Moisture is a **field channel**, not a per-cell property (§4 fork is closed).
+- Tuning constants (`MAX_LIGHT`, `LIGHT_DECAY`, `shade_factor`'s divisor, diffusion rates) is **in scope** — tune, don't stop and ask.
+- If a new channel blows the frame budget, **tune first, revert second, flag either way.** Do not press on silently.
+- The puzzle-game target is **dropped**. Emergence needs no solvability guarantee.
+- The light field was never wired up — this is **unbuilt work, not a regression**. See §2.
+- **Determinism: same-build deterministic replay is now REQUIRED.** This reverses `PLAN.md`'s "Determinism: not required." Cross-platform determinism is *not* committed to, but the door is kept open. See §8.
+- Off-camera state **persists**; slow processes **do** run in unloaded chunks; time **can** be fast-forwarded. §8c explains why these force the determinism decision.
+- Deterministic worldgen from a *shared* seed is **not** adopted; reproducibility within one world's lifetime is. See §8h.
+
+**Companion documents:** `worldgen-design.md` (vertical structure, caves, persistence taxonomy, and the parameters-as-data gap — read it before touching `build_terrain` or M10) and `pixel-physics-issues.md` — ten performance/correctness issues from an earlier review, not yet filed or addressed. Item #4 in that file (field-grid sleeping) is a **hard prerequisite** for the work below and is re-explained in §9 here. Read both.
+
+---
+
+## 0. The vision, and the design philosophy that serves it
+
+The owner's goal, in their words: *a world that feels alive on its own with unplanned emergent behavior that I can explore and interact with. Plants growing, ants building nests. Complex behavior from simple rules.* Confirmed as **both** things moving around (creatures, weather, water) **and** the landscape changing over time (growth, decay, erosion, succession).
+
+Ants are one example among many. This section is the general philosophy; §7 covers stigmergy as one well-studied instance of it, not as the destination.
+
+### The primitive
+
+Nearly every "complex behavior from simple rules" system in the literature is the same four-step loop:
+
+> **deposit → diffuse → decay → follow**
+
+Something writes a scalar into space. The scalar spreads. The scalar fades. Something reads the gradient and acts, which writes more.
+
+That single loop, unchanged, is:
+
+| System | Deposit | Follow |
+|---|---|---|
+| Ant trails | pheromone | forage |
+| Physarum / mycelium | chemoattractant | grow tubes |
+| **Your auxin `channel`** | success reinforces | branch |
+| Erosion | water carves | water follows the channel |
+| Desire paths | trampling clears | walkers prefer bare ground |
+| Predator/prey | scent as decaying presence | hunt |
+| Root/fungal networks | nutrient translocation | extend |
+
+**The payoff is not any one of these. It's that all of them run the same code.** `plant.rs`'s auxin `channel` — reinforced on successful growth, decayed at dead ends — is already a stigmergic system operating inside a single organism. It was built without the word for it. That is evidence the primitive is the right one.
+
+### Why behavior count scales with loops, not systems
+
+Writing more systems adds behaviors linearly. Adding channels adds them combinatorially, because what produces unplanned behavior is **interaction between channels**. Four channels have six pairs; six have fifteen. Every pair that couples in *both* directions is a feedback loop, and every loop is a behavior nobody wrote.
+
+The engine currently has exactly one closed loop: fire → heat → ignition → more fire. That is why fire already feels alive and produces things that weren't planned.
+
+Everything else is one-directional. Plants *read* light; nothing writes it (§2). Roots *read* water; nothing depletes it (§4). Creatures *read* temperature; only fire writes it.
+
+**So the generative move is not "add more systems." It is: close loops.** A channel with a reader and no writer is dead (§2). A channel with a writer and no reader is waste. A channel where the readers also write is where behavior comes from.
+
+### Three generators worth building toward
+
+Named here because they are general, cheap, and none is creature-specific.
+
+**1. Lateral inhibition — local activation, long-range suppression.** The reaction-diffusion primitive, and the most productive single idea in pattern formation: two channels with different diffusion rates and opposite signs spontaneously produce spots, stripes, and spirals from a uniform start.
+
+This engine is nearly there already. A plant shades its immediate neighbourhood (local facilitation — moisture retained) and depletes water over a wider radius (long-range inhibition). That is the actual mechanism behind *tiger bush*, the banded vegetation of semi-arid landscapes. **Spontaneous spatial organisation of vegetation, with zero agent code, from two channels already scheduled** (§2 light, §4 moisture). Requires only that plants *write* to both, not just read.
+
+**2. Excitable media — quiescent → excited → refractory → quiescent.** Fire is already this: unburnt → burning → ash. The loop is open at the last step, because ash never recovers. Close it and fire stops being a wave that runs once and becomes a *regime*: patchy mosaics, natural firebreaks, recurring burns at intervals nobody sets.
+
+**3. Cycles — the big one.** See below.
+
+### The world currently runs down
+
+Every process in the engine is monotonic. Sand falls and settles. Wood burns to ash and ash is terminal (`ash.ron` has no transformation out of it; `corpse.ron` burns to ash and stops there). Trees exhaust their attractors and stop. Nothing returns.
+
+Left alone, the world reaches a terminal state and sits in it. That is exactly what "a settled world reports 0 awake chunks" describes — simultaneously a performance win and a description of a dead world.
+
+**A world that feels alive is one where matter cycles rather than runs out.**
+
+- plant grows → dies → decays → nutrient in soil → plant grows
+- water evaporates → diffuses → condenses → rains → flows → evaporates
+
+These give succession, seasonal rhythm, and forests that regrow rather than merely burn. They are also the direct answer to the "landscape changing over time" half of the goal, which no current system addresses at all.
+
+**The first loop is one material away.** If ash decays slowly into soil, and soil supports growth, M16's own verify criterion ("a forest burns and regrows") completes itself — and you get succession for free, where a burned patch regrows *differently* from what was there.
+
+### The cheapest global generator: a day/night cycle
+
+One oscillator writing the light field. It drives every existing system at once: plants grow in rhythm, moss responds to changing shade, temperature swings, moisture evaporates by day and condenses by night, creatures become diurnal or nocturnal **for free** because they already read temperature and light.
+
+One writer, touching everything. Nothing about it is creature-specific, and it is probably the highest ratio of aliveness to effort available in this document. It also naturally subsumes the §2 sky writer — build the sky, then make it oscillate.
+
+### How this maps to the work below
+
+| Work | What it generates |
+|---|---|
+| Field sleeping (§9) | The budget. Channels cost O(world); how many you can afford sets how emergent the world can be. |
+| Light writer + sky (§2) | Closes the first open loop. Foundation for day/night. |
+| Bilinear sampling (§6) | Gradient-following is *the* read primitive for every system in the table above. |
+| Moisture channel (§4) | Second channel; with light, enables lateral inhibition and tiger-bush patterning. |
+| Plants write, not just read (§5) | Turns two one-directional channels into loops. |
+| Decay cycle (ash → soil) | First closed matter cycle. Succession, regrowth, non-terminal world. |
+| Day/night oscillator | Global rhythm across every system at once. |
+| Reseeding (§5e) | Populations, which every collective behaviour requires. |
+
+**Read §7 before designing anything creature-related** — it contains a hard resolution constraint that affects the field grid's design, and it is better known now than discovered later.
+
+---
+
+## 1. The decision
+
+**The world is emergent. Agents on top may be as deep as you like. Agents interact with each other only through the world, never directly.**
+
+Two places state can live:
+
+- **In the world** — cells and field channels. Organisms are thin readers/writers of shared state. Cost is O(world), roughly independent of population: once a channel exists, the ten-thousandth organism reading it is free. Floor is high (each channel is a whole-world pass), ceiling is high.
+- **In the organism** — `TreeState`, `CreatureState`. The world is queried, not shared. Cost is O(population × complexity). Floor is near zero, scales with N.
+
+The target population — a reseeding forest, a worm ecology with Wa-Tor dynamics (`research/m18-creature-biology.md` §4) — is hundreds to thousands of simultaneous agents. That is the regime where thin-organism/rich-world wins outright.
+
+**The asymmetry that decides it.** Rich world → you can thicken any organism later, and nothing built gets thrown away. Thick organisms → the channels tend never to get built, because each organism has already solved its own version privately and there is never a forcing reason. Deep simulation is a local optimum that is hard to climb out of.
+
+This is already happening in the codebase — see §3. `is_damp`, `strongest_water_pull`, and the worm's neighbour temperature scan are three private answers to "sense the environment." None is wrong locally. Collectively they are how the emergent path closes off, one reasonable local decision at a time.
+
+### The operational rule
+
+> If two systems need to interact, they do it by reading and writing a shared channel, not by calling each other.
+
+Apply this at review time. The worm eating powder already passes — material is the shared currency and the worm just writes cells. A future predator should find prey by following a scent channel, not by iterating a creature list: same behaviour, and the field version also produces trails, lets fire disrupt hunting, and lets a second predator species use it with no new code.
+
+### What already votes for this
+
+Materials-as-data (M1, never reversed). Determinism-not-required. The `CellSurface` trait — one rule implementation, not per-driver variants. And the best thing in M18: `worm.ron` gets fire, death, and a corpse from thermal numbers in a data file with **zero creature-specific fire code**. Nobody wrote "worms can burn." That is the whole thesis in one material definition.
+
+### What votes against, and arrived without a decision
+
+`TreeState` and `CreatureState` — two never-shrinking side arenas, both indexed out of `Cell::aux`. That is the deep-sim pattern arriving by default rather than by argument. See `pixel-physics-issues.md` #8.
+
+### Costs, accepted with open eyes
+
+Emergent systems are worse to debug — the cause of odd behaviour could be any channel, the scheduler interval, or a `.ron` number, and you cannot step through it. This has already happened twice: the moss growable-neighbour bug was found by *the ascii scene looking wrong*, and the tree-branching bug needed a test that asked "did branching ever happen at all." Budget for that. Keep `examples/ascii.rs` scenes as first-class verification, not an afterthought.
+
+Emergent systems also give no guarantees, which matters if the puzzle-game target in `PLAN.md` is ever pursued. The first shippable milestone is the sandbox toy, where unpredictability is the product. Revisit if that changes.
+
+---
+
+## 2. Priority 1 — the light field has no writer
+
+**This is the highest-value item in this document. Do it first.**
+
+### The finding
+
+`FieldCell.light` is read in three places, all in `plant.rs`:
+
+| Line | Consumer |
+|---|---|
+| `plant.rs:127` | `shade_factor` — moss poikilohydry |
+| `plant.rs:362` | tree tip: `light_here` |
+| `plant.rs:363` | tree tip: `light_above` |
+
+It is written in exactly one place: `World::add_light` (`world.rs:186`), whose own doc calls it "a synthetic source for testing the diffusion/decay approximation before anything in the world emits light on its own (M14's fire will be the first real emitter)." **M14 shipped `add_heat` and not `add_light`.** The only caller of `add_light` in the entire tree is one test at `field.rs:775`.
+
+So in normal play `light` is `0.0` everywhere, and:
+
+- `shade_factor` computes `(1.0 - (0.0/2.0).clamp(0.0,1.0)).max(0.1)` = **exactly 1.0, always**. Moss's shade modulation — the mechanism grounded in real poikilohydric ecology, with citations in `research/m16-plant-biology.md` — multiplies by a constant.
+- The tree's phototropic lean tests `light_above > light_here`, i.e. `0.0 > 0.0`, always false. `photo` is always `(0.0, 0.0)`.
+
+Both mechanisms are correctly implemented, well-researched, and **inert**.
+
+**Framing matters here: this is unbuilt work, not a regression.** The emitter was always planned for later and simply hasn't been written. Nothing broke. But the *shape* is worth naming, because it will recur: the consumers were built first, tested against a synthetically-seeded field, and shipped looking complete. Nothing in the codebase distinguishes "this mechanism works" from "this mechanism is waiting on a writer that doesn't exist." That's the failure mode §9's second review question exists to catch.
+
+This is the cleanest possible illustration of the thesis: depth without emergence is invisible. A channel with no writer is a dead channel, and every consumer of it is dead code that looks alive.
+
+### The fix, in two parts
+
+**2a. Fire emits light.** `fire::tick_burn` already calls `surface.add_heat(x, y, 1, 2.0)` at `fire.rs:255`. Add the matching light emission next to it, scaled by the material's `burn_temperature` (already extracted at `fire.rs:238` as `burn_temp`). Note the comment already at that call site: the heat rate is "a rough first cut, not tuned against anything yet; there is no test pinning it down, so revisit freely." Same latitude applies to light.
+
+Requires `add_light` to be reachable from `CellSurface` the way `add_heat` is — currently only `add_heat` is on the trait (`surface.rs`). Either add `add_light`, or generalise to one `add_field(channel, ...)`. Prefer generalising if the moisture work in §4 is going ahead, since that will want the same seam.
+
+**2b. There is no sky.** This is the bigger gap. Nothing provides ambient downward illumination, so there is no shade anywhere, so nothing occludes anything.
+
+`rebuild_blocked` already blocks field cells on `Solid | Plant` (`field.rs:379-390`). The occlusion machinery exists and has nothing to occlude. Add a top-of-world light source — seed the topmost field row each step, let the existing `step_diffusion` (`LIGHT_DIFFUSION_RATE`, `LIGHT_DECAY`) propagate it downward, and walls and canopy cast real shadows for free.
+
+**This retires a documented simplification.** `plant.rs`'s module doc lists "canopy light competition is a direct light-field read rather than Palubicki et al.'s full shadow-voxel propagation — branches don't yet cast their own shadows into the field" as deliberately simplified. Once `Plant` blocks light and a sky exists, branches *do* cast shadows into the field. It was never a simplification that needed un-simplifying; it was one writer away.
+
+### Emergent loops this closes
+
+Neither of these needs to be written. Both fall out:
+
+- fire → light → moss growth suppressed near flame; tree tips lean toward a burning gap
+- canopy → shadow → moss thrives beneath it; a lower branch is suppressed by an upper one
+
+### Verification
+
+Add an ascii scene: a wall with a lit region and a shaded region, moss seeded in both. The shaded side should grow visibly faster. This is the scene that would have caught the dead channel originally.
+
+**Watch for:** with a sky writer, `MAX_LIGHT` (4.0) and `LIGHT_DECAY` (0.85) were tuned against a synthetic point source and may need retuning. `shade_factor`'s `/ 2.0` divisor is calibrated against nothing real yet — expect to tune it once light has actual dynamic range.
+
+---
+
+## 3. Priority 2 — hand-rolled sensing that should be field reads
+
+Three private implementations of "sense the environment," all scanning the cell grid directly:
+
+| Location | Cost per call | What it actually asks |
+|---|---|---|
+| `plant.rs:111` `is_damp` | 81 × `World::get` at r=4 | moisture here |
+| `plant.rs:561` `strongest_water_pull` | 80 × `World::get` at r=4 | moisture gradient |
+| `creature.rs` worm `min_by` | 4 × `field_at` | temperature gradient |
+
+### The first two are a moisture channel written by hand
+
+Both only detect `MaterialKind::Liquid` cells. Consequences:
+
+- Damp sand adjacent to water reads as **bone dry**. There is no such thing as damp anything — a cell is either liquid or not.
+- A root cannot sense water one cell past `ROOT_SENSE_RADIUS` (4) no matter how much is there. Range is a hard scan cap, not a falloff.
+- Cost is O(r²) per organism per tick, paid privately. A root tick spends ~160 `World::get` calls on sensing alone (`strongest_water_pull` at `plant.rs:461`, plus `is_damp` at `plant.rs:546` for lateral priming).
+
+A diffusing moisture channel gives a smooth gradient at unlimited range, at O(world) once rather than O(r²) per organism, and deletes both functions.
+
+### The third is the thermotaxis bug — see §6
+
+`worm_tick`'s `min_by` over four neighbours' temperature is the same root cause as the other two: point sampling where a gradient is wanted. It has been promoted to its own section (§6) because it is a structural flaw affecting every future gradient-follower, not a one-off bug.
+
+---
+
+## 4. Priority 3 — the moisture channel
+
+Four waiting consumers:
+
+1. **Roots** — hydrotropism (`strongest_water_pull`), replaced by a gradient read
+2. **Moss** — poikilohydry (`is_damp`), replaced by a scalar read
+3. **Worm burrowing** — `research/m18-creature-biology.md` §1 explicitly says substrate resistance is moisture-modulated; `move_cost` currently uses density alone
+4. **Fire** — wet material should resist ignition; nothing implements this today
+
+Plus the emergent behaviour that is the actual reason to do it: **a root drinking should lower the moisture channel locally**, so a neighbouring tree's roots steer elsewhere. That is resource competition through the world, with no code that knows about competition. Currently each root reads the raw cell grid and nothing it does is visible to any other organism.
+
+### Settled: field channel
+
+Decided with the owner. Moisture is a **field channel**, not a per-cell `Cell` property.
+
+Rationale: it diffuses for free on the existing `step_diffusion` machinery, and the thing organisms actually navigate by is the *gradient*, which is a field-scale property. The rejected alternative — per-cell moisture — would be precise enough to render (wet sand darker) but costs 2 bytes on an 8-byte `Cell` guarded by the `cell_is_eight_bytes` test, collides with an `aux` slot already carrying four meanings, and needs its own CA-grid diffusion pass.
+
+If visibly-wet sand is wanted later, that is a **separate** per-cell concern and can be added independently without disturbing this channel.
+
+### Implementation notes
+
+`FieldCell` is a plain struct of `f32`s (`pressure`, `vx`, `vy`, `temperature`, `light`) — adding `moisture` is mechanical. `step_diffusion` already handles temperature and light with per-channel rates and is wall-aware; moisture follows the same shape. Sources: `Liquid` cells push moisture into the field (mirroring how burning cells push heat via `add_heat`), with decay/evaporation modulated by temperature if you want the extra loop.
+
+---
+
+## 5. Remaining violations, lower priority
+
+### 5a. Attractors are a private point cloud
+
+`TreeState.attractors` (`plant.rs:261`) is 50 scattered points, consumed by `retain(|a| dist(new_pos, a) > KILL_DISTANCE)`. Tips of the *same* tree compete for them; two adjacent trees hold **separate lists** and do not compete at all.
+
+Real canopy competition is competition for light, and light is a field. Once §2 lands, attractors could be replaced by "grow toward the light gradient," and inter-tree competition becomes automatic — one tree shading another suppresses it, with no code.
+
+This is a significant rewrite of `tree_tip_tick` and space colonization is a well-cited algorithm currently working as intended. **Not urgent.** But worth knowing that the light field makes it possible, and worth not building anything new on top of the private-attractor pattern.
+
+### 5b. Structural integrity ignores `Plant`
+
+`structural::tick` returns early unless `kind == MaterialKind::Solid` (`structural.rs:66`), so wood carries no load path. Cut a trunk and the canopy hangs in the air.
+
+M17 built exactly the mechanism a falling tree needs and scoped it to one material kind. This is the mechanic that makes a forest feel physical rather than painted.
+
+**Blocker:** `Cell::aux` for a `Plant` currently stores growth stage; anchor distance would collide. See `cell.rs`'s `aux` doc for the documented priority order. Resolve that before attempting.
+
+### 5c. Structural failure has no field footprint
+
+`break_free` (`structural.rs:142`) swaps the cell and returns. A collapsing structure writes nothing to pressure — no dust, no shock, no wind. `explosion::trigger` does this properly (impulse + heat spike + debris). Collapse is the same class of event and is currently silent, so nothing downstream can react to it.
+
+One `add_pressure_impulse` call in `break_free` gets air displacement, and — once §2 is done — a visible dust/light interaction for free.
+
+### 5d. Plants ignore the velocity field entirely
+
+There is a vector field that explosions write into, and vegetation that does not know it exists. Wind bending grass and canopy is large visual payoff for one field read, and it makes the field's existence legible to a player, which it currently is not.
+
+### 5e. Nothing reseeds
+
+M16's own verify criterion is "a forest burns and regrows" and only the burns half exists. Reproduction is also the gate on population dynamics — the Wa-Tor predator/prey work in the research (§4) is unreachable until organisms can multiply.
+
+
+### 5f. The matter graph is a DAG — nothing returns
+
+`ash.ron` has no transformation out of it. `corpse.ron` burns to ash and stops. Wood → ash → nothing. Every material path terminates, so the world is strictly running down (see §0, "The world currently runs down").
+
+**Add a decay path: ash → soil, slowly, ideally moisture-gated.** Then soil supports growth, and the loop closes: plant → burn/die → ash → soil → plant. This single addition gives:
+
+- M16's own verify criterion ("a forest burns and regrows"), whose regrow half currently does not exist
+- Succession — a burned patch regrows differently from what was there
+- Fire as a *regime* rather than a one-shot wave (§0, excitable media)
+
+Cheap: one material, one slow transformation, gated on a channel already being built. Depends on §5e (reseeding) to complete the biological half.
+
+### 5g. Plants read channels but never write them
+
+Moss reads light. Tree tips read light. Roots read water. **None of them writes anything back.** This is why there is no competition between organisms except through the private attractor list (§5a), and why the lateral-inhibition patterning described in §0 cannot happen.
+
+Two writes make it possible:
+
+- **A plant occludes light** — already free once §2 lands, since `rebuild_blocked` blocks on `Solid | Plant` (`field.rs:379-390`). The occlusion machinery exists and currently has nothing to occlude.
+- **A root depletes moisture locally** — one subtraction where `ROOT_WATER_ENERGY` is currently granted.
+
+Together these are local facilitation plus long-range inhibition, which is the tiger-bush mechanism. Two one-line writes turn two read-only channels into loops.
+
+### 5h. No global rhythm
+
+Nothing in the world oscillates. A day/night cycle writing the light field is one oscillator that drives plant growth, moss shade response, temperature swing, evaporation, and creature activity simultaneously — because every one of those already reads light or temperature.
+
+Build after §2's sky writer; it is the same writer with a time-varying amplitude.
+
+---
+
+## 6. The resolution problem — elevate this, it is a design flaw
+
+Promoted from a bug note to its own section at the owner's request, because it is not one bug. It is a structural mismatch that will recur for **every** gradient-following behaviour added from here on, and ants make it acute.
+
+### The mismatch
+
+The field grid resolves at `FIELD_SCALE = 8` world cells (`field.rs:47`). Organisms are one cell. `World::field_at` (`world.rs:156`) is block-nearest, so **any two positions within the same 8×8 block return byte-identical field values.**
+
+Every gradient-follower therefore reads a flat surface almost everywhere:
+
+- The worm's four neighbours at ±1 land in the same field cell ~7 times in 8. All four temperatures identical → `min_by` returns the first → the worm always flees left.
+- A tree tip comparing `light_here` against `light_above` at −4 (`plant.rs:362-363`) is inside one field cell. Once light has a writer, this comparison is still frequently degenerate.
+- Any future ant reading a pheromone gradient at ±1 gets nothing at all.
+
+The gradient only appears when an organism happens to straddle a boundary — 1 cell in 8, in one axis.
+
+### Two fixes, both needed
+
+**6a. Bilinear sampling — do this now.** `sample_bilinear` already exists (`field.rs:278`) and is private, used only by advection; its doc records a subtle weight bug already fixed there. Expose a public bilinear sampler alongside `field_at`, and route all gradient reads through it. Bilinear interpolation gives a smooth, well-defined value at *every* world cell, so a ±1 difference is real even inside a single field cell.
+
+This alone fixes the worm and the tree tip, and is the general answer for taxis.
+
+**6b. Per-channel resolution — decide before ants.** Bilinear interpolation smooths a coarse field; it does not add information. An ant trail is roughly one cell wide. At `FIELD_SCALE = 8`, a trail is a smear across a block, and two trails 4 cells apart are indistinguishable. Interpolating a smear yields a smooth smear.
+
+**Pressure and temperature genuinely want to be coarse** — they are bulk properties, and the coarseness is a performance feature. **Pheromone genuinely wants to be fine**, possibly `FIELD_SCALE = 1`. Moisture is somewhere in between and is fine at 8 for now.
+
+`FieldTile` currently hardcodes one resolution for all channels (`cells: Box<[FieldCell]>` at `FIELD_TILE_AREA`, `field.rs:172`). Splitting resolution per channel is a real change to that struct and to every pass in `field.rs`.
+
+**Do not build it yet.** But do not add pheromone to `FieldCell` on the assumption that 8 will do, either — that is the decision that would be expensive to undo. When pheromone becomes real, revisit this first.
+
+---
+
+## 7. Stigmergy — one worked instance of the §0 primitive
+
+Not scheduled work. Stigmergy is the deposit→diffuse→decay→follow loop from §0 as biology studied it for sixty years, and it is included here because it is the instance with the most tuned parameters written down. **It is not the destination.** The same loop drives Physarum, mycelium, erosion, desire paths, scent-based predation, and `plant.rs`'s existing auxin `channel`. Anything built here should be built as the general primitive with ants as one caller.
+
+Full research pass with citations and concrete parameter values: `stigmergy-research.md`.
+
+### The mechanism
+
+Stigmergic construction, in three rules, is the entire ant colony:
+
+1. **Deposit.** An ant carrying material drops it and leaves pheromone.
+2. **Diffuse and evaporate.** The channel spreads and decays.
+3. **Follow.** An ant biases its movement up the pheromone gradient, with noise.
+
+Trail formation, shortest-path selection, and nest structure all fall out. None of them is written.
+
+### Evaporation is the load-bearing parameter
+
+The one thing most likely to be got wrong. **Evaporation is not cleanup — it is the algorithm.** A shorter path is traversed more often per unit time, so it is reinforced faster than it evaporates, while a longer path decays. Without evaporation every path persists, the gradient saturates, and ants follow the *first* path found forever rather than the best one.
+
+`LIGHT_DECAY` (0.85) already provides the machinery. The value will need to be different, and it will need tuning against observed behaviour rather than derived — expect this to be the parameter you spend the most time on.
+
+### Multiple channels
+
+Real colonies use several distinct pheromones (trail, alarm, brood, nest-site). Each is a separate channel, which multiplies the O(world) cost in §9. This is the strongest argument that field sleeping is not optional.
+
+### What this means for creature code written now
+
+Anything creature-related built before pheromone exists should assume:
+
+- Movement is **gradient-following with noise**, not pathfinding or target selection. The worm's `min_by` over four neighbours is already the right shape — it just needs a real gradient (§6a) under it.
+- Creatures do not query other creatures. Not now, not later. A predator finds prey through a scent channel.
+- "Carrying" state (an ant holding a grain) belongs in `CreatureState`; *where to put it* is read from the world.
+
+**Sources already in the repo:** `research/m18-creature-biology.md` §4 (Wa-Tor) and §5 (Physarum, Braitenberg) are directly relevant. Stigmergy itself is not yet covered there — a research pass on Grassé, Deneubourg's ant-trail models, and the Ant Colony Optimization literature would be worth doing before implementation, in the same style as the existing research files.
+
+---
+
+## 8. Determinism — decision, audit, and what it enables
+
+**Decided with the owner. This reverses a locked decision in `PLAN.md` ("Determinism: not required"), and the reversal is cheap because the freedom was never actually spent.**
+
+### The decision
+
+Commit to **same-build deterministic replay**: on one machine, with one binary, a given seed plus a given input log reproduces the run exactly.
+
+Explicitly **not** committed to: cross-platform bit-identical determinism (x86 vs ARM, different compiler versions, FMA contraction). That door is kept open cheaply (§8d) but not walked through.
+
+### 8a. The audit — the engine is already ~90% deterministic
+
+This is the surprising part. Almost nothing that looks like it should break reproducibility does:
+
+| Component | Status | Why |
+|---|---|---|
+| `rng.rs` | Deterministic | Fixed default seed (`Rng::default`); `Chunk` seeds from its own coordinate (`chunk.rs:193`) |
+| `chunks_to_sweep()` | Deterministic | Explicitly sorted (`world.rs`) |
+| `parallel::run_pass` | Deterministic | `into_par_iter().map().collect()` into a `Vec` preserves input order, so replay order is fixed **regardless of thread count** |
+| `field::step` | Deterministic *outcome* | Coord order is unsorted `HashMap` iteration, but the solve is **Jacobi** — every tile reads `old`, writes `next`, independently. Order cannot affect the result. |
+
+Note the second and fourth rows. The Jacobi choice was made for parallelizability and bought order-independence too. The per-chunk RNG was justified in the README as "determinism was never required, so splitting the stream costs nothing" — that reasoning is backwards: a *shared* mutable RNG across rayon workers would have been genuinely non-deterministic, since draw order would depend on thread scheduling. Per-chunk, seeded from coordinate, is scheduling-independent. **The decision made because determinism didn't matter is the one that preserved it.**
+
+### 8b. The one real violation
+
+`scheduler::step` (`scheduler.rs:88`) drains a `HashMap<ChunkCoord, Vec<ActiveSite>>`. Rust's default hasher is randomly seeded **per process**, so iteration order varies between runs — and order matters here, because `plant::tick`/`structural::tick`/`creature::tick` mutate the world and later sites read it. Two moss tips competing for the same empty cell resolve differently depending on which is visited first. Structural cascades have the same exposure.
+
+**This is the only genuine non-determinism source in the engine, and it is the system every piece of emergent biology runs through.**
+
+**Fix:** the same edit `pixel-physics-issues.md` #7 already wants for performance — replace the drain-and-rebuild with a `BinaryHeap` keyed on `next_frame`, with a deterministic tiebreak (chunk coord, then insertion index) so equal-`next_frame` sites have a defined order. One change satisfies both requirements.
+
+### 8c. What determinism buys — the catch-up argument
+
+This is the load-bearing reason, stronger than debugging.
+
+The owner has confirmed: **off-camera state persists**, and **slow processes should run in unloaded chunks**. To have things happen off-camera without paying to simulate them continuously, you must be able to compute *what would have happened* on demand — advance a chunk by 400,000 frames the instant it reloads.
+
+**Catch-up is only sound if the outcome is a pure function of (state at unload, elapsed time, seed).** Without determinism there is no shortcut: you either simulate the whole world continuously, or you accept that the world only lives where the camera is.
+
+This also makes the tiered time model work. Slow processes (soil, succession, erosion) tick rarely and catch up cheaply. Fast processes (sand settling) can't be caught up meaningfully and shouldn't run off-camera at all — settle them on load. Determinism is what lets you draw that line *and verify* the fast-forwarded result matches the real-time one.
+
+Secondary benefits:
+
+- **Emergent outcomes become testable.** Current tests all ask "did the mechanism fire," never "did the pattern form." A seeded run asserting the same trail/pile/patch is the only way to regression-test emergence (§9).
+- **"It ossified after an hour" becomes investigable** rather than anecdotal.
+- **Multiplayer stays reachable** — see 8e.
+
+### 8d. Keeping the cross-platform door open — two cheap moves
+
+Most cross-platform work (fixed-point or soft-float, pinned transcendentals, disabled FMA contraction) is genuinely deferrable and would cost real performance now for a property nothing needs yet. Two things are cheap now and expensive later:
+
+**1. Isolate the float math behind a thin internal module.** Cross-platform later means finding and replacing every call site. Routing them through one module now — even as `#[inline] pub fn sqrt(x: f32) -> f32 { x.sqrt() }` — makes the later swap one file instead of an archaeology exercise. Current inventory in `src/sim/`:
+
+| Call | Sites | Risk |
+|---|---|---|
+| `sqrt` | `explosion.rs` ×4, `plant.rs` ×2, `particle.rs` ×1 | Low — IEEE-754 requires correct rounding |
+| `round` | `plant.rs` ×2, `fire.rs` ×3, `particle.rs` ×2, `explosion.rs` ×1 | Low |
+| **`sin_cos`** | `plant.rs`'s `rotate()` | **High — libm differs across platforms** |
+| **`tan` / `to_radians`** | `material.rs:349` (roll-reach from friction angle) | **High, but see below** |
+
+The two transcendentals are the real traps; `sin` is where cross-platform determinism usually dies first.
+
+**`material.rs:349` is the easy one and worth noting**: `tan` is evaluated *once per material at load time* to derive `roll_reach_base`, not per cell. It could be precomputed, table-driven, or pinned without any hot-path cost at all.
+
+**2. Never let raw `f32` bits into the save format.** This one is forced by the persistence decision. If chunk/field state serializes raw floats and the numeric representation later changes, every existing save breaks. A version tag plus a numeric-representation field costs one byte now.
+
+### 8e. Multiplayer — determinism is the enabler, not the obstacle
+
+Counterintuitive but important. For most games multiplayer means server-authoritative state streaming and determinism is irrelevant. **For a pixel physics engine that is backwards**, because the state is enormous: a 2048² world is 32 MB at 8 bytes per cell, and in a saturated falling-sand scene a large fraction changes every frame. Streaming state deltas is not viable bandwidth.
+
+Streaming *inputs* — brush strokes, key presses — is a few bytes per frame regardless of how much material is moving. **Lockstep is the architecture that fits this engine, and lockstep requires determinism.**
+
+Same-build determinism covers "everyone downloaded the same binary." It does not cover Windows playing with an M-series Mac; that needs 8d's harder tier. Given multiplayer is a maybe rather than a commitment, take the free tier and keep the hard one reachable.
+
+### 8f. The one cost that could actually bite: `rapier2d` and M8
+
+`PLAN.md`'s M8 rigid-body pipeline ends at a `rapier2d` collider. **Physics engines are among the hardest things to make deterministic** — they accumulate float error across solver iterations, and internal ordering often depends on broadphase structures with unspecified iteration order. Rapier has determinism support, but as an opt-in feature with caveats, not a guarantee.
+
+So committing to determinism means either verifying rapier meets the bar before M8 depends on it, or accepting rigid bodies as a **non-deterministic island** in an otherwise deterministic sim (excluded from replay guarantees, and therefore from catch-up).
+
+The second is survivable. But it should be decided deliberately, not discovered when M8 lands. `rigid.rs` currently stops at connected-component labeling and pulls in no physics dependency, so nothing is committed yet — **flag this as an open question against M8 rather than an assumption.**
+
+### 8g. The costs, stated plainly
+
+- **A permanent discipline tax.** No `HashMap` iteration in any order-dependent path, ever. This joins the invariant list — cheap to hold, expensive to retrofit, and easy to violate accidentally because the failure is silent and intermittent.
+- **A constraint on future parallelism.** Parallelizing the field solve (currently single-threaded, flagged as next if the budget tightens) must preserve reduction order. Rules out some SIMD and rayon `reduce` patterns where float non-associativity bites.
+- **Nothing in `sim/` may read wall-clock time or thread ID.** Currently true; must stay true.
+- **Worldgen reproducibility is scoped deliberately** — see 8h.
+
+### 8h. Worldgen: reproducible within a world, not across versions
+
+Deterministic worldgen from a *shared* seed (swap seeds with a friend, get the same world) was considered and **explicitly not adopted**. The owner does not want it, and the disadvantages are real:
+
+- It constrains worldgen to a pure local function `f(seed, coord)`, which is why so much procedural terrain reads as *noisy* rather than *shaped* — rivers that don't reach the sea, no global history.
+- It creates a compatibility surface: once a seed means a specific world, every worldgen change invalidates every existing seed. During active development that is constant breakage.
+- It is worth less than it sounds for a world **designed to accumulate history**. The world is `worldgen(seed) + everything since`; two players with the same seed diverge immediately and permanently.
+
+**What to preserve instead, narrowly:** worldgen should be reproducible *within a single world's lifetime* — same seed, same coord, same base terrain — so that regeneration-on-reload stays available as an option for static-derivable channels (light exposure, base moisture), leaving only accumulated state (pheromone, built structures, soil from decay) to persist. That is a hybrid: pure function underneath, persisted diff on top. It is also how most real streaming worlds work.
+
+**No promise is made that a seed means the same thing across versions.**
+
+---
+
+## 9. The constraint that binds all of this
+
+**Field channels cost O(world) unconditionally, whether or not anything is happening.**
+
+`field::step` (`field.rs:335`) collects every resident chunk, allocates a fresh `HashMap<ChunkCoord, FieldTile>` sized to all of them, and runs five whole-world passes with no check on whether anything changed. `README.md` claims "a quiet field costs almost nothing since nothing in it is changing." That is not what the code does.
+
+Current worst frame is ~11.5 ms against a 16.6 ms budget at 60 Hz.
+
+**Therefore: field sleeping determines how many biological channels are affordable, which determines how emergent the engine can be.** Without it, roughly one more channel fits. With it, plausibly four or five, because the quiet majority of the world stops paying.
+
+This is `pixel-physics-issues.md` #4. It is not cleanup — it is the enabling work for everything in this document. Two related items in that file reduce the constant factor of each pass and should be done alongside: #5 (`rebuild_blocked` does ~164k hashed `World::get` calls per frame) and #6 (seven un-hoisted loop-invariant `next.get(&coord)` lookups).
+
+**Sequencing recommendation:** §2 (light writer) is small and can go first regardless — it adds no new pass, only writes to an existing channel. Anything that adds a **new** channel (§4 moisture) should wait until field sleeping lands, or measure carefully and be prepared to revert.
+
+---
+
+## 10. Verification protocol
+
+Formalising what has been happening informally. Both real bugs found in M16 were caught by **an ascii scene looking wrong**, not by an assertion — the moss growable-neighbour dead-end, and the tree that grew but never branched. That is the actual verification loop for emergent behaviour, and it should be treated as first-class rather than incidental.
+
+### The rule
+
+> For any change to a channel, a growth rule, or a creature behaviour: **write the scene first**, then add the weakest assertion that would fail if the mechanism were deleted entirely.
+
+Scenes judge *quality* — does this look alive, does the trail form, does the pile slump right. Assertions catch *total failure* — did it do anything at all. Neither substitutes for the other, and the assertion is cheap once the scene exists.
+
+### Why the second half matters
+
+Delete `shade_factor` from `plant.rs` today and **no test fails.** That is exactly how the dead light field (§2) survived: the consumers had tests, the tests seeded the field synthetically, and nothing asked whether the mechanism mattered in a real world.
+
+The assertion does not need to be sophisticated. For the light work in §2, "moss on the shaded side grew more cells than moss on the lit side" is enough, and would have caught the dead channel on day one.
+
+### Practical shape
+
+`examples/ascii.rs` already has the harness: `scene(title, w, h, frames, setup)` and `scene_with(..., step_fn, ...)` at `examples/ascii.rs:256`. It prints awake chunks, unsupported cells, and worst-frame timing per scene. Scenes are permanent — M16 added two that are still there.
+
+Suggested pattern per change:
+
+1. Add a scene that would visibly demonstrate the mechanism working.
+2. Run it. Look at it. This is the step that finds real bugs.
+3. Add a coarse assertion in the relevant module's test block — a count comparison, a "did this ever happen" flag, a settled-vs-still-changing check.
+4. Both stay in the repo permanently.
+
+Scenes are also the **performance** measurement (`worst frame` per scene), so anything touching the field or the sweep gets its budget check from the same run. Run with nothing else compiling — concurrent cargo processes skew the figure badly.
+
+---
+
+## 11. Suggested order
+
+1. **Field sleeping** + `rebuild_blocked` fix + hoisting (`pixel-physics-issues.md` #4, #5, #6). Enabling work; buys the budget for every channel that follows. Nothing else on this list is safe to do at scale without it.
+   **Fold in the scheduler rewrite (#7) here** — the `BinaryHeap` change is simultaneously the performance fix and the *only* determinism violation in the engine (§8b). Add the deterministic tiebreak while rewriting it, not after.
+2. **Light writer** (§2) — sky + fire emission. Resurrects two dead mechanisms, retires a documented simplification, closes two emergent loops, and proves the write→diffuse→read loop end to end. Highest value-per-line here.
+3. **Bilinear field sampler** (§6a) — fixes the worm's thermotaxis and the tree's phototropism, and is the general answer for every gradient-follower after them.
+4. **Moisture channel** (§4) — field, settled. Four consumers, deletes two hand-rolled scans, introduces the first real inter-organism resource competition. This is the rehearsal for pheromone.
+5. **Plants write the channels they read** (§5g) — two one-line writes. Turns light and moisture from read-only into loops, and is the precondition for any patterning.
+6. **Day/night oscillator** (§5h) — one writer, global rhythm across every system at once. Highest aliveness-per-line in this document once the sky exists.
+7. **Ash → soil decay cycle** (§5f) with **reseeding** (§5e) — the first closed matter cycle. Completes M16's own verify criterion and makes the world stop running down.
+8. **Collapse writes pressure** (§5c) — small; makes structural failure legible to other systems.
+9. Then, in whatever order suits: plants read velocity (§5d), structural-for-plants (§5b, needs the `aux` conflict resolved), attractors → light gradient (§5a).
+
+**Before starting creature work beyond this:** read §7, and consider a stigmergy research pass in the style of the existing `research/` files.
+
+### Prerequisite for tuning, from `worldgen-design.md` §10
+
+There are **56 hardcoded `const`s** across `plant.rs` (34), `field.rs` (12), `creature.rs` (8), and `structural.rs` (2), and only materials are data-driven. `PLAN.md`'s own reasoning for data-driven materials — hot reload sidesteps slow compiles exactly where iteration speed matters most — applies verbatim to every one of them.
+
+Almost everything in this document involves tuning (`LIGHT_DECAY`, `shade_factor`'s divisor, diffusion rates, evaporation, growth intervals). **Moving those constants into `.ron` files before the tuning starts converts a recompile-per-experiment loop into save-and-watch**, and the migration only gets harder as the constant count grows. Worth doing early rather than late.
+
+### Housekeeping, separate from the above
+
+The ten items in `pixel-physics-issues.md` have not been filed as GitHub issues yet. Filing them and fixing them are separate tasks — if filing is wanted, do it explicitly; it will not happen as a side effect of the work above. Note also that the repo's **default branch is `main`**, which contains only a stub README; the project lives on `master`, so anyone visiting the repo sees an empty project.
+
+---
+
+## 12. Standing review questions
+
+For any new system, before it merges:
+
+> **1. Does this read from and write to shared world state, or does it hold private state and query the world?**
+> If private — could it be a channel instead, and would that channel have more than one consumer? A channel with one consumer is usually premature. A channel with three is almost always right. A private scan duplicating what a channel would provide is the specific thing this document exists to prevent — there are currently three (§3).
+
+> **2. Does this channel have a writer?**
+> A channel nothing writes to is dead, and every consumer of it is dead code that looks alive. This is how the light field shipped inert (§2).
+
+> **3. Would any test fail if this mechanism were deleted entirely?**
+> If not, the mechanism is unverified regardless of how many tests surround it (§9).
+
+> **4. Could this produce different results on two runs of the same build?**
+> `HashMap` iteration in an order-dependent path, wall-clock reads, thread IDs, and float reductions whose order varies are the four ways it happens. All are silent and intermittent when they go wrong (§8).
+
+> **5. Do two agents talk to each other anywhere in this?**
+> They must not. Not creature-to-creature, not tree-to-tree. Everything goes through the world. This is the rule every collective behaviour in §0's table depends on absolutely — colonies, networks, erosion, competition.
