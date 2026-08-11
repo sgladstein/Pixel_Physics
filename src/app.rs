@@ -7,6 +7,7 @@
 use crate::render::Renderer;
 use crate::sim::chunk::Rect;
 use crate::sim::material::{self, MaterialId, MaterialKind};
+use crate::sim::particle::ParticleSystem;
 use crate::sim::update;
 use crate::sim::world::World;
 use crate::sim::Cell;
@@ -23,6 +24,7 @@ const STREAM_DENSITY: f32 = 0.3;
 
 pub struct App {
     pub world: World,
+    pub particles: ParticleSystem,
     pub renderer: Renderer,
     pub brush_radius: i32,
     /// Index into `paintable`, not a `MaterialId`, so cycling wraps cleanly.
@@ -59,6 +61,7 @@ impl App {
 
         Self {
             world,
+            particles: ParticleSystem::new(),
             renderer: Renderer::new(),
             brush_radius: 6,
             selected,
@@ -75,15 +78,19 @@ impl App {
         }
         self.step_once = false;
         update::step(&mut self.world);
-        // Its own phase, after the CA sweep, per the `entities → CA sweep →
-        // rigid bodies → render` ordering the plan settled on: the field
-        // reacts to whatever solids the sweep just placed rather than a frame
-        // stale. No coupling back into CA cells yet — that starts in M14.
+        // Particles after the CA sweep, not before: a landing check needs
+        // this frame's fully-settled CA state, not last frame's, or a
+        // particle could land inside material that has since moved out from
+        // under it. Field after that — order between the two does not
+        // currently matter, since particles do not read or write the field,
+        // but keeping the CA-derived phases grouped together here is easier
+        // to reason about than interleaving them.
+        self.particles.step(&mut self.world);
         self.world.step_fields();
     }
 
     pub fn draw(&self, frame: &mut [u8]) {
-        self.renderer.draw(&self.world, frame, WIDTH, HEIGHT);
+        self.renderer.draw(&self.world, &self.particles, frame, WIDTH, HEIGHT);
     }
 
     /// Re-read the material files. Ids are keyed by name, so material already
@@ -157,6 +164,34 @@ impl App {
     pub fn ignite(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         self.world.ignite_circle(x, y, self.brush_radius);
+    }
+
+    /// Throw a small burst of the selected material as free particles from a
+    /// screen position — a debug tool for M7 the same way `ignite` is for
+    /// M14, ahead of M15 giving explosions a reason to call
+    /// `ParticleSystem::spawn` for real.
+    pub fn spawn_burst(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        let material = self.selected_material();
+        let shades = self.world.materials.get(material).palette.len().max(1) as u32;
+        const COUNT: i32 = 24;
+        for i in 0..COUNT {
+            // Spread across an upward-biased arc rather than a full circle —
+            // reads as "thrown," which is the case this exists to demo,
+            // rather than "leaking outward in every direction at once."
+            let angle = -std::f32::consts::FRAC_PI_2
+                + (i as f32 / COUNT as f32 - 0.5) * std::f32::consts::PI;
+            let speed = 3.0 + self.world.rng.below(30) as f32 / 10.0;
+            let shade = self.world.rng.below(shades) as u8;
+            self.particles.spawn(
+                x as f32,
+                y as f32,
+                angle.cos() * speed,
+                angle.sin() * speed,
+                material,
+                shade,
+            );
+        }
     }
 
     /// How much of the brush to fill per application.

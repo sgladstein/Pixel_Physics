@@ -23,6 +23,7 @@ cargo test
 | `Space` | Pause |
 | `.` | Step one frame while paused |
 | `F` | Ignite whatever's under the brush (debug tool — M15 will add real ignition sources) |
+| `P` | Throw a burst of the selected material as free particles (debug tool for M7 — M15 will spawn these from real explosions) |
 | `F1` | Chunk overlay — green borders are awake, grey are asleep |
 | `F5` | Reload materials by hand |
 | `R` | Reset |
@@ -91,6 +92,8 @@ src/sim/     the simulation — knows nothing about windows or GPUs
   chunk.rs     64x64 tiles, coordinate maths, dirty rectangles
   field.rs     the coarse pressure/velocity/temperature/light grid,
                one tile per chunk, its own frame phase
+  fire.rs      heat, ignition, burnout, phase change, reactions
+  particle.rs  free (off-grid) particles for explosions and splashes
   world.rs     the sparse chunk map and the get/set seam
   update.rs    the cellular automaton step
 src/render.rs  cells to pixels
@@ -281,6 +284,35 @@ Burning cells render with that flat tint so M14's work is visible at all
 before M6 exists; press `F` over painted material in the live app to ignite it
 (a debug tool — M15 gives explosions a more physical ignition source).
 
+## M7 status
+
+Free particles, in [`src/sim/particle.rs`](src/sim/particle.rs) — a separate
+system from the CA grid entirely (`ParticleSystem`, a plain `Vec<Particle>`
+with float position and velocity), for the ballistic arcs a one-cell-per-frame
+CA rule cannot express. Gravity, sub-cell substepping so a fast particle
+cannot tunnel through a one-cell-thick wall between frames, and conversion
+back into a normal CA cell — with the same shade-picking a paint stroke
+uses — the instant a step would land on non-empty ground. Runs after the CA
+sweep each frame (a landing check needs this frame's fully-settled CA state,
+not last frame's) and does not touch the M13 field at all — no wind, no
+coupling — since neither of this system's two callers (M15 explosion debris,
+splash effects) need that to exist yet; adding a cross-system read only when
+something concrete needs it is the same call M14 made about not coupling
+every visited cell to the field.
+
+**A real bug, caught by the fact every single test in the module failed the
+same way.** The first version's substep function took `&Particle` and updated
+local `x`/`y` shadow variables that were never written back — so a particle's
+recorded position never advanced on any frame that did not end in a landing.
+"Falls under gravity," "lands and becomes a cell," "doesn't tunnel," and
+"conserves material count" all failed with the same shape (nothing ever
+moved), which is what made it fast to diagnose rather than four separate
+mysteries — changed to `&mut Particle` and it mutates for real.
+
+Press `P` over painted material in the live app to throw a burst of it as
+particles (debug tool, ahead of M15 giving explosions a real reason to call
+`ParticleSystem::spawn`).
+
 ## Performance
 
 Measured by `cargo run --release --example ascii`, which reports the worst
@@ -320,12 +352,14 @@ Working: the cellular automaton core, chunked world with dirty-rectangle
 sleeping, seven materials loaded from data with hot reload, angle of repose
 from a friction angle, density-driven displacement and layering, a
 capsule-swept brush that emits loose material as a stream, the coarse
-pressure/velocity/temperature/light field grid, and — new in M14 — heat
-diffusion, neighbour- and temperature-driven ignition, burnout into a
-material-defined byproduct, temperature-triggered melting/boiling, pairwise
-reactions, and a fire tint in the renderer. Oil is the one shipped material
-with real combustion numbers, burning into ash; `F` force-ignites the brush
-area as a debug tool.
+pressure/velocity/temperature/light field grid, heat diffusion,
+neighbour- and temperature-driven ignition, burnout into a material-defined
+byproduct, temperature-triggered melting/boiling, pairwise reactions, a fire
+tint in the renderer, and — new in M7 — free particles with gravity and
+tunnelling-safe collision for debris that needs a real ballistic arc, landing
+back into the CA grid as a normal cell. Oil is the one shipped material with
+real combustion numbers, burning into ash; `F` force-ignites the brush area
+and `P` throws a burst of particles, both debug tools ahead of M15.
 
 Known limitations:
 
@@ -349,5 +383,5 @@ Known limitations:
   screenshot script.
 
 Not yet built: Bak–Tang–Wiesenfeld toppling for avalanches, hole-propagation
-granular flow, explosions, multithreading, free particles, rigid bodies,
-character physics, the streaming world, and Lua scripting.
+granular flow, explosions, multithreading, rigid bodies, character physics,
+the streaming world, and Lua scripting.

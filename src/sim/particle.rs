@@ -1,0 +1,313 @@
+//! Free particles: off-grid debris with continuous position and velocity,
+//! for explosions and splashes.
+//!
+//! A CA cell moves at most one cell per frame, by rule, not by an actual
+//! velocity — that is what dirty rectangles and the moved-flag discipline are
+//! built around, and it is a deliberate simplification the whole engine rests
+//! on. It also means the CA grid cannot represent debris on a real ballistic
+//! arc: something thrown by an explosion needs to leave the ground fast and
+//! come down along a curve, not crawl outward one cell at a time. Free
+//! particles are a completely separate system for exactly that case — a
+//! `Vec<Particle>` with float position and velocity, gravity, and a landing
+//! check against the CA grid that converts a particle back into a normal cell
+//! the moment it would overlap something solid. Noita does the same split for
+//! the same reason.
+//!
+//! Deliberately does **not** touch the M13 field (no wind drag, no coupling)
+//! — that is a plausible enhancement, not something either of `particle.rs`'s
+//! two callers (M15 explosion debris, general splash effects) need to exist
+//! at all. Keeping the two systems uncoupled for now is the same judgement
+//! call M14 made about not coupling every visited CA cell to the field: only
+//! add a cross-system read when something concrete needs it.
+
+use super::material::MaterialId;
+use super::world::World;
+
+/// Cells per frame per frame. Chosen so a particle's fall visually resembles
+/// the CA grid's roughly-constant-rate fall in the first few frames, then
+/// keeps accelerating beyond it — the point of a real velocity is a proper
+/// arc, not matching the grid's rate forever.
+const GRAVITY: f32 = 0.15;
+
+/// A speed cap, not a physical limit: without one, a large one-frame velocity
+/// (a close explosion) could jump a particle clean over a thin wall in a
+/// single step before substepping ever gets a chance to check for it.
+const MAX_SPEED_PER_AXIS: f32 = 8.0;
+
+pub struct Particle {
+    pub x: f32,
+    pub y: f32,
+    pub vx: f32,
+    pub vy: f32,
+    pub material: MaterialId,
+    pub shade: u8,
+}
+
+/// Owns every free particle currently in flight. Lives alongside `World`
+/// rather than inside it — particles are not part of the CA grid's own state,
+/// and keeping them separate is what makes "does the field grid, or the CA
+/// grid, need to know particles exist" a question with an easy default answer
+/// of no.
+pub struct ParticleSystem {
+    particles: Vec<Particle>,
+}
+
+impl ParticleSystem {
+    pub fn new() -> Self {
+        Self { particles: Vec::new() }
+    }
+
+    pub fn spawn(&mut self, x: f32, y: f32, vx: f32, vy: f32, material: MaterialId, shade: u8) {
+        self.particles.push(Particle {
+            x,
+            y,
+            vx: vx.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS),
+            vy: vy.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS),
+            material,
+            shade,
+        });
+    }
+
+    pub fn len(&self) -> usize {
+        self.particles.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.particles.is_empty()
+    }
+
+    /// For rendering: free particles are not CA cells, so nothing already
+    /// iterates them — the renderer needs its own pass over this.
+    pub fn iter(&self) -> impl Iterator<Item = &Particle> {
+        self.particles.iter()
+    }
+
+    /// Advance every particle by one frame: apply gravity, move along the
+    /// resulting velocity in sub-cell steps (so a fast particle cannot tunnel
+    /// through a thin wall between one frame's position and the next), and
+    /// convert to a normal CA cell the instant a step would land on
+    /// non-empty ground.
+    ///
+    /// Run after the CA sweep, not before — see `App::update`'s ordering.
+    /// Landing checks read `world.is_empty`, which should reflect this
+    /// frame's fully-settled movement, not last frame's, or a particle could
+    /// land inside material that has since moved out from under it.
+    pub fn step(&mut self, world: &mut World) {
+        // Drained and rebuilt rather than filtered in place: a landed
+        // particle needs to write into `world` (`&mut`) while the loop is
+        // simultaneously iterating `self.particles` — same shape of borrow
+        // conflict this codebase has hit before (`MaterialRegistry::
+        // resolve_references`, `fire::try_react`), same fix.
+        let mut still_flying = Vec::with_capacity(self.particles.len());
+
+        for mut particle in self.particles.drain(..) {
+            particle.vy += GRAVITY;
+            particle.vx = particle.vx.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
+            particle.vy = particle.vy.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
+
+            if let Some(landing) = advance_and_check_landing(world, &mut particle) {
+                land(world, &particle, landing);
+                // Consumed — do not push back into `still_flying`.
+            } else {
+                still_flying.push(particle);
+            }
+        }
+
+        self.particles = still_flying;
+    }
+}
+
+impl Default for ParticleSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Steps `particle`'s position forward by its own velocity, in increments of
+/// at most one cell, stopping at the first cell that is not empty. Mutates
+/// `particle.x`/`y` in place for every substep that stays clear, and returns
+/// the world-cell coordinate to land at if one was found.
+///
+/// Substepping at a maximum of one cell per increment is what prevents
+/// tunnelling: a particle moving 8 cells in a single unclamped step could
+/// clear a one-cell-thick wall entirely between the frame it was on one side
+/// and the frame it was found on the other, without a single sample ever
+/// landing inside the wall to catch it.
+///
+/// Takes `&mut Particle`, not `&Particle` — an earlier version took a shared
+/// reference and updated local `x`/`y` shadow variables that were never
+/// written back, so a particle's recorded position never advanced on any
+/// frame that did not end in a landing. Every test in this module failed the
+/// same way (a particle "falling" that never actually moved), which is what
+/// caught it — the bug was in what the function *did*, not in any of them.
+fn advance_and_check_landing(world: &World, particle: &mut Particle) -> Option<(i32, i32)> {
+    let (vx, vy) = (particle.vx, particle.vy);
+    let distance = (vx * vx + vy * vy).sqrt();
+    if distance <= 0.0 {
+        return None;
+    }
+    let steps = distance.ceil().max(1.0) as i32;
+    let (step_x, step_y) = (vx / steps as f32, vy / steps as f32);
+
+    for _ in 0..steps {
+        let (next_x, next_y) = (particle.x + step_x, particle.y + step_y);
+        let (cell_x, cell_y) = (next_x.round() as i32, next_y.round() as i32);
+        if !world.in_bounds(cell_x, cell_y) || !world.is_empty(cell_x, cell_y) {
+            return Some((cell_x, cell_y));
+        }
+        particle.x = next_x;
+        particle.y = next_y;
+    }
+    None
+}
+
+fn land(world: &mut World, particle: &Particle, at: (i32, i32)) {
+    // Land one cell short if the target itself is occupied or out of bounds —
+    // otherwise the particle would overwrite whatever it just collided with,
+    // rather than coming to rest against it the way falling CA material does.
+    let (tx, ty) = if world.in_bounds(at.0, at.1) && world.is_empty(at.0, at.1) {
+        at
+    } else {
+        (particle.x.round() as i32, particle.y.round() as i32)
+    };
+    if world.in_bounds(tx, ty) && world.is_empty(tx, ty) {
+        world.set(tx, ty, super::cell::Cell::new(particle.material, particle.shade));
+    }
+    // If neither position is available (e.g. spawned already overlapping
+    // something), the particle is simply dropped — better than corrupting
+    // whatever occupies the cell it would have overwritten.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sim::chunk::Rect;
+    use crate::sim::material;
+    use crate::sim::world::World;
+
+    fn test_world() -> World {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            w.set(x, 63, super::super::cell::Cell::new(material::STONE, 0));
+        }
+        w
+    }
+
+    #[test]
+    fn a_particle_falls_under_gravity() {
+        let mut w = test_world();
+        let mut ps = ParticleSystem::new();
+        ps.spawn(30.0, 10.0, 0.0, 0.0, material::SAND, 0);
+
+        let start_y = ps.iter().next().unwrap().y;
+        ps.step(&mut w);
+        let after_y = ps.iter().next().unwrap().y;
+        assert!(after_y > start_y, "particle did not fall: {start_y} -> {after_y}");
+    }
+
+    #[test]
+    fn a_particle_lands_and_becomes_a_ca_cell() {
+        let mut w = test_world();
+        let mut ps = ParticleSystem::new();
+        ps.spawn(30.0, 10.0, 0.0, 0.0, material::SAND, 2);
+
+        for _ in 0..200 {
+            ps.step(&mut w);
+            if ps.is_empty() {
+                break;
+            }
+        }
+        assert!(ps.is_empty(), "particle never landed after 200 frames");
+
+        // It must have become a real CA sand cell somewhere above the floor,
+        // not vanished.
+        let landed = (0..63).any(|y| w.get(30, y).material == material::SAND);
+        assert!(landed, "particle disappeared instead of becoming a CA cell");
+    }
+
+    #[test]
+    fn a_fast_particle_does_not_tunnel_through_a_thin_wall() {
+        let mut w = test_world();
+        // A one-cell-thick horizontal wall the particle must cross.
+        for x in 0..64 {
+            w.set(x, 40, super::super::cell::Cell::new(material::STONE, 0));
+        }
+        let mut ps = ParticleSystem::new();
+        // A large downward velocity in one shot — without substepping this
+        // could clear the wall in a single step.
+        ps.spawn(30.0, 10.0, 0.0, 25.0, material::SAND, 0);
+
+        for _ in 0..10 {
+            ps.step(&mut w);
+        }
+        assert!(ps.is_empty(), "particle should have landed on the wall by now");
+        // Landed at or above the wall (y <= 40), not below it.
+        let landed_above_or_on_wall = (0..=40).any(|y| w.get(30, y).material == material::SAND);
+        assert!(landed_above_or_on_wall, "particle tunnelled through the wall");
+    }
+
+    #[test]
+    fn a_particle_at_rest_stays_put_until_gravity_moves_it() {
+        // Zero velocity is a degenerate case for the distance/steps math in
+        // advance_and_check_landing (division by a zero step count) — must
+        // not panic, and must not silently teleport.
+        let mut w = test_world();
+        let mut ps = ParticleSystem::new();
+        ps.spawn(30.0, 10.0, 0.0, 0.0, material::SAND, 0);
+        ps.step(&mut w);
+        assert_eq!(ps.len(), 1, "a stationary particle should not vanish on its first step");
+    }
+
+    #[test]
+    fn velocity_is_clamped_on_spawn_and_while_flying() {
+        let mut w = test_world();
+        let mut ps = ParticleSystem::new();
+        ps.spawn(30.0, 10.0, 1000.0, -1000.0, material::SAND, 0);
+        let v = {
+            let p = ps.iter().next().unwrap();
+            (p.vx, p.vy)
+        };
+        assert!(v.0.abs() <= MAX_SPEED_PER_AXIS);
+        assert!(v.1.abs() <= MAX_SPEED_PER_AXIS);
+        ps.step(&mut w);
+        // Still clamped after gravity is added in step().
+        let still_clamped = ps.iter().next().map(|p| p.vy.abs() <= MAX_SPEED_PER_AXIS).unwrap_or(true);
+        assert!(still_clamped);
+    }
+
+    #[test]
+    fn landing_on_an_occupied_target_does_not_overwrite_it() {
+        let mut w = test_world();
+        w.set(30, 20, super::super::cell::Cell::new(material::STONE, 0));
+        let mut ps = ParticleSystem::new();
+        // Spawned one cell above an obstacle, moving straight down slowly so
+        // it lands exactly at the boundary.
+        ps.spawn(30.0, 19.0, 0.0, 0.5, material::SAND, 0);
+
+        for _ in 0..20 {
+            ps.step(&mut w);
+            if ps.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(w.get(30, 20).material, material::STONE, "the obstacle was overwritten");
+    }
+
+    #[test]
+    fn many_particles_conserve_material_count() {
+        let mut w = test_world();
+        let mut ps = ParticleSystem::new();
+        for i in 0..30 {
+            ps.spawn(10.0 + i as f32, 5.0, (i % 5) as f32 - 2.0, 0.0, material::SAND, 0);
+        }
+        for _ in 0..300 {
+            ps.step(&mut w);
+        }
+        assert!(ps.is_empty(), "particles left in flight after 300 frames");
+
+        let landed = (0..64).flat_map(|y| (0..64).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == material::SAND)
+            .count();
+        assert_eq!(landed, 30, "expected 30 landed sand cells, found {landed}");
+    }
+}

@@ -6,6 +6,7 @@
 //! without touching a single movement rule.
 
 use crate::sim::chunk::CHUNK_SIZE;
+use crate::sim::particle::ParticleSystem;
 use crate::sim::world::World;
 
 /// Colour shown for positions outside the world.
@@ -32,7 +33,7 @@ impl Renderer {
         }
     }
 
-    pub fn draw(&self, world: &World, frame: &mut [u8], width: u32, height: u32) {
+    pub fn draw(&self, world: &World, particles: &ParticleSystem, frame: &mut [u8], width: u32, height: u32) {
         for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
             let sx = (i % width as usize) as i32;
             let sy = (i / width as usize) as i32;
@@ -40,8 +41,31 @@ impl Renderer {
             pixel.copy_from_slice(&colour);
         }
 
+        self.draw_particles(world, particles, frame, width, height);
+
         if self.show_chunk_overlay {
             self.draw_chunk_overlay(world, frame, width, height);
+        }
+    }
+
+    /// Free particles are not CA cells, so the main per-pixel pass above
+    /// never sees them — drawn here as a second, small pass instead. One
+    /// pixel each, no interpolation between a particle's sub-cell position
+    /// and the pixel grid; the CA cell it becomes on landing carries all the
+    /// same visual weight bulk material has, so a free particle mid-flight
+    /// not doing that too is not a loss worth the complexity of drawing it
+    /// any richer.
+    fn draw_particles(&self, world: &World, particles: &ParticleSystem, frame: &mut [u8], width: u32, height: u32) {
+        for particle in particles.iter() {
+            let sx = particle.x.round() as i32 - self.camera_x;
+            let sy = particle.y.round() as i32 - self.camera_y;
+            if sx < 0 || sy < 0 || sx >= width as i32 || sy >= height as i32 {
+                continue;
+            }
+            let palette = &world.materials.get(particle.material).palette;
+            let colour = palette[particle.shade as usize % palette.len()];
+            let idx = (sy as usize * width as usize + sx as usize) * 4;
+            frame[idx..idx + 4].copy_from_slice(&colour);
         }
     }
 
@@ -124,11 +148,12 @@ mod tests {
         let mut world = World::new(Rect::new(0, 0, 63, 63));
         world.set(0, 0, Cell::new(material::SAND, 0));
         let renderer = Renderer::new();
+        let particles = ParticleSystem::new();
 
         // A 128-wide framebuffer over a 64-wide world: the right half is void.
         let (w, h) = (128u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &mut frame, w, h);
+        renderer.draw(&world, &particles, &mut frame, w, h);
 
         let sand = world.materials.get(material::SAND).palette[0];
         assert_eq!(&frame[0..4], &sand);
@@ -136,6 +161,36 @@ mod tests {
         // Row 0, column 100 — past the right edge of the 64-wide world.
         let outside = 100 * 4;
         assert_eq!(&frame[outside..outside + 4], &VOID);
+    }
+
+    #[test]
+    fn draws_a_free_particle_at_its_rounded_position() {
+        let world = World::new(Rect::new(0, 0, 63, 63));
+        let renderer = Renderer::new();
+        let mut particles = ParticleSystem::new();
+        particles.spawn(10.4, 20.3, 0.0, 0.0, material::SAND, 1);
+
+        let (w, h) = (64u32, 64u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        renderer.draw(&world, &particles, &mut frame, w, h);
+
+        let sand = world.materials.get(material::SAND).palette[1];
+        let idx = (20 * w as usize + 10) * 4;
+        assert_eq!(&frame[idx..idx + 4], &sand, "particle did not draw at its rounded position");
+    }
+
+    #[test]
+    fn a_particle_outside_the_framebuffer_does_not_panic_or_wrap() {
+        let world = World::new(Rect::new(0, 0, 63, 63));
+        let renderer = Renderer::new();
+        let mut particles = ParticleSystem::new();
+        particles.spawn(-5.0, -5.0, 0.0, 0.0, material::SAND, 0);
+        particles.spawn(1000.0, 1000.0, 0.0, 0.0, material::SAND, 0);
+
+        let (w, h) = (64u32, 64u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        // Reaching this line without panicking is the assertion.
+        renderer.draw(&world, &particles, &mut frame, w, h);
     }
 
     #[test]
@@ -152,16 +207,17 @@ mod tests {
         let mut world = World::new(Rect::new(0, 0, 63, 63));
         let mut renderer = Renderer::new();
         renderer.show_chunk_overlay = true;
+        let particles = ParticleSystem::new();
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
 
         // Freshly built chunks are dirty, so the border reads as active.
-        renderer.draw(&world, &mut frame, w, h);
+        renderer.draw(&world, &particles, &mut frame, w, h);
         assert_eq!(&frame[0..4], &CHUNK_BORDER_ACTIVE);
 
         // Once settled it dims.
         world.end_step();
-        renderer.draw(&world, &mut frame, w, h);
+        renderer.draw(&world, &particles, &mut frame, w, h);
         assert_eq!(&frame[0..4], &CHUNK_BORDER_SETTLED);
     }
 }

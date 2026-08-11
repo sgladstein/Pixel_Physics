@@ -13,6 +13,8 @@
 //! * `update` — the cellular automaton step
 //! * `fire` — heat diffusion, ignition, burnout and phase changes (M14),
 //!   called once per visited cell from inside the sweep
+//! * `particle` — free (off-grid) particles for explosions and splashes
+//!   (M7), a separate system from the CA grid entirely
 //!
 //! Nothing below `update` knows about rendering, windowing or input.
 
@@ -21,6 +23,7 @@ pub mod chunk;
 pub mod field;
 pub mod fire;
 pub mod material;
+pub mod particle;
 pub mod rng;
 pub mod update;
 pub mod world;
@@ -29,4 +32,5 @@ pub use cell::Cell;
 pub use chunk::{ChunkCoord, Rect, CHUNK_SIZE};
 pub use field::FieldCell;
 pub use material::{MaterialId, MaterialKind, MaterialRegistry};
+pub use particle::{Particle, ParticleSystem};
 pub use world::World;
