@@ -15,6 +15,7 @@ use std::collections::HashMap;
 
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
+use super::creature::CreatureState;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::material::{self, MaterialId, MaterialRegistry};
 use super::plant::TreeState;
@@ -43,6 +44,13 @@ pub struct World {
     /// entries are indexed by `ActiveKind::TreeTip`/`RootTip` and never
     /// reassigned, the same stability guarantee `MaterialId`s get.
     trees: Vec<TreeState>,
+    /// M18: per-creature state (currently just its energy budget) — see
+    /// `creature::CreatureState`. Never shrinks, mirroring `trees` above;
+    /// indexed by `u16`, not `u32` like `trees`, because `Cell::aux` (also
+    /// a `u16`) stores this same index directly per its own documented
+    /// meaning for `MaterialKind::Creature` — unlike a tree's growth stage,
+    /// "which creature owns this cell" has to round-trip through the cell.
+    creatures: Vec<CreatureState>,
 }
 
 impl World {
@@ -56,6 +64,7 @@ impl World {
             rng: Rng::default(),
             active_sites: HashMap::new(),
             trees: Vec::new(),
+            creatures: Vec::new(),
         };
         world.ensure_chunks_for(bounds);
         world
@@ -129,6 +138,17 @@ impl World {
 
     pub(crate) fn tree_mut(&mut self, id: u32) -> &mut TreeState {
         &mut self.trees[id as usize]
+    }
+
+    /// Store a new creature's state and return its stable id.
+    pub(crate) fn push_creature(&mut self, creature: CreatureState) -> u16 {
+        debug_assert!(self.creatures.len() < u16::MAX as usize, "creature index would overflow u16 -- Cell::aux can't address more than 65535 live creature slots");
+        self.creatures.push(creature);
+        (self.creatures.len() - 1) as u16
+    }
+
+    pub(crate) fn creature_mut(&mut self, id: u16) -> &mut CreatureState {
+        &mut self.creatures[id as usize]
     }
 
     /// Field conditions at a world-cell position — any position inside the

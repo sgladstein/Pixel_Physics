@@ -32,11 +32,16 @@
 //!   distance to an anchor, recomputed reactively via `scheduler`, and
 //!   convert to loose material once that distance exceeds their material's
 //!   tolerance
+//! * `creature` — M18 Phase 1, cell-based creatures (a burrowing worm),
+//!   dispatched from `scheduler` like plant growth and structural checks;
+//!   fire/burning is deliberately not reimplemented here, since `fire.rs`
+//!   already applies to every material kind uniformly
 //!
 //! Nothing below `update` knows about rendering, windowing or input.
 
 pub mod cell;
 pub mod chunk;
+pub mod creature;
 pub mod explosion;
 pub mod field;
 pub mod fire;

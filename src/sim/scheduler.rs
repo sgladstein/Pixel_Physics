@@ -26,6 +26,7 @@
 use std::collections::HashMap;
 
 use super::chunk::ChunkCoord;
+use super::creature;
 use super::plant;
 use super::structural;
 use super::world::World;
@@ -55,6 +56,11 @@ pub enum ActiveKind {
     /// world-gen time, so pre-placed terrain is never retroactively
     /// checked. See `structural.rs`.
     StructuralCheck,
+    /// M18: a creature due to make its next movement decision. `creature`
+    /// indexes into `World`'s creature-state storage (too large to fit in
+    /// `Cell::aux` alongside a growth stage or anchor distance would be) —
+    /// see `creature::CreatureState`.
+    Creature { creature: u16 },
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -88,6 +94,7 @@ pub fn step(world: &mut World) {
             let produced = match site.kind {
                 ActiveKind::Moss { .. } | ActiveKind::TreeTip { .. } | ActiveKind::RootTip { .. } => plant::tick(world, &site),
                 ActiveKind::StructuralCheck => structural::tick(world, &site),
+                ActiveKind::Creature { .. } => creature::tick(world, &site),
             };
             for new_site in produced {
                 push(&mut kept, new_site);

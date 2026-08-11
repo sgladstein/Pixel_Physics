@@ -1,0 +1,32 @@
+// M18 Phase 1: a cell-based creature (research/m18-creature-biology.md).
+// `kind: Creature` -- never moves via the CA sweep, exactly like `Plant`;
+// relocated explicitly by the M18 active-site scheduler (`creature.rs`),
+// which reads/writes it through the ordinary `World::get`/`set`.
+//
+// Flammable with real numbers, same treatment fire.rs already gives every
+// other material kind uniformly -- this is the entire mechanism behind "a
+// worm dies to fire", no creature-specific code needed for it at all.
+// `ignition_temperature` is left unset (never spontaneously ignites from
+// nearby heat alone): the worm's own thermotaxis (creature.rs) is what
+// handles "near a fire" by fleeing before contact; only direct contact with
+// a burning neighbour (flammability) should actually catch it alight,
+// mirroring how a real animal that fails to flee in time gets burned.
+// `density` doesn't drive movement for a Creature cell the way it does for
+// a Powder (creature.rs never displaces via the CA sweep), but the field is
+// still required and set to a plausible soft-tissue value.
+(
+    name: "worm",
+    display: "Worm",
+    kind: Creature,
+    density: 1.0,
+    colors: [
+        (176, 92, 88),
+        (166, 82, 78),
+        (186, 102, 96),
+    ],
+    flammability: 0.6,
+    burn_temperature: 500.0,
+    burn_duration: 60,
+    burns_into: "corpse",
+    heat_conductivity: 0.1,
+)

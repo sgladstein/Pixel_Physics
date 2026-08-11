@@ -245,6 +245,11 @@ impl Handler {
                     self.app.plant_moss(x, y);
                 }
             }
+            KeyCode::KeyW => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.plant_worm(x, y);
+                }
+            }
             KeyCode::BracketLeft => self.app.adjust_brush(-2),
             KeyCode::BracketRight => self.app.adjust_brush(2),
             KeyCode::KeyQ => self.app.cycle_material(-1),

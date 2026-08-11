@@ -191,6 +191,12 @@ fn main() {
     // the right anchor is erased.
     structural_scene("M17: cutting a bridge's far support collapses the far span", 7, 15);
 
+    // M18: a worm burrows through a sand field (should visibly relocate from
+    // its seed position over the run), then a fire is lit nearby partway
+    // through -- it should flee rather than burrow toward it. Prints twice:
+    // after burrowing alone, and again after the fire starts.
+    creature_scene("M18: a worm burrows through sand, then flees from fire", 90, 20, 100);
+
     // M13: same impulse, but sealed in a box. Should stay concentrated near
     // the center rather than dissipating outward, unlike the open scene above.
     field_scene("field: pressure impulse sealed in a room", 160, 80, 200, |w| {
@@ -422,6 +428,74 @@ fn structural_scene(title: &str, w: i32, h: i32) {
     world.paint_capsule((w - 1, bridge_y), (w - 1, bridge_y), 0, material::EMPTY, 1.0);
     run(&mut world, 400);
     print_state(&world, "after cutting the right support");
+}
+
+/// M18: plants a worm in a walled sand field, lets it burrow for
+/// `frames`, then lights a fire near its original seed position and runs
+/// the same number of frames again -- `w` for a live worm, `c` for a
+/// corpse (starved or burned), `*` for burning cells (reusing `glyph`'s
+/// existing smoke/fire-agnostic mapping would hide the fire itself, so
+/// burning cells get their own marker here regardless of material).
+fn creature_scene(title: &str, w: i32, h: i32, frames: usize) {
+    println!("\n=== {title} ===");
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    for x in 0..w {
+        world.set(x, h - 1, Cell::new(material::STONE, 0));
+        world.set(x, 0, Cell::new(material::STONE, 0));
+    }
+    for x in 1..w - 1 {
+        for y in 1..h - 1 {
+            world.set(x, y, Cell::new(material::SAND, 0));
+        }
+    }
+    let seed = (w / 4, h / 2);
+    world.set(seed.0, seed.1, Cell::EMPTY);
+    world.plant_worm(seed.0, seed.1);
+
+    let run = |world: &mut World, frames: usize| {
+        for _ in 0..frames {
+            parallel::step(world);
+            world.step_active_sites();
+        }
+    };
+    let worm_id = world.materials.id_of("worm");
+    let corpse_id = world.materials.id_of("corpse");
+    let print_state = |world: &World, label: &str| {
+        println!("{label} ({} active sites still pending):", world.active_site_count());
+        for y in 0..h {
+            let row: String = (0..w)
+                .map(|x| {
+                    let cell = world.get(x, y);
+                    if cell.is_burning() {
+                        '*'
+                    } else if Some(cell.material) == worm_id {
+                        'w'
+                    } else if Some(cell.material) == corpse_id {
+                        'c'
+                    } else {
+                        glyph(cell.material)
+                    }
+                })
+                .collect();
+            println!("|{row}|");
+        }
+    };
+
+    run(&mut world, frames);
+    print_state(&world, "after burrowing alone");
+
+    // Ignite wherever the worm actually is now (not its original seed --
+    // burrowing constantly through a dense field is expensive, and by now
+    // it has both moved and spent real energy doing it), so the fire is
+    // guaranteed to be an immediate threat rather than possibly landing
+    // somewhere already empty of any worm to react to it.
+    if let Some(worm_id) = worm_id {
+        if let Some((wx, wy)) = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).find(|&(x, y)| world.get(x, y).material == worm_id) {
+            world.ignite_circle(wx, wy, 4);
+        }
+    }
+    run(&mut world, frames);
+    print_state(&world, "after a fire started where the worm was");
 }
 
 fn glyph(id: MaterialId) -> char {

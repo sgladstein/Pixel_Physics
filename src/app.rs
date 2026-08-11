@@ -223,6 +223,12 @@ impl App {
         self.world.plant_moss_seed(x, y);
     }
 
+    /// Plant a worm at a screen position — M18 debug tool.
+    pub fn plant_worm(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        self.world.plant_worm(x, y);
+    }
+
     /// How much of the brush to fill per application.
     ///
     /// Loose material is emitted as a scatter so a held brush looks like a

@@ -768,7 +768,45 @@ updated at each milestone commit, not just when something is added.
   status section for the full writeup, including the burn-timer guard
   (`Cell::aux` is a tagged union; a structural check on a burning cell
   defers rather than clobbering the burn countdown).
-- **M18/M8**: not started yet.
+- **M18 Phase 1** (cell-based creatures): **done**. A burrowing worm
+  (`creature.rs`), a `MaterialKind::Creature` cell dispatched from the M16
+  scheduler exactly like a plant tip — new `ActiveKind::Creature { creature
+  }`, indexing a per-creature energy-budget state (`CreatureState`), ticked
+  every 6 frames. Built directly against the research (three mechanisms:
+  burrow cost tied to a target `Powder`'s own `density` rather than a
+  material-kind whitelist, per Kurth et al. 2018 and the Namib golden mole's
+  measured ~26x sand-vs-surface energy cost; *C. elegans*-style thermotaxis
+  reading the M13 ambient-temperature field to flee down-gradient once a
+  threshold is crossed; an energy budget replacing random wandering, with
+  starvation itself — no separate dormancy counter — being what stops a
+  permanently-trapped worm from being rescheduled forever). Fire needed zero
+  creature-specific code: `fire.rs` already applies uniformly to every
+  material kind from `.ron` data, so `worm.ron`'s own flammability numbers
+  are the entire mechanism behind "a creature catches fire and dies." Two
+  real test-quality bugs caught and fixed while writing this milestone's own
+  tests (not by external review): three tests filled their terrain with sand
+  *before* planting a worm at a position already inside that fill, so the
+  worm was silently never created and the tests passed vacuously; and a
+  fire/corpse test's floor blocked a newly-formed corpse's straight fall but
+  not the multi-cell *roll* a `Powder` also tries, found via a throwaway
+  diagnostic print. Independent review (same standing practice as
+  M5/M13/M16/M17) then found one critical bug before commit, confirmed by
+  the reviewer's own reproduction: a moving worm's cell was always rebuilt
+  from scratch, silently clearing `FLAG_BURNING` and the burn timer the
+  instant a burning worm's next scheduled move came due — since the
+  movement interval (6 frames) is far shorter than a burn's duration (60),
+  this fired in the ordinary case, and a worm effectively survived every
+  fire it caught by moving. Fixed by applying the same defer-while-burning
+  guard `structural.rs` already established for `Solid` cells, plus a
+  related fix (a worm could burrow directly into an actively-burning
+  neighbour, never having checked the target's own burning state) and two
+  smaller hardening items (an index-overflow debug_assert, a vacuous-test
+  gap closed in the burrowing test). See `README.md`'s M18 status section
+  for the full writeup, including the deliberate simplifications (no full
+  Marginal Value Theorem patch-leaving bookkeeping, no aquatic worms, no
+  multi-creature-kind interaction yet).
+- **M18 Phase 2** (Reynolds-steering entities) **and M8**: not started yet —
+  Phase 2 explicitly waits on M8 per the plan's own reasoning.
 
 ---
 

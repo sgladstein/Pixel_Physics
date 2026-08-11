@@ -1,0 +1,25 @@
+// M18 Phase 1: what a creature becomes when it dies -- by fire (fire.rs's
+// ordinary `burns_into`, same mechanism every other flammable material
+// uses) or by starvation (creature.rs's `die`). `kind: Powder`, not a
+// special protected kind: a corpse is ordinary loose matter from here on,
+// the same "destructible" the plan's own M18 verify criterion asks for --
+// it falls under gravity, can be dug through, buried, or burned like any
+// other powder, with no creature-specific handling left anywhere in the
+// engine once this material takes over.
+(
+    name: "corpse",
+    display: "Corpse",
+    kind: Powder,
+    density: 1.2,
+    friction_angle: 30.0,
+    colors: [
+        (94, 72, 62),
+        (84, 63, 54),
+        (104, 80, 69),
+    ],
+    flammability: 0.15,
+    burn_temperature: 450.0,
+    burn_duration: 90,
+    burns_into: "ash",
+    heat_conductivity: 0.1,
+)

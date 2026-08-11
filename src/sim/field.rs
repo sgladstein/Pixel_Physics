@@ -379,6 +379,13 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         // material were transparent air, which for plants
                         // specifically undermines M16's own moss mechanic
                         // (shade under a canopy reading as no shade at all).
+                        // `Creature` (M18) deliberately does *not* block --
+                        // a single mobile worm cell isn't a wall the way a
+                        // stationary structure is, and the field only
+                        // resolves at one field cell per `FIELD_SCALE`
+                        // world cells regardless, so one moving creature
+                        // blocking a whole field tile would be a coarser,
+                        // wronger approximation than just letting it pass.
                         let kind = world.materials.kind(cell.material);
                         if matches!(kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant) {
                             blocked = true;

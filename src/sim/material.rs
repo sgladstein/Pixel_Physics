@@ -58,6 +58,12 @@ pub enum MaterialKind {
     /// future flammability/structural rules can key on "is this alive"
     /// without guessing from the material name.
     Plant,
+    /// Never moves via the CA sweep either -- like `Plant`, a creature cell
+    /// is relocated explicitly by the M18 active-site scheduler (`creature.rs`),
+    /// which reads/writes it through the ordinary `World::get`/`set`, not
+    /// through the movement dispatch below. `Cell::aux` holds the owning
+    /// creature's id (see `cell.rs`), distinct from `Plant`'s growth stage.
+    Creature,
 }
 
 impl MaterialKind {
@@ -404,6 +410,8 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/smoke.ron"),
     include_str!("../../assets/materials/wood.ron"),
     include_str!("../../assets/materials/moss.ron"),
+    include_str!("../../assets/materials/worm.ron"),
+    include_str!("../../assets/materials/corpse.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

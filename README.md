@@ -700,6 +700,117 @@ mid-burn, rather than either reading their timers or treating "temporarily
 unusable" the same as "no support at all." Regression test:
 `a_burning_solid_neighbours_burn_timer_is_never_read_as_its_distance`.
 
+## M18 status
+
+Built: M18 Phase 1, a cell-based creature — a burrowing worm (`creature.rs`).
+Grounded in real animal behaviour research, not invented rules; see
+`research/m18-creature-biology.md` for the full citations behind every
+mechanism below, and `PLAN.md`'s M18 section for the condensed version.
+Debug tool: `W` plants a worm at the brush.
+
+**A worm is one `MaterialKind::Creature` cell, dispatched from the M16
+scheduler exactly like a plant tip** — a new `ActiveKind::Creature { creature
+}` variant, indexing `World`'s creature-state storage (currently just an
+energy budget, `creature::CreatureState`), checked every `WORM_TICK_INTERVAL`
+(6 frames). `Creature` is excluded from the CA sweep's movement dispatch, the
+same as `Solid`/`Plant` — a worm is relocated explicitly, by writing through
+the ordinary `World::get`/`set`, never by the sweep itself.
+
+**Fire needed zero creature-specific code.** `fire.rs` already applies
+ignition, burning and burnout to every material kind uniformly, purely from
+`.ron` data — so giving `worm.ron` real flammability numbers
+(`flammability: 0.6`, `burns_into: "corpse"`) gets "a creature that catches
+fire and dies" entirely for free. `creature.rs` only owns the part fire.rs
+*can't* provide: choosing to move, including choosing to flee before contact.
+
+**Three mechanisms translated directly from the research, not invented:**
+
+- **Burrowing cost from substrate physics, not a material whitelist.**
+  Real peristaltic burrowing only works within a narrow substrate-resistance
+  band (Kurth et al. 2018), and the Namib golden mole spends ~26x more energy
+  burrowing loose sand than moving on the surface. `move_cost` ties a
+  `Powder` target's burrow cost to its own already-tracked `density`
+  (`WORM_MOVE_COST_OPEN + density * WORM_BURROW_DENSITY_COST`, tuned so sand
+  costs ~20x open ground) rather than a flat per-kind multiplier, so a denser
+  or looser future granular material costs proportionally more or less
+  automatically. `Solid`/`Liquid`/`Plant`/other `Creature` cells are all
+  impassable — worms are not modelled as aquatic this milestone.
+- ***C. elegans*-style thermotaxis for fire avoidance.** The real mechanism
+  — a single thermosensory neuron comparing current temperature against a
+  remembered set-point, fleeing down-gradient once above it — maps directly
+  onto reading the local M13 ambient-temperature field
+  (`WORM_HEAT_THRESHOLD_ABOVE_AMBIENT`) and moving toward whichever reachable
+  neighbour reads coolest. Deliberately both the accurate model and the cheap
+  one; no invented complexity needed.
+- **An energy budget replacing random wandering.** Depletes on every move
+  (more on burrowing than open ground), is partially replenished by
+  "eating" the powder it burrows through (`WORM_ENERGY_FROM_EATING`), and
+  reaching zero is what kills a permanently-trapped worm — no separate
+  dormancy counter needed the way `plant.rs`'s `MOSS_STALE_LIMIT` is, since
+  starvation is itself the bound. A worm eating sand ahead and leaving the
+  same material behind it (`worm_tick`'s move/excrete step) is a literal
+  translation of real earthworm ingest-ahead, cast-behind burrowing, not
+  just a metaphor.
+
+**Known simplification, not yet built:** the Marginal Value Theorem's actual
+patch-leaving rule (leave once local intake drops below the environment's
+running average) needs a maintained average-intake estimate this first cut
+doesn't keep. What's here instead — prefer burrowing into powder over
+drifting through open space whenever both are available — captures "the
+worm has a reason to move" without that bookkeeping. Multiple interacting
+creature kinds (Wa-Tor-style predator/prey) and the shared
+resource-gradient primitive for slime/fungus creatures (research file,
+sections 4–5) are explicitly out of scope for this first cut.
+
+A real test-quality bug was caught and fixed while writing this milestone's
+own tests, not by an external review: three tests filled their whole
+terrain grid with sand *before* calling `plant_worm` at a position already
+inside that fill, so `plant_worm_seed`'s `is_empty` guard silently no-op'd
+and no worm was ever created — the tests were passing vacuously (a stone
+wall simply never disturbed can't have been "entered" by a worm that never
+existed). Fixed by explicitly clearing the seed cell before planting in
+each affected test. A second, separate bug in the fire/corpse test: a newly
+formed `corpse` cell (`kind: Powder`) is free to fall *or roll* under
+gravity the instant it's created, in the same CA-sweep frame that created
+it (`fire::update` runs before movement dispatch for the same cell) — a
+floor placed only directly underneath blocked the straight fall but not a
+multi-cell roll onto adjacent open ground followed by a fall from there,
+found via a throwaway diagnostic print rather than by inspection alone.
+
+**Independent review** (the same standing per-milestone practice as
+M5/M13/M16/M17) found one critical bug before commit, confirmed by the
+reviewer's own reproduction and now guarded by a regression test:
+`worm_tick`'s moving branch always rebuilt the worm's cell from scratch
+(`Cell::new(worm_id, ...)`), which silently cleared `FLAG_BURNING` and the
+burn-timer `aux` the instant a burning worm's next scheduled move came due.
+Since `WORM_TICK_INTERVAL` (6 frames) is far shorter than `worm.ron`'s
+`burn_duration` (60), a burning worm normally gets several movement
+decisions during any single burn — this fired in the *ordinary* case, not
+an edge case, and a worm effectively survived every fire it caught simply
+by moving. The established codebase precedent for exactly this situation —
+`structural.rs`'s `if cell.is_burning() { defer, don't touch aux }` guard —
+had not been applied here. Fixed the same way: `worm_tick` now defers
+(reschedules without acting) whenever its own cell is burning, leaving
+`fire.rs` (which runs independently every visited CA frame) to finish
+deciding the worm's fate undisturbed.
+`a_burning_worm_keeps_burning_even_when_its_movement_tick_comes_due` is the
+regression test — deliberately built on open ground rather than sand, since
+a burrowing worm starves from movement cost alone within the test's frame
+budget regardless of the fire bug, which would have made a sand-field
+version of this test pass vacuously either way; verified to actually fail
+without the fix before being kept. A related, lower-severity finding from
+the same review was fixed alongside it: a worm could burrow directly into
+an actively-burning neighbour (candidates were filtered by material kind
+only, never by the target's own `is_burning()` state) — physically backwards
+for a mechanism sold as fire avoidance, though not a crash or data-corruption
+bug. Two smaller, non-blocking observations were also addressed: a
+`debug_assert` guarding `push_creature`'s `u16` index against silent
+wraparound past 65,535 live creatures (unreachable today, cheap to guard
+regardless), and a positive existence assertion added to
+`a_worm_burrows_through_sand_but_never_enters_stone`, which previously only
+checked the stone wall was undisturbed and could have passed vacuously the
+same way the three tests above did, for an unrelated reason, in the future.
+
 ## Performance
 
 Measured by `cargo run --release --example ascii`, which reports the worst
@@ -769,6 +880,11 @@ above; `T`/`M` plant a tree/moss seed at the brush. As of M17, painting or
 erasing `Solid` material (and explosions) reactively checks structural
 support — a stone structure whose span exceeds `max_unsupported_span` from
 any anchor breaks free and falls as loose material — see M17 status above.
+As of M18, a burrowing worm creature moves on its own schedule, eating
+through powder at a cost tied to the target's density, fleeing heat sensed
+through the M13 field, and dying (to fire, via M14's existing mechanism
+unmodified, or to starvation) into a destructible corpse — see M18 status
+above; `W` plants a worm at the brush.
 
 Known limitations:
 
@@ -805,4 +921,5 @@ Known limitations:
 
 Not yet built: Bak–Tang–Wiesenfeld toppling for avalanches, hole-propagation
 granular flow, rigid bodies, character physics, the streaming world,
-creatures, and Lua scripting.
+M18 Phase 2 (Reynolds-steering entities, after M8), multi-creature-kind
+predator/prey dynamics, and Lua scripting.

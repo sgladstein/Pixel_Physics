@@ -84,7 +84,7 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
         MaterialKind::Powder => update_powder(surface, x, y, rightward),
         MaterialKind::Liquid => update_liquid(surface, x, y, rightward),
         MaterialKind::Gas => update_gas(surface, x, y, rightward),
-        MaterialKind::Empty | MaterialKind::Solid | MaterialKind::Plant => false,
+        MaterialKind::Empty | MaterialKind::Solid | MaterialKind::Plant | MaterialKind::Creature => false,
     };
 }
 
