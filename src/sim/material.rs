@@ -141,6 +141,17 @@ pub struct MaterialDef {
     pub boiling_point: f32,
     #[serde(default)]
     pub boils_into: String,
+    /// What this material becomes when its burn timer (`burn_duration`)
+    /// finishes, or empty to simply extinguish and revert to being itself,
+    /// unchanged. Deliberately a separate field from `melts_into` rather than
+    /// reusing it: melting is triggered by *ambient temperature* crossing a
+    /// threshold, independent of whether anything is on fire, while burnout
+    /// is triggered by a *combustion timer* completing. Oil finishing a burn
+    /// and becoming ash is not melting in any sense the `melting_point` field
+    /// is meant to capture, and conflating the two would make one of them lie
+    /// about why the transformation happened.
+    #[serde(default)]
+    pub burns_into: String,
     /// Pairwise reactions with a specific other material — water quenching
     /// lava into stone and steam, that kind of thing. Order matters: `self`
     /// becomes `produces.0`, `with` becomes `produces.1`.
@@ -160,11 +171,23 @@ fn default_never() -> f32 {
     f32::INFINITY
 }
 
-/// A moderate default within the stability margin, so a material that
-/// defines flammability without also tuning conductivity by hand still
-/// conducts heat plausibly rather than being a perfect insulator by accident.
+/// Zero: no diffusion at all unless a material opts in. This is not
+/// physically motivated — a moderate default like 0.15 was tried first, so
+/// every material conducted heat plausibly without having to think about it.
+/// It was also measured to cost real performance for no benefit to most
+/// content: `fire::diffuse_heat` runs for every *visited* CA cell, and a
+/// nonzero conductivity means it cannot take its cheap early exit, so sand
+/// and water — never near fire in ordinary play — paid for four neighbour
+/// reads apiece on every visit anyway. On the sandbox's full-screen stress
+/// scenario that took the worst frame from ~16 ms to ~64 ms. Neighbour-driven
+/// ignition does not need this at all — it checks the boolean `is_burning`
+/// flag on a neighbour, not its diffused temperature — so a material can
+/// still catch fire and spread fire correctly with conductivity left at
+/// zero; only *passive* warming from a non-burning hot neighbour is what a
+/// material gives up by not opting in. Materials that care (oil) set this
+/// explicitly.
 fn default_heat_conductivity() -> f32 {
-    0.15
+    0.0
 }
 
 #[derive(Deserialize, Clone)]
@@ -211,6 +234,7 @@ pub struct Material {
     // the full set to check against.
     melts_into_name: String,
     boils_into_name: String,
+    burns_into_name: String,
     reactions_raw: Vec<ReactionDef>,
 
     /// Resolved by `resolve_references`. Unset (or naming something that
@@ -220,6 +244,7 @@ pub struct Material {
     /// registry load the way a malformed `.ron` file does.
     pub melts_into: Option<MaterialId>,
     pub boils_into: Option<MaterialId>,
+    pub burns_into: Option<MaterialId>,
     pub reactions: Vec<Reaction>,
 }
 
@@ -301,10 +326,12 @@ impl From<MaterialDef> for Material {
             boiling_point: def.boiling_point,
             melts_into_name: def.melts_into,
             boils_into_name: def.boils_into,
+            burns_into_name: def.burns_into,
             reactions_raw: def.reactions,
             // Left unresolved until `resolve_references` runs.
             melts_into: None,
             boils_into: None,
+            burns_into: None,
             reactions: Vec::new(),
         }
     }
@@ -383,6 +410,7 @@ impl MaterialRegistry {
             melts_into: String::new(),
             boiling_point: f32::INFINITY,
             boils_into: String::new(),
+            burns_into: String::new(),
             reactions: Vec::new(),
         }));
         reg.insert(Material::from(MaterialDef {
@@ -402,6 +430,7 @@ impl MaterialRegistry {
             melts_into: String::new(),
             boiling_point: f32::INFINITY,
             boils_into: String::new(),
+            burns_into: String::new(),
             reactions: Vec::new(),
         }));
         reg
@@ -494,6 +523,7 @@ impl MaterialRegistry {
         for material in &mut self.materials {
             material.melts_into = resolve_if_set(&material.melts_into_name);
             material.boils_into = resolve_if_set(&material.boils_into_name);
+            material.burns_into = resolve_if_set(&material.burns_into_name);
             material.reactions = material
                 .reactions_raw
                 .iter()
@@ -658,6 +688,34 @@ mod tests {
         let sand_before = reg.id_of("sand").unwrap();
         reg.reload(ASSET_DIR).unwrap();
         assert_eq!(reg.id_of("sand"), Some(sand_before));
+    }
+
+    #[test]
+    fn oils_burns_into_reference_resolves_to_ash() {
+        let reg = MaterialRegistry::builtin();
+        let oil = reg.get(OIL);
+        assert_eq!(oil.burns_into, Some(ASH));
+        assert!(oil.flammability > 0.0, "oil should actually be flammable");
+        assert!(oil.burn_duration > 0, "oil should burn for a nonzero duration");
+        // melts_into is a different trigger (temperature) from burns_into
+        // (a completed burn timer) and must not have been conflated.
+        assert_eq!(oil.melts_into, None);
+    }
+
+    #[test]
+    fn a_dangling_reference_is_a_quiet_no_op_not_an_error() {
+        let dir = std::env::temp_dir().join("pixel-physics-dangling-ref");
+        std::fs::create_dir_all(&dir).unwrap();
+        let body = "(name: \"unstable\", kind: Powder, density: 1.0, \
+                     colors: [(1, 2, 3)], burns_into: \"phlogiston\")";
+        std::fs::write(dir.join("unstable.ron"), body).unwrap();
+
+        let mut reg = MaterialRegistry::builtin();
+        reg.reload(&dir).expect("a dangling reference should not fail the load");
+        let m = reg.get(reg.id_of("unstable").unwrap());
+        assert_eq!(m.burns_into, None, "a nonexistent target should resolve to None, not panic or error");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

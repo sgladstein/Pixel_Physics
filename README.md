@@ -22,6 +22,7 @@ cargo test
 | `[` / `]` or scroll | Brush size |
 | `Space` | Pause |
 | `.` | Step one frame while paused |
+| `F` | Ignite whatever's under the brush (debug tool — M15 will add real ignition sources) |
 | `F1` | Chunk overlay — green borders are awake, grey are asleep |
 | `F5` | Reload materials by hand |
 | `R` | Reset |
@@ -74,8 +75,10 @@ already use:
 flammability: 0.5,       // chance to ignite per burning neighbour per step
 burn_temperature: 900.0, // what it radiates while on fire
 burn_duration: 180,      // frames
-melts_into: "ash",       // plain string, not Option<String> — see field.rs's
-                          // notes on RON's Some(...) requirement for why
+burns_into: "ash",       // plain string, not Option<String> — see field.rs's
+                          // notes on RON's Some(...) requirement for why.
+                          // burns_into is combustion residue, separate from
+                          // melts_into (temperature-triggered, unrelated to fire)
 ```
 
 ## Architecture
@@ -197,15 +200,86 @@ burn timer while on fire, anchor distance for a solid, growth stage for a
 plant, owner id for a creature. `MaterialDef` gained the M14 schema
 (`flammability`, `ignition_temperature`, `burn_temperature`, `burn_duration`,
 `heat_conductivity`, `melting_point`/`melts_into`,
-`boiling_point`/`boils_into`, `reactions`) — oil is the first material with
-real numbers behind them, burning into ash. Cross-material references
-(`melts_into: "ash"`) are plain `String`, not `Option<String>` — RON requires
-an explicit `Some(...)` wrapper for a present `Option` value, which is
-friction with no payoff for a field that is simply absent (empty string) most
-of the time. Resolution from name to `MaterialId` happens in a dedicated pass
-after every material in a reload batch is known, since a material can
-reference one that has not been parsed yet, or one from an earlier load this
-reload never touches.
+`boiling_point`/`boils_into`, `burns_into`, `reactions`) — oil is the first
+material with real numbers behind them, burning into ash. Cross-material
+references (`melts_into: "ash"`) are plain `String`, not `Option<String>` —
+RON requires an explicit `Some(...)` wrapper for a present `Option` value,
+which is friction with no payoff for a field that is simply absent (empty
+string) most of the time. Resolution from name to `MaterialId` happens in a
+dedicated pass after every material in a reload batch is known, since a
+material can reference one that has not been parsed yet, or one from an
+earlier load this reload never touches.
+
+## M14 status
+
+Heat, fire, phase change and reactions, in [`src/sim/fire.rs`](src/sim/fire.rs) —
+called once per visited CA cell, before movement, so a phase change lands
+before the same frame's movement dispatch decides how the cell behaves.
+
+**Neighbour-driven ignition is rolled fresh every frame, not keyed on
+position like `roll_reach_at`, and this is safe for a different reason than
+it looks.** `roll_reach_at` had to be position-stable because a lone rolling
+grain's own dice was the only thing keeping its chunk awake — an unlucky roll
+could let the chunk sleep and freeze it permanently. A burning neighbour is
+different: it keeps re-dirtying *its own* position every frame for as long as
+it burns (independent of what this cell's ignition roll says), which keeps
+this cell's chunk awake regardless. An unlucky roll this frame just means
+another one next frame, for as long as the fire lasts.
+
+**Residual heat needed the same class of fix `roll_reach_at` needed, applied
+to temperature.** A cell warmer than ambient has nothing external re-dirtying
+it, so it must keep writing itself while unsettled — `THERMAL_SETTLE_EPSILON`
+governs when it stops. Naively rounding the diffused temperature hit a real
+numerical fixed point a few degrees short of equilibrium (21.6 rounds to 22,
+which pulls toward 20 by only −0.4, which rounds right back to 22) — caught by
+a test that ran 5000 frames waiting for a 200° cell to reach ambient and it
+never did. Fixed by guaranteeing at least one degree of progress whenever the
+raw (unrounded) pull is real but rounds away to nothing.
+
+**The field coupling in `diffuse_heat` was tried, measured, and removed.**
+Pulling every visited cell toward the field's ambient temperature made a
+sleeping cell's residual heat converge to true ambient — but `diffuse_heat`
+only ever runs for a *visited* cell, and a sleeping chunk's cells are by
+definition not visited, so the mechanism never fired for the case it was
+built for. It also cost a `HashMap` lookup per visited CA cell: on the
+sandbox's full-screen stress scenario that took the worst frame from ~16 ms to
+~64 ms. Removed; CA-neighbour diffusion alone already converges a visited,
+isolated hot cell to exact ambient, since an untouched neighbour reads
+`Cell::EMPTY`'s ambient default. The coupling that *is* still needed — so the
+field actually reflects nearby fire, for later milestones that read ambient
+temperature or light — is pushed from burning cells instead
+(`World::add_heat`, called from `tick_burn`), a naturally small, bounded set
+at any moment rather than every swept cell.
+
+**`heat_conductivity` defaults to 0.0, not a moderate always-on value.** A
+default of 0.15 was tried first, so every material conducted heat plausibly
+without a content author having to think about it — but `diffuse_heat` runs
+for every visited cell, and nonzero conductivity means it cannot take its
+cheap early exit. Sand and water, never near fire in ordinary play, were
+paying for four neighbour reads apiece on every visit for no reason; that
+was a further, separate contributor to the same regression above. Only oil
+(and ash, its `burns_into` target — see the comment in `ash.ron` for why a
+combustion *byproduct* specifically must not default to zero, or the heat it
+inherits has nowhere to go and its chunk never sleeps) opt in explicitly.
+**Any future material that can be the target of `burns_into`, `melts_into`,
+`boils_into`, or a reaction needs a real `heat_conductivity` for the same
+reason.**
+
+**Screenshotting the live app doesn't work on this machine** — found while
+trying to visually confirm the fire tint below. This build's DXGI/wgpu
+swapchain is invisible to Windows screen capture: neither
+BitBlt/CopyFromScreen nor PrintWindow(PW_RENDERFULLCONTENT) can see the
+client area, both returning solid black while the window chrome captures
+fine. Worked around by having the app dump its own in-memory framebuffer
+directly (`PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=<n>`, see
+`save_framebuffer_png` in `src/main.rs`) — no OS capture involved. This is
+what actually confirmed burning oil renders with a visible orange tint
+(`render.rs`, a flat blend toward fire colour — not real emissive
+lighting/bloom, which stays M6's job).
+
+Burning cells render with that flat tint so M14's work is visible at all
+before M6 exists; press `F` over painted material in the live app to ignite it
+(a debug tool — M15 gives explosions a more physical ignition source).
 
 ## Performance
 
@@ -214,10 +288,22 @@ single frame of each scenario.
 
 Ordinary scenes — a pile, a pour, a pool — cost well under 1 ms per frame, and
 a settled world costs nothing at all. Filling the sandbox's full 512×320 world
-with sand and water, all moving at once, costs a **worst frame of about 16 ms**
-against a 16.6 ms budget at 60 Hz for the CA sweep alone; adding the field
-step every frame on top of that (which the live app now does) brings the same
-worst case to **about 21 ms**.
+with sand and water, all moving at once, costs a **worst frame of about 23 ms**
+against a 16.6 ms budget at 60 Hz for the CA sweep (which now includes M14's
+fire/heat pass on every visited cell) alone; adding the field step every frame
+on top of that (which the live app does) brings the same worst case to
+**about 28 ms**.
+
+That fire/heat pass cost real, measured performance getting to this point —
+worth knowing the shape of, since the same mistake is easy to make again in
+M16/M17/M18, which all add their own per-cell work to the same sweep. The
+worst version (coupling every visited cell to the M13 field) cost the CA-only
+figure ~64 ms; removing that and defaulting `heat_conductivity` to zero (see
+M14 status above) brought it back down to ~23 ms — still meaningfully above
+the pre-M14 baseline of ~16 ms, because even a cheap early-exit check is not
+free run 10⁵ times a frame. The lesson for future milestones: a check that is
+individually cheap is not free at CA-sweep scale, and the sweep does not have
+headroom left to spend carelessly.
 
 So a completely full screen of moving material, with something actively
 disturbing the field at the same time, is over budget with no headroom.
@@ -231,26 +317,37 @@ the figure badly.
 ## Status
 
 Working: the cellular automaton core, chunked world with dirty-rectangle
-sleeping, seven materials loaded from data with hot reload (oil now flammable,
-burning into ash), angle of repose from a friction angle, density-driven
-displacement and layering, a capsule-swept brush that emits loose material as
-a stream, the coarse pressure/velocity/temperature/light field grid, and the
-sandbox.
+sleeping, seven materials loaded from data with hot reload, angle of repose
+from a friction angle, density-driven displacement and layering, a
+capsule-swept brush that emits loose material as a stream, the coarse
+pressure/velocity/temperature/light field grid, and — new in M14 — heat
+diffusion, neighbour- and temperature-driven ignition, burnout into a
+material-defined byproduct, temperature-triggered melting/boiling, pairwise
+reactions, and a fire tint in the renderer. Oil is the one shipped material
+with real combustion numbers, burning into ash; `F` force-ignites the brush
+area as a debug tool.
 
 Known limitations:
 
 - **Repose angles come out a few degrees shallower than requested** — roughly
   39/30/18 against 45/34/22 — because reach is a whole number of cells. Fine as
   a tuning knob, not a physical measurement.
-- **The field grid does not affect CA cells yet, and nothing burns.** The
-  schema and the burn-timer mechanics on `Cell` exist; the update logic that
-  reads them — ignition, heat exchange with the field, phase changes — is
-  M14's job, not built yet.
+- **Only oil and ash have real thermal numbers.** Every other shipped material
+  defaults to non-flammable, non-meltable, `heat_conductivity: 0.0` — correct
+  for sand/water/stone/gravel/smoke, which have no business catching fire, but
+  it means there is exactly one flammable material to watch burn right now.
+  Lava, steam and richer reactions are natural M15+ additions once there is a
+  reason (explosions) to want them.
 - **A saturated screen plus an active field disturbance is over the 60 Hz
-  budget** — see Performance above. Multithreading (planned, not built) is the
-  answer once this becomes the normal case rather than a stress test.
+  budget, more so after M14** — see Performance above. Multithreading
+  (planned, not built) is the answer once this becomes the normal case rather
+  than a stress test.
+- **Windows screen capture cannot see this app's rendered canvas on this
+  machine** — see M14 status above for the workaround. Worth re-checking
+  whether this is machine-specific before assuming every future visual
+  milestone needs the in-app framebuffer dump instead of the normal
+  screenshot script.
 
 Not yet built: Bak–Tang–Wiesenfeld toppling for avalanches, hole-propagation
-granular flow, fire and reactions (the update logic; the data model exists),
-explosions, multithreading, free particles, rigid bodies, character physics,
-the streaming world, and Lua scripting.
+granular flow, explosions, multithreading, free particles, rigid bodies,
+character physics, the streaming world, and Lua scripting.

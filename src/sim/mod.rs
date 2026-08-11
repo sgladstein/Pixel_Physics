@@ -11,12 +11,15 @@
 //!   bound by `MAX_REACH`
 //! * `world` — the sparse chunk map and the `get`/`set` seam
 //! * `update` — the cellular automaton step
+//! * `fire` — heat diffusion, ignition, burnout and phase changes (M14),
+//!   called once per visited cell from inside the sweep
 //!
 //! Nothing below `update` knows about rendering, windowing or input.
 
 pub mod cell;
 pub mod chunk;
 pub mod field;
+pub mod fire;
 pub mod material;
 pub mod rng;
 pub mod update;

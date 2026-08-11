@@ -12,6 +12,7 @@
 //! physically grounded model (friction angle, BTW toppling, hole propagation).
 
 use super::chunk::{Rect, MAX_REACH};
+use super::fire;
 use super::material::MaterialKind;
 use super::world::World;
 
@@ -51,10 +52,28 @@ fn update_cell(world: &mut World, x: i32, y: i32, rightward: bool) {
 
     // Arrived here during this sweep. Skip it once so it cannot travel twice in
     // one frame, and clear the flag so it moves normally from here on.
+    //
+    // Heat and fire (M14) are skipped on this path too, not just movement —
+    // deliberately, so every cell gets at most one fire::update call per
+    // frame regardless of movement history. Letting a revisited cell get a
+    // second call would tick its burn timer twice as fast as an otherwise
+    // identical cell that happened not to move that frame. A cell skipped
+    // this way simply gets its heat/fire update one frame later, on its next
+    // ordinary visit — the same negligible deferral movement itself already
+    // accepts here.
     if cell.moved() {
         world.clear_moved(x, y);
         return;
     }
+
+    // Before movement: a phase change (stone crossing its melting point) must
+    // land before this frame's movement dispatch decides how the cell
+    // behaves, or it would move as stone for one more frame after already
+    // having become lava. `fire::update` may have changed the cell's
+    // material, flags or temperature, so it is re-read from the world rather
+    // than reusing the `cell` bound above.
+    fire::update(world, x, y);
+    let cell = world.get(x, y);
 
     match world.materials.kind(cell.material) {
         MaterialKind::Powder => update_powder(world, x, y, rightward),
@@ -621,6 +640,53 @@ mod tests {
         w.paint_circle(64, 10, 4, material::SAND);
         step(&mut w);
         assert!(w.active_chunk_count() > 0, "painting did not wake the world");
+    }
+
+    #[test]
+    fn a_burning_cell_never_lets_its_chunk_sleep_until_it_burns_out() {
+        // M14's version of the same invariant class as
+        // `settled_sand_is_never_left_unsupported`: something that still has
+        // work to do must never be allowed to fall asleep. A static burning
+        // solid has no movement to keep its chunk dirty, so this is entirely
+        // dependent on fire::update's own writes doing that job — through the
+        // real sweep (`step`), not a direct `fire::update` call, since the
+        // property under test is about the scheduler, not the fire logic
+        // itself.
+        let mut w = world_with_floor();
+        // A small basin, or the oil (a liquid) would simply fall the 67
+        // cells to the floor and flow away before the first check below ever
+        // runs — the fixed position being checked has to actually hold it.
+        w.set(63, 61, Cell::new(material::STONE, 0));
+        w.set(64, 61, Cell::new(material::STONE, 0));
+        w.set(65, 61, Cell::new(material::STONE, 0));
+        w.set(62, 60, Cell::new(material::STONE, 0));
+        w.set(66, 60, Cell::new(material::STONE, 0));
+        let mut burning = Cell::new(material::OIL, 0);
+        burning.ignite(60); // 1 second at 60 fps
+        w.set(64, 60, burning);
+
+        let mut still_burning_frames = 0;
+        for _ in 0..120 {
+            step(&mut w);
+            if w.get(64, 60).is_burning() || w.get(64, 60).material == material::OIL {
+                assert!(
+                    w.active_chunk_count() > 0,
+                    "chunk slept while oil was still burning or unburnt-but-hot"
+                );
+                still_burning_frames += 1;
+            }
+        }
+        assert!(still_burning_frames > 0, "test setup did not actually observe any burning frames");
+
+        // And it must eventually settle once burnout completes and residual
+        // heat converges — not stay awake forever either.
+        run(&mut w, 2000);
+        assert_eq!(
+            w.active_chunk_count(),
+            0,
+            "world never settled after the fire burned out"
+        );
+        assert_eq!(w.get(64, 60).material, material::ASH, "oil should have burned out into ash");
     }
 
     #[test]

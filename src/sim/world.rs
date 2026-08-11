@@ -276,6 +276,37 @@ impl World {
         self.paint_capsule((cx, cy), (cx, cy), radius, material, 1.0);
     }
 
+    /// Force-ignite every non-empty cell in a filled circle. A debug/testing
+    /// tool for triggering fire without waiting on a spontaneous ignition
+    /// source — M15 explosions will have their own, more physical way to
+    /// start fires; this exists so M14's fire mechanics can be exercised and
+    /// watched in the live app before that lands.
+    ///
+    /// Ignoring `material.flammability` entirely and always using a fallback
+    /// duration when `burn_duration` is unset (0) is deliberate for a debug
+    /// tool: it should light *anything*, including a material nobody has
+    /// tuned combustion numbers for yet, rather than silently doing nothing
+    /// and leaving whoever pressed the key wondering if it's broken.
+    pub fn ignite_circle(&mut self, cx: i32, cy: i32, radius: i32) {
+        const FALLBACK_DURATION: u16 = 180;
+        let r2 = radius * radius;
+        for y in (cy - radius)..=(cy + radius) {
+            for x in (cx - radius)..=(cx + radius) {
+                let (dx, dy) = (x - cx, y - cy);
+                if dx * dx + dy * dy > r2 {
+                    continue;
+                }
+                let mut cell = self.get(x, y);
+                if cell.is_empty() || cell.is_burning() {
+                    continue;
+                }
+                let duration = self.materials.get(cell.material).burn_duration;
+                cell.ignite(if duration > 0 { duration } else { FALLBACK_DURATION });
+                self.set(x, y, cell);
+            }
+        }
+    }
+
     /// Paint the area swept by a circular brush travelling from `a` to `b`.
     ///
     /// Sweeping a capsule rather than stamping a circle at interpolated points

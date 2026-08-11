@@ -1,11 +1,22 @@
 // Fine and light, so it slumps almost flat and drifts through water rather
 // than dropping straight down.
+//
+// This is oil's burns_into target, which makes heat_conductivity mandatory
+// here even though most materials leave it at its 0.0 default: ash inherits
+// whatever temperature the fire that produced it was burning at (900C for
+// oil), and with zero conductivity that heat would have nowhere to go —
+// permanently stuck above THERMAL_SETTLE_EPSILON, keeping its chunk awake
+// forever. Any material that can end up as the target of burns_into,
+// melts_into, boils_into, or a reaction needs a real value here for the same
+// reason; only materials that can never receive elevated temperature this
+// way are safe to leave at the default.
 (
     name: "ash",
     display: "Ash",
     kind: Powder,
     density: 1.1,
     friction_angle: 22.0,
+    heat_conductivity: 0.1,
     colors: [
         (86, 82, 80),
         (98, 94, 92),

@@ -53,7 +53,25 @@ impl Renderer {
         let palette = &world.materials.get(cell.material).palette;
         // Modulo keeps any shade value valid, so a palette can shrink on hot
         // reload in M3 without invalidating cells already in the world.
-        palette[cell.shade as usize % palette.len()]
+        let base = palette[cell.shade as usize % palette.len()];
+
+        // A flat tint toward fire colour for a burning cell — not the real
+        // emissive lighting/bloom M6 owns (nothing here casts light onto
+        // neighbours, and there is no glow), just enough that M14's fire is
+        // visually distinguishable from the material it is consuming while
+        // that milestone's proper GPU lighting pipeline does not exist yet.
+        // Blends further toward pure fire colour as the burn timer runs
+        // down, purely cosmetic — burn_remaining has no real duration to
+        // compare against here since that is material-specific, so this
+        // reads as "hotter looking" rather than "correctly timed."
+        if cell.is_burning() {
+            const FIRE: [u8; 3] = [255, 140, 40];
+            let t = 0.6;
+            let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
+            [lerp(base[0], FIRE[0]), lerp(base[1], FIRE[1]), lerp(base[2], FIRE[2]), 255]
+        } else {
+            base
+        }
     }
 
     fn draw_chunk_overlay(&self, world: &World, frame: &mut [u8], width: u32, height: u32) {

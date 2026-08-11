@@ -151,6 +151,14 @@ impl App {
             .paint_capsule(from, to, self.brush_radius, m, density);
     }
 
+    /// Force-ignite the brush area at a screen position. See
+    /// `World::ignite_circle` for why this exists as a debug tool ahead of
+    /// M15's more physical ignition sources.
+    pub fn ignite(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        self.world.ignite_circle(x, y, self.brush_radius);
+    }
+
     /// How much of the brush to fill per application.
     ///
     /// Loose material is emitted as a scatter so a held brush looks like a

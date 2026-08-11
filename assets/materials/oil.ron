@@ -24,5 +24,10 @@
     flammability: 0.5,
     burn_temperature: 900.0,
     burn_duration: 180,
-    melts_into: "ash", // RON: bare string is fine — this is a plain String field, not Option<String>
+    burns_into: "ash", // combustion residue, not a temperature-triggered melt
+    // Explicit, unlike most materials: heat_conductivity defaults to 0 (see
+    // material.rs) since diffusion cost real performance for materials that
+    // never touch fire. Oil does, so it opts in — under the 0.25 stability
+    // ceiling with margin, since it also holds a real physical value.
+    heat_conductivity: 0.2,
 )

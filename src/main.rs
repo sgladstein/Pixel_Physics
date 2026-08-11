@@ -61,6 +61,20 @@ struct Handler {
     /// When a change was last noticed, for debouncing a burst of writes.
     pending_reload: Option<Instant>,
 
+    /// Counts down real rendered frames until a one-shot framebuffer PNG
+    /// dump, set from `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES`; `None` means
+    /// not requested, and it is cleared to `None` again once fired so it
+    /// never repeats. Exists because this build's DXGI/wgpu swapchain is not
+    /// visible to Windows screen capture — neither BitBlt/CopyFromScreen nor
+    /// PrintWindow(PW_RENDERFULLCONTENT) could see the client area, both
+    /// capturing solid black while the window chrome captured fine — so
+    /// getting a look at an actual rendered scene means dumping the
+    /// framebuffer the app already holds in memory, with no OS capture API
+    /// involved. `scripts/screenshot.ps1` still works for confirming the
+    /// window exists, is titled correctly, and reports sane fps/state
+    /// through its title bar; it just cannot see the canvas.
+    screenshot_countdown: Option<u32>,
+
     /// Cursor position in framebuffer pixels, `None` while outside the window.
     cursor: Option<(i32, i32)>,
     /// Previous painted position, so a drag paints a continuous stroke.
@@ -85,6 +99,9 @@ impl Handler {
             _watcher: watcher,
             material_events,
             pending_reload: None,
+            screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES")
+                .ok()
+                .and_then(|s| s.parse().ok()),
             cursor: None,
             last_paint: None,
             painting: false,
@@ -155,6 +172,14 @@ impl Handler {
         let render_error = match &mut self.pixels {
             Some(pixels) => {
                 self.app.draw(pixels.frame_mut());
+                if let Some(n) = self.screenshot_countdown {
+                    if n <= 1 {
+                        self.screenshot_countdown = None;
+                        save_framebuffer_png(pixels.frame(), WIDTH, HEIGHT);
+                    } else {
+                        self.screenshot_countdown = Some(n - 1);
+                    }
+                }
                 pixels.render().err()
             }
             None => None,
@@ -195,6 +220,11 @@ impl Handler {
             KeyCode::KeyR => self.app.reset(),
             KeyCode::F1 => self.app.toggle_overlay(),
             KeyCode::F5 => self.app.reload_materials(),
+            KeyCode::KeyF => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.ignite(x, y);
+                }
+            }
             KeyCode::BracketLeft => self.app.adjust_brush(-2),
             KeyCode::BracketRight => self.app.adjust_brush(2),
             KeyCode::KeyQ => self.app.cycle_material(-1),
@@ -353,5 +383,23 @@ fn watch_materials() -> (Option<RecommendedWatcher>, Option<Receiver<()>>) {
         // No assets directory beside the binary. The compiled-in materials are
         // already loaded, and F5 still works if one appears later.
         Err(_) => (None, None),
+    }
+}
+
+/// Dumps the framebuffer `pixels` already holds in memory straight to a PNG.
+/// See the doc comment on `Handler::screenshot_countdown` for why this exists
+/// rather than an external screen-capture tool.
+///
+/// Usage: run with `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=<n>` set, and after
+/// `n` real rendered frames a PNG lands at
+/// `%TEMP%\pixel_physics_screenshot.png`. Combine with whatever brush/paint/
+/// ignite calls are needed to set up the scene worth looking at first — there
+/// is no built-in scene-scripting hook, so that part is still a manual edit
+/// here for now.
+fn save_framebuffer_png(rgba: &[u8], width: u32, height: u32) {
+    let path = std::env::temp_dir().join("pixel_physics_screenshot.png");
+    match image::save_buffer(&path, rgba, width, height, image::ColorType::Rgba8) {
+        Ok(()) => eprintln!("screenshot saved: {}", path.display()),
+        Err(e) => eprintln!("screenshot failed: {e}"),
     }
 }
