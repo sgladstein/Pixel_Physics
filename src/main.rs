@@ -230,6 +230,11 @@ impl Handler {
                     self.app.spawn_burst(x, y);
                 }
             }
+            KeyCode::KeyX => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.explode(x, y);
+                }
+            }
             KeyCode::BracketLeft => self.app.adjust_brush(-2),
             KeyCode::BracketRight => self.app.adjust_brush(2),
             KeyCode::KeyQ => self.app.cycle_material(-1),

@@ -23,7 +23,8 @@ cargo test
 | `Space` | Pause |
 | `.` | Step one frame while paused |
 | `F` | Ignite whatever's under the brush (debug tool — M15 will add real ignition sources) |
-| `P` | Throw a burst of the selected material as free particles (debug tool for M7 — M15 will spawn these from real explosions) |
+| `P` | Throw a burst of the selected material as free particles (debug tool for M7) |
+| `X` | Trigger an explosion at the brush radius (M15) |
 | `F1` | Chunk overlay — green borders are awake, grey are asleep |
 | `F5` | Reload materials by hand |
 | `R` | Reset |
@@ -94,6 +95,7 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                one tile per chunk, its own frame phase
   fire.rs      heat, ignition, burnout, phase change, reactions
   particle.rs  free (off-grid) particles for explosions and splashes
+  explosion.rs pressure impulse + heat spike + debris, built from the above
   world.rs     the sparse chunk map and the get/set seam
   update.rs    the cellular automaton step
 src/render.rs  cells to pixels
@@ -313,6 +315,50 @@ Press `P` over painted material in the live app to throw a burst of it as
 particles (debug tool, ahead of M15 giving explosions a real reason to call
 `ParticleSystem::spawn`).
 
+## M15 status
+
+Explosions, in [`src/sim/explosion.rs`](src/sim/explosion.rs) —
+`explosion::trigger`, built entirely from M13/M14/M7 triggered together, no
+new simulation primitive. Per the plan: a pressure impulse and heat spike
+into the field, then a radius of cells converted to thrown debris or vacuum
+(a chance that falls off toward the edge — a direct hit at the centre
+reliably throws debris, the outer rim of the same blast mostly just clears
+without launching anything), then a fireball ignites the intact ring just
+*beyond* the clearing radius. Press `X` over anything in the live app to
+trigger one at the brush radius.
+
+**Debris velocity comes from the local pressure gradient, not a naive radial
+burst** — the one piece of physical grounding the plan specifically called
+for, so a blast throws material away from the centre and *around corners*,
+venting along a corridor rather than through its walls. Read directly from
+the field the instant after the impulse is injected, before the field has
+taken a single `field::step` of its own — the impulse has not propagated
+anywhere yet at that point, so what actually produces the corner-aware shape
+is checking `field_is_blocked` at each of the four neighbours and excluding a
+blocked one from the gradient, the same exclusion `step_velocity` applies,
+just computed directly here rather than waiting a frame for the field to do
+it. A regression test walls off a corridor and confirms debris on the near
+side never gets a strong push toward/through it.
+
+**A real ordering bug, caught immediately by a test rather than shipped
+quietly wrong.** The first version ran the fireball ignition *before*
+clearing the blast radius — and the clearing step then unconditionally wiped
+every cell in that same, larger radius to vacuum or debris, silently erasing
+the fire it had just set. Fixed by moving ignition to target a ring *beyond*
+the clearing radius instead of a smaller circle within it — which is also the
+more sensible design regardless of the bug, since a fireball inside a hole
+has nothing left to burn.
+
+**Known simplification, left as such rather than fixed tonight**: the
+fireball reuses `World::ignite_circle`, the M14 debug force-ignite tool,
+which sets *any* material burning regardless of its `flammability` — a stone
+wall next to a blast currently gets the same fire tint oil would, rather than
+being immune the way `flammability: 0.0` says it should be. Visually this
+reads as "the blast leaves the surroundings glowing hot," which is not
+unreasonable for a first cut; a version that actually checks flammability
+(closer to `fire::try_ignite`'s temperature-driven path) would be the more
+correct fix.
+
 ## Performance
 
 Measured by `cargo run --release --example ascii`, which reports the worst
@@ -355,11 +401,15 @@ capsule-swept brush that emits loose material as a stream, the coarse
 pressure/velocity/temperature/light field grid, heat diffusion,
 neighbour- and temperature-driven ignition, burnout into a material-defined
 byproduct, temperature-triggered melting/boiling, pairwise reactions, a fire
-tint in the renderer, and — new in M7 — free particles with gravity and
-tunnelling-safe collision for debris that needs a real ballistic arc, landing
-back into the CA grid as a normal cell. Oil is the one shipped material with
-real combustion numbers, burning into ash; `F` force-ignites the brush area
-and `P` throws a burst of particles, both debug tools ahead of M15.
+tint in the renderer, free particles with gravity and tunnelling-safe
+collision for debris that needs a real ballistic arc, and — new in M15 —
+explosions that combine all of the above: a pressure impulse and heat spike
+into the field, a crater of thrown debris with corner-aware velocity from the
+local pressure gradient, and a fireball igniting the intact ring around the
+blast. Oil is the one shipped material with real combustion numbers, burning
+into ash; `F`/`P`/`X` force-ignite, throw a particle burst, and trigger an
+explosion at the brush, all debug tools standing in for gameplay triggers
+that don't exist yet.
 
 Known limitations:
 
@@ -370,8 +420,11 @@ Known limitations:
   defaults to non-flammable, non-meltable, `heat_conductivity: 0.0` — correct
   for sand/water/stone/gravel/smoke, which have no business catching fire, but
   it means there is exactly one flammable material to watch burn right now.
-  Lava, steam and richer reactions are natural M15+ additions once there is a
-  reason (explosions) to want them.
+  Lava, steam and richer reactions are natural additions once there is a
+  design reason to want them.
+- **Explosions ignite anything nearby regardless of flammability** — see M15
+  status above. Reuses the debug force-ignite tool rather than a
+  flammability-respecting path; stone glows the same as oil would.
 - **A saturated screen plus an active field disturbance is over the 60 Hz
   budget, more so after M14** — see Performance above. Multithreading
   (planned, not built) is the answer once this becomes the normal case rather
@@ -383,5 +436,5 @@ Known limitations:
   screenshot script.
 
 Not yet built: Bak–Tang–Wiesenfeld toppling for avalanches, hole-propagation
-granular flow, explosions, multithreading, rigid bodies, character physics,
-the streaming world, and Lua scripting.
+granular flow, multithreading, rigid bodies, character physics, the streaming
+world, and Lua scripting.

@@ -168,8 +168,10 @@ impl App {
 
     /// Throw a small burst of the selected material as free particles from a
     /// screen position — a debug tool for M7 the same way `ignite` is for
-    /// M14, ahead of M15 giving explosions a reason to call
-    /// `ParticleSystem::spawn` for real.
+    /// M14. `explode` below is the real, physically-grounded reason
+    /// `ParticleSystem::spawn` exists; this stays as a cheaper, more
+    /// predictable way to sanity-check particle rendering/physics on their
+    /// own, without a field impulse or CA destruction mixed in.
     pub fn spawn_burst(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         let material = self.selected_material();
@@ -192,6 +194,16 @@ impl App {
                 shade,
             );
         }
+    }
+
+    /// Trigger an explosion at a screen position, using the brush radius and
+    /// a fixed strength. See `sim::explosion::trigger` for what this actually
+    /// does — a pressure impulse and heat spike into the field, plus a
+    /// radius of cells converted to thrown debris or vacuum.
+    pub fn explode(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        const STRENGTH: f32 = 180.0;
+        crate::sim::explosion::trigger(&mut self.world, &mut self.particles, x, y, self.brush_radius, STRENGTH);
     }
 
     /// How much of the brush to fill per application.

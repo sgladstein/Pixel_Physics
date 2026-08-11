@@ -15,11 +15,14 @@
 //!   called once per visited cell from inside the sweep
 //! * `particle` — free (off-grid) particles for explosions and splashes
 //!   (M7), a separate system from the CA grid entirely
+//! * `explosion` — M15, built entirely from `field`, `fire` and `particle`
+//!   triggered together; no new simulation primitive of its own
 //!
 //! Nothing below `update` knows about rendering, windowing or input.
 
 pub mod cell;
 pub mod chunk;
+pub mod explosion;
 pub mod field;
 pub mod fire;
 pub mod material;
