@@ -1,0 +1,16 @@
+// Coarse and angular, so it holds a much steeper slope than sand and barely
+// spreads at all. Exists mainly to make the friction angle visible: paint a
+// pile of each side by side and the difference is obvious.
+(
+    name: "gravel",
+    display: "Gravel",
+    kind: Powder,
+    density: 1.9,
+    friction_angle: 45.0,
+    colors: [
+        (122, 116, 108),
+        (140, 133, 124),
+        (104, 99, 92),
+        (131, 124, 114),
+    ],
+)

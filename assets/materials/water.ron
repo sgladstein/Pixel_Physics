@@ -1,0 +1,14 @@
+// Dispersion is how far a liquid may travel sideways in one step. Higher looks
+// runnier and settles flat faster; lower looks viscous.
+(
+    name: "water",
+    display: "Water",
+    kind: Liquid,
+    density: 1.0,
+    dispersion: 5,
+    colors: [
+        (64, 116, 208),
+        (58, 108, 198),
+        (72, 126, 218),
+    ],
+)

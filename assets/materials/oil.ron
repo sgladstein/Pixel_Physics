@@ -1,0 +1,15 @@
+// Lighter than water, so it floats on top of it, and thicker, so it spreads
+// more slowly. The density ordering against water and sand is what makes
+// layering work: oil 0.8 < water 1.0 < sand 1.6.
+(
+    name: "oil",
+    display: "Oil",
+    kind: Liquid,
+    density: 0.8,
+    dispersion: 2,
+    colors: [
+        (70, 58, 40),
+        (82, 68, 46),
+        (60, 50, 34),
+    ],
+)

@@ -1,0 +1,13 @@
+// Lighter than air, so it rises through everything and pools at the ceiling.
+(
+    name: "smoke",
+    display: "Smoke",
+    kind: Gas,
+    density: 0.1,
+    dispersion: 3,
+    colors: [
+        (84, 84, 88),
+        (96, 96, 100),
+        (72, 72, 76),
+    ],
+)

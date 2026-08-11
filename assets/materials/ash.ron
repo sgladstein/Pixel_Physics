@@ -1,0 +1,15 @@
+// Fine and light, so it slumps almost flat and drifts through water rather
+// than dropping straight down.
+(
+    name: "ash",
+    display: "Ash",
+    kind: Powder,
+    density: 1.1,
+    friction_angle: 22.0,
+    colors: [
+        (86, 82, 80),
+        (98, 94, 92),
+        (74, 71, 69),
+        (92, 87, 84),
+    ],
+)

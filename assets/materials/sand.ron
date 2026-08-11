@@ -1,0 +1,16 @@
+// Angle of repose is the parameter that decides what a powder looks like at
+// rest. Dry sand sits at roughly 34 degrees; raise this toward 45 for a
+// sharper, more brittle pile, lower it for something that spreads out flat.
+(
+    name: "sand",
+    display: "Sand",
+    kind: Powder,
+    density: 1.6,
+    friction_angle: 34.0,
+    colors: [
+        (222, 196, 128),
+        (212, 184, 116),
+        (232, 208, 142),
+        (204, 176, 110),
+    ],
+)
