@@ -359,6 +359,48 @@ unreasonable for a first cut; a version that actually checks flammability
 (closer to `fire::try_ignite`'s temperature-driven path) would be the more
 correct fix.
 
+## M5/M6 deferral
+
+Both skipped for tonight's unattended run, in the plan's own stated order
+(M6, then M5), and picked back up at M16 instead. Neither is abandoned —
+this is a note for the next supervised session, not a design decision.
+
+**M6 (rendering upgrade — dirty-region texture uploads, custom wgpu pipeline
+for emissive light and bloom)** needs live visual judgment of a bloom kernel
+and light falloff that the framebuffer-dump technique can confirm *exists*
+but not confirm *looks right*. Low risk to correctness, high risk of shipping
+something ugly unreviewed.
+
+**M5 (multithreading)** is the real one, and got real architectural analysis
+before being set aside. The plan's own spec is a 4-pass checkerboard —
+chunk `(cx, cy)` in group `(cx % 2, cy % 2)` — on the reasoning that two
+chunks in the same group are never adjacent, even diagonally. Worked through
+the arithmetic: `MAX_REACH` is 32, exactly half of `CHUNK_SIZE` (64), so for
+the one case that matters — two same-group chunks both reaching into a
+shared intermediate chunk — their writes are provably cell-disjoint (one
+gets cells 0–31, the other 32–63). Cell-level, that holds up.
+
+Where it stops holding up: the shared intermediate chunk's *dirty-rect and
+sleep state* — not its cells — would still need concurrent mutation from
+both threads in that scenario, and that's unsound regardless of how clean
+the cell split is. Fixing it needs either sub-chunk slicing (more unsafe,
+keeps the 4-pass scheme) or a 9-pass mod-3 grouping (simpler invariant,
+whole-chunk exclusive ownership, less parallelism per pass). Either way,
+every movement and fire rule currently takes `&mut World` directly, and
+threading either scheme safely means routing all of them through a new
+"chunk neighbourhood view" abstraction first — a real refactor of the
+sweep's access pattern, not an additive change.
+
+The plan calls this out itself as "the one `unsafe` seam in the codebase,"
+to be verified under Miri before it ships. That's a correctness bar worth
+holding to deliberately, with a human able to look at the result, rather
+than rushing unattended — the failure mode is memory corruption, not a
+wrong pixel. [Performance](#performance) below is the number that will say
+when this stops being optional: currently ~28 ms worst-frame against a
+16.6 ms budget only in the saturated case (full screen of moving material
+*and* an active field disturbance at once), comfortably under budget for
+everything short of that.
+
 ## Performance
 
 Measured by `cargo run --release --example ascii`, which reports the worst
@@ -427,8 +469,8 @@ Known limitations:
   flammability-respecting path; stone glows the same as oil would.
 - **A saturated screen plus an active field disturbance is over the 60 Hz
   budget, more so after M14** — see Performance above. Multithreading
-  (planned, not built) is the answer once this becomes the normal case rather
-  than a stress test.
+  (planned, not built — see [M5/M6 deferral](#m5m6-deferral)) is the answer
+  once this becomes the normal case rather than a stress test.
 - **Windows screen capture cannot see this app's rendered canvas on this
   machine** — see M14 status above for the workaround. Worth re-checking
   whether this is machine-specific before assuming every future visual
