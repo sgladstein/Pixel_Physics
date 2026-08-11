@@ -10,9 +10,11 @@
 //! `X` marks sand the movement rules say should still be falling. A settled
 //! world must show none; any that appear are cells the sweep stopped examining.
 
+use pixel_physics::render::Renderer;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::field::FIELD_SCALE;
 use pixel_physics::sim::material::{self, MaterialId};
+use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::{parallel, update, Cell, World};
 
 fn main() {
@@ -103,6 +105,15 @@ fn main() {
         field_stress_setup,
     );
 
+    // M19: rendering has no dirty-rect skip of its own -- it redraws every
+    // visible pixel every frame regardless of what's settled -- so a
+    // densely-filled world pays render's per-pixel cost (grain, heat glow)
+    // forever, not just as a stress-test edge case. Measured here the same
+    // way the CA sweep is, since a wall-clock assertion inside `cargo
+    // test`'s parallel runner is unreliable (it competes for CPU with every
+    // other concurrently-running test, M5's rayon-based ones especially).
+    render_stress_scene("stress: render a full screen of sand", 512, 320, stress_setup);
+
     // Sand pouring off a ledge onto a platform below, to show the shape of the
     // free-falling stream and the slope it builds where it lands.
     scene("sand pouring off a ledge", 78, 40, 1200, |w| {
@@ -143,6 +154,34 @@ fn main() {
             w.set(200, y, Cell::new(material::STONE, 0));
         }
         w.add_pressure_impulse(80, 60, 6, 200.0);
+    });
+
+    // M16: a tree grown from a single seed, with a puddle nearby for its
+    // roots to find. Should show a trunk with some branching, not a bare
+    // straight line, and the puddle should visibly shrink as roots drink it.
+    plant_scene("M16: a tree grows from a seed near water", 90, 70, 4000, |w| {
+        for x in 0..90 {
+            w.set(x, 69, Cell::new(material::STONE, 0));
+        }
+        w.plant_tree(45, 68);
+        w.paint_circle(60, 60, 6, material::WATER);
+    });
+
+    // M16: moss spreading along a damp ledge vs. staying put on a dry one.
+    plant_scene("M16: moss spreads on damp stone, stalls on dry", 90, 20, 4000, |w| {
+        for x in 5..40 {
+            w.set(x, 15, Cell::new(material::STONE, 0));
+        }
+        w.set(4, 14, Cell::new(material::STONE, 0));
+        w.set(40, 14, Cell::new(material::STONE, 0));
+        for x in 18..22 {
+            w.set(x, 14, Cell::new(material::WATER, 0));
+        }
+        w.plant_moss_seed(24, 14);
+        for x in 55..90 {
+            w.set(x, 15, Cell::new(material::STONE, 0));
+        }
+        w.plant_moss_seed(72, 14);
     });
 
     // M13: same impulse, but sealed in a box. Should stay concentrated near
@@ -311,6 +350,29 @@ fn field_stress_scene(
     );
 }
 
+/// M19: worst-frame timing for `Renderer::draw` alone, static scene (the
+/// world never steps) -- isolates rendering's own per-pixel cost from
+/// simulation cost, the way `field_stress_scene` isolates the combined
+/// figure. See that scene's call site for why this lives here rather than
+/// as a `cargo test` assertion.
+fn render_stress_scene(title: &str, w: i32, h: i32, setup: impl FnOnce(&mut World)) {
+    println!("\n=== {title} ===");
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    setup(&mut world);
+    let renderer = Renderer::new();
+    let particles = ParticleSystem::new();
+    let mut frame = vec![0u8; (w as usize) * (h as usize) * 4];
+
+    renderer.draw(&world, &particles, &mut frame, w as u32, h as u32); // warm up
+    let mut worst = std::time::Duration::ZERO;
+    for _ in 0..30 {
+        let started = std::time::Instant::now();
+        renderer.draw(&world, &particles, &mut frame, w as u32, h as u32);
+        worst = worst.max(started.elapsed());
+    }
+    println!("worst render frame: {:.3} ms", worst.as_secs_f64() * 1000.0);
+}
+
 fn glyph(id: MaterialId) -> char {
     match id {
         material::SAND => 'o',
@@ -321,5 +383,44 @@ fn glyph(id: MaterialId) -> char {
         material::STONE => '#',
         material::SMOKE => '*',
         _ => ' ',
+    }
+}
+
+/// M16: runs the CA sweep, the field, and the active-site scheduler
+/// together (what the live app actually does), and prints growth stats
+/// alongside the usual ASCII view — `Y` for wood, `,` for moss.
+fn plant_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&mut World)) {
+    println!("\n=== {title} ===");
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    setup(&mut world);
+
+    for _ in 0..frames {
+        parallel::step(&mut world);
+        world.step_active_sites();
+    }
+
+    let wood = world.materials.id_of("wood");
+    let moss = world.materials.id_of("moss");
+    let water_left = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| world.get(x, y).material == material::WATER).count();
+    println!(
+        "after {frames} frames: {} active chunks, {} active sites, {water_left} water cells remaining",
+        world.active_chunk_count(),
+        world.active_site_count(),
+    );
+
+    for y in 0..h {
+        let row: String = (0..w)
+            .map(|x| {
+                let m = world.get(x, y).material;
+                if Some(m) == wood {
+                    'Y'
+                } else if Some(m) == moss {
+                    ','
+                } else {
+                    glyph(m)
+                }
+            })
+            .collect();
+        println!("|{row}|");
     }
 }

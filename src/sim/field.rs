@@ -370,7 +370,17 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                 'scan: for dy in 0..FIELD_SCALE {
                     for dx in 0..FIELD_SCALE {
                         let cell = world.get(bx0 + dx, by0 + dy);
-                        if world.materials.kind(cell.material) == super::material::MaterialKind::Solid {
+                        // `Plant` blocks too, not just `Solid` -- a tree
+                        // trunk or canopy is exactly as solid as a rock
+                        // wall for this purpose. Missing this reopened the
+                        // bug this function's own doc already recounts
+                        // fixing once for `Solid` alone: light/heat/
+                        // pressure passing straight through as if the
+                        // material were transparent air, which for plants
+                        // specifically undermines M16's own moss mechanic
+                        // (shade under a canopy reading as no shade at all).
+                        let kind = world.materials.kind(cell.material);
+                        if matches!(kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant) {
                             blocked = true;
                             break 'scan;
                         }

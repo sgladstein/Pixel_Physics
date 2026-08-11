@@ -51,6 +51,13 @@ pub enum MaterialKind {
     Liquid,
     /// Rises, and spreads to fill space. Smoke, steam.
     Gas,
+    /// Never moves on its own, like `Solid` -- but unlike inert rock, a
+    /// plant cell's changes come from the M16 active-site scheduler, not
+    /// the CA sweep's movement dispatch. Kept distinct from `Solid` so
+    /// `Cell::aux`'s interpretation (growth stage, not anchor distance) and
+    /// future flammability/structural rules can key on "is this alive"
+    /// without guessing from the material name.
+    Plant,
 }
 
 impl MaterialKind {
@@ -356,6 +363,8 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/water.ron"),
     include_str!("../../assets/materials/oil.ron"),
     include_str!("../../assets/materials/smoke.ron"),
+    include_str!("../../assets/materials/wood.ron"),
+    include_str!("../../assets/materials/moss.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

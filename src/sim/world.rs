@@ -17,7 +17,9 @@ use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::material::{self, MaterialId, MaterialRegistry};
+use super::plant::TreeState;
 use super::rng::Rng;
+use super::scheduler::{self, ActiveSite};
 use super::surface::CellSurface;
 
 pub struct World {
@@ -32,6 +34,15 @@ pub struct World {
     pub frame: u64,
     pub materials: MaterialRegistry,
     pub rng: Rng,
+    /// M16: growing plant tips, keyed by chunk purely so growth writes near
+    /// a chunk boundary are cheap to find — the scheduler itself doesn't
+    /// care which chunk a site is in, only whether it's due.
+    active_sites: HashMap<ChunkCoord, Vec<ActiveSite>>,
+    /// M16: per-tree state (attractor points, growth tips, root tips) too
+    /// large to fit in a `Cell` — see `plant::TreeState`. Never shrinks;
+    /// entries are indexed by `ActiveKind::TreeTip`/`RootTip` and never
+    /// reassigned, the same stability guarantee `MaterialId`s get.
+    trees: Vec<TreeState>,
 }
 
 impl World {
@@ -43,6 +54,8 @@ impl World {
             frame: 0,
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
+            active_sites: HashMap::new(),
+            trees: Vec::new(),
         };
         world.ensure_chunks_for(bounds);
         world
@@ -67,6 +80,55 @@ impl World {
     /// deliberately separate from the CA sweep — see `field::step`.
     pub fn step_fields(&mut self) {
         field::step(self);
+    }
+
+    /// Advance the M16 active-site schedule by one step. Its own frame
+    /// phase too, after the CA sweep and before particles — see
+    /// `scheduler::step` for why growth reads/writes go through the
+    /// ordinary `World::get`/`set` rather than needing any of M5's
+    /// parallel-sweep machinery.
+    pub fn step_active_sites(&mut self) {
+        scheduler::step(self);
+    }
+
+    /// Queue a site to be checked by the scheduler once it's due. Used by
+    /// `plant::plant_moss_seed`/`plant_tree` and by growth itself scheduling
+    /// its own continuation.
+    pub fn schedule_active_site(&mut self, site: ActiveSite) {
+        let coord = ChunkCoord::containing(site.x, site.y);
+        self.active_sites.entry(coord).or_default().push(site);
+    }
+
+    /// Total pending active sites, across every chunk. The headline number
+    /// for whether the scheduler's cost is actually proportional to
+    /// "interesting cells" rather than world size — see the debug overlay.
+    pub fn active_site_count(&self) -> usize {
+        self.active_sites.values().map(|v| v.len()).sum()
+    }
+
+    // --- crate-internal seams used only by `scheduler::step` and
+    // `plant.rs` -----------------------------------------------------------
+
+    pub(crate) fn take_active_sites(&mut self) -> HashMap<ChunkCoord, Vec<ActiveSite>> {
+        std::mem::take(&mut self.active_sites)
+    }
+
+    pub(crate) fn set_active_sites(&mut self, sites: HashMap<ChunkCoord, Vec<ActiveSite>>) {
+        self.active_sites = sites;
+    }
+
+    /// Store a new tree's state and return its stable id.
+    pub(crate) fn push_tree(&mut self, tree: TreeState) -> u32 {
+        self.trees.push(tree);
+        (self.trees.len() - 1) as u32
+    }
+
+    pub(crate) fn tree(&self, id: u32) -> &TreeState {
+        &self.trees[id as usize]
+    }
+
+    pub(crate) fn tree_mut(&mut self, id: u32) -> &mut TreeState {
+        &mut self.trees[id as usize]
     }
 
     /// Field conditions at a world-cell position — any position inside the
@@ -388,11 +450,17 @@ impl World {
                 }
                 // Erasing should clear regardless of what is there; painting a
                 // real material must not overwrite solid terrain, so the brush
-                // does not silently delete stone.
+                // does not silently delete stone. `Plant` gets the same
+                // protection as `Solid` -- a grown tree is exactly as
+                // deliberately placed as a stone wall, and without this the
+                // brush could erase it cell by cell same as any loose powder.
                 if material != material::EMPTY {
                     let existing = self.get(x, y).material;
                     if existing != material::EMPTY
-                        && self.materials.kind(existing) == material::MaterialKind::Solid
+                        && matches!(
+                            self.materials.kind(existing),
+                            material::MaterialKind::Solid | material::MaterialKind::Plant
+                        )
                     {
                         continue;
                     }

@@ -23,6 +23,11 @@
 //! * `parallel` — M5, the multithreaded checkerboard sweep; an alternative
 //!   driver for the exact same rules in `update`/`fire`, not a second copy
 //!   of them
+//! * `scheduler` — M16, the active-site list: a per-chunk schedule of
+//!   growing plant tips, checked once per frame in its own phase separate
+//!   from the CA sweep, at a cost proportional to how much is growing
+//!   rather than to world size
+//! * `plant` — M16, moss and tree/root growth, dispatched from `scheduler`
 //!
 //! Nothing below `update` knows about rendering, windowing or input.
 
@@ -34,7 +39,9 @@ pub mod fire;
 pub mod material;
 pub mod parallel;
 pub mod particle;
+pub mod plant;
 pub mod rng;
+pub mod scheduler;
 pub mod surface;
 pub mod update;
 pub mod world;

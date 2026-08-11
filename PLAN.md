@@ -698,9 +698,41 @@ updated at each milestone commit, not just when something is added.
   [`research/m18-creature-biology.md`](research/m18-creature-biology.md),
   [`research/m19-visual-polish.md`](research/m19-visual-polish.md) — written
   to disk specifically so the source material survives context loss between
-  sessions. None of this has been *built* yet — the research landing is
-  what's tracked here as done, implementation is still queued behind M5.
-- **M16/M17/M18/M8**: not started yet.
+  sessions. M16 (below) is built against its research; M18's and M19's are
+  still queued.
+- **M16** (active sites + plants): **done**. Scheduler (`scheduler.rs`) plus
+  moss and trees-with-roots (`plant.rs`), built against the deep-dive
+  research above rather than a placeholder version of it — auxin
+  canalization for tree branching/apical dominance, MIZ1-style
+  gravitropism/hydrotropism antagonism for root direction, oscillator-based
+  lateral root priming, and moisture-and-shade-driven moss spread. Two real
+  bugs found and fixed, both caught by tests that expected growth and got
+  almost none: moss originally required a candidate cell to have a *solid*
+  neighbour specifically, so every growth front dead-ended one step after
+  starting instead of thickening into a patch (fixed by also counting
+  existing moss as growable); roots originally could only advance into
+  `Empty`/`Powder` ground, so a root approaching water — the entire point of
+  root growth — died at its edge without ever drinking (fixed by giving
+  `Liquid` targets their own absorbed-on-contact case). Independent review
+  (following the standing practice of a review pass after every milestone,
+  not just large ones like M5) found six more real issues before commit,
+  all fixed: moss and starved roots could both become permanently-scheduled
+  "immortal" active sites (the exact unbounded cost the scheduler exists to
+  avoid — both fixed with stale-tick dormancy counters); `MaterialKind::Plant`
+  didn't block the M13 field grid or the paint brush the way `Solid` does,
+  undermining moss's own shade mechanic; tree tips could tunnel through any
+  tree's already-grown wood since `wood` is one shared `MaterialId`; roots
+  grew for free despite `TreeState::energy`'s own doc claiming a shared
+  competitive pool; and the "auxin canalization" doc comment claimed more
+  cross-tip competition than the code actually implemented, fixed by adding
+  a real (if modest) mechanism — a branch's starting channel is now debited
+  from its parent's — and correcting the doc to be precise about what's
+  genuine competition versus what's actually plain space-colonization/
+  shared-energy effects wearing the same name. See `README.md`'s M16 status
+  section for the full writeup, including a tuning bug the new branching
+  test surfaced (channel decayed on temporary energy waits as well as
+  genuine dead ends, so it could almost never cross the branch threshold).
+- **M17/M18/M8**: not started yet.
 
 ---
 

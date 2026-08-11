@@ -235,6 +235,16 @@ impl Handler {
                     self.app.explode(x, y);
                 }
             }
+            KeyCode::KeyT => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.plant_tree(x, y);
+                }
+            }
+            KeyCode::KeyM => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.plant_moss(x, y);
+                }
+            }
             KeyCode::BracketLeft => self.app.adjust_brush(-2),
             KeyCode::BracketRight => self.app.adjust_brush(2),
             KeyCode::KeyQ => self.app.cycle_material(-1),

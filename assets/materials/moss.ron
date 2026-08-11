@@ -1,0 +1,24 @@
+// Spreads over damp, shaded stone (M16) — see `plant.rs`'s `moss_tick` and
+// `research/m16-plant-biology.md` for why "damp and shaded" is the actual
+// ecological driver (poikilohydric — no waterproof cuticle, no internal
+// water regulation — rather than any directional or "north side" rule).
+//
+// Thin and light, and burns fast and cool relative to wood — a real fire
+// carried by moss should flash through rather than smoulder, unlike a log.
+(
+    name: "moss",
+    display: "Moss",
+    kind: Plant,
+    density: 0.3,
+    colors: [
+        (58, 92, 46),
+        (70, 104, 54),
+        (48, 80, 38),
+        (64, 98, 50),
+    ],
+    flammability: 0.4,
+    burn_temperature: 500.0,
+    burn_duration: 90,
+    burns_into: "ash",
+    heat_conductivity: 0.1,
+)

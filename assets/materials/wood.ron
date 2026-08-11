@@ -1,0 +1,28 @@
+// Tree trunk and root material (M16). `kind: Plant`, not `Solid` — plant
+// cells never move via the CA sweep either way, but `Plant` keeps
+// `Cell::aux`'s meaning (growth-related bookkeeping) distinct from
+// `Solid`'s (M17's anchor distance), and lets future rules key on "is this
+// alive" without checking the material name.
+//
+// Flammable with real numbers, same as oil: wood is what turns a grown
+// forest into an actual Drossel-Schwabl fire per the plan. Burns cooler and
+// longer than oil (a log burns for a while, not in a flash) and, being
+// mostly solid material rather than a thin liquid film, catches less
+// readily per neighbour-check — flammability tuned below oil's 0.5.
+(
+    name: "wood",
+    display: "Wood",
+    kind: Plant,
+    density: 0.9,
+    colors: [
+        (92, 64, 40),
+        (105, 74, 46),
+        (80, 55, 34),
+        (114, 81, 51),
+    ],
+    flammability: 0.25,
+    burn_temperature: 700.0,
+    burn_duration: 420,
+    burns_into: "ash",
+    heat_conductivity: 0.15,
+)

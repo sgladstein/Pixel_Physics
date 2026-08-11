@@ -78,6 +78,10 @@ impl App {
         }
         self.step_once = false;
         parallel::step(&mut self.world);
+        // M16 active sites after the CA sweep too, for the same reason as
+        // particles below: a root deciding whether to drink an adjacent
+        // water cell needs this frame's settled position, not last frame's.
+        self.world.step_active_sites();
         // Particles after the CA sweep, not before: a landing check needs
         // this frame's fully-settled CA state, not last frame's, or a
         // particle could land inside material that has since moved out from
@@ -204,6 +208,19 @@ impl App {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         const STRENGTH: f32 = 180.0;
         crate::sim::explosion::trigger(&mut self.world, &mut self.particles, x, y, self.brush_radius, STRENGTH);
+    }
+
+    /// Plant a tree seed at a screen position — M16 debug tool. See
+    /// `World::plant_tree` for what actually grows from it.
+    pub fn plant_tree(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        self.world.plant_tree(x, y);
+    }
+
+    /// Plant a moss seed at a screen position — M16 debug tool.
+    pub fn plant_moss(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        self.world.plant_moss_seed(x, y);
     }
 
     /// How much of the brush to fill per application.

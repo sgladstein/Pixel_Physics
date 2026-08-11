@@ -22,9 +22,11 @@ cargo test
 | `[` / `]` or scroll | Brush size |
 | `Space` | Pause |
 | `.` | Step one frame while paused |
-| `F` | Ignite whatever's under the brush (debug tool — M15 will add real ignition sources) |
-| `P` | Throw a burst of the selected material as free particles (debug tool for M7) |
-| `X` | Trigger an explosion at the brush radius (M15) |
+| `F` | Force-ignite whatever's under the brush (debug tool) |
+| `P` | Throw a burst of the selected material as free particles (debug tool) |
+| `X` | Trigger an explosion at the brush radius |
+| `T` | Plant a tree seed under the brush (M16 debug tool) |
+| `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `F1` | Chunk overlay — green borders are awake, grey are asleep |
 | `F5` | Reload materials by hand |
 | `R` | Reset |
@@ -102,6 +104,10 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                World (serial) or parallel::ChunkView (multithreaded)
   parallel.rs  M5: the multithreaded checkerboard sweep -- an alternative
                driver for update.rs's rules, not a second copy of them
+  scheduler.rs M16: the active-site list -- growing plant tips, checked
+               once per frame in their own phase, cost proportional to
+               how much is growing rather than to world size
+  plant.rs     M16: moss and tree/root growth, dispatched from scheduler.rs
 src/render.rs  cells to pixels
 src/app.rs     sandbox state: brush, picker, terrain
 src/main.rs    window, input, fixed 60 Hz timestep
@@ -465,6 +471,148 @@ spanning dozens of cells, a chunk touched only via a neighbour's dirty mark)
 plus an independent review pass focused specifically on concurrency
 correctness before this was committed.
 
+## M16 status
+
+Built: the active-site scheduler (`scheduler.rs`) and plant growth
+(`plant.rs`) — moss and trees-with-roots. Grounded in real research rather
+than invented rules; see `research/m16-plant-biology.md` for the full
+citations behind every mechanism named below, and `PLAN.md`'s M16 section
+for the condensed version. Debug tools: `T` plants a tree seed, `M` plants
+moss, both at the brush position.
+
+**The scheduler is a genuinely separate frame phase from the CA sweep, and
+that separation is the entire point.** `World::step_active_sites()` runs
+after the CA sweep, checking only sites that are actually due this frame —
+cost proportional to how much is growing, not to world size. A settled
+world with an actively-growing tree in it still reports `0` awake CA
+chunks; `active_site_count()` is the separate number that says something is
+still happening. `a_settled_world_with_a_growing_tree_still_sleeps_between_
+growth_ticks` is the regression test for exactly this.
+
+**Moss** spreads based on real ecology, not a "damp stone" rule invented for
+convenience: real moss is poikilohydric (no waterproof cuticle, no internal
+water regulation), so growth chance is gated hard on nearby water and
+modulated by local shade (read from the M13 light field, since shade slows
+evaporation — the actual reason real moss favours shaded surfaces, not any
+directional pull).
+
+**A real bug, caught by a test that expected growth and got almost none.**
+The first version of moss growth required a candidate cell to have a
+*solid* neighbour specifically. That works for the first ring of growth
+along bare rock, but once a cell's only non-empty neighbour was
+already-grown moss rather than raw stone, it read as having nowhere left to
+grow — every growth front dead-ended one step after starting, producing a
+single-cell-wide line frozen in place rather than a spreading patch. Fixed
+by also counting existing moss as a growable surface, which is what real
+moss does — it thickens by growing over its own earlier growth, not just
+sideways along the original rock.
+
+**Trees** use space colonization (already-committed citation) for canopy
+shape, extended with two more mechanisms from the deep-dive research pass
+rather than left as a bare attractor-seeking loop:
+
+- **Auxin canalization** (Prusinkiewicz et al. 2009, PNAS) for branching and
+  apical dominance — translated honestly, not oversold. Each tip carries a
+  `channel` scalar that grows on a successful step and decays at a genuine
+  dead end; a strong tip can spawn a branch, whose starting channel is
+  *debited from the parent's* rather than created free, which is the one
+  place one tip's channel actually depends on another's — real cross-tip
+  interaction, not N independent scalars sharing a name with a citation.
+  The bulk of the visible "one leader, suppressed siblings" effect, though,
+  comes from two plainer mechanisms already needed elsewhere: tips share
+  one attractor list that any tip's growth shrinks, and all tips (and now
+  roots) draw from one flat energy pool. Real canalization is a richer,
+  more actively self-reinforcing mechanism than shared-resource depletion
+  plus one debit — see `plant.rs`'s own module doc for the precise
+  breakdown, added after an independent review specifically flagged the
+  original version's doc comment as claiming more than the code delivered.
+- **Gravitropism vs. hydrotropism** (MIZ1 antagonism) for root growth
+  direction — a hard switch, not a blend: gravity normally wins, but a
+  strong local moisture gradient suppresses it so the root steers toward
+  water instead.
+- **Oscillator-based lateral root priming**, not a flat per-tick branch
+  chance — a root only *considers* branching every few ticks, and only
+  follows through if local water actually supports it.
+
+**A real bug in root growth, not just a test-setup issue this time.** The
+first version only let a root advance into `Empty` or `Powder` ground,
+treating anything else — including the water it was growing toward — as
+blocked and killing the tip on the spot. A root approaching any wet ground
+died at its edge without ever drinking, which is backwards: water is
+exactly what root growth is *for*. Fixed by giving `Liquid` targets their
+own case — absorbed on the spot (same as the neighbour-drink check every
+tick already does), tip advances into the now-empty space, no wood cell
+left behind.
+
+**Simplified deliberately, not by oversight** (documented in `plant.rs`'s
+own module doc, not just here): cytokinin is a bonus push-pull signal from
+the research, not a separate diffusing field; gravitropic setpoint angle is
+a fixed constant per branch rather than a continuously-regulated flux
+balance; canopy light competition is a direct light-field read with a
+gentle phototropic lean, not Palubicki et al.'s full shadow-voxel
+propagation (branches don't cast their own shadows into the field yet).
+
+**Verified visually, not just by assertion.** `cargo run --release --example
+ascii` has two permanent M16 scenes: a tree grown near a water source (shows
+real branching, not a straight trunk, and a shrinking puddle as roots drink
+it) and moss on a damp ledge next to moss on a dry one (the damp side grows
+a visible 2D patch; the dry side stalls at its single seed cell — this is
+what actually caught the growable-neighbour bug above, since the first
+version's tree/moss both looked visually wrong before any test failed).
+
+**Independent review found six more real issues, all fixed.** Beyond the
+canalization doc-vs-code gap above:
+
+- **Moss never went dormant.** Every tick unconditionally rescheduled the
+  tip itself, even with zero growable candidates — a moss cell that becomes
+  fully enclosed stayed on the active-site list checking every tick
+  forever, exactly the unbounded cost the scheduler exists to avoid. Fixed
+  with a stale-tick counter (`ActiveKind::Moss { stale_ticks }`): a tip
+  tolerates a few consecutive empty checks (conditions can be transiently
+  unavailable) but goes permanently dormant past a threshold. Nothing
+  currently re-wakes a dormant tip if conditions change later — a real,
+  accepted limitation, not an oversight.
+- **`MaterialKind::Plant` didn't block the M13 field grid.** Only `Solid`
+  cells marked a field tile blocked, so light/heat/pressure passed straight
+  through a solid wood trunk as if it were open air — the exact bug
+  `field.rs` already recounts fixing once for `Solid` alone, reopened by a
+  second "static" material kind neither call site knew about. Concretely
+  undermined this milestone's own moss mechanic (a canopy contributed zero
+  shade). Fixed by blocking on `Solid | Plant` in both `field.rs`'s
+  occupancy check and `world.rs`'s paint-brush guard (which had the same
+  gap — the brush could erase a grown tree cell by cell, unlike stone).
+- **Tree tips tunnelled through wood.** `wood` is one shared `MaterialId`
+  across every tree, so comparing a growth target against it meant "is this
+  *any* wood," not "my own already-grown wood" — a tip could pass straight
+  through another tree's trunk (or curve back into its own), spending
+  energy on a step that created nothing. Fixed by blocking on any non-empty
+  cell, full stop.
+- **Roots grew for free**, contradicting `TreeState::energy`'s own doc that
+  every tip *and root* draws from one competitive pool — only tips actually
+  checked it. Fixed by giving root growth its own (smaller) cost, debited
+  from the same shared pool. This immediately surfaced a second bug of the
+  same shape as the moss one: a root waiting on energy that will genuinely
+  never arrive (every tip already starved to death, no water nearby) has
+  no other way to stop, and became a second kind of immortal active site.
+  Fixed the same way moss was — a starvation-tick counter that lets a root
+  go dormant rather than wait forever.
+- **Test coverage gaps**: no test distinguished "root moved because of
+  gravity" from "root moved because of hydrotropism" (the water tank sat
+  directly on the gravity path in the original test, so it would have
+  passed even with the MIZ1 switch deleted entirely), and nothing checked
+  that a tree ever actually produced more than one simultaneous tip.
+  `roots_steer_toward_off_axis_water_via_hydrotropism` and
+  `a_tree_can_produce_multiple_simultaneous_tips_via_branching` close both
+  — the latter directly exercises `TreeState`'s private fields, which
+  Rust's privacy model allows from `plant.rs`'s own nested test module.
+  Writing the branching test surfaced one more real tuning bug: channel
+  decayed on *every* tick spent waiting for energy, not just genuine dead
+  ends, and since energy waits happened roughly 2-3x more often than
+  successful growth at the original constants, channel could practically
+  never climb far enough to cross the branch threshold — trees grew but
+  essentially never branched. Fixed by decaying channel only on a true dead
+  end (no attractors in reach), not on a temporary resource shortfall.
+
 ## Performance
 
 Measured by `cargo run --release --example ascii`, which reports the worst
@@ -527,22 +675,34 @@ blast. Oil is the one shipped material with real combustion numbers, burning
 into ash; `F`/`P`/`X` force-ignite, throw a particle burst, and trigger an
 explosion at the brush, all debug tools standing in for gameplay triggers
 that don't exist yet. As of M5, the CA sweep the live app runs every frame is
-multithreaded — see M5 status above.
+multithreaded — see M5 status above. As of M16, moss and trees grow on their
+own schedule, separate from the CA sweep, with root growth tied to real
+water uptake and canopy shape driven by auxin canalization — see M16 status
+above; `T`/`M` plant a tree/moss seed at the brush.
 
 Known limitations:
 
 - **Repose angles come out a few degrees shallower than requested** — roughly
   39/30/18 against 45/34/22 — because reach is a whole number of cells. Fine as
   a tuning knob, not a physical measurement.
-- **Only oil and ash have real thermal numbers.** Every other shipped material
-  defaults to non-flammable, non-meltable, `heat_conductivity: 0.0` — correct
-  for sand/water/stone/gravel/smoke, which have no business catching fire, but
-  it means there is exactly one flammable material to watch burn right now.
-  Lava, steam and richer reactions are natural additions once there is a
-  design reason to want them.
+- **Only oil, ash, wood and moss have real thermal numbers.** Every other
+  shipped material defaults to non-flammable, non-meltable,
+  `heat_conductivity: 0.0` — correct for sand/water/stone/gravel/smoke, which
+  have no business catching fire. Lava, steam and richer reactions are
+  natural additions once there is a design reason to want them.
 - **Explosions ignite anything nearby regardless of flammability** — see M15
   status above. Reuses the debug force-ignite tool rather than a
   flammability-respecting path; stone glows the same as oil would.
+- **Plants don't reseed, and a burned forest doesn't regrow on its own** —
+  the plan's M16 verify criterion "a forest burns and regrows" only got the
+  "burns" half; there's no mechanic yet for a burned-out patch to spawn a
+  new seed. Growth also has no seasonal or long-term dormancy — a tree
+  either keeps growing until it exhausts its attractors/energy, or it
+  doesn't grow at all.
+- **Canopy light competition doesn't cast real shadows.** A tree tip leans
+  gently toward brighter nearby cells, but branches don't occlude the M13
+  light field for each other the way Palubicki et al.'s full model does —
+  see M16 status above for what's simplified and why.
 - **The field grid's own solve is still single-threaded** — see M5 status
   above. It no longer needs to be threaded to fit the 60 Hz budget (the
   combined worst case is now ~11.5 ms), but it's the next thing that would
@@ -554,5 +714,5 @@ Known limitations:
   screenshot script.
 
 Not yet built: Bak–Tang–Wiesenfeld toppling for avalanches, hole-propagation
-granular flow, rigid bodies, character physics, the streaming world, plants,
+granular flow, rigid bodies, character physics, the streaming world,
 structural integrity, creatures, and Lua scripting.
