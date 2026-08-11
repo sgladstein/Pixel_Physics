@@ -1158,6 +1158,23 @@ updated at each milestone commit, not just when something is added.
   `README.md`'s M8 status section for the full writeup.
 - **M18 Phase 2** (Reynolds-steering entities): not started yet — explicitly
   waits on the rest of M8 per the plan's own reasoning.
+- **Issue #1** (commit `Cargo.lock`): **done.**
+- **Issue #10** (housekeeping): **partially done, honestly.** LICENSE (MIT,
+  chosen by the owner over the dual MIT/Apache-2.0 Rust-ecosystem convention
+  and GPL-3.0), `rust-version = "1.87"` (the real MSRV, from
+  `u64::is_multiple_of`), `rustfmt.toml` (`max_width = 120`, chosen against
+  a survey of actual current line lengths, not the default 100), and a CI
+  workflow (`cargo test --release`, `cargo clippy -- -D warnings`,
+  `cargo run --release --example ascii` as a headless smoke test — all
+  gating; `cargo fmt --check` included but non-blocking) are all in place.
+  **Not done**: the default branch is still `main` (a stub) rather than
+  `master` — no `gh` CLI or API token was available in this session to
+  change that GitHub repo setting, and it needs the owner's action via
+  Settings → Branches (or `gh repo edit --default-branch master`) — and no
+  actual `cargo fmt` pass has been run against the codebase (`rustfmt.toml`
+  alone surfaces ~1550 lines of diff against the existing hand-formatted
+  style; running it is a large, separate, reviewable change deliberately
+  not bundled into housekeeping).
 
 ---
 

@@ -2,6 +2,10 @@
 name = "pixel-physics"
 version = "0.1.0"
 edition = "2021"
+# u64::is_multiple_of (used in update::step and parallel::step) stabilised in
+# 1.87 -- that's the real MSRV, not left implicit (issue #10).
+rust-version = "1.87"
+license = "MIT"
 
 [dependencies]
 image = { version = "0.25.10", default-features = false, features = ["png"] }

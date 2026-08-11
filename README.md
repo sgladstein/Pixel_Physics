@@ -998,3 +998,7 @@ granular flow, rigid bodies past connected-component labeling (see M8
 status above), character physics, the streaming world, M18 Phase 2
 (Reynolds-steering entities, after M8), multi-creature-kind predator/prey
 dynamics, and Lua scripting.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).

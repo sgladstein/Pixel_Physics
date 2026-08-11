@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: cargo test
+        run: cargo test --release --locked
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets --release --locked -- -D warnings
+
+      # examples/ascii.rs is written specifically to need no window or GPU,
+      # so it "works over a remote shell and in CI" (its own module doc) --
+      # this is the same worst-frame-timing scene suite used to judge
+      # performance regressions locally, run headless here as a smoke test.
+      - name: cargo run --example ascii
+        run: cargo run --release --example ascii --locked
+
+      # Informational only, not gating: the codebase predates rustfmt.toml
+      # (added alongside this workflow) and has not yet had a full `cargo
+      # fmt` pass run against it, which would be a large, separate change
+      # deserving its own review rather than being bundled into CI setup.
+      # See PLAN.md's issues-backlog entry (#10) for why this is a known,
+      # deliberate gap rather than an oversight.
+      - name: cargo fmt --check (informational)
+        run: cargo fmt --check
+        continue-on-error: true

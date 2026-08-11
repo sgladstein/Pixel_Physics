@@ -1,0 +1,12 @@
+# Picked and enforced per issue #10 -- previously no explicit width, and some
+# lines (plant.rs's reschedule(...) calls were the worst offenders) ran past
+# 120 columns with nothing pinning a limit down.
+#
+# 120 rather than rustfmt's default of 100: this codebase's established style
+# favors long, explanatory doc comments and Rust's own verbosity (trait
+# bounds, matches! chains) over hard-wrapping everything at 100, and a survey
+# of current line lengths found only ~40 lines over 120 against ~120 over
+# 100 -- 120 is the width that actually matches how this codebase already
+# reads, not an arbitrary number chosen first and reconciled with the code
+# after.
+max_width = 120
