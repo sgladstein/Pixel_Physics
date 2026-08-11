@@ -5,14 +5,42 @@
 //! two apart is what lets M6 swap in a GPU pipeline with lighting and bloom
 //! without touching a single movement rule.
 
+use crate::sim::cell::AMBIENT_TEMPERATURE;
 use crate::sim::chunk::CHUNK_SIZE;
 use crate::sim::particle::ParticleSystem;
+use crate::sim::rng;
 use crate::sim::world::World;
 
 /// Colour shown for positions outside the world.
 const VOID: [u8; 4] = [12, 12, 16, 255];
 const CHUNK_BORDER_ACTIVE: [u8; 4] = [80, 200, 120, 255];
 const CHUNK_BORDER_SETTLED: [u8; 4] = [60, 60, 70, 255];
+
+// --- M19 visual polish: cheap, CPU-side, no shader pipeline -----------------
+//
+// Tier 1/2 of the M19 execution plan (see `PLAN.md` and
+// `research/m19-visual-polish.md`) — grain, heat glow and fake occlusion,
+// the techniques the research found gave the most visible improvement for
+// the least engine change. A GPU bloom/lighting pass (Tier 4) stays with
+// M6's deferral, since it still needs a human watching it render; these
+// don't — they're as self-verifiable by screenshot as M7/M15 were.
+
+/// How much a cell's brightness varies from its neighbours', at most.
+/// Sandspiel's whole "looks organic despite simple materials" reputation
+/// traces to exactly this trick: reusing a per-cell value as a brightness
+/// jitter instead of only as a palette index. Keyed on world position via
+/// `rng::jitter` (already used for movement decisions that must be stable
+/// across frames) rather than redrawn per frame, so a settled pile doesn't
+/// visibly sparkle — the grain is a property of the position, like the
+/// palette shade already is.
+const JITTER_STRENGTH: f32 = 0.12;
+
+/// How far above ambient a cell needs to be for `HEAT_GLOW_RANGE` to
+/// saturate the warm-tint blend fully. Oil burns at 900C, so this is a
+/// fraction of that — hot enough to mean something, not so high that only
+/// active fire ever visibly registers.
+const HEAT_GLOW_RANGE: f32 = 400.0;
+const FIRE_TINT: [f32; 3] = [255.0, 140.0, 40.0];
 
 pub struct Renderer {
     /// World coordinate displayed at the top-left pixel. Fixed at the origin
@@ -78,24 +106,63 @@ impl Renderer {
         // Modulo keeps any shade value valid, so a palette can shrink on hot
         // reload in M3 without invalidating cells already in the world.
         let base = palette[cell.shade as usize % palette.len()];
-
-        // A flat tint toward fire colour for a burning cell — not the real
-        // emissive lighting/bloom M6 owns (nothing here casts light onto
-        // neighbours, and there is no glow), just enough that M14's fire is
-        // visually distinguishable from the material it is consuming while
-        // that milestone's proper GPU lighting pipeline does not exist yet.
-        // Blends further toward pure fire colour as the burn timer runs
-        // down, purely cosmetic — burn_remaining has no real duration to
-        // compare against here since that is material-specific, so this
-        // reads as "hotter looking" rather than "correctly timed."
-        if cell.is_burning() {
-            const FIRE: [u8; 3] = [255, 140, 40];
-            let t = 0.6;
-            let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
-            [lerp(base[0], FIRE[0]), lerp(base[1], FIRE[1]), lerp(base[2], FIRE[2]), 255]
-        } else {
-            base
+        if cell.is_empty() {
+            return base; // nothing to texture, glow or occlude in vacuum
         }
+        let mut rgb = [base[0], base[1], base[2]];
+
+        // Grain: a stable per-position brightness jitter — see the module
+        // constant doc for why this is the Sandspiel trick, not dithering.
+        // Integer math, not float: this runs on every visible non-empty
+        // pixel every frame (rendering has no dirty-rect equivalent — it
+        // redraws the whole screen regardless of what's settled), so it
+        // has to earn its cost the same way M14 learned fire's per-cell
+        // pass did at CA-sweep scale.
+        let jitter_permille = ((rng::jitter(x, y) - 0.5) * 2000.0 * JITTER_STRENGTH) as i32;
+        for c in &mut rgb {
+            *c = (*c as i32 + (*c as i32 * jitter_permille) / 1000).clamp(0, 255) as u8;
+        }
+
+        // Heat glow: continuous with temperature, not just a flat tint for
+        // `is_burning()` — a cell cooling down after a fire, or sitting next
+        // to one, should visibly register as warm even once the flame
+        // itself is out. Burning cells are floored at the same 0.6 blend
+        // the flat version used, so active fire never looks weaker than it
+        // did before; non-burning warmth caps at half that, since ambient
+        // heat is not the same visual statement as active flame.
+        //
+        // Early exit for cells already at ambient and not burning — which
+        // is nearly every cell, nearly always — for the same reason: the
+        // full blend computation costs nothing turned off, and turned on
+        // unconditionally it was measured to nearly triple this function's
+        // cost across a full 512x320 stress scene even though almost every
+        // one of those calls would have computed `t == 0.0` and changed
+        // nothing.
+        if cell.is_burning() || cell.temperature() != AMBIENT_TEMPERATURE {
+            let heat_ratio = ((cell.temperature() as f32 - AMBIENT_TEMPERATURE as f32) / HEAT_GLOW_RANGE).clamp(0.0, 1.0);
+            let t = if cell.is_burning() { heat_ratio.max(0.6) } else { heat_ratio * 0.5 };
+            if t > 0.0 {
+                for (c, fire) in rgb.iter_mut().zip(FIRE_TINT) {
+                    *c = (*c as f32 + (fire - *c as f32) * t).round() as u8;
+                }
+            }
+        }
+
+        // Fake AO (darkening a cell by how enclosed it is) was tried here
+        // too and measured to cost more than jitter and heat combined —
+        // ~10ms on the 512x320 stress scene alone, from the 4 extra
+        // `World::get` calls per pixel, on top of rendering's own per-pixel
+        // lookup. Unlike the CA sweep, rendering has no dirty-rect skip: it
+        // redraws every visible pixel every frame regardless of what
+        // settled, so a densely-filled *static* world pays this cost
+        // forever, not just as a stress-test edge case. Cutting rather than
+        // shipping it over budget — see `PLAN.md`'s M19 section for the
+        // real fix this needs (reusing a chunk's direct array access
+        // instead of a `World::get` HashMap lookup per neighbour, the same
+        // lesson M5's `ChunkView` already applied to the sweep) before it's
+        // safe to turn back on.
+
+        [rgb[0], rgb[1], rgb[2], 255]
     }
 
     fn draw_chunk_overlay(&self, world: &World, frame: &mut [u8], width: u32, height: u32) {
@@ -146,7 +213,7 @@ mod tests {
     #[test]
     fn draws_material_colours_and_void_outside_the_world() {
         let mut world = World::new(Rect::new(0, 0, 63, 63));
-        world.set(0, 0, Cell::new(material::SAND, 0));
+        world.set(30, 30, Cell::new(material::SAND, 0));
         let renderer = Renderer::new();
         let particles = ParticleSystem::new();
 
@@ -155,13 +222,24 @@ mod tests {
         let mut frame = vec![0u8; (w * h * 4) as usize];
         renderer.draw(&world, &particles, &mut frame, w, h);
 
+        // Not hot, so only the position-jitter grain (see `JITTER_STRENGTH`)
+        // should have moved this away from the flat palette colour.
         let sand = world.materials.get(material::SAND).palette[0];
-        assert_eq!(&frame[0..4], &sand);
+        let jitter_permille = ((rng::jitter(30, 30) - 0.5) * 2000.0 * JITTER_STRENGTH) as i32;
+        let expected = [
+            (sand[0] as i32 + (sand[0] as i32 * jitter_permille) / 1000).clamp(0, 255) as u8,
+            (sand[1] as i32 + (sand[1] as i32 * jitter_permille) / 1000).clamp(0, 255) as u8,
+            (sand[2] as i32 + (sand[2] as i32 * jitter_permille) / 1000).clamp(0, 255) as u8,
+            255,
+        ];
+        let idx = (30 * w as usize + 30) * 4;
+        assert_eq!(&frame[idx..idx + 4], &expected);
 
         // Row 0, column 100 — past the right edge of the 64-wide world.
         let outside = 100 * 4;
         assert_eq!(&frame[outside..outside + 4], &VOID);
     }
+
 
     #[test]
     fn draws_a_free_particle_at_its_rounded_position() {
@@ -191,6 +269,51 @@ mod tests {
         let mut frame = vec![0u8; (w * h * 4) as usize];
         // Reaching this line without panicking is the assertion.
         renderer.draw(&world, &particles, &mut frame, w, h);
+    }
+
+    #[test]
+    fn grain_varies_between_same_material_cells_at_different_positions() {
+        // The whole point of keying jitter on position rather than shade
+        // index (see `JITTER_STRENGTH`'s doc): even two cells with the
+        // *same* palette shade should end up visibly different, which a
+        // flat "just show the palette colour" renderer never produced.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        world.set(0, 0, Cell::new(material::SAND, 0));
+        world.set(10, 0, Cell::new(material::SAND, 0));
+        let renderer = Renderer::new();
+        let particles = ParticleSystem::new();
+        let (w, h) = (64u32, 64u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        renderer.draw(&world, &particles, &mut frame, w, h);
+
+        let a = &frame[0..4];
+        let b_idx = 10 * 4;
+        let b = &frame[b_idx..b_idx + 4];
+        assert_ne!(a, b, "two same-shade cells at different positions rendered identically");
+    }
+
+    #[test]
+    fn a_hot_non_burning_cell_looks_warmer_than_a_cool_one() {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        world.set(0, 0, Cell::new(material::STONE, 0).with_temperature(20)); // ambient
+        world.set(10, 0, Cell::new(material::STONE, 0).with_temperature(500)); // hot, not burning
+        let renderer = Renderer::new();
+        let particles = ParticleSystem::new();
+        let (w, h) = (64u32, 64u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        renderer.draw(&world, &particles, &mut frame, w, h);
+
+        let cool = &frame[0..4];
+        let hot_idx = 10 * 4;
+        let hot = &frame[hot_idx..hot_idx + 4];
+        // Warmer means redder relative to blue -- a robust check regardless
+        // of exactly how strong the jitter/AO terms happened to land, since
+        // neither of those touches the red/blue balance the heat blend does.
+        let warmth = |p: &[u8]| p[0] as i32 - p[2] as i32;
+        assert!(
+            warmth(hot) > warmth(cool),
+            "a cell well above ambient should read warmer (redder) than one at ambient"
+        );
     }
 
     #[test]
