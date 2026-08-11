@@ -1175,6 +1175,20 @@ updated at each milestone commit, not just when something is added.
   alone surfaces ~1550 lines of diff against the existing hand-formatted
   style; running it is a large, separate, reviewable change deliberately
   not bundled into housekeeping).
+- **Issue #2** (dead `touch_neighbours` guard): **done, Option 1 (safe
+  cleanup, zero behaviour change)** — the guard is genuinely a no-op at
+  today's constants (`MAX_REACH..CHUNK_SIZE-MAX_REACH` is `32..32`, empty),
+  and the comment on both copies (`world.rs`, `parallel.rs`) now says so
+  explicitly instead of reading as though a fast path exists. **Issue #3**
+  (decoupling `SURFACE_SEARCH` from `MAX_REACH`, which is what would make
+  this guard live again) is **deliberately not attempted this session** —
+  it requires re-deriving `parallel.rs`'s concurrency-safety proof from an
+  equality (`MAX_REACH == CHUNK_SIZE/2`) to an inequality, and reasoning
+  through whether that proof still holds when neighbouring chunks have
+  *different* per-material reach values, not just a uniformly smaller
+  constant. The same judgment call as M8's own scoping: real, and worth
+  doing, but deserving dedicated attention rather than a pass at the tail
+  of an already large batch of changes.
 
 ---
 

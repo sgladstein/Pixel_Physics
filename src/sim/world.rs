@@ -335,7 +335,19 @@ impl World {
         let lx = x.rem_euclid(CHUNK_SIZE);
         let ly = y.rem_euclid(CHUNK_SIZE);
         // A write can only matter to another chunk if something over there can
-        // see it — `MAX_REACH` sideways, one row up or down.
+        // see it — `MAX_REACH` sideways, one row up or down. This guard is a
+        // no-op at today's constants: `MAX_REACH` (32) is exactly
+        // `CHUNK_SIZE / 2` (64), so `MAX_REACH..CHUNK_SIZE - MAX_REACH` is
+        // `32..32`, the empty range, and `contains` is always `false` —
+        // every column in the chunk is within reach of some neighbour, so
+        // there is no interior left to skip. Kept (rather than deleted) as
+        // documentation of that fact and as the seam a future per-material
+        // reach reduction (`pixel-physics-issues.md` #3 — deliberately not
+        // attempted this session; it also requires re-deriving `parallel.rs`'s
+        // concurrency-safety proof from an equality to an inequality, which
+        // deserves the same undivided attention M8's riskiest pipeline
+        // stages are getting, not a pass at the tail of an already very
+        // large batch of changes) would make live again.
         if (MAX_REACH..CHUNK_SIZE - MAX_REACH).contains(&lx) && ly > 0 && ly < CHUNK_SIZE - 1 {
             return;
         }

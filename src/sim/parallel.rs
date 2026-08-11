@@ -281,6 +281,8 @@ impl<'w> ChunkView<'w> {
         let owner = ChunkCoord::containing(x, y);
         let lx = x.rem_euclid(CHUNK_SIZE);
         let ly = y.rem_euclid(CHUNK_SIZE);
+        // No-op at today's constants -- see the identical comment on
+        // `World::touch_neighbours`, which this replicates exactly.
         if (MAX_REACH..CHUNK_SIZE - MAX_REACH).contains(&lx) && ly > 0 && ly < CHUNK_SIZE - 1 {
             return;
         }
