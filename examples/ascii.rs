@@ -184,6 +184,13 @@ fn main() {
         w.plant_moss_seed(72, 14);
     });
 
+    // M17: a short stone bridge anchored at both world edges, cut on one
+    // side after settling. Should print twice: intact (nothing broken, since
+    // every cell of a 7-wide bridge sits within stone's span-3 reach of one
+    // end or the other), then with the far half collapsed into gravel after
+    // the right anchor is erased.
+    structural_scene("M17: cutting a bridge's far support collapses the far span", 7, 15);
+
     // M13: same impulse, but sealed in a box. Should stay concentrated near
     // the center rather than dissipating outward, unlike the open scene above.
     field_scene("field: pressure impulse sealed in a room", 160, 80, 200, |w| {
@@ -371,6 +378,50 @@ fn render_stress_scene(title: &str, w: i32, h: i32, setup: impl FnOnce(&mut Worl
         worst = worst.max(started.elapsed());
     }
     println!("worst render frame: {:.3} ms", worst.as_secs_f64() * 1000.0);
+}
+
+/// M17: builds a stone bridge exactly `w` cells wide, so its two end cells
+/// touch the world's own edges (the `Cell::OUT_OF_BOUNDS` sentinel
+/// `structural.rs` treats as an anchor, same as literal bedrock) -- the same
+/// double-anchored geometry `cutting_a_bridges_support_makes_the_far_side_
+/// collapse` exercises as a unit test, printed here so the shape of a real
+/// collapse is visible rather than just asserted. Built through
+/// `paint_capsule`, not raw `World::set`, deliberately: that is the same
+/// entry point the player's brush uses, and it is what actually schedules
+/// the reactive structural checks (see `World::paint_capsule`) -- raw `set`
+/// calls (as `scene`/`scene_with` use for their pre-placed floors) leave
+/// `structural.rs` untouched by design, matching how the sandbox's own
+/// world-gen terrain is exempt.
+fn structural_scene(title: &str, w: i32, h: i32) {
+    println!("\n=== {title} ===");
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    let bridge_y = h / 2;
+    for x in 0..w {
+        world.paint_capsule((x, bridge_y), (x, bridge_y), 0, material::STONE, 1.0);
+    }
+
+    let run = |world: &mut World, frames: usize| {
+        for _ in 0..frames {
+            parallel::step(world);
+            world.step_active_sites();
+        }
+    };
+    let print_state = |world: &World, label: &str| {
+        println!("{label} ({} active sites still pending):", world.active_site_count());
+        for y in 0..h {
+            let row: String = (0..w).map(|x| glyph(world.get(x, y).material)).collect();
+            println!("|{row}|");
+        }
+    };
+
+    run(&mut world, 400);
+    print_state(&world, "before cutting the right support");
+
+    // Erase the right anchor -- the same reactive hook the player's own
+    // eraser brush goes through.
+    world.paint_capsule((w - 1, bridge_y), (w - 1, bridge_y), 0, material::EMPTY, 1.0);
+    run(&mut world, 400);
+    print_state(&world, "after cutting the right support");
 }
 
 fn glyph(id: MaterialId) -> char {

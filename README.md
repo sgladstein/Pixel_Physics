@@ -613,6 +613,93 @@ canalization doc-vs-code gap above:
   essentially never branched. Fixed by decaying channel only on a true dead
   end (no attractors in reach), not on a temporary resource shortfall.
 
+## M17 status
+
+Built: destructible building with no polygon solver (`structural.rs`). Every
+`Solid` cell can store, in `Cell::aux`, its distance in cells to the nearest
+anchor — bedrock, or the world edge (the `Cell::OUT_OF_BOUNDS` sentinel
+already used everywhere else a rule needs to treat the edge as a wall, so
+both cases are one check). A cell whose distance exceeds its material's
+`max_unsupported_span` converts to `breaks_into` (stone becomes gravel) and
+falls under ordinary gravity like any other loose material — M8 upgrades
+that into coherent tumbling chunks later without this milestone needing to
+change.
+
+**Checks are scheduled reactively, never at world-gen time — this is the
+one design decision the whole milestone hinges on.** The sandbox's own
+starting terrain (an 8-cell floor, deeper than stone's shipped span of 3,
+and three floating decorative ledges with no path to any anchor at all)
+would otherwise crumble the instant this shipped — not a demonstration of
+anything, just a surprise regression in terrain M1–M15 already established
+looked right. `structural.rs` only ever schedules a check in response to
+something actually disturbing a structure: `World::paint_capsule` (the
+player's own paint/erase brush) and `explosion::trigger` both call
+`World::schedule_structural_check_around` when a `Solid` cell is placed or
+removed. Pre-placed terrain built directly via `World::set` — which is how
+`app.rs`'s own floor and ledges are constructed — is never touched, and
+`pre_placed_terrain_is_never_retroactively_checked` is the regression test
+that guards it.
+
+**Recomputation reuses the M16 active-site scheduler unchanged** —
+`ActiveKind::StructuralCheck` is a third kind alongside moss and tree/root
+growth, dispatched to `structural::tick` instead of `plant::tick`. Distance
+is a shortest-path relaxation (`d = 1 + min(solid neighbours' d)`, anchors
+at `d = 0`), recomputed one cell at a time and only propagated to a cell's
+`Solid` neighbours when its own value actually changes — exactly the same
+"stop rescheduling once stable" shape a moss tip with nowhere left to grow
+already uses, which is what keeps a cascade's cost bounded by the size of
+the affected structure rather than the size of the world. Ticks are paced
+5 frames apart (`STRUCTURAL_TICK_INTERVAL`) rather than resolving a whole
+cascade in one frame, which is what makes a collapse read as progressive —
+see `cargo run --release --example ascii`'s bridge scene for what that
+actually looks like: a 7-cell bridge anchored at both world edges stands
+whole (stone's span of 3 reaches every cell from one end or the other),
+then erasing the right anchor collapses everything more than 3 cells from
+the surviving left anchor into gravel while the near stub stands.
+
+One genuinely interesting emergent property, not deliberately designed in:
+a `Solid` structure with **no** path to any anchor doesn't stay at distance
+0 by default (which would misread "never checked" as "already anchored").
+Once *any* part of it is disturbed and enters the scheduler, cells with only
+each other to reference relax upward every round-trip with no true zero
+source to converge toward — the same shape as the "count-to-infinity"
+problem well known from distance-vector routing — climbing without bound
+until every cell's distance exceeds its span and the whole structure
+collapses, exactly the outcome a real floating, unsupported structure
+should have. `saturating_add` keeps the arithmetic safe as the value climbs
+toward `u16::MAX`.
+
+**Guard against the burn-timer conflict.** `Cell::aux` is a tagged union —
+while a cell is burning, `aux` is the burn countdown, not a distance, and
+`Cell::set_aux` `debug_assert`s against writing it during a burn. A
+structural check on a burning cell defers (reschedules itself) rather than
+touching `aux`, and picks the distance question back up once the fire
+either goes out or the cell is consumed.
+
+Known simplification: `MaterialKind::Plant` (trees, moss) is explicitly out
+of scope for this milestone — it has its own M16 growth-based model, and
+`structural::tick` only ever activates for `MaterialKind::Solid`.
+
+Independent review (the same standing per-milestone practice as M5/M13/M16)
+found one real bug before commit: the neighbour-scanning loop that computes
+`min_neighbour` read a burning `Solid` neighbour's `aux()` as if it were a
+distance — but `aux` is a tagged union, and while `is_burning()` is true it
+holds the burn-timer countdown instead. Reachable in real play, not just in
+theory: `explosion::trigger`'s fireball step calls `World::ignite_circle`,
+which deliberately ignores `flammability` and force-ignites any non-empty
+cell in the ring beyond the blast — including stone — so a non-burning
+stone cell checking a burning stone neighbour is an ordinary consequence of
+setting off an explosion near a wall. Depending on where the timer happened
+to be, this could either mask a real break (a burn timer counting down
+through a small value reads as "well supported") or shatter a
+perfectly-supported cell for no structural reason (a fresh, large timer
+value reads as "extremely far from any anchor"). Fixed by excluding burning
+neighbours from the relaxation and deferring the check (rescheduling
+without writing `aux`) if every `Solid` neighbour that exists happens to be
+mid-burn, rather than either reading their timers or treating "temporarily
+unusable" the same as "no support at all." Regression test:
+`a_burning_solid_neighbours_burn_timer_is_never_read_as_its_distance`.
+
 ## Performance
 
 Measured by `cargo run --release --example ascii`, which reports the worst
@@ -678,7 +765,10 @@ that don't exist yet. As of M5, the CA sweep the live app runs every frame is
 multithreaded — see M5 status above. As of M16, moss and trees grow on their
 own schedule, separate from the CA sweep, with root growth tied to real
 water uptake and canopy shape driven by auxin canalization — see M16 status
-above; `T`/`M` plant a tree/moss seed at the brush.
+above; `T`/`M` plant a tree/moss seed at the brush. As of M17, painting or
+erasing `Solid` material (and explosions) reactively checks structural
+support — a stone structure whose span exceeds `max_unsupported_span` from
+any anchor breaks free and falls as loose material — see M17 status above.
 
 Known limitations:
 
@@ -715,4 +805,4 @@ Known limitations:
 
 Not yet built: Bak–Tang–Wiesenfeld toppling for avalanches, hole-propagation
 granular flow, rigid bodies, character physics, the streaming world,
-structural integrity, creatures, and Lua scripting.
+creatures, and Lua scripting.

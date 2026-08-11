@@ -454,19 +454,31 @@ impl World {
                 // protection as `Solid` -- a grown tree is exactly as
                 // deliberately placed as a stone wall, and without this the
                 // brush could erase it cell by cell same as any loose powder.
-                if material != material::EMPTY {
-                    let existing = self.get(x, y).material;
-                    if existing != material::EMPTY
-                        && matches!(
-                            self.materials.kind(existing),
-                            material::MaterialKind::Solid | material::MaterialKind::Plant
-                        )
-                    {
-                        continue;
-                    }
+                let existing_material = self.get(x, y).material;
+                if material != material::EMPTY
+                    && existing_material != material::EMPTY
+                    && matches!(
+                        self.materials.kind(existing_material),
+                        material::MaterialKind::Solid | material::MaterialKind::Plant
+                    )
+                {
+                    continue;
                 }
                 let shade = self.rng.below(shades) as u8;
                 self.set(x, y, Cell::new(material, shade));
+                // M17: either side of this write might be a `Solid` that just
+                // gained or lost a neighbour it was relying on -- placing new
+                // stone, or erasing existing stone out from under something
+                // else. Schedule reactively rather than at every paint stroke
+                // unconditionally, so a stroke over already-empty ground (the
+                // overwhelmingly common case while painting powders/liquids)
+                // costs nothing extra.
+                let placed_solid = matches!(self.materials.kind(material), material::MaterialKind::Solid);
+                let erased_solid = material == material::EMPTY
+                    && matches!(self.materials.kind(existing_material), material::MaterialKind::Solid);
+                if placed_solid || erased_solid {
+                    self.schedule_structural_check_around(x, y);
+                }
             }
         }
     }

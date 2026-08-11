@@ -28,6 +28,10 @@
 //!   from the CA sweep, at a cost proportional to how much is growing
 //!   rather than to world size
 //! * `plant` — M16, moss and tree/root growth, dispatched from `scheduler`
+//! * `structural` — M17, destructible building: solid cells track their
+//!   distance to an anchor, recomputed reactively via `scheduler`, and
+//!   convert to loose material once that distance exceeds their material's
+//!   tolerance
 //!
 //! Nothing below `update` knows about rendering, windowing or input.
 
@@ -42,6 +46,7 @@ pub mod particle;
 pub mod plant;
 pub mod rng;
 pub mod scheduler;
+pub mod structural;
 pub mod surface;
 pub mod update;
 pub mod world;

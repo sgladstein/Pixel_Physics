@@ -732,7 +732,43 @@ updated at each milestone commit, not just when something is added.
   section for the full writeup, including a tuning bug the new branching
   test surfaced (channel decayed on temporary energy waits as well as
   genuine dead ends, so it could almost never cross the branch threshold).
-- **M17/M18/M8**: not started yet.
+- **M17** (structural integrity): **done**. `structural.rs` gives every
+  `Solid` cell a distance-to-anchor in `Cell::aux`, recomputed incrementally
+  through the M16 active-site scheduler (a third `ActiveKind`,
+  `StructuralCheck`, alongside moss and tree/root growth) and only
+  propagated to a cell's solid neighbours when its own value actually
+  changes. A cell whose distance exceeds its material's
+  `max_unsupported_span` converts to `breaks_into` (stone → gravel) and
+  falls under ordinary gravity. The one design decision the milestone
+  hinges on: checks are scheduled *reactively* — from `World::paint_capsule`
+  (the player's brush) and `explosion::trigger` — and never at world-gen
+  time, so the sandbox's own pre-placed floor (8 cells thick, deeper than
+  stone's span of 3) and floating decorative ledges stay put by default
+  rather than crumbling the instant this shipped. A `cargo run --release
+  --example ascii` scene (`structural_scene`) makes the mechanic visible
+  directly: a 7-cell bridge anchored at both world edges stands whole, then
+  erasing the right anchor collapses everything beyond reach of the
+  surviving left anchor into gravel while the near stub stands — the same
+  geometry `cutting_a_bridges_support_makes_the_far_side_collapse` checks by
+  assertion. Independent review (same standing practice as M5/M13/M16) found
+  one real bug before commit: the neighbour-relaxation loop read a burning
+  `Solid` neighbour's `aux()` (its burn-timer countdown) as if it were a
+  distance, reachable via `explosion::trigger`'s fireball step, which
+  force-ignites nearby material — including stone — regardless of
+  flammability. Fixed by excluding burning neighbours from the relaxation
+  and deferring rather than reading their timers. One property found rather
+  than designed in: a structure with no
+  path to any anchor at all doesn't read as falsely "anchored" at its
+  default aux value of 0 — once any part of it enters the scheduler, its
+  cells relax upward every round-trip with no true zero source to converge
+  toward (the same shape as the "count-to-infinity" problem from
+  distance-vector routing), climbing without bound until every cell exceeds
+  its span and the whole thing collapses, which is the physically correct
+  outcome for something with nothing holding it up. See `README.md`'s M17
+  status section for the full writeup, including the burn-timer guard
+  (`Cell::aux` is a tagged union; a structural check on a burning cell
+  defers rather than clobbering the burn countdown).
+- **M18/M8**: not started yet.
 
 ---
 

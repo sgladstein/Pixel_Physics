@@ -164,6 +164,32 @@ pub struct MaterialDef {
     /// becomes `produces.0`, `with` becomes `produces.1`.
     #[serde(default)]
     pub reactions: Vec<ReactionDef>,
+
+    // --- M17: structural integrity ------------------------------------
+    /// How far a `Solid` cell may sit from an anchor (bedrock or the world
+    /// edge — see `structural.rs`) along a chain of other `Solid` cells
+    /// before it counts as unsupported and breaks free. Left unset
+    /// (effectively infinite), a material never breaks regardless of how
+    /// disconnected it becomes from any anchor — the same "never fires
+    /// unless a content author opts in" default `ignition_temperature`
+    /// uses, for the same reason: existing world-generated terrain (a
+    /// floor thicker than a small span, floating decorative ledges with no
+    /// path to an anchor at all) would otherwise start crumbling the
+    /// moment this milestone shipped, surprising rather than demonstrating
+    /// anything. `structural.rs` only ever schedules a check in reaction to
+    /// something disturbing a structure (painting, erasing, an explosion),
+    /// never at world-gen time, so pre-placed terrain stays inert as well
+    /// regardless of this value — but an explicit, small value is still
+    /// what makes a material's structures interesting to build and break.
+    #[serde(default = "default_never_u16")]
+    pub max_unsupported_span: u16,
+    /// What an unsupported cell becomes once it breaks free, or empty to
+    /// leave it Solid regardless of `max_unsupported_span` (the same
+    /// unset-name-is-a-no-op pattern `melts_into`/`burns_into` use). Loose
+    /// material, not a coherent falling chunk — M8 upgrades that later
+    /// without this milestone needing to change.
+    #[serde(default)]
+    pub breaks_into: String,
 }
 
 fn default_friction_angle() -> f32 {
@@ -195,6 +221,13 @@ fn default_never() -> f32 {
 /// explicitly.
 fn default_heat_conductivity() -> f32 {
     0.0
+}
+
+/// Effectively unreachable, the `u16` analogue of `default_never` — a
+/// material's structure never breaks under M17 unless a content author sets
+/// a real span.
+fn default_never_u16() -> u16 {
+    u16::MAX
 }
 
 #[derive(Deserialize, Clone)]
@@ -231,6 +264,7 @@ pub struct Material {
     pub heat_conductivity: f32,
     pub melting_point: f32,
     pub boiling_point: f32,
+    pub max_unsupported_span: u16,
 
     // Names as written in the `.ron` file (empty = unset), kept so
     // `MaterialRegistry::resolve_references` can look them up once every
@@ -242,6 +276,7 @@ pub struct Material {
     melts_into_name: String,
     boils_into_name: String,
     burns_into_name: String,
+    breaks_into_name: String,
     reactions_raw: Vec<ReactionDef>,
 
     /// Resolved by `resolve_references`. Unset (or naming something that
@@ -252,6 +287,7 @@ pub struct Material {
     pub melts_into: Option<MaterialId>,
     pub boils_into: Option<MaterialId>,
     pub burns_into: Option<MaterialId>,
+    pub breaks_into: Option<MaterialId>,
     pub reactions: Vec<Reaction>,
 }
 
@@ -331,14 +367,17 @@ impl From<MaterialDef> for Material {
             heat_conductivity: def.heat_conductivity,
             melting_point: def.melting_point,
             boiling_point: def.boiling_point,
+            max_unsupported_span: def.max_unsupported_span,
             melts_into_name: def.melts_into,
             boils_into_name: def.boils_into,
             burns_into_name: def.burns_into,
+            breaks_into_name: def.breaks_into,
             reactions_raw: def.reactions,
             // Left unresolved until `resolve_references` runs.
             melts_into: None,
             boils_into: None,
             burns_into: None,
+            breaks_into: None,
             reactions: Vec::new(),
         }
     }
@@ -421,6 +460,8 @@ impl MaterialRegistry {
             boils_into: String::new(),
             burns_into: String::new(),
             reactions: Vec::new(),
+            max_unsupported_span: u16::MAX,
+            breaks_into: String::new(),
         }));
         reg.insert(Material::from(MaterialDef {
             name: "bedrock".into(),
@@ -441,6 +482,11 @@ impl MaterialRegistry {
             boils_into: String::new(),
             burns_into: String::new(),
             reactions: Vec::new(),
+            // Bedrock is the anchor itself — it must never be the thing
+            // that breaks free, so this stays unset regardless of what any
+            // other material's span is.
+            max_unsupported_span: u16::MAX,
+            breaks_into: String::new(),
         }));
         reg
     }
@@ -533,6 +579,7 @@ impl MaterialRegistry {
             material.melts_into = resolve_if_set(&material.melts_into_name);
             material.boils_into = resolve_if_set(&material.boils_into_name);
             material.burns_into = resolve_if_set(&material.burns_into_name);
+            material.breaks_into = resolve_if_set(&material.breaks_into_name);
             material.reactions = material
                 .reactions_raw
                 .iter()

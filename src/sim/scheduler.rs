@@ -27,6 +27,7 @@ use std::collections::HashMap;
 
 use super::chunk::ChunkCoord;
 use super::plant;
+use super::structural;
 use super::world::World;
 
 /// What kind of growth an active site represents, and enough state to act
@@ -49,6 +50,11 @@ pub enum ActiveKind {
     TreeTip { tree: u32, tip: u32 },
     /// A root tip extending through soil/rock in search of water.
     RootTip { tree: u32, root: u32 },
+    /// M17: a `Solid` cell whose distance-to-anchor may need recomputing —
+    /// scheduled reactively (painting, erasing, an explosion), never at
+    /// world-gen time, so pre-placed terrain is never retroactively
+    /// checked. See `structural.rs`.
+    StructuralCheck,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -79,7 +85,11 @@ pub fn step(world: &mut World) {
                 push(&mut kept, site);
                 continue;
             }
-            for new_site in plant::tick(world, &site) {
+            let produced = match site.kind {
+                ActiveKind::Moss { .. } | ActiveKind::TreeTip { .. } | ActiveKind::RootTip { .. } => plant::tick(world, &site),
+                ActiveKind::StructuralCheck => structural::tick(world, &site),
+            };
+            for new_site in produced {
                 push(&mut kept, new_site);
             }
         }

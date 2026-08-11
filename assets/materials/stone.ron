@@ -1,3 +1,9 @@
+// max_unsupported_span/breaks_into (M17): the plan's own suggested number
+// for stone specifically ("stone 3, wood 8, steel 20"). Only ever checked
+// reactively -- painting, erasing, an explosion -- never at world-gen time
+// (see structural.rs), so the sandbox's own pre-placed floor and ledges
+// stay put by default; this is what makes stone the player *builds*
+// interesting to break, not a retroactive change to existing terrain.
 (
     name: "stone",
     display: "Stone",
@@ -9,4 +15,6 @@
         (138, 136, 140),
         (110, 112, 118),
     ],
+    max_unsupported_span: 3,
+    breaks_into: "gravel",
 )

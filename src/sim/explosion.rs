@@ -74,7 +74,14 @@ pub fn trigger(world: &mut World, particles: &mut ParticleSystem, cx: i32, cy: i
                 let (vx, vy) = debris_velocity(world, x, y, cx, cy, strength);
                 particles.spawn(x as f32, y as f32, vx, vy, cell.material, cell.shade);
             }
+            let was_solid = matches!(world.materials.kind(cell.material), material::MaterialKind::Solid);
             world.set(x, y, Cell::EMPTY);
+            // M17: an explosion is exactly the kind of disturbance structural
+            // checks exist for -- clearing a `Solid` cell may have just
+            // dropped whatever it was propping up.
+            if was_solid {
+                world.schedule_structural_check_around(x, y);
+            }
         }
     }
 

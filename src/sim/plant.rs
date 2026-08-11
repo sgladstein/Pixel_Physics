@@ -605,12 +605,15 @@ fn rotate(v: (f32, f32), radians: f32) -> (f32, f32) {
 }
 
 /// Dispatch one due active site to its growth function. Called from
-/// `scheduler::step`.
+/// `scheduler::step` for every `ActiveKind` except `StructuralCheck`, which
+/// `scheduler::step` routes to `structural::tick` instead -- the match here
+/// still has to name that variant to stay exhaustive.
 pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     match site.kind {
         ActiveKind::Moss { stale_ticks } => moss_tick(world, site.x, site.y, stale_ticks),
         ActiveKind::TreeTip { tree, tip } => tree_tip_tick(world, site.x, site.y, tree, tip),
         ActiveKind::RootTip { tree, root } => root_tip_tick(world, site.x, site.y, tree, root),
+        ActiveKind::StructuralCheck => unreachable!("scheduler::step routes StructuralCheck to structural::tick"),
     }
 }
 
