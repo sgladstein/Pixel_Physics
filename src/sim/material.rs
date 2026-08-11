@@ -88,10 +88,95 @@ pub struct MaterialDef {
     #[serde(default)]
     pub dispersion: u8,
     pub colors: Vec<[u8; 3]>,
+
+    // --- M14: heat, combustion, phase change and reactions -----------------
+    //
+    // All temperatures are Celsius, the same unit `Cell::temperature` and
+    // `FieldCell::temperature` already use — one unit throughout, no
+    // conversion anywhere a temperature crosses a boundary.
+    /// Chance to ignite, checked once per burning neighbour per step. 0 means
+    /// never catches fire. Kept in the same 0..1 probability space as
+    /// `Rng::chance` rather than TPT's 0..1000 integer scale — nothing else
+    /// in this engine uses an integer probability, and matching the rest of
+    /// the codebase mattered more here than matching the reference exactly.
+    #[serde(default)]
+    pub flammability: f32,
+    /// Temperature at which this material can catch fire on its own, without
+    /// a burning neighbour — contact with lava, standing in a fire's heat.
+    /// Defaults effectively to "never" so a material that only defines
+    /// `flammability` still needs a neighbour actually on fire to ignite it,
+    /// rather than spontaneously combusting the moment any warm cell touches it.
+    #[serde(default = "default_never")]
+    pub ignition_temperature: f32,
+    /// Temperature this material radiates while it itself is burning. Feeds
+    /// both its own cell temperature and the M13 ambient field once M14 wires
+    /// the coupling in.
+    #[serde(default = "default_never")]
+    pub burn_temperature: f32,
+    /// How long this material burns for, in frames, once ignited. Stored as
+    /// the countdown in `Cell::ignite`.
+    #[serde(default)]
+    pub burn_duration: u16,
+    /// Per-cell heat diffusion rate to CA neighbours. Must stay under the 2D
+    /// explicit-diffusion stability bound (Fourier number ≤ 0.25) — this is
+    /// the CA-resolution equivalent of `field::HEAT_DIFFUSION_RATE`, and
+    /// needs the same margin the field grid keeps, not more, since the fine
+    /// grid has no spare stability budget to give up.
+    #[serde(default = "default_heat_conductivity")]
+    pub heat_conductivity: f32,
+    #[serde(default = "default_never")]
+    pub melting_point: f32,
+    /// What this material becomes above `melting_point`, or empty for "does
+    /// not melt" — same `String`-not-`Option<String>` choice as `display`
+    /// above, for the same reason: RON requires an explicit `Some(...)`
+    /// wrapper for a present `Option` value (`melts_into: "ash"` alone is a
+    /// parse error, `Some("ash")` is required), which is friction with no
+    /// payoff here. An empty string is not a valid material name regardless,
+    /// so it is an unambiguous "unset". `melting_point` and `melts_into` stay
+    /// independent fields precisely so a `.ron` file can set one without the
+    /// other while iterating on content without it silently doing something.
+    #[serde(default)]
+    pub melts_into: String,
+    #[serde(default = "default_never")]
+    pub boiling_point: f32,
+    #[serde(default)]
+    pub boils_into: String,
+    /// Pairwise reactions with a specific other material — water quenching
+    /// lava into stone and steam, that kind of thing. Order matters: `self`
+    /// becomes `produces.0`, `with` becomes `produces.1`.
+    #[serde(default)]
+    pub reactions: Vec<ReactionDef>,
 }
 
 fn default_friction_angle() -> f32 {
     45.0
+}
+
+/// Effectively unreachable under normal gameplay temperatures, so a threshold
+/// left unset in a `.ron` file never fires rather than firing at 0.0 — the
+/// field default a bare `f32` would otherwise get, which would make every
+/// material "ignite" and "melt" the instant it's created.
+fn default_never() -> f32 {
+    f32::INFINITY
+}
+
+/// A moderate default within the stability margin, so a material that
+/// defines flammability without also tuning conductivity by hand still
+/// conducts heat plausibly rather than being a perfect insulator by accident.
+fn default_heat_conductivity() -> f32 {
+    0.15
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ReactionDef {
+    pub with: String,
+    pub produces: (String, String),
+    #[serde(default = "default_reaction_chance")]
+    pub chance: f32,
+}
+
+fn default_reaction_chance() -> f32 {
+    1.0
 }
 
 pub struct Material {
@@ -108,6 +193,44 @@ pub struct Material {
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
     pub palette: Vec<[u8; 4]>,
+
+    pub flammability: f32,
+    pub ignition_temperature: f32,
+    pub burn_temperature: f32,
+    pub burn_duration: u16,
+    pub heat_conductivity: f32,
+    pub melting_point: f32,
+    pub boiling_point: f32,
+
+    // Names as written in the `.ron` file (empty = unset), kept so
+    // `MaterialRegistry::resolve_references` can look them up once every
+    // material in the registry is known. Resolution can't happen inside
+    // `From<MaterialDef>` because a material may reference one that hasn't
+    // been parsed yet in this same batch, or one from an earlier load this
+    // reload never touches — either way, `Material::from` alone never has
+    // the full set to check against.
+    melts_into_name: String,
+    boils_into_name: String,
+    reactions_raw: Vec<ReactionDef>,
+
+    /// Resolved by `resolve_references`. Unset (or naming something that
+    /// doesn't exist) both read as "this doesn't happen" — a dangling
+    /// reference is a quiet no-op, not a hard error, so a typo during content
+    /// iteration costs a missing effect rather than breaking the whole
+    /// registry load the way a malformed `.ron` file does.
+    pub melts_into: Option<MaterialId>,
+    pub boils_into: Option<MaterialId>,
+    pub reactions: Vec<Reaction>,
+}
+
+/// A resolved pairwise reaction: `self` becomes `becomes`, the other material
+/// (`with`) becomes `other_becomes`.
+#[derive(Clone, Copy)]
+pub struct Reaction {
+    pub with: MaterialId,
+    pub becomes: MaterialId,
+    pub other_becomes: MaterialId,
+    pub chance: f32,
 }
 
 impl Material {
@@ -168,6 +291,21 @@ impl From<MaterialDef> for Material {
                 .iter()
                 .map(|c| [c[0], c[1], c[2], 255])
                 .collect(),
+
+            flammability: def.flammability,
+            ignition_temperature: def.ignition_temperature,
+            burn_temperature: def.burn_temperature,
+            burn_duration: def.burn_duration,
+            heat_conductivity: def.heat_conductivity,
+            melting_point: def.melting_point,
+            boiling_point: def.boiling_point,
+            melts_into_name: def.melts_into,
+            boils_into_name: def.boils_into,
+            reactions_raw: def.reactions,
+            // Left unresolved until `resolve_references` runs.
+            melts_into: None,
+            boils_into: None,
+            reactions: Vec::new(),
         }
     }
 }
@@ -236,6 +374,16 @@ impl MaterialRegistry {
             friction_angle: 45.0,
             dispersion: 0,
             colors: vec![[0, 0, 0]],
+            flammability: 0.0,
+            ignition_temperature: f32::INFINITY,
+            burn_temperature: f32::INFINITY,
+            burn_duration: 0,
+            heat_conductivity: 0.0,
+            melting_point: f32::INFINITY,
+            melts_into: String::new(),
+            boiling_point: f32::INFINITY,
+            boils_into: String::new(),
+            reactions: Vec::new(),
         }));
         reg.insert(Material::from(MaterialDef {
             name: "bedrock".into(),
@@ -245,6 +393,16 @@ impl MaterialRegistry {
             friction_angle: 45.0,
             dispersion: 0,
             colors: vec![[20, 20, 24]],
+            flammability: 0.0,
+            ignition_temperature: f32::INFINITY,
+            burn_temperature: f32::INFINITY,
+            burn_duration: 0,
+            heat_conductivity: 0.0,
+            melting_point: f32::INFINITY,
+            melts_into: String::new(),
+            boiling_point: f32::INFINITY,
+            boils_into: String::new(),
+            reactions: Vec::new(),
         }));
         reg
     }
@@ -260,6 +418,7 @@ impl MaterialRegistry {
                 Err(e) => panic!("embedded material {i} is malformed: {e}"),
             }
         }
+        reg.resolve_references();
         reg
     }
 
@@ -309,7 +468,45 @@ impl MaterialRegistry {
         for def in defs {
             self.upsert(def);
         }
+        // Re-resolve the whole registry, not just what this call touched: a
+        // material reloaded here might newly satisfy a reference some other,
+        // untouched material has been carrying unresolved since it was
+        // loaded — melting_point/melts_into can be added to two files in
+        // either order and the game should not care which.
+        self.resolve_references();
         Ok(count)
+    }
+
+    /// Look up every material's `melts_into`/`boils_into`/`reactions` name
+    /// references against the registry as it now stands, and fill in the
+    /// resolved `MaterialId` fields. Call after every batch of upserts —
+    /// never partway through one, since a material later in the batch might
+    /// be what an earlier one references.
+    fn resolve_references(&mut self) {
+        // Snapshotted rather than looked up live during the loop below,
+        // since resolving needs `&self.by_name` at the same time the loop
+        // mutably borrows `self.materials` — cheap, a few dozen entries.
+        let by_name = self.by_name.clone();
+        let resolve = |name: &str| by_name.get(name).copied();
+
+        let resolve_if_set = |name: &str| if name.is_empty() { None } else { resolve(name) };
+
+        for material in &mut self.materials {
+            material.melts_into = resolve_if_set(&material.melts_into_name);
+            material.boils_into = resolve_if_set(&material.boils_into_name);
+            material.reactions = material
+                .reactions_raw
+                .iter()
+                .filter_map(|r| {
+                    Some(Reaction {
+                        with: resolve(&r.with)?,
+                        becomes: resolve(&r.produces.0)?,
+                        other_becomes: resolve(&r.produces.1)?,
+                        chance: r.chance,
+                    })
+                })
+                .collect();
+        }
     }
 
     /// Replace the material of the same name in place, or append a new one.

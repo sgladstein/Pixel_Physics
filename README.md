@@ -64,13 +64,30 @@ That draw is keyed on **position, not the random generator**, and it has to
 stay that way. Drawing fresh each call lets a chunk fall asleep on a frame the
 dice said no, freezing grains that should have kept rolling.
 
+**The M14 schema** (combustion, phase change, reactions) is defined and
+loadable — see [`oil.ron`](assets/materials/oil.ron) for the first material
+using it — but nothing reads it yet; that is the update logic M14 adds. All
+of its temperatures are Celsius, the same unit `Cell` and the field grid both
+already use:
+
+```ron
+flammability: 0.5,       // chance to ignite per burning neighbour per step
+burn_temperature: 900.0, // what it radiates while on fire
+burn_duration: 180,      // frames
+melts_into: "ash",       // plain string, not Option<String> — see field.rs's
+                          // notes on RON's Some(...) requirement for why
+```
+
 ## Architecture
 
 ```
 src/sim/     the simulation — knows nothing about windows or GPUs
-  cell.rs      one pixel, packed into 4 bytes
+  cell.rs      one pixel, packed into 8 bytes: material, shade, flags,
+               temperature, and a kind-specific aux slot
   material.rs  materials as data, not code
   chunk.rs     64x64 tiles, coordinate maths, dirty rectangles
+  field.rs     the coarse pressure/velocity/temperature/light grid,
+               one tile per chunk, its own frame phase
   world.rs     the sparse chunk map and the get/set seam
   update.rs    the cellular automaton step
 src/render.rs  cells to pixels
@@ -124,7 +141,71 @@ looks up or down), because a cell has to be reconsidered whenever anything it
 can *see* changes — not just its immediate neighbours. A rule that reads
 further than the region is widened acts on cells that no longer wake it, and
 material goes stale mid-flow. Powder roll, liquid dispersion and the liquid
-surface search are all capped at it.
+surface search are all capped at it. **This limit applies to the CA sweep
+only.** The field grid (below) is a whole-grid pass that reads everything
+every step regardless of what changed, so it has no equivalent staleness risk
+and is not bound by it — that is precisely why long-range effects like a
+shockwave crossing the whole screen live there and not in a CA rule.
+
+## The coarse field grid
+
+One [`FieldTile`](src/sim/field.rs) per chunk, at 1/8 the CA grid's
+resolution, carrying pressure, velocity, ambient temperature and light.
+Modelled on [The Powder Toy's `Air.cpp`](https://github.com/The-Powder-Toy/The-Powder-Toy/blob/master/src/simulation/Air.cpp):
+pressure accumulates velocity divergence, velocity accumulates the negative
+pressure gradient, walls block flow, and the whole thing needs damping to stay
+bounded since it is not an exact energy-conserving scheme.
+
+One deliberate departure from that reference: it updates in place
+(Gauss-Seidel — later cells in a sweep see already-updated earlier ones).
+This implementation reads a full snapshot of the old state and writes a fresh
+new one every pass instead (Jacobi) — slightly more memory, but every pass is
+order-independent and parallelizable later, which matters once the CA sweep
+threads the same way.
+
+**Wall boundary conditions went through three attempts, and the reasoning for
+landing on the third is worth knowing before touching that code again.**
+Zeroing a cell's whole velocity whenever it touched *any* blocked neighbour,
+regardless of direction, was first — and wrong: in a small sealed room almost
+every interior cell borders some wall, so that version force-zeroed velocity
+there nearly every step no matter which way it was flowing, bleeding energy
+out of a sealed room *faster* than open ground (which never triggers the
+check at all). Measured backwards: a sealed room retained less pressure than
+open air. Reflecting the blocked component (flipping its sign to bounce,
+conserving kinetic energy) was tried next and made the same measurement
+*worse*, most likely energy pooling at wall-adjacent cells and repeatedly
+hitting the pressure/temperature clamps, which are themselves lossy.
+Reflection is a billiard-ball model, appropriate for discrete particles; the
+textbook boundary condition for a continuum velocity *field* is
+no-penetration — only the velocity component actually pointing into a wall is
+stopped, and it is clamped to zero, not bounced. That is what is there now.
+
+An independent review (a fresh agent, no context from building this) caught
+three more bugs before this was trusted: `sample_bilinear`'s interpolation
+weight was computed at one-world-unit granularity instead of across a field
+cell's full 8-cell width, `step_pressure` checked wall occupancy against the
+*previous* step's map instead of the one just rebuilt for the current step,
+and `step_diffusion` had no wall awareness at all, so heat and light diffused
+straight through solid stone. All three are fixed, and each has a named
+regression test in `field.rs`.
+
+## M12/M13 status
+
+`Cell` widened from 4 to 8 bytes (32 MB instead of 16 for a 2048² world —
+irrelevant) to carry a per-cell temperature and a kind-specific `aux` slot:
+burn timer while on fire, anchor distance for a solid, growth stage for a
+plant, owner id for a creature. `MaterialDef` gained the M14 schema
+(`flammability`, `ignition_temperature`, `burn_temperature`, `burn_duration`,
+`heat_conductivity`, `melting_point`/`melts_into`,
+`boiling_point`/`boils_into`, `reactions`) — oil is the first material with
+real numbers behind them, burning into ash. Cross-material references
+(`melts_into: "ash"`) are plain `String`, not `Option<String>` — RON requires
+an explicit `Some(...)` wrapper for a present `Option` value, which is
+friction with no payoff for a field that is simply absent (empty string) most
+of the time. Resolution from name to `MaterialId` happens in a dedicated pass
+after every material in a reload batch is known, since a material can
+reference one that has not been parsed yet, or one from an earlier load this
+reload never touches.
 
 ## Performance
 
@@ -134,28 +215,42 @@ single frame of each scenario.
 Ordinary scenes — a pile, a pour, a pool — cost well under 1 ms per frame, and
 a settled world costs nothing at all. Filling the sandbox's full 512×320 world
 with sand and water, all moving at once, costs a **worst frame of about 16 ms**
-against a 16.6 ms budget at 60 Hz.
+against a 16.6 ms budget at 60 Hz for the CA sweep alone; adding the field
+step every frame on top of that (which the live app now does) brings the same
+worst case to **about 21 ms**.
 
-So a completely full screen of moving material sits right on the limit, with no
-headroom. Multithreading is the intended answer, and this is the measurement
-that says when it stops being optional. Run the example while nothing else is
-compiling — concurrent cargo processes skew the figure badly.
+So a completely full screen of moving material, with something actively
+disturbing the field at the same time, is over budget with no headroom.
+Ordinary use — the field sitting quiet, or only a modest area of CA material
+moving — stays far under it; a quiet field costs almost nothing since nothing
+in it is changing. Multithreading is the intended answer for the saturated
+case, and this is the measurement that says when it stops being optional. Run
+the example while nothing else is compiling — concurrent cargo processes skew
+the figure badly.
 
 ## Status
 
 Working: the cellular automaton core, chunked world with dirty-rectangle
-sleeping, seven materials loaded from data with hot reload, angle of repose from
-a friction angle, density-driven displacement and layering, a capsule-swept
-brush that emits loose material as a stream, and the sandbox.
+sleeping, seven materials loaded from data with hot reload (oil now flammable,
+burning into ash), angle of repose from a friction angle, density-driven
+displacement and layering, a capsule-swept brush that emits loose material as
+a stream, the coarse pressure/velocity/temperature/light field grid, and the
+sandbox.
 
 Known limitations:
 
 - **Repose angles come out a few degrees shallower than requested** — roughly
   39/30/18 against 45/34/22 — because reach is a whole number of cells. Fine as
   a tuning knob, not a physical measurement.
-- **Nothing burns, melts or reacts.** `Cell` is exactly 4 bytes with no room for
-  temperature, so heat needs a deliberate decision to widen it to 8.
+- **The field grid does not affect CA cells yet, and nothing burns.** The
+  schema and the burn-timer mechanics on `Cell` exist; the update logic that
+  reads them — ignition, heat exchange with the field, phase changes — is
+  M14's job, not built yet.
+- **A saturated screen plus an active field disturbance is over the 60 Hz
+  budget** — see Performance above. Multithreading (planned, not built) is the
+  answer once this becomes the normal case rather than a stress test.
 
 Not yet built: Bak–Tang–Wiesenfeld toppling for avalanches, hole-propagation
-granular flow, heat and reactions, multithreading, free particles, rigid bodies,
-character physics, the streaming world, and Lua scripting.
+granular flow, fire and reactions (the update logic; the data model exists),
+explosions, multithreading, free particles, rigid bodies, character physics,
+the streaming world, and Lua scripting.

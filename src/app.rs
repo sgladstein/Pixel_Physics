@@ -75,6 +75,11 @@ impl App {
         }
         self.step_once = false;
         update::step(&mut self.world);
+        // Its own phase, after the CA sweep, per the `entities → CA sweep →
+        // rigid bodies → render` ordering the plan settled on: the field
+        // reacts to whatever solids the sweep just placed rather than a frame
+        // stale. No coupling back into CA cells yet — that starts in M14.
+        self.world.step_fields();
     }
 
     pub fn draw(&self, frame: &mut [u8]) {

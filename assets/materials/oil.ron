@@ -1,6 +1,15 @@
 // Lighter than water, so it floats on top of it, and thicker, so it spreads
 // more slowly. The density ordering against water and sand is what makes
 // layering work: oil 0.8 < water 1.0 < sand 1.6.
+//
+// Also the first flammable material with real numbers behind it (M14):
+// catches easily (flammability 0.5 — roughly a coin flip per burning
+// neighbour per step) and needs no external ignition source beyond that,
+// since ignition_temperature is left at its default of "never" — nothing
+// yet raises a cell's own temperature that high on its own, so for now oil
+// only catches from an adjacent flame, not spontaneously. Burns hot (900C)
+// for a full 3 seconds at 60 frames/sec, then becomes ash — a real burnt
+// residue rather than vanishing.
 (
     name: "oil",
     display: "Oil",
@@ -12,4 +21,8 @@
         (82, 68, 46),
         (60, 50, 34),
     ],
+    flammability: 0.5,
+    burn_temperature: 900.0,
+    burn_duration: 180,
+    melts_into: "ash", // RON: bare string is fine — this is a plain String field, not Option<String>
 )

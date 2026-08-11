@@ -30,7 +30,13 @@ public class PPWin32 {
 }
 "@ -ErrorAction SilentlyContinue
 
-$p = Start-Process -FilePath $Exe -ArgumentList $ExtraArgs -PassThru
+# -ArgumentList rejects an empty array outright (parameter validation error,
+# not just a no-op), so it can only be passed when there is something in it.
+if ($ExtraArgs.Count -gt 0) {
+    $p = Start-Process -FilePath $Exe -ArgumentList $ExtraArgs -PassThru
+} else {
+    $p = Start-Process -FilePath $Exe -PassThru
+}
 Start-Sleep -Seconds $WaitSeconds
 $p.Refresh()
 

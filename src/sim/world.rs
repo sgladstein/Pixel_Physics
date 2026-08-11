@@ -15,11 +15,15 @@ use std::collections::HashMap;
 
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
+use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::material::{self, MaterialId, MaterialRegistry};
 use super::rng::Rng;
 
 pub struct World {
     chunks: HashMap<ChunkCoord, Chunk>,
+    /// One tile per chunk, same lifetime — see the module doc on `field` for
+    /// why tying them together avoids a second loading/unloading system.
+    fields: HashMap<ChunkCoord, FieldTile>,
     /// `Some` for the fixed-size world of M2; M10 sets this to `None` to mean
     /// unbounded, at which point reads outside loaded chunks trigger generation
     /// instead of returning the out-of-bounds sentinel.
@@ -33,6 +37,7 @@ impl World {
     pub fn new(bounds: Rect) -> Self {
         let mut world = Self {
             chunks: HashMap::new(),
+            fields: HashMap::new(),
             bounds: Some(bounds),
             frame: 0,
             materials: MaterialRegistry::builtin(),
@@ -52,8 +57,100 @@ impl World {
             for cx in c0.x..=c1.x {
                 let coord = ChunkCoord::new(cx, cy);
                 self.chunks.entry(coord).or_insert_with(|| Chunk::new(coord));
+                self.fields.entry(coord).or_insert_with(FieldTile::new);
             }
         }
+    }
+
+    /// Advance the coarse field grid by one step. Its own frame phase,
+    /// deliberately separate from the CA sweep — see `field::step`.
+    pub fn step_fields(&mut self) {
+        field::step(self);
+    }
+
+    /// Field conditions at a world-cell position — any position inside the
+    /// same `FIELD_SCALE`-sided block reads the same cell.
+    pub fn field_at(&self, world_x: i32, world_y: i32) -> FieldCell {
+        field::sample(&self.fields, self.bounds, world_x, world_y)
+    }
+
+    /// Whether the field cell covering this position is blocked by CA-solid
+    /// material — the field's own occupancy map, recomputed every field step
+    /// from a full 8x8 (or whatever `FIELD_SCALE` is) scan. Distinct from
+    /// checking a single CA cell directly: a wall not aligned to a
+    /// `FIELD_SCALE` boundary can block a field cell without any specific
+    /// sampled world position inside it reading as solid.
+    pub fn field_is_blocked(&self, world_x: i32, world_y: i32) -> bool {
+        field::is_blocked(&self.fields, self.bounds, world_x, world_y)
+    }
+
+    /// Raise pressure in a filled circle. A synthetic disturbance for testing
+    /// the field solver on its own, and the mechanism M15 explosions use.
+    pub fn add_pressure_impulse(&mut self, cx: i32, cy: i32, radius: i32, amount: f32) {
+        self.paint_field(cx, cy, radius, |c| c.pressure += amount);
+    }
+
+    /// Raise temperature in a filled circle. A synthetic heat source for
+    /// testing diffusion on its own, ahead of M14 giving fire a real reason
+    /// to call this.
+    pub fn add_heat(&mut self, cx: i32, cy: i32, radius: i32, amount: f32) {
+        self.paint_field(cx, cy, radius, |c| c.temperature += amount);
+    }
+
+    /// Raise light in a filled circle. A synthetic source for testing the
+    /// diffusion/decay approximation before anything in the world emits light
+    /// on its own (M14's fire will be the first real emitter).
+    pub fn add_light(&mut self, cx: i32, cy: i32, radius: i32, amount: f32) {
+        self.paint_field(cx, cy, radius, |c| c.light += amount);
+    }
+
+    /// Apply `f` to every field cell within `radius` *world cells* of
+    /// `(cx, cy)`.
+    ///
+    /// Works entirely in field-cell space rather than stepping world
+    /// coordinates by `FIELD_SCALE`: starting that walk from an arbitrary,
+    /// non-field-aligned point and testing world-space distance against the
+    /// radius can skip the very field cell the caller meant to hit — a radius
+    /// smaller than `FIELD_SCALE` has no world-space sample point that both
+    /// lands on a field-cell boundary and falls inside a small circle. Testing
+    /// distance in field-cell units instead guarantees the containing field
+    /// cell is always included, and the "+1" slack keeps the footprint an
+    /// approximate disc rather than a diamond. Field-level physics does not
+    /// resolve anything finer than one field cell, so this is exactly as
+    /// precise as the abstraction supports — exact circle-vs-rectangle overlap
+    /// math would be precision spent on a value nothing downstream can use.
+    fn paint_field(&mut self, cx: i32, cy: i32, radius: i32, f: impl Fn(&mut FieldCell)) {
+        let (fcx, fcy) = field::field_coord_of(cx, cy);
+        let field_radius = radius / FIELD_SCALE;
+        let r2 = field_radius * field_radius + 1;
+
+        for dfy in -field_radius..=field_radius {
+            for dfx in -field_radius..=field_radius {
+                if dfx * dfx + dfy * dfy > r2 {
+                    continue;
+                }
+                let (fx, fy) = (fcx + dfx, fcy + dfy);
+                let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+                // A field cell exists only where its owning chunk is
+                // resident, mirroring how CA writes outside a loaded chunk
+                // are simply not materialised.
+                if let Some(tile) = self.fields.get_mut(&tile_coord) {
+                    let mut cell = tile.get_local(lx, ly);
+                    f(&mut cell);
+                    tile.set_local(lx, ly, cell);
+                }
+            }
+        }
+    }
+
+    // --- crate-internal seams used only by `field::step` -------------------
+
+    pub(crate) fn fields_ref(&self) -> &HashMap<ChunkCoord, FieldTile> {
+        &self.fields
+    }
+
+    pub(crate) fn replace_fields(&mut self, new_fields: HashMap<ChunkCoord, FieldTile>) {
+        self.fields = new_fields;
     }
 
     pub fn bounds(&self) -> Option<Rect> {

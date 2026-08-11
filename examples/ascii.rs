@@ -11,6 +11,7 @@
 //! world must show none; any that appear are cells the sweep stopped examining.
 
 use pixel_physics::sim::chunk::Rect;
+use pixel_physics::sim::field::FIELD_SCALE;
 use pixel_physics::sim::material::{self, MaterialId};
 use pixel_physics::sim::{update, Cell, World};
 
@@ -72,6 +73,19 @@ fn main() {
         }
     });
 
+    // M13: the same worst case, plus the field step every frame — this is
+    // what the live app actually does now (App::update runs both). The gap
+    // between this number and the CA-only one above is the field grid's cost.
+    field_stress_scene("stress: full screen + field step every frame", 512, 320, 400, |w| {
+        for y in 20..160 {
+            for x in 0..512 {
+                let m = if y < 90 { material::SAND } else { material::WATER };
+                w.set(x, y, Cell::new(m, 0));
+            }
+        }
+        w.add_pressure_impulse(256, 100, 20, 150.0);
+    });
+
     // Sand pouring off a ledge onto a platform below, to show the shape of the
     // free-falling stream and the slope it builds where it lands.
     scene("sand pouring off a ledge", 78, 40, 1200, |w| {
@@ -87,6 +101,87 @@ fn main() {
             }
         }
     });
+
+    // M13: a pressure impulse in open space, hitting a wall on the right.
+    // Wide domain and few frames, deliberately, so the front is still
+    // expanding rather than having already filled the whole visible area —
+    // that's what makes it read as a travelling wave rather than a static
+    // glow. Should spread outward as a roughly circular front and visibly
+    // reflect rather than pass through the '#' column.
+    field_scene("field: pressure impulse reflecting off a wall", 400, 120, 12, |w| {
+        for y in 0..120 {
+            w.set(360, y, Cell::new(material::STONE, 0));
+        }
+        w.add_pressure_impulse(80, 60, 6, 200.0);
+    });
+    // Same setup, run long enough for the front to actually reach the wall
+    // (closer this time). Confirms containment the way the eye can judge it:
+    // pressure fills the space right up to the '#' column and nothing
+    // appears past it. The precise claim — that velocity crossing the wall is
+    // zero, not just "looks contained" — is `walls_zero_the_velocity_that_
+    // would_cross_them` in field.rs, which is the test actually worth
+    // trusting; this is a sanity check, not a substitute for it.
+    field_scene("field: pressure impulse reflecting off a wall (longer run)", 400, 120, 40, |w| {
+        for y in 0..120 {
+            w.set(200, y, Cell::new(material::STONE, 0));
+        }
+        w.add_pressure_impulse(80, 60, 6, 200.0);
+    });
+
+    // M13: same impulse, but sealed in a box. Should stay concentrated near
+    // the center rather than dissipating outward, unlike the open scene above.
+    field_scene("field: pressure impulse sealed in a room", 160, 80, 200, |w| {
+        for x in 10..70 {
+            for y in [10, 69] {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for y in 10..70 {
+            for x in [10, 69] {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w.add_pressure_impulse(40, 40, 6, 200.0);
+    });
+}
+
+/// Prints pressure magnitude as a density ramp, one character per field cell
+/// (`FIELD_SCALE` world cells) rather than per CA cell — the field grid is
+/// coarser, and printing at CA resolution would just repeat each character
+/// `FIELD_SCALE` times for no extra information. `#` marks a field cell
+/// blocked by CA-solid material, so walls are visible against the pressure.
+fn field_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&mut World)) {
+    println!("\n=== {title} ===");
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    setup(&mut world);
+    for _ in 0..frames {
+        update::step(&mut world);
+        world.step_fields();
+    }
+
+    const RAMP: [char; 10] = [' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'];
+    // Chosen by eye against the impulse magnitudes used above; not a
+    // physically meaningful unit.
+    const NORMALIZE: f32 = 30.0;
+
+    let mut y = 0;
+    while y < h {
+        let mut row = String::new();
+        let mut x = 0;
+        while x < w {
+            let c = world.field_at(x, y);
+            if world.field_is_blocked(x, y) {
+                row.push('#');
+            } else {
+                let mag = (c.pressure.abs() / NORMALIZE).min(1.0);
+                let idx = ((mag * (RAMP.len() - 1) as f32).round() as usize).min(RAMP.len() - 1);
+                row.push(RAMP[idx]);
+            }
+            x += FIELD_SCALE;
+        }
+        println!("|{row}|");
+        y += FIELD_SCALE;
+    }
 }
 
 fn scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&mut World)) {
@@ -150,6 +245,31 @@ fn unstable(world: &World, w: i32, h: i32) -> Vec<(i32, i32)> {
         }
     }
     out
+}
+
+/// Same worst-frame methodology as `scene`, but stepping both the CA sweep
+/// and the field grid every frame — the combined cost the live app pays.
+fn field_stress_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&mut World)) {
+    println!("\n=== {title} ===");
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    for x in 0..w {
+        world.set(x, h - 1, Cell::new(material::STONE, 0));
+    }
+    setup(&mut world);
+
+    let mut worst = std::time::Duration::ZERO;
+    for _ in 0..frames {
+        let started = std::time::Instant::now();
+        update::step(&mut world);
+        world.step_fields();
+        worst = worst.max(started.elapsed());
+    }
+    println!(
+        "after {frames} frames: {}/{} chunks awake, worst frame {:.3} ms (CA + field combined)",
+        world.active_chunk_count(),
+        world.chunk_count(),
+        worst.as_secs_f64() * 1000.0,
+    );
 }
 
 fn glyph(id: MaterialId) -> char {
