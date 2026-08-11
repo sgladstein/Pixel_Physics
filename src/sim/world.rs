@@ -18,6 +18,7 @@ use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::material::{self, MaterialId, MaterialRegistry};
 use super::rng::Rng;
+use super::surface::CellSurface;
 
 pub struct World {
     chunks: HashMap<ChunkCoord, Chunk>,
@@ -151,6 +152,53 @@ impl World {
 
     pub(crate) fn replace_fields(&mut self, new_fields: HashMap<ChunkCoord, FieldTile>) {
         self.fields = new_fields;
+    }
+
+    // --- crate-internal seams used only by `parallel::step` (M5) -----------
+    //
+    // A rayon worker needs exclusive `&mut Chunk`/`&mut FieldTile` access to
+    // its own chunk while the rest of `World` stays shared and read-only.
+    // Pulling the chunk and its field tile out of their maps into a plain
+    // `Vec` element is what makes that safe without `unsafe`: a `Vec`'s
+    // elements don't alias each other the way two `&mut` borrows into the
+    // same `HashMap` would. See `parallel.rs` for the full picture.
+
+    pub(crate) fn take_chunk(&mut self, coord: ChunkCoord) -> Option<Chunk> {
+        self.chunks.remove(&coord)
+    }
+
+    pub(crate) fn put_chunk(&mut self, coord: ChunkCoord, chunk: Chunk) {
+        self.chunks.insert(coord, chunk);
+    }
+
+    pub(crate) fn take_field(&mut self, coord: ChunkCoord) -> Option<FieldTile> {
+        self.fields.remove(&coord)
+    }
+
+    pub(crate) fn put_field(&mut self, coord: ChunkCoord, field: FieldTile) {
+        self.fields.insert(coord, field);
+    }
+
+    /// Replay a `ChunkView`'s queued neighbour-wake from `set` on a chunk
+    /// that has since been reinserted. Mirrors `touch_neighbours`'s own
+    /// existence check: a non-resident chunk has nothing to simulate and is
+    /// silently skipped rather than created.
+    pub(crate) fn mark_dirty_at(&mut self, coord: ChunkCoord, x: i32, y: i32) {
+        if let Some(chunk) = self.chunks.get_mut(&coord) {
+            chunk.mark_dirty(x, y);
+        }
+    }
+
+    /// Replay a `ChunkView`'s queued field write on a tile that has since
+    /// been reinserted. Field-cell granular (not `add_heat`'s whole-circle
+    /// call) so replaying several queued cells from one pass never
+    /// double-applies to any cell a worker already wrote to directly.
+    pub(crate) fn add_heat_local(&mut self, tile_coord: ChunkCoord, lx: i32, ly: i32, amount: f32) {
+        if let Some(tile) = self.fields.get_mut(&tile_coord) {
+            let mut cell = tile.get_local(lx, ly);
+            cell.temperature += amount;
+            tile.set_local(lx, ly, cell);
+        }
     }
 
     pub fn bounds(&self) -> Option<Rect> {
@@ -412,6 +460,47 @@ impl World {
         for chunk in self.chunks.values_mut() {
             chunk.end_sweep();
         }
+    }
+}
+
+/// Thin delegation to `World`'s own methods, unchanged behaviour — the serial
+/// path every test and every non-sweep caller (painting, explosions,
+/// particles) already uses. See `surface.rs` for why this exists as a trait
+/// at all, and `parallel.rs`'s `ChunkView` for the other implementer.
+impl CellSurface for World {
+    #[inline]
+    fn get(&self, x: i32, y: i32) -> Cell {
+        World::get(self, x, y)
+    }
+
+    #[inline]
+    fn set(&mut self, x: i32, y: i32, cell: Cell) {
+        World::set(self, x, y, cell)
+    }
+
+    #[inline]
+    fn in_bounds(&self, x: i32, y: i32) -> bool {
+        World::in_bounds(self, x, y)
+    }
+
+    #[inline]
+    fn clear_moved(&mut self, x: i32, y: i32) {
+        World::clear_moved(self, x, y)
+    }
+
+    #[inline]
+    fn materials(&self) -> &MaterialRegistry {
+        &self.materials
+    }
+
+    #[inline]
+    fn rng(&mut self) -> &mut Rng {
+        &mut self.rng
+    }
+
+    #[inline]
+    fn add_heat(&mut self, x: i32, y: i32, radius: i32, amount: f32) {
+        World::add_heat(self, x, y, radius, amount)
     }
 }
 

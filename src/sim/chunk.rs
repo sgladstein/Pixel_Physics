@@ -6,6 +6,7 @@
 //! stays negligible once M5 spreads chunks across threads.
 
 use super::cell::Cell;
+use super::rng::Rng;
 
 pub const CHUNK_SIZE: i32 = 64;
 pub const CHUNK_AREA: usize = (CHUNK_SIZE * CHUNK_SIZE) as usize;
@@ -168,6 +169,16 @@ pub struct Chunk {
     /// region being swept, which would let material fall further than one cell
     /// per frame. Promoted to `dirty` by `end_sweep`.
     pending_dirty: Option<Rect>,
+    /// This chunk's own RNG stream (M5). The parallel checkerboard sweep
+    /// gives each active chunk exclusive ownership of itself for a pass, so
+    /// movement tie-breaks and fire's ignition/reaction rolls draw from here
+    /// rather than a single generator shared across threads — no
+    /// synchronization needed, and none of this engine's randomness was ever
+    /// required to be reproducible (see the plan's determinism decision), so
+    /// a per-chunk stream costs nothing behaviourally that a shared one
+    /// bought. `World` keeps its own separate `Rng` for everything outside
+    /// the sweep — painting, explosions, particle bursts.
+    rng: Rng,
 }
 
 impl Chunk {
@@ -179,7 +190,13 @@ impl Chunk {
             // sweep; generated terrain may need to settle immediately.
             dirty: Some(coord.bounds()),
             pending_dirty: None,
+            rng: Rng::new(seed_from_coord(coord)),
         }
+    }
+
+    #[inline]
+    pub fn rng_mut(&mut self) -> &mut Rng {
+        &mut self.rng
     }
 
     #[inline]
@@ -244,6 +261,16 @@ impl Chunk {
     pub fn cells(&self) -> &[Cell] {
         &self.cells
     }
+}
+
+/// Deterministic-in-value but not required to be so — only used so different
+/// chunks don't share an RNG stream. Casting through `u32` before widening to
+/// `u64` gives a stable bit pattern for negative coordinates without relying
+/// on `as u64`'s sign-extension behaviour being what a reader expects.
+fn seed_from_coord(coord: ChunkCoord) -> u64 {
+    let x = (coord.x as u32) as u64;
+    let y = (coord.y as u32) as u64;
+    x.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ y.wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
 }
 
 #[cfg(test)]

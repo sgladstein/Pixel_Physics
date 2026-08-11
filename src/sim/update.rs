@@ -14,6 +14,7 @@
 use super::chunk::{Rect, MAX_REACH};
 use super::fire;
 use super::material::MaterialKind;
+use super::surface::CellSurface;
 use super::world::World;
 
 pub fn step(world: &mut World) {
@@ -33,22 +34,26 @@ pub fn step(world: &mut World) {
     world.end_step();
 }
 
-fn sweep(world: &mut World, region: Rect, rightward: bool) {
+/// Sweep one region against any `CellSurface` — `World` directly for the
+/// serial driver above, or a `ChunkView` per active chunk for the M5
+/// parallel driver (`parallel.rs`). Generic so both paths run the exact same
+/// rule code; there is nothing separate to keep in sync.
+pub(crate) fn sweep<S: CellSurface>(surface: &mut S, region: Rect, rightward: bool) {
     for y in (region.min_y..=region.max_y).rev() {
         if rightward {
             for x in region.min_x..=region.max_x {
-                update_cell(world, x, y, rightward);
+                update_cell(surface, x, y, rightward);
             }
         } else {
             for x in (region.min_x..=region.max_x).rev() {
-                update_cell(world, x, y, rightward);
+                update_cell(surface, x, y, rightward);
             }
         }
     }
 }
 
-fn update_cell(world: &mut World, x: i32, y: i32, rightward: bool) {
-    let cell = world.get(x, y);
+fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) {
+    let cell = surface.get(x, y);
 
     // Arrived here during this sweep. Skip it once so it cannot travel twice in
     // one frame, and clear the flag so it moves normally from here on.
@@ -62,7 +67,7 @@ fn update_cell(world: &mut World, x: i32, y: i32, rightward: bool) {
     // ordinary visit — the same negligible deferral movement itself already
     // accepts here.
     if cell.moved() {
-        world.clear_moved(x, y);
+        surface.clear_moved(x, y);
         return;
     }
 
@@ -72,27 +77,27 @@ fn update_cell(world: &mut World, x: i32, y: i32, rightward: bool) {
     // having become lava. `fire::update` may have changed the cell's
     // material, flags or temperature, so it is re-read from the world rather
     // than reusing the `cell` bound above.
-    fire::update(world, x, y);
-    let cell = world.get(x, y);
+    fire::update(surface, x, y);
+    let cell = surface.get(x, y);
 
-    match world.materials.kind(cell.material) {
-        MaterialKind::Powder => update_powder(world, x, y, rightward),
-        MaterialKind::Liquid => update_liquid(world, x, y, rightward),
-        MaterialKind::Gas => update_gas(world, x, y, rightward),
+    match surface.materials().kind(cell.material) {
+        MaterialKind::Powder => update_powder(surface, x, y, rightward),
+        MaterialKind::Liquid => update_liquid(surface, x, y, rightward),
+        MaterialKind::Gas => update_gas(surface, x, y, rightward),
         MaterialKind::Empty | MaterialKind::Solid => false,
     };
 }
 
 /// Falls straight down, then diagonally, then creeps along the slope.
-fn update_powder(world: &mut World, x: i32, y: i32, rightward: bool) -> bool {
-    if try_move(world, x, y, x, y + 1) {
+fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
+    if try_move(surface, x, y, x, y + 1) {
         return true;
     }
-    let (first, second) = if world.rng.flip() { (-1, 1) } else { (1, -1) };
-    if try_move(world, x, y, x + first, y + 1) || try_move(world, x, y, x + second, y + 1) {
+    let (first, second) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
+    if try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1) {
         return true;
     }
-    roll_along_slope(world, x, y, rightward)
+    roll_along_slope(surface, x, y, rightward)
 }
 
 /// Creep one cell along a slope, toward the nearest place the grain could fall.
@@ -103,15 +108,15 @@ fn update_powder(world: &mut World, x: i32, y: i32, rightward: bool) -> bool {
 /// sides. Rolling lets it keep going down a shallower slope, and the pile comes
 /// to rest once no surface grain can see anywhere to fall within its reach —
 /// which the material's friction angle sets.
-fn roll_along_slope(world: &mut World, x: i32, y: i32, rightward: bool) -> bool {
-    let material = world.get(x, y).material;
-    let reach = world.materials.get(material).roll_reach_at(x, y);
+fn roll_along_slope<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
+    let material = surface.get(x, y).material;
+    let reach = surface.materials().get(material).roll_reach_at(x, y);
     if reach <= 0 {
         return false;
     }
 
-    let left = downhill_distance(world, x, y, -1, 1, reach);
-    let right = downhill_distance(world, x, y, 1, 1, reach);
+    let left = downhill_distance(surface, x, y, -1, 1, reach);
+    let right = downhill_distance(surface, x, y, 1, 1, reach);
 
     // Head for the closer opportunity. Always moving strictly closer to one
     // specific place to fall is what stops a grain drifting back and forth
@@ -124,7 +129,7 @@ fn roll_along_slope(world: &mut World, x: i32, y: i32, rightward: bool) -> bool 
             std::cmp::Ordering::Less => -1,
             std::cmp::Ordering::Greater => 1,
             std::cmp::Ordering::Equal => {
-                if world.rng.flip() {
+                if surface.rng().flip() {
                     -1
                 } else {
                     1
@@ -133,42 +138,42 @@ fn roll_along_slope(world: &mut World, x: i32, y: i32, rightward: bool) -> bool 
         },
     };
 
-    world.move_cell(x, y, x + dir, y, (dir > 0) == rightward);
+    surface.move_cell(x, y, x + dir, y, (dir > 0) == rightward);
     true
 }
 
 /// Falls like a powder, then flows sideways to find its level.
-fn update_liquid(world: &mut World, x: i32, y: i32, rightward: bool) -> bool {
-    if try_move(world, x, y, x, y + 1) {
+fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
+    if try_move(surface, x, y, x, y + 1) {
         return true;
     }
-    let (first, second) = if world.rng.flip() { (-1, 1) } else { (1, -1) };
-    if try_move(world, x, y, x + first, y + 1) || try_move(world, x, y, x + second, y + 1) {
+    let (first, second) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
+    if try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1) {
         return true;
     }
 
     // Capped for the same reason as `SURFACE_SEARCH`: a rule must not read
     // further than the sweep region is widened.
-    let dispersion = (world.materials.get(world.get(x, y).material).dispersion as i32).min(MAX_REACH);
-    flow_sideways(world, x, y, first, dispersion, -1, rightward)
-        || flow_sideways(world, x, y, second, dispersion, -1, rightward)
+    let dispersion = (surface.materials().get(surface.get(x, y).material).dispersion as i32).min(MAX_REACH);
+    flow_sideways(surface, x, y, first, dispersion, -1, rightward)
+        || flow_sideways(surface, x, y, second, dispersion, -1, rightward)
 }
 
 /// Rises, then spreads. Gases are the mirror of liquids under gravity.
-fn update_gas(world: &mut World, x: i32, y: i32, rightward: bool) -> bool {
-    if try_move(world, x, y, x, y - 1) {
+fn update_gas<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
+    if try_move(surface, x, y, x, y - 1) {
         return true;
     }
-    let (first, second) = if world.rng.flip() { (-1, 1) } else { (1, -1) };
-    if try_move(world, x, y, x + first, y - 1) || try_move(world, x, y, x + second, y - 1) {
+    let (first, second) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
+    if try_move(surface, x, y, x + first, y - 1) || try_move(surface, x, y, x + second, y - 1) {
         return true;
     }
 
     // Capped for the same reason as `SURFACE_SEARCH`: a rule must not read
     // further than the sweep region is widened.
-    let dispersion = (world.materials.get(world.get(x, y).material).dispersion as i32).min(MAX_REACH);
-    flow_sideways(world, x, y, first, dispersion, 1, rightward)
-        || flow_sideways(world, x, y, second, dispersion, 1, rightward)
+    let dispersion = (surface.materials().get(surface.get(x, y).material).dispersion as i32).min(MAX_REACH);
+    flow_sideways(surface, x, y, first, dispersion, 1, rightward)
+        || flow_sideways(surface, x, y, second, dispersion, 1, rightward)
 }
 
 /// Walk up to `max` cells in `dir`, stopping at the first obstruction, and move
@@ -182,8 +187,8 @@ fn update_gas(world: &mut World, x: i32, y: i32, rightward: bool) -> bool {
 /// `support_dy` points from the cell toward whatever would be pressing on it:
 /// -1 for liquids, which are pressed from above, +1 for gases, which are
 /// pressed from below.
-fn flow_sideways(
-    world: &mut World,
+fn flow_sideways<S: CellSurface>(
+    surface: &mut S,
     x: i32,
     y: i32,
     dir: i32,
@@ -206,11 +211,11 @@ fn flow_sideways(
     let mut can_fall_at_target = false;
     for step in 1..=max {
         let tx = x + dir * step;
-        if !world.in_bounds(tx, y) || !world.is_empty(tx, y) {
+        if !surface.in_bounds(tx, y) || !surface.is_empty(tx, y) {
             break;
         }
         target = tx;
-        if world.in_bounds(tx, y + fall_dy) && world.is_empty(tx, y + fall_dy) {
+        if surface.in_bounds(tx, y + fall_dy) && surface.is_empty(tx, y + fall_dy) {
             can_fall_at_target = true;
             break;
         }
@@ -221,8 +226,8 @@ fn flow_sideways(
     }
 
     // Somewhere to fall, or something stacked on top pushing it aside: move.
-    if can_fall_at_target || is_pressured(world, x, y, support_dy) {
-        world.move_cell(x, y, target, y, revisited);
+    if can_fall_at_target || is_pressured(surface, x, y, support_dy) {
+        surface.move_cell(x, y, target, y, revisited);
         return true;
     }
 
@@ -235,8 +240,8 @@ fn flow_sideways(
     // So look further along the row for somewhere to fall. Moving toward it
     // strictly reduces the distance, which both levels the surface and
     // terminates, rather than oscillating.
-    if downhill_distance(world, target, y, dir, fall_dy, SURFACE_SEARCH).is_some() {
-        world.move_cell(x, y, target, y, revisited);
+    if downhill_distance(surface, target, y, dir, fall_dy, SURFACE_SEARCH).is_some() {
+        surface.move_cell(x, y, target, y, revisited);
         return true;
     }
 
@@ -255,8 +260,8 @@ const SURFACE_SEARCH: i32 = MAX_REACH;
 ///
 /// The run has to be clear the whole way, because the cell has to travel along
 /// it — a gap on the far side of a wall is not reachable.
-fn downhill_distance(
-    world: &World,
+fn downhill_distance<S: CellSurface>(
+    surface: &S,
     x: i32,
     y: i32,
     dir: i32,
@@ -265,10 +270,10 @@ fn downhill_distance(
 ) -> Option<i32> {
     for step in 1..=reach {
         let tx = x + dir * step;
-        if !world.in_bounds(tx, y) || !world.is_empty(tx, y) {
+        if !surface.in_bounds(tx, y) || !surface.is_empty(tx, y) {
             return None;
         }
-        if world.in_bounds(tx, y + fall_dy) && world.is_empty(tx, y + fall_dy) {
+        if surface.in_bounds(tx, y + fall_dy) && surface.is_empty(tx, y + fall_dy) {
             return Some(step);
         }
     }
@@ -280,15 +285,15 @@ fn downhill_distance(
 /// The cheapest useful stand-in for hydrostatic pressure: liquid with liquid or
 /// something heavier resting on it spreads, liquid with open air above it does
 /// not. M3 replaces this with the real thing.
-fn is_pressured(world: &World, x: i32, y: i32, support_dy: i32) -> bool {
-    let presser = world.get(x, y + support_dy);
+fn is_pressured<S: CellSurface>(surface: &S, x: i32, y: i32, support_dy: i32) -> bool {
+    let presser = surface.get(x, y + support_dy);
     if presser.is_empty() {
         return false;
     }
-    let self_density = world.materials.density(world.get(x, y).material);
+    let self_density = surface.materials().density(surface.get(x, y).material);
     // Solids count: liquid trapped under stone is under pressure, and bedrock's
     // infinite density makes the world floor and ceiling press inward.
-    world.materials.density(presser.material) >= self_density
+    surface.materials().density(presser.material) >= self_density
 }
 
 /// Attempt to move the cell at `(x, y)` into `(tx, ty)`.
@@ -298,8 +303,8 @@ fn is_pressured(world: &World, x: i32, y: i32, support_dy: i32) -> bool {
 /// must be heavier (sand sinks through water); moving up, lighter (smoke rises
 /// through water). Sideways moves never displace, or liquids would churn
 /// endlessly through each other and never settle.
-fn try_move(world: &mut World, x: i32, y: i32, tx: i32, ty: i32) -> bool {
-    if !world.in_bounds(tx, ty) {
+fn try_move<S: CellSurface>(surface: &mut S, x: i32, y: i32, tx: i32, ty: i32) -> bool {
+    if !surface.in_bounds(tx, ty) {
         return false;
     }
 
@@ -308,19 +313,19 @@ fn try_move(world: &mut World, x: i32, y: i32, tx: i32, ty: i32) -> bool {
     // come and must be flagged.
     let revisited = ty < y;
 
-    let dst = world.get(tx, ty);
+    let dst = surface.get(tx, ty);
     if dst.is_empty() {
-        world.move_cell(x, y, tx, ty, revisited);
+        surface.move_cell(x, y, tx, ty, revisited);
         return true;
     }
 
-    let dst_kind = world.materials.kind(dst.material);
+    let dst_kind = surface.materials().kind(dst.material);
     if !dst_kind.is_displaceable() {
         return false;
     }
 
-    let src_density = world.materials.density(world.get(x, y).material);
-    let dst_density = world.materials.density(dst.material);
+    let src_density = surface.materials().density(surface.get(x, y).material);
+    let dst_density = surface.materials().density(dst.material);
     let displaces = match (ty - y).signum() {
         1 => src_density > dst_density,
         -1 => src_density < dst_density,
@@ -328,7 +333,7 @@ fn try_move(world: &mut World, x: i32, y: i32, tx: i32, ty: i32) -> bool {
     };
 
     if displaces {
-        world.move_cell(x, y, tx, ty, revisited);
+        surface.move_cell(x, y, tx, ty, revisited);
         return true;
     }
     false

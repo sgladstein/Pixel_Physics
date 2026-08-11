@@ -13,7 +13,7 @@
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::field::FIELD_SCALE;
 use pixel_physics::sim::material::{self, MaterialId};
-use pixel_physics::sim::{update, Cell, World};
+use pixel_physics::sim::{parallel, update, Cell, World};
 
 fn main() {
     scene("sand piling on a floor", 78, 30, 400, |w| {
@@ -63,28 +63,45 @@ fn main() {
 
     // The realistic worst case: the sandbox's own resolution, filled with
     // material that is all moving at once. The worst frame here is what has to
-    // fit inside the 16.6 ms budget at 60 Hz.
-    scene("stress: a full screen of sand and water", 512, 320, 400, |w| {
+    // fit inside the 16.6 ms budget at 60 Hz. Run against both drivers back to
+    // back — M5's whole point is that the second number should be smaller,
+    // and the "unsupported cells" / awake-chunk counts should agree, which is
+    // the closest this headless tool comes to "identical visual behavior
+    // single- vs multi-threaded" from the plan's own verification bullet.
+    let stress_setup = |w: &mut World| {
         for y in 20..160 {
             for x in 0..512 {
                 let m = if y < 90 { material::SAND } else { material::WATER };
                 w.set(x, y, Cell::new(m, 0));
             }
         }
-    });
+    };
+    scene_with("stress: a full screen of sand and water (serial)", 512, 320, 400, update::step, stress_setup);
+    scene_with("stress: a full screen of sand and water (parallel, M5)", 512, 320, 400, parallel::step, stress_setup);
 
     // M13: the same worst case, plus the field step every frame — this is
     // what the live app actually does now (App::update runs both). The gap
     // between this number and the CA-only one above is the field grid's cost.
-    field_stress_scene("stress: full screen + field step every frame", 512, 320, 400, |w| {
-        for y in 20..160 {
-            for x in 0..512 {
-                let m = if y < 90 { material::SAND } else { material::WATER };
-                w.set(x, y, Cell::new(m, 0));
-            }
-        }
+    let field_stress_setup = |w: &mut World| {
+        stress_setup(w);
         w.add_pressure_impulse(256, 100, 20, 150.0);
-    });
+    };
+    field_stress_scene(
+        "stress: full screen + field step every frame (serial)",
+        512,
+        320,
+        400,
+        update::step,
+        field_stress_setup,
+    );
+    field_stress_scene(
+        "stress: full screen + field step every frame (parallel, M5)",
+        512,
+        320,
+        400,
+        parallel::step,
+        field_stress_setup,
+    );
 
     // Sand pouring off a ledge onto a platform below, to show the shape of the
     // free-falling stream and the slope it builds where it lands.
@@ -185,6 +202,20 @@ fn field_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&m
 }
 
 fn scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&mut World)) {
+    scene_with(title, w, h, frames, update::step, setup);
+}
+
+/// Same as `scene`, but with the CA step driver as a parameter — `update::step`
+/// (serial) or `parallel::step` (M5) — so the same scene can be run through
+/// both and compared directly.
+fn scene_with(
+    title: &str,
+    w: i32,
+    h: i32,
+    frames: usize,
+    step_fn: fn(&mut World),
+    setup: impl FnOnce(&mut World),
+) {
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     for x in 0..w {
@@ -197,7 +228,7 @@ fn scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&mut Wor
     let mut worst = std::time::Duration::ZERO;
     for _ in 0..frames {
         let started = std::time::Instant::now();
-        update::step(&mut world);
+        step_fn(&mut world);
         worst = worst.max(started.elapsed());
     }
 
@@ -249,7 +280,15 @@ fn unstable(world: &World, w: i32, h: i32) -> Vec<(i32, i32)> {
 
 /// Same worst-frame methodology as `scene`, but stepping both the CA sweep
 /// and the field grid every frame — the combined cost the live app pays.
-fn field_stress_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&mut World)) {
+/// `step_fn` is the CA driver (`update::step` or `parallel::step`).
+fn field_stress_scene(
+    title: &str,
+    w: i32,
+    h: i32,
+    frames: usize,
+    step_fn: fn(&mut World),
+    setup: impl FnOnce(&mut World),
+) {
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     for x in 0..w {
@@ -260,7 +299,7 @@ fn field_stress_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl Fn
     let mut worst = std::time::Duration::ZERO;
     for _ in 0..frames {
         let started = std::time::Instant::now();
-        update::step(&mut world);
+        step_fn(&mut world);
         world.step_fields();
         worst = worst.max(started.elapsed());
     }

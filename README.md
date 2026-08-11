@@ -97,7 +97,11 @@ src/sim/     the simulation — knows nothing about windows or GPUs
   particle.rs  free (off-grid) particles for explosions and splashes
   explosion.rs pressure impulse + heat spike + debris, built from the above
   world.rs     the sparse chunk map and the get/set seam
-  update.rs    the cellular automaton step
+  update.rs    the cellular automaton step's rules, generic over CellSurface
+  surface.rs   the CellSurface trait update.rs/fire.rs run against --
+               World (serial) or parallel::ChunkView (multithreaded)
+  parallel.rs  M5: the multithreaded checkerboard sweep -- an alternative
+               driver for update.rs's rules, not a second copy of them
 src/render.rs  cells to pixels
 src/app.rs     sandbox state: brush, picker, terrain
 src/main.rs    window, input, fixed 60 Hz timestep
@@ -359,60 +363,131 @@ unreasonable for a first cut; a version that actually checks flammability
 (closer to `fire::try_ignite`'s temperature-driven path) would be the more
 correct fix.
 
-## M5/M6 deferral
+## M6 deferral
 
-Both skipped for tonight's unattended run, in the plan's own stated order
-(M6, then M5), and picked back up at M16 instead. Neither is abandoned —
-this is a note for the next supervised session, not a design decision.
+Rendering upgrade (dirty-region texture uploads, a custom wgpu pipeline for
+emissive light and bloom) stays parked. It needs live visual judgment of a
+bloom kernel and light falloff that the framebuffer-dump technique can
+confirm *exists* but not confirm *looks right* — that's true regardless of
+who's watching, so unlike M5 below it isn't something a return to
+supervision unblocks by itself. Picked back up whenever there's a session
+built around watching the render output directly.
 
-**M6 (rendering upgrade — dirty-region texture uploads, custom wgpu pipeline
-for emissive light and bloom)** needs live visual judgment of a bloom kernel
-and light falloff that the framebuffer-dump technique can confirm *exists*
-but not confirm *looks right*. Low risk to correctness, high risk of shipping
-something ugly unreviewed.
+## M5 status
 
-**M5 (multithreading)** is the real one, and got real architectural analysis
-before being set aside. The plan's own spec is a 4-pass checkerboard —
-chunk `(cx, cy)` in group `(cx % 2, cy % 2)` — on the reasoning that two
-chunks in the same group are never adjacent, even diagonally. Worked through
-the arithmetic: `MAX_REACH` is 32, exactly half of `CHUNK_SIZE` (64), so for
-the one case that matters — two same-group chunks both reaching into a
-shared intermediate chunk — their writes are provably cell-disjoint (one
-gets cells 0–31, the other 32–63). Cell-level, that holds up.
+Built, once the user returned mid-session and picked "attempt it now" over
+deferring further — see the [plan's progress log](PLAN.md#progress-log) for
+the timeline. The design that shipped is **not** the plan's original sketch
+(a single `unsafe` function handing out overlapping mutable 3×3 chunk
+neighbourhoods). That version needed a second, harder proof — that reads
+within one worker's own sweep still see that worker's own earlier writes,
+the same way a direct `World::set` always has — before it could be trusted,
+and it does not visibly announce itself as missing; it would have shipped
+as a subtle, load-bearing gap. What's in `parallel.rs` instead needs **no
+`unsafe` anywhere** (`grep -rn unsafe src/` returns nothing but the doc
+comments describing why there's none), at the cost of one extra serial
+merge step per pass.
 
-Where it stops holding up: the shared intermediate chunk's *dirty-rect and
-sleep state* — not its cells — would still need concurrent mutation from
-both threads in that scenario, and that's unsound regardless of how clean
-the cell split is. Fixing it needs either sub-chunk slicing (more unsafe,
-keeps the 4-pass scheme) or a 9-pass mod-3 grouping (simpler invariant,
-whole-chunk exclusive ownership, less parallelism per pass). Either way,
-every movement and fire rule currently takes `&mut World` directly, and
-threading either scheme safely means routing all of them through a new
-"chunk neighbourhood view" abstraction first — a real refactor of the
-sweep's access pattern, not an additive change.
+**The proof, worked out by hand and then checked exhaustively by a test.**
+Movement only ever moves a cell by `MAX_REACH` (32, exactly half of
+`CHUNK_SIZE`) sideways within a row, or by exactly one cell in any of the 8
+directions vertically/diagonally; fire's reach is a strict subset of the
+latter. Enumerating which pairs of a chunk's 8 neighbours can be
+simultaneously active under the mod-2 checkerboard (comparing `(cx%2,
+cy%2)` pairwise) shows only four possible configurations — left+right,
+top+bottom, and the two diagonal pairs — and each one's write footprint
+lands in geometrically opposite, disjoint halves/rows/corners of the shared
+chunk. No two workers in the same pass ever target the same cell.
+`same_group_chunks_are_never_within_reach_of_each_other` in `parallel.rs`
+checks this exhaustively across a wide neighbourhood rather than resting on
+the derivation alone.
 
-The plan calls this out itself as "the one `unsafe` seam in the codebase,"
-to be verified under Miri before it ships. That's a correctness bar worth
-holding to deliberately, with a human able to look at the result, rather
-than rushing unattended — the failure mode is memory corruption, not a
-wrong pixel. [Performance](#performance) below is the number that will say
-when this stops being optional: currently ~28 ms worst-frame against a
-16.6 ms budget only in the saturated case (full screen of moving material
-*and* an active field disturbance at once), comfortably under budget for
-everything short of that.
+**That settled cross-chunk safety. It did not settle within-worker
+ordering, and this is the part that actually broke once during
+implementation.** `flow_sideways` (liquids/gases) can jump a cell directly
+by up to `MAX_REACH` cells in one step — not just one — so a cell well
+inside a chunk can still land across a boundary. If a queued cross-boundary
+write were invisible to that same worker's own later reads, a second cell
+processed afterward in the same sweep could scan straight past the
+already-claimed destination (seeing the stale pre-pass snapshot instead)
+and independently claim it too — two queued writes to the same position,
+silently losing one at replay. `ChunkView::remote_writes` fixes this by
+making `get` check the worker's own queued writes before falling through to
+the shared snapshot, restoring exactly the property a direct write always
+had serially. Caught by reasoning through the design, not by a failing
+test — worth being honest about, since it means the *next* subtle gap like
+this might not announce itself either.
+
+**Design: exclusive ownership plus a deferred queue.** Each pass pulls its
+active chunks (and field tiles) out of `World`'s maps into a plain `Vec` —
+a `Vec`'s elements don't alias each other the way two `&mut` borrows into
+one `HashMap` would, so handing each rayon worker `&mut Chunk` needs no
+`unsafe`. A `CellSurface` trait (`surface.rs`) is what makes this possible
+without forking the rules: `update.rs`/`fire.rs` are generic over it, so the
+exact same movement and fire code runs whether given a plain `&mut World`
+(serial) or a `ChunkView` (parallel) — there is only one implementation of
+any rule to keep correct, not two to keep in sync. A `ChunkView` gives its
+worker direct mutation of its own chunk/field tile, shared read-only access
+to everything else, and three queues (cell writes, dirty-wake touches, field
+writes) for anything landing outside its own bounds — replayed serially
+through the ordinary `World::set`/`mark_dirty_at`/`add_heat_local` once the
+pass's workers finish.
+
+**A real, pre-existing M14 bug found along the way, not an M5 regression.**
+`fire::diffuse_heat`'s "minimum one degree of progress" fix (added to stop
+an isolated hot cell getting numerically stuck a few degrees off ambient)
+turned out to force a whole-degree jump on *any* nonzero pull, even a
+vanishingly small one — harmless for one isolated cooling cell, since its
+only neighbours are `Cell::EMPTY`'s fixed ambient value, but a connected
+mass of many cells cooling *together* (40 cells of ash from a burned-out
+fire, the scenario M5's own stress test happened to be the first thing to
+actually exercise) pull on each other by tiny nonzero amounts forever,
+never landing on exactly zero. The fix now only forces progress when the
+cell is actually outside `THERMAL_SETTLE_EPSILON` of ambient — tied to the
+same "is this settled" question `must_stay_dirty` already asks, rather than
+a separate, looser one. `fire.rs`'s
+`a_connected_mass_of_cooling_cells_actually_settles` is the regression test.
+
+**Per-chunk RNG, not one shared stream.** Each `Chunk` now owns its own
+`Rng`, seeded from its coordinate, rather than every cell drawing from a
+single `World`-level generator — a parallel worker can't safely share a
+mutable generator across threads, and since this project's determinism
+decision (see the plan) never required reproducible randomness, splitting
+the stream costs nothing behaviourally that a shared one bought. `World`
+keeps its own separate `Rng` for everything outside the sweep (painting,
+explosions, particle bursts), unchanged.
+
+**Verification beyond the unit tests.** Miri was the plan's own bar for the
+`unsafe` seam it expected — with none shipped, there's nothing for Miri to
+check; the equivalent bar here is the conservation/settling stress tests in
+`parallel.rs` (a full multi-chunk screen of sand and water, a fire chain
+spanning dozens of cells, a chunk touched only via a neighbour's dirty mark)
+plus an independent review pass focused specifically on concurrency
+correctness before this was committed.
 
 ## Performance
 
 Measured by `cargo run --release --example ascii`, which reports the worst
-single frame of each scenario.
+single frame of each scenario — now run through both drivers back to back
+for the stress scenes specifically so the gap is visible directly rather
+than compared against an old README number.
 
 Ordinary scenes — a pile, a pour, a pool — cost well under 1 ms per frame, and
 a settled world costs nothing at all. Filling the sandbox's full 512×320 world
 with sand and water, all moving at once, costs a **worst frame of about 23 ms**
-against a 16.6 ms budget at 60 Hz for the CA sweep (which now includes M14's
-fire/heat pass on every visited cell) alone; adding the field step every frame
-on top of that (which the live app does) brings the same worst case to
-**about 28 ms**.
+against a 16.6 ms budget at 60 Hz for the CA sweep alone (serial) — **down to
+about 6.4 ms parallel**, a **~3.6x speedup on this machine's 4 logical
+cores**. Adding the field step every frame on top of that (which the live app
+does, and which M5 does not parallelize — see below) brings the worst case to
+about 28 ms serial, **about 11.5 ms parallel**.
+
+Both numbers now sit comfortably under the 16.6 ms budget, including the
+combined worst case that was the plan's own stated reason M5 could not be
+deferred indefinitely. The field grid's own solve (`field.rs`) is not
+threaded by this milestone — its per-phase, whole-grid structure is at least
+as parallelizable as the CA sweep was, arguably more so since it has no
+cross-chunk boundary case to solve at all, but that is additive work for a
+future session, not something this one needed to unblock the budget.
 
 That fire/heat pass cost real, measured performance getting to this point —
 worth knowing the shape of, since the same mistake is easy to make again in
@@ -451,7 +526,8 @@ local pressure gradient, and a fireball igniting the intact ring around the
 blast. Oil is the one shipped material with real combustion numbers, burning
 into ash; `F`/`P`/`X` force-ignite, throw a particle burst, and trigger an
 explosion at the brush, all debug tools standing in for gameplay triggers
-that don't exist yet.
+that don't exist yet. As of M5, the CA sweep the live app runs every frame is
+multithreaded — see M5 status above.
 
 Known limitations:
 
@@ -467,10 +543,10 @@ Known limitations:
 - **Explosions ignite anything nearby regardless of flammability** — see M15
   status above. Reuses the debug force-ignite tool rather than a
   flammability-respecting path; stone glows the same as oil would.
-- **A saturated screen plus an active field disturbance is over the 60 Hz
-  budget, more so after M14** — see Performance above. Multithreading
-  (planned, not built — see [M5/M6 deferral](#m5m6-deferral)) is the answer
-  once this becomes the normal case rather than a stress test.
+- **The field grid's own solve is still single-threaded** — see M5 status
+  above. It no longer needs to be threaded to fit the 60 Hz budget (the
+  combined worst case is now ~11.5 ms), but it's the next thing that would
+  need it if that stops being true.
 - **Windows screen capture cannot see this app's rendered canvas on this
   machine** — see M14 status above for the workaround. Worth re-checking
   whether this is machine-specific before assuming every future visual
@@ -478,5 +554,5 @@ Known limitations:
   screenshot script.
 
 Not yet built: Bak–Tang–Wiesenfeld toppling for avalanches, hole-propagation
-granular flow, multithreading, rigid bodies, character physics, the streaming
-world, and Lua scripting.
+granular flow, rigid bodies, character physics, the streaming world, plants,
+structural integrity, creatures, and Lua scripting.

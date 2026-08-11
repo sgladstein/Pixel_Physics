@@ -7,8 +7,8 @@
 use crate::render::Renderer;
 use crate::sim::chunk::Rect;
 use crate::sim::material::{self, MaterialId, MaterialKind};
+use crate::sim::parallel;
 use crate::sim::particle::ParticleSystem;
-use crate::sim::update;
 use crate::sim::world::World;
 use crate::sim::Cell;
 
@@ -77,7 +77,7 @@ impl App {
             return;
         }
         self.step_once = false;
-        update::step(&mut self.world);
+        parallel::step(&mut self.world);
         // Particles after the CA sweep, not before: a landing check needs
         // this frame's fully-settled CA state, not last frame's, or a
         // particle could land inside material that has since moved out from

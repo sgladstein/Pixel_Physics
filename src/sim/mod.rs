@@ -17,6 +17,12 @@
 //!   (M7), a separate system from the CA grid entirely
 //! * `explosion` — M15, built entirely from `field`, `fire` and `particle`
 //!   triggered together; no new simulation primitive of its own
+//! * `surface` — the `CellSurface` trait `update`/`fire`'s rules run
+//!   against, implemented once for `World` (serial) and once for
+//!   `parallel`'s `ChunkView` (multithreaded) — see M5
+//! * `parallel` — M5, the multithreaded checkerboard sweep; an alternative
+//!   driver for the exact same rules in `update`/`fire`, not a second copy
+//!   of them
 //!
 //! Nothing below `update` knows about rendering, windowing or input.
 
@@ -26,8 +32,10 @@ pub mod explosion;
 pub mod field;
 pub mod fire;
 pub mod material;
+pub mod parallel;
 pub mod particle;
 pub mod rng;
+pub mod surface;
 pub mod update;
 pub mod world;
 

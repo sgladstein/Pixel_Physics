@@ -44,7 +44,7 @@
 
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::material::{self, MaterialId};
-use super::world::World;
+use super::surface::CellSurface;
 
 /// Below this many degrees from ambient, a cell stops force-waking its own
 /// chunk for heat alone. Small enough that nothing visibly stops changing
@@ -62,8 +62,8 @@ const THERMAL_SETTLE_EPSILON: f32 = 1.0;
 /// Returns `true` if the cell's material identity changed (melted, boiled, or
 /// burned out into something else) — callers that cache `cell.material` from
 /// before this call must re-read it.
-pub fn update(world: &mut World, x: i32, y: i32) -> bool {
-    let original = world.get(x, y);
+pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
+    let original = surface.get(x, y);
     if original.material == material::EMPTY {
         return false;
     }
@@ -82,7 +82,16 @@ pub fn update(world: &mut World, x: i32, y: i32) -> bool {
     // material under this module's own ignition paths, but nothing should
     // silently drop a burn tick if some future code path ever calls
     // `Cell::ignite` directly on one.
-    let material = world.materials.get(cell.material);
+    //
+    // `material`'s borrow of `surface` must end here, before anything below
+    // needs `&mut surface` again — unlike a direct `&World` field access,
+    // going through the `CellSurface` trait means the borrow checker can no
+    // longer see that `materials()` and `rng()`/`set()` touch disjoint
+    // fields, so a `&Material` held live across one of those calls would not
+    // compile. Every function below follows the same shape: pull out the
+    // handful of `Copy` values a step needs, in one statement, then never
+    // hold the reference itself past that point.
+    let material = surface.materials().get(cell.material);
     let is_thermally_inert = !cell.is_burning()
         && material.heat_conductivity <= 0.0
         && material.flammability <= 0.0
@@ -94,16 +103,16 @@ pub fn update(world: &mut World, x: i32, y: i32) -> bool {
         return false;
     }
 
-    diffuse_heat(world, x, y, &mut cell);
+    diffuse_heat(surface, x, y, &mut cell);
 
     if cell.is_burning() {
-        tick_burn(world, x, y, &mut cell);
+        tick_burn(surface, x, y, &mut cell);
     } else {
-        try_ignite(world, x, y, &mut cell);
+        try_ignite(surface, x, y, &mut cell);
     }
 
-    try_phase_change(world, &mut cell);
-    try_react(world, x, y, &mut cell);
+    try_phase_change(surface, &mut cell);
+    try_react(surface, x, y, &mut cell);
 
     let temp_off_ambient = (cell.temperature() as f32 - AMBIENT_TEMPERATURE as f32).abs();
     let must_stay_dirty = cell.is_burning() || temp_off_ambient > THERMAL_SETTLE_EPSILON;
@@ -116,12 +125,12 @@ pub fn update(world: &mut World, x: i32, y: i32) -> bool {
     // dirty until it converges near ambient.
     //
     // Compared against `original` (saved before any of the above ran) rather
-    // than a second `world.get(x, y)` here — nothing above writes to `(x,
+    // than a second `surface.get(x, y)` here — nothing above writes to `(x,
     // y)` itself (`try_react`'s neighbour write always targets a different
     // position), so the two reads would agree, and this avoids paying for a
     // second lookup on every single visited cell.
     if cell != original || must_stay_dirty {
-        world.set(x, y, cell);
+        surface.set(x, y, cell);
     }
 
     cell.material != original.material
@@ -158,17 +167,17 @@ pub fn update(world: &mut World, x: i32, y: i32) -> bool {
 /// milestones that read ambient temperature/light) is pushed from burning
 /// cells instead, in `tick_burn` — a naturally small, bounded set at any
 /// given moment, not every swept cell.
-fn diffuse_heat(world: &World, x: i32, y: i32, cell: &mut Cell) {
-    let conductivity = world.materials.get(cell.material).heat_conductivity.min(0.25);
+fn diffuse_heat<S: CellSurface>(surface: &S, x: i32, y: i32, cell: &mut Cell) {
+    let conductivity = surface.materials().get(cell.material).heat_conductivity.min(0.25);
     if conductivity <= 0.0 {
         return;
     }
 
     let here = cell.temperature() as f32;
-    let left = world.get(x - 1, y).temperature() as f32;
-    let right = world.get(x + 1, y).temperature() as f32;
-    let up = world.get(x, y - 1).temperature() as f32;
-    let down = world.get(x, y + 1).temperature() as f32;
+    let left = surface.get(x - 1, y).temperature() as f32;
+    let right = surface.get(x + 1, y).temperature() as f32;
+    let up = surface.get(x, y - 1).temperature() as f32;
+    let down = surface.get(x, y + 1).temperature() as f32;
     let neighbour_avg = (left + right + up + down) / 4.0;
 
     let new_temp = here + (neighbour_avg - here) * conductivity;
@@ -193,9 +202,24 @@ fn diffuse_heat(world: &World, x: i32, y: i32, cell: &mut Cell) {
     // literal room temperature — rather than snapping to a hardcoded
     // constant, which would be wrong for a region sitting in an elevated
     // ambient near something large and hot.
+    //
+    // **Only once the cell is actually outside `THERMAL_SETTLE_EPSILON` of
+    // ambient**, though — gated the same way `must_stay_dirty` below decides
+    // whether this cell still needs to force its own chunk awake. Without
+    // that gate, a cell already within the epsilon (so already "settled" by
+    // every other measure) could still get force-nudged a whole degree away
+    // whenever its raw pull was small-but-nonzero, which a connected mass of
+    // many cooling cells produces constantly — each one pulling every other
+    // very slightly toward itself forever, never a true zero. That value
+    // *change* (not just `must_stay_dirty`) is what triggers the write
+    // below, so a cell force-nudged this way keeps re-dirtying its chunk
+    // even while every value involved reads as "settled" — caught by a test
+    // with 40 connected cooling ash cells, which real burnt content and not
+    // the single-isolated-cell case the original fix was built against.
     let raw_delta = new_temp - here;
     let rounded = new_temp.round();
-    let final_temp = if rounded == here && raw_delta.abs() > 0.01 {
+    let already_settled = (here - AMBIENT_TEMPERATURE as f32).abs() <= THERMAL_SETTLE_EPSILON;
+    let final_temp = if rounded == here && raw_delta.abs() > 0.01 && !already_settled {
         here + raw_delta.signum()
     } else {
         rounded
@@ -204,11 +228,13 @@ fn diffuse_heat(world: &World, x: i32, y: i32, cell: &mut Cell) {
     cell.set_temperature(final_temp.clamp(i16::MIN as f32, i16::MAX as f32) as i16);
 }
 
-fn tick_burn(world: &mut World, x: i32, y: i32, cell: &mut Cell) {
-    // Extracted up front, before `world.add_heat` needs `&mut World` below —
-    // `material` borrows `world` immutably, and Rust would otherwise see that
-    // borrow as still live at the `material.burns_into` read further down.
-    let material = world.materials.get(cell.material);
+fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
+    // Extracted up front, before `surface.add_heat` needs `&mut S` below —
+    // `material` borrows `surface` immutably, and Rust would otherwise see
+    // that borrow as still live at the `material.burns_into` read further
+    // down. See the note in `update` above on why this matters more here
+    // than it did against a plain `&mut World`.
+    let material = surface.materials().get(cell.material);
     let burn_temp = material.burn_temperature;
     let burns_into = material.burns_into;
 
@@ -226,7 +252,7 @@ fn tick_burn(world: &mut World, x: i32, y: i32, cell: &mut Cell) {
         // `diffuse_heat` above no longer touches the field at all. The exact
         // rate here is a rough first cut, not tuned against anything yet;
         // there is no test pinning it down, so revisit freely.
-        world.add_heat(x, y, 1, 2.0);
+        surface.add_heat(x, y, 1, 2.0);
     }
 
     cell.tick_burn();
@@ -234,7 +260,12 @@ fn tick_burn(world: &mut World, x: i32, y: i32, cell: &mut Cell) {
         // Timer reached zero this tick — burn out into `burns_into`, or
         // simply stop burning and cool from here if nothing was configured.
         if let Some(into) = burns_into {
-            let shade = world.rng.below(world.materials.get(into).palette.len().max(1) as u32) as u8;
+            // Two statements, not one nested call: `rng()` needs `&mut
+            // surface` and would otherwise have to coexist with the `&
+            // surface` borrow computing its own argument — see the note atop
+            // `update`.
+            let shades = surface.materials().get(into).palette.len().max(1) as u32;
+            let shade = surface.rng().below(shades) as u8;
             *cell = Cell::new(into, shade).with_temperature(cell.temperature());
         }
     }
@@ -245,33 +276,39 @@ fn tick_burn(world: &mut World, x: i32, y: i32, cell: &mut Cell) {
 /// here), or the cell's own temperature crossing its `ignition_temperature`
 /// (deterministic, not probabilistic at all, so it carries none of
 /// `roll_reach_at`'s staleness risk regardless of chunk sleep timing).
-fn try_ignite(world: &mut World, x: i32, y: i32, cell: &mut Cell) {
-    let material = world.materials.get(cell.material);
-    if material.flammability <= 0.0 && !material.ignition_temperature.is_finite() {
+fn try_ignite<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
+    let material = surface.materials().get(cell.material);
+    let flammability = material.flammability;
+    let ignition_temperature = material.ignition_temperature;
+    // `material`'s borrow ends here — the neighbour scan and `rng()` below
+    // both need `surface` again.
+
+    if flammability <= 0.0 && !ignition_temperature.is_finite() {
         return; // this material can never catch fire; skip the neighbour scan entirely
     }
 
-    if (cell.temperature() as f32) >= material.ignition_temperature {
-        ignite(world, cell);
+    if (cell.temperature() as f32) >= ignition_temperature {
+        ignite(surface, cell);
         return;
     }
 
-    if material.flammability <= 0.0 {
+    if flammability <= 0.0 {
         return;
     }
     let neighbours = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)];
-    let any_burning = neighbours.iter().any(|&(nx, ny)| world.get(nx, ny).is_burning());
-    if any_burning && world.rng.chance(material.flammability) {
-        ignite(world, cell);
+    let any_burning = neighbours.iter().any(|&(nx, ny)| surface.get(nx, ny).is_burning());
+    if any_burning && surface.rng().chance(flammability) {
+        ignite(surface, cell);
     }
 }
 
-fn ignite(world: &mut World, cell: &mut Cell) {
-    let material = world.materials.get(cell.material);
+fn ignite<S: CellSurface>(surface: &mut S, cell: &mut Cell) {
+    let material = surface.materials().get(cell.material);
     let duration = material.burn_duration.max(1);
+    let burn_temperature = material.burn_temperature;
     cell.ignite(duration);
-    if material.burn_temperature.is_finite() {
-        cell.set_temperature(material.burn_temperature.round() as i16);
+    if burn_temperature.is_finite() {
+        cell.set_temperature(burn_temperature.round() as i16);
     }
 }
 
@@ -282,29 +319,34 @@ fn ignite(world: &mut World, cell: &mut Cell) {
 /// Melting is checked before boiling; a material passing through both
 /// thresholds in one large temperature jump melts first, consistent with the
 /// physical order these actually occur in.
-fn try_phase_change(world: &mut World, cell: &mut Cell) {
-    let material = world.materials.get(cell.material);
+fn try_phase_change<S: CellSurface>(surface: &mut S, cell: &mut Cell) {
+    let material = surface.materials().get(cell.material);
     let temp = cell.temperature() as f32;
+    let melting_point = material.melting_point;
+    let melts_into = material.melts_into;
+    let boiling_point = material.boiling_point;
+    let boils_into = material.boils_into;
+    // `material`'s borrow ends here, before `transform` needs `&mut surface`.
 
-    if temp >= material.melting_point {
-        if let Some(into) = material.melts_into {
-            transform(world, cell, into);
+    if temp >= melting_point {
+        if let Some(into) = melts_into {
+            transform(surface, cell, into);
         }
         return;
     }
-    if temp >= material.boiling_point {
-        if let Some(into) = material.boils_into {
-            transform(world, cell, into);
+    if temp >= boiling_point {
+        if let Some(into) = boils_into {
+            transform(surface, cell, into);
         }
     }
 }
 
-/// Draws a fresh shade from `world.rng` rather than defaulting to 0, so a
+/// Draws a fresh shade from `surface.rng()` rather than defaulting to 0, so a
 /// field of stone melting into lava shows the same per-cell grain any other
 /// bulk material does — see `World::paint_circle` for the same pattern.
-fn transform(world: &mut World, cell: &mut Cell, into: MaterialId) {
-    let shades = world.materials.get(into).palette.len().max(1) as u32;
-    let shade = world.rng.below(shades) as u8;
+fn transform<S: CellSurface>(surface: &mut S, cell: &mut Cell, into: MaterialId) {
+    let shades = surface.materials().get(into).palette.len().max(1) as u32;
+    let shade = surface.rng().below(shades) as u8;
     let temp = cell.temperature();
     *cell = Cell::new(into, shade).with_temperature(temp);
 }
@@ -323,36 +365,36 @@ fn transform(world: &mut World, cell: &mut Cell, into: MaterialId) {
 /// several different candidates at once (checked in a fixed neighbour order,
 /// not randomized) — simple, and reconsidering it is only worth doing if
 /// something ever actually needs multiple simultaneous reactions to look right.
-fn try_react(world: &mut World, x: i32, y: i32, cell: &mut Cell) {
-    // Cloned to sidestep a borrow conflict: `world.materials.get(...)` holds
-    // an immutable borrow of `world`, but resolving a reaction needs
-    // `&mut World` (`world.rng`, `world.set`). `Reaction` is small and
-    // `Copy`, and materials rarely carry more than a couple of these, so
-    // cloning the whole short list once per visited cell is cheap — the same
-    // trade `MaterialRegistry::resolve_references` makes for the same reason.
-    let reactions = world.materials.get(cell.material).reactions.clone();
+fn try_react<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
+    // Cloned to sidestep a borrow conflict: `surface.materials().get(...)`
+    // holds an immutable borrow of `surface`, but resolving a reaction needs
+    // `&mut S` (`rng()`, `set()`). `Reaction` is small and `Copy`, and
+    // materials rarely carry more than a couple of these, so cloning the
+    // whole short list once per visited cell is cheap — the same trade
+    // `MaterialRegistry::resolve_references` makes for the same reason.
+    let reactions = surface.materials().get(cell.material).reactions.clone();
     if reactions.is_empty() {
         return;
     }
 
     for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
-        let neighbour_material = world.get(nx, ny).material;
+        let neighbour_material = surface.get(nx, ny).material;
         for reaction in &reactions {
             if reaction.with != neighbour_material {
                 continue;
             }
-            if !world.rng.chance(reaction.chance) {
+            if !surface.rng().chance(reaction.chance) {
                 continue;
             }
 
-            transform(world, cell, reaction.becomes);
+            transform(surface, cell, reaction.becomes);
 
-            let mut other = world.get(nx, ny);
-            let other_shades = world.materials.get(reaction.other_becomes).palette.len().max(1) as u32;
-            let other_shade = world.rng.below(other_shades) as u8;
+            let mut other = surface.get(nx, ny);
+            let other_shades = surface.materials().get(reaction.other_becomes).palette.len().max(1) as u32;
+            let other_shade = surface.rng().below(other_shades) as u8;
             let other_temp = other.temperature();
             other = Cell::new(reaction.other_becomes, other_shade).with_temperature(other_temp);
-            world.set(nx, ny, other);
+            surface.set(nx, ny, other);
 
             return;
         }
@@ -364,6 +406,7 @@ mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
     use crate::sim::material;
+    use crate::sim::world::World;
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63))
@@ -556,6 +599,57 @@ mod tests {
         }
         assert!(frames < 5000, "cell never cooled toward ambient");
         assert!(frames > 0, "test setup started already settled");
+    }
+
+    #[test]
+    fn a_connected_mass_of_cooling_cells_actually_settles() {
+        // Regression: the minimum-progress fix in `diffuse_heat` (the
+        // pull-never-rounds-to-zero fix the test above guards) used to apply
+        // unconditionally, which is fine for one isolated hot cell but not
+        // for many neighbouring cells cooling *together* — each one's raw
+        // pull toward the others is small but essentially never exactly
+        // zero, so the fix kept force-nudging cells a whole degree away from
+        // ambient and back, forever, even once every cell was already
+        // within `THERMAL_SETTLE_EPSILON`. A single isolated cell never
+        // exercises this, since its only neighbours are ambient `Cell::EMPTY`
+        // reads that never themselves fluctuate — a row of mutually warm
+        // cells does. Real ash from a burned-out fire is exactly this shape.
+        let mut w = test_world();
+        for x in 20..40 {
+            w.set(x, 30, Cell::new(material::OIL, 0).with_temperature(200));
+        }
+        w.end_step();
+
+        let mut frames = 0;
+        loop {
+            for x in 20..40 {
+                update(&mut w, x, 30);
+            }
+            w.end_step();
+            frames += 1;
+            let all_settled = (20..40).all(|x| {
+                (w.get(x, 30).temperature() as f32 - AMBIENT_TEMPERATURE as f32).abs()
+                    <= THERMAL_SETTLE_EPSILON
+            });
+            if all_settled || frames >= 5000 {
+                break;
+            }
+        }
+        assert!(frames < 5000, "a connected mass of cells never settled");
+
+        // And once every value is within the epsilon, it must actually stay
+        // that way — the bug this guards produced values that read as
+        // settled on any single frame checked in isolation but kept
+        // changing (and re-dirtying their chunk) forever.
+        for x in 20..40 {
+            update(&mut w, x, 30);
+        }
+        w.end_step();
+        assert_eq!(
+            w.active_chunk_count(),
+            0,
+            "a settled connected mass kept its chunk awake"
+        );
     }
 
     #[test]
