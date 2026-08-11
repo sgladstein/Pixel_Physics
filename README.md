@@ -847,16 +847,43 @@ tests guard it directly:
 `touching_the_world_boundary_does_not_flood_along_the_edge` and
 `does_not_include_literal_bedrock`.
 
-**Not yet built, in pipeline order:** marching squares (turning a labeled
-cell set into a contour), Douglas-Peucker simplification, `earcutr`
-triangulation, the `rapier2d` collider, and the per-frame
+**Also built:** `rigid::trace_contours` — the pipeline's second stage,
+boundary/contour extraction from a labeled component. Not the classic
+marching-squares algorithm (that walks a continuous scalar field and needs
+a 16-case lookup table plus a saddle-case tie-break specifically for
+interpolation ambiguity); this input is already a binary occupancy grid, so
+the equivalent, unambiguous approach is directed boundary-edge stitching —
+see the module doc for the full reasoning. Handles holes correctly with no
+special-casing (a hole boundary falls out already wound the opposite way
+from the outer boundary), verified via the shoelace formula across a
+filled rectangle, a concave L-shape, and a shape with a hole.
+
+**Independent review found one severe bug before commit**, confirmed by the
+reviewer's own reproduction: a "pinch point" (two cells touching only at a
+shared corner, connected to each other only through a longer 4-connected
+path elsewhere) didn't just produce the documented "wrong-but-closed"
+contour — it made the inner boundary-walk loop **forever**, growing memory
+without bound. The corner's start-point collision silently drops one
+lobe's exit edge, rerouting that lobe's walk into the *other*,
+already-closed lobe's cycle, which never revisits the dropped lobe's own
+start point — so the loop's `n == start` guard alone never fires. Fixed by
+also breaking when the walk revisits *any* already-visited point, not just
+its own start, turning the hang into what the module doc always claimed
+happened (a bounded, wrong, terminating ring — pinch points are still not
+correctly resolved, only safely bounded). Regression test
+`a_pinch_point_terminates_rather_than_hanging` runs the repro on a
+background thread with a timeout, so a future regression fails the test
+rather than hanging the suite.
+
+**Not yet built, in pipeline order:** Douglas-Peucker simplification,
+`earcutr` triangulation, the `rapier2d` collider, and the per-frame
 erase-from-grid → step-physics → re-rasterize loop. No trigger exists yet
 for *when* a component should become a rigid body (an explosion clearing
 enough of a structure's support, a player tool, etc.) — `label_component`
-is a pure query function today, not wired into any gameplay path. No new
-dependency (`rapier2d`, `earcutr`, `glam`) has been added to `Cargo.toml`
-yet either; that's deliberately deferred until the pipeline stage that
-actually needs it, rather than pulled in speculatively.
+and `trace_contours` are pure query functions today, not wired into any
+gameplay path. No new dependency (`rapier2d`, `earcutr`, `glam`) has been
+added to `Cargo.toml` yet either; that's deliberately deferred until the
+pipeline stage that actually needs it, rather than pulled in speculatively.
 
 ## Performance
 

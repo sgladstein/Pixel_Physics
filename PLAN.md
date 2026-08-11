@@ -1137,19 +1137,24 @@ updated at each milestone commit, not just when something is added.
 - **M8** (rigid bodies): **started, not complete** — deliberately narrow,
   per this plan's own warning that M8 is "the largest single milestone" and
   "the most exciting item and the one most likely to consume months without
-  a playable result." `rigid.rs` implements only the pipeline's first
-  stage, connected-component labeling (a 4-connected flood fill over
-  `Solid` cells, capped by `max_cells`) — marching squares, Douglas-Peucker
-  simplification, `earcutr` triangulation, the `rapier2d` collider, and the
-  erase/step/re-rasterize frame loop are not started, and no new dependency
-  has been added to `Cargo.toml` yet. A real bug was caught while writing
-  this module's own tests: `Cell::OUT_OF_BOUNDS` reads as `BEDROCK`, whose
-  `MaterialKind` is `Solid`, so a naive flood fill treated the entire world
-  boundary as one connected wall and any edge-touching component flooded
-  along it until hitting the cap rather than stopping at its true extent —
-  fixed with the same "exclude bedrock, one check covers both literal
-  bedrock and the world edge" trick `structural.rs`'s anchor detection
-  already established, with two dedicated regression tests. See
+  a playable result." `rigid.rs` implements the pipeline's first two
+  stages: connected-component labeling (a 4-connected flood fill over
+  `Solid` cells, capped by `max_cells`) and boundary/contour extraction
+  (directed-edge stitching, the unambiguous equivalent of marching squares
+  for a binary occupancy grid — no interpolation, no saddle case). Douglas-
+  Peucker simplification, `earcutr` triangulation, the `rapier2d` collider,
+  and the erase/step/re-rasterize frame loop are not started, and no new
+  dependency has been added to `Cargo.toml` yet. Two real bugs caught: (1)
+  while writing this module's own tests — `Cell::OUT_OF_BOUNDS` reads as
+  `BEDROCK`, whose `MaterialKind` is `Solid`, so a naive flood fill treated
+  the entire world boundary as one connected wall; fixed with the same
+  "exclude bedrock, one check covers both literal bedrock and the world
+  edge" trick `structural.rs`'s anchor detection already established. (2)
+  by independent review — a "pinch point" input (two cells touching only at
+  a shared corner) made the contour walk loop forever rather than degrade
+  to the documented "wrong-but-closed" contour, confirmed by the reviewer's
+  own reproduction; fixed by breaking the walk on any revisited point, not
+  just its own start, with a timeout-guarded regression test. See
   `README.md`'s M8 status section for the full writeup.
 - **M18 Phase 2** (Reynolds-steering entities): not started yet — explicitly
   waits on the rest of M8 per the plan's own reasoning.
