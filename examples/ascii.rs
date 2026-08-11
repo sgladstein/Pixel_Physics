@@ -212,6 +212,47 @@ fn main() {
         }
         w.add_pressure_impulse(40, 40, 6, 200.0);
     });
+
+    // Issue #4: field sleeping. A small isolated impulse converges within a
+    // few hundred frames; the worst frame measured well after that should
+    // be dramatically cheaper than the worst frame measured while it's
+    // still actively propagating -- the actual, measurable claim the issue
+    // asked for, not just a passing unit test.
+    field_sleep_scene();
+}
+
+/// Issue #4: measures the field grid's own worst-frame cost twice on the
+/// same isolated disturbance -- once while it's still actively propagating,
+/// once well after it should have converged and gone quiet -- to make the
+/// sleeping win a measured number rather than an assertion. Runs at the
+/// sandbox's own scale (512x320, 40 chunks) since that is the scene the
+/// README's own performance numbers are measured against.
+fn field_sleep_scene() {
+    println!("\n=== field: sleeping after convergence (issue #4) ===");
+    let mut world = World::new(Rect::new(0, 0, 511, 319));
+    world.end_step(); // clears the "freshly created, everything dirty" CA state without needing a real sweep -- nothing was painted, so there is genuinely nothing for it to do
+    world.add_pressure_impulse(256, 160, 10, 150.0);
+
+    let mut worst_active = std::time::Duration::ZERO;
+    for _ in 0..300 {
+        let started = std::time::Instant::now();
+        world.step_fields();
+        worst_active = worst_active.max(started.elapsed());
+    }
+    // 300 more frames with nothing further disturbing it -- comfortably past
+    // convergence for an impulse this size (see field.rs's own settle-epsilon
+    // tests, which converge within a couple hundred steps at similar scale).
+    let mut worst_settled = std::time::Duration::ZERO;
+    for _ in 0..300 {
+        let started = std::time::Instant::now();
+        world.step_fields();
+        worst_settled = worst_settled.max(started.elapsed());
+    }
+    println!(
+        "worst frame while the impulse was active: {:.4} ms; worst frame once settled: {:.4} ms",
+        worst_active.as_secs_f64() * 1000.0,
+        worst_settled.as_secs_f64() * 1000.0,
+    );
 }
 
 /// Prints pressure magnitude as a density ramp, one character per field cell

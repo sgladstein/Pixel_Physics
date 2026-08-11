@@ -1254,14 +1254,40 @@ updated at each milestone commit, not just when something is added.
   small per-channel epsilon; `add_pressure_impulse`/`add_heat`/`add_light`/
   `add_heat_local` clear the settled flag directly, since those bypass the
   CA grid entirely. Measured via a new permanent `examples/ascii.rs` scene:
-  an isolated pressure impulse's worst frame drops from ~2.1 ms while
-  actively propagating to ~0.01 ms once settled — roughly 200x, and the
-  actual acceptance criterion the issue asked for (a measured number, not
-  an assertion). The continuously-active stress scenes are unaffected
-  (~24.6 ms serial / ~7.8 ms parallel, matching pre-#4 numbers, since a
-  scene that never settles never triggers the skip). Independent review
-  requested given `field.rs`'s history of three prior boundary-condition
-  bugs.
+  an isolated pressure impulse's worst frame drops from ~2-4 ms while
+  actively propagating to ~0.0001-0.01 ms once settled — several hundred
+  times, and the actual acceptance criterion the issue asked for (a
+  measured number, not an assertion). The continuously-active stress scenes
+  cost slightly *more* than the pre-#4 baseline (~28 ms serial / ~9 ms
+  parallel vs. ~24.7 ms/~7.6 ms), not less — `is_converged`'s own
+  comparison pass is real added cost on every frame the solve actually
+  runs, paid back only once things go quiet, which a scene built
+  specifically to never settle never collects on; the win is real but
+  shows up entirely in the quiet case, not the saturated one.
+
+  Independent review (warranted given `field.rs`'s history of three prior
+  boundary-condition bugs) found two real, narrow gaps in the "occupancy
+  changes are caught for free" argument, both fixed: (1)
+  `parallel::ChunkView::add_heat`'s same-chunk branch — the common path for
+  `fire::tick_burn`'s heat push — wrote directly into a worker's own field
+  tile without clearing the settled flag, since a worker has no `&mut
+  World` to clear it on the spot; currently masked only by the coincidence
+  that a burning cell's own `tick_burn` also writes its cell every frame it
+  burns, independently keeping the chunk awake regardless, not a structural
+  guarantee. Fixed with a queued `field_touched` flag replayed in
+  `parallel::run_pass`, the same shape `field_writes` already uses, with a
+  regression test confirmed to fail without the fix. (2) A wall placed by
+  `step_active_sites()` (plant growth) or `particle::step()` (a landed
+  particle) is invisible to `active_chunk_count()` for the one frame it
+  happens on if the field was already fully converged, since `Chunk::mark_
+  dirty` only sets `pending_dirty` and `World::end_step` (which promotes it)
+  runs *before* those two subsystems in `App::update`'s frame order — but
+  self-correcting (the very next frame's `end_step` promotes it, so the
+  wall is noticed one frame late, never dropped entirely), and CA writes
+  from the sweep itself are never subject to it. Documented in `field::
+  step`'s own doc rather than structurally fixed, since fixing it would
+  mean coupling `plant.rs`/`particle.rs` to field-grid internals for a
+  one-frame effect that already heals itself.
 - **Issue #7 + determinism §8b** (scheduler): **done.** Replaced
   `scheduler.rs`'s `HashMap<ChunkCoord, Vec<ActiveSite>>` — which drained
   and re-tested *every* pending site against `due` every frame regardless

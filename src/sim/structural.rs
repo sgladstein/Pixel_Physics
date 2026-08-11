@@ -139,11 +139,25 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     next
 }
 
+/// Small enough that one cell breaking free is a puff, not a blast --
+/// `explosion::trigger` uses strengths of 150-200 for an actual explosion.
+/// This exists so a structural failure has *any* field footprint at all
+/// (`Reports/emergent-world-architecture.md` §5c: previously `break_free`
+/// swapped the cell and returned silently, the only kind of destructive
+/// event in the engine with none). `break_free` runs once per broken cell,
+/// called repeatedly as a cascade progresses one reactive tick at a time
+/// (`structural.rs`'s own module doc), so a real collapse of many cells
+/// naturally accumulates into a larger disturbance than a single cell
+/// breaking alone, with no extra bookkeeping needed to make that happen.
+const COLLAPSE_IMPULSE_RADIUS: i32 = 3;
+const COLLAPSE_IMPULSE_STRENGTH: f32 = 4.0;
+
 fn break_free(world: &mut World, x: i32, y: i32, into: MaterialId) {
     let shades = world.materials.get(into).palette.len().max(1) as u32;
     let shade = world.rng.below(shades) as u8;
     let temp = world.get(x, y).temperature();
     world.set(x, y, Cell::new(into, shade).with_temperature(temp));
+    world.add_pressure_impulse(x, y, COLLAPSE_IMPULSE_RADIUS, COLLAPSE_IMPULSE_STRENGTH);
 }
 
 fn schedule_solid_neighbours(world: &World, x: i32, y: i32) -> Vec<ActiveSite> {
@@ -243,6 +257,34 @@ mod tests {
 
         let gravel = w.materials.id_of("gravel").unwrap();
         assert_eq!(w.get(30, 63 - 5).material, gravel, "an over-span stone cell should have broken into gravel");
+    }
+
+    #[test]
+    fn breaking_free_writes_a_pressure_impulse() {
+        // Architecture §5c: previously break_free swapped the cell and
+        // returned silently -- the only kind of destructive event in the
+        // engine with no field footprint at all (explosion::trigger writes
+        // one; a structural collapse didn't). run()'s own helper never
+        // calls field::step, so the field grid never decays during this
+        // test -- whatever add_pressure_impulse writes stays exactly as
+        // written until read, no timing sensitivity to worry about.
+        let mut w = test_world();
+        for i in 0..6 {
+            w.set(30, 63 - i, Cell::new(material::STONE, 0));
+        }
+        let (tx, ty) = (30, 63 - 5); // the topmost cell, distance 5, will break
+        assert_eq!(w.field_at(tx, ty).pressure, 0.0, "test setup should start at ambient pressure");
+
+        w.schedule_structural_check(tx, ty);
+        run(&mut w, 200);
+
+        let gravel = w.materials.id_of("gravel").unwrap();
+        assert_eq!(w.get(tx, ty).material, gravel, "test setup should have broken the topmost cell");
+        assert!(
+            w.field_at(tx, ty).pressure.abs() > 0.5,
+            "a structural break should have written a pressure impulse into the field, found {}",
+            w.field_at(tx, ty).pressure
+        );
     }
 
     #[test]

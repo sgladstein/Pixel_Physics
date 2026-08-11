@@ -23,9 +23,8 @@
 //! `next_frame`, independent of chunk sleep state, so there's no equivalent
 //! of "an unlucky roll could let the chunk sleep and freeze this forever."
 
-use std::collections::HashMap;
+use std::cmp::Reverse;
 
-use super::chunk::ChunkCoord;
 use super::creature;
 use super::plant;
 use super::structural;
@@ -36,7 +35,14 @@ use super::world::World;
 /// storage -- too much per-growth-point state (attractor lists, auxin
 /// channel strength) to fit in a `Cell`'s spare bits, so it lives alongside
 /// the schedule instead.
-#[derive(Clone, Copy, PartialEq, Debug)]
+///
+/// `Ord`/`Eq` (beyond the `PartialEq` this always derived) exist purely to
+/// give `ActiveSite`'s own `Ord` impl a deterministic tiebreak -- see its
+/// doc. The order variants compare in has no meaning of its own; it is
+/// whatever `derive(Ord)`'s declaration-order rule produces, which is fine,
+/// since all that's required is that it be *total* and *stable*, not
+/// meaningful.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ActiveKind {
     /// A moss/lichen tip that may spread to a qualifying neighbour.
     /// `stale_ticks` counts consecutive checks that found nowhere to grow —
@@ -63,7 +69,7 @@ pub enum ActiveKind {
     Creature { creature: u16 },
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ActiveSite {
     pub x: i32,
     pub y: i32,
@@ -71,8 +77,37 @@ pub struct ActiveSite {
     pub next_frame: u64,
 }
 
+/// Ordered by `next_frame` first (soonest-due sorts smallest, matching
+/// `BinaryHeap<Reverse<ActiveSite>>`'s use as a min-heap in `step` below),
+/// then `(x, y, kind)` purely as a deterministic tiebreak for sites due on
+/// the same frame -- not derived field-by-field in declaration order (which
+/// would compare `x` before `next_frame`, backwards from what a priority
+/// queue needs) precisely because `next_frame` must dominate. This is the
+/// fix for issue #7's determinism half (`Reports/emergent-world-
+/// architecture.md` §8b): the old `HashMap<ChunkCoord, Vec<ActiveSite>>`
+/// drained in whatever order Rust's per-process-randomized hasher produced,
+/// so two sites due the same frame (two moss tips racing for the same
+/// empty neighbour, say) resolved differently run to run. A full,
+/// stable-across-runs order removes that -- the *only* documented source
+/// of non-determinism in the engine.
+impl Ord for ActiveSite {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.next_frame
+            .cmp(&other.next_frame)
+            .then_with(|| self.x.cmp(&other.x))
+            .then_with(|| self.y.cmp(&other.y))
+            .then_with(|| self.kind.cmp(&other.kind))
+    }
+}
+
+impl PartialOrd for ActiveSite {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// Run every active site due this frame, replacing `World`'s active-site
-/// map with whatever each run asks to keep.
+/// heap with whatever each run asks to keep.
 ///
 /// Structured like `parallel::run_pass`'s take-then-replace shape for the
 /// same underlying reason -- `plant::tick` needs `&mut World` to read/write
@@ -80,34 +115,52 @@ pub struct ActiveSite {
 /// branching), which the scheduler's own storage can't be borrowed
 /// alongside. Unlike the parallel sweep, this is plain sequential
 /// bookkeeping, not a concurrency-safety requirement.
+///
+/// `BinaryHeap<Reverse<ActiveSite>>` (a min-heap on `next_frame`, see
+/// `ActiveSite`'s own `Ord` impl) replaces the old
+/// `HashMap<ChunkCoord, Vec<ActiveSite>>`, fixing both halves of issue #7
+/// at once: **performance** -- the old version tested `next_frame > due`
+/// against *every* pending site and rebuilt the whole map every frame
+/// regardless of how many were actually due, which the module doc's own
+/// claim ("checked only sites that are actually due") never matched; this
+/// version peeks the heap's minimum and stops the instant it finds a
+/// not-yet-due site, since nothing after it in a min-heap can be due
+/// either, giving true O(due · log n) with no full-structure rebuild. And
+/// **determinism** -- a `HashMap`'s iteration order is randomized per
+/// process, so two sites due on the same frame (two moss tips racing for
+/// the same empty neighbour) used to resolve differently run to run; the
+/// heap's total order removes that, the one documented non-determinism
+/// source in the engine (`Reports/emergent-world-architecture.md` §8b).
+///
+/// Newly-produced sites (a tip's own reschedule, a branch) are collected
+/// into `produced_this_frame` and only pushed into the heap *after* the
+/// due-processing loop below finishes, never re-examined against `due`
+/// within this same call -- matching the old version's behaviour exactly
+/// (it always deferred a freshly-produced site to the map that became
+/// *next* frame's active sites), which matters if anything is ever
+/// rescheduled with `next_frame == due` rather than strictly later.
 pub fn step(world: &mut World) {
     let due = world.frame;
-    let mut sites = world.take_active_sites();
-    let mut kept: HashMap<ChunkCoord, Vec<ActiveSite>> = HashMap::new();
+    let mut heap = world.take_active_sites();
+    let mut produced_this_frame: Vec<ActiveSite> = Vec::new();
 
-    for (_, list) in sites.drain() {
-        for site in list {
-            if site.next_frame > due {
-                push(&mut kept, site);
-                continue;
-            }
-            let produced = match site.kind {
-                ActiveKind::Moss { .. } | ActiveKind::TreeTip { .. } | ActiveKind::RootTip { .. } => plant::tick(world, &site),
-                ActiveKind::StructuralCheck => structural::tick(world, &site),
-                ActiveKind::Creature { .. } => creature::tick(world, &site),
-            };
-            for new_site in produced {
-                push(&mut kept, new_site);
-            }
+    while let Some(&Reverse(site)) = heap.peek() {
+        if site.next_frame > due {
+            break; // nothing else in a min-heap ordered by next_frame can be due either
         }
+        heap.pop();
+        let produced = match site.kind {
+            ActiveKind::Moss { .. } | ActiveKind::TreeTip { .. } | ActiveKind::RootTip { .. } => plant::tick(world, &site),
+            ActiveKind::StructuralCheck => structural::tick(world, &site),
+            ActiveKind::Creature { .. } => creature::tick(world, &site),
+        };
+        produced_this_frame.extend(produced);
     }
 
-    world.set_active_sites(kept);
-}
-
-fn push(map: &mut HashMap<ChunkCoord, Vec<ActiveSite>>, site: ActiveSite) {
-    let coord = ChunkCoord::containing(site.x, site.y);
-    map.entry(coord).or_default().push(site);
+    for site in produced_this_frame {
+        heap.push(Reverse(site));
+    }
+    world.set_active_sites(heap);
 }
 
 #[cfg(test)]
@@ -131,5 +184,42 @@ mod tests {
         w.begin_step();
         step(&mut w);
         assert_eq!(w.active_site_count(), 1, "a not-yet-due site should not be dropped");
+    }
+
+    #[test]
+    fn only_due_sites_are_processed_leaving_future_ones_untouched() {
+        let mut w = test_world();
+        w.schedule_active_site(ActiveSite { x: 1, y: 1, kind: ActiveKind::StructuralCheck, next_frame: 5 });
+        w.schedule_active_site(ActiveSite { x: 2, y: 2, kind: ActiveKind::StructuralCheck, next_frame: 10 });
+        w.schedule_active_site(ActiveSite { x: 3, y: 3, kind: ActiveKind::StructuralCheck, next_frame: 15 });
+
+        for _ in 0..6 {
+            w.begin_step();
+        }
+        // world.frame is now 6 -- only the next_frame: 5 site is due. Its
+        // cell is empty, so structural::tick consumes it without producing
+        // a reschedule (nothing to check).
+        step(&mut w);
+        assert_eq!(w.active_site_count(), 2, "exactly one of three sites should have been due and processed, leaving the other two pending");
+    }
+
+    #[test]
+    fn active_sites_pop_in_a_fully_deterministic_tiebreak_order() {
+        // Issue #7 / determinism §8b: the old HashMap<ChunkCoord, Vec<...>>
+        // storage drained in whatever order Rust's per-process-randomized
+        // hasher produced. Scheduled deliberately out of their eventual pop
+        // order, to prove ordering comes from ActiveSite's own Ord impl
+        // (next_frame, then x, then y, then kind) and not insertion order.
+        let mut w = test_world();
+        w.schedule_active_site(ActiveSite { x: 5, y: 5, kind: ActiveKind::StructuralCheck, next_frame: 10 });
+        w.schedule_active_site(ActiveSite { x: 1, y: 1, kind: ActiveKind::StructuralCheck, next_frame: 10 });
+        w.schedule_active_site(ActiveSite { x: 3, y: 3, kind: ActiveKind::StructuralCheck, next_frame: 10 });
+
+        let mut heap = w.take_active_sites();
+        let mut order = Vec::new();
+        while let Some(Reverse(site)) = heap.pop() {
+            order.push((site.x, site.y));
+        }
+        assert_eq!(order, vec![(1, 1), (3, 3), (5, 5)], "sites due on the same frame should pop in ascending (x, y) order, deterministically");
     }
 }

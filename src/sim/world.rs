@@ -11,7 +11,8 @@
 //! 3. All cell access goes through `get`/`set`. That is the seam where chunk
 //!    load, generation and eviction get added later, without touching callers.
 
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
@@ -35,10 +36,14 @@ pub struct World {
     pub frame: u64,
     pub materials: MaterialRegistry,
     pub rng: Rng,
-    /// M16: growing plant tips, keyed by chunk purely so growth writes near
-    /// a chunk boundary are cheap to find — the scheduler itself doesn't
-    /// care which chunk a site is in, only whether it's due.
-    active_sites: HashMap<ChunkCoord, Vec<ActiveSite>>,
+    /// M16: growing plant tips (and M17/M18's structural checks and
+    /// creature ticks), due soonest at the top -- a min-heap keyed on
+    /// `ActiveSite::next_frame`, see `scheduler::step`'s own doc for why
+    /// this replaced a `HashMap<ChunkCoord, Vec<ActiveSite>>` (issue #7:
+    /// nothing ever looked sites up *by* chunk, only iterated the whole
+    /// thing every frame regardless, and a `HashMap`'s randomized iteration
+    /// order was the engine's one documented source of non-determinism).
+    active_sites: BinaryHeap<Reverse<ActiveSite>>,
     /// M16: per-tree state (attractor points, growth tips, root tips) too
     /// large to fit in a `Cell` — see `plant::TreeState`. Never shrinks;
     /// entries are indexed by `ActiveKind::TreeTip`/`RootTip` and never
@@ -51,6 +56,18 @@ pub struct World {
     /// meaning for `MaterialKind::Creature` — unlike a tree's growth stage,
     /// "which creature owns this cell" has to round-trip through the cell.
     creatures: Vec<CreatureState>,
+    /// M13/issue #4: whether the field grid has already converged to a
+    /// fixed point (every cell within `field::step`'s settle epsilon of its
+    /// previous value). `field::step` skips its whole five-pass solve when
+    /// this is `true` *and* nothing is moving on the CA grid — see that
+    /// function's own doc for why checking both, not just this flag alone,
+    /// is what keeps a shockwave crossing the world safe: CA activity
+    /// (which includes the very act of painting a new wall, since any
+    /// `World::set` dirties its own chunk) forces at least one more full
+    /// pass, which is what lets an occupancy change actually get noticed
+    /// rather than needing separate tracking for it. Starts `false` so a
+    /// freshly created world's field gets at least one real solve.
+    fields_settled: bool,
 }
 
 impl World {
@@ -62,9 +79,10 @@ impl World {
             frame: 0,
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
-            active_sites: HashMap::new(),
+            active_sites: BinaryHeap::new(),
             trees: Vec::new(),
             creatures: Vec::new(),
+            fields_settled: false,
         };
         world.ensure_chunks_for(bounds);
         world
@@ -104,25 +122,24 @@ impl World {
     /// `plant::plant_moss_seed`/`plant_tree` and by growth itself scheduling
     /// its own continuation.
     pub fn schedule_active_site(&mut self, site: ActiveSite) {
-        let coord = ChunkCoord::containing(site.x, site.y);
-        self.active_sites.entry(coord).or_default().push(site);
+        self.active_sites.push(Reverse(site));
     }
 
-    /// Total pending active sites, across every chunk. The headline number
-    /// for whether the scheduler's cost is actually proportional to
-    /// "interesting cells" rather than world size — see the debug overlay.
+    /// Total pending active sites. The headline number for whether the
+    /// scheduler's cost is actually proportional to "interesting cells"
+    /// rather than world size — see the debug overlay.
     pub fn active_site_count(&self) -> usize {
-        self.active_sites.values().map(|v| v.len()).sum()
+        self.active_sites.len()
     }
 
     // --- crate-internal seams used only by `scheduler::step` and
     // `plant.rs` -----------------------------------------------------------
 
-    pub(crate) fn take_active_sites(&mut self) -> HashMap<ChunkCoord, Vec<ActiveSite>> {
+    pub(crate) fn take_active_sites(&mut self) -> BinaryHeap<Reverse<ActiveSite>> {
         std::mem::take(&mut self.active_sites)
     }
 
-    pub(crate) fn set_active_sites(&mut self, sites: HashMap<ChunkCoord, Vec<ActiveSite>>) {
+    pub(crate) fn set_active_sites(&mut self, sites: BinaryHeap<Reverse<ActiveSite>>) {
         self.active_sites = sites;
     }
 
@@ -203,6 +220,11 @@ impl World {
     /// precise as the abstraction supports — exact circle-vs-rectangle overlap
     /// math would be precision spent on a value nothing downstream can use.
     fn paint_field(&mut self, cx: i32, cy: i32, radius: i32, f: impl Fn(&mut FieldCell)) {
+        // A disturbance from outside `field::step`'s own solve -- must wake
+        // it even if the field had already converged, or the write below
+        // would sit unprocessed forever the next time `field::step` sees
+        // zero CA activity and skips its pass entirely (see issue #4).
+        self.fields_settled = false;
         let (fcx, fcy) = field::field_coord_of(cx, cy);
         let field_radius = radius / FIELD_SCALE;
         let r2 = field_radius * field_radius + 1;
@@ -227,6 +249,14 @@ impl World {
     }
 
     // --- crate-internal seams used only by `field::step` -------------------
+
+    pub(crate) fn fields_settled(&self) -> bool {
+        self.fields_settled
+    }
+
+    pub(crate) fn set_fields_settled(&mut self, settled: bool) {
+        self.fields_settled = settled;
+    }
 
     pub(crate) fn fields_ref(&self) -> &HashMap<ChunkCoord, FieldTile> {
         &self.fields
@@ -280,6 +310,11 @@ impl World {
             let mut cell = tile.get_local(lx, ly);
             cell.temperature += amount;
             tile.set_local(lx, ly, cell);
+            // Same reasoning as `paint_field` -- a burning cell's per-frame
+            // heat push (`fire::tick_burn`) must be able to wake an
+            // already-converged field, or it would sit unprocessed the next
+            // time `field::step` sees zero CA activity and skips its pass.
+            self.fields_settled = false;
         }
     }
 

@@ -194,6 +194,13 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
         for (tile_coord, lx, ly, amount) in outcome.field_writes {
             world.add_heat_local(tile_coord, lx, ly, amount);
         }
+        // See `ChunkView::field_touched`'s own doc: a same-chunk heat push
+        // has no `&mut World` to clear `fields_settled` (issue #4) on the
+        // spot, so it's replayed here instead, the same as every other
+        // queued write above.
+        if outcome.field_touched {
+            world.set_fields_settled(false);
+        }
     }
 }
 
@@ -206,6 +213,7 @@ struct ChunkOutcome {
     remote_writes: HashMap<(i32, i32), Cell>,
     dirty_touches: Vec<(ChunkCoord, i32, i32)>,
     field_writes: Vec<(ChunkCoord, i32, i32, f32)>,
+    field_touched: bool,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -239,6 +247,19 @@ struct ChunkView<'w> {
     remote_writes: HashMap<(i32, i32), Cell>,
     dirty_touches: Vec<(ChunkCoord, i32, i32)>,
     field_writes: Vec<(ChunkCoord, i32, i32, f32)>,
+    /// Set whenever `add_heat`'s same-chunk branch writes directly into
+    /// `self.field`, below — a worker has no `&mut World` to clear
+    /// `fields_settled` (issue #4) on the spot, unlike `World::add_heat`'s
+    /// serial path, so this is queued and applied once after the pass,
+    /// mirroring `field_writes`'s own reason for existing. Found by
+    /// independent review: without this, a same-chunk heat push (the
+    /// common case — `FIELD_SCALE` divides `CHUNK_SIZE` evenly, so
+    /// `tick_burn`'s radius-1 call almost always lands here) left
+    /// `fields_settled` unchanged, currently masked only by the coincidence
+    /// that a burning cell's own `tick_burn` also writes its cell every
+    /// frame it burns, independently keeping the chunk (and therefore
+    /// `active_chunk_count()`) awake regardless.
+    field_touched: bool,
 }
 
 impl<'w> ChunkView<'w> {
@@ -251,6 +272,7 @@ impl<'w> ChunkView<'w> {
             remote_writes: HashMap::new(),
             dirty_touches: Vec::new(),
             field_writes: Vec::new(),
+            field_touched: false,
         }
     }
 
@@ -267,6 +289,7 @@ impl<'w> ChunkView<'w> {
             remote_writes: self.remote_writes,
             dirty_touches: self.dirty_touches,
             field_writes: self.field_writes,
+            field_touched: self.field_touched,
         }
     }
 
@@ -372,6 +395,7 @@ impl CellSurface for ChunkView<'_> {
                     let mut cell = self.field.get_local(lx, ly);
                     cell.temperature += amount;
                     self.field.set_local(lx, ly, cell);
+                    self.field_touched = true;
                 } else {
                     self.field_writes.push((tile_coord, lx, ly, amount));
                 }
@@ -623,6 +647,42 @@ mod tests {
             }
         }
         assert!(settled, "world never settled after burnout");
+    }
+
+    #[test]
+    fn a_same_chunk_heat_push_during_the_parallel_sweep_wakes_the_settled_field() {
+        // Regression: an independent review of issue #4 (field sleeping)
+        // found that ChunkView::add_heat's same-chunk branch (the common
+        // case -- FIELD_SCALE divides CHUNK_SIZE evenly, so tick_burn's
+        // radius-1 call almost always lands here) wrote directly into the
+        // worker's own field tile without clearing `fields_settled`,
+        // currently masked only by the coincidence that a burning cell's
+        // own tick_burn also writes its cell every frame it burns,
+        // independently keeping the chunk (and therefore
+        // active_chunk_count()) awake regardless. This isolates the flag
+        // itself, checked immediately after one parallel sweep -- before
+        // anything else (a later field::step call, say) could have cleared
+        // it for an unrelated reason.
+        let mut w = wide_world();
+        w.end_step(); // promote the fresh world's initial full-dirty state so the field can actually reach "settled"
+        field::step(&mut w);
+        assert!(w.fields_settled(), "test setup should have started with a converged field");
+
+        let mut burning = SimCell::new(material::OIL, 0);
+        burning.ignite(9999);
+        w.set(0, 0, burning);
+        // `Chunk::mark_dirty` (which `set` triggers) only ever sets
+        // `pending_dirty` -- promoting it to the `dirty` state the sweep
+        // actually reads happens in `end_step`, which the *next* full
+        // frame's own `step` call performs only *after* that frame's sweep
+        // already ran against the old state. Promote it explicitly here,
+        // the same as a real previous frame completing normally would
+        // have, so the very next `step` call below actually visits (0, 0).
+        w.end_step();
+
+        step(&mut w); // one parallel CA sweep -- fire::update visits (0,0), tick_burn pushes heat via ChunkView::add_heat
+
+        assert!(!w.fields_settled(), "a same-chunk heat push during the parallel sweep should have woken the settled field");
     }
 
     #[test]

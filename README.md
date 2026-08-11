@@ -489,6 +489,26 @@ chunks; `active_site_count()` is the separate number that says something is
 still happening. `a_settled_world_with_a_growing_tree_still_sleeps_between_
 growth_ticks` is the regression test for exactly this.
 
+**That "checking only sites that are actually due" claim above was not
+literally true until `pixel-physics-issues.md` issue #7 was fixed.** The
+original storage was a `HashMap<ChunkCoord, Vec<ActiveSite>>`, and
+`scheduler::step` drained and re-tested *every* pending site against `due`
+every frame, rebuilding the whole map regardless of how many were actually
+due — real cost proportional to total pending sites, not to how many were
+due, at odds with the module's own doc. It also carried the engine's one
+documented non-determinism source (`Reports/emergent-world-architecture.md`
+§8b): a `HashMap`'s iteration order is randomized per process, so two sites
+due on the same frame — two moss tips racing for the same empty neighbour,
+say — could resolve differently run to run, which matters now that
+same-build deterministic replay is a committed requirement (see the
+decisions table near the top of `PLAN.md`). Both are fixed together: the
+storage is now a `BinaryHeap<Reverse<ActiveSite>>`, a min-heap on
+`next_frame` with `(x, y, kind)` as a fully deterministic tiebreak
+(`ActiveSite`'s own `Ord` impl). `scheduler::step` peeks the minimum and
+stops the instant it finds a not-yet-due site — true O(due · log n), no
+full-structure rebuild, and the same result on every run given the same
+sequence of schedule calls.
+
 **Moss** spreads based on real ecology, not a "damp stone" rule invented for
 convenience: real moss is poikilohydric (no waterproof cuticle, no internal
 water regulation), so growth chance is gated hard on nearby water and
@@ -899,13 +919,19 @@ against a 16.6 ms budget at 60 Hz for the CA sweep alone (serial) — **down to
 about 6.4 ms parallel**, a **~3.6x speedup on this machine's 4 logical
 cores**. Adding the field step every frame on top of that (which the live app
 does, and which M5 does not parallelize — see below) brings the worst case to
-**about 24.7 ms serial, about 7.6 ms parallel** — down from ~28 ms/~11.5 ms
-after `pixel-physics-issues.md` issues #5 and #6: `rebuild_blocked` fetching
-the owning `Chunk` once per field tile and indexing directly into it instead
-of paying a `HashMap<ChunkCoord, Chunk>` lookup plus a bounds check per CA
-cell scanned (up to 4096 of those per tile, over a chunk grid, in the worst
-case), plus hoisting seven loop-invariant `next.get(&coord)`/`get_mut` calls
-in `field.rs`'s other four passes out of their inner loops.
+**about 28 ms serial, about 9 ms parallel** — down from the pre-issues-backlog
+~28 ms/~11.5 ms baseline, though not by as much as it looks: issues #5 and #6
+(`rebuild_blocked` fetching the owning `Chunk` once per field tile and
+indexing directly into it instead of paying a `HashMap<ChunkCoord, Chunk>`
+lookup plus a bounds check per CA cell scanned — up to 4096 of those per
+tile in the worst case — plus hoisting seven loop-invariant
+`next.get(&coord)`/`get_mut` calls out of `field.rs`'s inner loops) measured
+at ~24.7 ms/~7.6 ms in isolation, and issue #4 (field sleeping, below) then
+added a small amount of that back — `is_converged`'s own comparison pass
+costs something real on every frame the solve actually runs, which is every
+frame in this specific *worst-case, never-settling* stress scenario. The win
+from #4 shows up entirely in the *quiet* case instead — see below — which
+this stress scene is deliberately not testing.
 
 Independent review of that change caught a real boundary bug before commit:
 `Chunk::get_world` (unlike the `World::get` it replaced) has no concept of
@@ -922,6 +948,57 @@ ahead of the `Chunk::get_world` read, with a regression test that reaches
 past the masking layer (through `World::fields_ref`, the same
 crate-internal seam `rebuild_blocked` itself writes through) to check the
 actual stored value rather than the value every real caller would see.
+
+**Issue #4 (field sleeping)**: `field::step` now skips its whole five-pass
+solve once `world.active_chunk_count() == 0 && world.fields_settled()` —
+both conditions, not the field's own convergence alone, which is what keeps
+"a shockwave can cross the whole screen" safe without any separate per-tile
+occupancy tracking. Any CA write (including painting a new wall) always
+dirties its own chunk, forcing at least one more full pass, and within that
+pass a cell that just became blocked resets to ambient (every pass skips
+writing to a blocked cell) while the pre-block value is still what
+`is_converged` — a new function comparing each channel of the just-solved
+state against its pre-step value against a small per-channel epsilon —
+compares against, a jump it will not miss. `add_pressure_impulse`/
+`add_heat`/`add_light`/`add_heat_local` clear the settled flag directly,
+since those bypass the CA grid entirely. Measured via a new permanent
+`examples/ascii.rs` scene (`field: sleeping after convergence`): an isolated
+pressure impulse's worst frame drops from ~2-4 ms while actively propagating
+to ~0.0001-0.01 ms once settled — several hundred times, and the actual
+acceptance criterion the issue asked for, a measured number rather than an
+assertion.
+
+Independent review of this change found two real, narrow gaps in the
+"occupancy changes are caught for free" argument, both fixed:
+
+- `parallel::ChunkView::add_heat`'s same-chunk branch (the common case for
+  `fire::tick_burn`'s heat push, since `FIELD_SCALE` divides `CHUNK_SIZE`
+  evenly) wrote directly into a worker's own field tile without clearing
+  the settled flag — a worker has no `&mut World` to clear it on the spot,
+  unlike the serial path. Currently masked only by the coincidence that a
+  burning cell's own `tick_burn` also writes its cell every frame it
+  burns, independently keeping the chunk awake regardless — not a
+  structural guarantee. Fixed with a queued `field_touched` flag, replayed
+  in `parallel::run_pass` the same way `field_writes` already is, with a
+  regression test (`a_same_chunk_heat_push_during_the_parallel_sweep_
+  wakes_the_settled_field`) confirmed to fail without the fix.
+- A wall placed by `step_active_sites()` (plant growth — `wood` is
+  `kind: Plant`, which blocks per `rebuild_blocked`) or `particle::step()`
+  (a landed particle depositing material) is invisible to
+  `active_chunk_count()` for the one frame it happens on, if the field was
+  already fully converged and quiet: `Chunk::mark_dirty` only ever sets
+  `pending_dirty`, and promotion to the `dirty` state `active_chunk_count()`
+  reads happens in `World::end_step`, called once per frame from
+  `parallel::step` *before* those two subsystems run (see `App::update`'s
+  frame order). Self-correcting, not a lasting bug — the very next frame's
+  own `end_step()` promotes the pending mark, so the wall is noticed one
+  frame late rather than never — and narrower than it sounds, since CA
+  writes from the sweep itself are never subject to it (their own
+  `mark_dirty` → `end_step` promotion happens entirely within the same
+  `parallel::step` call, before `step_fields()` runs). Documented in
+  `field::step`'s own doc rather than structurally fixed, since fixing it
+  would mean coupling `plant.rs`/`particle.rs` to field-grid internals for
+  a one-frame effect that already heals itself.
 
 Both numbers now sit comfortably under the 16.6 ms budget, including the
 combined worst case that was the plan's own stated reason M5 could not be

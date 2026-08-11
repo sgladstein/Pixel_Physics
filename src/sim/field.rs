@@ -333,6 +333,47 @@ fn sample_bilinear(
 /// staleness is possible; it is the mechanism by which a shockwave can cross
 /// the whole screen without violating the invariant that governs the CA sweep.
 pub fn step(world: &mut World) {
+    // Issue #4: skip the whole five-pass solve once the field has already
+    // converged to a fixed point *and* nothing is moving on the CA grid.
+    // Checking both, not just the field's own convergence, is what keeps
+    // "a shockwave can cross the whole screen" (this doc's own claim above)
+    // safe without any separate per-tile occupancy tracking: painting a new
+    // wall (or any other CA write) always dirties its own chunk, so
+    // `active_chunk_count()` stays nonzero for at least one more frame
+    // after any disturbance, forcing one more full pass — which is what
+    // actually notices the wall, since a newly-blocked cell resets to
+    // `FieldCell::AMBIENT` in `next` (every pass below skips blocked cells,
+    // leaving them at `next`'s fresh-initialized value) while `old` still
+    // holds its pre-block value, a jump `is_converged` below will not miss.
+    // `add_pressure_impulse`/`add_heat`/`add_light`/`add_heat_local` clear
+    // `fields_settled` directly, since those bypass the CA grid entirely
+    // and would otherwise sit unprocessed the next time this sees zero CA
+    // activity and returns early. `parallel::ChunkView::add_heat`'s
+    // same-chunk branch does too (`field_touched`, replayed in
+    // `parallel::run_pass`) — a worker has no `&mut World` to clear the
+    // flag on the spot, found missing by an independent review before this
+    // shipped.
+    //
+    // **Known, self-correcting limitation** (same review): `Chunk::mark_
+    // dirty` only ever sets `pending_dirty`; promotion to the `dirty` state
+    // `active_chunk_count()` actually reads happens in `World::end_step`,
+    // called once per frame from `parallel::step` *before*
+    // `step_active_sites()`/`particle::step()` run (see `App::update`). So
+    // a wall placed by plant growth (`wood` is `kind: Plant`, which blocks
+    // per `rebuild_blocked`) or a landing particle depositing material is
+    // invisible to `active_chunk_count()` for the one frame it happens on
+    // if the field was already fully converged and quiet — this pass would
+    // see the stale zero count and skip, missing that one frame's
+    // occupancy change. It is never lost: the *next* frame's own
+    // `end_step()` promotes the pending mark before this runs again, so
+    // the wall is noticed one frame late, not never. Narrower still: CA
+    // writes from the sweep itself are never subject to this, since their
+    // own `mark_dirty` → `end_step` promotion happens entirely inside the
+    // same `parallel::step` call, before `step_fields()` runs.
+    if world.active_chunk_count() == 0 && world.fields_settled() {
+        return;
+    }
+
     let coords: Vec<ChunkCoord> = world.chunks().map(|c| c.coord).collect();
     let bounds = world.bounds();
 
@@ -350,7 +391,55 @@ pub fn step(world: &mut World) {
     step_diffusion(world, &coords, &mut next);
     step_advection(&coords, bounds, &mut next);
 
+    world.set_fields_settled(is_converged(world.fields_ref(), &coords, &next));
     world.replace_fields(next);
+}
+
+/// Below this much change in a single step, per channel, a field cell counts
+/// as having stopped moving. Not zero: the damping/decay constants above are
+/// genuine exponential decays that approach their fixed point asymptotically
+/// without ever exactly reaching it in finite time, so *some* tolerance is
+/// required for anything to ever be judged settled at all — the same
+/// reasoning `fire.rs`'s `THERMAL_SETTLE_EPSILON` and this file's own
+/// `PRESSURE_DAMPING`/`VELOCITY_DAMPING` comments already document for the
+/// same family of problem. Picked small relative to each channel's working
+/// range (pressure/velocity's own coupling and damping constants, `MAX_LIGHT`)
+/// rather than derived from anything more principled; `stays_bounded_over_
+/// ten_thousand_frames` and the scene-based ascii checks are the actual
+/// authority on whether these are tight enough to matter, the same as every
+/// other tuning constant in this file.
+const SETTLE_EPSILON_PRESSURE: f32 = 0.01;
+const SETTLE_EPSILON_VELOCITY: f32 = 0.001;
+const SETTLE_EPSILON_TEMPERATURE: f32 = 0.02;
+const SETTLE_EPSILON_LIGHT: f32 = 0.005;
+
+/// Whether every field cell in `next` is within its channel's settle epsilon
+/// of the corresponding cell in `old` — the field's own notion of "stopped
+/// changing," independent of and in addition to the CA grid's `active_chunk_
+/// count`. `old` is looked up directly from `world` (the pre-step state
+/// `step` above never mutates until its very last line) rather than passed
+/// in separately, since every caller already has a `&World` in hand.
+fn is_converged(old: &HashMap<ChunkCoord, FieldTile>, coords: &[ChunkCoord], next: &HashMap<ChunkCoord, FieldTile>) -> bool {
+    for &coord in coords {
+        let (Some(old_tile), Some(new_tile)) = (old.get(&coord), next.get(&coord)) else {
+            continue; // a coord either map doesn't have yet -- nothing to compare, not evidence of change
+        };
+        for ly in 0..FIELD_TILE_SIZE {
+            for lx in 0..FIELD_TILE_SIZE {
+                let a = old_tile.get_local(lx, ly);
+                let b = new_tile.get_local(lx, ly);
+                if (a.pressure - b.pressure).abs() > SETTLE_EPSILON_PRESSURE
+                    || (a.vx - b.vx).abs() > SETTLE_EPSILON_VELOCITY
+                    || (a.vy - b.vy).abs() > SETTLE_EPSILON_VELOCITY
+                    || (a.temperature - b.temperature).abs() > SETTLE_EPSILON_TEMPERATURE
+                    || (a.light - b.light).abs() > SETTLE_EPSILON_LIGHT
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 /// A field cell counts as blocked when any CA-solid cell falls inside its
@@ -1017,5 +1106,47 @@ mod tests {
         let (coord, lx, ly) = tile_and_local(fx, fy);
         let tile = w.fields_ref().get(&coord).expect("the chunk covering (200, 200) should be resident");
         assert!(tile.is_blocked_local(lx, ly), "a field cell entirely outside the world's own bounds should read as blocked");
+    }
+
+    #[test]
+    fn a_converged_and_ca_quiet_field_stops_recomputing() {
+        // Issue #4: the actual point of field sleeping. `end_step` clears
+        // the "freshly created, everything dirty" state every new `World`
+        // starts in (see `Chunk::new`) without needing a real CA sweep to
+        // run -- standing in for a world where the CA grid genuinely has
+        // nothing left to do, the same as a settled sandbox scene.
+        let mut w = test_world();
+        w.add_pressure_impulse(128, 128, 4, 50.0);
+        w.end_step();
+
+        for _ in 0..2000 {
+            step(&mut w);
+        }
+        assert_eq!(w.active_chunk_count(), 0, "test setup should have left the CA side quiet");
+        assert!(w.fields_settled(), "an isolated pressure impulse should have converged to a fixed point by now");
+
+        let before = w.field_at(128, 128);
+        step(&mut w); // should be skipped entirely, not recomputed
+        let after = w.field_at(128, 128);
+        assert_eq!(before, after, "a settled, CA-quiet field changed after a step that should have been skipped");
+    }
+
+    #[test]
+    fn an_impulse_wakes_an_already_settled_field() {
+        // The other half of issue #4: a disturbance arriving from outside
+        // field::step's own solve (add_pressure_impulse, add_heat, add_light,
+        // add_heat_local) must still be able to wake an already-converged
+        // field, or it would sit unprocessed the next time step() sees zero
+        // CA activity and returns early.
+        let mut w = test_world();
+        w.end_step();
+        step(&mut w);
+        assert!(w.fields_settled(), "an undisturbed field should already read as settled");
+
+        w.add_pressure_impulse(128, 128, 4, 200.0);
+        assert!(!w.fields_settled(), "add_pressure_impulse should have cleared the settled flag immediately");
+
+        step(&mut w);
+        assert!(w.field_at(128, 128).pressure.abs() > 1.0, "the impulse was never actually solved after waking the field");
     }
 }
