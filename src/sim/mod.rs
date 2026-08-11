@@ -36,6 +36,11 @@
 //!   dispatched from `scheduler` like plant growth and structural checks;
 //!   fire/burning is deliberately not reimplemented here, since `fire.rs`
 //!   already applies to every material kind uniformly
+//! * `rigid` — M8, rigid bodies, deliberately started narrow: connected-
+//!   component labeling only (the pipeline's first stage). Marching
+//!   squares, Douglas-Peucker simplification, `earcutr` triangulation and
+//!   the `rapier2d` collider/step/re-rasterize loop are not yet built —
+//!   see the module doc and `PLAN.md`'s M8 section.
 //!
 //! Nothing below `update` knows about rendering, windowing or input.
 
@@ -49,6 +54,7 @@ pub mod material;
 pub mod parallel;
 pub mod particle;
 pub mod plant;
+pub mod rigid;
 pub mod rng;
 pub mod scheduler;
 pub mod structural;

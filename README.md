@@ -811,6 +811,53 @@ regardless), and a positive existence assertion added to
 checked the stone wall was undisturbed and could have passed vacuously the
 same way the three tests above did, for an unrelated reason, in the future.
 
+## M8 status — started, not complete
+
+The plan's own words for this milestone: "the largest single milestone —
+treat as its own project" and "the risk concentration; deferred as far as
+it sensibly can be." Its full pipeline — connected-component labeling →
+marching squares contour → Douglas-Peucker simplification → `earcutr`
+triangulation → a `rapier2d` collider → erase-step-re-rasterize every frame
+— is real, separate engineering at each stage, not something to rush
+unsupervised at the tail of a long session. This milestone is **only
+started**, deliberately: `rigid.rs` implements the first stage,
+connected-component labeling, and nothing past it.
+
+**Built:** `rigid::label_component` — a 4-connected flood fill over `Solid`
+cells from a seed position, returning every reachable `Solid` cell (never
+diagonal — two blobs touching only at a corner are not one physical body,
+`diagonal_only_contact_does_not_connect_two_components` guards this),
+capped by a `max_cells` parameter so labeling a component that happens to
+touch the sandbox's own contiguous floor doesn't walk the whole world for
+one request.
+
+**A real bug was caught while writing this module's own tests, before any
+external review:** `Cell::OUT_OF_BOUNDS` (returned for every out-of-bounds
+read) has `material: BEDROCK`, and bedrock's `MaterialKind` is `Solid` — so
+a naive flood fill treats the entire world boundary as one giant connected
+"wall," and a component touching any edge floods along that wall until it
+hits `max_cells` rather than stopping at its own true extent. Caught by
+`a_component_smaller_than_the_cap_returns_its_true_size` unexpectedly
+reporting 1000 cells for a 5-cell blob. Fixed with an `is_body_material`
+helper (`kind == Solid && material != BEDROCK`) applied at both the seed
+check and every neighbour considered during the flood fill — the same
+single-check trick `structural.rs`'s anchor detection already uses to treat
+literal bedrock and the world edge as one case. Two dedicated regression
+tests guard it directly:
+`touching_the_world_boundary_does_not_flood_along_the_edge` and
+`does_not_include_literal_bedrock`.
+
+**Not yet built, in pipeline order:** marching squares (turning a labeled
+cell set into a contour), Douglas-Peucker simplification, `earcutr`
+triangulation, the `rapier2d` collider, and the per-frame
+erase-from-grid → step-physics → re-rasterize loop. No trigger exists yet
+for *when* a component should become a rigid body (an explosion clearing
+enough of a structure's support, a player tool, etc.) — `label_component`
+is a pure query function today, not wired into any gameplay path. No new
+dependency (`rapier2d`, `earcutr`, `glam`) has been added to `Cargo.toml`
+yet either; that's deliberately deferred until the pipeline stage that
+actually needs it, rather than pulled in speculatively.
+
 ## Performance
 
 Measured by `cargo run --release --example ascii`, which reports the worst
@@ -920,6 +967,7 @@ Known limitations:
   screenshot script.
 
 Not yet built: Bak–Tang–Wiesenfeld toppling for avalanches, hole-propagation
-granular flow, rigid bodies, character physics, the streaming world,
-M18 Phase 2 (Reynolds-steering entities, after M8), multi-creature-kind
-predator/prey dynamics, and Lua scripting.
+granular flow, rigid bodies past connected-component labeling (see M8
+status above), character physics, the streaming world, M18 Phase 2
+(Reynolds-steering entities, after M8), multi-creature-kind predator/prey
+dynamics, and Lua scripting.
