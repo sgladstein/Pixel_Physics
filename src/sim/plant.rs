@@ -251,6 +251,20 @@ struct RootTip {
     /// water absorption, since that's itself a net energy gain, not a
     /// wait).
     starved_ticks: u8,
+    /// Whether this tip's own active-site cell (its last-written position)
+    /// currently holds this tree's `wood`, as opposed to `Empty`. A root
+    /// that just grew through soil writes wood there and this is `true`;
+    /// a root that just drank an adjacent water cell absorbs it and
+    /// advances into the now-empty space with no wood cell left behind
+    /// (see `root_tip_tick`'s own comment on why), so this is `false`.
+    /// Exists so `root_tip_tick`'s own-cell validity check (mirroring
+    /// `tree_tip_tick`'s and `moss_tick`'s) can distinguish "this root's
+    /// last-written cell has actually been disturbed" from "this root's
+    /// last-written cell is legitimately empty because it drank there" —
+    /// the latter is not evidence of anything happening *to* the root, and
+    /// checking `Cell::EMPTY` unconditionally would kill a perfectly
+    /// healthy root the tick after it drinks.
+    resting_on_wood: bool,
     alive: bool,
 }
 
@@ -291,7 +305,7 @@ pub fn plant_tree_seed(world: &mut World, x: i32, y: i32) -> Vec<ActiveSite> {
     }
 
     let tip = Tip { pos: (x as f32, y as f32), dir: (0.0, -1.0), channel: 0.5, alive: true };
-    let root = RootTip { pos: (x as f32, y as f32), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, alive: true };
+    let root = RootTip { pos: (x as f32, y as f32), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: true, alive: true };
     let state = TreeState { attractors, tips: vec![tip], roots: vec![root], energy: GROWTH_COST, wood };
     let tree_id = world.push_tree(state);
 
@@ -303,6 +317,24 @@ pub fn plant_tree_seed(world: &mut World, x: i32, y: i32) -> Vec<ActiveSite> {
 
 fn tree_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, tip_id: u32) -> Vec<ActiveSite> {
     if !world.tree(tree_id).tips[tip_id as usize].alive {
+        return Vec::new();
+    }
+    // Mirrors moss_tick's own check (see its comment) -- `alive` is set
+    // false only by this function's own logic (channel decayed past
+    // `MIN_CHANNEL`), never by anything happening *to* the tip. Without
+    // this, burning the tree or erasing its trunk with the brush leaves
+    // every tip's schedule intact: each tick still accrues
+    // `AMBIENT_GROWTH_ENERGY`, still consults its attractors, and still
+    // calls `world.set` from a position that is now open air, disconnected
+    // from anything -- a burned tree keeps growing forever. `(x, y)` is
+    // always this tip's own last-written wood cell (the position the site
+    // was rescheduled at after every successful growth step, including the
+    // seed cell for a freshly planted tree), so comparing against it
+    // directly is exact, not approximate.
+    let wood_id = world.tree(tree_id).wood;
+    if world.get(x, y).material != wood_id {
+        world.tree_mut(tree_id).tips[tip_id as usize].alive = false;
+        reclaim_if_tree_is_fully_dead(world, tree_id);
         return Vec::new();
     }
     world.tree_mut(tree_id).energy += AMBIENT_GROWTH_ENERGY;
@@ -329,6 +361,7 @@ fn tree_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, tip_id: u32) -
         };
         if channel <= MIN_CHANNEL {
             world.tree_mut(tree_id).tips[tip_id as usize].alive = false;
+            reclaim_if_tree_is_fully_dead(world, tree_id);
             return Vec::new();
         }
         return vec![reschedule(x, y, ActiveKind::TreeTip { tree: tree_id, tip: tip_id }, world.frame + TREE_TICK_INTERVAL)];
@@ -390,6 +423,7 @@ fn tree_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, tip_id: u32) -
         };
         if channel <= MIN_CHANNEL {
             world.tree_mut(tree_id).tips[tip_id as usize].alive = false;
+            reclaim_if_tree_is_fully_dead(world, tree_id);
             return Vec::new();
         }
         return vec![reschedule(x, y, ActiveKind::TreeTip { tree: tree_id, tip: tip_id }, world.frame + TREE_TICK_INTERVAL)];
@@ -437,6 +471,20 @@ fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) 
     if !world.tree(tree_id).roots[root_id as usize].alive {
         return Vec::new();
     }
+    // Mirrors tree_tip_tick's own check, with one wrinkle: a root's
+    // last-written cell is only *sometimes* wood (see
+    // `RootTip::resting_on_wood`'s doc) -- when it drank water there
+    // instead of growing through soil, the cell is legitimately `Empty`,
+    // and checking for wood unconditionally would kill a perfectly healthy
+    // root the tick after it drinks. Only validate when the tip actually
+    // expects wood to still be there.
+    let wood_id = world.tree(tree_id).wood;
+    let resting_on_wood = world.tree(tree_id).roots[root_id as usize].resting_on_wood;
+    if resting_on_wood && world.get(x, y).material != wood_id {
+        world.tree_mut(tree_id).roots[root_id as usize].alive = false;
+        reclaim_if_tree_is_fully_dead(world, tree_id);
+        return Vec::new();
+    }
 
     let (pos, dir, mut ticks) = {
         let r = &world.tree(tree_id).roots[root_id as usize];
@@ -479,6 +527,11 @@ fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) 
     // reaching the moisture it grew toward in the first place.
     let target_kind = world.materials.kind(world.get(wx, wy).material);
     let wood = world.tree(tree_id).wood;
+    // Whether this tick's outcome leaves wood at (wx, wy) or leaves it
+    // empty (the water-drink case) -- stored on the tip below so next
+    // tick's own-cell validity check knows which of those two states is
+    // the *expected*, undisturbed one. See `RootTip::resting_on_wood`.
+    let resting_on_wood = target_kind != MaterialKind::Liquid;
     match target_kind {
         MaterialKind::Liquid => {
             world.set(wx, wy, Cell::EMPTY);
@@ -504,6 +557,7 @@ fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) 
                 // wait — see `ROOT_STARVATION_LIMIT`'s doc.
                 if starved >= ROOT_STARVATION_LIMIT {
                     world.tree_mut(tree_id).roots[root_id as usize].alive = false;
+                    reclaim_if_tree_is_fully_dead(world, tree_id);
                     return Vec::new();
                 }
                 return vec![reschedule(
@@ -521,6 +575,7 @@ fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) 
         }
         _ => {
             world.tree_mut(tree_id).roots[root_id as usize].alive = false;
+            reclaim_if_tree_is_fully_dead(world, tree_id);
             return Vec::new();
         }
     }
@@ -537,6 +592,7 @@ fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) 
         r.pos = new_pos;
         r.dir = new_dir;
         r.ticks_since_prime = ticks;
+        r.resting_on_wood = resting_on_wood;
     }
     next.push(reschedule(wx, wy, ActiveKind::RootTip { tree: tree_id, root: root_id }, world.frame + ROOT_TICK_INTERVAL));
 
@@ -545,7 +601,8 @@ fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) 
     // conditions (water nearby) actually support a new lateral root.
     if primed && is_damp(world, wx, wy, 3) && world.tree(tree_id).roots.len() < MAX_ROOTS_PER_TREE {
         let angle = if world.rng.flip() { ROOT_BRANCH_ANGLE_RAD } else { -ROOT_BRANCH_ANGLE_RAD };
-        let branch = RootTip { pos: new_pos, dir: rotate(new_dir, angle), ticks_since_prime: 0, starved_ticks: 0, alive: true };
+        let branch =
+            RootTip { pos: new_pos, dir: rotate(new_dir, angle), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood, alive: true };
         let branch_id = world.tree(tree_id).roots.len() as u32;
         world.tree_mut(tree_id).roots.push(branch);
         next.push(reschedule(wx, wy, ActiveKind::RootTip { tree: tree_id, root: branch_id }, world.frame + ROOT_TICK_INTERVAL));
@@ -584,6 +641,30 @@ fn strongest_water_pull(world: &World, x: i32, y: i32, radius: i32) -> Option<((
 
 fn reschedule(x: i32, y: i32, kind: ActiveKind, next_frame: u64) -> ActiveSite {
     ActiveSite { x, y, kind, next_frame }
+}
+
+/// Once every tip and root of a tree has died, its `attractors` list (up to
+/// `ATTRACTOR_COUNT` points, by far the largest part of `TreeState`) serves
+/// no further purpose — nothing left will ever consult it. `TreeState`
+/// itself still never shrinks (`World::push_tree`'s own doc explains why:
+/// `ActiveKind::TreeTip`/`RootTip` index into it by position, and
+/// reassigning a slot would invalidate a live `ActiveSite` — the real fix
+/// is generational indices with a free list, `pixel-physics-issues.md`
+/// issue #8's own "Direction"), but freeing the one large allocation that
+/// is genuinely dead is a real, low-risk partial mitigation cheap enough to
+/// do inline at every death site, rather than waiting on that larger
+/// rewrite. Checked (not assumed) at every call site rather than only when
+/// the *last* tip or root dies, since which one dies last isn't tracked —
+/// this runs a few extra times over a tree's life, each one O(tips + roots)
+/// and cheap, in exchange for not needing to track that separately.
+fn reclaim_if_tree_is_fully_dead(world: &mut World, tree_id: u32) {
+    let fully_dead = {
+        let tree = world.tree(tree_id);
+        tree.tips.iter().all(|t| !t.alive) && tree.roots.iter().all(|r| !r.alive)
+    };
+    if fully_dead {
+        world.tree_mut(tree_id).attractors = Vec::new(); // drops the old allocation; an empty Vec has none of its own
+    }
 }
 
 fn dist(a: (f32, f32), b: (f32, f32)) -> f32 {
@@ -898,5 +979,109 @@ mod tests {
             tip_count > 1,
             "a tree grown to completion with abundant attractors never branched (ended with {tip_count} tip(s))"
         );
+    }
+
+    #[test]
+    fn an_orphaned_tree_tip_stops_growing_instead_of_extending_wood_from_open_air() {
+        // Regression (pixel-physics-issues.md #9): tree_tip_tick checked
+        // only its own `alive` flag, which `alive` false is set only by the
+        // tip's own logic (channel decayed past MIN_CHANNEL) -- never by
+        // anything happening *to* it. Burn the trunk, or erase it with the
+        // brush, and every tip kept its schedule: still accruing energy,
+        // still consulting attractors, still writing wood from a position
+        // now disconnected from anything. Direct internal-state
+        // construction, same as `a_tree_can_produce_multiple_simultaneous_
+        // tips_via_branching` above -- `tests` is a child module of `plant`.
+        let mut w = test_world();
+        let wood_id = w.materials.id_of("wood").unwrap();
+        w.set(50, 50, Cell::new(wood_id, 0));
+        let tip = Tip { pos: (50.0, 50.0), dir: (0.0, -1.0), channel: 0.5, alive: true };
+        let state = TreeState { attractors: Vec::new(), tips: vec![tip], roots: Vec::new(), energy: 1000.0, wood: wood_id };
+        let tree_id = w.push_tree(state);
+
+        // Erase the trunk out from under the tip -- standing in for either
+        // fire consuming it or the brush erasing it; the effect on the tip
+        // is identical either way, since both just leave the cell no
+        // longer holding this tree's wood.
+        w.set(50, 50, Cell::EMPTY);
+
+        let produced = tree_tip_tick(&mut w, 50, 50, tree_id, 0);
+
+        assert!(produced.is_empty(), "an orphaned tip should not reschedule itself");
+        assert!(!w.tree(tree_id).tips[0].alive, "an orphaned tip should mark itself dead, not keep ticking forever");
+        assert_eq!(w.get(50, 50).material, material::EMPTY, "the dead tip must not have written new wood from open air");
+    }
+
+    #[test]
+    fn an_orphaned_root_tip_stops_growing_but_a_root_resting_in_drunk_water_is_unaffected() {
+        // Same regression as the tree-tip test above, applied to roots --
+        // with the added wrinkle roots have and tree tips don't: a root's
+        // own last-written cell is only *sometimes* wood
+        // (`RootTip::resting_on_wood`). This test checks both halves: an
+        // orphaned wood-resting root actually dies, and a root that simply
+        // drank water at its current position (a legitimately `Empty`
+        // cell, not a disturbance) is correctly left alone.
+        let mut w = test_world();
+        let wood_id = w.materials.id_of("wood").unwrap();
+
+        w.set(50, 50, Cell::new(wood_id, 0));
+        let wood_root = RootTip { pos: (50.0, 50.0), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: true, alive: true };
+        // (60, 50) stays Empty -- standing in for a root that just drank an
+        // adjacent water cell and advanced into the now-empty space.
+        let drunk_root = RootTip { pos: (60.0, 50.0), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: false, alive: true };
+        let state = TreeState {
+            attractors: Vec::new(),
+            tips: Vec::new(),
+            roots: vec![wood_root, drunk_root],
+            energy: 1000.0,
+            wood: wood_id,
+        };
+        let tree_id = w.push_tree(state);
+
+        // Erase the wood-resting root's trunk -- (60, 50) is left exactly
+        // as it already was (Empty), matching the drink-then-advance case.
+        w.set(50, 50, Cell::EMPTY);
+
+        let wood_root_result = root_tip_tick(&mut w, 50, 50, tree_id, 0);
+        assert!(wood_root_result.is_empty(), "an orphaned wood-resting root should not reschedule itself");
+        assert!(!w.tree(tree_id).roots[0].alive, "an orphaned wood-resting root should mark itself dead");
+
+        // The drunk-water root must be judged on its own merits (whether it
+        // can find somewhere to grow from (60, 50)), not killed outright
+        // just because its own cell reads as Empty -- that is its expected,
+        // undisturbed state.
+        let before_alive = w.tree(tree_id).roots[1].alive;
+        let _ = root_tip_tick(&mut w, 60, 50, tree_id, 1);
+        assert_eq!(
+            w.tree(tree_id).roots[1].alive, before_alive,
+            "a root resting in a cell it legitimately left empty by drinking must not be killed by the orphan check alone"
+        );
+    }
+
+    #[test]
+    fn a_fully_dead_trees_attractors_are_reclaimed_but_not_a_partially_dead_ones() {
+        // Interim mitigation for pixel-physics-issues.md issue #8:
+        // TreeState never shrinks (tips/roots index into it by position,
+        // and reassigning a slot would invalidate a live ActiveSite -- the
+        // real fix is generational indices, not attempted here), but its
+        // `attractors` list (up to ATTRACTOR_COUNT points, by far the
+        // largest part of TreeState) can be freed the moment every tip and
+        // root has died, since nothing will ever consult it again.
+        let mut w = test_world();
+        let wood_id = w.materials.id_of("wood").unwrap();
+        let attractors = vec![(0.0, 0.0); ATTRACTOR_COUNT];
+        let alive_tip = Tip { pos: (0.0, 0.0), dir: (0.0, -1.0), channel: 0.5, alive: true };
+        let dead_tip = Tip { pos: (0.0, 0.0), dir: (0.0, -1.0), channel: 0.0, alive: false };
+        let dead_root =
+            RootTip { pos: (0.0, 0.0), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: true, alive: false };
+        let state = TreeState { attractors, tips: vec![alive_tip, dead_tip], roots: vec![dead_root], energy: 0.0, wood: wood_id };
+        let tree_id = w.push_tree(state);
+
+        reclaim_if_tree_is_fully_dead(&mut w, tree_id);
+        assert!(!w.tree(tree_id).attractors.is_empty(), "a tree with a still-living tip should not have its attractors reclaimed yet");
+
+        w.tree_mut(tree_id).tips[0].alive = false; // the last living tip dies
+        reclaim_if_tree_is_fully_dead(&mut w, tree_id);
+        assert!(w.tree(tree_id).attractors.is_empty(), "a fully dead tree's attractors should have been reclaimed");
     }
 }

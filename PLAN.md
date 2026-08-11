@@ -1189,6 +1189,57 @@ updated at each milestone commit, not just when something is added.
   constant. The same judgment call as M8's own scoping: real, and worth
   doing, but deserving dedicated attention rather than a pass at the tail
   of an already large batch of changes.
+- **Issues #5 and #6** (field-grid lookup cost): **done.**
+  `rebuild_blocked` now fetches the owning `Chunk` once per field tile
+  (`world.chunk(coord)`, guaranteed resident since `coords` comes from
+  `world.chunks()`) and indexes into it directly via `Chunk::get_world`,
+  instead of a `World::get` — bounds check plus `HashMap` lookup — for
+  every one of up to 4096 CA cells scanned per tile in the open-air worst
+  case. Also hoisted seven loop-invariant `next.get(&coord)`/`get_mut`
+  calls out of the `ly`/`lx` inner loops across `rebuild_blocked`,
+  `step_pressure`, `step_velocity`, `step_diffusion`, and `step_advection`
+  — each pass now fetches its tile pointer once per chunk. Measured via
+  `cargo run --release --example ascii`'s combined CA+field stress scene:
+  worst frame **28 ms → 24.8 ms serial, 11.5 ms → 7.8 ms parallel**. See
+  `README.md`'s Performance section for the full numbers, including a
+  correction to a claim that section used to make ("a quiet field costs
+  almost nothing") that was never true of the actual implementation —
+  issue #4 (field sleeping) is what would make it true, and is not done yet.
+  Independent review caught one real bug before commit: the
+  `World::get` → `Chunk::get_world` swap in `rebuild_blocked` dropped the
+  world-bounds check along with it, so the out-of-world sliver of a chunk
+  whose span extends past a non-64-aligned world size (the sandbox's own
+  512×320 divides evenly; the 200×200 test worlds elsewhere in the codebase
+  don't) silently stopped reading as blocked. Currently inert (every real
+  consumer of field data re-checks bounds itself before consulting the
+  stored value) but exactly the class of bug this file has hit before
+  (three prior rounds of boundary-condition bugs, per its own README
+  section) — fixed with an explicit `world.in_bounds` check, with a
+  regression test that deliberately reaches past the masking layer via
+  `World::fields_ref` to check the actual stored value.
+- **Issue #9** (orphaned tree/root tips): **done.** `tree_tip_tick` now
+  checks whether its own last-written cell still holds this tree's wood
+  before doing anything else, mirroring `moss_tick`'s existing check —
+  `alive` was previously only ever set by the tip's own logic, never by
+  anything happening *to* it, so burning a tree or erasing its trunk left
+  every tip extending wood from open air forever. `root_tip_tick` needed a
+  real wrinkle handled, not just the same check copied over: a root's own
+  cell is only *sometimes* wood — draining an adjacent water cell absorbs
+  it and advances into the now-legitimately-empty space with no wood left
+  behind, so checking for wood unconditionally would kill a perfectly
+  healthy root the tick after it drinks. Added `RootTip::resting_on_wood`
+  (set each tick depending on which branch of the growth match fired) so
+  the validity check only fires when wood is actually expected there. Two
+  regression tests confirmed to fail without the fix.
+- **Issue #8** (`TreeState` leak): **interim fix, done** — not the full
+  generational-index rewrite the issue's own "Direction" recommends as the
+  complete fix (deferred; it's a real architecture change, not a quick
+  pass). `attractors` (up to `ATTRACTOR_COUNT` = 50 points, by far the
+  largest part of `TreeState`) is now dropped the moment every tip and root
+  of a tree has died, checked inline at all six death sites via
+  `reclaim_if_tree_is_fully_dead`. `TreeState` itself still never shrinks —
+  tips/roots index into it by position, and the id-stability guarantee that
+  buys is exactly why the full fix needs a free list, not attempted here.
 
 ---
 

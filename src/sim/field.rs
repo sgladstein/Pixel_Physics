@@ -361,6 +361,19 @@ pub fn step(world: &mut World) {
 /// modelling this coarse a grid was never trying to do.
 fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
     for &coord in coords {
+        // Fetched once per chunk instead of once per *CA cell scanned*
+        // (previously up to `FIELD_TILE_SIZE^2 * FIELD_SCALE^2` = 4096
+        // `World::get` calls per chunk, each a bounds check plus a
+        // `HashMap<ChunkCoord, Chunk>` lookup). `coords` comes from
+        // `world.chunks()` (see `step` above), so every entry is
+        // guaranteed resident -- this can never be `None`. `Chunk::get_world`
+        // still takes global coordinates and does its own local-index
+        // conversion, so nothing below needs to change.
+        let chunk = world.chunk(coord).expect("coord came from world.chunks(), so it must be resident");
+        // Hoisted out of the `ly`/`lx` loops too (issue #6): the tile
+        // pointer is invariant across every field cell in this chunk, but
+        // was previously looked up fresh on every single one of them.
+        let tile = next.get_mut(&coord).expect("next was pre-populated with every coord in coords");
         let (ox, oy) = coord.origin();
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
@@ -369,7 +382,29 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                 let mut blocked = false;
                 'scan: for dy in 0..FIELD_SCALE {
                     for dx in 0..FIELD_SCALE {
-                        let cell = world.get(bx0 + dx, by0 + dy);
+                        // `World::new` eagerly creates every chunk
+                        // overlapping `bounds` (`ensure_chunks_for`), so a
+                        // chunk's own 64x64 span can extend past a world
+                        // whose size isn't a multiple of `CHUNK_SIZE` (the
+                        // sandbox itself is 512x320 -- fine -- but
+                        // `plant.rs`/`creature.rs`'s own 200x200 test
+                        // worlds are not). `Chunk::get_world` has no
+                        // concept of world bounds at all, unlike
+                        // `World::get` (which this replaced for the
+                        // resident-cell case, but must not silently drop
+                        // this check along with it) -- an independent
+                        // review caught that the out-of-world sliver of
+                        // such a chunk read as *not* blocked here, though
+                        // it stayed a currently-inert bug (every actual
+                        // consumer of field data re-checks bounds itself
+                        // via `sample`/`is_blocked`) rather than a visible
+                        // one. Treated the same as `Cell::OUT_OF_BOUNDS`
+                        // reads elsewhere: solid, so blocked.
+                        if !world.in_bounds(bx0 + dx, by0 + dy) {
+                            blocked = true;
+                            break 'scan;
+                        }
+                        let cell = chunk.get_world(bx0 + dx, by0 + dy);
                         // `Plant` blocks too, not just `Solid` -- a tree
                         // trunk or canopy is exactly as solid as a rock
                         // wall for this purpose. Missing this reopened the
@@ -393,7 +428,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         }
                     }
                 }
-                next.get_mut(&coord).unwrap().set_blocked_local(lx, ly, blocked);
+                tile.set_blocked_local(lx, ly, blocked);
             }
         }
     }
@@ -407,6 +442,12 @@ fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkC
     let bounds = world.bounds();
     for &coord in coords {
         let (ox, oy) = coord.origin();
+        // Hoisted out of the `ly`/`lx` loops (issue #6): this pointer is
+        // invariant across every field cell in the chunk. A `&mut` still
+        // supports the read-only `is_blocked_local` call below, so this
+        // also replaces the separate `next.get(&coord)` lookup that used
+        // to run once per field cell right before it.
+        let tile = next.get_mut(&coord).unwrap();
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
@@ -418,7 +459,7 @@ fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkC
                 // moved. Caught by review, not by any test — every existing
                 // wall test keeps the CA grid static for the whole run, which
                 // can't distinguish "this step's map" from "last step's".
-                if next.get(&coord).unwrap().is_blocked_local(lx, ly) {
+                if tile.is_blocked_local(lx, ly) {
                     continue; // stays ambient — a wall cell has no pressure of its own
                 }
                 let here = sample(old, bounds, wx, wy);
@@ -431,7 +472,6 @@ fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkC
                 let mut pressure = (here.pressure + divergence * PRESSURE_VELOCITY_COUPLING) * PRESSURE_DAMPING;
                 pressure = pressure.clamp(MIN_PRESSURE, MAX_PRESSURE);
 
-                let tile = next.get_mut(&coord).unwrap();
                 let mut cell = tile.get_local(lx, ly);
                 cell.pressure = pressure;
                 tile.set_local(lx, ly, cell);
@@ -456,10 +496,10 @@ fn step_velocity(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkC
 
     for &coord in coords {
         let (ox, oy) = coord.origin();
+        let tile = next.get_mut(&coord).unwrap(); // hoisted (issue #6) -- invariant across the ly/lx loops below
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
-                let tile = next.get_mut(&coord).unwrap();
                 let mut cell = tile.get_local(lx, ly);
 
                 if is_blocked(&new_pressure, bounds, wx, wy) {
@@ -540,12 +580,13 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
     let bounds = world.bounds();
     for &coord in coords {
         let (ox, oy) = coord.origin();
+        let tile = next.get_mut(&coord).unwrap(); // hoisted (issue #6), also replaces the per-cell next.get(&coord) below
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
                 // Same-frame occupancy, for the same reason `step_pressure`
                 // needs it — `next`, not `old`.
-                if next.get(&coord).unwrap().is_blocked_local(lx, ly) {
+                if tile.is_blocked_local(lx, ly) {
                     continue; // stays ambient — a wall has no temperature or light of its own
                 }
                 let here = sample(old, bounds, wx, wy);
@@ -576,7 +617,6 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
                 let light = ((here.light + (neighbour_avg_l - here.light) * LIGHT_DIFFUSION_RATE) * LIGHT_DECAY)
                     .clamp(0.0, MAX_LIGHT);
 
-                let tile = next.get_mut(&coord).unwrap();
                 let mut cell = tile.get_local(lx, ly);
                 cell.temperature = temperature;
                 cell.light = light;
@@ -599,6 +639,7 @@ fn step_advection(coords: &[ChunkCoord], bounds: Option<Rect>, next: &mut HashMa
 
     for &coord in coords {
         let (ox, oy) = coord.origin();
+        let tile = next.get_mut(&coord).unwrap(); // hoisted (issue #6) -- invariant across the ly/lx loops below
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
@@ -620,7 +661,7 @@ fn step_advection(coords: &[ChunkCoord], bounds: Option<Rect>, next: &mut HashMa
                     light: lerp(here.light, transported.light, ADVECTION_BLEND),
                 };
 
-                next.get_mut(&coord).unwrap().set_local(lx, ly, blended);
+                tile.set_local(lx, ly, blended);
             }
         }
     }
@@ -946,5 +987,35 @@ mod tests {
             step(&mut w);
         }
         assert_eq!(w.get(128, 128).material, material::SAND, "field step moved a CA cell");
+    }
+
+    #[test]
+    fn a_chunks_out_of_world_sliver_reads_as_blocked_in_a_non_aligned_world() {
+        // Regression: an independent review of the issue #5 perf fix
+        // (rebuild_blocked switched from World::get, which is bounds-aware,
+        // to Chunk::get_world, which is not) caught that the out-of-world
+        // slice of a chunk whose 64x64 span extends past a non-64-aligned
+        // world (the sandbox's own 512x320 happens to divide evenly, but
+        // plant.rs/creature.rs's 200x200 test worlds -- and any future
+        // arbitrary size -- don't) silently stopped reading as blocked.
+        //
+        // World::field_is_blocked itself can't detect this: it goes through
+        // `is_blocked`, which re-checks world bounds *before* ever
+        // consulting the stored tile, so the wrong stored value is masked
+        // for every real caller. This test deliberately reaches past that
+        // mask, through the same crate-internal seam `rebuild_blocked`
+        // itself writes through (`World::fields_ref` -> the raw
+        // `FieldTile`), to check what actually got stored -- the thing the
+        // bug was actually in, not the thing that happened to hide it.
+        let mut w = World::new(Rect::new(0, 0, 199, 199)); // 200 is not a multiple of CHUNK_SIZE (64)
+        step(&mut w);
+
+        // World x/y 200 is one cell past the world's own right/bottom edge
+        // (max valid is 199), but still inside chunk (3, 3)'s 64-cell span
+        // (192..256) -- exactly the sliver the bug affected.
+        let (fx, fy) = field_coord_of(200, 200);
+        let (coord, lx, ly) = tile_and_local(fx, fy);
+        let tile = w.fields_ref().get(&coord).expect("the chunk covering (200, 200) should be resident");
+        assert!(tile.is_blocked_local(lx, ly), "a field cell entirely outside the world's own bounds should read as blocked");
     }
 }

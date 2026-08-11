@@ -899,7 +899,29 @@ against a 16.6 ms budget at 60 Hz for the CA sweep alone (serial) — **down to
 about 6.4 ms parallel**, a **~3.6x speedup on this machine's 4 logical
 cores**. Adding the field step every frame on top of that (which the live app
 does, and which M5 does not parallelize — see below) brings the worst case to
-about 28 ms serial, **about 11.5 ms parallel**.
+**about 24.7 ms serial, about 7.6 ms parallel** — down from ~28 ms/~11.5 ms
+after `pixel-physics-issues.md` issues #5 and #6: `rebuild_blocked` fetching
+the owning `Chunk` once per field tile and indexing directly into it instead
+of paying a `HashMap<ChunkCoord, Chunk>` lookup plus a bounds check per CA
+cell scanned (up to 4096 of those per tile, over a chunk grid, in the worst
+case), plus hoisting seven loop-invariant `next.get(&coord)`/`get_mut` calls
+in `field.rs`'s other four passes out of their inner loops.
+
+Independent review of that change caught a real boundary bug before commit:
+`Chunk::get_world` (unlike the `World::get` it replaced) has no concept of
+world bounds, so the out-of-world sliver of a chunk whose 64×64 span
+extends past a world size that isn't a multiple of `CHUNK_SIZE` (the
+sandbox's own 512×320 happens to divide evenly, but `plant.rs`/
+`creature.rs`'s 200×200 test worlds don't) silently stopped reading as
+blocked. Currently inert in practice — every real consumer of field data
+re-checks world bounds itself before ever consulting the stored value — but
+exactly the class of bug this file's own history warns about (see M13
+status above), worth fixing rather than leaving dependent on that masking
+staying intact forever. Fixed with an explicit `world.in_bounds` check
+ahead of the `Chunk::get_world` read, with a regression test that reaches
+past the masking layer (through `World::fields_ref`, the same
+crate-internal seam `rebuild_blocked` itself writes through) to check the
+actual stored value rather than the value every real caller would see.
 
 Both numbers now sit comfortably under the 16.6 ms budget, including the
 combined worst case that was the plan's own stated reason M5 could not be
@@ -921,13 +943,18 @@ individually cheap is not free at CA-sweep scale, and the sweep does not have
 headroom left to spend carelessly.
 
 So a completely full screen of moving material, with something actively
-disturbing the field at the same time, is over budget with no headroom.
-Ordinary use — the field sitting quiet, or only a modest area of CA material
-moving — stays far under it; a quiet field costs almost nothing since nothing
-in it is changing. Multithreading is the intended answer for the saturated
-case, and this is the measurement that says when it stops being optional. Run
-the example while nothing else is compiling — concurrent cargo processes skew
-the figure badly.
+disturbing the field at the same time, is close to budget with little headroom
+serial and comfortable parallel. **Correction to a claim this section used to
+make**: "a quiet field costs almost nothing since nothing in it is changing"
+is not true of the current implementation and should not have been stated as
+fact — `field::step` runs all five whole-world passes every frame
+unconditionally, with no check for whether anything in a given tile actually
+changed (`pixel-physics-issues.md` issue #4, not yet fixed). A quiet field
+today costs the *same* as a busy one; the sentence above described intended
+future behaviour, not present behaviour. Multithreading is the intended
+answer for the saturated case, and this is the measurement that says when it
+stops being optional. Run the example while nothing else is compiling —
+concurrent cargo processes skew the figure badly.
 
 ## Status
 
