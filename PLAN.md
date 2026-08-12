@@ -2584,6 +2584,18 @@ was checked to fail against the pre-fix code, then the fix restored.
 `cargo test` (268 lib tests, up from 266) and `cargo clippy --all-targets
 -- -D warnings` both clean.
 
+**Verification screenshots kept and committed under
+`docs/screenshots/section-10-tunables/`** (`panel-open.png`,
+`panel-scrolled-adjusted-saved.png`, and a genuine before/after pair for
+the footer-overlap bug — `footer-overlap-before.png` was captured by
+temporarily reverting the fix, then the fix was restored and
+`footer-overlap-after.png` captured against the real code). Starting this
+section, per explicit request: throwaway debug harnesses (`examples/
+debug_*.rs`) themselves still get deleted after use as before, but any
+PNG/GIF they produce for visual verification is now kept and committed
+rather than discarded, as a visible record of what a feature looks like
+and what a visual bug actually looked like before its fix.
+
 ### Files touched
 
 `src/tunables.rs` (new — `Tunable`, `from_materials`,
