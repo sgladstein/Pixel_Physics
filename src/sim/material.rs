@@ -23,6 +23,26 @@ pub struct MaterialId(pub u16);
 pub const EMPTY: MaterialId = MaterialId(0);
 pub const BEDROCK: MaterialId = MaterialId(1);
 
+/// A `Liquid`-kind `Cell`'s fill amount lives in `aux`, fixed-point on this
+/// scale. `0` is the one value `aux` can hold that does *not* mean "no
+/// liquid" — a freshly created `Liquid` cell (painted, or a test built via
+/// `Cell::new` directly) has never been through the transfer logic that
+/// would give it a real reading, so it is treated as full by convention
+/// rather than requiring every liquid-creation call site in the codebase
+/// (the paint brush, phase changes, reactions, every existing test) to
+/// remember to set it explicitly. `update.rs`'s transfer logic never leaves
+/// a genuinely-drained cell at `aux == 0` — it converts to `Cell::EMPTY`
+/// instead — so `aux == 0` on a `Liquid` cell is unambiguous: it always
+/// means "untouched since creation," never "empty."
+pub const LIQUID_FULL: u16 = 1000;
+/// How much a `Liquid` cell may hold above `LIQUID_FULL` when the cell below
+/// it is also full — the pressure signal that lets a compressed column push
+/// sideways into a shorter neighbour even once every cell in it individually
+/// reads as full. Small on purpose (1%), matching the falling-sand
+/// compressible-volume technique this is drawn from (see `update.rs`'s
+/// module doc): enough to carry a signal, not enough to visibly bulge.
+pub const LIQUID_MAX_COMPRESS: u16 = 10;
+
 /// Well-known ids for the shipped materials.
 ///
 /// These are stable because `builtin` always runs first and assigns ids in
@@ -97,9 +117,18 @@ pub struct MaterialDef {
     /// hold; lower values spread flatter. Ignored by other kinds.
     #[serde(default = "default_friction_angle")]
     pub friction_angle: f32,
-    /// How far a liquid or gas may travel sideways in one step.
+    /// How far a gas may travel sideways in one step. `Liquid` kind ignores
+    /// this — see `flow_rate`, the compressible-volume equivalent.
     #[serde(default)]
     pub dispersion: u8,
+    /// How much of a `Liquid` cell's fill (on the `LIQUID_FULL` = 1000
+    /// scale) may transfer to a neighbour in one tick, in both the vertical
+    /// settle and the horizontal levelling pass. Ignored by every other
+    /// kind. Higher means water-like (settles fast, looks thin); lower
+    /// means honey-like (settles slowly, holds a visible slope for a while
+    /// even though it is still, eventually, headed for flat).
+    #[serde(default)]
+    pub flow_rate: u16,
     pub colors: Vec<[u8; 3]>,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
@@ -259,6 +288,7 @@ pub struct Material {
     /// somewhere to fall before it settles — see `roll_reach`.
     roll_reach_base: f32,
     pub dispersion: u8,
+    pub flow_rate: u16,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
     pub palette: Vec<[u8; 4]>,
@@ -360,6 +390,7 @@ impl From<MaterialDef> for Material {
             friction_angle: angle,
             roll_reach_base,
             dispersion: def.dispersion,
+            flow_rate: def.flow_rate,
             palette: def
                 .colors
                 .iter()
@@ -464,6 +495,7 @@ impl MaterialRegistry {
             density: 0.0,
             friction_angle: 45.0,
             dispersion: 0,
+            flow_rate: 0,
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
@@ -486,6 +518,7 @@ impl MaterialRegistry {
             density: f32::INFINITY,
             friction_angle: 45.0,
             dispersion: 0,
+            flow_rate: 0,
             colors: vec![[20, 20, 24]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,

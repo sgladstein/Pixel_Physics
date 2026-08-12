@@ -551,65 +551,42 @@ mod tests {
 
     #[test]
     fn two_same_group_chunks_writing_into_their_shared_passive_neighbour_land_disjointly() {
-        // The specific geometry an independent review flagged as argued-but-
-        // not-directly-tested: chunk(0,0) and chunk(2,0) are both group
-        // (0,0) (same-parity, same pass), and both are within reach of
-        // chunk(1,0) sitting between them (passive this pass). This
+        // The specific geometry an independent review originally flagged as
+        // argued-but-not-directly-tested: chunk(0,0) and chunk(2,0) are both
+        // group (0,0) (same-parity, same pass), and both are within reach
+        // of chunk(1,0) sitting between them (passive this pass). This
         // isolates that exact sandwiching case at the cell level, rather
         // than trusting that the broader multi-chunk stress tests exercise
         // it incidentally.
         //
-        // A floor with two single-cell *pits* (open at row 10, solid again
-        // at row 11) gives each source water cell exactly one place it can
-        // flow to and fall into, both inside the shared middle chunk (1,0):
-        // a pit at x=66 (chunk(1,0)'s local column 2, the "left half" the
-        // module doc's proof assigns to chunk(0,0)'s reach) and a pit at
-        // x=125 (local column 61, the "right half" assigned to chunk(2,0)'s
-        // reach). Everywhere else the floor blocks straight/diagonal falls
-        // and gives flow_sideways nothing else to find, so each source
-        // cell's move is forced and deterministic regardless of which
-        // left/right movement roll is tried first.
-        //
-        // A one-row *pit*, not just a gap in row 10 with open space below,
-        // because every chunk in a brand-new `World` starts fully dirty
-        // (`Chunk::new`) -- so chunk(1,0) gets its own full sweep later in
-        // this same frame (a different, later pass) regardless of the
-        // deferred write from chunk(0,0)/(2,0)'s pass, and a plain open gap
-        // would let the just-arrived water keep falling through it. The
-        // pit's solid floor at row 11 gives it somewhere stable to land.
-        //
-        // Settling takes a few frames, not necessarily one: whether a
-        // flowed cell's `moved` flag was set for this frame depends on
-        // `revisited = (dir > 0) == rightward`, and the two source cells
-        // move in *opposite* directions (dir=+1 vs dir=-1) into the same
-        // `rightward` value -- so on any given frame one of them lands
-        // already flagged "moved" (deferring chunk(1,0)'s own later pass
-        // from processing it further that same frame) while the other
-        // doesn't. Both still end up in the right place; this just isn't
-        // observable after exactly one `step()` call, so several are run.
+        // Rewritten for the compressible-volume liquid model: the original
+        // version routed water through `flow_sideways`'s long-range search
+        // to a specific pit several cells away, which `Liquid` no longer
+        // does at all -- transfer now only ever reaches an immediate (1-
+        // cell) neighbour, so the two source cells sit directly adjacent to
+        // chunk(1,0)'s near edge on each side. A floor blocks straight-down
+        // and both diagonal falls, forcing the only available move to be
+        // the horizontal transfer this test exists to exercise.
         let mut w = World::new(Rect::new(-64, 0, 255, 63));
         for x in -64..200 {
-            if x == 66 || x == 125 {
-                continue; // the two pits
-            }
-            w.set(x, 10, SimCell::new(material::STONE, 0));
+            w.set(x, 11, SimCell::new(material::STONE, 0));
         }
-        for x in -64..200 {
-            w.set(x, 11, SimCell::new(material::STONE, 0)); // seals the pits' floor
-        }
-        w.set(63, 9, SimCell::new(material::WATER, 0)); // last column of chunk(0,0)
-        w.set(128, 9, SimCell::new(material::WATER, 0)); // first column of chunk(2,0)
-        let before = count(&w, material::WATER);
+        w.set(63, 10, SimCell::new(material::WATER, 0)); // last column of chunk(0,0)
+        w.set(128, 10, SimCell::new(material::WATER, 0)); // first column of chunk(2,0)
+        let before = liquid_volume(&w, material::WATER);
 
         for _ in 0..5 {
             step(&mut w);
         }
 
-        assert_eq!(count(&w, material::WATER), before, "water was created, destroyed, or one write clobbered the other");
-        assert_eq!(w.get(66, 10).material, material::WATER, "chunk(0,0)'s flow into the shared chunk's left half did not land");
-        assert_eq!(w.get(125, 10).material, material::WATER, "chunk(2,0)'s flow into the shared chunk's right half did not land");
-        assert!(w.get(63, 9).is_empty(), "source cell in chunk(0,0) did not vacate");
-        assert!(w.get(128, 9).is_empty(), "source cell in chunk(2,0) did not vacate");
+        assert_eq!(liquid_volume(&w, material::WATER), before, "water was created, destroyed, or one write clobbered the other");
+        assert_eq!(w.get(64, 10).material, material::WATER, "chunk(0,0)'s transfer into the shared chunk's near edge did not land");
+        assert_eq!(w.get(127, 10).material, material::WATER, "chunk(2,0)'s transfer into the shared chunk's near edge did not land");
+        // Both source cells should have given up *some* fill (a partial
+        // transfer, not a full vacate -- this model moves fill gradually,
+        // capped by `flow_rate`, not the whole cell at once).
+        assert!(update::liquid_fill(w.get(63, 10)) < material::LIQUID_FULL, "source cell in chunk(0,0) never gave up any fill");
+        assert!(update::liquid_fill(w.get(128, 10)) < material::LIQUID_FULL, "source cell in chunk(2,0) never gave up any fill");
     }
 
     #[test]
@@ -647,14 +624,18 @@ mod tests {
                 w.set(x, y, SimCell::new(material::WATER, 0));
             }
         }
-        let before = count(&w, material::SAND) + count(&w, material::WATER);
+        // Sand is a whole-cell-move material, so its cell count really is
+        // conserved directly. Water's conserved quantity is fill volume, not
+        // cell count -- see `liquid_volume`'s own doc.
+        let sand_before = count(&w, material::SAND);
+        let water_before = liquid_volume(&w, material::WATER);
 
         for _ in 0..2000 {
             step(&mut w);
         }
 
-        let after = count(&w, material::SAND) + count(&w, material::WATER);
-        assert_eq!(before, after, "material was created, destroyed, or duplicated");
+        assert_eq!(count(&w, material::SAND), sand_before, "sand was created, destroyed, or duplicated");
+        assert_eq!(liquid_volume(&w, material::WATER), water_before, "water was created or destroyed");
         assert_eq!(w.active_chunk_count(), 0, "world never settled under the parallel sweep");
     }
 
@@ -804,5 +785,25 @@ mod tests {
             }
         }
         n
+    }
+
+    /// The actual conserved quantity for a `Liquid` material under the
+    /// compressible-volume model -- see `update::liquid_fill`'s own doc.
+    /// `count` alone is the wrong invariant for one: a single full cell can
+    /// split its fill across two cells (one still `Liquid`, one newly
+    /// created from `Empty`), which correctly changes the *cell count*
+    /// without creating or destroying any material at all.
+    fn liquid_volume(w: &World, id: material::MaterialId) -> u64 {
+        let b = w.bounds().unwrap();
+        let mut total = 0u64;
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let cell = w.get(x, y);
+                if cell.material == id {
+                    total += crate::sim::update::liquid_fill(cell) as u64;
+                }
+            }
+        }
+        total
     }
 }

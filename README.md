@@ -392,6 +392,32 @@ its fill fraction while it burns, and a burning `Plant` cell needs its
 latter reserved, unused until the organism-substrate rewrite) are now
 their own fields; `aux` is genuinely kind-specific with no exceptions.
 
+## Liquid physics: compressible volume, not discrete occupied cells
+
+Replaced the original "search up to `dispersion` cells for an empty
+destination" model, which structurally could never level a wide body of
+liquid — a cell buried more than `dispersion` (5) cells from an opening had
+no destination to find, on any frame, confirmed from a live playtest
+screenshot showing a water column eroding only at its edges. Each `Liquid`
+cell now holds a continuous fill amount in `aux` (`material::LIQUID_FULL`
+= 1000 scale, `LIQUID_MAX_COMPRESS` = 10 allowed overfill), exchanging fill
+with neighbours — the standard falling-sand compressible-volume technique
+(Tom Forsyth's "Cellular Automata for Physical Modelling"; the
+w-shadow.com falling-sand water tutorial). `aux == 0` on a `Liquid` cell
+means "untouched, treat as full," not "empty," which is what lets every
+pre-existing liquid-creation site in the codebase keep working unmodified —
+a drained cell converts to `Cell::EMPTY` outright rather than lingering as
+a zero-fill `Liquid` cell.
+
+Horizontal transfer scans up to 8 cells (`HORIZONTAL_TRANSFER_REACH`) for
+the emptiest reachable cell rather than only the immediate neighbour —
+added after a live capture showed pure nearest-neighbour diffusion needing
+on the order of *width²* frames to flatten a wide body (a 100-cell column
+was still a visible mound after 3000 frames), which raising `flow_rate`
+alone could not fix. New per-material `flow_rate: u16` field replaces
+`dispersion`'s role for `Liquid` kind specifically; `dispersion` is
+untouched and still governs `Gas`.
+
 ## M14 status
 
 Heat, fire, phase change and reactions, in [`src/sim/fire.rs`](src/sim/fire.rs) —

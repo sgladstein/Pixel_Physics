@@ -1732,6 +1732,110 @@ reverted, `burn_remaining()` read 0 instead of the ignited duration, since
 `burn_timer` was never actually set — a different assertion line than
 expected, but a genuine failure catching the same aliasing bug.
 
+### Overnight run, section 4: water/liquid leveling — compressible-volume rewrite
+
+`update_liquid`'s old model searched up to `dispersion` (5) cells for a
+directly reachable empty destination. A cell buried more than 5 cells from
+an opening had no destination to find, on any frame — confirmed live from a
+playtest screenshot: a wide water column eroded only from its edges inward,
+never flattening. Replaced with the standard falling-sand technique for
+this (Tom Forsyth's "Cellular Automata for Physical Modelling"; the
+w-shadow.com falling-sand water tutorial): each `Liquid` cell holds a
+continuous fill amount in `aux` (`material::LIQUID_FULL` = 1000 scale, with
+a small `LIQUID_MAX_COMPRESS` = 10 overfill allowance), exchanging fill
+with neighbours instead of moving as a discrete occupied cell.
+
+**`aux == 0` on a `Liquid` cell means "never transferred, treat as full,"
+not "empty."** This is what let every existing liquid-creation call site
+(the paint brush, phase changes, every pre-existing test using `Cell::new
+(material::WATER, 0)`) keep working unmodified — a cell drained to
+genuinely zero fill converts to `Cell::EMPTY` outright, so `aux == 0` on a
+still-`Liquid`-material cell is unambiguous.
+
+**Two real bugs found and fixed during development, both confirmed via
+temporary revert:**
+- An early version reset the horizontal-transfer amount to the *whole*
+  fill difference rather than half, reasoning (wrongly) that this would
+  reach equality faster. It doesn't — it overshoots *past* equality (500/300
+  becomes 300/500, the same gap flipped to the other side), and the next
+  frame's alternating scan direction flips it back, forever. A debug run
+  showed `active_chunk_count` still nonzero at 24,000 frames with the
+  overshooting version; the halved version settles the same scene cleanly.
+- `MIN_LIQUID_TRANSFER` (a floor below which two adjacent cells count as
+  "close enough to settled") was needed because without one, a wide
+  puddle's very last few units of difference take an extremely long tail to
+  fully zero out — empirically tuned from 8 (still ~12,000 frames to fully
+  settle a modest test puddle) up to 150 (settles comfortably inside 1,000
+  frames) by directly measuring convergence at each step.
+
+**A third, more significant finding came from actually running the app,
+not just unit tests — matching this session's own standing practice of
+treating live playtesting as a distinct verification channel.** Unit tests
+alone (a 40-cell-wide column) showed clean, fast convergence and did not
+surface this. Capturing a real `cargo run` scene (§1's tool) with a wider,
+more realistic 100-cell column showed it settling into a smooth *mound*
+--- visibly still un-flat, heights ranging roughly 6 to 39 cells, after
+3000 frames (50 seconds). Root cause: pure nearest-neighbour diffusion
+propagates a fill difference exactly one cell per frame no matter how large
+`flow_rate` is, so full equalisation across a wide body needs on the order
+of *width²* frames — confirmed directly (raising `flow_rate` 200→500 made
+no measurable difference, exactly as that reasoning predicts, since once a
+fill difference is small, `flow_rate` was never the limiting term).
+
+**Fix: `transfer_liquid_horizontal` now scans up to `HORIZONTAL_TRANSFER_
+REACH` (8) cells in the given direction and transfers toward the *emptiest*
+reachable same-material-or-empty cell, stopping at the first wall**, rather
+than only ever considering the immediate neighbour. This is not a
+reintroduction of the old dispersion-search's failure mode: unlike that
+search, finding nothing better within reach never blocks levelling
+entirely, it only falls back to the immediate neighbour, and the same
+diffusion process that fixes the original bug still applies beyond the
+scan. The same 100-wide-column scene went from a persistent mound at 3000
+frames to fully settled (`active_chunk_count() == 0`) by frame 1800, with a
+height profile flat to within about 3 cells across the whole 200-cell test
+world — re-confirmed visually via §1's capture tool, not just the numeric
+assertion.
+
+New `flow_rate: u16` material field replaces `dispersion`'s role for
+`Liquid` kind specifically (`dispersion` is untouched, still governs `Gas`
+kind); water `flow_rate: 200`, oil `flow_rate: 80`. `parallel.rs`'s
+material-conservation test checks were changed from raw cell-count to
+summed fill volume (`liquid_volume`, calling the now-`pub(crate) update::
+liquid_fill`), since a cell legitimately splitting its fill across two
+cells is not the same thing as material being created. One of those
+tests (`two_same_group_chunks_writing_into_their_shared_passive_neighbour_
+land_disjointly`) needed its geometry rebuilt entirely — it was written
+against the old model's long-range `flow_sideways` search reaching a
+specific distant pit, which `Liquid` no longer does at all.
+
+Independent review of this section, requested before commit, caught three
+real issues:
+
+- **The reach-8 mechanism — the most complex, most recently-changed
+  piece — had no test that actually depended on it.** The committed
+  wide-column test used a 40-cell-wide scene, which settles fine even with
+  `HORIZONTAL_TRANSFER_REACH` reduced back to 1. Fixed by widening the
+  test scene to 100 cells and asserting `active_chunk_count() == 0`
+  (fully settled), not just a spread/flatness bound — confirmed to fail
+  with reach temporarily set to 1 (stays at 8 active chunks, never
+  settles) and pass with reach restored to 8.
+- `MIN_LIQUID_TRANSFER`'s doc comment still said "8 is 0.8% of
+  `LIQUID_FULL`," a leftover from before the empirical tuning pass that
+  raised it to 150 (15%) — fixed to describe the actual value and why it
+  moved.
+- **A latent conservation bug in `fire.rs`'s `transform`**, used by
+  `melts_into`/`boils_into`/reactions: it always rebuilds the cell via
+  `Cell::new`, which defaults `aux` to 0 — read by the liquid model as
+  "full." No shipped material currently transforms one `Liquid` into
+  another, so this was dormant, but a future one would have silently
+  inflated a partially-drained cell to a full one on transform,
+  manufacturing volume. Fixed to carry the raw `aux` value across when
+  both the source and target are `Liquid` kind. New regression test using
+  synthetic materials (the same temp-directory technique `fire.rs`'s
+  existing reaction tests already use, since no shipped material exercises
+  this path) — confirmed to fail without the fix (fill reset to 0 instead
+  of the expected partial value).
+
 ---
 
 ## M19 — Visual polish: make the engine beautiful

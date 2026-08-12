@@ -44,7 +44,7 @@
 
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::decay::DECAY_TICK_INTERVAL;
-use super::material::{self, MaterialId};
+use super::material::{self, MaterialId, MaterialKind};
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::surface::CellSurface;
 
@@ -427,7 +427,22 @@ fn transform<S: CellSurface>(surface: &mut S, cell: &mut Cell, into: MaterialId)
     let shades = surface.materials().get(into).palette.len().max(1) as u32;
     let shade = surface.rng().below(shades) as u8;
     let temp = cell.temperature();
+    // A `Liquid`-kind cell's `aux` is a fill amount on the `LIQUID_FULL`
+    // scale, and `aux == 0` means "full" by convention (`material::
+    // LIQUID_FULL`'s own doc), not "empty" -- `Cell::new` below defaults
+    // `aux` to 0, which is only silently correct here because no shipped
+    // material's `melts_into`/`boils_into`/reaction target is `Liquid` from
+    // a `Liquid` source today. Carry the raw `aux` value across explicitly
+    // for the day one does, rather than risk a partially-drained cell
+    // (fill=100, say) silently transforming into a full one (implicit
+    // fill=1000) and manufacturing volume from nowhere.
+    let liquid_fill_to_preserve =
+        (surface.materials().kind(cell.material) == MaterialKind::Liquid && surface.materials().kind(into) == MaterialKind::Liquid)
+            .then(|| cell.aux());
     *cell = Cell::new(into, shade).with_temperature(temp);
+    if let Some(fill) = liquid_fill_to_preserve {
+        cell.set_aux(fill);
+    }
 }
 
 /// Pairwise reactions with a directly touching neighbour — water quenching
@@ -554,6 +569,53 @@ mod tests {
             update(&mut w, 30, 30);
         }
         assert_eq!(w.get(30, 30).material, a, "a zero-chance reaction fired anyway");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_liquid_to_liquid_transform_preserves_fill_instead_of_resetting_to_full() {
+        // The landmine an independent review found live: `transform`
+        // defaults a fresh cell's `aux` to 0, which the liquid model reads
+        // as "full" (`material::LIQUID_FULL`'s own doc) -- fine for every
+        // shipped material today (no `melts_into`/`boils_into`/reaction
+        // target is `Liquid` from a `Liquid` source), but a partially-
+        // drained `Liquid` cell reacting into a *different* `Liquid`
+        // material would otherwise silently inflate to a full cell's worth,
+        // manufacturing volume from nowhere. No shipped material exercises
+        // this, so synthetic content proves the mechanism directly, the
+        // same technique `a_reaction_transforms_both_cells` above uses.
+        let dir = std::env::temp_dir().join("pixel-physics-liquid-reaction-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("a.ron"),
+            "(name: \"react_liquid_a\", kind: Liquid, density: 1.0, colors: [(0, 0, 200)], \
+             reactions: [(with: \"react_liquid_b\", produces: (\"react_liquid_c\", \"react_liquid_b\"), chance: 1.0)])",
+        )
+        .unwrap();
+        std::fs::write(dir.join("b.ron"), "(name: \"react_liquid_b\", kind: Liquid, density: 1.0, colors: [(0, 200, 0)])").unwrap();
+        std::fs::write(dir.join("c.ron"), "(name: \"react_liquid_c\", kind: Liquid, density: 1.0, colors: [(200, 0, 0)])").unwrap();
+
+        let mut w = test_world();
+        w.materials.reload(&dir).unwrap();
+        let (a, b, c) = (
+            w.materials.id_of("react_liquid_a").unwrap(),
+            w.materials.id_of("react_liquid_b").unwrap(),
+            w.materials.id_of("react_liquid_c").unwrap(),
+        );
+
+        // A partial fill -- the exact case a reset-to-0-means-full bug would
+        // silently inflate.
+        w.set(30, 30, Cell::new(a, 0).with_aux(250));
+        w.set(31, 30, Cell::new(b, 0));
+        update(&mut w, 30, 30);
+
+        assert_eq!(w.get(30, 30).material, c, "react_liquid_a should have become react_liquid_c");
+        assert_eq!(
+            w.get(30, 30).aux(),
+            250,
+            "fill should carry across the transform unchanged, not reset to 0 (which the liquid model reads as full)"
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }

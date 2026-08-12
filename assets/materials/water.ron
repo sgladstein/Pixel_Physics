@@ -1,11 +1,14 @@
-// Dispersion is how far a liquid may travel sideways in one step. Higher looks
-// runnier and settles flat faster; lower looks viscous.
+// flow_rate is how much of a cell's fill (0..1000) may transfer to a
+// neighbour per tick, in the compressible-volume liquid model -- see
+// update.rs's module doc. Higher looks runnier and settles flat faster;
+// lower looks viscous. (dispersion is Gas kind's equivalent, not this
+// material's -- Liquid kind ignores it.)
 (
     name: "water",
     display: "Water",
     kind: Liquid,
     density: 1.0,
-    dispersion: 5,
+    flow_rate: 200,
     colors: [
         (64, 116, 208),
         (58, 108, 198),
