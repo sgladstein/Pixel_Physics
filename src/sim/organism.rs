@@ -1,19 +1,38 @@
 //! The organism substrate: species as data, and the behavior library
 //! species files compose from. See `Reports/organism-substrate-design.md`
-//! for the full design and the reasoning behind every decision here — this
-//! module implements it, not re-derives it.
+//! for the original design, and `Reports/tree-rewrite-design.md` for the
+//! tree-specific extension this module now also implements — both explain
+//! the reasoning behind decisions here; this module implements them, not
+//! re-derives them.
 //!
-//! **Scope of this pass.** Only what moss (the first species retrofitted,
-//! per the design report's §7 retrofit order) actually needs: one behavior
-//! (`Divide`), the `CellType` vocabulary, the `aux` cell-type/resource
-//! encoding, the generational `organism_id` allocator, and the shared
-//! bounded-reachability primitive `structural.rs` needs for organism-owned
-//! `Plant` cells. Trees and the worm — and the behaviors only they need
-//! (`Photosynthesize`, `Absorb`, `TransportChannel`, `SecondaryThicken`,
-//! `Germinate`, `StructuralAnchor`, `Locomote`) — are deliberately deferred
-//! to a later session; see `PLAN.md`'s own note on why. Adding a behavior
-//! variant here with no species that constructs it yet would be dead code
-//! by this crate's own standards, not a head start.
+//! **Scope of this pass** (`Reports/tree-rewrite-design.md`'s retrofit
+//! order, step 1): the full `CellType` vocabulary (`Seed`/`GrowingTip`/
+//! `MatureBody`/`Leaf`/`RootTip`), `Divide` (moss, unchanged from the
+//! previous pass) alongside a new `Grow` (trees — direction-biased,
+//! resource-gated, self-avoiding growth for a `GrowingTip`/`RootTip`
+//! cell), `Photosynthesize`/`Absorb`/`SecondaryThicken`/`Germinate`/
+//! `StructuralAnchor`, the resource-and-canopy-density diffusion pass, and
+//! the ported phototropism/wind-lean/hydrotropism field-read helpers.
+//! `Locomote` (the worm) stays deferred to a later pass —
+//! `organism-substrate-design.md` §7's own stated reason still holds: it's
+//! the check that the library generalizes past *rooted* organisms, which
+//! is only meaningful once the rooted case (this pass) actually exists.
+//!
+//! **`TransportChannel` is deliberately not implemented as a named
+//! behavior in this pass**, a real, documented scope cut rather than an
+//! oversight: making its `decay` rate genuinely per-species would need
+//! `CellSurface` (the trait `diffuse_resource` below runs generically
+//! over, for both the serial sweep and the parallel `ChunkView`) to expose
+//! species lookups, which today it deliberately doesn't — `ChunkView` was
+//! designed around exactly the data `update.rs`'s CA rules need, and
+//! species access is a new, nontrivial surface neither implementer
+//! currently carries. Diffusion instead runs at one shared rate
+//! (`DIFFUSION_RATE` below) for any organism-owned `Plant` cell,
+//! unconditionally — every cell type this pass defines needs to
+//! participate in transport for a tree to function at all, so a per-cell-
+//! type opt-in tag would have no actual effect yet regardless; the tag
+//! only becomes worth its own `CellSurface` plumbing once a real species
+//! wants a cell type that deliberately *doesn't* transport.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
@@ -21,31 +40,58 @@ use std::path::Path;
 use serde::Deserialize;
 
 use super::cell::Cell;
+use super::material::MaterialKind;
 use super::surface::CellSurface;
+use super::world::World;
 
 const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
 /// Shared vocabulary for what an organism-owned cell currently *is*, packed
 /// into `Cell::aux`'s low 4 bits (`pack_aux`/`unpack_aux` below) — one
 /// enum every species shares, so dispatch code never needs to know which
-/// species it's looking at. Room for 11 more variants than are named yet;
-/// only the ones an actual species behavior needs today are here.
+/// species it's looking at. Explicit discriminants, matching `pack_aux`'s
+/// own bit layout directly rather than relying on declaration order — room
+/// for 11 more variants than are named yet.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
 pub enum CellType {
-    /// Moss's only cell type today. Named for the vocabulary's eventual
-    /// tree use (an actively spreading/dividing cell), not because moss
-    /// has anything resembling a tree's tip/trunk distinction.
-    GrowingTip,
+    /// A dormant organism-owned cell waiting on `Germinate`'s field-reading
+    /// check (light/moisture thresholds) to transition to `GrowingTip`/
+    /// `RootTip`. Moss has no `Seed` stage — `plant_moss_seed` still plants
+    /// a live `GrowingTip` directly, unchanged from the previous pass —
+    /// this is a tree-only cell type today, not a requirement every
+    /// species opts into.
+    Seed = 0,
+    /// An actively growing/dividing cell — moss's only cell type, and a
+    /// tree's canopy-growth cell type (`Grow`-driven, see this module's
+    /// own doc on the `Divide`/`Grow` split).
+    GrowingTip = 1,
+    /// A `GrowingTip` that has stopped actively growing (see `organism_
+    /// tick`'s staleness handling) and gone fully inert on the M16
+    /// active-site schedule, per `design-philosophy.md` §3's explicit
+    /// requirement that only actively growing/leaf cells stay scheduled.
+    /// Carries `SecondaryThicken`/`StructuralAnchor` for a woody species.
+    MatureBody = 2,
+    /// A photosynthesizing cell (`Photosynthesize`) — a tree's canopy
+    /// foliage, structurally just another `Plant`-kind cell type, not a
+    /// special-cased material.
+    Leaf = 3,
+    /// A root system's own growing tip — `Grow`-driven like `GrowingTip`,
+    /// but with `Absorb` for water uptake and gravitropism/hydrotropism
+    /// direction bias instead of phototropism/wind. A distinct cell type
+    /// (not `GrowingTip` reused) because `structural.rs`'s organism branch
+    /// anchors its reachability search specifically on `RootTip` cells
+    /// (`Reports/organism-substrate-design.md` §2/§5) — anchoring on every
+    /// `GrowingTip` instead would anchor a tree on its own canopy, which
+    /// is not what "supported by roots" means.
+    RootTip = 4,
 }
 
 /// One behavior a cell type can carry, composed freely by species data —
 /// `material.rs`'s "behaviour comes from data, not a branch per material"
-/// claim, one level up. Only `Divide` exists yet; see the module doc for
-/// why the rest of the design report's library isn't here. A struct-shaped
-/// variant (fields directly on the enum) rather than a separate named
-/// struct wrapped in a newtype variant, matching `ActiveKind`'s own
-/// existing shape (e.g. `Moss { stale_ticks: u8 }`) and RON's more direct
-/// syntax for it.
+/// claim, one level up. A struct-shaped variant (fields directly on the
+/// enum) rather than a separate named struct wrapped in a newtype variant,
+/// matching `ActiveKind`'s own existing shape (e.g. `Moss { stale_ticks:
+/// u8 }`) and RON's more direct syntax for it.
 #[derive(Clone, Copy, Deserialize)]
 pub enum Behavior {
     Divide {
@@ -69,6 +115,105 @@ pub enum Behavior {
         /// doesn't pay for the field read).
         shade_sensitive: bool,
     },
+    /// Direction-biased, resource-gated, self-avoiding growth — a tree's
+    /// canopy (`GrowingTip`) and roots (`RootTip`), *not* the same
+    /// mechanism as `Divide` with more parameters. See this module's own
+    /// doc and `Reports/tree-rewrite-design.md` §0 for why these stayed
+    /// two named behaviors rather than one: `Divide` picks a candidate
+    /// uniformly at random and gates it on a moisture-keyed chance;
+    /// `Grow` scores every open 8-neighbour by a weighted blend of local
+    /// directional signals and *samples* from that distribution, gated on
+    /// locally available resource rather than a chance roll. Forcing both
+    /// shapes onto one struct either breaks RON's all-fields-required
+    /// deserialization or silently changes moss's own already-shipped
+    /// behavior — `organism-substrate-design.md` §1's own pre-sanctioned
+    /// fallback if the two turned out not to share real code, which they
+    /// don't.
+    Grow {
+        /// Resource spent from the growing cell on a successful growth
+        /// step — same role as `Divide`'s `cost`, same gate shape
+        /// (`resource < cost` skips this tick, not a dead end).
+        cost: f32,
+        /// Chance a successful growth step *also* creates a second new
+        /// tip in a different direction this same tick — `Reports/tree-
+        /// rewrite-design.md` §3's branching mechanism, gated by the same
+        /// resource economy as everything else rather than a separate
+        /// mechanic.
+        branch_chance: f32,
+        /// Weight on continuing this tip's own established direction
+        /// (`Reports/tree-rewrite-design.md` §2a: the vector average of
+        /// every same-organism 8-neighbour's direction *from* this cell,
+        /// negated — "grow away from where you came from" — not a stored
+        /// float, a fresh local read every tick).
+        continuation_weight: f32,
+        /// Weight on phototropism (`organism::phototropism_dir`, ported
+        /// from `plant.rs`'s `tree_tip_tick` unchanged). `0.0` for a
+        /// species/cell type with no reason to chase light (roots).
+        light_weight: f32,
+        /// Weight on wind lean (`organism::wind_lean_dir`, ported
+        /// unchanged, including its existing direction-only/magnitude-
+        /// clamped fix). `0.0` for roots.
+        wind_weight: f32,
+        /// Weight on a constant upward (negative-y) bias — canopy growth's
+        /// mild "trees grow up" tendency (near `0.0` in `tree.ron`, since
+        /// phototropism already does most of that work) or a root's
+        /// default gravitropism (strongly positive-y, i.e. negative
+        /// `upward_weight`) before `Reports/tree-rewrite-design.md` §2's
+        /// MIZ1 hydrotropism switch overrides it.
+        upward_weight: f32,
+        /// Weight subtracting `canopy_density` (`with_canopy_density`/
+        /// `canopy_density` below) at each candidate — `Reports/tree-
+        /// rewrite-design.md` §2b's self-avoidance term, the deposit-
+        /// diffuse-decay-follow replacement for the old space-colonization
+        /// algorithm's private attractor point cloud. `0.0` disables
+        /// self-avoidance entirely (a root system has no citation in this
+        /// engine's own research for root-root avoidance, so `tree.ron`'s
+        /// `RootTip` sets this to `0.0` rather than inventing one).
+        crowding_weight: f32,
+        /// Cap on simultaneously-scheduled `GrowingTip`/`RootTip` active
+        /// sites this organism may have of *this* cell type at once —
+        /// `Reports/tree-rewrite-design.md` §5's restoration of the old
+        /// `MAX_TIPS_PER_TREE`/`MAX_ROOTS_PER_TREE` caps, now read from the
+        /// organism's own live schedule rather than a `Vec` length.
+        max_active_tips: u32,
+    },
+    /// Reads the light field, credits the resource scalar — a `Leaf`
+    /// cell's own contribution to the resource economy `Grow`/`Divide`
+    /// spend from. `rate` is per-tick credit at full light; scaled by the
+    /// actual local reading the same way every other field-driven rate in
+    /// this codebase is.
+    Photosynthesize { rate: f32 },
+    /// Drains every adjacent `Liquid`-kind cell, crediting resource and
+    /// depleting local moisture — `plant.rs`'s old `ROOT_WATER_ENERGY`/
+    /// `ROOT_MOISTURE_DEPLETION` mechanism, relocated onto generic species
+    /// data. `Reports/tree-rewrite-design.md` §5 also gives `RootTip`'s
+    /// own `Grow` dispatch a second water-uptake path (growing directly
+    /// into a water cell, absorbing it and advancing rather than being
+    /// blocked) — `Absorb`'s `rate` here covers only the passive,
+    /// stationary drink-in-place case.
+    Absorb { rate: f32 },
+    /// On a `MatureBody` cell, periodically counts downstream `Leaf`
+    /// cells of the same `organism_id` through connected `Plant`
+    /// neighbours (`reachable_from_anchors`, a counting variant) and grows
+    /// sideways into adjacent displaceable cells once `leaf_count /
+    /// current_width > pipe_ratio` — Shinozaki's pipe model theory,
+    /// `Reports/organism-substrate-design.md` §4's own citation and
+    /// derivation, `pipe_ratio` deliberately a per-species parameter
+    /// rather than a universal constant per that section's own discussion
+    /// of the theory's documented limits.
+    SecondaryThicken { pipe_ratio: f32 },
+    /// A `Seed` cell's transition to `GrowingTip`/`RootTip`, checked on a
+    /// schedule against local field readings. `instant: true` is a
+    /// test-only escape hatch that fires unconditionally next tick,
+    /// avoiding germination-condition waits in every test that just needs
+    /// a grown organism to exist — `organism-substrate-design.md` §1's own
+    /// stated reason for this field.
+    Germinate { light_threshold: f32, moisture_threshold: f32, instant: bool },
+    /// Marks a cell type as counting toward `structural.rs`'s
+    /// `is_body_material` check for organism-owned cells — a tag other
+    /// systems read, no behavior of its own (matches `ActiveKind`'s own
+    /// "some variants carry no extra data" precedent).
+    StructuralAnchor,
 }
 
 /// One `.ron` file: a species' cell types, each with the behaviors that
@@ -250,8 +395,10 @@ impl SpeciesRegistry {
 pub const RESOURCE_SCALE: f32 = 4.0;
 
 /// Pack a `CellType` (bits 0-3) and a resource scalar (bits 4-11, `u8`
-/// fixed-point on `RESOURCE_SCALE`) into an `aux` value. Bits 12-15 stay
-/// zero (reserved, see the design report).
+/// fixed-point on `RESOURCE_SCALE`) into an `aux` value. Bits 12-15 start
+/// zero (canopy density — see `with_canopy_density` below, which is the
+/// only thing that ever writes them; a cell type with no `Grow`-driven
+/// self-avoidance simply never has anything nonzero there).
 pub fn pack_aux(cell_type: CellType, resource: f32) -> u16 {
     let type_bits = cell_type as u16;
     let resource_u8 = ((resource.clamp(0.0, RESOURCE_SCALE) / RESOURCE_SCALE) * 255.0).round() as u16;
@@ -267,10 +414,47 @@ pub fn unpack_aux(aux: u16) -> (Option<CellType>, f32) {
     let resource_u8 = (aux >> 4) & 0xFF;
     let resource = (resource_u8 as f32 / 255.0) * RESOURCE_SCALE;
     let cell_type = match type_bits {
-        0 => Some(CellType::GrowingTip),
+        0 => Some(CellType::Seed),
+        1 => Some(CellType::GrowingTip),
+        2 => Some(CellType::MatureBody),
+        3 => Some(CellType::Leaf),
+        4 => Some(CellType::RootTip),
         _ => None,
     };
     (cell_type, resource)
+}
+
+/// Upper bound for the canopy-density scalar packed into `aux` bits 12-15
+/// — `Reports/tree-rewrite-design.md` §2b's self-avoidance signal, and
+/// §6's resolution of that report's own open question: the layout already
+/// reserved these 4 bits as spare, so canopy density fits there directly
+/// with no change to the resource scalar's own 8-bit precision, and
+/// without `field.rs`'s coarse grid (which §6's own correction found would
+/// need bilinear sampling to avoid silently flattening every candidate in
+/// a `Grow` cell's 8-neighbourhood to the same value). 4 bits (16 levels)
+/// is coarser than resource's 256, but this signal only ever answers "is
+/// this general area already crowded," never needs cell-exact precision —
+/// see `Grow`'s own `crowding_weight` doc.
+pub const CANOPY_DENSITY_SCALE: f32 = 4.0;
+
+/// Canopy density at this `aux` value — `0.0` for any cell that has never
+/// had `with_canopy_density` called on it (a fresh `pack_aux` leaves bits
+/// 12-15 zero), which is the correct reading for "nothing has grown near
+/// here yet," not a sentinel to special-case.
+pub fn canopy_density(aux: u16) -> f32 {
+    let bits = (aux >> 12) & 0xF;
+    (bits as f32 / 15.0) * CANOPY_DENSITY_SCALE
+}
+
+/// Rewrite only bits 12-15, leaving the cell type and resource scalar
+/// `pack_aux` already wrote untouched — canopy density updates on a
+/// different cadence (the diffusion pass, every sweep a chunk is awake)
+/// than cell-type transitions or resource spending, so keeping it a
+/// separate, independent write is what lets `diffuse_resource` update it
+/// without needing to know or preserve the other two fields itself.
+pub fn with_canopy_density(aux: u16, density: f32) -> u16 {
+    let bits = ((density.clamp(0.0, CANOPY_DENSITY_SCALE) / CANOPY_DENSITY_SCALE) * 15.0).round() as u16;
+    (aux & 0x0FFF) | (bits << 12)
 }
 
 // --- The shared connectivity primitive ---------------------------------
@@ -326,6 +510,177 @@ pub fn reachable_from_anchors<S: CellSurface>(
     visited
 }
 
+// --- Resource and canopy-density diffusion ------------------------------
+//
+// `Reports/organism-substrate-design.md` §3's `diffuse_resource`, the same
+// shape `fire.rs`'s `diffuse_heat` already uses -- generic over
+// `CellSurface` (both the serial sweep and the parallel `ChunkView` run the
+// identical rule), per-cell CA-resolution finite-difference diffusion, not
+// `field.rs`'s coarse `FIELD_SCALE`-resolution grid (that resolution
+// mismatch is exactly what `organism-substrate-design.md` §3 rejected the
+// field grid for). A different-organism or non-`Plant` neighbour is a
+// wall, exactly as `diffuse_heat` treats a material boundary. Carries
+// `Reports/tree-rewrite-design.md` §2b's canopy-density channel alongside
+// resource, since both are per-cell diffusing scalars packed into the same
+// `aux` and visited by the same sweep -- not a second diffusion pass.
+
+/// Diffusion rate for both channels -- see this module's own doc on why a
+/// single shared rate, not yet a per-species `TransportChannel` value.
+/// Clamped conceptually to the same 2D explicit-diffusion stability bound
+/// (Fourier number <= 0.25) `fire.rs`'s `diffuse_heat`/`field.rs`'s own
+/// diffusion already derive and respect; chosen well under that bound
+/// rather than at it, since two channels diffusing through the same cell
+/// every visited tick have more chances to compound than heat's single
+/// channel does.
+const DIFFUSION_RATE: f32 = 0.2;
+/// Canopy density decays every tick it's diffused — the "decay" in
+/// deposit → diffuse → decay → follow — so old growth's crowding signal
+/// fades once nothing nearby is still depositing into it, letting later
+/// growth reclaim space near mature wood. The old attractor-based
+/// self-avoidance this replaces had no equivalent: a consumed attractor
+/// never came back, ever, for the rest of that tree's life.
+///
+/// Set well above `CANOPY_DENSITY_SCALE / 15.0`'s own half-step (≈0.133),
+/// deliberately, not tuned down to look small: `here_density` is always
+/// re-read from the *quantized* 4-bit packed value, not accumulated in a
+/// hidden higher-precision field, so any decay smaller than roughly half a
+/// quantization step rounds back to the exact same packed bits every
+/// single call, forever — a real, permanently-stuck bug, not a "just
+/// needs more ticks" one, found by a test that ran 500 consecutive
+/// diffusion steps on an isolated cell and confirmed it. `deposit`
+/// (below) happening once at `Grow`'s own creation moment, not every
+/// tick, is what actually keeps decay from erasing a fresh signal before
+/// `Grow`'s own far-less-frequent checks ever read it — decay does not
+/// need to *also* be tuned slow to protect that, now that it isn't
+/// fighting a continuous re-deposit every tick.
+const CANOPY_DENSITY_DECAY: f32 = 0.15;
+
+/// Run one diffusion step for the organism-owned cell at `(x, y)` — a
+/// no-op for `organism_id() == 0` (inert material) or an unrecognized
+/// `aux` cell-type encoding, mirroring `diffuse_heat`'s own early return
+/// for a thermally-inert material. Called from `update.rs`'s per-cell
+/// dispatch (see that module's own call site for why the CA sweep, not
+/// the M16 active-site schedule, is what actually drives this — a
+/// `MatureBody` trunk cell needs to keep relaying resource even though it
+/// is deliberately off the active-site schedule per `design-philosophy.md`
+/// §3, and the CA sweep is the one pass that already visits every cell in
+/// an awake chunk regardless of scheduling).
+pub fn diffuse_resource<S: CellSurface>(surface: &mut S, x: i32, y: i32) {
+    let cell = surface.get(x, y);
+    let organism_id = cell.organism_id();
+    if organism_id == 0 {
+        return;
+    }
+    let (Some(cell_type), here_resource) = unpack_aux(cell.aux()) else {
+        return;
+    };
+    let here_density = canopy_density(cell.aux());
+
+    let is_wall = |n: Cell| n.organism_id() != organism_id || surface.materials().kind(n.material) != MaterialKind::Plant;
+
+    let mut resource_sum = 0.0f32;
+    let mut density_sum = 0.0f32;
+    let mut neighbours = 0u32;
+    for (dx, dy) in NEIGHBOURS_4 {
+        let n = surface.get(x + dx, y + dy);
+        if is_wall(n) {
+            continue;
+        }
+        let (_, n_resource) = unpack_aux(n.aux());
+        resource_sum += n_resource;
+        density_sum += canopy_density(n.aux());
+        neighbours += 1;
+    }
+
+    // An isolated organism cell (every neighbour a wall) has nothing to
+    // exchange with -- still lets its own density decay below, but skips
+    // the diffusion terms entirely rather than dividing by zero. Density
+    // has no per-tick re-deposit here (unlike an earlier version of this
+    // function) -- `Behavior::Grow`'s own dispatch deposits once, directly,
+    // at the moment it creates a new cell (see `plant.rs`), and this
+    // function's only job afterward is spreading and fading that one
+    // deposit, not continuously topping it back up.
+    let (new_resource, new_density) = if neighbours == 0 {
+        (here_resource, (here_density - CANOPY_DENSITY_DECAY).max(0.0))
+    } else {
+        let resource_avg = resource_sum / neighbours as f32;
+        let density_avg = density_sum / neighbours as f32;
+        let resource = here_resource + (resource_avg - here_resource) * DIFFUSION_RATE;
+        let density = here_density + (density_avg - here_density) * DIFFUSION_RATE - CANOPY_DENSITY_DECAY;
+        (resource.max(0.0), density.clamp(0.0, CANOPY_DENSITY_SCALE))
+    };
+
+    let new_aux = with_canopy_density(pack_aux(cell_type, new_resource), new_density);
+    if new_aux != cell.aux() {
+        surface.set(x, y, cell.with_aux(new_aux));
+    }
+}
+
+// --- Ported field-read helpers ------------------------------------------
+//
+// `Reports/tree-rewrite-design.md` §7: moved from `plant.rs`'s old private
+// `tree_tip_tick`/`moisture_pull` functions to here, unchanged in formula,
+// so `Grow`'s dispatch (species-agnostic) can call them regardless of
+// which species is growing -- the actual generality `design-philosophy.md`
+// §3's "not tree-specific" framing asks for, demonstrated rather than
+// asserted. All three take `&World` directly (not `&dyn CellSurface`):
+// `field_at_bilinear` is a `World`-only method the parallel sweep's
+// `ChunkView` does not (and should not) reimplement, since `Grow`'s own
+// dispatch already runs from `organism_tick`, which is M16 active-site
+// code with real `&mut World` access, not a generic `CellSurface` sweep
+// rule the way `diffuse_resource` above is.
+
+/// Below this speed, the field's velocity at a position doesn't count as
+/// wind at all -- ported unchanged from `plant.rs`'s `WIND_SPEED_THRESHOLD`.
+const WIND_SPEED_THRESHOLD: f32 = 0.05;
+
+/// Gentle phototropic lean: bias toward the brighter of "here" and "just
+/// above" -- ported unchanged from `tree_tip_tick`'s own formula. `(0.0,
+/// 0.0)` (no lean) when the probe above isn't brighter.
+pub fn phototropism_dir(world: &World, x: f32, y: f32) -> (f32, f32) {
+    let light_here = world.field_at_bilinear(x, y).light;
+    let light_above = world.field_at_bilinear(x, y - 4.0).light;
+    if light_above > light_here {
+        (0.0, -1.0)
+    } else {
+        (0.0, 0.0)
+    }
+}
+
+/// Wind lean: direction-only, magnitude-clamped -- ported unchanged from
+/// `tree_tip_tick`'s own formula (and its own fix, already applied there:
+/// scaling by raw wind magnitude lets one explosion's shockwave dominate
+/// the whole formula for as long as the transient takes to pass, so this
+/// only ever contributes a fixed-magnitude direction, never a variable
+/// one). `(0.0, 0.0)` below `WIND_SPEED_THRESHOLD`.
+pub fn wind_lean_dir(world: &World, x: f32, y: f32) -> (f32, f32) {
+    let wind = world.field_at_bilinear(x, y);
+    let speed = (wind.vx * wind.vx + wind.vy * wind.vy).sqrt();
+    if speed > WIND_SPEED_THRESHOLD {
+        (wind.vx / speed, wind.vy / speed)
+    } else {
+        (0.0, 0.0)
+    }
+}
+
+/// Direction and magnitude of the moisture gradient at `(x, y)` -- ported
+/// unchanged from `plant.rs`'s own `moisture_pull` (the MIZ1 gravitropism-
+/// vs-hydrotropism antagonism's own gradient read). `None` when the
+/// gradient is flat -- open dry ground with no nearby source, or a spot
+/// exactly balanced between two sources -- which `Grow`'s `RootTip`
+/// dispatch falls through to plain gravitropism for, same as before.
+const MOISTURE_SENSOR_OFFSET: f32 = 4.0;
+pub fn moisture_pull(world: &World, x: f32, y: f32) -> Option<((f32, f32), f32)> {
+    let gx = world.field_at_bilinear(x + MOISTURE_SENSOR_OFFSET, y).moisture - world.field_at_bilinear(x - MOISTURE_SENSOR_OFFSET, y).moisture;
+    let gy = world.field_at_bilinear(x, y + MOISTURE_SENSOR_OFFSET).moisture - world.field_at_bilinear(x, y - MOISTURE_SENSOR_OFFSET).moisture;
+    let magnitude = (gx * gx + gy * gy).sqrt();
+    if magnitude <= f32::EPSILON {
+        return None;
+    }
+    let len = magnitude;
+    Some(((gx / len, gy / len), magnitude))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -353,16 +708,38 @@ mod tests {
 
     #[test]
     fn pack_and_unpack_aux_round_trip() {
-        for resource in [0.0, 1.0, 2.0, 3.999, RESOURCE_SCALE] {
-            let packed = pack_aux(CellType::GrowingTip, resource);
-            let (cell_type, unpacked_resource) = unpack_aux(packed);
-            assert_eq!(cell_type, Some(CellType::GrowingTip));
-            // Fixed-point round trip: within one packing step's worth of error.
+        for cell_type in [CellType::Seed, CellType::GrowingTip, CellType::MatureBody, CellType::Leaf, CellType::RootTip] {
+            for resource in [0.0, 1.0, 2.0, 3.999, RESOURCE_SCALE] {
+                let packed = pack_aux(cell_type, resource);
+                let (unpacked_type, unpacked_resource) = unpack_aux(packed);
+                assert_eq!(unpacked_type, Some(cell_type));
+                // Fixed-point round trip: within one packing step's worth of error.
+                assert!(
+                    (unpacked_resource - resource).abs() < RESOURCE_SCALE / 255.0 + 1e-4,
+                    "resource {resource} round-tripped to {unpacked_resource} for {cell_type:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn canopy_density_round_trips_and_leaves_cell_type_and_resource_untouched() {
+        for density in [0.0, 1.0, 2.0, 3.999, CANOPY_DENSITY_SCALE] {
+            let base = pack_aux(CellType::RootTip, 2.5);
+            let with_density = with_canopy_density(base, density);
+            assert_eq!(unpack_aux(with_density), unpack_aux(base), "with_canopy_density must not disturb cell type or resource");
             assert!(
-                (unpacked_resource - resource).abs() < RESOURCE_SCALE / 255.0 + 1e-4,
-                "resource {resource} round-tripped to {unpacked_resource}"
+                (canopy_density(with_density) - density).abs() < CANOPY_DENSITY_SCALE / 15.0 + 1e-4,
+                "density {density} round-tripped to {}",
+                canopy_density(with_density)
             );
         }
+    }
+
+    #[test]
+    fn a_freshly_packed_aux_has_zero_canopy_density() {
+        let packed = pack_aux(CellType::GrowingTip, 1.0);
+        assert_eq!(canopy_density(packed), 0.0, "a cell nothing has ever deposited into should read as uncrowded, not a sentinel to special-case");
     }
 
     #[test]
@@ -378,9 +755,83 @@ mod tests {
 
     #[test]
     fn an_unrecognized_type_bit_pattern_is_none() {
-        // Bit pattern 1 doesn't correspond to any current CellType variant.
-        let (cell_type, _) = unpack_aux(1);
+        // Bit pattern 5 doesn't correspond to any current CellType variant
+        // (0-4 are Seed/GrowingTip/MatureBody/Leaf/RootTip).
+        let (cell_type, _) = unpack_aux(5);
         assert_eq!(cell_type, None);
+    }
+
+    // --- diffuse_resource --------------------------------------------------
+
+    #[test]
+    fn resource_diffuses_from_a_full_cell_toward_an_empty_same_organism_neighbour() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let mut w = World::new(Rect::new(0, 0, 15, 15));
+        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+        let organism_id = w.push_organism(SpeciesId(0));
+        w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_aux(CellType::MatureBody, RESOURCE_SCALE)));
+        w.set(6, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_aux(CellType::MatureBody, 0.0)));
+
+        diffuse_resource(&mut w, 5, 5);
+        diffuse_resource(&mut w, 6, 5);
+
+        let (_, left) = unpack_aux(w.get(5, 5).aux());
+        let (_, right) = unpack_aux(w.get(6, 5).aux());
+        assert!(right > 0.0, "the empty neighbour should have gained resource: got {right}");
+        assert!(left < RESOURCE_SCALE, "the full cell should have lost some resource: got {left}");
+    }
+
+    #[test]
+    fn resource_does_not_cross_an_organism_boundary() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let mut w = World::new(Rect::new(0, 0, 15, 15));
+        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+        let organism_a = w.push_organism(SpeciesId(0));
+        let organism_b = w.push_organism(SpeciesId(0));
+        w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_a).with_aux(pack_aux(CellType::MatureBody, RESOURCE_SCALE)));
+        w.set(6, 5, Cell::new(wood, 0).with_organism_id(organism_b).with_aux(pack_aux(CellType::MatureBody, 0.0)));
+
+        diffuse_resource(&mut w, 5, 5);
+        diffuse_resource(&mut w, 6, 5);
+
+        let (_, left) = unpack_aux(w.get(5, 5).aux());
+        let (_, right) = unpack_aux(w.get(6, 5).aux());
+        assert_eq!(left, RESOURCE_SCALE, "a different organism's cell must be a wall, not a diffusion partner");
+        assert_eq!(right, 0.0, "resource must not cross an organism boundary");
+    }
+
+    #[test]
+    fn canopy_density_decays_on_an_isolated_cell_given_enough_ticks() {
+        // Deliberately *not* asserting a single call already shows a
+        // visible drop: `CANOPY_DENSITY_DECAY` is tuned small on purpose,
+        // so a deposit's crowding signal survives many CA-sweep visits
+        // (which happen far more often than `Grow`'s own `ORGANISM_TICK_
+        // INTERVAL`-spaced checks that actually read it) rather than
+        // vanishing before the next `Grow` call ever sees it. What must
+        // still hold is that it isn't *permanently* stuck at the packed
+        // maximum — decay has to eventually cross at least one
+        // quantization step given enough visits.
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let mut w = World::new(Rect::new(0, 0, 15, 15));
+        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+        let organism_id = w.push_organism(SpeciesId(0));
+        let aux = with_canopy_density(pack_aux(CellType::MatureBody, 1.0), CANOPY_DENSITY_SCALE);
+        w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+
+        for _ in 0..500 {
+            diffuse_resource(&mut w, 5, 5);
+        }
+
+        assert!(
+            canopy_density(w.get(5, 5).aux()) < CANOPY_DENSITY_SCALE,
+            "an isolated cell's own deposited density should decay eventually, not stay permanently stuck at the packed maximum"
+        );
     }
 
     #[test]

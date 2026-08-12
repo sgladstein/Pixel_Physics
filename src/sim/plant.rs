@@ -18,6 +18,15 @@ use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
 const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+const NEIGHBOURS_8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
+/// Plain 2D dot product — `Behavior::Grow`'s own candidate-scoring formula
+/// (`Reports/tree-rewrite-design.md` §2), not otherwise needed by anything
+/// already in this file (the old space-colonization code never needed a
+/// dot product, only vector addition/normalization).
+fn dot(a: (f32, f32), b: (f32, f32)) -> f32 {
+    a.0 * b.0 + a.1 * b.1
+}
 
 // --- Organism-owned cells (`Reports/organism-substrate-design.md`) ------
 //
@@ -41,6 +50,14 @@ const ORGANISM_TICK_INTERVAL: u64 = 45;
 /// list forever, not an immediate death on the first empty check since a
 /// candidate can be transiently unavailable.
 const ORGANISM_STALE_LIMIT: u8 = 4;
+
+/// How much canopy density `Behavior::Grow` deposits into a newly-created
+/// cell, once, at creation — `organism::diffuse_resource` (and its own
+/// `CANOPY_DENSITY_DECAY` doc) handles spreading and fading it from there.
+/// A little under half `organism::CANOPY_DENSITY_SCALE`, so a single fresh
+/// deposit is real (visibly above the diffusion/decay noise floor) without
+/// already saturating the scale on its own.
+const GROW_CANOPY_DEPOSIT: f32 = 1.5;
 
 /// Below this reading, `field_at`'s ambient humidity counts as "dry" —
 /// architecture report §4. Untuned against anything real, same as every
@@ -146,6 +163,189 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     next.push(reschedule_organism(tx, ty, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
                 }
             }
+            // `Reports/tree-rewrite-design.md` §0/§2/§3: direction-biased,
+            // resource-gated, self-avoiding growth for `GrowingTip`
+            // (canopy) and `RootTip` (roots) -- deliberately a separate
+            // behavior from `Divide` above, not a mode of it; see this
+            // module's own `organism.rs` doc for why.
+            Behavior::Grow { cost, branch_chance, continuation_weight, light_weight, wind_weight, upward_weight, crowding_weight, max_active_tips } => {
+                if resource < cost {
+                    continue;
+                }
+                if world.organism_active_tip_count(organism_id, cell_type) >= max_active_tips as usize {
+                    // At the species' own cap -- try again later, the same
+                    // "temporary shortfall, not a dead end" framing
+                    // `Divide`'s own resource gate already uses.
+                    continue;
+                }
+
+                // §2a: direction inferred from the local same-organism
+                // neighbourhood average, not a stored parent/direction --
+                // always well-defined, including at a branch point where a
+                // freshly-created tip has two same-organism neighbours
+                // (the true lineage parent plus a sibling from the same
+                // branch event): the average of both is still a real
+                // vector, never degenerate for any valid 8-neighbour
+                // offset pair (`Reports/tree-rewrite-design.md` §2a's own
+                // worked proof).
+                let mut away_sum = (0.0f32, 0.0f32);
+                let mut same_organism_neighbours = 0u32;
+                for (dx, dy) in NEIGHBOURS_8 {
+                    if world.get(x + dx, y + dy).organism_id() == organism_id {
+                        away_sum.0 += dx as f32;
+                        away_sum.1 += dy as f32;
+                        same_organism_neighbours += 1;
+                    }
+                }
+                let away_from_growth = if same_organism_neighbours > 0 {
+                    normalize((-away_sum.0, -away_sum.1))
+                } else {
+                    (0.0, -1.0) // the seed's very first Grow: straight up, same fallback the old Tip's initial dir used
+                };
+
+                let photo = organism::phototropism_dir(world, x as f32, y as f32);
+                let wind = organism::wind_lean_dir(world, x as f32, y as f32);
+                // Gravitropism/hydrotropism antagonism (MIZ1): contributes
+                // nothing to canopy growth in practice, since `tree.ron`
+                // sets `GrowingTip`'s own `upward_weight` near zero -- the
+                // weight does the species-differentiation work here, not a
+                // cell-type branch inside this dispatch (`Reports/tree-
+                // rewrite-design.md` §2's own "the weight does the work"
+                // shape, applied to this term too).
+                let gravity_or_water = match organism::moisture_pull(world, x as f32, y as f32) {
+                    Some((dir, strength)) if strength >= MIZ_THRESHOLD => dir,
+                    _ => (0.0, 1.0), // down
+                };
+
+                // §2b: score every open 8-neighbour, weighted-random
+                // *sample* from the positive-scoring set -- never a
+                // deterministic best-direction pick, which is what would
+                // actually curve-fit a silhouette.
+                let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
+                for (dx, dy) in NEIGHBOURS_8 {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if !world.is_empty(nx, ny) {
+                        continue;
+                    }
+                    let dir = normalize((dx as f32, dy as f32));
+                    let density = organism::canopy_density(world.get(nx, ny).aux());
+                    let score = dot(dir, away_from_growth) * continuation_weight
+                        + dot(dir, photo) * light_weight
+                        + dot(dir, wind) * wind_weight
+                        + dot(dir, gravity_or_water) * upward_weight
+                        - density * crowding_weight;
+                    if score > 0.0 {
+                        candidates.push((nx, ny, score));
+                    }
+                }
+                if candidates.is_empty() {
+                    continue; // every direction actively discouraged, or nothing open -- a genuine dead end, not forced through
+                }
+                found_candidate = true;
+
+                let total: f32 = candidates.iter().map(|&(_, _, s)| s).sum();
+                let mut pick = (world.rng.below(10_000) as f32 / 10_000.0) * total;
+                let mut chosen = candidates[0];
+                for &c in &candidates {
+                    if pick < c.2 {
+                        chosen = c;
+                        break;
+                    }
+                    pick -= c.2;
+                }
+                let (tx, ty, _) = chosen;
+
+                let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
+                let shade = world.rng.below(shades) as u8;
+                // Canopy density deposited once, here, at creation --
+                // `organism::diffuse_resource`'s own doc explains why this
+                // lives at the moment of growth rather than a continuous
+                // per-tick re-deposit: it lets decay actually fade the
+                // signal over time instead of fighting a refill every
+                // single sweep visit.
+                let new_aux = organism::with_canopy_density(organism::pack_aux(cell_type, 0.0), GROW_CANOPY_DEPOSIT);
+                let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(new_aux);
+                world.set(tx, ty, new_cell);
+                resource -= cost;
+                world.set(x, y, cell.with_aux(organism::pack_aux(cell_type, resource)));
+                next.push(reschedule_organism(tx, ty, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
+
+                // §3's branching: a second successful `Grow`, in a
+                // different direction, this same tick -- gated by the
+                // same resource economy as the first, not a separate
+                // mechanic.
+                if resource >= cost && world.rng.chance(branch_chance) {
+                    let alt: Vec<(i32, i32, f32)> = candidates.into_iter().filter(|&(nx, ny, _)| (nx, ny) != (tx, ty)).collect();
+                    if !alt.is_empty() {
+                        let (bx, by, _) = alt[world.rng.below(alt.len() as u32) as usize];
+                        if world.is_empty(bx, by) {
+                            let branch_shade = world.rng.below(shades) as u8;
+                            let branch_aux = organism::with_canopy_density(organism::pack_aux(cell_type, 0.0), GROW_CANOPY_DEPOSIT);
+                            let branch_cell = Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(branch_aux);
+                            world.set(bx, by, branch_cell);
+                            resource -= cost;
+                            world.set(x, y, cell.with_aux(organism::pack_aux(cell_type, resource)));
+                            next.push(reschedule_organism(bx, by, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
+                        }
+                    }
+                }
+            }
+            Behavior::Photosynthesize { rate } => {
+                let light = world.field_at(x, y).light;
+                resource = (resource + rate * light).min(organism::RESOURCE_SCALE);
+                world.set(x, y, cell.with_aux(organism::pack_aux(cell_type, resource)));
+            }
+            Behavior::Absorb { rate } => {
+                // `Reports/tree-rewrite-design.md` §5: only the passive,
+                // stationary drink-in-place mechanic -- the second
+                // mechanic (`RootTip`'s `Grow` growing directly into a
+                // water cell) lives in the `Grow` dispatch above once a
+                // species' `RootTip` candidate scoring treats `Liquid` as
+                // absorb-and-advance rather than blocked. Not yet wired
+                // there in this pass (`Grow`'s candidate loop above only
+                // checks `is_empty`) -- a documented, honest gap, not a
+                // silent one: `tree.ron`'s roots rely on this drink-in-
+                // place path alone for water uptake until that's added.
+                for (dx, dy) in NEIGHBOURS_4 {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if world.materials.kind(world.get(nx, ny).material) == MaterialKind::Liquid {
+                        world.set(nx, ny, Cell::EMPTY);
+                        resource = (resource + rate).min(organism::RESOURCE_SCALE);
+                        world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
+                    }
+                }
+                world.set(x, y, cell.with_aux(organism::pack_aux(cell_type, resource)));
+            }
+            Behavior::SecondaryThicken { pipe_ratio } => {
+                thicken(world, x, y, organism_id, pipe_ratio);
+                // A `MatureBody` cell's own periodic upkeep, distinct from
+                // `Divide`/`Grow`'s "found a growth candidate" signal --
+                // it has no candidate to find, but still needs to keep
+                // being rechecked. Reuses `ORGANISM_TICK_INTERVAL` rather
+                // than the design report's own suggested dedicated 60-
+                // frame cadence -- an implementation-time simplification,
+                // not a design change; the report's own §6/§8 both
+                // explicitly leave room for calls like this.
+                found_candidate = true;
+            }
+            Behavior::Germinate { light_threshold, moisture_threshold, instant } => {
+                let ready = instant || {
+                    let field = world.field_at(x, y);
+                    field.light >= light_threshold && field.moisture >= moisture_threshold
+                };
+                if ready {
+                    return germinate(world, x, y, organism_id, cell);
+                }
+                // Not ready yet: waiting on a condition that hasn't
+                // arrived, not a dead end -- the same "temporary
+                // shortfall" framing `Divide`'s resource gate uses, not
+                // the staleness counter (a seed isn't "stuck", it just
+                // hasn't germinated yet).
+                found_candidate = true;
+            }
+            // A tag other systems (`structural.rs`) read directly off
+            // `CellType`/species data -- no per-tick behavior of its own.
+            Behavior::StructuralAnchor => {}
         }
     }
 
@@ -157,13 +357,93 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         next.push(reschedule_organism(x, y, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
     } else if stale_ticks + 1 < ORGANISM_STALE_LIMIT {
         next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, world.frame + ORGANISM_TICK_INTERVAL));
+    } else if cell_type == CellType::GrowingTip {
+        // `Reports/tree-rewrite-design.md` §4: the staleness-limit
+        // transition to `MatureBody` made real, not just asserted -- an
+        // independent review of the design caught that describing this in
+        // prose without an actual `world.set` here would leave
+        // `StructuralAnchor`/`SecondaryThicken` (both gated on `MatureBody`
+        // in `tree.ron`) never firing on anything, since nothing would
+        // ever actually carry that cell type. Carries the tip's own
+        // current `resource` forward rather than resetting it.
+        world.set(x, y, cell.with_aux(organism::pack_aux(CellType::MatureBody, resource)));
+        // `MatureBody` still needs its own periodic upkeep if the species
+        // gave it any behavior (`SecondaryThicken`) -- one more check now,
+        // at the standard interval, so it doesn't just go permanently
+        // silent the instant it transitions.
+        next.push(reschedule_organism(x, y, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
     }
-    // Otherwise: permanently enclosed (or believed to be) -- stop checking.
+    // Otherwise (any other cell type, e.g. a permanently enclosed
+    // `RootTip`): permanently enclosed -- stop checking, matching the old
+    // per-tip/per-root "alive: false" outcome.
     next
 }
 
 fn reschedule_organism(x: i32, y: i32, organism: u16, stale_ticks: u8, next_frame: u64) -> ActiveSite {
     ActiveSite { x, y, kind: ActiveKind::Organism { organism, stale_ticks }, next_frame }
+}
+
+/// A `Seed` cell's `Germinate` firing (`Reports/tree-rewrite-design.md`
+/// §8, retrofit step 4): the seed itself becomes the trunk's first
+/// `GrowingTip`, and — if the space below is open — a companion `RootTip`
+/// starts one cell down, mirroring the old `plant_tree_seed`'s symmetric
+/// "one tip up, one root down, both starting at the seed's own position"
+/// shape.
+fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell) -> Vec<ActiveSite> {
+    world.set(x, y, cell.with_aux(organism::pack_aux(CellType::GrowingTip, 0.0)));
+    let mut next = vec![reschedule_organism(x, y, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL)];
+    if world.is_empty(x, y + 1) {
+        let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
+        let shade = world.rng.below(shades) as u8;
+        let root_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::RootTip, 0.0));
+        world.set(x, y + 1, root_cell);
+        next.push(reschedule_organism(x, y + 1, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
+    }
+    next
+}
+
+/// Bound on `SecondaryThicken`'s own downstream-leaf-count flood fill —
+/// `Reports/organism-substrate-design.md` §4's own cited cap, "the same
+/// order-of-magnitude cap `structural.rs`'s own worst-case neighbourhood
+/// traversal already implies is safe per reactive check."
+const MAX_THICKEN_SCAN_CELLS: usize = 2000;
+
+/// `SecondaryThicken`, on a `MatureBody` cell: count downstream `Leaf`
+/// cells of the same organism through connected `Plant` neighbours
+/// (`organism::reachable_from_anchors`, a counting variant), grow sideways
+/// into an adjacent empty cell once `leaf_count / current_width >
+/// pipe_ratio` — Shinozaki's pipe model theory,
+/// `Reports/organism-substrate-design.md` §4's own citation and
+/// derivation. `current_width` is a cheap local stand-in (how many
+/// same-organism cells sit immediately left/right on this cell's own row)
+/// for a real cross-sectional measurement, which would need actual
+/// perpendicular-to-growth-axis geometry this engine doesn't track per
+/// cell — an honest simplification, not a hidden one.
+fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32) {
+    let is_plant = |c: Cell| c.organism_id() == organism_id && world.materials.kind(c.material) == MaterialKind::Plant;
+    let reached = organism::reachable_from_anchors(world, [(x, y)], is_plant, MAX_THICKEN_SCAN_CELLS);
+    let leaf_count = reached
+        .iter()
+        .filter(|&&(rx, ry)| organism::unpack_aux(world.get(rx, ry).aux()).0 == Some(CellType::Leaf))
+        .count();
+    let width = 1 + NEIGHBOURS_4
+        .iter()
+        .filter(|&&(dx, dy)| dy == 0 && world.get(x + dx, y).organism_id() == organism_id)
+        .count();
+    if (leaf_count as f32 / width as f32) <= pipe_ratio {
+        return;
+    }
+    for (dx, dy) in [(-1, 0), (1, 0)] {
+        let (nx, ny) = (x + dx, y + dy);
+        if world.is_empty(nx, ny) {
+            let cell = world.get(x, y);
+            let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
+            let shade = world.rng.below(shades) as u8;
+            let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::MatureBody, 0.0));
+            world.set(nx, ny, new_cell);
+            break;
+        }
+    }
 }
 
 // --- Trees and roots ------------------------------------------------------

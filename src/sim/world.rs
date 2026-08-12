@@ -211,6 +211,31 @@ impl World {
         self.active_sites.len()
     }
 
+    /// How many currently-scheduled `ActiveKind::Organism` sites belong to
+    /// `organism_id` and currently read as `cell_type` — `Behavior::Grow`'s
+    /// `max_active_tips` cap (`Reports/tree-rewrite-design.md` §5, the
+    /// restoration of the old `MAX_TIPS_PER_TREE`/`MAX_ROOTS_PER_TREE`
+    /// caps). A linear scan of the whole heap, not an indexed lookup —
+    /// there is no per-organism index to maintain, and an organism's own
+    /// tip/root count tops out in the dozens (the caller's own cap), a
+    /// negligible cost next to `Divide`/`Grow`'s own per-tick field reads.
+    /// Reads each candidate site's *current* cell rather than trusting the
+    /// scheduled `ActiveKind` alone, since `ActiveKind::Organism` doesn't
+    /// itself distinguish `GrowingTip` from `RootTip` — both dispatch
+    /// through the same variant, per `scheduler.rs`.
+    pub fn organism_active_tip_count(&self, organism_id: u16, cell_type: super::organism::CellType) -> usize {
+        self.active_sites
+            .iter()
+            .filter(|Reverse(site)| match site.kind {
+                scheduler::ActiveKind::Organism { organism, .. } if organism == organism_id => {
+                    let cell = self.get(site.x, site.y);
+                    cell.organism_id() == organism_id && super::organism::unpack_aux(cell.aux()).0 == Some(cell_type)
+                }
+                _ => false,
+            })
+            .count()
+    }
+
     // --- crate-internal seams used only by `scheduler::step` and
     // `plant.rs` -----------------------------------------------------------
 
