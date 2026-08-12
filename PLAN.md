@@ -19,7 +19,7 @@
 > produced it. Read the relevant report before implementing the milestone it
 > backs, not just this file's condensed version.
 
-> **Direction reports:** the `Reports/` directory holds four documents an
+> **Direction reports:** the `Reports/` directory holds five documents an
 > external review pass produced against this codebase, all with **direction
 > agreed with the repo owner** —
 > [`Reports/emergent-world-architecture.md`](Reports/emergent-world-architecture.md)
@@ -30,13 +30,18 @@
 > species-as-data),
 > [`Reports/stigmergy-research.md`](Reports/stigmergy-research.md) (ant/termite
 > stigmergy as the general deposit→diffuse→decay→follow primitive, for
-> whatever the first colony-forming creature work turns out to be), and
+> whatever the first colony-forming creature work turns out to be),
 > [`Reports/pixel-physics-issues.md`](Reports/pixel-physics-issues.md) (eleven
 > concrete performance/correctness/housekeeping issues against the codebase as
-> it stood then). These are **not milestone research** the way `research/` is
-> — they're a direction-setting pass that reshapes near-term priority order.
-> Read the relevant report before touching anything it covers; this file's
-> condensed version is not a substitute for the reasoning behind it.
+> it stood then — all eleven are now closed, so read it as a historical
+> record rather than a live backlog), and
+> [`Reports/design-philosophy.md`](Reports/design-philosophy.md) (the short,
+> opinionated statement of the philosophy the other four already implied —
+> read this one first). These are **not milestone research** the way
+> `research/` is — they're a direction-setting pass that reshapes near-term
+> priority order. Read the relevant report before touching anything it
+> covers; this file's condensed version is not a substitute for the
+> reasoning behind it.
 
 ## Context
 
@@ -1659,6 +1664,12 @@ deferred:
    hardcode most of these habits, we want to create realistic Complex
    behavior from simple rules."* Needs a longer design conversation before
    any code changes — added to the TODO list, not started.
+   **Update:** that design conversation happened next (see
+   `Reports/design-philosophy.md`). The *direction* is now settled — a
+   cell-typed, CA-native organism model, generalized past trees to any
+   species — but the technical design (data schema, transport mechanics,
+   migration plan for `TreeState`) is explicitly not resolved yet, and
+   implementation remains unscheduled.
 
 ---
 
