@@ -27,10 +27,33 @@ const HEAT_FRACTION: f32 = 3.0;
 /// flame it leaves behind.
 const FIREBALL_FRACTION: f32 = 0.5;
 
-/// Base debris speed at `strength = 100`, before the centre/edge falloff
-/// below. Picked by eye against `App::spawn_burst`'s 3.0–6.0 range for a
-/// visually comparable "thrown," not measured against anything physical.
+/// Base debris speed at `strength = 100` — flat across the whole blast
+/// radius; only *direction* varies with position (`debris_velocity`'s own
+/// pressure-gradient read). Picked by eye against `App::spawn_burst`'s
+/// 3.0–6.0 range for a visually comparable "thrown," not measured against
+/// anything physical.
 const SPEED_PER_STRENGTH: f32 = 0.05;
+
+/// Fraction of `radius` that genuinely vaporizes — no debris, nothing left,
+/// full stop. Small and deliberate: real high explosives do pulverize a
+/// small core beyond any hope of throwing it as identifiable debris, but an
+/// explosion's actual visual signature is *material flying outward*, not a
+/// clean hole. An earlier version instead rolled `1.0 - sqrt(dist / radius)`
+/// odds of debris per cell — a curve that drops off steeply even close to
+/// the centre (50% debris odds by a quarter of the radius, 13% by three
+/// quarters), and since a circle's *area* is dominated by its outer band,
+/// that meant most of the blast's affected area vaporized with nothing to
+/// show for it: reads as "a clean circle disappears, thin ring of sparks,"
+/// not "an explosion." Every cell outside this small core now becomes
+/// debris unconditionally instead.
+const VAPORIZE_FRACTION: f32 = 0.12;
+
+/// How far past `radius` the shockwave (step 2.5) still has a chance to
+/// pick up loose material, as a multiple of `radius` itself. `1.0` would
+/// mean no shockwave at all (the annulus is empty); picked to reach
+/// noticeably further than the crater without being unbounded — untuned
+/// against anything real, same as every other constant in this file.
+const SHOCKWAVE_RADIUS_MULTIPLIER: f32 = 1.8;
 
 /// Trigger an explosion centred on `(cx, cy)` with the given `radius` (world
 /// cells) and `strength` (feeds both the pressure impulse and, scaled down,
@@ -47,13 +70,12 @@ pub fn trigger(world: &mut World, particles: &mut ParticleSystem, cx: i32, cy: i
     world.add_pressure_impulse(cx, cy, radius, strength);
     world.add_heat(cx, cy, radius, strength / HEAT_FRACTION);
 
-    // 2. Clear the blast radius, converting to debris — with a chance that
-    // falls off toward the edge, matching the plan's "free particles OR
-    // vacuum" rather than making every single cleared cell a particle. A
-    // point-blank hit at the centre reliably throws debris; the outer edge of
-    // the same blast mostly just clears material without launching it, which
-    // reads as the difference between "shattered" and "merely destroyed."
+    // 2. Clear the blast radius, converting almost everything to flying
+    // debris — matching the plan's "free particles OR vacuum," but
+    // "vacuum" is now only the small core `VAPORIZE_FRACTION` marks out
+    // (see its own doc for why), not most of the affected area.
     let r2 = (radius * radius) as f32;
+    let vaporize_r2 = r2 * VAPORIZE_FRACTION * VAPORIZE_FRACTION;
     for y in (cy - radius)..=(cy + radius) {
         for x in (cx - radius)..=(cx + radius) {
             let (dx, dy) = (x - cx, y - cy);
@@ -69,8 +91,7 @@ pub fn trigger(world: &mut World, particles: &mut ParticleSystem, cx: i32, cy: i
                 continue;
             }
 
-            let becomes_debris = world.rng.chance(1.0 - (dist2 / r2).sqrt());
-            if becomes_debris {
+            if dist2 > vaporize_r2 {
                 let (vx, vy) = debris_velocity(world, x, y, cx, cy, strength);
                 particles.spawn(x as f32, y as f32, vx, vy, cell.material, cell.shade);
             }
@@ -82,6 +103,41 @@ pub fn trigger(world: &mut World, particles: &mut ParticleSystem, cx: i32, cy: i
             // whatever it was propping up.
             if was_structural {
                 world.schedule_structural_check_around(x, y);
+            }
+        }
+    }
+
+    // 2.5. A shockwave beyond the crater: loose material (`Powder`/`Liquid`)
+    // just outside `radius` has a fading chance to be picked up and thrown
+    // too, not just left to fall into the hole step 2 dug. Without this, an
+    // explosion in the *middle* of a big sand pile reads as "a hole appears,
+    // the surroundings quietly avalanche into it" — ordinary settling under
+    // gravity is the only thing that ever moves a loose CA cell that wasn't
+    // itself inside the blast radius, since the pressure impulse step 1
+    // wrote only ever pushes free particles/gas, never settled grid
+    // material. Restricted to loose material specifically (not `Solid`/
+    // `Plant`, which shouldn't be uprooted by a shockwave that didn't even
+    // clear them, and not already-`Empty`) — a blast can fling sand it
+    // never touched, but it does not casually rip a wall out by the same
+    // mechanism that would need to actually break it structurally first.
+    let shockwave_r2 = r2 * SHOCKWAVE_RADIUS_MULTIPLIER * SHOCKWAVE_RADIUS_MULTIPLIER;
+    let shockwave_radius = (radius as f32 * SHOCKWAVE_RADIUS_MULTIPLIER).round() as i32;
+    for y in (cy - shockwave_radius)..=(cy + shockwave_radius) {
+        for x in (cx - shockwave_radius)..=(cx + shockwave_radius) {
+            let (dx, dy) = (x - cx, y - cy);
+            let dist2 = (dx * dx + dy * dy) as f32;
+            if dist2 <= r2 || dist2 > shockwave_r2 {
+                continue; // already handled by step 2, or outside the shockwave's reach entirely
+            }
+            let cell = world.get(x, y);
+            if !matches!(world.materials.kind(cell.material), material::MaterialKind::Powder | material::MaterialKind::Liquid) {
+                continue;
+            }
+            let pickup_chance = shockwave_pickup_chance(radius, dist2.sqrt());
+            if world.rng.chance(pickup_chance) {
+                let (vx, vy) = debris_velocity(world, x, y, cx, cy, strength);
+                particles.spawn(x as f32, y as f32, vx, vy, cell.material, cell.shade);
+                world.set(x, y, Cell::EMPTY);
             }
         }
     }
@@ -123,6 +179,26 @@ pub fn trigger(world: &mut World, particles: &mut ParticleSystem, cx: i32, cy: i
 /// neighbour on the far side of a wall is excluded from the gradient the same
 /// way the field's own `step_velocity` excludes it, just computed directly
 /// here instead of waiting a frame for the field to do it.
+/// Chance a loose cell at distance `dist` from the epicentre is picked up by
+/// the shockwave, fading linearly from 1.0 at `radius` to 0.0 at
+/// `radius * SHOCKWAVE_RADIUS_MULTIPLIER`. Deliberately built from the
+/// *continuous* radius, not the rounded `shockwave_radius` the caller's loop
+/// bounds use: an earlier version divided by `shockwave_radius - radius`
+/// (rounded), so whenever `radius * SHOCKWAVE_RADIUS_MULTIPLIER` rounds
+/// down, cells between the true and rounded edge still passed the caller's
+/// `dist2 <= shockwave_r2` zone check but produced a negative chance instead
+/// of fading to exactly zero — `Rng::chance` silently treats negative as
+/// "never," so the annulus quietly narrowed below what the constant says it
+/// should be.
+fn shockwave_pickup_chance(radius: i32, dist: f32) -> f32 {
+    // Clamped defensively: right at the outer edge, `dist` and the
+    // continuous radius are equal in exact math but not always in float
+    // math, so the unclamped formula can land a hair below zero there.
+    // `Rng::chance` already treats negative as "never," but `chance` is a
+    // probability and should read as one.
+    (1.0 - (dist - radius as f32) / (radius as f32 * (SHOCKWAVE_RADIUS_MULTIPLIER - 1.0))).clamp(0.0, 1.0)
+}
+
 fn debris_velocity(world: &World, x: i32, y: i32, cx: i32, cy: i32, strength: f32) -> (f32, f32) {
     let sample = |dx: i32, dy: i32| -> Option<f32> {
         let (nx, ny) = (x + dx, y + dy);
@@ -233,6 +309,141 @@ mod tests {
         // speed, not sitting at zero velocity.
         let any_fast = particles.iter().any(|p| p.vx.abs() > 0.5 || p.vy.abs() > 0.5);
         assert!(any_fast, "debris was thrown with no meaningful velocity");
+    }
+
+    #[test]
+    fn most_of_the_blast_radius_becomes_debris_not_vaporized() {
+        // A dense fill spanning past the whole blast radius, so every
+        // cleared cell had material to begin with (no early-continue on an
+        // already-empty cell skewing the count). Checks that the *bulk* of
+        // the affected area is thrown as debris, not just a lucky handful
+        // near the epicentre -- the actual complaint the old `1.0 -
+        // sqrt(dist / radius)` curve produced (most of a circle's area sits
+        // in its outer band, where that curve's odds were already down to
+        // single digits).
+        let mut w = test_world();
+        for y in 20..60 {
+            for x in 20..60 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        let mut particles = ParticleSystem::new();
+        let radius = 10;
+        trigger(&mut w, &mut particles, 40, 40, radius, 150.0);
+
+        let cleared = ((40 - radius)..=(40 + radius))
+            .flat_map(|y| ((40 - radius)..=(40 + radius)).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let (dx, dy) = (x - 40, y - 40);
+                dx * dx + dy * dy <= radius * radius
+            })
+            .filter(|&(x, y)| w.get(x, y).is_empty())
+            .count();
+        let debris_count = particles.iter().count();
+        assert!(cleared > 0, "test setup: nothing was cleared at all");
+        assert!(
+            (debris_count as f32) > (cleared as f32) * 0.7,
+            "most of the cleared blast radius should have become debris, not vaporized: \
+             {debris_count} debris out of {cleared} cleared cells"
+        );
+    }
+
+    #[test]
+    fn a_shockwave_flings_loose_material_beyond_the_crater() {
+        // The other half of "I want to see sand flying": an explosion in
+        // the *middle* of a large sand pile should actively throw sand from
+        // beyond the crater too, not just leave a hole for the surrounding
+        // pile to quietly avalanche into under gravity -- gravity/settling
+        // is the only thing that ever moves a loose CA cell the blast
+        // radius itself never touched, since the field's own pressure
+        // impulse only ever pushes free particles, never settled grid
+        // material.
+        let mut w = test_world();
+        for y in 10..70 {
+            for x in 10..70 {
+                w.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+        let mut particles = ParticleSystem::new();
+        let radius = 8;
+        trigger(&mut w, &mut particles, 40, 40, radius, 200.0);
+
+        // Just past the crater's own edge, still well inside the shockwave
+        // reach (`radius * SHOCKWAVE_RADIUS_MULTIPLIER`).
+        let just_beyond = radius + 2;
+        let cleared_beyond_crater = ((40 - just_beyond)..=(40 + just_beyond))
+            .flat_map(|y| ((40 - just_beyond)..=(40 + just_beyond)).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let (dx, dy) = (x - 40, y - 40);
+                let dist2 = dx * dx + dy * dy;
+                dist2 > radius * radius && dist2 <= just_beyond * just_beyond
+            })
+            .filter(|&(x, y)| w.get(x, y).is_empty())
+            .count();
+        assert!(
+            cleared_beyond_crater > 0,
+            "no sand just beyond the crater was picked up by the shockwave at all"
+        );
+    }
+
+    #[test]
+    fn the_shockwave_does_not_uproot_solid_material_beyond_the_crater() {
+        // The shockwave (step 2.5) is scoped to loose material specifically
+        // -- a blast can fling sand it never directly touched, but it
+        // should not casually rip out a stone wall by the same mechanism,
+        // only by actually clearing it (step 2) or breaking it structurally.
+        let mut w = test_world();
+        for y in 10..70 {
+            for x in 10..70 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        let mut particles = ParticleSystem::new();
+        let radius = 8;
+        trigger(&mut w, &mut particles, 40, 40, radius, 200.0);
+
+        let shockwave_radius = (radius as f32 * SHOCKWAVE_RADIUS_MULTIPLIER).round() as i32;
+        let untouched_beyond_crater = ((40 - shockwave_radius)..=(40 + shockwave_radius))
+            .flat_map(|y| ((40 - shockwave_radius)..=(40 + shockwave_radius)).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let (dx, dy) = (x - 40, y - 40);
+                let dist2 = dx * dx + dy * dy;
+                dist2 > radius * radius && dist2 <= shockwave_radius * shockwave_radius
+            })
+            .all(|(x, y)| w.get(x, y).material == material::STONE);
+        assert!(untouched_beyond_crater, "the shockwave uprooted stone that was never inside the crater");
+    }
+
+    #[test]
+    fn shockwave_pickup_chance_never_goes_negative_across_the_whole_annulus() {
+        // A rounding mismatch bug: an earlier version divided by the
+        // *rounded* `shockwave_radius - radius` while the caller's loop
+        // admitted cells against the *continuous* `radius *
+        // SHOCKWAVE_RADIUS_MULTIPLIER`. Whenever the multiplier rounds the
+        // outer radius down, cells between the true and rounded edge still
+        // pass the zone check but produced a negative chance -- caught
+        // concretely at radius 3 (3 * 1.8 = 5.4, rounds to 5): a cell at
+        // (dx, dy) = (5, 2), dist ~= 5.385, is inside the true continuous
+        // radius but the old formula gave `1.0 - (5.385 - 3.0) / (5 - 3)` =
+        // -0.19. `Rng::chance` treats negative as "never," so this bug
+        // wouldn't panic, it would just silently narrow the annulus.
+        for radius in 1..30 {
+            let shockwave_radius = (radius as f32 * SHOCKWAVE_RADIUS_MULTIPLIER).round() as i32;
+            for dy in -shockwave_radius..=shockwave_radius {
+                for dx in -shockwave_radius..=shockwave_radius {
+                    let dist2 = (dx * dx + dy * dy) as f32;
+                    if dist2 <= (radius * radius) as f32 || dist2 > (radius as f32 * SHOCKWAVE_RADIUS_MULTIPLIER).powi(2) {
+                        continue; // outside the annulus this radius actually admits
+                    }
+                    let chance = shockwave_pickup_chance(radius, dist2.sqrt());
+                    assert!(
+                        (0.0..=1.0).contains(&chance),
+                        "radius={radius} dx={dx} dy={dy} dist={:.3} produced out-of-range chance {chance}",
+                        dist2.sqrt()
+                    );
+                }
+            }
+        }
     }
 
     #[test]

@@ -339,6 +339,31 @@ broken trunk falls as a new `deadwood` material rather than vanishing. The
 was never actually built — real per-tip state lives in `TreeState` instead
 — so extending the slot's meaning was a resolution, not a workaround.
 
+**Playtest feedback drove two more changes.** Running the actual GUI (not
+just the ascii harness) surfaced that explosions vaporized almost everything
+in the blast radius and produced almost no visible force — an old
+`chance(1.0 - sqrt(dist2/r2))` debris roll put the odds against debris
+almost everywhere a circle's area actually is (its outer band), which a
+reproduction test confirmed gave only 28% debris in a dense fill. `explosion
+.rs` now vaporizes only a small deterministic core (`VAPORIZE_FRACTION =
+0.12`), gives everything else in the primary radius debris unconditionally,
+and adds a shockwave annulus out to `radius * 1.8` where loose material
+(`Powder`/`Liquid` only — not `Solid`/`Plant`, which stays M17's territory)
+gets a linearly-fading pickup chance, so a blast in the middle of a sand
+pile now actually flings sand outward instead of just collapsing the
+crater inward. Separately, fire looked flat — a cell would flash orange for
+a frame and revert, with no real flame look. `render.rs` now flickers
+actively-burning cells (`rng::jitter3` keyed on position plus a coarse
+time bucket, so it varies frame-to-frame without 60fps noise or per-cell
+state) and blends toward a real hue ramp (`FIRE_TINT_LOW` dim ember →
+`FIRE_TINT_HIGH` bright yellow-white by `heat_ratio`) instead of one flat
+tint, so intensity changes colour, not just blend strength. A third piece
+of feedback — tree growth starting mid-air with no germination, uniform
+one-pixel trunk thickness, roots failing to grow on bare stone — was
+deliberately **not** acted on yet; it needs a longer design conversation
+first, with an explicit constraint from the owner to avoid hardcoding the
+fix and instead get the emergent behaviour from simple rules.
+
 ## M12/M13 status
 
 `Cell` widened from 4 to 8 bytes (32 MB instead of 16 for a 2048² world —

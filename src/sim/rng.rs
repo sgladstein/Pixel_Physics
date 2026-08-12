@@ -78,9 +78,27 @@ pub fn jitter(x: i32, y: i32) -> f32 {
     (h >> 8) as f32 / (1u32 << 24) as f32
 }
 
+/// Same shape as `jitter`, extended to a third input — `render.rs`'s fire
+/// flicker uses this with a position plus a coarse time bucket, so the
+/// result is stable *within* a bucket (no re-randomizing every single
+/// frame, which at 60fps reads as noise rather than flicker) but changes
+/// deterministically from one bucket to the next, still with no per-cell
+/// state to maintain.
+#[inline]
+pub fn jitter3(x: i32, y: i32, z: i32) -> f32 {
+    let mut h = (x as u32)
+        .wrapping_mul(0x9E37_79B9)
+        .wrapping_add((y as u32).wrapping_mul(0x85EB_CA6B))
+        .wrapping_add((z as u32).wrapping_mul(0xC2B2_AE35));
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2545_F491);
+    h ^= h >> 13;
+    (h >> 8) as f32 / (1u32 << 24) as f32
+}
+
 #[cfg(test)]
 mod jitter_tests {
-    use super::jitter;
+    use super::{jitter, jitter3};
 
     #[test]
     fn jitter_is_stable_for_a_position() {
@@ -104,6 +122,18 @@ mod jitter_tests {
         // Neighbouring positions must not collapse onto the same value, or
         // whole regions would share a reach and the slope would band.
         assert!(distinct.len() > 6000, "only {} distinct values", distinct.len());
+    }
+
+    #[test]
+    fn jitter3_is_stable_within_a_bucket_but_varies_across_buckets() {
+        assert_eq!(jitter3(17, -42, 5), jitter3(17, -42, 5), "same (x, y, z) should be stable");
+        let mut distinct = std::collections::HashSet::new();
+        for z in 0..40 {
+            let j = jitter3(17, -42, z);
+            assert!((0.0..1.0).contains(&j), "jitter3(17, -42, {z}) = {j}");
+            distinct.insert(j.to_bits());
+        }
+        assert!(distinct.len() > 30, "the same position barely varied across 40 time buckets: {} distinct", distinct.len());
     }
 }
 

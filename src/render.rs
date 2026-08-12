@@ -40,7 +40,26 @@ const JITTER_STRENGTH: f32 = 0.12;
 /// fraction of that — hot enough to mean something, not so high that only
 /// active fire ever visibly registers.
 const HEAT_GLOW_RANGE: f32 = 400.0;
-const FIRE_TINT: [f32; 3] = [255.0, 140.0, 40.0];
+/// The fire tint's own colour now shifts with `heat_ratio` — a bare ember
+/// (`FIRE_TINT_LOW`) at the low end, up toward a bright yellow-white blaze
+/// (`FIRE_TINT_HIGH`) at the top of `HEAT_GLOW_RANGE` — rather than one flat
+/// orange regardless of intensity. A cooling coal and an actively raging
+/// fire should not read as the identical colour just because both cross
+/// `is_burning()`'s own threshold.
+const FIRE_TINT_LOW: [f32; 3] = [180.0, 55.0, 20.0];
+const FIRE_TINT_HIGH: [f32; 3] = [255.0, 210.0, 110.0];
+/// Frames per flicker step for an actively burning cell — a real flame's
+/// visible flicker rate is on the order of 10-15Hz, not a 60fps repaint, so
+/// re-rolling every single frame would read as noise, not fire. `jitter3`
+/// (position plus this coarse time bucket) holds the flicker steady within
+/// one step and changes it deterministically at the next, with no per-cell
+/// state to track.
+const FLAME_FLICKER_PERIOD: u64 = 4;
+/// How much the flicker can push the fire blend strength up or down, as a
+/// fraction of it. `0.3` means anywhere from 70% to 130% of the blend
+/// `heat_ratio` alone would produce — enough to visibly flicker, not enough
+/// to make a hot cell ever read as merely warm.
+const FLAME_FLICKER_STRENGTH: f32 = 0.3;
 
 pub struct Renderer {
     /// World coordinate displayed at the top-left pixel. Fixed at the origin
@@ -140,9 +159,21 @@ impl Renderer {
         // nothing.
         if cell.is_burning() || cell.temperature() != AMBIENT_TEMPERATURE {
             let heat_ratio = ((cell.temperature() as f32 - AMBIENT_TEMPERATURE as f32) / HEAT_GLOW_RANGE).clamp(0.0, 1.0);
-            let t = if cell.is_burning() { heat_ratio.max(0.6) } else { heat_ratio * 0.5 };
+            let mut t = if cell.is_burning() { heat_ratio.max(0.6) } else { heat_ratio * 0.5 };
+            // Flicker only for actively burning cells — a passively cooling
+            // ember shouldn't dance the way a live flame does.
+            if cell.is_burning() {
+                let bucket = (world.frame / FLAME_FLICKER_PERIOD) as i32;
+                let flicker = 1.0 + (rng::jitter3(x, y, bucket) - 0.5) * 2.0 * FLAME_FLICKER_STRENGTH;
+                t = (t * flicker).clamp(0.0, 1.0);
+            }
             if t > 0.0 {
-                for (c, fire) in rgb.iter_mut().zip(FIRE_TINT) {
+                let fire = [
+                    FIRE_TINT_LOW[0] + (FIRE_TINT_HIGH[0] - FIRE_TINT_LOW[0]) * heat_ratio,
+                    FIRE_TINT_LOW[1] + (FIRE_TINT_HIGH[1] - FIRE_TINT_LOW[1]) * heat_ratio,
+                    FIRE_TINT_LOW[2] + (FIRE_TINT_HIGH[2] - FIRE_TINT_LOW[2]) * heat_ratio,
+                ];
+                for (c, fire) in rgb.iter_mut().zip(fire) {
                     *c = (*c as f32 + (fire - *c as f32) * t).round() as u8;
                 }
             }
@@ -313,6 +344,100 @@ mod tests {
         assert!(
             warmth(hot) > warmth(cool),
             "a cell well above ambient should read warmer (redder) than one at ambient"
+        );
+    }
+
+    #[test]
+    fn a_burning_cells_colour_flickers_across_time_buckets() {
+        // The user-facing complaint this fixes: fire used to be a static
+        // blend keyed only on temperature, so a burning cell held one flat
+        // colour for its whole burn -- no animation at all frame to frame.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        let mut burning = Cell::new(material::OIL, 0);
+        burning.ignite(9999);
+        world.set(30, 30, burning);
+        let renderer = Renderer::new();
+        let particles = ParticleSystem::new();
+        let (w, h) = (64u32, 64u32);
+        let idx = (30 * w as usize + 30) * 4;
+
+        // Enough distinct flicker buckets that at least one pair of frames
+        // should disagree even allowing for `jitter3` occasionally landing
+        // close to the same value twice by chance.
+        let mut colours = std::collections::HashSet::new();
+        for bucket in 0..10 {
+            world.frame = bucket * FLAME_FLICKER_PERIOD;
+            let mut frame = vec![0u8; (w * h * 4) as usize];
+            renderer.draw(&world, &particles, &mut frame, w, h);
+            colours.insert(frame[idx..idx + 4].to_vec());
+        }
+        assert!(colours.len() > 1, "a burning cell rendered identically across every time bucket -- no flicker at all");
+    }
+
+    #[test]
+    fn a_merely_warm_non_burning_cell_shifts_hue_with_temperature_not_just_brightness() {
+        // The other half of the animation fix: the fire tint itself used to
+        // be one flat orange (`FIRE_TINT`) regardless of how hot a cell
+        // read, so intensity only ever changed blend *strength*, never
+        // colour. Comparing two different temperatures does not isolate
+        // that claim -- a flat tint blended in harder by a rising
+        // `heat_ratio` alone raises the green channel too, which is exactly
+        // what the first version of this test got fooled by (confirmed by
+        // temporarily flattening the tint back to a constant and watching
+        // it still pass). Instead, pin the temperature at exactly the point
+        // `heat_ratio` saturates to 1.0, where `fire == FIRE_TINT_HIGH`
+        // algebraically regardless of blend strength `t`, and predict the
+        // pixel by hand from the *old* flat tint. A real hue shift makes
+        // the rendered pixel disagree with that flat-tint prediction; a
+        // blend-strength-only change could never produce a disagreement
+        // here, since `t` is the same number either way.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        let temperature = AMBIENT_TEMPERATURE + HEAT_GLOW_RANGE as i16; // heat_ratio == 1.0 exactly
+        world.set(10, 0, Cell::new(material::STONE, 0).with_temperature(temperature));
+        let renderer = Renderer::new();
+        let particles = ParticleSystem::new();
+        let (w, h) = (64u32, 64u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        renderer.draw(&world, &particles, &mut frame, w, h);
+
+        let hot_idx = 10 * 4;
+        let actual = &frame[hot_idx..hot_idx + 4];
+
+        // Reconstruct exactly what the renderer computed, up to the tint:
+        // same base palette colour, same position grain, same blend
+        // strength `t` -- everything the old flat-tint code also had.
+        let base = world.materials.get(material::STONE).palette[0];
+        let jitter_permille = ((rng::jitter(10, 0) - 0.5) * 2000.0 * 0.12) as i32;
+        let mut grained = [base[0], base[1], base[2]];
+        for c in &mut grained {
+            *c = (*c as i32 + (*c as i32 * jitter_permille) / 1000).clamp(0, 255) as u8;
+        }
+        let t = 0.5_f32; // heat_ratio (1.0) * 0.5, non-burning
+        let old_flat_fire = [255.0f32, 140.0, 40.0];
+        let predicted_with_old_flat_tint: Vec<u8> = grained
+            .iter()
+            .zip(old_flat_fire)
+            .map(|(c, fire)| (*c as f32 + (fire - *c as f32) * t).round() as u8)
+            .collect();
+
+        assert_ne!(
+            &actual[0..3],
+            predicted_with_old_flat_tint.as_slice(),
+            "at saturation the rendered colour should match FIRE_TINT_HIGH exactly (not the old flat tint), \
+             so it must differ from what a flat-tint implementation at the same blend strength would produce: \
+             actual={actual:?}, old-flat-tint prediction={predicted_with_old_flat_tint:?}"
+        );
+        // And it should match what the real ramp predicts (fire ==
+        // FIRE_TINT_HIGH exactly once heat_ratio saturates).
+        let predicted_with_ramp: Vec<u8> = grained
+            .iter()
+            .zip(FIRE_TINT_HIGH)
+            .map(|(c, fire)| (*c as f32 + (fire - *c as f32) * t).round() as u8)
+            .collect();
+        assert_eq!(
+            &actual[0..3],
+            predicted_with_ramp.as_slice(),
+            "actual={actual:?}, ramp prediction={predicted_with_ramp:?}"
         );
     }
 

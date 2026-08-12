@@ -1577,6 +1577,89 @@ work is item 9's own "lower priority, in whatever order suits" tier**:
   existing stone ones), and the full burn-collapses-the-trunk path, each
   confirmed to fail without its respective fix before being trusted.
 
+### Live playtest feedback (screenshots of `cargo run`, not the ascii harness)
+
+The owner ran the actual GUI mid-session (trees grown from several plantings,
+two explosions in a sand pile) and reported three things back, independent of
+any automated test. Two were actioned immediately; the third was deliberately
+deferred:
+
+1. **Explosions vaporized almost everything and produced little visible
+   force** — "I want to see sand flying." **Actioned, done.** The old model
+   rolled `chance(1.0 - sqrt(dist2/r2))` per cell in the blast radius, which
+   put the odds against debris almost everywhere: a circle's area is
+   dominated by its outer band, where that curve is already low.
+   Reproduced the complaint exactly with a dense-fill test before touching
+   anything (temporarily reverted to the old formula: 90/317 = 28% debris,
+   i.e. ~72% vaporized, matching "vaporize 99%" in spirit). Replaced with:
+   a small deterministic vaporize core (`VAPORIZE_FRACTION = 0.12`, no
+   debris — genuinely gone), *unconditional* debris everywhere else in the
+   primary radius (no more RNG roll), and a new shockwave annulus out to
+   `radius * SHOCKWAVE_RADIUS_MULTIPLIER` (1.8) where loose material only
+   (`Powder | Liquid`, not `Solid | Plant`) gets a linearly-fading pickup
+   chance — this is what throws sand that was never inside the crater,
+   which is the actual mechanism the "collapses inward instead of flying
+   outward" complaint was missing. `Solid`/`Plant` deliberately excluded
+   from the shockwave pickup: ordinary CA-grid material still isn't pushed
+   by the field outside an explosion (that's a much bigger, separate
+   change — free particles and this shockwave zone are the only things the
+   pressure field moves today), and flinging structural material on every
+   nearby blast would fight M17's collapse mechanic rather than complement
+   it. Three new tests, each confirmed to fail without its fix:
+   `most_of_the_blast_radius_becomes_debris_not_vaporized`,
+   `a_shockwave_flings_loose_material_beyond_the_crater`,
+   `the_shockwave_does_not_uproot_solid_material_beyond_the_crater`.
+   Independent review then caught a real rounding-mismatch bug in the
+   shockwave's pickup-chance formula: zone membership was decided against
+   the *continuous* `radius * SHOCKWAVE_RADIUS_MULTIPLIER`, but the
+   fade-to-zero denominator used the *rounded* integer `shockwave_radius`,
+   so whenever the multiplier rounded the outer edge down, cells between
+   the true and rounded radius passed the zone check but produced a
+   negative chance (`Rng::chance` silently treats negative as "never," so
+   this never crashed — it just quietly narrowed the annulus below what
+   the constant promised). Extracted the formula into its own
+   `shockwave_pickup_chance(radius, dist)` function using the continuous
+   denominator throughout, clamped defensively (float rounding can still
+   land a hair below zero exactly at the edge), and added
+   `shockwave_pickup_chance_never_goes_negative_across_the_whole_annulus`,
+   which sweeps every cell every radius 1..30 could admit — confirmed to
+   fail at exactly the review's reproduction (`radius=3`, `dx=-2, dy=-5`)
+   when temporarily reverted to the rounded-denominator formula.
+2. **Fire animation was flat** — cells "just turn orange for a second and
+   then go back to the original color," no real flame look except the
+   already-cool spreading mechanic. **Actioned, done.** Two independent
+   changes: a time-varying flicker for actively-burning cells only
+   (`rng::jitter3(x, y, frame / FLAME_FLICKER_PERIOD)`, the same
+   hash-based approach as the existing position-only `jitter`, extended
+   with a third input so the result is stable within a short bucket —
+   avoiding 60fps noise — but changes deterministically bucket to bucket,
+   with no per-cell state to maintain), and a genuine hue ramp
+   (`FIRE_TINT_LOW` dim ember → `FIRE_TINT_HIGH` bright yellow-white,
+   interpolated by `heat_ratio`) replacing the old single flat
+   `FIRE_TINT`, so intensity changes *colour*, not just blend strength.
+   Caught a real test-quality bug applying the session's own
+   revert-and-verify standard: the first version of the hue-ramp test
+   compared two different temperatures and asserted the green channel
+   rose — which still passed after temporarily flattening the tint back
+   to a constant, because blend strength alone (`t = heat_ratio * 0.5`)
+   already raises green with temperature regardless of hue. Rewrote it to
+   pin the temperature at exact `heat_ratio` saturation (where
+   `fire == FIRE_TINT_HIGH` algebraically, independent of `t`), hand-derive
+   the pixel a flat-tint implementation would have produced at the same
+   blend strength, and assert the real renderer's output disagrees with
+   that prediction and matches the ramp's instead — confirmed to fail
+   without the fix, confirmed to pass with it restored.
+3. **Tree growth redesign — deliberately deferred, not implemented.** The
+   owner's own words: seeds should fall and require real germination
+   conditions (with an instant/no-condition mode for testing), trunk
+   thickness should come from an emergent resource-flow mechanism rather
+   than the current uniform one-pixel path, and roots currently fail to
+   grow at all when a tree is planted directly on stone with no soil
+   underneath. Explicit constraint carried forward: *"I don't want you to
+   hardcode most of these habits, we want to create realistic Complex
+   behavior from simple rules."* Needs a longer design conversation before
+   any code changes — added to the TODO list, not started.
+
 ---
 
 ## M19 — Visual polish: make the engine beautiful
