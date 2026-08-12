@@ -22,6 +22,24 @@
 // directly -- re-tuned for the new scale, calibrated against what actually
 // grows in Reports/tree-rewrite-design.md's own live-verification step
 // (step 6 of its retrofit order), not assumed correct on paper.
+//
+// GrowingTip's `Grow.cost`/`Photosynthesize.rate` (0.4/0.35 originally)
+// were re-tuned after `examples/debug_tree_variants.rs` compared 6
+// candidate pairs planted side by side in one scene, run for 20,000 ticks
+// (~5.5 of field.rs's own day/night cycles, not a single lighting
+// snapshot): 0.4/0.35 plateaued at 10 wood cells and never branched: even
+// doubling income alone (0.4/0.55) still plateaued at 10, but lowering
+// cost alone (0.25/0.35) reached 16 -- cost was the dominant lever, not
+// average income, because a fresh cell's very first Grow check always
+// reads resource=0 and Grow runs *before* Photosynthesize each tick, so a
+// lower cost mainly buys margin against an unlucky low-light tick rather
+// than raising the average. 0.2/0.5 won clearly (30 cells, real branching
+// -- two Y-forks, not just a longer twig) and is what's below. Still a
+// first pass in the sense that matters most: tuned entirely in one fixed
+// test room (`examples/debug_tree_v2.rs`'s stone floor near the world's
+// own sky boundary) with no other trees casting shade -- worth
+// re-validating once real worldgen exists and light exposure varies by
+// terrain rather than "how close to y=20 is the floor."
 (
     name: "tree",
     cell_types: [
@@ -34,7 +52,7 @@
         ]),
         (GrowingTip, [
             Grow(
-                cost: 0.4,
+                cost: 0.2,
                 branch_chance: 0.1,
                 continuation_weight: 0.7,
                 light_weight: 0.4,
@@ -43,7 +61,7 @@
                 crowding_weight: 0.5,
                 max_active_tips: 14,
             ),
-            Photosynthesize(rate: 0.35),
+            Photosynthesize(rate: 0.5),
         ]),
         (RootTip, [
             Absorb(rate: 1.5),

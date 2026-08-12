@@ -1275,18 +1275,30 @@ impl World {
     /// new `Grow`/`Germinate`-driven system can be built and live-
     /// verified with the old `TreeState`-based implementation completely
     /// untouched, reachable only through its own existing `plant_tree`/`T`
-    /// key, until the new system's own visual-verification gate passes. A
-    /// no-op if the position isn't empty or the `tree` material/species
-    /// isn't loaded, mirroring `plant_moss_seed`'s own preconditions.
+    /// key, until the new system's own visual-verification gate passes.
     pub fn plant_tree_v2(&mut self, x: i32, y: i32) {
+        self.plant_tree_species(x, y, "tree");
+    }
+
+    /// Plant a `Seed` cell of any tree-shaped species (a `Seed` cell type
+    /// that germinates into a `wood`-material `GrowingTip`) at `(x, y)` --
+    /// generalizes `plant_tree_v2` to a caller-chosen species name, so
+    /// several differently-tuned variants (same behavior shapes, different
+    /// weights -- e.g. `Grow`'s `cost` vs `Photosynthesize`'s `rate`) can
+    /// be planted side by side in one scene and compared empirically,
+    /// rather than editing `tree.ron` and re-running once per candidate.
+    /// Returns whether planting actually happened -- `false` if the
+    /// position isn't empty or `wood`/the named species isn't loaded,
+    /// mirroring `plant_moss_seed`'s own no-op preconditions.
+    pub fn plant_tree_species(&mut self, x: i32, y: i32, species_name: &str) -> bool {
         let Some(wood) = self.materials.id_of("wood") else {
-            return;
+            return false;
         };
-        let Some(tree_species) = self.species.id_of("tree") else {
-            return;
+        let Some(tree_species) = self.species.id_of(species_name) else {
+            return false;
         };
         if !self.is_empty(x, y) {
-            return;
+            return false;
         }
         let shades = self.materials.get(wood).palette.len().max(1) as u32;
         let shade = self.rng.below(shades) as u8;
@@ -1295,6 +1307,7 @@ impl World {
         self.set(x, y, Cell::new(wood, shade).with_organism_id(organism_id).with_aux(aux));
         let site = reschedule_organism(x, y, organism_id, 0, self.frame + ORGANISM_TICK_INTERVAL);
         self.schedule_active_site(site);
+        true
     }
 }
 
