@@ -2924,6 +2924,21 @@ versus what's genuinely new design work:**
   materials (`root-wood`, `heartwood`, `leaf`) or a shading/palette rule
   keyed on `CellType`, plus `Grow` actually producing a distinct `Leaf`
   cell (closing the "no visible leaves" gap above at the same time).
+  **Added requirement, owner's own words:** a plant should start with a
+  base reserve of energy (a real starting `resource`, not today's `0.0` a
+  freshly-germinated `Seed`/`GrowingTip` gets — `germinate()`, `plant.rs`
+  — mirroring a real seed's stored starch), but should not be able to
+  photosynthesize *at all* until it actually has a leaf. Today's
+  `Photosynthesize` sits directly on `GrowingTip` and produces resource
+  from its very first tick, with no leaf involved — once `Leaf` is a real
+  produced cell type, `Photosynthesize` belongs on `Leaf` only, and a
+  seedling's early growth needs to be funded entirely out of its starting
+  reserve until it manages to put out a leaf. This makes "fails to grow a
+  leaf before exhausting the seed reserve" a real, emergent seedling-
+  death condition instead of something hardcoded — directly the kind of
+  mechanism `design-philosophy.md` §2b asks for, and connects the resource
+  economy (this session's own tuning pass) to leaf differentiation (this
+  bullet) rather than treating them as separate problems.
 - **Environmental interaction — debris catching on branches, roots
   stabilizing soil.** The least-grounded item, genuinely open design
   work: does a powder cell resting against a `Plant` cell already count
