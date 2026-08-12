@@ -69,6 +69,16 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     if !is_body_material(world, cell.material) {
         return Vec::new(); // no longer part of the structural system (destroyed, converted) -- nothing to track
     }
+    // Organism-owned cells (`Reports/organism-substrate-design.md` §2)
+    // route to a completely different check below, never this one: their
+    // `aux` holds a cell-type tag and a resource scalar, not a distance,
+    // once `organism_id != 0` -- reading or writing it as a distance here
+    // would silently corrupt that encoding. `organism_id == 0` (inert
+    // material -- hand-painted wood, a fully-reclaimed dead organism's
+    // former cells) keeps this exact function, unchanged, below.
+    if cell.organism_id() != 0 {
+        return organism_structural_tick(world, x, y, cell);
+    }
     // Deferred while burning, conservatively rather than out of necessity --
     // `Cell::aux` and the burn timer are separate fields now (`Cell`'s own
     // doc), so a burning cell's anchor distance is valid to read. Kept as a
@@ -142,6 +152,35 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     let mut next = vec![reschedule(world, x, y)];
     next.extend(schedule_solid_neighbours(world, x, y));
     next
+}
+
+/// Structural check for an organism-owned cell (`cell.organism_id() != 0`)
+/// — the branch `tick` routes to instead of the aux-cached relaxation
+/// above, whose cache `aux` no longer holds once it's carrying a cell-type
+/// tag and resource scalar instead. See `Reports/organism-substrate-
+/// design.md` §2/§5 for the full design: a bounded search
+/// (`organism::reachable_from_anchors`) from the organism's own anchor
+/// positions, replacing the per-cell cached distance.
+///
+/// **Deliberately a no-op in this pass.** No species retrofitted so far
+/// (moss is the only one) defines a finite `max_unsupported_span` on its
+/// material, and `OrganismState` doesn't track a real anchor list yet
+/// either (moss has no root/anchor concept — see `OrganismState`'s own
+/// doc). Both are real, needed work for the tree retrofit, deliberately
+/// deferred rather than faked with a placeholder anchor that wouldn't mean
+/// anything yet. What this function *does* guarantee, which is the actual
+/// correctness requirement for this pass: an organism-owned cell never
+/// falls through to the aux-cached path above and never gets treated as
+/// permanently unsupported by a check that has nothing real to search
+/// from.
+fn organism_structural_tick(world: &World, _x: i32, _y: i32, cell: Cell) -> Vec<ActiveSite> {
+    let has_finite_span = world.materials.get(cell.material).max_unsupported_span != u16::MAX;
+    debug_assert!(
+        !has_finite_span,
+        "material '{}' sets a finite max_unsupported_span but organism_structural_tick has no anchor-based check wired up yet for organism-owned cells -- see this function's own doc",
+        world.materials.get(cell.material).name
+    );
+    Vec::new()
 }
 
 /// Small enough that one cell breaking free is a puff, not a blast --

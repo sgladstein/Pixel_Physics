@@ -19,10 +19,49 @@ use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
 use super::creature::CreatureState;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::material::{self, MaterialId, MaterialRegistry};
+use super::organism::{OrganismState, SpeciesId, SpeciesRegistry};
 use super::plant::TreeState;
 use super::rng::Rng;
 use super::scheduler::{self, ActiveSite};
 use super::surface::CellSurface;
+
+/// Bits of `Cell::organism_id` given to the slot index (the rest, high 4
+/// bits, are generation). 4095 concurrently-live organisms — generous for
+/// anything this engine plays at real-time rates, and `push_organism`'s
+/// own debug assertion catches the day that stops being true rather than
+/// silently wrapping into a valid-looking but wrong id.
+const ORGANISM_INDEX_BITS: u32 = 12;
+const ORGANISM_INDEX_MASK: u16 = (1 << ORGANISM_INDEX_BITS) - 1;
+/// 4 bits: a slot wraps back to generation 0 after 16 reuses, at which
+/// point a sufficiently stale reference from exactly 16 reuses ago could
+/// in principle alias a live organism again. Accepted rather than
+/// widening `Cell` a third time this session for a failure mode that
+/// needs a bug (a cell holding an `organism_id` no live cell should still
+/// reference) compounded with exactly the wrong reuse count to manifest —
+/// the generational check still catches every *other* staleness case,
+/// which is the actual, common failure mode it exists for.
+const GENERATION_MASK: u8 = 0b1111;
+
+fn encode_organism_id(slot_index: u16, generation: u8) -> u16 {
+    debug_assert!(slot_index != 0 && slot_index <= ORGANISM_INDEX_MASK, "organism slot index out of range: {slot_index}");
+    ((generation as u16 & GENERATION_MASK as u16) << ORGANISM_INDEX_BITS) | slot_index
+}
+
+/// `(slot_index, generation)` — `slot_index == 0` means "no organism",
+/// matching `organism_id`'s own zero-is-empty convention.
+fn decode_organism_id(organism_id: u16) -> (u16, u8) {
+    let slot_index = organism_id & ORGANISM_INDEX_MASK;
+    let generation = ((organism_id >> ORGANISM_INDEX_BITS) as u8) & GENERATION_MASK;
+    (slot_index, generation)
+}
+
+struct OrganismSlot {
+    generation: u8,
+    /// `None` when this slot is on the free list — kept rather than
+    /// removing the slot entirely, since `organisms` is addressed by
+    /// stable index and shrinking it would renumber every slot after it.
+    state: Option<OrganismState>,
+}
 
 pub struct World {
     chunks: HashMap<ChunkCoord, Chunk>,
@@ -56,6 +95,22 @@ pub struct World {
     /// meaning for `MaterialKind::Creature` — unlike a tree's growth stage,
     /// "which creature owns this cell" has to round-trip through the cell.
     creatures: Vec<CreatureState>,
+    /// Species data for organism-owned cells — see `organism.rs`. Loaded
+    /// with the compiled-in set by default, same as `materials`; `App::new`
+    /// overlays the assets directory the same way it does for materials.
+    pub species: SpeciesRegistry,
+    /// Backing storage for `organism_id`-owned organisms (the generational
+    /// allocator issue #8 called for — see `Reports/organism-substrate-
+    /// design.md` §6). `Cell::organism_id` encodes a 1-based slot index in
+    /// its low 12 bits and a generation in its high 4 — see `encode_
+    /// organism_id`/`decode_organism_id` below. A freed slot's index is
+    /// pushed to `free_organism_slots` and its generation bumped on reuse,
+    /// so a stale `organism_id` still held by some cell (a bug, not a
+    /// normal case) resolves to `None` via `organism`/`organism_mut`
+    /// rather than silently reading a *different*, unrelated organism's
+    /// state once the slot is recycled.
+    organisms: Vec<OrganismSlot>,
+    free_organism_slots: Vec<u16>,
     /// M13/issue #4: whether the field grid has already converged to a
     /// fixed point (every cell within `field::step`'s settle epsilon of its
     /// previous value). `field::step` skips its whole five-pass solve when
@@ -82,6 +137,9 @@ impl World {
             active_sites: BinaryHeap::new(),
             trees: Vec::new(),
             creatures: Vec::new(),
+            species: SpeciesRegistry::builtin(),
+            organisms: Vec::new(),
+            free_organism_slots: Vec::new(),
             fields_settled: false,
         };
         world.ensure_chunks_for(bounds);
@@ -167,6 +225,66 @@ impl World {
     pub(crate) fn creature_mut(&mut self, id: u16) -> &mut CreatureState {
         &mut self.creatures[id as usize]
     }
+
+    /// Allocate a new organism. Checks `free_organism_slots` first (bumping
+    /// the reused slot's generation) before ever growing `organisms` —
+    /// nothing populates that list yet in this pass (no `free_organism`
+    /// exists yet either; see the comment a few methods down for why), so
+    /// this always takes the growth branch today, but the reuse path is
+    /// real, correct code, not a stub — issue #8's actual fix, ready the
+    /// moment a future caller needs it. Returns the encoded `organism_id`
+    /// to stamp onto `Cell::organism_id`.
+    pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
+        let state = OrganismState { species };
+        if let Some(slot_index) = self.free_organism_slots.pop() {
+            let slot = &mut self.organisms[(slot_index - 1) as usize];
+            // Wraps at 16 generations (4 bits) rather than growing further
+            // -- see `encode_organism_id`'s own doc for why this bound was
+            // accepted rather than widening `Cell` a third time.
+            slot.generation = (slot.generation + 1) & GENERATION_MASK;
+            slot.state = Some(state);
+            encode_organism_id(slot_index, slot.generation)
+        } else {
+            debug_assert!(
+                self.organisms.len() < ORGANISM_INDEX_MASK as usize,
+                "organism index would overflow the 12 bits Cell::organism_id reserves for it"
+            );
+            self.organisms.push(OrganismSlot { generation: 0, state: Some(state) });
+            encode_organism_id(self.organisms.len() as u16, 0)
+        }
+    }
+
+    /// `None` for `organism_id == 0` (no organism) or a stale id whose slot
+    /// has since been reused by a different organism — the generation
+    /// mismatch this whole scheme exists to catch, not a panic.
+    pub(crate) fn organism(&self, organism_id: u16) -> Option<&OrganismState> {
+        let (slot_index, generation) = decode_organism_id(organism_id);
+        if slot_index == 0 {
+            return None;
+        }
+        let slot = self.organisms.get((slot_index - 1) as usize)?;
+        if slot.generation != generation {
+            return None;
+        }
+        slot.state.as_ref()
+    }
+
+    // `organism_mut` (mutate an organism's own state in place) and
+    // `free_organism` (return a slot to `free_organism_slots`, the other
+    // half of issue #8's actual fix) are not here yet, deliberately: no
+    // species retrofitted so far needs either. Moss's `Divide` never
+    // touches `OrganismState` after creation (its resource scalar lives
+    // entirely in `Cell::aux`, not here), and detecting "this organism has
+    // no cells left" cheaply needs a real anchor/tip list to search from
+    // (`reachable_from_anchors`) or a live cell count — both real,
+    // deliberately deferred work for the tree retrofit (which already
+    // needs exactly this, generalizing `reclaim_if_tree_is_fully_dead`).
+    // Adding either method now with no caller would be dead code by this
+    // crate's own standard, not a head start; `decode_organism_id`'s
+    // generation check is already fully exercised by `organism`'s own
+    // tests above, so the one thing actually worth verifying now — that a
+    // stale id can never silently alias a reused slot — has real coverage
+    // regardless of when `free_organism` itself lands.
 
     /// Field conditions at a world-cell position — any position inside the
     /// same `FIELD_SCALE`-sided block reads the same cell.
@@ -760,6 +878,39 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 127, 127))
+    }
+
+    #[test]
+    fn organism_ids_round_trip_and_encode_a_nonzero_generation() {
+        let mut w = test_world();
+        let species = SpeciesId(0);
+        let id = w.push_organism(species);
+        assert_ne!(id, 0, "0 is reserved for \"no organism\"");
+        assert_eq!(w.organism(id).unwrap().species, species);
+    }
+
+    #[test]
+    fn organism_id_zero_is_always_none() {
+        let w = test_world();
+        assert!(w.organism(0).is_none());
+    }
+
+    #[test]
+    fn two_organisms_get_distinct_ids_and_each_resolves_to_its_own_species() {
+        // Exercises `decode_organism_id`'s generation check indirectly:
+        // two freshly-allocated organisms both start at generation 0 (same
+        // decoded generation), so this only passes if they also land on
+        // different slot indices -- the actual `organism_id` values must
+        // differ, and each must resolve back to the species it was created
+        // with, not the other's.
+        let mut w = test_world();
+        let species_a = SpeciesId(0);
+        let species_b = SpeciesId(1);
+        let a = w.push_organism(species_a);
+        let b = w.push_organism(species_b);
+        assert_ne!(a, b, "two live organisms must not share an id");
+        assert_eq!(w.organism(a).unwrap().species, species_a);
+        assert_eq!(w.organism(b).unwrap().species, species_b);
     }
 
     #[test]

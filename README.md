@@ -746,6 +746,22 @@ by also counting existing moss as a growable surface, which is what real
 moss does — it thickens by growing over its own earlier growth, not just
 sideways along the original rock.
 
+**Moss retrofitted onto the organism substrate (overnight run, section
+8)**, per `Reports/organism-substrate-design.md`: moss's own damp/dry
+spread chances and self-thickening rule above are unchanged in *behaviour*
+— `moss_spreads_over_damp_stone_and_not_over_dry` and the new
+`moss_thickens_into_a_patch_by_growing_over_its_own_earlier_growth` are
+both regression tests against the exact numbers — but they're now data
+(`assets/species/moss.ron`, a `Divide` behavior) read by a generic
+`organism_tick` dispatch (`plant.rs`) instead of a moss-specific
+`moss_tick` function. `Cell::organism_id` (added in §2, unused until now)
+and a generational allocator (`World::push_organism`/`organism`, issue
+#8's own "generational indices with a free list" direction) replace the
+material-name check (`world.get(x,y).material != moss_id`) the old code
+used to detect a disturbed tip. Trees and the worm are **not** retrofitted
+yet — `TreeState`/`CreatureState` are untouched, deliberately deferred;
+see `PLAN.md`'s note on why moss alone was the right scope for one pass.
+
 **Trees** use space colonization (already-committed citation) for canopy
 shape, extended with two more mechanisms from the deep-dive research pass
 rather than left as a bare attractor-seeking loop:

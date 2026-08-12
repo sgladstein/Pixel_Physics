@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use pixel_physics::app::{App, HEIGHT, WIDTH};
 use pixel_physics::sim::material::ASSET_DIR;
+use pixel_physics::sim::organism;
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -407,9 +408,14 @@ impl ApplicationHandler for Handler {
     }
 }
 
-/// Watch the material directory, reducing every event to a bare "something
-/// changed" — the reload re-reads the whole directory anyway, so which file it
-/// was does not matter.
+/// Watch the material and species directories, reducing every event to a
+/// bare "something changed" — the reload re-reads each whole directory
+/// anyway, so which file it was, or which of the two directories, does not
+/// matter. One `notify` watcher covers both paths and one `Receiver` fires
+/// for either; `App::reload_materials` (despite the name — kept to avoid
+/// churning every call site for a rename that doesn't fix anything) already
+/// reloads species alongside materials on every call, so a single "reload
+/// everything" signal is all either watched directory needs to produce.
 fn watch_materials() -> (Option<RecommendedWatcher>, Option<Receiver<()>>) {
     let (tx, rx) = channel();
     let mut watcher = match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
@@ -422,11 +428,24 @@ fn watch_materials() -> (Option<RecommendedWatcher>, Option<Receiver<()>>) {
         Err(_) => return (None, None),
     };
 
-    match watcher.watch(Path::new(ASSET_DIR), RecursiveMode::NonRecursive) {
-        Ok(()) => (Some(watcher), Some(rx)),
-        // No assets directory beside the binary. The compiled-in materials are
-        // already loaded, and F5 still works if one appears later.
-        Err(_) => (None, None),
+    let materials_watched = watcher.watch(Path::new(ASSET_DIR), RecursiveMode::NonRecursive).is_ok();
+    // Species reload was designed to hot-reload the same way materials do
+    // (`Reports/organism-substrate-design.md`) but the watcher never
+    // actually covered its directory — caught by independent review of the
+    // first version of this section: `SpeciesRegistry::reload` existed and
+    // was tested, but no live-editing path ever called it. Watched
+    // independently of whether materials succeeded above; a missing species
+    // directory is no more fatal than a missing materials one (the
+    // compiled-in set already loaded, per `SpeciesRegistry::builtin`).
+    let species_watched = watcher.watch(Path::new(organism::ASSET_DIR), RecursiveMode::NonRecursive).is_ok();
+
+    if materials_watched || species_watched {
+        (Some(watcher), Some(rx))
+    } else {
+        // Neither assets directory exists beside the binary. The compiled-in
+        // materials and species are already loaded, and F5 still works if
+        // either directory appears later.
+        (None, None)
     }
 }
 

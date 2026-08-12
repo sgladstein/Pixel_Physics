@@ -45,15 +45,19 @@ use super::world::World;
 /// meaningful.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ActiveKind {
-    /// A moss/lichen tip that may spread to a qualifying neighbour.
-    /// `stale_ticks` counts consecutive checks that found nowhere to grow —
-    /// once it crosses a threshold (`plant.rs::MOSS_STALE_LIMIT`), the tip
-    /// stops rescheduling itself rather than being checked forever. Without
-    /// this a moss patch that fully encloses itself (every neighbour either
-    /// stone or more moss, permanently) would stay on the active-site list
-    /// for the rest of the program's life, exactly the unbounded cost the
-    /// scheduler's whole design exists to avoid.
-    Moss { stale_ticks: u8 },
+    /// An organism-owned cell (`Reports/organism-substrate-design.md`) due
+    /// to run its species/cell-type behaviors — moss today, generic across
+    /// any future species. `organism` is the owning organism's encoded id
+    /// (`World::organism`); `x`/`y` on the containing `ActiveSite` is the
+    /// specific cell. `stale_ticks` counts consecutive checks that found
+    /// nothing to do — once it crosses a threshold
+    /// (`organism::STALE_LIMIT`), the cell stops rescheduling itself rather
+    /// than being checked forever, generalizing the same mechanism moss's
+    /// own dormancy used before this rewrite (a patch fully enclosed by
+    /// stone or more moss must not stay on the active-site list for the
+    /// rest of the program's life — the unbounded cost the scheduler's
+    /// whole design exists to avoid).
+    Organism { organism: u16, stale_ticks: u8 },
     /// A tree's growing branch tip.
     TreeTip { tree: u32, tip: u32 },
     /// A root tip extending through soil/rock in search of water.
@@ -158,7 +162,7 @@ pub fn step(world: &mut World) {
         }
         heap.pop();
         let produced = match site.kind {
-            ActiveKind::Moss { .. } | ActiveKind::TreeTip { .. } | ActiveKind::RootTip { .. } => plant::tick(world, &site),
+            ActiveKind::Organism { .. } | ActiveKind::TreeTip { .. } | ActiveKind::RootTip { .. } => plant::tick(world, &site),
             ActiveKind::StructuralCheck => structural::tick(world, &site),
             ActiveKind::Creature { .. } => creature::tick(world, &site),
             ActiveKind::Decay => decay::tick(world, &site),
@@ -187,7 +191,7 @@ mod tests {
         w.schedule_active_site(ActiveSite {
             x: 10,
             y: 10,
-            kind: ActiveKind::Moss { stale_ticks: 0 },
+            kind: ActiveKind::Organism { organism: 0, stale_ticks: 0 },
             next_frame: 100,
         });
         w.begin_step();

@@ -13,98 +13,34 @@
 
 use super::cell::Cell;
 use super::material::{self, MaterialKind};
+use super::organism::{self, Behavior, CellType};
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
 const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
-// --- Moss ---------------------------------------------------------------
+// --- Organism-owned cells (`Reports/organism-substrate-design.md`) ------
 //
-// Real moss is poikilohydric — no waterproof cuticle, no internal water
-// regulation — so it depends entirely on ambient moisture and favours
-// shade because shade slows evaporation, not because of any directional
-// pull. That's translated directly: spread chance is gated hard on nearby
-// water (a poikilohydric plant has no fallback without it) and modulated by
-// local shade, read from the M13 light field this engine already computes.
+// Generic dispatch for any species — moss is the only one retrofitted so
+// far (§7 of the design report's retrofit order: simplest possible smoke
+// test for the scheduler/species-data plumbing). Trees and the worm stay
+// on their own dedicated code below/in `creature.rs` until their own
+// retrofit lands; see `PLAN.md`'s note on why that's deferred rather than
+// rushed in the same pass.
 
-/// Frames between a moss tip's growth attempts.
-const MOSS_TICK_INTERVAL: u64 = 45;
-/// Spread chance when the candidate cell is actually damp.
-const MOSS_DAMP_CHANCE: f32 = 0.35;
-/// Spread chance when it isn't — small but nonzero, since real moss can
-/// survive brief dry spells on residual moisture rather than never
-/// colonizing a marginal spot at all. Kept very small (not just "smaller
-/// than damp"): a poikilohydric plant genuinely cannot establish on
-/// substrate that is never wet, so this represents rare atmospheric
-/// humidity/dew, not a real alternate growth path.
-const MOSS_DRY_CHANCE: f32 = 0.002;
-/// Consecutive no-growable-candidate checks a moss tip tolerates before it
-/// stops rescheduling itself and goes dormant for good. Not an immediate
-/// death on the first empty check — a candidate can be transiently
-/// unavailable (another tip claims a shared neighbour first, water shifts
-/// away and back) — but bounded, so a tip that's genuinely and permanently
-/// enclosed doesn't sit on the active-site list forever. Nothing in this
-/// engine currently has a mechanism to "wake" a dormant tip if conditions
-/// change afterward (e.g. new water appears nearby later); that's a real
-/// limitation, acceptable because a growing colony's *other* tips still
-/// respond to it, not because it's unnoticed.
-const MOSS_STALE_LIMIT: u8 = 4;
+/// Frames between an organism cell's behavior checks. Reused from moss's
+/// old `MOSS_TICK_INTERVAL` — not yet a per-species value, since moss is
+/// the only caller; a second species needing a different cadence is the
+/// actual trigger to make this data instead of a constant.
+const ORGANISM_TICK_INTERVAL: u64 = 45;
 
-fn moss_tick(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSite> {
-    let Some(moss_id) = world.materials.id_of("moss") else {
-        return Vec::new();
-    };
-    // The tip cell may have burned, been erased, or already be something
-    // else by the time its schedule comes due — nothing to grow from.
-    if world.get(x, y).material != moss_id {
-        return Vec::new();
-    }
-
-    let mut candidates = Vec::new();
-    for (dx, dy) in NEIGHBOURS_4 {
-        let (nx, ny) = (x + dx, y + dy);
-        if world.is_empty(nx, ny) && has_growable_neighbour(world, nx, ny, moss_id) {
-            candidates.push((nx, ny));
-        }
-    }
-
-    if candidates.is_empty() {
-        if stale_ticks + 1 >= MOSS_STALE_LIMIT {
-            return Vec::new(); // permanently enclosed (or believed to be) -- stop checking
-        }
-        return vec![reschedule(x, y, ActiveKind::Moss { stale_ticks: stale_ticks + 1 }, world.frame + MOSS_TICK_INTERVAL)];
-    }
-
-    // A candidate existed this tick, whether or not the growth roll below
-    // succeeds -- reset the counter, since "had somewhere to try" is what
-    // staleness tracks, not "successfully grew."
-    let mut next = vec![reschedule(x, y, ActiveKind::Moss { stale_ticks: 0 }, world.frame + MOSS_TICK_INTERVAL)];
-
-    let (tx, ty) = candidates[world.rng.below(candidates.len() as u32) as usize];
-    let damp = is_damp(world, tx, ty);
-    let chance = (if damp { MOSS_DAMP_CHANCE } else { MOSS_DRY_CHANCE }) * shade_factor(world, tx, ty);
-    if world.rng.chance(chance) {
-        let shades = world.materials.get(moss_id).palette.len().max(1) as u32;
-        let shade = world.rng.below(shades) as u8;
-        world.set(tx, ty, Cell::new(moss_id, shade));
-        next.push(reschedule(tx, ty, ActiveKind::Moss { stale_ticks: 0 }, world.frame + MOSS_TICK_INTERVAL));
-    }
-    next
-}
-
-/// A candidate cell can grow moss if it touches either the stone/solid
-/// surface moss first colonized, or existing moss itself — real moss forms
-/// a thickening 2D patch by growing over its own earlier growth, not a
-/// single-cell-wide line that can only ever hug the original rock. Without
-/// the moss case, a cell whose one solid neighbour is already-grown moss
-/// (not raw stone) reads as having no growable neighbour at all, and every
-/// growth front dead-ends after one step.
-fn has_growable_neighbour(world: &World, x: i32, y: i32, moss_id: material::MaterialId) -> bool {
-    NEIGHBOURS_4.iter().any(|&(dx, dy)| {
-        let m = world.get(x + dx, y + dy).material;
-        world.materials.kind(m) == MaterialKind::Solid || m == moss_id
-    })
-}
+/// Consecutive checks that found nothing to do (`Divide` found no growable
+/// candidate) an organism cell tolerates before it stops rescheduling
+/// itself — generalizes moss's old `MOSS_STALE_LIMIT`, same reasoning:
+/// bounded so a permanently enclosed cell doesn't sit on the active-site
+/// list forever, not an immediate death on the first empty check since a
+/// candidate can be transiently unavailable.
+const ORGANISM_STALE_LIMIT: u8 = 4;
 
 /// Below this reading, `field_at`'s ambient humidity counts as "dry" —
 /// architecture report §4. Untuned against anything real, same as every
@@ -112,12 +48,6 @@ fn has_growable_neighbour(world: &World, x: i32, y: i32, moss_id: material::Mate
 /// over_dry` is the actual authority on whether it's set right.
 const DAMP_MOISTURE_THRESHOLD: f32 = 0.3;
 
-/// Replaces the old O(r²) hand-rolled neighbour scan (architecture §4,
-/// "hand-rolled sensing that should be field reads") with a single read of
-/// the moisture channel `apply_moisture_sources` already maintains. No
-/// radius parameter any more — diffusion is what gives "sensing at range"
-/// now, not a wider manual scan, so unlike the function it replaces this
-/// reads the same way regardless of how far the caller wants to sense.
 fn is_damp(world: &World, x: i32, y: i32) -> bool {
     world.field_at(x, y).moisture > DAMP_MOISTURE_THRESHOLD
 }
@@ -125,10 +55,115 @@ fn is_damp(world: &World, x: i32, y: i32) -> bool {
 /// Lower ambient light reads as more shaded, which favours spreading —
 /// real moss's actual preference (shade slows evaporation), not a made-up
 /// bonus. Floored rather than let hit zero, since total darkness isn't a
-/// hard "never" biologically, just a strong preference.
+/// hard "never" biologically, just a strong preference. Only consulted by
+/// `Divide` when a species opts in (`shade_sensitive`) — a species with no
+/// reason to care about light shouldn't pay for the field read.
 fn shade_factor(world: &World, x: i32, y: i32) -> f32 {
     let light = world.field_at(x, y).light;
     (1.0 - (light / 2.0).clamp(0.0, 1.0)).max(0.1)
+}
+
+/// A candidate cell can grow into if it touches either `Solid` ground or
+/// another cell already owned by the same organism — real moss (the only
+/// case so far) forms a thickening 2D patch by growing over its own
+/// earlier growth, not a single-cell-wide line that can only ever hug the
+/// original rock. Without the same-organism case, a cell whose one solid
+/// neighbour is already-grown moss (not raw stone) would read as having
+/// nowhere to grow from, and every growth front would dead-end after one
+/// step.
+fn has_growable_neighbour(world: &World, x: i32, y: i32, organism_id: u16) -> bool {
+    NEIGHBOURS_4.iter().any(|&(dx, dy)| {
+        let neighbour = world.get(x + dx, y + dy);
+        world.materials.kind(neighbour.material) == MaterialKind::Solid || neighbour.organism_id() == organism_id
+    })
+}
+
+fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_ticks: u8) -> Vec<ActiveSite> {
+    let cell = world.get(x, y);
+    // The cell may have burned, been erased, or already be something else
+    // by the time its schedule comes due — mirrors `moss_tick`'s own check,
+    // generalized: no longer this organism's cell at all, nothing to run.
+    if cell.organism_id() != organism_id {
+        return Vec::new();
+    }
+    // A stale organism id (freed and not yet reused, or a bug) — same
+    // "nothing to grow from" outcome as the material check above.
+    let Some(state) = world.organism(organism_id) else {
+        return Vec::new();
+    };
+    let species_id = state.species;
+    let (Some(cell_type), mut resource) = organism::unpack_aux(cell.aux()) else {
+        return Vec::new(); // unrecognized cell-type bits -- nothing this dispatch knows how to run
+    };
+    // Cloned out of the registry rather than held as a borrow: the behavior
+    // loop below needs `&mut World` (to paint a new cell, roll the RNG),
+    // which a live borrow of `world.species` would conflict with. Species
+    // data is small (a handful of behaviors per cell type), so this is
+    // cheap relative to the field reads a single `Divide` already does.
+    let behaviors: Vec<Behavior> = world.species.get(species_id).behaviors(cell_type).to_vec();
+
+    let mut next = Vec::new();
+    let mut found_candidate = false;
+    for behavior in behaviors {
+        match behavior {
+            Behavior::Divide { cost, damp_chance, dry_chance, shade_sensitive } => {
+                if resource < cost {
+                    continue; // temporary resource shortfall -- try again next tick, not a dead end
+                }
+                let mut candidates = Vec::new();
+                for (dx, dy) in NEIGHBOURS_4 {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if world.is_empty(nx, ny) && has_growable_neighbour(world, nx, ny, organism_id) {
+                        candidates.push((nx, ny));
+                    }
+                }
+                if candidates.is_empty() {
+                    continue;
+                }
+                found_candidate = true;
+                let (tx, ty) = candidates[world.rng.below(candidates.len() as u32) as usize];
+                let mut chance = if is_damp(world, tx, ty) { damp_chance } else { dry_chance };
+                if shade_sensitive {
+                    chance *= shade_factor(world, tx, ty);
+                }
+                if world.rng.chance(chance) {
+                    let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
+                    let shade = world.rng.below(shades) as u8;
+                    // The new cell starts at 0, not at the parent's own
+                    // post-cost level -- giving it `resource - cost` (an
+                    // earlier version's bug, caught by independent review)
+                    // would double-count: the parent already pays `cost`
+                    // below, so handing the child that same leftover value
+                    // too manufactures `resource - cost` worth of resource
+                    // out of nothing on every division. `cost` is what the
+                    // division consumes, not what it transfers.
+                    let new_cell = Cell::new(cell.material, shade)
+                        .with_organism_id(organism_id)
+                        .with_aux(organism::pack_aux(cell_type, 0.0));
+                    world.set(tx, ty, new_cell);
+                    resource -= cost;
+                    world.set(x, y, cell.with_aux(organism::pack_aux(cell_type, resource)));
+                    next.push(reschedule_organism(tx, ty, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
+                }
+            }
+        }
+    }
+
+    if found_candidate || !next.is_empty() {
+        // A candidate existed this tick (whether or not any behavior's own
+        // roll succeeded) -- reset the staleness counter, mirroring
+        // `moss_tick`'s old reasoning: staleness tracks "had somewhere to
+        // try", not "successfully grew".
+        next.push(reschedule_organism(x, y, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
+    } else if stale_ticks + 1 < ORGANISM_STALE_LIMIT {
+        next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, world.frame + ORGANISM_TICK_INTERVAL));
+    }
+    // Otherwise: permanently enclosed (or believed to be) -- stop checking.
+    next
+}
+
+fn reschedule_organism(x: i32, y: i32, organism: u16, stale_ticks: u8, next_frame: u64) -> ActiveSite {
+    ActiveSite { x, y, kind: ActiveKind::Organism { organism, stale_ticks }, next_frame }
 }
 
 // --- Trees and roots ------------------------------------------------------
@@ -760,7 +795,7 @@ fn rotate(v: (f32, f32), radians: f32) -> (f32, f32) {
 /// to name all three variants to stay exhaustive.
 pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     match site.kind {
-        ActiveKind::Moss { stale_ticks } => moss_tick(world, site.x, site.y, stale_ticks),
+        ActiveKind::Organism { organism, stale_ticks } => organism_tick(world, site.x, site.y, organism, stale_ticks),
         ActiveKind::TreeTip { tree, tip } => tree_tip_tick(world, site.x, site.y, tree, tip),
         ActiveKind::RootTip { tree, root } => root_tip_tick(world, site.x, site.y, tree, root),
         ActiveKind::StructuralCheck => unreachable!("scheduler::step routes StructuralCheck to structural::tick"),
@@ -772,18 +807,25 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
 impl World {
     /// Plant a moss seed at `(x, y)` if it's empty, and schedule its first
     /// growth check. A no-op (returns nothing to schedule) if the position
-    /// isn't empty or the `moss` material isn't loaded.
+    /// isn't empty, the `moss` material isn't loaded, or the `moss`
+    /// species isn't loaded (`Reports/organism-substrate-design.md`'s new
+    /// species registry, parallel to but independent from materials).
     pub fn plant_moss_seed(&mut self, x: i32, y: i32) {
-        let Some(moss_id) = self.materials.id_of("moss") else {
+        let Some(moss_material) = self.materials.id_of("moss") else {
+            return;
+        };
+        let Some(moss_species) = self.species.id_of("moss") else {
             return;
         };
         if !self.is_empty(x, y) {
             return;
         }
-        let shades = self.materials.get(moss_id).palette.len().max(1) as u32;
+        let shades = self.materials.get(moss_material).palette.len().max(1) as u32;
         let shade = self.rng.below(shades) as u8;
-        self.set(x, y, Cell::new(moss_id, shade));
-        let site = reschedule(x, y, ActiveKind::Moss { stale_ticks: 0 }, self.frame + MOSS_TICK_INTERVAL);
+        let organism_id = self.push_organism(moss_species);
+        let aux = organism::pack_aux(CellType::GrowingTip, 0.0);
+        self.set(x, y, Cell::new(moss_material, shade).with_organism_id(organism_id).with_aux(aux));
+        let site = reschedule_organism(x, y, organism_id, 0, self.frame + ORGANISM_TICK_INTERVAL);
         self.schedule_active_site(site);
     }
 
@@ -888,6 +930,94 @@ mod tests {
             damp_moss > dry_moss * 3,
             "moss should spread much more over damp stone ({damp_moss}) than dry ({dry_moss})"
         );
+    }
+
+    #[test]
+    fn moss_thickens_into_a_patch_by_growing_over_its_own_earlier_growth() {
+        // `has_growable_neighbour`'s same-organism_id branch: without it, a
+        // cell whose only solid neighbour is already-grown moss (not raw
+        // stone) reads as having nowhere to grow from, and a colony can
+        // only ever be a single-cell-wide line hugging the original rock,
+        // never thickening into a real patch.
+        let mut w = test_world();
+        for x in 5..35 {
+            w.set(x, 50, Cell::new(material::STONE, 0));
+        }
+        w.set(5, 49, Cell::new(material::STONE, 0)); // walls -- keep the
+        w.set(34, 49, Cell::new(material::STONE, 0)); // puddle from draining off the sides
+        for x in 10..30 {
+            w.set(x, 49, Cell::new(material::WATER, 0));
+        }
+        w.plant_moss_seed(20, 48);
+        run_with_fields(&mut w, 6000);
+
+        let moss = w.materials.id_of("moss").unwrap();
+        // The seed sits at row 48; nothing above row 48 has a stone
+        // neighbour at all (stone is only at row 50, water fills row 49) --
+        // the *only* way for moss to ever reach row 47 or higher is by
+        // growing over another moss cell of its own organism. Any moss
+        // found there is proof the patch thickened, not just spread
+        // sideways hugging the water's own row.
+        let thickened = (5..35).any(|x| (40..48).any(|y| w.get(x, y).material == moss));
+        assert!(thickened, "moss never thickened into a 2D patch, only ever grew along the original rock");
+    }
+
+    #[test]
+    fn divide_deducts_cost_from_the_parent_without_manufacturing_resource() {
+        // A synthetic species with a real Divide cost -- moss's own `cost`
+        // is 0.0 and can't exercise this at all. The exact bug an
+        // independent review caught: an earlier version wrote `resource -
+        // cost` onto the *new* cell while leaving the parent's `aux`
+        // completely untouched, silently manufacturing `resource - cost`
+        // worth of resource out of nothing on every division (the parent
+        // kept its full amount *and* the child got a nonzero amount too).
+        let material_dir = std::env::temp_dir().join("pixel-physics-divide-cost-material");
+        std::fs::create_dir_all(&material_dir).unwrap();
+        std::fs::write(material_dir.join("costtest.ron"), "(name: \"costtest\", kind: Plant, density: 0.3, colors: [(1, 2, 3)])").unwrap();
+        let species_dir = std::env::temp_dir().join("pixel-physics-divide-cost-species");
+        std::fs::create_dir_all(&species_dir).unwrap();
+        std::fs::write(
+            species_dir.join("costtest.ron"),
+            "(name: \"costtest\", cell_types: [(GrowingTip, [Divide(cost: 1.0, damp_chance: 1.0, dry_chance: 1.0, shade_sensitive: false)])])",
+        )
+        .unwrap();
+
+        let mut w = test_world();
+        w.materials.reload(&material_dir).unwrap();
+        w.species.reload(&species_dir).unwrap();
+        let material = w.materials.id_of("costtest").unwrap();
+        let species = w.species.id_of("costtest").unwrap();
+
+        let organism_id = w.push_organism(species);
+        let start_resource = 3.0;
+        let seed = Cell::new(material, 0).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::GrowingTip, start_resource));
+        w.set(50, 50, seed);
+
+        organism_tick(&mut w, 50, 50, organism_id, 0);
+
+        let (_, parent_resource) = organism::unpack_aux(w.get(50, 50).aux());
+        // `damp_chance`/`dry_chance` are both 1.0, so exactly one of the
+        // four open neighbours divides successfully -- the RNG only picks
+        // *which* one.
+        let total_child_resource: f32 = NEIGHBOURS_4
+            .iter()
+            .map(|&(dx, dy)| w.get(50 + dx, 50 + dy))
+            .filter(|c| c.organism_id() == organism_id)
+            .map(|c| organism::unpack_aux(c.aux()).1)
+            .sum();
+
+        assert!(
+            (parent_resource - (start_resource - 1.0)).abs() < 0.02,
+            "the parent should have paid the division's cost: expected ~{}, got {parent_resource}",
+            start_resource - 1.0
+        );
+        assert!(
+            total_child_resource < 0.02,
+            "a freshly divided cell should start at 0 resource, not inherit any: got {total_child_resource}"
+        );
+
+        std::fs::remove_dir_all(&material_dir).ok();
+        std::fs::remove_dir_all(&species_dir).ok();
     }
 
     #[test]

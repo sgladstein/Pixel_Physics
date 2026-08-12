@@ -52,6 +52,7 @@ pub mod explosion;
 pub mod field;
 pub mod fire;
 pub mod material;
+pub mod organism;
 pub mod parallel;
 pub mod particle;
 pub mod plant;

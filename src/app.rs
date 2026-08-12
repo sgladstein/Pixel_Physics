@@ -7,6 +7,7 @@
 use crate::render::Renderer;
 use crate::sim::chunk::Rect;
 use crate::sim::material::{self, MaterialId, MaterialKind};
+use crate::sim::organism;
 use crate::sim::parallel;
 use crate::sim::particle::ParticleSystem;
 use crate::sim::world::World;
@@ -33,9 +34,24 @@ pub struct App {
     pub paused: bool,
     /// Set by the step key while paused; consumed by the next `update`.
     pub step_once: bool,
-    /// Feedback from the last material reload — the only place a typo in a
-    /// `.ron` file shows up.
+    /// Feedback from the last material/species reload — the only place a
+    /// typo in a `.ron` file shows up.
     pub message: Option<String>,
+}
+
+/// Re-read both the material and species directories over the current
+/// registries, returning a combined status message. Shared by `App::new`
+/// (the initial load) and `App::reload_materials` (F5 / the file watcher)
+/// so the two can never drift into reloading one but not the other.
+fn reload_assets(world: &mut World) -> Option<String> {
+    let materials = world.materials.reload(material::ASSET_DIR);
+    let species = world.species.reload(organism::ASSET_DIR);
+    match (materials, species) {
+        (Ok(m), Ok(s)) => Some(format!("{m} materials, {s} species")),
+        (Ok(m), Err(e)) => Some(format!("{m} materials; species: {e}")),
+        (Err(e), Ok(s)) => Some(format!("materials: {e}; {s} species")),
+        (Err(me), Err(se)) => Some(format!("materials: {me}; species: {se}")),
+    }
 }
 
 impl App {
@@ -43,11 +59,15 @@ impl App {
         let mut world = World::new(Rect::new(0, 0, WIDTH as i32 - 1, HEIGHT as i32 - 1));
 
         // Load over the compiled-in set, so edits made before launch apply and
-        // a broken assets directory still leaves a working engine.
-        let message = match world.materials.reload(material::ASSET_DIR) {
-            Ok(n) => Some(format!("{n} materials")),
-            Err(e) => Some(format!("materials: {e}")),
-        };
+        // a broken assets directory still leaves a working engine. Species
+        // reload alongside materials -- `Reports/organism-substrate-
+        // design.md`'s own stated design ("hot-reloaded via the same notify
+        // pattern MaterialRegistry already uses"), which an independent
+        // review of the first version of this section caught as never
+        // actually wired up: `SpeciesRegistry::reload` existed and was
+        // tested, but nothing called it, so editing `assets/species/*.ron`
+        // silently did nothing, unlike every material file.
+        let message = reload_assets(&mut world);
 
         build_terrain(&mut world);
         let paintable = world.materials.paintable();
@@ -97,13 +117,11 @@ impl App {
         self.renderer.draw(&self.world, &self.particles, frame, WIDTH, HEIGHT);
     }
 
-    /// Re-read the material files. Ids are keyed by name, so material already
-    /// in the world keeps its identity and simply starts behaving differently.
+    /// Re-read the material and species files. Ids are keyed by name, so
+    /// material/species already in the world keep their identity and simply
+    /// start behaving differently.
     pub fn reload_materials(&mut self) {
-        self.message = match self.world.materials.reload(material::ASSET_DIR) {
-            Ok(n) => Some(format!("reloaded {n} materials")),
-            Err(e) => Some(format!("materials: {e}")),
-        };
+        self.message = reload_assets(&mut self.world).map(|s| format!("reloaded {s}"));
         // A new material file adds an id, so the picker has to be rebuilt.
         let current = self.selected_material();
         self.paintable = self.world.materials.paintable();

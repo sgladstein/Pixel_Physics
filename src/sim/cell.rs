@@ -220,6 +220,30 @@ impl Cell {
         self
     }
 
+    /// Which organism owns this cell; 0 means none. See the field's own
+    /// doc — this is what gates `aux`'s interpretation for a `Plant`/
+    /// `Creature` cell between "inert material, `aux` holds an anchor
+    /// distance the M17 way" and "organism tissue, `aux` holds a cell-type
+    /// tag plus a resource scalar" (`organism.rs`'s `CellType`/`resource`
+    /// helpers below). `Cell` itself stays agnostic to which — same
+    /// "the meaning lives with the caller, not the type" shape `aux`
+    /// itself already has for `Solid` vs `Creature` vs everything else.
+    #[inline]
+    pub fn organism_id(self) -> u16 {
+        self.organism_id
+    }
+
+    #[inline]
+    pub fn set_organism_id(&mut self, id: u16) {
+        self.organism_id = id;
+    }
+
+    #[inline]
+    pub fn with_organism_id(mut self, id: u16) -> Self {
+        self.set_organism_id(id);
+        self
+    }
+
     #[inline]
     fn set_flag(&mut self, flag: u8, on: bool) {
         if on {

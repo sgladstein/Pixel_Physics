@@ -34,8 +34,14 @@
 > [`Reports/pixel-physics-issues.md`](Reports/pixel-physics-issues.md) (eleven
 > concrete performance/correctness/housekeeping issues against the codebase as
 > it stood then — nine are closed; issue #3 closed in the overnight run's
-> section 5, and issue #8 (generational tree-state indices) is scheduled to
-> close in section 8, so this is not quite a purely historical record yet),
+> section 5. Issue #8 (generational tree-state indices) is partially
+> addressed in section 8: a real generational `organism_id` allocator
+> exists and is tested, but nothing calls its `free` side yet (moss, the
+> only species retrofitted so far, has no natural "this organism is fully
+> dead" signal without more infrastructure), and `TreeState` itself — the
+> issue's actual original subject — is untouched, deferred alongside the
+> rest of the tree retrofit. So this is not quite a purely historical
+> record yet),
 > [`Reports/design-philosophy.md`](Reports/design-philosophy.md) (the short,
 > opinionated statement of the philosophy the other four already implied —
 > read this one first), and
@@ -2147,12 +2153,238 @@ of coupled-transport-on-explicit-architecture this engine is deliberately
 not attempting, cited so that's a stated decision rather than a gap no one
 noticed.
 
-Also closes out issue #8's design question (`Reports/pixel-physics-
-issues.md`): generational `organism_id` indices with a free list, built in
-section 8 rather than deferred again, since the organism substrate makes
+Also settles issue #8's design question (`Reports/pixel-physics-
+issues.md`): generational `organism_id` indices with a free list, not
+deferred to be re-litigated later, since the organism substrate makes
 `TreeState`'s existing leak guaranteed to matter (moss/worm reseeding, and
 section 12's ants, all churn through far more short-lived organisms than
-a tree ever did).
+a tree ever did). **Update after section 8 actually shipped:** the
+allocator itself was built and is tested, but section 8's real scope
+ended up moss-only — see its own entry for why the free-list's *reuse*
+side has no caller yet, and issue #8 isn't fully closed until the tree
+retrofit lands.
+
+### Overnight run, section 8: organism substrate rewrite — moss only, tree/worm deferred
+
+Implements `Reports/organism-substrate-design.md`, scoped down from its own
+§7 retrofit order (moss → trees → worm) to **moss alone** — a deliberate
+mid-implementation call, not a shortfall discovered afterward. Reasoning:
+the design report itself flagged the tree retrofit's `Divide` behavior
+(discrete grid-candidate growth for moss vs. continuous space-colonization
+for trees) as a genuine open risk needing real implementation-time
+judgment, not a mechanical port; attempting it at the tail of an already
+very large session, alongside the worm's own `Locomote` port, risked
+rushing exactly the piece the report itself said deserved care. Moss alone
+is still a complete, coherently tested, honestly-scoped unit: it proves
+the entire new pipeline (species data, generic behavior dispatch, the
+`aux` cell-type/resource encoding, the generational allocator, structural
+dispatch on `organism_id`) end to end, with zero risk taken on the harder
+part.
+
+**What was built:**
+
+- `src/sim/organism.rs` (new) — `CellType` (currently one variant,
+  `GrowingTip` — room for the rest once a species needs them), `Behavior`
+  (currently one variant, `Divide { cost, damp_chance, dry_chance,
+  shade_sensitive }` — a struct-shaped enum variant, not a newtype
+  wrapping a separate struct, because RON's syntax for the latter needs an
+  awkward doubled `Divide(Divide(...))`, caught by a failing embedded-
+  species-parse test on the first attempt), `Species`/`SpeciesRegistry`
+  (mirrors `MaterialRegistry`'s `builtin`/`reload`/`get`/`id_of` shape,
+  deliberately without a `resolve_references` pass — a species file never
+  names another species, so there's nothing to resolve after loading),
+  `pack_aux`/`unpack_aux` (the cell-type-plus-resource encoding into
+  `Cell::aux`'s 16 bits), and `reachable_from_anchors` (the shared bounded
+  BFS the design report's §5 specifies, generic over `CellSurface`, tested
+  directly — not yet wired to a real caller, see below).
+- `assets/species/moss.ron` — reproduces the old `MOSS_DAMP_CHANCE`
+  (0.35) / `MOSS_DRY_CHANCE` (0.002) split exactly as one `Divide`
+  behavior's parameters, `cost: 0.0` since moss never had an energy budget
+  before this retrofit and inventing one is a bigger behavioural change
+  than a retrofit should make silently.
+- `src/sim/cell.rs` — `organism_id`/`set_organism_id`/`with_organism_id`
+  accessors (the field existed since §2, unused until now).
+- `src/sim/world.rs` — the generational `organism_id` allocator:
+  `push_organism`/`organism` (12-bit slot index + 4-bit generation packed
+  into the `u16` `organism_id`, `encode_organism_id`/`decode_organism_id`).
+  4 bits of generation (not more — widening `Cell` a third time this
+  session for this alone wasn't justified) means a slot wraps after 16
+  reuses, at which point a sufficiently stale reference could in principle
+  alias; accepted as a documented, bounded risk rather than a silent one.
+  **`organism_mut`/`free_organism` do not exist yet** — see below.
+- `src/sim/scheduler.rs` — `ActiveKind::Moss { stale_ticks }` replaced by
+  a generic `ActiveKind::Organism { organism, stale_ticks }`, dispatched
+  from `plant::tick` for any species, not just moss.
+- `src/sim/plant.rs` — the whole moss section rewritten: `organism_tick`
+  (generic dispatch: reads the cell's `organism_id`/`aux`-encoded
+  `CellType`, looks up the owning organism's species, runs each
+  registered `Behavior`) replaces `moss_tick`; `has_growable_neighbour`
+  generalized from "touches stone or moss" to "touches `Solid` or shares
+  this cell's `organism_id`" — the exact mechanism that lets a patch
+  thicken over its own earlier growth, now expressed generically instead
+  of hardcoding the moss material id. `plant_moss_seed` now allocates a
+  real organism via `push_organism` instead of just painting a material.
+- `src/sim/structural.rs` — `tick` gains one new branch: an
+  organism-owned cell (`organism_id != 0`) routes to
+  `organism_structural_tick` instead of the aux-cached relaxation, since
+  its `aux` no longer holds a distance once it's carrying a cell-type tag
+  and resource scalar. **Deliberately a no-op in this pass** (see below).
+
+**Two real design gaps found and resolved during implementation, not
+anticipated by the design report:**
+
+- The report's §2 said the cell-type-plus-resource `aux` layout applies
+  to organism-owned `Plant`/`Creature` cells, but only worked through the
+  `Plant`/wood conflict in detail — an independent review of the report
+  itself (before this section started) caught that `Creature`'s existing
+  `aux`-as-creature-index scheme has the identical conflict, unaddressed.
+  Resolved in the report before implementation began: `organism_id` (not
+  `MaterialKind`) gates `aux`'s interpretation, and `Creature`'s existing
+  use retires in favour of `organism_id` with no conflict at all (no
+  "unowned worm" case the way there's hand-painted wood). Implementation
+  didn't touch `creature.rs` this pass (deferred with the worm), so this
+  is a decision recorded for when it does, not yet exercised in code.
+- `structural.rs`'s new organism branch has nowhere real to search from
+  yet: `OrganismState` (this pass) only tracks which species an organism
+  is, not an anchor/root-tip list the way `TreeState::roots` does — moss
+  has no root concept at all. Rather than fake an anchor (the cell's own
+  position, say) that wouldn't mean anything, `organism_structural_tick`
+  is an explicit, documented no-op, guarded by a debug assertion that
+  fires if any organism-owned material ever sets a finite
+  `max_unsupported_span` (none does yet — moss's own material config
+  makes the check moot regardless of which code path handles it). What
+  the branch *does* guarantee, and the actual correctness requirement for
+  this pass: an organism-owned cell can never fall through to the old
+  aux-cached path, which would silently corrupt its cell-type/resource
+  encoding by writing a "distance" into the same bits.
+
+**Independent review of the implementation (not just the report) found
+three more real issues before commit:**
+
+- **`Divide`'s `cost` was never actually deducted from the dividing
+  (parent) cell** — the new cell was stamped with `resource - cost`, but
+  the parent's own `aux` was never rewritten at all, so the resource gate
+  (`if resource < cost { continue }`) checked a value that could never
+  decrease. Invisible with moss's own `cost: 0.0` (240 tests green
+  regardless), but a real latent bug against `Divide`'s own documented
+  contract that the very next species with a nonzero cost would have hit.
+  Fixed properly, not just patched: the parent now pays `cost` from its
+  *own* resource, and the new cell starts at `0.0` rather than inheriting
+  the parent's post-cost leftover — the first draft of the fix handed the
+  child `resource - cost` too, which would have manufactured that amount
+  of resource out of nothing on every division (both cells ending up with
+  the same post-cost value that only one of them started with). New test,
+  `divide_deducts_cost_from_the_parent_without_manufacturing_resource`,
+  using a synthetic species (the same temp-directory technique
+  `material.rs`'s own synthetic-material tests already use, since moss's
+  `cost: 0.0` can't exercise this) — confirmed to fail against both the
+  original bug and the manufacturing-resource half-fix.
+- **Species hot-reload was designed but never wired up.** The report's §1
+  says species are "hot-reloaded via the same `notify` pattern
+  `MaterialRegistry` already uses" — `SpeciesRegistry::reload` existed and
+  was tested, but nothing called it: `App::new`/`reload_materials` only
+  ever reloaded `world.materials`, and `main.rs`'s file watcher only ever
+  watched the materials directory. Editing `assets/species/moss.ron` did
+  nothing, live or via F5, unlike every material file. Fixed: a shared
+  `reload_assets` helper (`app.rs`) reloads both registries together so
+  the two can't drift out of sync again, and the watcher
+  (`main.rs::watch_materials`, name kept despite now covering both
+  directories — renaming every call site wasn't worth doing alongside an
+  unrelated fix) watches the species directory too.
+- **Two separately-planted moss patches that grow into contact can leave a
+  permanent one-cell notch at their shared boundary.**
+  `has_growable_neighbour` requires a candidate to touch either `Solid` or
+  a cell sharing *this* organism's own `organism_id` — so once two
+  patches' fronts meet with no bare stone left in the seam, a cell whose
+  only moss neighbour belongs to the *other* patch is growable for neither
+  side. The old material-identity check (`m == moss_id`) had no such
+  boundary and would have filled it. Judged an accepted, narrow scope
+  boundary rather than a bug to fix here: patches from different
+  `plant_moss_seed` calls are, correctly, different organisms, and letting
+  them silently fuse into one would need a real merge-organism-ids
+  mechanism this session isn't building. No test exercises two patches
+  meeting (nothing currently depends on the fused-vs-notched distinction),
+  so this is a known, documented follow-up rather than silently
+  unnoticed — worth deciding on deliberately if it turns out to look wrong
+  in play.
+
+**`organism_mut`/`free_organism` were written, tested, and then removed**
+— caught by `cargo clippy --all-targets -- -D warnings` flagging them as
+dead code once nothing called them. Investigated rather than silenced
+(`#[allow(dead_code)]` has no precedent anywhere in this codebase and
+wasn't added as one here): moss's `Divide` never mutates `OrganismState`
+after creation, and detecting "this organism has zero cells left" cheaply
+needs a real anchor list or a live cell count, neither of which exists
+yet. Removing them (rather than keeping unused methods, or forcing a fake
+trigger just to use them) is the honest scope boundary — real work for
+the tree retrofit, which already needs exactly this to generalize
+`reclaim_if_tree_is_fully_dead`. The generational safety property itself
+(a stale id can't silently alias a reused slot) is still fully covered by
+direct tests of `push_organism`/`organism` and the encode/decode
+functions, independent of whether `free_organism` exists yet.
+
+**Every existing moss test carried over unchanged and still passes**,
+now exercising the entirely new pipeline —
+`moss_spreads_over_damp_stone_and_not_over_dry` in particular, confirmed
+via temporary revert (hardcoding the dispatched chance to `dry_chance`
+regardless of dampness) to still fail exactly the way it would have
+against the old code. One new test,
+`moss_thickens_into_a_patch_by_growing_over_its_own_earlier_growth`,
+added because the old test never actually exercised the same-organism
+thickening branch specifically (a large damp/dry spread-count comparison
+would pass even with only single-cell-wide lines) — confirmed to fail
+when that branch is temporarily reverted to the old material-name check.
+Live-verified via `cargo run --release --example ascii`'s existing M16
+moss scene: moss (`,`) appears next to the damp side's water and is
+absent from the dry side, matching the pre-retrofit screenshot exactly.
+
+### Deferred: tree and worm retrofits
+
+**Explicitly not started this pass** — `plant.rs`'s `tree_tip_tick`/
+`root_tip_tick`/`TreeState` and `creature.rs`'s `worm_tick`/
+`CreatureState` are completely untouched, still the pre-retrofit code,
+still passing their own full test suites unchanged. Per the design
+report's own §1 caveat: `Divide`'s tree mode (continuous-position space
+colonization, a shared `attractors` list, a per-tip `channel` scalar) is
+not a data-parameterized version of the same algorithm moss uses — it may
+need splitting into a genuinely separate named behavior rather than one
+`Divide` covering both, a judgment call the report deliberately left for
+"the implementation session," not something to force through at 2am at
+the end of an already very large batch of changes. The worm's `Locomote`
+port is comparatively low-risk but was deferred alongside it rather than
+attempted alone, since `creature.rs`'s own `aux`-as-index retirement
+(this section's own finding above) needs to land at the same time as
+whatever session does the worm, not split across two.
+
+**What a future session picking this up needs**: read `Reports/organism-
+substrate-design.md` in full (still accurate — nothing in this pass
+invalidated it), then this section's own "design gaps found" and
+"independent review" notes above, all real additions to the report's
+original text. The organism-substrate machinery (species loading, generic
+`organism_tick` dispatch, the allocator, `structural.rs`'s dispatch point,
+species hot-reload) is all in place and ready — a tree retrofit is
+additive (a `TransportChannel`/`SecondaryThicken`/space-colonization-mode
+`Divide` behavior, an
+`OrganismState` with a real anchor list, `organism_mut`/`free_organism`
+finally getting callers) rather than a rework of what this section built.
+
+### Files touched
+
+`src/sim/organism.rs` (new — `CellType`, `Behavior`, `Species`/
+`SpeciesRegistry`, `pack_aux`/`unpack_aux`, `reachable_from_anchors`).
+`assets/species/moss.ron` (new). `src/sim/cell.rs`
+(`organism_id`/`set_organism_id`/`with_organism_id`). `src/sim/world.rs`
+(the generational allocator: `push_organism`/`organism`,
+`encode_organism_id`/`decode_organism_id`, `OrganismSlot`).
+`src/sim/scheduler.rs` (`ActiveKind::Moss` → generic `ActiveKind::
+Organism`). `src/sim/plant.rs` (`moss_tick` → `organism_tick`,
+`has_growable_neighbour` generalized to `organism_id` equality,
+`plant_moss_seed` allocates a real organism). `src/sim/structural.rs`
+(`tick`'s new `organism_id != 0` dispatch branch, `organism_structural_
+tick`). `src/sim/mod.rs` (registers the `organism` module). `src/app.rs`
+(`reload_assets` helper, used by both `App::new` and
+`reload_materials`). `src/main.rs` (`watch_materials` now also watches
+the species directory). `PLAN.md`/`README.md`.
 
 ---
 

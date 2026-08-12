@@ -1,0 +1,23 @@
+// The first species retrofitted onto the shared organism substrate --
+// Reports/organism-substrate-design.md's own retrofit order, chosen for
+// being the simplest possible smoke test (one cell type, no transport,
+// no thickening, no roots). Reproduces `plant.rs`'s old MOSS_DAMP_CHANCE
+// (0.35) / MOSS_DRY_CHANCE (0.002) split exactly -- see `organism.rs`'s
+// `Divide` doc for why those are separate fields rather than one
+// generalized chance, and why `cost: 0.0` is a real, deliberate value
+// rather than a placeholder: moss never had an energy budget before this
+// retrofit, and giving it one would be a bigger behavioural change than
+// this rewrite is meant to make silently.
+(
+    name: "moss",
+    cell_types: [
+        (GrowingTip, [
+            Divide(
+                cost: 0.0,
+                damp_chance: 0.35,
+                dry_chance: 0.002,
+                shade_sensitive: true,
+            ),
+        ]),
+    ],
+)
