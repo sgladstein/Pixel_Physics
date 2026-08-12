@@ -3260,3 +3260,91 @@ it constrains rather than living only as a disconnected note here; this
 entry exists so it's also visible without reading the full milestone text.
 Research toward this is being gathered ahead of actually starting M16/M18 —
 see the progress log for status.
+
+---
+
+## Code review findings (owner-supplied, verified against actual code) — parked, not started
+
+An owner-supplied general code review, written against roughly the same
+earlier commit as `plant-simulation-research.md` (close to `838c557`).
+Every claim was individually re-verified against the current codebase
+(grep/read, not assumed) before recording here. This is a *separate track*
+from the plant-substrate-v2 work above — scheduler/CI/doc-health, not plant
+biology — parked because context ran low, not because it's low priority.
+
+**Already fixed by this session's own work (verified, listed for closure
+tracking only, no action needed):**
+- Crowding-reads-an-always-empty-cell (`candidate_crowding` now reads
+  occupied neighbours, regression test exists).
+- `pack_aux` clobbering canopy density on every resource update
+  (`pack_aux_preserving_density` now wraps every self-update).
+- `World::trees` never shrinking — `TreeState` itself is deleted.
+- Two coexisting tree implementations / `tree.ron` not existing — the old
+  `TreeState`/`Tip`/`RootTip` system is fully deleted, `tree.ron` exists and
+  is the only tree system, `plant_tree`/the `T` key point at it.
+
+**Still real and unaddressed — verified against current code just now:**
+
+1. **`World::creatures` never shrinks, `free_organism_slots` is popped but
+   nothing ever pushes to it.** The worm/creature system hasn't been
+   touched this session (worm migration onto `organism.rs` is still
+   pending, above). Real, same shape as the tree-side issue #8 that got
+   fixed for organisms but not creatures.
+2. **No dedup or per-frame budget on the active-site heap, and this
+   session's own work made the exposure worse, not better.**
+   `explosion::trigger` calls `schedule_structural_check_around` per
+   cleared cell (5 sites each, all due the same frame); `scheduler::step`'s
+   drain loop (`src/sim/scheduler.rs` `step`, the `while let Some(...)`
+   loop) has no cap on how much it processes in one frame. This session
+   added several *new* `schedule_structural_check_around` call sites for
+   tree growth (every successful `Grow`, every `germinate()`) on top of the
+   existing explosion flood — worth prioritizing highest of this list, both
+   because it's the one most likely to produce a visible frame stutter in
+   ordinary play and because the exposure just grew.
+3. **`ChunkView::set` redundantly recomputes neighbour-waking for a
+   cross-boundary write.** Confirmed by tracing it: `queue_touch_neighbours`
+   queues `dirty_touches` during the parallel pass, then `run_pass`'s replay
+   calls `world.set(x, y, cell)` (which internally calls `touch_neighbours`
+   again) *and* separately replays the queued `dirty_touches` for the same
+   write. Real, but low-impact — idempotent, just wasted cycles, not a
+   correctness bug.
+4. **CI never runs a debug build.** `.github/workflows/ci.yml`'s three real
+   steps (`cargo test`, `cargo clippy`, `cargo run --example ascii`) are all
+   `--release`. The codebase leans on `debug_assert!` as a real guard
+   mechanism (organism/creature index overflow, `clear_moved` ownership,
+   `tick_burn` on a non-burning cell, `organism_structural_tick`'s span
+   assertion) — none of it is compiled in CI today.
+5. **`examples/ascii.rs` gates nothing.** Its worst-frame numbers are
+   treated as the de facto perf regression suite (README, CI comment) but
+   the example has no assertions and always exits 0 — only a panic fails
+   it. A 10x regression would pass silently.
+6. **`cargo fmt --check` is `continue-on-error: true`.** Confirmed
+   deliberate, not an oversight — the CI file has an honest comment
+   explaining the codebase predates `rustfmt.toml` and hasn't had a full
+   pass run against it yet (`pixel-physics-issues.md` issue #10). Still an
+   open item, just not a silent one.
+7. **Doc drift, three confirmed-stale claims:**
+   - README:631 claims `grep -rn unsafe src/` returns nothing but doc
+     comments — false; `src/main.rs` has real `unsafe { std::env::set_var
+     }`/`remove_var` blocks in tests (correctly `ENV_LOCK`-guarded, but the
+     claim itself is stale).
+   - `src/sim/cell.rs`'s own `aux` doc still says `Liquid` → "unused,
+     always 0, for now" — stale since the liquid rewrite started using it
+     for fill fraction.
+   - README has a direct in-document self-contradiction: line ~1302
+     documents field-sleeping (issue #4) as implemented ("`field::step` now
+     skips its whole five-pass solve once..."), and line ~1379, later in
+     the same file, says "issue #4, not yet fixed" — a "Correction to a
+     claim this section used to make" paragraph that itself went stale once
+     issue #4 was actually fixed without this passage being removed.
+
+**Suggested priority when this track gets picked back up** (owner hasn't
+committed to this order, just the reviewer's/agent's own read): #2
+(scheduler budget) first since it's a real perf risk this session's own
+work made larger; then the CI debug-build step (#4) and `ascii.rs`
+regression gate (#5) together since they're the same "make the safety net
+real" theme; then the doc-drift fixes (#7, cheap); #1 (creature reclaim)
+and #3 (redundant touch_neighbours) whenever convenient, both low urgency.
+Also worth a decision, not just a fix: whether to make `master` the
+default branch (or merge into `main`) and close out the
+`pixel-physics-issues.md` items that are actually resolved now.
