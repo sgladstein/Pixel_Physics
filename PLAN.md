@@ -2729,6 +2729,64 @@ fetches and passes `touched`). `examples/ascii.rs` (`render_stress_scene`
 settles its world and measures the optimized path).
 `docs/screenshots/section-11-dirty-rect-render/`. `PLAN.md`/`README.md`.
 
+### Live playtest finding: water settles into sand-like piles, not flat
+
+Reported directly from a live `cargo run` screenshot (F1 chunk overlay on,
+paused mid-simulation): two separate water pools on floating ledges both
+showed a trapezoidal, angle-of-repose top instead of a flat surface, and
+appeared to "bunch" aligned to the visible chunk grid.
+
+**Root-caused, not guessed at**, via a debug harness (`examples/
+debug_water.rs`, deleted after use) that poured water on isolated ledges
+and stepped it through both the serial and parallel (M5) drivers, dumping
+raw fill values alongside PNG snapshots:
+
+- **The sloped shape is real and reproducible** — the harness's own output
+  matched the screenshot's shape closely. Cause: `update_liquid`'s first
+  two moves (fall straight down, then diagonally into empty space) are the
+  *exact same code path* `update_powder` uses, and that mechanism can only
+  ever build an angle-of-repose slope — it stops the instant a surface
+  cell has diagonal support both sides, identically to how a sand grain's
+  pile forms. Only the much slower "compare against the emptiest same-
+  material cell within 8 cells, transfer half the difference" horizontal
+  mechanism erodes that initial rough shape toward flat, and it does so
+  slowly by design (see `MIN_LIQUID_TRANSFER`'s own doc in `update.rs`).
+  For a pool tens of cells wide this took hundreds to thousands of frames
+  to visibly flatten in the harness — plausible on a real timescale, and
+  exactly the "still sloped" state the screenshot caught.
+- **The "chunk-boundary bunching" does not appear to be a distinct bug.**
+  A controlled test poured two *identical*, symmetric water rectangles —
+  one centred exactly on a chunk boundary (x=64), one safely mid-chunk as
+  a control — and tracked left/right fill asymmetry over time under the
+  real parallel driver. Both converged to *perfect* symmetry by frame
+  ~60-100 and stayed symmetric through frame 400; the asymmetry that
+  appears later (frame 700+, as both pools drain to sparse residual
+  droplets) was actually *larger* in the mid-chunk control than the
+  boundary case, consistent with ordinary RNG-driven tie-breaking noise on
+  a near-empty region rather than anything boundary-specific. Current
+  read: the visible F1 grid lines simply happen to overlap wherever the
+  (separately real) slow-convergence slope sits, which reads as
+  "aligned to the grid" without an actual causal link. Flagged as needing
+  more scrutiny, not closed — see below.
+
+**Quick mitigation applied**: `water.ron`'s `flow_rate` raised from 200 to
+1000 (removing it as a redundant bottleneck under-neath `transfer_liquid_
+horizontal`'s own half-difference cap, which is what actually prevents
+overshoot/oscillation — see that function's doc). Confirmed via the debug
+harness this measurably speeds up the *later*, slow-smoothing phase, but
+does **not** fix the initial sloped shape, since that phase is dominated
+by the diagonal-fall step described above, not by `flow_rate`. All
+water-related tests still pass (`cargo test --lib water`: 11/11).
+
+**Explicitly not a trial-and-error fix from here**: at the user's
+request, a deep research pass on particle-based and CA-appropriate liquid
+simulation techniques (SPH and its real-time variants, and specifically
+how other falling-sand engines — Noita, The Powder Toy, Sandspiel — solve
+this exact "liquid looks like sand" problem) is in progress, to ground
+the real fix in prior art rather than more constant-tuning. See
+[`Reports/liquid-simulation-research.md`](Reports/liquid-simulation-research.md)
+once landed.
+
 ---
 
 ## M19 — Visual polish: make the engine beautiful

@@ -3,12 +3,28 @@
 // update.rs's module doc. Higher looks runnier and settles flat faster;
 // lower looks viscous. (dispersion is Gas kind's equivalent, not this
 // material's -- Liquid kind ignores it.)
+//
+// 1000 (i.e. no cap below a cell's own full fill) is deliberate, not an
+// oversight: `transfer_liquid_horizontal` already bounds each tick's
+// actual transfer to half the src/dst difference (see that function's own
+// doc for why -- transferring more overshoots and oscillates forever), so
+// flow_rate only ever throttles *on top of* that halving. At the original
+// 200, flow_rate was the binding constraint for any pool more than a
+// handful of cells wide, and a wide pool poured onto an unwalled ledge
+// stayed visibly sloped -- sand-pile-shaped, not flat -- for hundreds to
+// thousands of frames while flow_rate-limited transfers cascaded outward
+// one small hop at a time (reported directly from a live playtest
+// screenshot; reproduced with a debug harness pouring water on two
+// separate floating ledges and confirmed the same trapezoidal shape).
+// Removing flow_rate as a *second*, redundant bottleneck lets the halving
+// rule alone govern convergence speed, which converges geometrically
+// (each step closes half the remaining gap) rather than linearly.
 (
     name: "water",
     display: "Water",
     kind: Liquid,
     density: 1.0,
-    flow_rate: 200,
+    flow_rate: 1000,
     colors: [
         (64, 116, 208),
         (58, 108, 198),
