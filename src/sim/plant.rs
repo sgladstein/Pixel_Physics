@@ -29,6 +29,40 @@ fn dot(a: (f32, f32), b: (f32, f32)) -> f32 {
     a.0 * b.0 + a.1 * b.1
 }
 
+/// The canopy-density crowding signal `Grow`'s candidate scoring reads for
+/// a given open neighbour — the average density among *that candidate's
+/// own* same-organism 8-neighbours, not the candidate cell's own `aux`.
+/// `organism::diffuse_resource` is a no-op for `organism_id() == 0`
+/// (mirroring `diffuse_heat`'s own early return for thermally-inert
+/// material), so density never diffuses *into* the empty cells a candidate
+/// always is — reading a candidate's own aux read a permanent `0.0` no
+/// matter how densely it was actually surrounded, silently turning
+/// `crowding_weight` into a no-op and leaving growth with no working
+/// self-avoidance term at all (`Reports/tree-rewrite-design.md` §2b's own
+/// "deposit → diffuse → decay → follow" self-avoidance mechanism, verified
+/// on paper by two independent design reviews, neither of which caught
+/// that the "follow" step queries the wrong side of the occupied/empty
+/// boundary). Averaging over same-organism neighbours approximates what
+/// diffusion's own math would have produced at this position had it been
+/// able to write into empty cells, consistent with `diffuse_resource`'s
+/// own neighbour-average formula for the same channel.
+fn candidate_crowding(world: &World, x: i32, y: i32, organism_id: u16) -> f32 {
+    let mut sum = 0.0f32;
+    let mut count = 0u32;
+    for (dx, dy) in NEIGHBOURS_8 {
+        let n = world.get(x + dx, y + dy);
+        if n.organism_id() == organism_id {
+            sum += organism::canopy_density(n.aux());
+            count += 1;
+        }
+    }
+    if count == 0 {
+        0.0
+    } else {
+        sum / count as f32
+    }
+}
+
 // --- Organism-owned cells (`Reports/organism-substrate-design.md`) ------
 //
 // Generic dispatch for any species — moss is the only one retrofitted so
@@ -250,7 +284,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         continue;
                     }
                     let dir = normalize((dx as f32, dy as f32));
-                    let density = organism::canopy_density(world.get(nx, ny).aux());
+                    let density = candidate_crowding(world, nx, ny, organism_id);
                     let score = dot(dir, away_from_growth) * continuation_weight
                         + dot(dir, photo) * light_weight
                         + dot(dir, wind) * wind_weight
@@ -1830,5 +1864,52 @@ mod tests {
 
         let (_, resource) = organism::unpack_aux(w.get(100, 20).aux());
         assert!(resource > 0.0, "Photosynthesize should have accumulated resource from real sky light, got {resource}");
+    }
+
+    // --- Self-avoidance crowding regression (`candidate_crowding`) -------
+    //
+    // `organism::diffuse_resource` is a no-op for `organism_id() == 0`
+    // (mirroring `diffuse_heat`'s own early return for thermally-inert
+    // material), so canopy density never diffuses *into* an empty cell.
+    // `Grow`'s candidate loop originally read `canopy_density` at the
+    // candidate cell's own `aux` -- always empty, so always exactly `0.0`,
+    // no matter how densely it was actually surrounded, which silently
+    // turned `crowding_weight` into a no-op. `Reports/tree-rewrite-
+    // design.md` §2b's own "deposit -> diffuse -> decay -> follow" self-
+    // avoidance mechanism -- one of the four originally-blocking findings
+    // from this design's first independent review -- was verified on paper
+    // by two separate review rounds, neither of which caught that the
+    // "follow" step queried the wrong side of the occupied/empty boundary.
+
+    #[test]
+    fn candidate_crowding_reads_density_from_the_candidates_own_occupied_neighbours_not_its_own_always_empty_cell() {
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let wood = w.materials.id_of("wood").unwrap();
+        let organism_id = w.push_organism(tree_species);
+        // A same-organism neighbour immediately left of the candidate,
+        // carrying a real deposited canopy density.
+        let neighbour_aux = organism::with_canopy_density(organism::pack_aux(CellType::GrowingTip, 0.0), 2.0);
+        w.set(49, 50, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(neighbour_aux));
+        // The candidate itself is empty -- reading its own aux directly
+        // (the bug this guards against) would always read exactly 0.0.
+        assert!(w.is_empty(50, 50));
+
+        let density = candidate_crowding(&w, 50, 50, organism_id);
+        assert!(density > 0.0, "candidate_crowding should see the neighbour's deposited density, not the always-empty candidate's own aux, got {density}");
+    }
+
+    #[test]
+    fn candidate_crowding_ignores_a_different_organisms_density() {
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let wood = w.materials.id_of("wood").unwrap();
+        let this_organism = w.push_organism(tree_species);
+        let other_organism = w.push_organism(tree_species);
+        let neighbour_aux = organism::with_canopy_density(organism::pack_aux(CellType::GrowingTip, 0.0), 3.0);
+        w.set(49, 50, Cell::new(wood, 0).with_organism_id(other_organism).with_aux(neighbour_aux));
+
+        let density = candidate_crowding(&w, 50, 50, this_organism);
+        assert_eq!(density, 0.0, "a different organism's canopy density should not count as this organism's own crowding");
     }
 }
