@@ -212,7 +212,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         return Vec::new();
     };
     let species_id = state.species;
-    let (Some(cell_type), mut resource) = organism::unpack_aux(cell.aux()) else {
+    let (Some(mut cell_type), mut resource) = organism::unpack_aux(cell.aux()) else {
         return Vec::new(); // unrecognized cell-type bits -- nothing this dispatch knows how to run
     };
     // Cloned out of the registry rather than held as a borrow: the behavior
@@ -357,6 +357,28 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 }
                 found_candidate = true;
 
+                // A `GrowingTip` that successfully grows retires to
+                // `MatureBody` immediately, in the same tick, rather than
+                // staying an equally-eligible candidate to grow *again*
+                // from the same position next cycle. Without this, the
+                // frontier never actually advances: live-verification logs
+                // showed 78% of all Grow-evaluated positions revisited 3+
+                // times each (one cell hit 8 times), because a cell that
+                // had already grown a child kept being just as eligible to
+                // sprout an unrelated *second* child from the same spot,
+                // and a third, and so on, up to the species' own `max_
+                // active_tips` cap -- radiating growth from a small,
+                // static set of hub points instead of tips advancing
+                // outward, which is what actually produced the dense round
+                // clump `Reports/tree-rewrite-design.md` §11's own gate
+                // exists to catch, not a scoring-weight tuning problem.
+                // The newly created child (and branch child, if any) carry
+                // the frontier forward as the new active `GrowingTip`s;
+                // `RootTip` is untouched (`tree.ron`'s roots aren't the
+                // shape under investigation here, and have no `MatureBody`-
+                // equivalent "settled root" type to retire into yet).
+                let self_type_after_grow = if cell_type == CellType::GrowingTip { CellType::MatureBody } else { cell_type };
+
                 let total: f32 = candidates.iter().map(|&(_, _, s)| s).sum();
                 let mut pick = (world.rng.below(10_000) as f32 / 10_000.0) * total;
                 let mut chosen = candidates[0];
@@ -381,7 +403,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(new_aux);
                 world.set(tx, ty, new_cell);
                 resource -= cost;
-                world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
+                world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), self_type_after_grow, resource)));
                 next.push(reschedule_organism(tx, ty, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
 
                 // §3's branching: a second successful `Grow`, in a
@@ -398,11 +420,19 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             let branch_cell = Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(branch_aux);
                             world.set(bx, by, branch_cell);
                             resource -= cost;
-                            world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
+                            world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), self_type_after_grow, resource)));
                             next.push(reschedule_organism(bx, by, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
                         }
                     }
                 }
+
+                // Update the loop's own `cell_type` last, after every
+                // child (and branch child) above has already been created
+                // using the *original* type -- only a later behavior this
+                // same tick (`tree.ron`'s `GrowingTip` also has
+                // `Photosynthesize`) should see the retirement, not this
+                // arm's own child-creation code.
+                cell_type = self_type_after_grow;
             }
             Behavior::Photosynthesize { rate } => {
                 let light = ambient_light_above(world, x, y);
@@ -2019,5 +2049,45 @@ mod tests {
             density < organism::CANOPY_DENSITY_SCALE,
             "density should decay across repeated organism_tick calls, not stay stuck at the packed maximum, got {density}"
         );
+    }
+
+    // --- Tip-retirement regression ----------------------------------------
+    //
+    // A `GrowingTip` that successfully grew a child used to stay exactly as
+    // eligible to grow *another*, unrelated child from the same position
+    // next cycle -- live-verification logs showed 78% of all `Grow`-
+    // evaluated positions revisited 3+ times each, radiating growth from a
+    // small set of static hub points instead of tips advancing outward,
+    // which is what actually produced a dense round clump instead of
+    // anything reading as a tree. A `GrowingTip` should retire to
+    // `MatureBody` the instant it successfully grows; the newly created
+    // child carries the frontier forward instead.
+
+    #[test]
+    fn a_growing_tip_retires_to_mature_body_after_successfully_growing() {
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let wood = w.materials.id_of("wood").unwrap();
+        let organism_id = w.push_organism(tree_species);
+        // Comfortably above tree.ron's GrowingTip `Grow` cost (0.4), in
+        // open space on every side, so this call is guaranteed to find a
+        // positive-scoring candidate and actually grow.
+        let aux = organism::pack_aux(CellType::GrowingTip, 2.0);
+        w.set(100, 100, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+
+        let next = organism_tick(&mut w, 100, 100, organism_id, 0);
+
+        let (self_type, _) = organism::unpack_aux(w.get(100, 100).aux());
+        assert_eq!(self_type, Some(CellType::MatureBody), "a GrowingTip that just grew should retire to MatureBody, not stay an equally-eligible growth candidate");
+
+        // Exactly one newly created cell nearby should carry the frontier
+        // forward as the new active GrowingTip.
+        let new_tips: Vec<(i32, i32)> = NEIGHBOURS_8
+            .iter()
+            .map(|&(dx, dy)| (100 + dx, 100 + dy))
+            .filter(|&(nx, ny)| organism::unpack_aux(w.get(nx, ny).aux()).0 == Some(CellType::GrowingTip))
+            .collect();
+        assert_eq!(new_tips.len(), 1, "expected exactly one new GrowingTip child, got {new_tips:?}");
+        assert!(!next.is_empty(), "the new child should be scheduled");
     }
 }

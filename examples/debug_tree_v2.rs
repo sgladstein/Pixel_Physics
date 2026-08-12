@@ -25,9 +25,9 @@ fn save_png(app: &mut App, path: &str) {
     // upscaled 4x -- a whole-world 512x320 shot makes a ~30-cell-tall
     // sapling nearly indistinguishable from a smudge; this is the one
     // actually worth reading.
-    let (cx0, cy0, cx1, cy1) = (20i32, 0i32, 260i32, 105i32);
+    let (cx0, cy0, cx1, cy1) = (75i32, 0i32, 135i32, 30i32);
     let (cw, ch) = ((cx1 - cx0) as u32, (cy1 - cy0) as u32);
-    const ZOOM: u32 = 4;
+    const ZOOM: u32 = 12;
     let mut cropped = vec![0u8; (cw * ZOOM * ch * ZOOM * 4) as usize];
     for y in 0..ch {
         for x in 0..cw {
