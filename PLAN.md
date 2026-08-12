@@ -2819,6 +2819,142 @@ frames'* shape, not eventual convergence. Not yet implemented — the
 report deliberately stops at the direction, not a finished design; that's
 implementation work with its own test-driven verification loop.
 
+### Live playtest feedback: tree growth is real but tiny — a soil/moisture/differentiated-cell/environmental-interaction vision for a later phase
+
+After the four `Grow`/canopy-density bugs above were fixed and `tree.ron`'s
+resource economy retuned via a 6-way parallel comparison (own section
+below), the owner's read on the result: genuine improvement, but still a
+tiny tree — one cell thick, ~18 cells total, no visually distinct leaves,
+no roots at all in the test scene. Asked what's actually limiting bigger
+growth, and to record a fuller future vision (soil-grown roots with a real
+moisture economy, mud, visually/behaviorally distinct root/trunk/leaf
+cells, and environmental interaction — debris catching on branches, weight
+breaking them, roots stabilizing soil) without implementing any of it yet:
+**"I want to get the simple tree mechanics right before we complicate
+things."**
+
+**Diagnosis of the four symptoms, each traced to a specific mechanism, not
+a bug:**
+
+- **Growth stays small and stops for good.** A `GrowingTip` that
+  successfully grows retires to `MatureBody` (the fix above) — the
+  *child* carries the frontier forward, not the parent. But nothing ever
+  creates a *new* independent frontier once every existing lineage has
+  either dead-ended (four consecutive `Grow` misses → permanent
+  `MatureBody`, `plant.rs`'s staleness path) or run its course. `branch_
+  chance: 0.1` is the only source of more than one simultaneous lineage,
+  and it's low. Once every active `GrowingTip` an organism has is gone,
+  growth is over for that organism, forever, regardless of remaining
+  light or space — there is no mechanism (epicormic budding, or anything
+  like it) for a mature tree to issue a new shoot later. This is the
+  actual ceiling on total size, not the resource economy just retuned.
+- **One cell thick.** `SecondaryThicken`'s own pipe-model trigger
+  (`leaf_count / width > pipe_ratio`, `plant.rs`'s `thicken()`) counts
+  only cells that are *currently* `GrowingTip` or `Leaf` via a downstream
+  flood fill. Since tips now retire to `MatureBody` immediately after
+  growing (necessary — it's what fixed the round-clump bug above), the
+  count of cells still carrying `GrowingTip` at any instant is almost
+  always 0–2 for a tree this small, which essentially never clears `pipe_
+  ratio: 2.5`. Direct, connected side effect of today's own retirement
+  fix, not a separate problem — thickening needs a bigger, longer-lived
+  tree (or a lower ratio, or a different downstream-load signal than
+  "currently mid-growth") before it can ever fire.
+- **No visually distinct leaves.** By design, documented in `tree.ron`'s
+  own header: this pass's `Grow` only ever creates more of its own
+  parent's cell type — no separate `Leaf` spawned. `GrowingTip` doubles as
+  its own photosynthetic surface. `CellType::Leaf` exists in `organism.rs`
+  and is wired into the dispatch table, just never produced by anything
+  yet. A known, deliberate simplification carried the whole session, not
+  a regression.
+- **No roots in the test scene, and roots can't grow through soil at all
+  yet regardless.** `germinate()` only creates the companion `RootTip` if
+  the cell directly below the seed is empty (`plant.rs:540`) — the test
+  room's stone floor sits directly under the seed, so no root is ever
+  created there. That's scene-specific and easy to change. The deeper gap
+  is older than this session: `Grow`'s candidate loop (shared by
+  `GrowingTip` and `RootTip`) only ever considers a neighbour if `world.
+  is_empty(nx, ny)` — there is no displacement-into-loose-material
+  mechanic at all, for either cell type. A root cannot grow "through"
+  soil today even where soil exists; it can only extend into literal open
+  air, exactly like canopy growth does. This was flagged as far back as
+  the very first tree-growth playtest note above ("roots currently fail
+  to grow at all when a tree is planted directly on stone with no soil
+  underneath") and the organism-substrate rewrite this whole arc has been
+  working toward was always the intended fix — it just hasn't reached
+  roots yet.
+
+**"Too much weight breaks a branch" is not new scope — it's already the
+next planned step, just not done.** `wood.ron` already sets `max_
+unsupported_span: 8` (the plan's own suggested tree number, "stone 3, wood
+8, steel 20"), and `structural.rs` already extends `is_body_material` to
+`Solid | Plant`. But `organism_structural_tick`'s own doc says so
+directly: *"material sets a finite max_unsupported_span but organism_
+structural_tick has no anchor-based check wired up yet for organism-owned
+cells."* That's this session's own pending "tree rewrite step 5." Given
+the owner's stated preference — simple mechanics first — this is the
+natural very-next piece, not a future-phase item.
+
+**The rest of the vision, organized by what already exists to build on
+versus what's genuinely new design work:**
+
+- **Roots grow through soil, not just into open air.** `soil` is already
+  a real material (Powder kind, produced by the existing ash → soil decay
+  cycle — overnight run section 8's own entry above). What's missing:
+  `Grow`'s `RootTip` candidate scoring needs a second "growable" case
+  alongside `is_empty` — displacing into `soil` specifically (converting
+  it to root material, the same shape `has_growable_neighbour` already
+  uses for moss growing onto `Solid`, generalized to a displace-and-
+  convert instead of grow-onto-empty).
+- **Soil moisture, consumed by roots, raised by water, too much is bad.**
+  Also not starting from zero: a field-level moisture channel already
+  exists, and `World::deplete_moisture` is already called by `RootTip`'s
+  `Absorb` when it drinks an adjacent `Liquid` cell. Extending "grow
+  through soil" to also deplete moisture along the way is the same API,
+  not new infrastructure. Genuinely new design decisions: the mud
+  transition at high saturation (a new material, or a wet-soil variant —
+  `decay.rs`'s ash→soil transition is the template to follow), and what
+  "too much moisture" actually costs a root (slower growth? reduced
+  absorb efficiency? literal rot?) — needs a real mechanism, not a vague
+  penalty.
+- **Root, trunk, and leaf cells look and behave differently.** Partially
+  exists: `CellType` already distinguishes `RootTip`/`GrowingTip`/
+  `MatureBody`/`Leaf`, and each already carries its own behavior list in
+  species data. What's missing is the material/appearance side — every
+  cell type currently paints as plain `wood`. Needs either per-cell-type
+  materials (`root-wood`, `heartwood`, `leaf`) or a shading/palette rule
+  keyed on `CellType`, plus `Grow` actually producing a distinct `Leaf`
+  cell (closing the "no visible leaves" gap above at the same time).
+- **Environmental interaction — debris catching on branches, roots
+  stabilizing soil.** The least-grounded item, genuinely open design
+  work: does a powder cell resting against a `Plant` cell already count
+  as supported by the existing CA fall rules, or does it currently fall
+  through/around? Not yet checked. Roots stabilizing nearby soil is the
+  mirror image of the weight-breaking mechanic above — extending
+  anchor-distance credit *outward* from a root into adjacent soil, rather
+  than only checking a wood cell's own distance from an anchor.
+
+**Sequencing, per the owner's own stated preference:** this phase comes
+*after* the current tree-rewrite retrofit finishes — step 5 (structural
+integrity, above, effectively already part of it), step 7 (cut over
+`plant_tree`, delete `TreeState`/`Tip`/`RootTip`), and step 8 (independent
+review) — not before. It needs its own just-in-time design report before
+any implementation, matching this project's standing practice for every
+other structural change (`design-philosophy.md` §3, `organism-substrate-
+design.md`'s own retrofit-order precedent). Not started; recorded here so
+the next design pass has the full picture rather than rediscovering it.
+
+**Standing constraint for all of the above, restated by the owner:**
+today's organism substrate (`OrganismState { species: SpeciesId }`,
+species-level shared behavior data) should be built so a later per-
+organism trait-variation/evolution milestone can extend it, not require
+throwing it away. Concretely, in mind for every change from here on:
+prefer adding new *per-organism* state (a trait vector, eventually) over
+hardcoding more assumptions that every individual of a species is
+identical; keep species-level constants read through the existing
+`Species`/`Behavior` indirection rather than inlined at call sites, so a
+future per-organism override has a seam to hook into instead of a rewrite
+to perform.
+
 ---
 
 ## M19 — Visual polish: make the engine beautiful
