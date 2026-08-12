@@ -2782,10 +2782,42 @@ water-related tests still pass (`cargo test --lib water`: 11/11).
 request, a deep research pass on particle-based and CA-appropriate liquid
 simulation techniques (SPH and its real-time variants, and specifically
 how other falling-sand engines — Noita, The Powder Toy, Sandspiel — solve
-this exact "liquid looks like sand" problem) is in progress, to ground
-the real fix in prior art rather than more constant-tuning. See
-[`Reports/liquid-simulation-research.md`](Reports/liquid-simulation-research.md)
-once landed.
+this exact "liquid looks like sand" problem) grounded the real fix in
+prior art rather than more constant-tuning. Full report:
+[`Reports/liquid-simulation-research.md`](Reports/liquid-simulation-research.md).
+
+**The verdict: don't adopt SPH/PBF/PIC-FLIP — fix the CA rule's mechanism
+ordering instead.** No GPU compute path exists in this engine to run any
+of them on (`pixels`/`wgpu` are presentation-only here), and the numbers
+don't fit even generously (real-time SPH's own 2003 paper caps at 5000
+particles for a single-purpose demo; Position Based Fluids needs a CUDA
+GPU to hit 128k particles at a few ms; PIC/FLIP-for-granular-material runs
+~6 seconds a frame, offline, in 3D) — against this engine's existing
+163,840-cell grid already running six material kinds plus fire/structural/
+plant logic in one ~16ms budget. Every comparable falling-sand engine
+surveyed (TPT, Sandspiel, Noita) also uses a discrete per-cell CA rule for
+liquid, never a particle solver — the genuine difference is that each of
+them lets sideways movement participate in a liquid cell's *first*
+movement decision, where this engine's `update_liquid` currently runs an
+unconditional, powder-identical diagonal-fall phase first (to exhaustion)
+before its liquid-specific horizontal-transfer mechanism ever gets a
+turn — exactly reproducing a sand pile's angle-of-repose shape for however
+long that phase takes to exhaust itself. Zhu & Bridson's sand-as-fluid
+paper (SIGGRAPH 2005) supplies the cleanest frame for the fix: give a
+liquid cell an explicit per-step choice between "behaving as a settled
+mass" and "behaving as a flowing surface" (their Mohr–Coulomb yield
+check), rather than one hardwired first-mechanism that can only ever
+express the settled case. Concretely: give `Liquid` kind a same-step,
+bounded-width horizontal search for a lower/emptier opening, evaluated
+before or alongside the diagonal-fall check rather than gated behind it —
+reusing the existing `HORIZONTAL_TRANSFER_REACH` rather than a new
+constant. The existing compressible-fill mechanism
+(`transfer_liquid_vertical`/`horizontal`) stays; it's already the
+technically correct long-run leveling process, validated by this
+engine's own passing tests — the bug is specifically about the *first few
+frames'* shape, not eventual convergence. Not yet implemented — the
+report deliberately stops at the direction, not a finished design; that's
+implementation work with its own test-driven verification loop.
 
 ---
 
