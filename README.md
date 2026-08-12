@@ -278,6 +278,23 @@ measurably drier, which a second root's own `moisture_pull` gradient read
 can notice and steer away from — resource competition mediated entirely
 through the world, with no code anywhere that knows two roots are competing.
 
+**A day/night cycle now drives the sky** (architecture §5h) — the same
+`apply_sky` writer from §2, given a time-varying amplitude instead of a flat
+`MAX_LIGHT`: a clamped cosine hump that spends half of `DAY_NIGHT_PERIOD_
+FRAMES` at a dim `NIGHT_LIGHT_FLOOR` and the other half ramping through a
+daylight peak. Every existing light-channel reader (moss shade-seeking, tree
+phototropism) gets a real cycle for free. The one thing this couldn't just
+be free: `apply_sky`'s value now changes with elapsed time alone, with no
+CA write to keep the field-sleeping gate (issue #4) awake for it the way
+every other disturbance does — left alone, a field that settled at noon and
+then saw the world go quiet would stay frozen at noon forever. `field::step`
+now also wakes for a sky-amplitude change bigger than its own settle
+epsilon, checked with one cheap pure-function call rather than a field read,
+which — since the oscillator's rate of change is genuinely near zero at
+noon and midnight — still lets a scene sleep through the steady parts of
+day and night exactly as before, only staying awake through the actual
+dawn/dusk transition.
+
 ## M12/M13 status
 
 `Cell` widened from 4 to 8 bytes (32 MB instead of 16 for a 2048² world —

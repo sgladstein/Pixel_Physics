@@ -424,7 +424,33 @@ pub fn step(world: &mut World) {
     // writes from the sweep itself are never subject to this, since their
     // own `mark_dirty` → `end_step` promotion happens entirely inside the
     // same `parallel::step` call, before `step_fields()` runs.
-    if world.active_chunk_count() == 0 && world.fields_settled() {
+    // §5h's day/night oscillator adds a wrinkle here: `apply_sky`'s forced
+    // value now changes with `world.frame` alone, with no CA write to keep
+    // `active_chunk_count()` nonzero the way every *other* disturbance this
+    // early-return relies on does (see the paragraph above). Without this
+    // extra check, a field that settled at, say, noon's amplitude and then
+    // saw the CA grid go fully quiet would stay frozen at noon forever —
+    // `fields_settled()` never gets a reason to go false again just because
+    // time passed. Comparing this frame's amplitude against *last* frame's
+    // (not the last frame this function actually ran a full solve for) is
+    // deliberately cheap — an O(1) pure-function call, not a field read —
+    // and self-correcting even though it can theoretically let a few
+    // frames' worth of sub-epsilon drift accumulate right at a peak/trough
+    // where the curve is nearly flat anyway: the next time consecutive
+    // frames actually differ by more than the epsilon, a full solve runs
+    // and catches everything up, the same way any other epsilon-bounded
+    // settling check in this file already tolerates.
+    // `saturating_sub`, not `wrapping_sub`: at frame 0 (a world that has
+    // never had `begin_step` called on it at all, e.g. `field::step` driven
+    // directly in isolation, as several tests and the `field_sleep_scene`
+    // ascii example do) there is no meaningful "frame -1" to compare
+    // against, and wrapping to `u64::MAX` would compare against whatever
+    // `sky_light_amplitude(u64::MAX)` happens to land on by coincidence of
+    // `u64::MAX % DAY_NIGHT_PERIOD_FRAMES` rather than anything meaningful.
+    // Saturating at 0 instead means "no time has passed since frame 0" reads
+    // as exactly zero change, which is the actually correct answer.
+    let amplitude_changed = (sky_light_amplitude(world.frame) - sky_light_amplitude(world.frame.saturating_sub(1))).abs() > SETTLE_EPSILON_LIGHT;
+    if world.active_chunk_count() == 0 && world.fields_settled() && !amplitude_changed {
         return;
     }
 
@@ -500,12 +526,38 @@ fn is_converged(old: &HashMap<ChunkCoord, FieldTile>, coords: &[ChunkCoord], nex
     true
 }
 
-/// Constant top-of-world light boundary condition — architecture report §2's
-/// sky source, the counterpart to fire's local light emission in `fire.rs`.
-/// Per column, not against one global `bounds.min_y` row: worldgen does not
-/// guarantee every column reaches the same height, and each column's own
-/// topmost *resident* chunk is what should read as exposed, not whichever
-/// row happens to be highest across the whole world.
+/// Frames per full day/night cycle — architecture §5h, "the same writer
+/// [as §2's sky] with a time-varying amplitude." Picked so a scene running
+/// for a few thousand frames (the scale of this file's own longer tests,
+/// and of `plant.rs`'s multi-thousand-frame growth runs) sees at least one
+/// full day and one full night, not just a sliver of one.
+const DAY_NIGHT_PERIOD_FRAMES: u64 = 3600;
+/// Floor on `sky_light_amplitude` at the darkest point of night — real
+/// moon/starlight, not absolute zero. Keeps night from being a hard on/off
+/// switch for everything reading the light channel (moss shade-seeking,
+/// phototropism), the same reasoning `shade_factor`'s own floor uses.
+const NIGHT_LIGHT_FLOOR: f32 = 0.2;
+
+/// The sky's own light output at a given frame — a smooth oscillation
+/// between `NIGHT_LIGHT_FLOOR` and `MAX_LIGHT`, spending exactly half of
+/// `DAY_NIGHT_PERIOD_FRAMES` at the floor (night) and half ramping through a
+/// cosine hump (day), rather than a sine that would spend the whole cycle
+/// above the floor. Real daylight is roughly this shape — a smooth rise
+/// from sunrise, a peak at noon, a smooth fall to sunset, then flat dark
+/// until the next sunrise — not a pure sinusoid with no true night.
+fn sky_light_amplitude(frame: u64) -> f32 {
+    let phase = (frame % DAY_NIGHT_PERIOD_FRAMES) as f32 / DAY_NIGHT_PERIOD_FRAMES as f32;
+    let daylight = (phase * std::f32::consts::TAU).cos().max(0.0);
+    NIGHT_LIGHT_FLOOR + daylight * (MAX_LIGHT - NIGHT_LIGHT_FLOOR)
+}
+
+/// Top-of-world light boundary condition — architecture report §2's sky
+/// source, now driven by §5h's day/night oscillator (`sky_light_amplitude`)
+/// rather than a flat `MAX_LIGHT`. The counterpart to fire's local light
+/// emission in `fire.rs`. Per column, not against one global `bounds.min_y`
+/// row: worldgen does not guarantee every column reaches the same height,
+/// and each column's own topmost *resident* chunk is what should read as
+/// exposed, not whichever row happens to be highest across the whole world.
 ///
 /// Runs last, after `step_advection` — diffusion and advection both
 /// unconditionally overwrite every field cell they touch, sky row included,
@@ -516,10 +568,17 @@ fn is_converged(old: &HashMap<ChunkCoord, FieldTile>, coords: &[ChunkCoord], nex
 /// hasn't accounted for yet; this is a stable, ever-present boundary
 /// condition, and `is_converged`'s own old-vs-next comparison already
 /// recognizes it as settled once the sky row — and whatever it diffuses
-/// into — stops changing frame to frame. Force-waking every frame for a
-/// boundary condition that mostly holds steady would defeat field sleeping
-/// (issue #4) for any scene with open sky at all, which is most of them.
+/// into — stops changing frame to frame. That still holds with a
+/// time-varying amplitude: near noon and midnight the cosine's own
+/// derivative is close to zero, so consecutive frames differ by less than
+/// `SETTLE_EPSILON_LIGHT` and the field settles same as it always did;
+/// only near sunrise/sunset (where the amplitude is actually changing
+/// fastest) does that stop holding, and the field correctly stays awake
+/// through the transition — a real property of daylight, not a bug to work
+/// around. Force-waking every frame regardless, the way `add_light` does,
+/// would defeat field sleeping (issue #4) for every open-sky scene, all day.
 fn apply_sky(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
+    let amplitude = sky_light_amplitude(world.frame);
     for &coord in coords {
         let above = ChunkCoord::new(coord.x, coord.y - 1);
         if world.chunk(above).is_some() {
@@ -531,7 +590,7 @@ fn apply_sky(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord
         for lx in 0..FIELD_TILE_SIZE {
             if !tile.is_blocked_local(lx, 0) {
                 let mut cell = tile.get_local(lx, 0);
-                cell.light = MAX_LIGHT;
+                cell.light = amplitude;
                 tile.set_local(lx, 0, cell);
             }
         }
@@ -1132,6 +1191,70 @@ mod tests {
         let blocked = w.field_at(140, 10).light; // inside the solid block itself
         assert!(open > 0.5, "the open column under the sky did not brighten: {open}");
         assert_eq!(blocked, 0.0, "a solid field cell should never carry a light value of its own");
+    }
+
+    #[test]
+    fn sky_light_amplitude_cycles_between_the_night_floor_and_max_light() {
+        // Architecture §5h. frame = 0 is noon (this file's own convention:
+        // `cos(0) = 1`, full daylight) rather than sunrise or midnight --
+        // matters only for reading these numbers, not for correctness.
+        assert_eq!(sky_light_amplitude(0), MAX_LIGHT, "frame 0 should read as full daylight");
+        assert_eq!(
+            sky_light_amplitude(DAY_NIGHT_PERIOD_FRAMES / 2),
+            NIGHT_LIGHT_FLOOR,
+            "half a period later should be the deepest point of night"
+        );
+        assert_eq!(
+            sky_light_amplitude(DAY_NIGHT_PERIOD_FRAMES),
+            sky_light_amplitude(0),
+            "a full period should bring the cycle back to exactly where it started"
+        );
+        // An eighth of the way through the cycle -- comfortably inside the
+        // "day" half (which spans phase -0.25..0.25) rather than sitting
+        // exactly on its edge the way the quarter-period point does (where
+        // cos hits exactly zero and the reading is indistinguishable from
+        // the night floor).
+        let mid_morning = sky_light_amplitude(DAY_NIGHT_PERIOD_FRAMES / 8);
+        assert!(
+            mid_morning > NIGHT_LIGHT_FLOOR && mid_morning < MAX_LIGHT,
+            "a mid-morning point should read strictly between the floor and the peak: {mid_morning}"
+        );
+    }
+
+    #[test]
+    fn the_sky_keeps_cycling_through_day_and_night_even_after_the_field_goes_quiet() {
+        // Regression for the interaction §5h introduces with issue #4 (field
+        // sleeping): apply_sky's forced value now changes with world.frame
+        // alone, with no CA write to keep active_chunk_count() nonzero the
+        // way every other disturbance this file's early-return relies on
+        // does. Without the amplitude-delta check added alongside this
+        // channel, a field that settled at noon and then saw the CA grid go
+        // fully quiet would stay frozen at noon's brightness forever, never
+        // producing a real day/night cycle for any scene that isn't
+        // actively churning. `field::step` still has to be called every
+        // frame for this to work (same as the real app's own `App::update`,
+        // which calls `world.step_fields()` unconditionally every frame) --
+        // what's being tested is that most of those calls can stay cheap
+        // no-ops while the ones during an actual dawn/dusk transition still
+        // do real work.
+        let mut w = test_world();
+        for _ in 0..50 {
+            step(&mut w); // converge to frame 0's (noon) amplitude
+        }
+        assert!(w.fields_settled(), "test setup should have reached a converged, quiet field");
+        let noon = w.field_at(20, 4).light; // inside the sky row itself (field row 0 = world y 0..7)
+        assert_eq!(noon, MAX_LIGHT, "test setup should have settled at full daylight");
+
+        for _ in 0..(DAY_NIGHT_PERIOD_FRAMES / 2) {
+            w.begin_step();
+            step(&mut w);
+            w.end_step();
+        }
+        let midnight = w.field_at(20, 4).light;
+        assert!(
+            (midnight - NIGHT_LIGHT_FLOOR).abs() < SETTLE_EPSILON_LIGHT * 2.0,
+            "the sky did not reach night despite stepping through half a full cycle: noon={noon}, midnight={midnight}"
+        );
     }
 
     #[test]

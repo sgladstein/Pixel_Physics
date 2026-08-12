@@ -1444,6 +1444,37 @@ updated at each milestone commit, not just when something is added.
   the mechanism directly rather than through a full multi-root competition
   scene, which would mostly be testing scheduling noise rather than the
   write itself.
+- **Architecture §5h** (day/night oscillator): **done.** Per the report's
+  own build note — "the same writer [as §2's sky] with a time-varying
+  amplitude" — `apply_sky` now forces the sky row to `sky_light_amplitude
+  (world.frame)` instead of a flat `MAX_LIGHT`: a cosine hump clamped at
+  zero, spending exactly half of `DAY_NIGHT_PERIOD_FRAMES` (3600) flat at
+  `NIGHT_LIGHT_FLOOR` (0.2, real moon/starlight rather than absolute black)
+  and the other half ramping smoothly through a daylight peak at `MAX_
+  LIGHT`. Every existing reader of the light channel (moss shade-seeking,
+  tree phototropism) gets a real day/night cycle for free, matching the
+  report's own claim that one oscillator drives several systems at once
+  purely because they already read the channel it writes.
+  
+  This surfaced a real interaction with issue #4 (field sleeping) that
+  needed its own fix, not just documentation: `apply_sky`'s value now
+  changes with elapsed time alone, with no CA write to keep `active_chunk_
+  count()` nonzero the way every other disturbance the sleep gate relies on
+  does — without a fix, a field that settled at noon and then saw the CA
+  grid go fully quiet would stay frozen at noon's brightness forever.
+  `field::step`'s early-return gate now also compares `sky_light_amplitude
+  (world.frame)` against the previous frame's value (a cheap pure-function
+  call, not a field read) and refuses to skip when they differ by more than
+  `SETTLE_EPSILON_LIGHT` — which happens only near actual dawn/dusk
+  transitions, since the cosine's own derivative is small near noon and
+  midnight, so sleeping through the steady parts of day and night still
+  works exactly as before. Measured against the stress scene: no
+  significant change (28.6 ms serial / 9.8 ms parallel, within this
+  machine's already-documented run-to-run noise). Two new regression tests:
+  `sky_light_amplitude_cycles_between_the_night_floor_and_max_light`
+  (the oscillator's own shape) and `the_sky_keeps_cycling_through_day_and_
+  night_even_after_the_field_goes_quiet` (the sleep-gate interaction,
+  confirmed to fail — stuck at noon's brightness forever — without the fix).
 
 ---
 
