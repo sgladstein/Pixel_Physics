@@ -42,7 +42,7 @@
 
 use super::chunk::{Rect, MAX_REACH};
 use super::fire;
-use super::material::{self, MaterialKind};
+use super::material::{self, MaterialKind, HORIZONTAL_TRANSFER_REACH};
 use super::surface::CellSurface;
 use super::world::World;
 use crate::sim::cell::Cell;
@@ -241,24 +241,14 @@ fn transfer_liquid_vertical<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> 
 /// for settling speed, not a rounding-level tweak.
 const MIN_LIQUID_TRANSFER: u16 = 150;
 
-/// How far `transfer_liquid_horizontal` looks past the immediate neighbour
-/// for a genuinely emptier cell to level against. Immediate-neighbour-only
-/// transfer is correct but slow at width: pure nearest-neighbour diffusion
-/// needs on the order of (width²) frames to fully equalise a wide body,
-/// since a fill difference can only ever move one cell per frame no matter
-/// how large `flow_rate` is -- confirmed concretely, a 100-cell-wide test
-/// column was still visibly un-flat (height varying roughly 6-39 cells)
-/// after 3000 frames with reach fixed at 1, and raising `flow_rate` alone
-/// from 200 to 500 made no measurable difference, exactly as that reasoning
-/// predicts. Looking `REACH` cells ahead lets one transfer close much more
-/// of a gradient per frame. Small relative to `MAX_REACH` (32) — this is
-/// not a reintroduction of the old dispersion-search's failure mode, since
-/// unlike that search, finding nothing better within `REACH` never blocks
-/// levelling entirely; it only means this particular frame's transfer
-/// falls back to the immediate neighbour, and the same diffusion process
-/// that fixes the original bug (propagating through cells regardless of
-/// distance, just not instantly) still applies beyond `REACH`.
-const HORIZONTAL_TRANSFER_REACH: i32 = 8;
+// `HORIZONTAL_TRANSFER_REACH` (how far `transfer_liquid_horizontal` below
+// looks past the immediate neighbour for a genuinely emptier cell to level
+// against, fixing the width-dependent slow convergence pure nearest-neighbour
+// diffusion has) now lives in `material.rs`, imported above -- issue #3's
+// per-chunk sweep-reach tracking (`Material::sweep_reach`, `chunk.rs`) needs
+// this same number, and `chunk.rs` must not depend on `update.rs`. See its
+// doc there for the full derivation, including the 100-cell-wide-column
+// measurement that picked 8.
 
 /// Compare fill against the emptiest reachable cell within
 /// `HORIZONTAL_TRANSFER_REACH` in direction `dir` and transfer up to half
@@ -470,11 +460,19 @@ fn flow_sideways<S: CellSurface>(
     false
 }
 
-/// How far a free liquid surface looks along its row for somewhere to fall.
+/// How far a free gas surface looks along its row for somewhere to fall,
+/// once `flow_sideways`'s initial `dispersion`-limited walk can't find
+/// anywhere better. Named for what it was written for — a liquid's free
+/// surface, before `HORIZONTAL_TRANSFER_REACH` moved `Liquid` off
+/// `flow_sideways` entirely (see this module's own doc) — but `Gas` never
+/// moved off it, so this is `Gas`-only now.
 ///
-/// Capped at `MAX_REACH` because sweep regions are widened by exactly that
-/// much: looking further would mean acting on a cell that no longer wakes this
-/// one when it changes, and the liquid would go stale mid-flow.
+/// Capped at `MAX_REACH` because a chunk's sweep region can never be
+/// widened past it (`Material::sweep_reach`'s own doc has the load-bearing
+/// consequence: a gas cell's true worst-case reach is `dispersion +
+/// SURFACE_SEARCH`, not `dispersion` alone) — looking further would mean
+/// acting on a cell that no longer wakes this one when it changes, and the
+/// gas would go stale mid-flow.
 const SURFACE_SEARCH: i32 = MAX_REACH;
 
 /// Distance to the nearest cell along the row from which the material could

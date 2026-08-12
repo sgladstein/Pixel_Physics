@@ -154,17 +154,28 @@ The flag is set **only when the sweep will reach the destination again** — see
 `World::move_cell`. Downward moves land in rows already passed and must not be
 flagged, or everything falls at half speed.
 
-**No rule may look further than `MAX_REACH`.** Sweep regions are widened by
-that much horizontally (and one cell vertically, which is as far as anything
-looks up or down), because a cell has to be reconsidered whenever anything it
-can *see* changes — not just its immediate neighbours. A rule that reads
-further than the region is widened acts on cells that no longer wake it, and
-material goes stale mid-flow. Powder roll, liquid dispersion and the liquid
-surface search are all capped at it. **This limit applies to the CA sweep
-only.** The field grid (below) is a whole-grid pass that reads everything
-every step regardless of what changed, so it has no equivalent staleness risk
-and is not bound by it — that is precisely why long-range effects like a
-shockwave crossing the whole screen live there and not in a CA rule.
+**No rule may look further than `MAX_REACH` (32).** Every movement rule caps
+itself at it independently — powder roll (via its friction angle), a liquid's
+horizontal levelling search (`HORIZONTAL_TRANSFER_REACH`, 8), a gas's
+dispersion search — so it is a hard outer bound on all of them, not a value
+any single rule normally reaches. A rule that reads further than its chunk's
+sweep region is widened acts on cells that no longer wake it, and material
+goes stale mid-flow.
+
+Sweep regions are widened horizontally by each chunk's own **tracked
+reach**, not a flat constant (issue #3): every write grows it to at least
+that material's own reach (`Material::sweep_reach`), and it only shrinks
+back down when the chunk goes fully quiet, the one point a smaller value is
+both cheap to recompute and safe to adopt. A chunk holding only sand no
+longer pays for a `MAX_REACH`-wide band the way a chunk full of dispersing
+gas does. (One cell vertically either way, which is as far as anything
+looks up or down, is unaffected — that part of the widening was never the
+expensive one; see `chunk.rs`'s own doc on `Chunk::sweep_region`.)
+**This limit applies to the CA sweep only.** The field grid (below) is a
+whole-grid pass that reads everything every step regardless of what
+changed, so it has no equivalent staleness risk and is not bound by it —
+that is precisely why long-range effects like a shockwave crossing the
+whole screen live there and not in a CA rule.
 
 ## The coarse field grid
 

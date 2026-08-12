@@ -11,22 +11,34 @@ use super::rng::Rng;
 pub const CHUNK_SIZE: i32 = 64;
 pub const CHUNK_AREA: usize = (CHUNK_SIZE * CHUNK_SIZE) as usize;
 
-/// The furthest a movement rule may look sideways from the cell it is deciding
-/// about — a powder's roll, a liquid's dispersion and its search for somewhere
-/// to fall are all capped at this.
+/// The furthest any movement rule, for any material, may ever look sideways
+/// from the cell it is deciding about. Every rule that reads sideways caps
+/// itself at this independently — a powder's roll (`Material::roll_reach_at`,
+/// itself clamped when derived from `friction_angle`), a liquid's levelling
+/// search (`HORIZONTAL_TRANSFER_REACH`, 8) — so this is a hard outer bound
+/// on all of them, not a value any single rule normally reaches. **Gas is
+/// the exception**: `flow_sideways`'s free-surface branch (`update.rs`'s
+/// `SURFACE_SEARCH`, itself defined as `= MAX_REACH`) means a gas cell's
+/// true reach is `dispersion + MAX_REACH`, clamped straight back down to
+/// exactly `MAX_REACH` — a gas cell's own worst case genuinely does reach
+/// this bound, not just approach it (see `Material::sweep_reach`'s `Gas`
+/// arm, which had this wrong in this section's first draft — a real bug an
+/// independent review caught, not merely a hypothetical one this comment is
+/// warning against).
 ///
-/// Sweep regions are widened by it, because a cell has to be re-examined
-/// whenever anything it can *see* changes, not just its immediate neighbours.
-/// Every rule that reads further than this must either be capped or the region
-/// widened to match, or material goes stale exactly the way it did when the
-/// region was widened by a single cell.
+/// Two things this bound feeds, kept in sync deliberately:
 ///
-/// It directly multiplies the work an isolated change causes — a dirty cell
-/// drags a band `2 * MAX_REACH + 1` wide into the sweep — but it also sets how
-/// far a liquid can see when levelling, and water that cannot see across its
-/// own surface settles into a wedge instead of a flat top. At 32 the band is
-/// wider than a chunk, so any change sweeps that chunk's full width; the
-/// vertical banding, where most of the saving comes from, is unaffected.
+/// - `parallel.rs`'s cross-chunk write-safety proof, which needs an exact
+///   value (`CHUNK_SIZE / 2`) to reason about how far a single write can
+///   ever land, and stays keyed on this constant regardless of what any
+///   individual material actually uses.
+/// - `Material::sweep_reach`'s own cap — the per-chunk value
+///   `Chunk::sweep_region` actually widens by (issue #3) is smaller than
+///   this for `Powder`/`Liquid`-only chunks, since it tracks only what a
+///   chunk's *resident* materials need rather than the theoretical worst
+///   case across every material in the registry — but a chunk with any
+///   resident `Gas` cell gets no narrowing at all, correctly, since nothing
+///   smaller than `MAX_REACH` would be safe for one.
 pub const MAX_REACH: i32 = 32;
 
 /// Address of a chunk in the chunk grid. Signed, because the world extends in
@@ -196,6 +208,22 @@ pub struct Chunk {
     /// bought. `World` keeps its own separate `Rng` for everything outside
     /// the sweep — painting, explosions, particle bursts.
     rng: Rng,
+    /// How far sideways `sweep_region` widens a dirty rectangle by (issue
+    /// #3) — the furthest any material currently resident in this chunk can
+    /// reach, per `Material::sweep_reach`. Grows
+    /// immediately on every write via `set_world` (cheap, and never unsafe
+    /// to widen early — a too-large reach only costs a few extra stale
+    /// cells re-examined). Only shrinks via `recompute_reach`, a full scan
+    /// that is deliberately *not* run on every write: `World::end_step`
+    /// calls it exactly when a chunk transitions from active to settled,
+    /// the one point a smaller value is both cheap to discover (nothing is
+    /// mid-sweep) and safe to adopt (nothing needs the wider, possibly
+    /// stale value until this chunk wakes again, at which point growth
+    /// via `set_world` takes back over). Starts at 1, the same floor every
+    /// material's own reach is clamped to — even an all-`Empty`/`Solid`
+    /// chunk still needs its one immediate neighbour re-examined when
+    /// something adjacent changes.
+    reach: i32,
 }
 
 impl Chunk {
@@ -208,6 +236,7 @@ impl Chunk {
             dirty: Some(coord.bounds()),
             pending_dirty: None,
             rng: Rng::new(seed_from_coord(coord)),
+            reach: 1,
         }
     }
 
@@ -221,10 +250,16 @@ impl Chunk {
         self.cells[local_index(x, y)]
     }
 
+    /// `reach` is the new cell's material's own `Material::sweep_reach`
+    /// (the caller's job to look up, since `Chunk` has no `MaterialRegistry`
+    /// access by design — only ever an opaque `MaterialId`). Only ever grows
+    /// `self.reach`; see the field's own doc for why shrinking is handled
+    /// separately, in `recompute_reach`.
     #[inline]
-    pub fn set_world(&mut self, x: i32, y: i32, cell: Cell) {
+    pub fn set_world(&mut self, x: i32, y: i32, cell: Cell, reach: i32) {
         self.cells[local_index(x, y)] = cell;
         self.mark_dirty(x, y);
+        self.reach = self.reach.max(reach);
     }
 
     /// Write without marking the chunk dirty.
@@ -251,12 +286,14 @@ impl Chunk {
     /// The region this sweep should examine, clipped to the chunk.
     ///
     /// Widened around what changed, because a cell must be reconsidered
-    /// whenever anything it can see has moved — `MAX_REACH` sideways, since
+    /// whenever anything it can see has moved — `self.reach` sideways (issue
+    /// #3: the furthest any resident material can actually reach, capped at
+    /// `MAX_REACH`, rather than unconditionally `MAX_REACH` itself), since
     /// powders roll and liquids flow along a row, and one cell vertically,
     /// which is as far as any rule looks up or down.
     pub fn sweep_region(&self) -> Option<Rect> {
         self.dirty?
-            .expanded_xy(MAX_REACH, 1)
+            .expanded_xy(self.reach, 1)
             .intersection(self.coord.bounds())
     }
 
@@ -268,6 +305,20 @@ impl Chunk {
     /// Promote writes made during this sweep into the region for the next one.
     pub fn end_sweep(&mut self) {
         self.dirty = self.pending_dirty.take();
+    }
+
+    /// Recompute `reach` from scratch by scanning every resident cell —
+    /// the only way it can *shrink*, since `set_world` only ever grows it.
+    /// `reach_of` is supplied by the caller (`World::end_step`, the one
+    /// place with `MaterialRegistry` access) rather than looked up here,
+    /// keeping `Chunk` itself free of any dependency on `material.rs` beyond
+    /// the opaque `MaterialId` already inside every `Cell`.
+    pub fn recompute_reach(&mut self, reach_of: impl Fn(Cell) -> i32) {
+        // `self.cells` always holds exactly `CHUNK_AREA` elements (`Chunk::
+        // new` fills it up front and nothing ever shrinks it), so `.max()`
+        // over a non-empty iterator can never actually be `None` -- the
+        // `.max(1)` alone is what enforces the floor.
+        self.reach = self.cells.iter().map(|&cell| reach_of(cell)).max().expect("cells is never empty").max(1);
     }
 
     /// Force the whole chunk to be examined on the next sweep.
@@ -358,7 +409,7 @@ mod tests {
         chunk.end_sweep(); // clear the initial full-chunk dirty region
         assert!(chunk.is_settled());
 
-        chunk.set_world(10, 10, Cell::new(material::SAND, 0));
+        chunk.set_world(10, 10, Cell::new(material::SAND, 0), 1);
         // The write must not extend the sweep currently in flight...
         assert!(chunk.is_settled());
         // ...but must be picked up by the next one.
@@ -376,11 +427,77 @@ mod tests {
         let mut chunk = Chunk::new(coord);
         chunk.end_sweep();
         // A write in the corner would expand past the chunk edge.
-        chunk.set_world(0, 0, Cell::new(material::SAND, 0));
+        chunk.set_world(0, 0, Cell::new(material::SAND, 0), 1);
         chunk.end_sweep();
         let region = chunk.sweep_region().unwrap();
         assert_eq!(region.min_x, 0);
         assert_eq!(region.min_y, 0);
+    }
+
+    #[test]
+    fn a_chunks_tracked_reach_starts_at_one_and_only_grows_from_writes() {
+        // Issue #3: a chunk holding only short-reach material (or nothing at
+        // all) must not pay for `MAX_REACH`-wide sweep regions. A fresh
+        // chunk's reach is the floor, 1, not the flat `MAX_REACH` every
+        // chunk used before this change. Positions kept well clear of the
+        // chunk edge throughout so `sweep_region`'s own clip-to-bounds never
+        // masks what's actually being tested.
+        let coord = ChunkCoord::new(0, 0);
+        let mut chunk = Chunk::new(coord);
+        chunk.end_sweep();
+        chunk.set_world(30, 30, Cell::new(material::SAND, 0), 1);
+        chunk.end_sweep();
+        let region = chunk.sweep_region().unwrap();
+        assert_eq!(region.min_x, 30 - 1);
+        assert_eq!(region.max_x, 30 + 1);
+
+        // A write carrying a larger reach (e.g. a wide-dispersion gas)
+        // widens the chunk's *tracked* reach -- a property of the chunk,
+        // not of any one dirty rect (`dirty` itself reflects only the most
+        // recently completed sweep interval; `end_sweep` replaces it rather
+        // than accumulating across calls, so this region is centred on the
+        // second write alone, not the union of both).
+        chunk.set_world(40, 40, Cell::new(material::SMOKE, 0), 6);
+        chunk.end_sweep();
+        let region = chunk.sweep_region().unwrap();
+        assert_eq!(region.min_x, 40 - 6);
+        assert_eq!(region.max_x, 40 + 6);
+
+        // The widened reach persists for a later write even with a smaller
+        // reach of its own -- proving it is `set_world`'s `max`, not a
+        // per-write value that would reset.
+        chunk.set_world(30, 30, Cell::new(material::SAND, 0), 1);
+        chunk.end_sweep();
+        let region = chunk.sweep_region().unwrap();
+        assert_eq!(region.min_x, 30 - 6);
+        assert_eq!(region.max_x, 30 + 6);
+    }
+
+    #[test]
+    fn recompute_reach_shrinks_once_the_wide_reach_material_is_gone() {
+        // The one place a chunk's tracked reach is allowed to shrink back
+        // down -- growth via `set_world` alone can never discover that a
+        // wide-reach material has since been fully removed. Position kept
+        // well clear of the chunk edge so the expansion below isn't clipped.
+        let coord = ChunkCoord::new(0, 0);
+        let mut chunk = Chunk::new(coord);
+        chunk.end_sweep();
+        chunk.set_world(30, 30, Cell::new(material::SMOKE, 0), 6);
+        chunk.end_sweep();
+        let widened = chunk.sweep_region().unwrap();
+        assert_eq!(widened.max_x - widened.min_x, 12);
+
+        chunk.set_world(30, 30, Cell::EMPTY, 0);
+        chunk.end_sweep();
+        // Still wide -- nothing has recomputed it yet.
+        let still_wide = chunk.sweep_region().unwrap();
+        assert_eq!(still_wide.max_x - still_wide.min_x, 12);
+
+        chunk.recompute_reach(|_| 0);
+        chunk.set_world(30, 30, Cell::EMPTY, 0); // re-dirty so sweep_region is Some again
+        chunk.end_sweep();
+        let region = chunk.sweep_region().unwrap();
+        assert_eq!(region.max_x - region.min_x, 2); // back to the floor of 1
     }
 
     #[test]

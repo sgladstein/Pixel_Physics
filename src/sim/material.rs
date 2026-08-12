@@ -43,6 +43,18 @@ pub const LIQUID_FULL: u16 = 1000;
 /// module doc): enough to carry a signal, not enough to visibly bulge.
 pub const LIQUID_MAX_COMPRESS: u16 = 10;
 
+/// How far `transfer_liquid_horizontal` (`update.rs`) looks past the
+/// immediate neighbour for a genuinely emptier cell to level against, and
+/// therefore also `Liquid`'s answer to [`Material::sweep_reach`]. Lives here
+/// rather than in `update.rs` because `sweep_reach` (needed by `chunk.rs`,
+/// which must not depend on `update.rs` — that would make `chunk` and
+/// `update` mutually dependent modules) needs the same number `update.rs`'s
+/// transfer logic already uses, and this is the lower-level module of the
+/// two, matching how `LIQUID_FULL`/`LIQUID_MAX_COMPRESS` above already live
+/// here for the same reason. See `update.rs`'s own doc on this constant for
+/// why 8, not the derivation of the number itself.
+pub const HORIZONTAL_TRANSFER_REACH: i32 = 8;
+
 /// Well-known ids for the shipped materials.
 ///
 /// These are stable because `builtin` always runs first and assigns ids in
@@ -366,6 +378,73 @@ impl Material {
         };
         base as i32 + extra
     }
+
+    /// How far sideways this material's own movement rule can reach when
+    /// deciding what to do with a cell — what `Chunk::sweep_region` (issue
+    /// #3) must widen a dirty rectangle by so that a cell whose decision
+    /// *could* change, because something up to this far away moved, still
+    /// gets re-examined. A chunk holding only short-reach materials (a pile
+    /// of sand) no longer pays for a `MAX_REACH`-wide sweep band that a
+    /// long-dispersion gas cloud would actually need.
+    ///
+    /// Deliberately **not** the same question `parallel.rs`'s cross-chunk
+    /// write-safety proof answers ("how far can a write actually land") —
+    /// that proof is keyed on `MAX_REACH` itself, a hard per-frame movement
+    /// cap independently enforced at every call site that moves a cell
+    /// (`roll_reach_base`'s clamp above, `flow_sideways`'s own
+    /// `.min(MAX_REACH)`, `HORIZONTAL_TRANSFER_REACH` being well under it),
+    /// and stays exactly `CHUNK_SIZE / 2` regardless of what this function
+    /// returns. This function only ever answers "which stale cells need
+    /// re-examining," a strictly smaller and purely-performance question;
+    /// shrinking its answer can make a chunk's sweep region smaller than
+    /// before, never larger, so it cannot violate that proof by construction.
+    ///
+    /// `.min(MAX_REACH)` below is a defensive floor on that fact for the
+    /// `Powder`/`Liquid` cases, where it can genuinely never trigger (every
+    /// other reach-computing site is already independently capped); it
+    /// exists so a future `.ron` with a wildly large `dispersion` fails this
+    /// invariant here, at its one load-bearing use, rather than however far
+    /// downstream a stale sweep region would first go unnoticed. For `Gas`
+    /// it is not merely defensive — see that arm's own comment.
+    pub fn sweep_reach(&self) -> i32 {
+        let raw = match self.kind {
+            // `roll_reach_at` returns `roll_reach_base.floor()` plus at most
+            // one more from its position-keyed jitter — the true worst case,
+            // not just the base value.
+            MaterialKind::Powder => self.roll_reach_base.floor() as i32 + 1,
+            MaterialKind::Liquid => HORIZONTAL_TRANSFER_REACH,
+            // `flow_sideways` (`update.rs`) does not stop at `dispersion`:
+            // once its initial walk covers as much of that as it can, its
+            // free-surface branch searches a further `SURFACE_SEARCH`
+            // (`= MAX_REACH`) cells past that point for somewhere to fall —
+            // the same free-surface search `Liquid` used before
+            // `HORIZONTAL_TRANSFER_REACH` replaced it, still live here since
+            // `Gas` never moved off `flow_sideways`. So a gas cell's true
+            // worst-case reach is `dispersion + MAX_REACH`, not `dispersion`
+            // alone — found by independent review, which traced through
+            // `flow_sideways` rather than trusting this match arm's first
+            // draft. `.min(MAX_REACH)` below always reduces that back down
+            // to exactly `MAX_REACH` for any `dispersion > 0` (since the
+            // added term already equals `MAX_REACH`), so this is not a real
+            // optimization for `Gas` — a chunk holding gas still gets the
+            // full flat widening it always did — but it is now the *correct*
+            // value rather than a value that happened to undershoot. Only
+            // `dispersion == 0` gets to be smaller, matching `flow_sideways`
+            // itself returning immediately without moving at all in that case.
+            MaterialKind::Gas => {
+                if self.dispersion == 0 {
+                    0
+                } else {
+                    self.dispersion as i32 + super::chunk::MAX_REACH
+                }
+            }
+            MaterialKind::Empty
+            | MaterialKind::Solid
+            | MaterialKind::Plant
+            | MaterialKind::Creature => 0,
+        };
+        raw.min(super::chunk::MAX_REACH)
+    }
 }
 
 impl From<MaterialDef> for Material {
@@ -377,6 +456,24 @@ impl From<MaterialDef> for Material {
         // the flattest pile the engine can express is `atan(1 / MAX_REACH)`.
         let roll_reach_base =
             (1.0 / angle.to_radians().tan()).clamp(0.0, super::chunk::MAX_REACH as f32);
+
+        // Issue #3: `Material::sweep_reach` defensively clamps every kind to
+        // `MAX_REACH`, but `Gas`'s `dispersion` is the one reach-defining
+        // value not already clamped by construction elsewhere (`roll_reach_base`
+        // above is; `Liquid`'s reach is a fixed engine constant, not data at
+        // all) -- so it's the one a `.ron` file could set past the bound both
+        // `Chunk::sweep_region`'s tracking and `parallel.rs`'s cross-chunk
+        // write-safety proof assume no material ever exceeds. Caught here,
+        // at load time, rather than silently clamped downstream where a
+        // content author would never see why their gas stopped dispersing
+        // as far as the number they wrote.
+        debug_assert!(
+            def.kind != MaterialKind::Gas || (def.dispersion as i32) <= super::chunk::MAX_REACH,
+            "material `{}` has dispersion {} exceeding MAX_REACH ({})",
+            def.name,
+            def.dispersion,
+            super::chunk::MAX_REACH,
+        );
 
         Self {
             display: if def.display.is_empty() {
@@ -872,6 +969,71 @@ mod tests {
         for (x, y) in [(0, 0), (13, 7), (-5, 91), (1000, -1000)] {
             assert_eq!(sand.roll_reach_at(x, y), sand.roll_reach_at(x, y));
         }
+    }
+
+    #[test]
+    fn sweep_reach_for_powder_bounds_the_true_worst_case_roll_reach() {
+        let reg = MaterialRegistry::builtin();
+        let sand = reg.get(SAND);
+        let mut worst = 0;
+        for y in 0..40 {
+            for x in 0..40 {
+                worst = worst.max(sand.roll_reach_at(x, y));
+            }
+        }
+        assert_eq!(sand.sweep_reach(), worst, "sweep_reach should equal the true worst-case roll_reach_at, not just approximate it");
+    }
+
+    #[test]
+    fn sweep_reach_for_liquid_matches_horizontal_transfer_reach() {
+        let reg = MaterialRegistry::builtin();
+        assert_eq!(reg.get(WATER).sweep_reach(), HORIZONTAL_TRANSFER_REACH);
+        assert_eq!(reg.get(OIL).sweep_reach(), HORIZONTAL_TRANSFER_REACH);
+    }
+
+    #[test]
+    fn sweep_reach_for_a_zero_dispersion_gas_is_zero() {
+        // `flow_sideways` (`update.rs`) returns immediately without moving
+        // at all when `max <= 0` -- a dispersion-0 gas genuinely never
+        // reaches beyond its own cell. `dispersion` defaults to 0 when
+        // unset, so this material doesn't even need to state it.
+        let dir = std::env::temp_dir().join("pixel-physics-still-gas-material");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("stillgas.ron"),
+            "(name: \"stillgas\", kind: Gas, density: 0.1, colors: [(1, 2, 3)])",
+        )
+        .unwrap();
+        let mut reg = MaterialRegistry::builtin();
+        reg.reload(&dir).unwrap();
+        let stillgas = reg.get(reg.id_of("stillgas").unwrap());
+        assert_eq!(stillgas.dispersion, 0);
+        assert_eq!(stillgas.sweep_reach(), 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn sweep_reach_for_a_dispersing_gas_reaches_max_reach_not_just_dispersion() {
+        // The bug an independent review caught in this section's first
+        // draft: `flow_sideways`'s free-surface branch searches a further
+        // `SURFACE_SEARCH` (`= MAX_REACH`) cells past wherever the initial
+        // `dispersion`-limited walk stops, so a gas cell's true reach is
+        // `dispersion + MAX_REACH`, not `dispersion` alone -- which this
+        // function must report as exactly `MAX_REACH` (the clamp), not the
+        // smaller, wrong `dispersion` value a naive reading of `flow_sideways`'s
+        // first phase alone would suggest.
+        let dir = std::env::temp_dir().join("pixel-physics-dispersing-gas-material");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("fog.ron"),
+            "(name: \"fog\", kind: Gas, density: 0.1, dispersion: 3, colors: [(1, 2, 3)])",
+        )
+        .unwrap();
+        let mut reg = MaterialRegistry::builtin();
+        reg.reload(&dir).unwrap();
+        let fog = reg.get(reg.id_of("fog").unwrap());
+        assert_eq!(fog.sweep_reach(), super::super::chunk::MAX_REACH);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

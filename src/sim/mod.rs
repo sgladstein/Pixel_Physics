@@ -2,8 +2,8 @@
 //!
 //! Layering, innermost first:
 //!
-//! * `cell` — one simulated pixel, packed to 8 bytes (M12: material, shade,
-//!   flags, temperature, kind-specific aux)
+//! * `cell` — one simulated pixel, packed to 12 bytes (M12: material, shade,
+//!   flags, temperature, aux, burn timer, organism id)
 //! * `material` — what a cell *is*, as data rather than code
 //! * `chunk` — 64x64 tiles plus the coordinate maths and dirty rectangles
 //! * `field` — the coarse pressure/velocity/temperature/light grid (M13), one

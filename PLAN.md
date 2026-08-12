@@ -1836,6 +1836,158 @@ real issues:
   this path) — confirmed to fail without the fix (fill reset to 0 instead
   of the expected partial value).
 
+### Overnight run, section 5: issue #3 — chunk sweep-reach decoupling
+
+Before this section, `Chunk::sweep_region` always widened a dirty rectangle
+by the flat `MAX_REACH` (32) regardless of what the chunk actually held —
+so a chunk containing nothing but sand (real roll reach of a handful of
+cells) paid to re-examine the same wide band as a chunk full of
+long-dispersion gas. Fix: each `Chunk` now tracks its own `reach: i32`
+(floored at 1), grown on every `set_world` call from the written cell's own
+material — `Material::sweep_reach` (`material.rs`), a `Powder`'s
+`roll_reach_base` (its true per-position worst case, `floor() + 1`, not
+just the base), a `Liquid`'s fixed `HORIZONTAL_TRANSFER_REACH` (8), a
+`Gas`'s `dispersion`, everything else 0 — and `sweep_region` widens by that
+tracked value instead of the constant.
+
+**Growing is cheap and immediate (a `max` on every write); shrinking needs
+a full scan of the chunk's cells, so it happens in exactly one place:**
+`World::end_step`, only for a chunk that transitions from active to
+settled *this* step (`was_settled` compared before and after
+`end_sweep`). That is the one point recomputing is both cheap (nothing is
+mid-sweep) and safe (nothing needs the wider, possibly-stale value again
+until the chunk wakes, at which point `set_world`'s growth takes back
+over) — and it keeps a fully-settled world's `end_step` loop, which already
+iterates every resident chunk regardless of activity, from paying for a
+4096-cell rescan on chunks that didn't change.
+
+**Two premises in this section's original plan text turned out to be
+wrong once checked against the actual §4 code, both caught before writing
+any implementation:**
+- The plan assumed §4 would drop liquid's reach to 1 and delete
+  `SURFACE_SEARCH` outright. Neither happened: liquid's real horizontal
+  reach is `HORIZONTAL_TRANSFER_REACH` = 8, and `SURFACE_SEARCH`/
+  `flow_sideways` are still live — for `Gas`-kind materials, which §4 never
+  touched.
+- The plan called for restating `parallel.rs`'s cross-chunk write-safety
+  proof from `MAX_REACH == CHUNK_SIZE / 2` to an inequality, and
+  parameterizing `same_group_chunks_are_never_within_reach_of_each_other`
+  over reach. Neither is needed: that proof bounds how far a write can
+  *land* (a hard per-frame movement cap independently enforced at every
+  movement rule's own call site — `roll_reach_base`'s clamp,
+  `flow_sideways`'s `.min(MAX_REACH)`, `HORIZONTAL_TRANSFER_REACH` itself),
+  which stays exactly `MAX_REACH` regardless of anything this section
+  touches. `Chunk::sweep_region`'s widening only decides which *stale*
+  cells get re-examined — a strictly smaller, purely-performance question —
+  and narrowing it can only shrink a sweep region relative to before, never
+  grow one, so it cannot invalidate a proof about how far a write can go.
+  `touch_neighbours`/`queue_touch_neighbours` (the cross-chunk wake
+  mechanism the proof's loop-ordering argument in `parallel.rs` also
+  depends on) are deliberately left keyed on the flat `MAX_REACH`, not the
+  new per-chunk reach — see the extended comment left on `World::
+  touch_neighbours` explaining why those are different questions.
+
+**A real bug found via the standing test suite, not by inspection:**
+narrowing `sweep_region`'s widening broke `world.rs`'s existing
+`neighbour_waking_stops_at_max_reach` test. Root cause, traced rather than
+guessed: `touch_neighbours` marks a neighbour chunk dirty at the *raw world
+coordinate* of the write, which can legitimately sit far outside that
+neighbour's own bounds — under the old flat-`MAX_REACH` widening this
+always worked, because expanding by the same `MAX_REACH` used to decide
+*whether* to wake a chunk always reached back across the gap. With a
+neighbour's own (now often much smaller) tracked reach, a write far enough
+away that nothing in an otherwise-empty neighbour chunk could ever actually
+see it now correctly produces no sweep region there — a chunk gets
+conservatively marked dirty (harmless) but isn't examined for nothing
+(the actual fix). Confirmed this is the intended behaviour, not a
+regression, by checking the genuinely-adjacent case
+(`a_write_at_a_chunk_edge_wakes_the_neighbour`) still passes unmodified.
+The old test encoded the pre-issue-#3 assumption that every chunk always
+had the same wide reach; renamed to `neighbour_waking_stops_at_the_
+neighbours_own_reach` and rewritten to assert the new, more precise
+behaviour directly.
+
+**`Material::sweep_reach` also gained a load-time `debug_assert`** guarding
+the one reach-defining value not already clamped by construction elsewhere
+(`roll_reach_base` is; `Liquid`'s reach is a fixed engine constant, not
+data) — a `Gas` material's raw `dispersion` (`u8`, so nominally up to 255).
+A future `.ron` setting it past `MAX_REACH` now fails loudly at load time
+instead of being silently capped downstream where a content author would
+never see why their gas stopped dispersing as far as the number they
+wrote.
+
+**`HORIZONTAL_TRANSFER_REACH` moved from `update.rs` to `material.rs`**
+(re-exported under its original name), since `Material::sweep_reach` needs
+the same number and `chunk.rs` — which must not depend on `update.rs`, or
+the two would become mutually dependent modules — is where the per-chunk
+reach tracking itself lives.
+
+New tests: `chunk.rs` gained
+`a_chunks_tracked_reach_starts_at_one_and_only_grows_from_writes` and
+`recompute_reach_shrinks_once_the_wide_reach_material_is_gone`, both
+confirmed to fail with `sweep_region` temporarily reverted to the flat
+`MAX_REACH`. Benchmarked via `cargo run --release --example ascii`
+before/after (`git stash`): no regression on the full-screen sand/water
+stress scenes (worst frames within normal run-to-run noise either way) —
+expected, since that scene's worst frame comes from the initial
+full-chunk-dirty settle burst, where `sweep_region`'s expansion is a no-op
+regardless of reach (a chunk already dirty across its full bounds can't be
+widened further by clipping). The actual win this section targets is the
+steady-state case — a small, localized change in an otherwise mostly-quiet
+world no longer re-examining a needlessly wide band — which the unit tests
+verify directly rather than a full-screen chaos benchmark.
+
+**Independent review, requested before commit, caught one real bug:**
+`Material::sweep_reach`'s first-draft `Gas` arm returned `dispersion` alone,
+undercounting the true reach. Traced (not just asserted) by the reviewer
+through `flow_sideways` (`update.rs`): its initial walk stops within
+`dispersion`, but its free-surface branch then searches a further
+`SURFACE_SEARCH` (`= MAX_REACH`) cells past that point for somewhere to
+fall — the same free-surface search a liquid used before
+`HORIZONTAL_TRANSFER_REACH` replaced it, still live for `Gas` since it
+never moved off `flow_sideways`. A gas cell's true worst case is
+`dispersion + MAX_REACH`, not `dispersion`; for smoke (`dispersion: 3`)
+that's up to 35 cells against a first draft that tracked 3, which could
+have frozen a floating smoke cell mid-decision the moment it drifted more
+than 3 cells from a chunk boundary. Fixed: the `Gas` arm is now
+`dispersion == 0 ⇒ 0`, else `dispersion + MAX_REACH` (clamped to
+`MAX_REACH` by the function's existing final `.min`) — which, since
+`SURFACE_SEARCH` already equals `MAX_REACH`, means any dispersing gas
+correctly gets the full flat `MAX_REACH` widening this section's flat
+constant was supposed to let chunks *avoid* paying for. **Gas is
+consequently the one kind this section does not narrow at all** — only
+`Powder`/`Liquid`-only chunks see a smaller tracked reach; a chunk with any
+resident `Gas` cell still gets the same widening it always did, correctly,
+because nothing smaller would be safe for one. Four new regression tests in
+`material.rs` (`sweep_reach_for_powder_bounds_the_true_worst_case_roll_
+reach`, `sweep_reach_for_liquid_matches_horizontal_transfer_reach`,
+`sweep_reach_for_a_zero_dispersion_gas_is_zero`, `sweep_reach_for_a_
+dispersing_gas_reaches_max_reach_not_just_dispersion`), the last confirmed
+to fail against the pre-fix formula. Two pre-existing stale doc comments
+the same investigation surfaced were fixed alongside it: `update.rs`'s
+`SURFACE_SEARCH` still described itself as being for "a free liquid
+surface" (true before §4, not since), and this section's own first-draft
+doc comments on `chunk.rs`'s `MAX_REACH` and `Material::sweep_reach`
+repeated the same `dispersion`-alone assumption the code did.
+
+### Files touched
+
+`src/sim/material.rs` (`HORIZONTAL_TRANSFER_REACH` relocated here,
+`Material::sweep_reach`, load-time `debug_assert`). `src/sim/chunk.rs`
+(`Chunk::reach` field, `set_world`'s new `reach` parameter,
+`sweep_region` widens by it, `Chunk::recompute_reach`, `MAX_REACH`'s doc
+comment rewritten to describe its two remaining jobs — the cross-chunk
+proof and `sweep_reach`'s defensive cap — instead of the sweep-widening job
+this section moved off it). `src/sim/world.rs` (`World::set` computes
+reach and passes it through, `World::end_step` recomputes reach on the
+settle transition, `touch_neighbours`'s comment extended to explain why it
+stays on the flat `MAX_REACH`). `src/sim/parallel.rs` (`ChunkView::set`
+mirrors `World::set`'s reach computation for the owned-chunk case).
+`src/sim/update.rs` (`HORIZONTAL_TRANSFER_REACH` now imported from
+`material.rs` rather than defined locally). `src/sim/mod.rs` (unrelated
+stale doc fix noticed in passing: `cell`'s size comment still said 8 bytes,
+left over from before §2 widened it to 12).
+
 ---
 
 ## M19 — Visual polish: make the engine beautiful

@@ -371,8 +371,13 @@ impl CellSurface for ChunkView<'_> {
             return;
         }
         if self.owns(x, y) {
-            self.chunk.set_world(x, y, cell);
+            let reach = self.world.materials.get(cell.material).sweep_reach();
+            self.chunk.set_world(x, y, cell, reach);
         } else {
+            // Reach for this chunk's own tracked value is handled when this
+            // write is replayed through the ordinary `World::set` after the
+            // pass (see `run_pass`) — this worker has no `&mut` to the
+            // remote chunk to update it directly.
             self.remote_writes.insert((x, y), cell);
         }
         self.queue_touch_neighbours(x, y);

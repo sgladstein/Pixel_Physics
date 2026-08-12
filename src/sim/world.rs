@@ -392,10 +392,11 @@ impl World {
             return;
         }
         let coord = ChunkCoord::containing(x, y);
+        let reach = self.materials.get(cell.material).sweep_reach();
         self.chunks
             .entry(coord)
             .or_insert_with(|| Chunk::new(coord))
-            .set_world(x, y, cell);
+            .set_world(x, y, cell, reach);
         self.touch_neighbours(x, y, coord);
     }
 
@@ -416,13 +417,21 @@ impl World {
         // `32..32`, the empty range, and `contains` is always `false` —
         // every column in the chunk is within reach of some neighbour, so
         // there is no interior left to skip. Kept (rather than deleted) as
-        // documentation of that fact and as the seam a future per-material
-        // reach reduction (`pixel-physics-issues.md` #3 — deliberately not
-        // attempted this session; it also requires re-deriving `parallel.rs`'s
-        // concurrency-safety proof from an equality to an inequality, which
-        // deserves the same undivided attention M8's riskiest pipeline
-        // stages are getting, not a pass at the tail of an already very
-        // large batch of changes) would make live again.
+        // documentation of that fact.
+        //
+        // Deliberately still keyed on the flat `MAX_REACH`, not the
+        // per-chunk tracked reach issue #3 added to `Chunk::sweep_region`
+        // (`chunk.rs`). Those are different questions: this decides which
+        // chunks get *woken* (a conservative "might this matter" check, safe
+        // to over-wake), while `sweep_region`'s widening decides how much of
+        // an already-awake chunk gets *re-examined* (where over-widening is
+        // the actual cost issue #3 exists to cut). `parallel.rs`'s
+        // cross-chunk write-safety proof is pinned to this same flat
+        // `MAX_REACH` too, via `queue_touch_neighbours`'s identical guard —
+        // narrowing this one would need re-deriving that proof from an
+        // equality to an inequality, which issue #3's actual fix does not
+        // require: sweep_region only ever *shrinks* relative to before, so
+        // it cannot invalidate a proof about how far a write can land.
         if (MAX_REACH..CHUNK_SIZE - MAX_REACH).contains(&lx) && ly > 0 && ly < CHUNK_SIZE - 1 {
             return;
         }
@@ -645,8 +654,21 @@ impl World {
     }
 
     pub fn end_step(&mut self) {
+        // Recomputing reach is a full scan of the chunk's cells, so it only
+        // runs at the one point that is both cheap and safe: exactly when a
+        // chunk transitions from active to settled this step (issue #3). A
+        // chunk that stays active keeps whatever `set_world` has grown its
+        // reach to; a chunk that was already settled has nothing that could
+        // have changed since the last recompute, so re-scanning it every
+        // frame would burn cycles on a world that is otherwise supposed to
+        // cost near-zero once everything sleeps.
+        let materials = &self.materials;
         for chunk in self.chunks.values_mut() {
+            let was_settled = chunk.is_settled();
             chunk.end_sweep();
+            if !was_settled && chunk.is_settled() {
+                chunk.recompute_reach(|cell| materials.get(cell.material).sweep_reach());
+            }
         }
     }
 }
@@ -835,14 +857,24 @@ mod tests {
     }
 
     #[test]
-    fn neighbour_waking_stops_at_max_reach() {
+    fn neighbour_waking_stops_at_the_neighbours_own_reach() {
         // Waking has to cover everything that can see the write, and nothing
         // beyond — waking the whole world on every write would be correct but
         // would defeat sleeping entirely.
         //
-        // Note there is no "chunk interior" to test while `MAX_REACH` is at
-        // least half a chunk: every write is then within sight of some edge,
-        // and touching neighbours on all of them is correct rather than wasteful.
+        // Before issue #3, every chunk widened its sweep region by the same
+        // flat `MAX_REACH` regardless of what it actually held, so any write
+        // within `MAX_REACH` of a neighbour always produced a real sweep
+        // region there. Now a chunk's widening is its own tracked reach
+        // (`Chunk::sweep_region`), so `touch_neighbours` still conservatively
+        // marks a distant neighbour dirty (unchanged — see its own doc), but
+        // an otherwise-empty neighbour's own reach floors at 1, and a write
+        // 32 cells from its edge is far further than anything with reach 1
+        // could ever see. That is the fix, not a regression: an empty
+        // neighbour chunk no longer pays for a wide, pointless sweep just
+        // because something moved far away in a chunk next door.
+        // `a_write_at_a_chunk_edge_wakes_the_neighbour` above covers the
+        // genuinely-adjacent case, where waking still works correctly.
         let mut w = World::new(Rect::new(0, 0, 255, 127));
         w.end_step();
         w.end_step();
@@ -851,14 +883,15 @@ mod tests {
         w.set(32, 32, Cell::new(material::SAND, 0));
         w.end_step();
 
-        // Its own chunk, and any chunk within MAX_REACH of the write.
+        // Its own chunk always gets a real sweep region...
         assert!(w.sweep_region(ChunkCoord::new(0, 0)).is_some());
-        assert_eq!(
-            w.sweep_region(ChunkCoord::new(1, 0)).is_some(),
-            32 + MAX_REACH >= CHUNK_SIZE,
-            "chunk (1,0) should be woken exactly when the write is within reach of it"
-        );
-        // Far beyond reach in both axes.
+        // ...but chunk (1,0), 32 cells from the write and holding nothing
+        // but empty cells (reach 1), does not — even though it is within
+        // `touch_neighbours`'s conservative `MAX_REACH` wake radius and gets
+        // marked dirty, its own small reach can't expand back into its own
+        // bounds from a point that far outside them.
+        assert!(w.sweep_region(ChunkCoord::new(1, 0)).is_none());
+        // Far beyond even the conservative wake radius in both axes.
         assert!(w.sweep_region(ChunkCoord::new(3, 0)).is_none());
         assert!(w.sweep_region(ChunkCoord::new(0, 1)).is_none());
     }
