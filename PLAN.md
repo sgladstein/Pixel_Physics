@@ -3677,6 +3677,40 @@ of it — read the two together.
    also means settled pools stop paying for the search every tick, which
    is real budget back and lets more chunks sleep.
 
+**Attempted and reverted: rev1 §5's mechanism-ordering fix (build-order
+item 1 below) does not actually fix symptom 1, per direct measurement —
+recorded here so this isn't re-attempted the same way.** Two
+implementations were tried against a real diagnostic (a corrected,
+non-cumulative frame-count sweep, not a guess): (a) an eager whole-cell
+"roll toward an opening" reusing `roll_along_slope`'s own machinery, and
+(b) a literal reading of rev1 §5 — trying `transfer_liquid_horizontal`
+before `transfer_liquid_vertical` for a `flowing()` cell. Neither changed a
+60-tall column's spread width or peak height at any matched frame count by
+more than measurement noise, gated or unconditional. Root cause, traced
+rather than guessed: `try_move`'s downward case requires the cell below to
+be `Cell::EMPTY` outright (`dst.is_empty()`), and `write_liquid_transfer`
+only produces `Cell::EMPTY` once a cell's fill reaches exactly 0 — so a row
+in a stacked pour cannot even attempt to fall via `try_move` until the row
+below has *fully* drained sideways, and that draining is itself capped by
+`flow_rate`/`HORIZONTAL_TRANSFER_REACH`'s throughput. Which function runs
+first each frame doesn't change that cap. **This means symptom 1 (pour
+shape) and symptom 2 (wide-body leveling speed, §5 below) likely share one
+root cause — fill-transfer throughput — not two separate bugs**, contrary
+to how the report's own build order treats them as independently
+fixable. Also worth naming: `Cell::flowing()` (Report A's definition, "did
+a whole-cell move happen") barely ever becomes true for a densely stacked
+pour at all, since most cells there never get a chance to `try_move` in
+the first place — gating on it, as designed for granular material, doesn't
+transfer cleanly to liquid's fill-based movement without also making
+`write_liquid_transfer` set the flag, which was not attempted once the
+ordering itself proved to have no effect regardless. **Recommendation:**
+don't retry the ordering fix in isolation; it's very likely subsumed by
+build-order item 4 (the 1D virtual-pipes leveling redesign) rather than a
+prerequisite for it. Re-evaluate symptom 1 once item 4 lands, or open a
+fresh, first-principles diagnosis of the actual throughput bound (by hand,
+from `flow_rate`/`HORIZONTAL_TRANSFER_REACH`'s numbers) before attempting
+a targeted fix, rather than reordering existing calls again.
+
 **Acceptance criteria added to this plan's verification bar** (§10 of the
 report): 0.5% mass conservation over a 2000-frame dam-break; a 2%-of-
 `FULL` surface-flatness bar for a 100-cell pool (today's dead band permits
