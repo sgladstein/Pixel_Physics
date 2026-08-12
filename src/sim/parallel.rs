@@ -83,6 +83,7 @@ use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
 use super::field::{self, FieldTile, FIELD_SCALE};
 use super::material::MaterialRegistry;
 use super::rng::Rng;
+use super::scheduler::ActiveSite;
 use super::surface::CellSurface;
 use super::update;
 use super::world::World;
@@ -204,6 +205,9 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
         if outcome.field_touched {
             world.set_fields_settled(false);
         }
+        for site in outcome.pending_active_sites {
+            world.schedule_active_site(site);
+        }
     }
 }
 
@@ -218,6 +222,7 @@ struct ChunkOutcome {
     field_writes: Vec<(ChunkCoord, i32, i32, f32)>,
     light_writes: Vec<(ChunkCoord, i32, i32, f32)>,
     field_touched: bool,
+    pending_active_sites: Vec<ActiveSite>,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -269,6 +274,14 @@ struct ChunkView<'w> {
     /// writes its cell every frame it burns, independently keeping the
     /// chunk (and therefore `active_chunk_count()`) awake regardless.
     field_touched: bool,
+    /// Sites queued via `schedule_active_site` (architecture §5f, ash
+    /// decay) — only `World` owns the active-site heap, so a worker has
+    /// nowhere to put a newly-scheduled site except here, replayed once
+    /// after the pass. Unlike `field_writes`/`light_writes`, no same-
+    /// chunk-vs-remote split is needed: the heap isn't chunk-scoped at all,
+    /// so every queued site is handled identically regardless of where it
+    /// sits.
+    pending_active_sites: Vec<ActiveSite>,
 }
 
 impl<'w> ChunkView<'w> {
@@ -283,6 +296,7 @@ impl<'w> ChunkView<'w> {
             field_writes: Vec::new(),
             light_writes: Vec::new(),
             field_touched: false,
+            pending_active_sites: Vec::new(),
         }
     }
 
@@ -301,6 +315,7 @@ impl<'w> ChunkView<'w> {
             field_writes: self.field_writes,
             light_writes: self.light_writes,
             field_touched: self.field_touched,
+            pending_active_sites: self.pending_active_sites,
         }
     }
 
@@ -446,6 +461,14 @@ impl CellSurface for ChunkView<'_> {
             "field_moisture_at called with a position outside this worker's own chunk"
         );
         self.field.get_local(lx, ly).moisture
+    }
+
+    fn frame(&self) -> u64 {
+        self.world.frame
+    }
+
+    fn schedule_active_site(&mut self, site: ActiveSite) {
+        self.pending_active_sites.push(site);
     }
 }
 

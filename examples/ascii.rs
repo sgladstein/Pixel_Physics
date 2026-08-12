@@ -197,6 +197,15 @@ fn main() {
     // after burrowing alone, and again after the fire starts.
     creature_scene("M18: a worm burrows through sand, then flees from fire", 90, 20, 100);
 
+    // Architecture §5f/5e: closes M16's own verify criterion ("a forest
+    // burns and regrows"), whose regrow half didn't exist until this
+    // session. Grows a tree by a pool, burns the whole trunk down, then
+    // keeps running long past burnout: `.` ash should give way to `s` soil,
+    // and -- RESEED_CHANCE is a real chance, not a certainty, so this can
+    // legitimately print an unlucky bare-soil patch on a given run -- `Y`
+    // wood or `,` moss can reappear on top of it.
+    regrowth_scene("architecture §5f/5e: a burned tree's ash decays into soil, and sometimes regrows", 60, 30);
+
     // M13: same impulse, but sealed in a box. Should stay concentrated near
     // the center rather than dissipating outward, unlike the open scene above.
     field_scene("field: pressure impulse sealed in a room", 160, 80, 200, |w| {
@@ -539,6 +548,73 @@ fn creature_scene(title: &str, w: i32, h: i32, frames: usize) {
     print_state(&world, "after a fire started where the worm was");
 }
 
+/// Architecture §5f/5e. Grows a tree, burns it to the ground, then keeps
+/// running the *full* frame order (CA sweep + active sites + field) long
+/// past burnout -- unlike `plant_scene`'s and `creature_scene`'s own loops,
+/// this one cannot skip `step_fields`, since ash decay is moisture-gated
+/// and moisture only ever gets written during that phase.
+fn regrowth_scene(title: &str, w: i32, h: i32) {
+    println!("\n=== {title} ===");
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    for x in 0..w {
+        world.set(x, h - 1, Cell::new(material::STONE, 0));
+    }
+    world.plant_tree(w / 2, h - 2);
+    world.paint_circle(w / 2 + 10, h - 8, 4, material::WATER);
+
+    let run = |world: &mut World, frames: usize| {
+        for _ in 0..frames {
+            parallel::step(world);
+            world.step_active_sites();
+            world.step_fields();
+        }
+    };
+    let wood = world.materials.id_of("wood");
+    let moss = world.materials.id_of("moss");
+    let ash = material::ASH;
+    let soil = world.materials.id_of("soil");
+    let print_state = |world: &World, label: &str| {
+        let counts = |m: Option<MaterialId>| -> usize {
+            let Some(m) = m else { return 0 };
+            (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == m).count()
+        };
+        println!(
+            "{label}: {} wood, {} moss, {} ash, {} soil",
+            counts(wood),
+            counts(moss),
+            counts(Some(ash)),
+            counts(soil)
+        );
+        for y in 0..h {
+            let row: String = (0..w)
+                .map(|x| {
+                    let m = world.get(x, y).material;
+                    if Some(m) == wood {
+                        'Y'
+                    } else if Some(m) == moss {
+                        ','
+                    } else if Some(m) == soil {
+                        's'
+                    } else {
+                        glyph(m)
+                    }
+                })
+                .collect();
+            println!("|{row}|");
+        }
+    };
+
+    run(&mut world, 4000);
+    print_state(&world, "grown");
+
+    world.ignite_circle(w / 2, h - 2, 6);
+    run(&mut world, 4000);
+    print_state(&world, "burned");
+
+    run(&mut world, 20_000);
+    print_state(&world, "long after (ash decaying into soil, maybe regrowing)");
+}
+
 fn glyph(id: MaterialId) -> char {
     match id {
         material::SAND => 'o',
@@ -563,6 +639,7 @@ fn plant_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&m
     for _ in 0..frames {
         parallel::step(&mut world);
         world.step_active_sites();
+        world.step_fields();
     }
 
     let wood = world.materials.id_of("wood");

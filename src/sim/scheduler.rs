@@ -26,6 +26,7 @@
 use std::cmp::Reverse;
 
 use super::creature;
+use super::decay;
 use super::plant;
 use super::structural;
 use super::world::World;
@@ -67,6 +68,13 @@ pub enum ActiveKind {
     /// `Cell::aux` alongside a growth stage or anchor distance would be) —
     /// see `creature::CreatureState`.
     Creature { creature: u16 },
+    /// Architecture §5f: an `ash` cell due to re-check whether it's damp
+    /// enough to decay into `soil`. Only scheduled reactively, by `fire.rs`
+    /// at the moment a burnout actually produces ash — not for every ash
+    /// cell that could ever exist (hand-painted ash, say), matching the
+    /// report's own "cheap: one material, one slow transformation" framing.
+    /// See `decay.rs`.
+    Decay,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -153,6 +161,7 @@ pub fn step(world: &mut World) {
             ActiveKind::Moss { .. } | ActiveKind::TreeTip { .. } | ActiveKind::RootTip { .. } => plant::tick(world, &site),
             ActiveKind::StructuralCheck => structural::tick(world, &site),
             ActiveKind::Creature { .. } => creature::tick(world, &site),
+            ActiveKind::Decay => decay::tick(world, &site),
         };
         produced_this_frame.extend(produced);
     }

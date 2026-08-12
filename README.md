@@ -295,6 +295,32 @@ noon and midnight — still lets a scene sleep through the steady parts of
 day and night exactly as before, only staying awake through the actual
 dawn/dusk transition.
 
+**Ash decays into soil, moisture-gated, and soil sometimes reseeds plant
+growth** (architecture §5f/§5e) — closing M16's own verify criterion, "a
+forest burns and regrows," whose regrow half didn't exist before this. New
+`decay.rs`, a new `soil` material, and a new `ActiveKind::Decay` dispatched
+from the M16 scheduler the same way structural checks and creatures already
+are. `fire.rs`'s burnout path schedules a decay check the moment a burnout
+produces ash specifically; from there it's the same damp/dry duality
+`plant.rs`'s moss already uses, and a freshly-decayed soil cell gets one
+roll to reseed moss or a tree in the empty cell above it. Reaching this from
+inside `fire::tick_burn` — which runs generic over `CellSurface`, both the
+serial sweep and the parallel sweep's per-worker `ChunkView` — needed
+`CellSurface` extended with `frame()` and `schedule_active_site()`, since
+only `World` owns the active-site heap; `ChunkView` queues the site and
+replays it after the pass, the same shape as its existing `field_writes`/
+`light_writes` queues.
+
+Exposed a real, if quiet, regression along the way: `examples/ascii.rs`'s
+`plant_scene` helper never actually called `world.step_fields()`, despite
+its own doc comment claiming it did. Harmless before the moisture channel
+existed (`is_damp` used to scan the CA grid directly), but once §4 switched
+that to a real field read, the "moss spreads on damp stone, stalls on dry"
+demo scene silently stopped demonstrating anything — both sides read
+uniformly dry, since the field was never actually being solved. Fixed, and
+a new `regrowth_scene` demoes the whole ash → soil → (sometimes) regrowth
+path end to end.
+
 ## M12/M13 status
 
 `Cell` widened from 4 to 8 bytes (32 MB instead of 16 for a 2048² world —

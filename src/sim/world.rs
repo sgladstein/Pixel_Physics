@@ -699,6 +699,16 @@ impl CellSurface for World {
     fn field_moisture_at(&self, x: i32, y: i32) -> f32 {
         World::field_at(self, x, y).moisture
     }
+
+    #[inline]
+    fn frame(&self) -> u64 {
+        self.frame
+    }
+
+    #[inline]
+    fn schedule_active_site(&mut self, site: ActiveSite) {
+        World::schedule_active_site(self, site)
+    }
 }
 
 /// Squared distance from a cell to the segment `a`–`b`, which is what makes the

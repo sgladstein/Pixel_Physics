@@ -23,6 +23,7 @@
 use super::cell::Cell;
 use super::material::MaterialRegistry;
 use super::rng::Rng;
+use super::scheduler::ActiveSite;
 
 pub trait CellSurface {
     fn get(&self, x: i32, y: i32) -> Cell;
@@ -64,6 +65,18 @@ pub trait CellSurface {
     /// `ChunkView` can answer this from its own field tile without
     /// reaching into the shared `World` at all.
     fn field_moisture_at(&self, x: i32, y: i32) -> f32;
+
+    /// Current frame number — needed by `fire::tick_burn` to compute a
+    /// newly-scheduled active site's `next_frame` (architecture §5f, ash
+    /// decay). See `World::frame`.
+    fn frame(&self) -> u64;
+
+    /// Schedule a new M16 active site (`decay.rs`'s ash → soil check is the
+    /// first caller reached from inside a generic CA rule, but the seam is
+    /// general). Only `World` owns the active-site heap, so `ChunkView`
+    /// queues this and replays it in `parallel::run_pass` — the same shape
+    /// as `field_writes`/`light_writes`.
+    fn schedule_active_site(&mut self, site: ActiveSite);
 
     #[inline]
     fn is_empty(&self, x: i32, y: i32) -> bool {

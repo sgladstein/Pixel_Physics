@@ -412,6 +412,13 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/moss.ron"),
     include_str!("../../assets/materials/worm.ron"),
     include_str!("../../assets/materials/corpse.ron"),
+    // Appended, not inserted alphabetically among the others above --
+    // `well_known_ids_match_their_names`'s constants (`STONE` through
+    // `SMOKE`) are the numeric position in this array plus a fixed offset,
+    // so inserting a new material anywhere but the end would silently
+    // renumber every material after it and break those constants at
+    // runtime, not just in a test.
+    include_str!("../../assets/materials/soil.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

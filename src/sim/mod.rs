@@ -47,6 +47,7 @@
 pub mod cell;
 pub mod chunk;
 pub mod creature;
+pub mod decay;
 pub mod explosion;
 pub mod field;
 pub mod fire;

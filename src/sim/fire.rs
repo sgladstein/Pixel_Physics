@@ -43,7 +43,9 @@
 //! field coupling, which runs unconditionally regardless of CA sleep state.
 
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
+use super::decay::DECAY_TICK_INTERVAL;
 use super::material::{self, MaterialId};
+use super::scheduler::{ActiveKind, ActiveSite};
 use super::surface::CellSurface;
 
 /// Below this many degrees from ambient, a cell stops force-waking its own
@@ -289,6 +291,24 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
             let shades = surface.materials().get(into).palette.len().max(1) as u32;
             let shade = surface.rng().below(shades) as u8;
             *cell = Cell::new(into, shade).with_temperature(cell.temperature());
+
+            // Architecture §5f: a burnout that produces ash specifically
+            // gets a decay check scheduled for it, the one hook point that
+            // makes `decay.rs`'s ash -> soil path reachable from real play
+            // rather than only from a hand-built ActiveSite in a test. Every
+            // other `burns_into` target (there is currently only ash) is
+            // left alone -- decay is data-independent of *why* ash formed,
+            // but this check itself is deliberately hardcoded to the one
+            // material name rather than a new schema field, matching
+            // decay.rs's own "cheap: one material" framing.
+            if surface.materials().id_of("ash") == Some(into) {
+                surface.schedule_active_site(ActiveSite {
+                    x,
+                    y,
+                    kind: ActiveKind::Decay,
+                    next_frame: surface.frame() + DECAY_TICK_INTERVAL,
+                });
+            }
         }
     }
 }

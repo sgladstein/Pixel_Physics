@@ -1475,6 +1475,48 @@ updated at each milestone commit, not just when something is added.
   (the oscillator's own shape) and `the_sky_keeps_cycling_through_day_and_
   night_even_after_the_field_goes_quiet` (the sleep-gate interaction,
   confirmed to fail — stuck at noon's brightness forever — without the fix).
+- **Architecture §5f/§5e** (ash → soil decay cycle, with reseeding):
+  **done.** Closes M16's own verify criterion, "a forest burns and
+  regrows" — only the burning half existed before this. New `decay.rs`
+  module, dispatched from `scheduler::step` via a new `ActiveKind::Decay`
+  the same way M17/M18 already are. New `soil` material (Powder, appended
+  to `EMBEDDED` — not inserted alphabetically, since every other material's
+  numeric id is its array position and inserting in the middle would have
+  silently renumbered everything after it). `fire::tick_burn`'s burnout
+  path schedules a decay check the moment a burnout specifically produces
+  ash (hardcoded to that one material name, not a new schema field —
+  matching the report's own "cheap: one material, one slow transformation"
+  framing); `decay::tick` re-checks periodically, gated on the moisture
+  channel (damp ash decays into soil at a real rate, dry ash only very
+  rarely, mirroring `plant.rs`'s own damp/dry duality for moss), and a
+  freshly-formed soil cell gets one roll to reseed moss or a tree in the
+  empty cell above it — a documented simplification, not perpetual
+  reseeding.
+
+  Needed a real architectural seam, not just a new module: `fire::tick_
+  burn` runs generic over `CellSurface` (both the serial sweep and
+  `ChunkView`'s parallel workers), but only `World` owns the active-site
+  heap, so `CellSurface` gained `frame()` and `schedule_active_site()` —
+  `ChunkView`'s implementation queues the site and replays it in `parallel::
+  run_pass`, the same shape as the existing `field_writes`/`light_writes`
+  queues. Three regression tests, one per real claim (damp decays but dry
+  doesn't; a real burnout schedules its own check, not just a hand-built
+  `ActiveSite`; a freshly-decayed soil cell can reseed) — the reseed test
+  needed several separately-walled puddles along one long ash strip, not
+  one, since a single puddle's edge only gives a handful of damp-and-open
+  cells to roll the reseed chance against, and one unlucky small sample
+  had already been caught failing during development.
+
+  Found and fixed a live regression along the way, not introduced by this
+  work but exposed by it: `examples/ascii.rs`'s `plant_scene` helper never
+  called `world.step_fields()`, despite its own doc comment already
+  claiming it did — harmless before the moisture channel existed, since
+  `is_damp` used to scan the CA grid directly, but once §4 switched it to
+  a real field read, the "moss spreads on damp stone, stalls on dry" demo
+  scene silently stopped demonstrating anything (both sides read as
+  uniformly dry, since the field was never being solved). Fixed, and a new
+  `regrowth_scene` demoes the full ash → soil → (sometimes) regrowth path
+  end to end.
 
 ---
 
