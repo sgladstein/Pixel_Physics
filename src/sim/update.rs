@@ -634,6 +634,83 @@ mod tests {
     }
 
     #[test]
+    fn a_splash_settles_with_no_stray_droplets_and_no_mass_drift() {
+        // `Reports/liquid-simulation-research-r2.md` §3a cites the standard
+        // VOF failure mode of stray disconnected "flotsam" droplets and a
+        // measured mass gain, and §3b proposes a local-height-function fix.
+        // Investigated directly (three scenarios: a draining pool through a
+        // floor hole, a multi-ledge settle, and this splash-impact one --
+        // splash is where real VOF flotsam most commonly appears) before
+        // building anything: transient single-cell isolation does appear
+        // mid-motion (a cell genuinely falling alone is not a bug), but none
+        // of the three left a stray droplet behind once the world actually
+        // finished settling (`active_chunk_count() == 0`), and fill summed
+        // across every water cell was conserved exactly. This locks that
+        // finding in as a real regression guard rather than a one-off
+        // check -- if a future change to the liquid model reintroduces
+        // stuck fragments or a mass leak, this should catch it, even though
+        // the local-height-function fix itself was not built.
+        let mut w = world_with_floor();
+        for y in 100..127 {
+            for x in 40..90 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        // A dense column dropped from height to force a real splash impact,
+        // not just a calm pour.
+        for y in 0..40 {
+            w.set(64, y, Cell::new(material::STONE, 0));
+        }
+
+        let fill_before: u64 = (0..128)
+            .flat_map(|y| (0..128).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == material::WATER)
+            .map(|(x, y)| liquid_fill(w.get(x, y)) as u64)
+            .sum();
+
+        let mut frames_run = 0;
+        loop {
+            step(&mut w);
+            frames_run += 1;
+            if w.active_chunk_count() == 0 || frames_run > 20_000 {
+                break;
+            }
+        }
+        assert_eq!(
+            w.active_chunk_count(),
+            0,
+            "the splash never settled within 20,000 frames"
+        );
+
+        let mut droplets = Vec::new();
+        let mut fill_after: u64 = 0;
+        for y in 0..128 {
+            for x in 0..128 {
+                if w.get(x, y).material != material::WATER {
+                    continue;
+                }
+                fill_after += liquid_fill(w.get(x, y)) as u64;
+                let isolated = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                    .iter()
+                    .all(|(dx, dy)| w.get(x + dx, y + dy).material != material::WATER);
+                if isolated {
+                    droplets.push((x, y));
+                }
+            }
+        }
+        assert!(
+            droplets.is_empty(),
+            "settled world (frame {frames_run}) left {} stray isolated water cell(s): {:?}",
+            droplets.len(),
+            droplets
+        );
+        assert_eq!(
+            fill_before, fill_after,
+            "total liquid fill drifted across the splash and settle"
+        );
+    }
+
+    #[test]
     fn sand_falls_one_cell_per_frame() {
         let mut w = world_with_floor();
         w.set(10, 0, Cell::new(material::SAND, 0));

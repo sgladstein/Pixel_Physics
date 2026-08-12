@@ -3605,9 +3605,31 @@ of it — read the two together.
    specific to this engine's implementation. **Fix (§3b):** a published
    3-cell local height-function read, computed only for surface cells, not
    a global solve — cited as eliminating the droplet artifact and giving
-   exact mass conservation versus standard VOF's ~2% gain. This is the
-   single highest-value item in Report B: it's a local, cheap, already-
-   proven fix for a bug this project has already independently observed.
+   exact mass conservation versus standard VOF's ~2% gain.
+
+   **Investigated directly, not built — the persistent version of this bug
+   does not reproduce in this codebase.** Three scenarios were tried before
+   writing any fix code (a draining pool through a floor hole, a multi-
+   ledge settle, and a splash impact — splash is where real VOF flotsam
+   most commonly appears): isolated single-cell droplets *do* appear
+   transiently during active motion (confirmed, e.g. 6-7 stray cells mid-
+   drain), but every scenario reached full settlement
+   (`active_chunk_count() == 0`) with zero stray droplets remaining and
+   exact fill conservation (0.000% drift, summed across every water cell).
+   This refines rather than contradicts the original playtest observation:
+   the visual artifact is real and transient, not a permanently stuck
+   fragment the way "flotsam and jetsam" implies — this implementation's
+   specific choices (a drained cell converts fully to `Cell::EMPTY`,
+   `HORIZONTAL_TRANSFER_REACH`'s 8-cell search) apparently already prevent
+   the *persistent* failure mode the literature describes. **Locked in as a
+   permanent regression test**
+   (`a_splash_settles_with_no_stray_droplets_and_no_mass_drift`,
+   `update.rs`) rather than left as a one-off check. Building the local-
+   height-function fix now would be solving a problem not demonstrated to
+   exist here; if transient mid-drain droplets are ever judged worth
+   smoothing over purely for visual polish, that is a smaller, differently-
+   scoped problem than what §3b describes, and should be diagnosed fresh
+   against a real complaint rather than reusing this report's justification.
 2. **`MIN_LIQUID_TRANSFER = 150` reframed** (§3c): the value this session
    arrived at empirically (documented at `update.rs`'s own doc comment and
    PLAN.md's §4 entry above, tuned 8 → 150 purely by measuring convergence
