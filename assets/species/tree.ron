@@ -1,0 +1,69 @@
+// Reports/tree-rewrite-design.md's replacement for the old TreeState-based
+// continuous-position space colonization -- emergent, per-cell growth
+// instead: a GrowingTip picks among its open 8-neighbours, weighted by
+// local field reads (light, wind) plus a canopy-density self-avoidance
+// term (deposit -> diffuse -> decay -> follow, not a private attractor
+// point cloud), gated on locally diffusing resource rather than an
+// unbounded energy pool. See that report for the full reasoning; this
+// file is data, not a second place to re-derive it.
+//
+// GrowingTip carries both Grow and Photosynthesize -- this pass's Grow
+// only ever creates more of its own parent's cell type (no separate Leaf
+// spawned), so an actively growing shoot is also its own light-catching
+// surface, the same way a real young shoot photosynthesizes before it
+// lignifies into bark-covered wood. CellType::Leaf stays defined in
+// organism.rs for a future species that wants a real distinct leaf stage;
+// this file doesn't need it to be a tree.
+//
+// Every numeric value below is a first pass, deliberately -- resource now
+// lives on a bounded 0..RESOURCE_SCALE (4.0) scale, not the old TreeState's
+// unbounded energy pool, so the old constants (GROWTH_COST: 4.0,
+// AMBIENT_GROWTH_ENERGY: 1.2, ROOT_WATER_ENERGY: 5.0, ...) don't transfer
+// directly -- re-tuned for the new scale, calibrated against what actually
+// grows in Reports/tree-rewrite-design.md's own live-verification step
+// (step 6 of its retrofit order), not assumed correct on paper.
+(
+    name: "tree",
+    cell_types: [
+        (Seed, [
+            Germinate(
+                light_threshold: 0.1,
+                moisture_threshold: 0.0,
+                instant: false,
+            ),
+        ]),
+        (GrowingTip, [
+            Grow(
+                cost: 0.4,
+                branch_chance: 0.1,
+                continuation_weight: 0.7,
+                light_weight: 0.4,
+                wind_weight: 0.2,
+                upward_weight: 0.1,
+                crowding_weight: 0.5,
+                max_active_tips: 14,
+            ),
+            Photosynthesize(rate: 0.35),
+        ]),
+        (RootTip, [
+            Absorb(rate: 1.5),
+            Grow(
+                cost: 0.25,
+                branch_chance: 0.04,
+                continuation_weight: 0.7,
+                light_weight: 0.0,
+                wind_weight: 0.0,
+                upward_weight: 0.6,
+                crowding_weight: 0.0,
+                max_active_tips: 10,
+            ),
+        ]),
+        (MatureBody, [
+            SecondaryThicken(pipe_ratio: 2.5),
+            StructuralAnchor,
+        ]),
+        (Leaf, [
+            Photosynthesize(rate: 0.35),
+        ]),
+    ],
+)

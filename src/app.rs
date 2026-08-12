@@ -571,6 +571,16 @@ impl App {
         self.world.plant_moss_seed(x, y);
     }
 
+    /// Plant a `tree` species seed via the new `Grow`/`Germinate`-driven
+    /// organism substrate — `Reports/tree-rewrite-design.md`'s own
+    /// deliberately separate debug entry point, alongside (not replacing)
+    /// `plant_tree` above, until the new system's live-verification gate
+    /// passes.
+    pub fn plant_tree_v2(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        self.world.plant_tree_v2(x, y);
+    }
+
     /// Plant a worm at a screen position — M18 debug tool.
     pub fn plant_worm(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);

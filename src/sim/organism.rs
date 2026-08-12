@@ -274,7 +274,7 @@ pub struct SpeciesRegistry {
     by_name: HashMap<String, SpeciesId>,
 }
 
-const EMBEDDED: &[&str] = &[include_str!("../../assets/species/moss.ron")];
+const EMBEDDED: &[&str] = &[include_str!("../../assets/species/moss.ron"), include_str!("../../assets/species/tree.ron")];
 
 /// Where the loader looks for species files, relative to the working
 /// directory — mirrors `material::ASSET_DIR`.

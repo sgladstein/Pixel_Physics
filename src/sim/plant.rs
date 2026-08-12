@@ -12,6 +12,7 @@
 //! file before touching the constants below; they're not arbitrary.
 
 use super::cell::Cell;
+use super::field::FIELD_SCALE;
 use super::material::{self, MaterialKind};
 use super::organism::{self, Behavior, CellType};
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -69,6 +70,27 @@ fn is_damp(world: &World, x: i32, y: i32) -> bool {
     world.field_at(x, y).moisture > DAMP_MOISTURE_THRESHOLD
 }
 
+/// Light reaching a plant-owned or plant-adjacent cell, read from just
+/// outside the cell's own position rather than at it. `rebuild_blocked`
+/// marks a whole `FIELD_SCALE`-sided block opaque the moment *any* `Solid`
+/// or `Plant` cell sits inside it (deliberately, so a canopy shades what's
+/// beneath it) — which means a plant cell reading `field_at` at its own
+/// exact position always lands inside a block its own material just made
+/// opaque, and reads a permanent `0.0` regardless of how bright the sky
+/// is one cell away. Never surfaced before this: moss's own light read
+/// (`shade_factor`, below) only ever multiplies a probability that fires
+/// either way, so a silently-always-shaded reading still looked plausible;
+/// the tree rewrite's `Germinate`/`Photosynthesize` are the first behaviors
+/// to treat a light reading as a hard gate, which is what turned this from
+/// a quiet skew into a permanent deadlock (a seed that can never see
+/// enough light to germinate, in open sky, forever). Offsetting the sample
+/// upward by one field block is the same trick `phototropism_dir` already
+/// uses (`light_above`, in this same file) for exactly this reason, just
+/// applied to an absolute reading instead of a relative comparison.
+fn ambient_light_above(world: &World, x: i32, y: i32) -> f32 {
+    world.field_at(x, y - FIELD_SCALE).light
+}
+
 /// Lower ambient light reads as more shaded, which favours spreading —
 /// real moss's actual preference (shade slows evaporation), not a made-up
 /// bonus. Floored rather than let hit zero, since total darkness isn't a
@@ -76,7 +98,7 @@ fn is_damp(world: &World, x: i32, y: i32) -> bool {
 /// `Divide` when a species opts in (`shade_sensitive`) — a species with no
 /// reason to care about light shouldn't pay for the field read.
 fn shade_factor(world: &World, x: i32, y: i32) -> f32 {
-    let light = world.field_at(x, y).light;
+    let light = ambient_light_above(world, x, y);
     (1.0 - (light / 2.0).clamp(0.0, 1.0)).max(0.1)
 }
 
@@ -291,7 +313,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 }
             }
             Behavior::Photosynthesize { rate } => {
-                let light = world.field_at(x, y).light;
+                let light = ambient_light_above(world, x, y);
                 resource = (resource + rate * light).min(organism::RESOURCE_SCALE);
                 world.set(x, y, cell.with_aux(organism::pack_aux(cell_type, resource)));
             }
@@ -330,8 +352,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             }
             Behavior::Germinate { light_threshold, moisture_threshold, instant } => {
                 let ready = instant || {
-                    let field = world.field_at(x, y);
-                    field.light >= light_threshold && field.moisture >= moisture_threshold
+                    let light = ambient_light_above(world, x, y);
+                    let moisture = world.field_at(x, y).moisture;
+                    light >= light_threshold && moisture >= moisture_threshold
                 };
                 if ready {
                     return germinate(world, x, y, organism_id, cell);
@@ -422,9 +445,17 @@ const MAX_THICKEN_SCAN_CELLS: usize = 2000;
 fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32) {
     let is_plant = |c: Cell| c.organism_id() == organism_id && world.materials.kind(c.material) == MaterialKind::Plant;
     let reached = organism::reachable_from_anchors(world, [(x, y)], is_plant, MAX_THICKEN_SCAN_CELLS);
+    // Counts `Leaf` *and* `GrowingTip` cells as "downstream photosynthetic
+    // load" -- `tree.ron` gives `GrowingTip` its own `Photosynthesize`
+    // alongside `Grow` rather than spawning a separate `Leaf` cell type
+    // this pass's `Grow` has no mechanism to create (it only ever makes
+    // more of its own parent's cell type). A species that *does* grow a
+    // distinct `Leaf` type would still be counted correctly here; this
+    // isn't `GrowingTip`-specific, it's "every cell type this organism
+    // actually uses to catch light."
     let leaf_count = reached
         .iter()
-        .filter(|&&(rx, ry)| organism::unpack_aux(world.get(rx, ry).aux()).0 == Some(CellType::Leaf))
+        .filter(|&&(rx, ry)| matches!(organism::unpack_aux(world.get(rx, ry).aux()).0, Some(CellType::Leaf) | Some(CellType::GrowingTip)))
         .count();
     let width = 1 + NEIGHBOURS_4
         .iter()
@@ -1115,6 +1146,34 @@ impl World {
             self.schedule_active_site(site);
         }
     }
+
+    /// Plant a `tree` species `Seed` cell at `(x, y)` — `Reports/tree-
+    /// rewrite-design.md` §1/§11's own corrected retrofit order: a
+    /// deliberately separate entry point from `plant_tree` above, so the
+    /// new `Grow`/`Germinate`-driven system can be built and live-
+    /// verified with the old `TreeState`-based implementation completely
+    /// untouched, reachable only through its own existing `plant_tree`/`T`
+    /// key, until the new system's own visual-verification gate passes. A
+    /// no-op if the position isn't empty or the `tree` material/species
+    /// isn't loaded, mirroring `plant_moss_seed`'s own preconditions.
+    pub fn plant_tree_v2(&mut self, x: i32, y: i32) {
+        let Some(wood) = self.materials.id_of("wood") else {
+            return;
+        };
+        let Some(tree_species) = self.species.id_of("tree") else {
+            return;
+        };
+        if !self.is_empty(x, y) {
+            return;
+        }
+        let shades = self.materials.get(wood).palette.len().max(1) as u32;
+        let shade = self.rng.below(shades) as u8;
+        let organism_id = self.push_organism(tree_species);
+        let aux = organism::pack_aux(CellType::Seed, 0.0);
+        self.set(x, y, Cell::new(wood, shade).with_organism_id(organism_id).with_aux(aux));
+        let site = reschedule_organism(x, y, organism_id, 0, self.frame + ORGANISM_TICK_INTERVAL);
+        self.schedule_active_site(site);
+    }
 }
 
 #[cfg(test)]
@@ -1722,5 +1781,54 @@ mod tests {
         w.tree_mut(tree_id).tips[0].alive = false; // the last living tip dies
         reclaim_if_tree_is_fully_dead(&mut w, tree_id);
         assert!(w.tree(tree_id).attractors.is_empty(), "a fully dead tree's attractors should have been reclaimed");
+    }
+
+    // --- Self-blocking light regression (`ambient_light_above`) ----------
+    //
+    // `rebuild_blocked` marks a whole field block opaque the instant any
+    // `Solid`/`Plant` cell sits inside it, so a plant cell reading
+    // `field_at` at its own exact position always reads a self-blocked
+    // `0.0`, forever, regardless of how bright the sky is one cell away.
+    // Never caught before this: moss's own light read only ever scales a
+    // probability that fires either way, so a silently-always-shaded
+    // reading still looked plausible. `Germinate`/`Photosynthesize` are the
+    // first behaviors to treat a light reading as a hard gate/income
+    // source, which turns the same self-blocking into a permanent deadlock.
+    // These tests plant close enough to the sky (`field.rs`'s light model
+    // decays hard within a few field rows) that light genuinely reaches the
+    // cell from outside, and would fail if either behavior went back to
+    // reading `world.field_at(x, y)` directly at its own position.
+
+    #[test]
+    fn a_seed_germinates_in_open_sky_despite_its_own_position_self_blocking_light() {
+        let mut w = test_world();
+        // `ambient_light_above` reads `FIELD_SCALE` (8) world units above
+        // its own position -- y=20 keeps that offset read (y=12) safely
+        // in-bounds and within light's real reach, unlike a too-shallow
+        // planting depth (y < FIELD_SCALE) whose offset read would go
+        // negative and land out of the world entirely, which reads as
+        // blocked/zero regardless of the fix under test.
+        w.plant_tree_v2(100, 20);
+        run_with_fields(&mut w, 400); // several germination checks (ORGANISM_TICK_INTERVAL apart)
+
+        let (cell_type, _) = organism::unpack_aux(w.get(100, 20).aux());
+        assert_ne!(cell_type, Some(CellType::Seed), "a seed in open sky should have germinated, not stayed a Seed forever");
+    }
+
+    #[test]
+    fn photosynthesize_gains_resource_in_open_sky_despite_its_own_position_self_blocking_light() {
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let wood = w.materials.id_of("wood").unwrap();
+        let organism_id = w.push_organism(tree_species);
+        let aux = organism::pack_aux(CellType::GrowingTip, 0.0);
+        w.set(100, 20, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+        let site = reschedule_organism(100, 20, organism_id, 0, w.frame + ORGANISM_TICK_INTERVAL);
+        w.schedule_active_site(site);
+
+        run_with_fields(&mut w, (ORGANISM_TICK_INTERVAL as usize) * 3);
+
+        let (_, resource) = organism::unpack_aux(w.get(100, 20).aux());
+        assert!(resource > 0.0, "Photosynthesize should have accumulated resource from real sky light, got {resource}");
     }
 }
