@@ -3348,3 +3348,93 @@ and #3 (redundant touch_neighbours) whenever convenient, both low urgency.
 Also worth a decision, not just a fix: whether to make `master` the
 default branch (or merge into `main`) and close out the
 `pixel-physics-issues.md` items that are actually resolved now.
+
+---
+
+## `Reports/plant-substrate-v2-design.md` — done, not started (session handoff)
+
+Written by a dedicated research agent, per the owner's explicit "plan all
+of this before implementing, especially since a diffusion-mechanism change
+is on the table" and "do deeper research if needed to make sure we do it
+correctly the first time." **1,205 lines, 9 sections, design only — no
+code touched.** This entry exists so a session resuming after a context
+compact doesn't have to re-read the whole document (or this whole session)
+to know where things stand.
+
+**First, a real gap the agent itself caught and which is now fixed:**
+`Reports/plant-simulation-research.md` (the owner-supplied research doc
+this whole phase is grounded in, summarized into `PLAN.md` two entries
+above) had only ever been *read* from the chat upload, never actually
+committed to the repo — every citation of it as a real `Reports/` file was
+technically pointing at nothing. Copied and committed
+(`5a3c9b9`) before anything else, since the design report depends on being
+able to cite it for real.
+
+**The five decisions, landed:**
+
+1. **Growth mode.** Accepted accretion for canopy (a real vascular cambium
+   is also outermost-layer-only, so this isn't a compromise) and one-cell
+   root-into-soil displacement; **rejected** the sub-cell turgor/extension
+   scalar this project's own preliminary lean had favored (the resource
+   scalar already *is* that accumulator; the liquid-fill trick's load-
+   bearing property — conserved, transferable fill — belongs to soil
+   moisture instead, not growth rate); **added bud break** (epicormic
+   budding, already cited in `m16-plant-biology.md` §5), which the
+   original lean didn't cover and which is the actual fix for "growth has
+   a hard ceiling once every tip goes stale" — the real cause of the tiny-
+   tree problem turned out to be `thicken()`'s counting bug, not the
+   growth-mode question at all (see decision 4).
+2. **`Cell::aux` → sidecar.** Confirmed full (4+8+4 of 16 bits). New
+   organism-cell layout: 4 bits `CellType` + 12 bits index into
+   `OrganismState::cells: Vec<Option<OrganismCell>>` — `World::organisms`'
+   existing generational slot-`Vec` is the template, not `CreatureState`
+   (per-entity, no generation — a precedent, but the wrong one). Hard part
+   named explicitly: `diffuse_resource` runs over the generic `CellSurface`
+   trait today, which can't reach a per-organism `Vec`; resolved by moving
+   diffusion to a per-organism pass over the cell list instead (also
+   faster than the current per-CA-frame placement, and unblocks
+   `free_organism`/`organism_active_tip_count`/`organism_is_supported`'s
+   still-missing anchor list). Four-step migration in the doc, every
+   existing test mapped to what happens to it.
+3. **Soil moisture**, real citations: Least Limiting Water Range (Silva/
+   Kay/Perfect 1994; Letey 1985) as the unifying frame, field capacity/
+   wilting point/aeration porosity (Grable & Siemer 1968, with their own
+   per-species caveat carried through), waterlogging as O₂ diffusion
+   collapse (Pan et al. 2021) causing root-*tip* necrosis specifically
+   within 1-2 hours while mature tissue survives (Evans 2004) — so the
+   mechanism is necrosis of `RootTip` on a duration gate, not reduced
+   absorb efficiency (backwards) or slowed growth (indistinguishable from
+   drought). The mud transition uses real Atterberg limits (ASTM D4318).
+   Predicted emergent payoff: root systems should stabilize at the
+   capillary fringe rather than growing into the water table and dying.
+4. **Real `Leaf` cells, seed reserve, leaf-gated photosynthesis.** This is
+   what actually fixes the one-cell-trunk problem (§2 above) — `thicken()`
+   counts `Leaf|GrowingTip` cells, and since tips retire to `MatureBody`
+   almost immediately (this session's own fix), that count is nearly
+   always too small to clear `pipe_ratio`. Real leaves fix the count
+   directly. **Explicit warning from the report:** this session's own
+   `cost: 0.2`/`rate: 0.5` tuning (the 6-way comparison) gets invalidated
+   by this change and needs redoing, not reused.
+5. **Differentiated materials + environmental interaction.** Verified in
+   code (not assumed) that a `Powder` cell already rests on `Plant`
+   material — `is_displaceable` only allows `Liquid`/`Gas` through
+   (`material.rs:104`) — so "debris catches on branches" needs no new
+   mechanic, just branches wider than one cell, which decision 4 also
+   supplies. What *is* missing is load: a scoped one-term addition to
+   `organism_is_supported` (reduces effective span under weight).
+
+**Retrofit order (full detail in the doc's own §9), in short:** sidecar
+storage (blocking, step 1) → real leaves (step 2, re-tune `tree.ron` here)
+→ soil moisture storage + differentiated materials + load-reduces-span (
+parallelizable, steps 3-5) → root displacement into soil (step 6) → soil
+`Absorb` + anoxia necrosis (step 7, the water-table equilibrium is the
+actual proof this works) → bud break (step 8, deliberately last — it
+removes the size ceiling, so it's what will expose scaling problems in
+everything before it) → independent review (step 9, same rigor as the
+tree rewrite's own step 8).
+
+**Status: fully planned, zero code written.** Next action for whoever
+picks this up is retrofit step 1 (`Cell::aux` → sidecar, design doc §3f),
+not a discussion — the planning phase the owner asked for is complete.
+Polarity/directional diffusion and evolution are confirmed out of scope
+for this phase (design doc §7), each wants its own future design pass.
