@@ -220,6 +220,19 @@ impl World {
         self.paint_field(cx, cy, radius, |c| c.light += amount);
     }
 
+    /// Lower moisture in a filled circle, floored at zero — architecture
+    /// §5g, a root's own write to the channel it reads. `apply_moisture_
+    /// sources` will re-force this back up next step if the drained cell
+    /// still contains a `Liquid` CA cell (a body of water big enough that
+    /// one root's sip is noise against it), so this only actually matters —
+    /// which is the point — where a root has drained the *local* water
+    /// faster than the source can replenish it, e.g. a small puddle a root
+    /// is draining cell by cell. That's the resource-competition signal a
+    /// neighbouring root's own `moisture_pull` read is meant to notice.
+    pub fn deplete_moisture(&mut self, cx: i32, cy: i32, radius: i32, amount: f32) {
+        self.paint_field(cx, cy, radius, |c| c.moisture = (c.moisture - amount).max(0.0));
+    }
+
     /// Apply `f` to every field cell within `radius` *world cells* of
     /// `(cx, cy)`.
     ///

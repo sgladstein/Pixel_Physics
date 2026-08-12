@@ -1429,6 +1429,21 @@ updated at each milestone commit, not just when something is added.
   either condition. New regression test (`a_liquid_cell_is_detected_even_in_
   a_field_block_that_straddles_the_world_edge`), confirmed to fail against
   the reverted behaviour before being trusted.
+- **Architecture §5g** (plants write the channels they read): **done.** One
+  of the two writes was already free — `rebuild_blocked` has blocked on
+  `Solid | Plant` since M16, so light occlusion needed nothing new once §2's
+  sky writer landed. The other: a new `World::deplete_moisture` (mirrors
+  `add_light`'s shape, subtracts and floors at zero instead of adding)
+  called at both of `root_tip_tick`'s water-drink sites, right next to the
+  existing `ROOT_WATER_ENERGY` grant. Turns moisture from a read-only
+  channel into a loop — a root draining a shared puddle now leaves a
+  measurably lower reading behind for a neighbouring root's own `moisture_
+  pull` to notice, the resource-competition-through-the-world mechanism the
+  architecture report's §0 names as the actual payoff. New regression test
+  (`deplete_moisture_lowers_the_local_reading_and_floors_at_zero`) checks
+  the mechanism directly rather than through a full multi-root competition
+  scene, which would mostly be testing scheduling noise rather than the
+  write itself.
 
 ---
 

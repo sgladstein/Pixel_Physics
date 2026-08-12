@@ -265,6 +265,19 @@ the ~28 ms/~9 ms already on record. The scan itself was never the bottleneck
 in a scene this CA-heavy; if a future scene turns out to actually feel this
 cost, it's the first place to look.
 
+**Both channels plants read are now also channels they write** (architecture
+§5g), which is what turns "moss reads shade" and "roots read moisture" from
+one-way sensing into an actual feedback loop between organisms. Light
+occlusion needed no new code — `rebuild_blocked` has blocked on `Solid |
+Plant` since M16, so a tree canopy already shaded whatever grew under it the
+moment the light channel itself started carrying real values. Moisture
+needed one new method, `World::deplete_moisture` (subtracts and floors at
+zero, the mirror image of `add_light`), called at both of a root's
+water-drink sites: a root draining a small, contained puddle now leaves it
+measurably drier, which a second root's own `moisture_pull` gradient read
+can notice and steer away from — resource competition mediated entirely
+through the world, with no code anywhere that knows two roots are competing.
+
 ## M12/M13 status
 
 `Cell` widened from 4 to 8 bytes (32 MB instead of 16 for a 2048² world —

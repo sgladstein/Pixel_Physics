@@ -223,6 +223,11 @@ const MOISTURE_SENSOR_OFFSET: f32 = 4.0;
 /// set right, same as every other threshold on this channel.
 const MIZ_THRESHOLD: f32 = 0.05;
 const ROOT_WATER_ENERGY: f32 = 5.0;
+/// Local moisture drained per drink — architecture §5g, the write that
+/// turns the moisture channel from read-only into a loop. Not tied
+/// numerically to `ROOT_WATER_ENERGY` (different units: energy vs. this
+/// channel's own 0..4-ish scale) — a separate, freely tunable amount.
+const ROOT_MOISTURE_DEPLETION: f32 = 1.0;
 /// Cost debited from the shared energy pool for each step of root growth
 /// through soil (not water, which is a net gain via `ROOT_WATER_ENERGY`).
 /// Real root growth costs the plant carbon same as shoot growth does — a
@@ -518,6 +523,7 @@ fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) 
         if world.materials.kind(world.get(nx, ny).material) == MaterialKind::Liquid {
             world.set(nx, ny, Cell::EMPTY);
             world.tree_mut(tree_id).energy += ROOT_WATER_ENERGY;
+            world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
         }
     }
 
@@ -555,6 +561,7 @@ fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) 
         MaterialKind::Liquid => {
             world.set(wx, wy, Cell::EMPTY);
             world.tree_mut(tree_id).energy += ROOT_WATER_ENERGY;
+            world.deplete_moisture(wx, wy, 1, ROOT_MOISTURE_DEPLETION);
             world.tree_mut(tree_id).roots[root_id as usize].starved_ticks = 0;
         }
         MaterialKind::Empty | MaterialKind::Powder => {

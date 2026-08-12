@@ -1217,6 +1217,43 @@ mod tests {
     }
 
     #[test]
+    fn deplete_moisture_lowers_the_local_reading_and_floors_at_zero() {
+        // Architecture §5g -- a root's own write to the channel it reads,
+        // the mechanism that turns moisture from read-only into a loop
+        // (a neighbouring root's `moisture_pull` can now actually notice
+        // another root draining a shared puddle).
+        let mut w = test_world();
+        w.set(128, 128, Cell::new(material::WATER, 0));
+        step(&mut w); // apply_moisture_sources forces this block to MAX_MOISTURE
+        let before = w.field_at(128, 128).moisture;
+        assert!(before > 0.0, "test setup should have produced a moisture source");
+
+        // Remove the literal water cell too, mirroring what a real drink
+        // does (`root_tip_tick`'s own `world.set(.., Cell::EMPTY)`) --
+        // otherwise `apply_moisture_sources` would just force this straight
+        // back up to `MAX_MOISTURE` on the *next* step, masking the write
+        // this test exists to check. Proven, not just asserted: step the
+        // field again after depleting and confirm it stays down rather than
+        // snapping back, which is what would happen if the water cell were
+        // still there (`rebuild_blocked` would still see it as a source).
+        w.set(128, 128, Cell::EMPTY);
+        w.deplete_moisture(128, 128, 1, 1.0);
+        let after = w.field_at(128, 128).moisture;
+        assert!(after < before, "deplete_moisture did not lower the local reading: before={before}, after={after}");
+
+        step(&mut w);
+        let after_next_step = w.field_at(128, 128).moisture;
+        assert!(
+            after_next_step < before,
+            "moisture snapped back up on the next step -- the water cell removal isn't actually preventing \
+             apply_moisture_sources from re-forcing it: before={before}, after depleting and stepping={after_next_step}"
+        );
+
+        w.deplete_moisture(128, 128, 1, 1000.0); // far more than the current reading
+        assert_eq!(w.field_at(128, 128).moisture, 0.0, "deplete_moisture should floor at zero, not go negative");
+    }
+
+    #[test]
     fn heat_does_not_leak_through_a_sealed_wall_via_diffusion() {
         // Regression for a bug caught by independent review: step_diffusion
         // originally had no wall-awareness at all, unlike every other phase,
