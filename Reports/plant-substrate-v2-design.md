@@ -1,4 +1,4 @@
-# Plant substrate v2: growth mode, storage, soil moisture, leaves, and environment
+# Plant substrate v2: growth mode, storage, soil moisture, leaves, environment, and polarity
 
 **Audience:** the coding agent implementing this.
 **Status:** design only, written just-in-time before implementation, per
@@ -37,13 +37,22 @@ original from wherever the owner supplied it and commit it, before the
 implementation pass, so the next document in this chain has a real primary
 source rather than a summary of one.
 
+**Update, at the Decision 6 pass:** the recommendation above was taken.
+`Reports/plant-simulation-research.md` was recovered from the owner's
+original upload and committed as `5a3c9b9`, before any further work — see
+`PLAN.md`'s own handoff entry. Every citation of it in §7 below is a
+citation of the real primary source, read directly, not of `PLAN.md`'s
+summary. §1–§6 were written before the recovery and still stand on the
+summary; nothing in the recovered text contradicts them, and §7 below
+quotes that document's own §5 verbatim where it matters.
+
 Everything else below is verified directly against the code as it exists at
 `08d33fe`, not against what the docs claim exists. Where the two diverge,
 the code wins and the divergence is named.
 
 ---
 
-## 1. The five decisions, stated first
+## 1. The six decisions, stated first
 
 | # | Question | Decision |
 |---|---|---|
@@ -52,10 +61,47 @@ the code wins and the divergence is named.
 | 3 | Soil moisture | Per-cell fill in a `Powder`'s currently-unused `aux`, on a four-threshold curve (saturation / field capacity / wilting point / air-filled-porosity limit); too-wet costs a `RootTip` **necrosis**, duration-gated; `mud` is a real new material at the Atterberg plastic limit |
 | 4 | Leaves | A **plastochron counter** turns the *retiring* `GrowingTip` into a `Leaf`; seed reserve `2.0`, derived from the shipped economy; starvation before first leaf frees the organism id — real mortality, and it forces `free_organism` to finally exist |
 | 5 | Materials & environment | `leaf` and `rootwood` become real materials (their *physics* differ); tip-vs-mature is shading only. **Debris already catches on branches** — verified in code, no new mechanic needed. Root soil-stabilization is one new check in `update_powder` |
+| 6 | Polarity / directional flux | **Reject** the research sketch's packed 8-direction enum; store a **per-face conductance `[f32; 4]`** on `OrganismCell`, one entry per 4-neighbour face, and make transport carrier-shaped (`RATE · c_ij · R_i`) instead of symmetric averaging. Conductance ratchets on measured flux through a **Hill-n=2** response — Sachs's canalization made mechanical. Canopy density **stays isotropic**. `Grow` gains **no new weight**: `away_from_growth` is replaced by a flux-derived `away_from_supply` |
 
 Decision 1 is first because everything inherits from it, exactly as
 `PLAN.md` frames it. Decision 2 is second because it is the only one that
 is a *prerequisite* for the others rather than a peer of them.
+
+**Decision 6, in one paragraph, because it arrived last and reverses an
+earlier call.** `organism::diffuse_resource` is symmetric neighbour-
+averaging, and a symmetric operator has no flux term, therefore no
+feedback, therefore no channels — it blurs a gradient and can never
+canalize one, no matter how the weights are tuned. Decision 6 gives every
+organism cell four *directional conductances*, one per shared face, and
+replaces the average with a pairwise carrier-mediated exchange whose
+conductance is itself updated from the flux it just carried: a path that
+carries flux gets better at carrying flux, which is Sachs's canalization
+hypothesis stated as an update rule rather than as an aspiration. The
+storage question that made this expensive is already gone — Decision 2's
+`OrganismCell` is a plain struct, so four `f32`s cost nothing and need no
+quantization, which is exactly why the research sketch's "three or four
+bits, eight directions plus none" is the wrong layout now and why a set of
+four continuous conductances is strictly richer: it can represent a real
+branch point (two faces both conducting), which a single stored direction
+structurally cannot. The rule reduces *exactly* to today's isotropic
+diffusion when all conductances are equal, so it is a strict
+generalization, not a replacement, and Decision 2's diffusion tests keep
+their meaning. What it buys, honestly scoped in §7i: a real vein/
+parenchyma conductance hierarchy, source-to-sink transport from leaves to
+whichever sink is actually drawing, and a *persistent* leader bias at
+branch points where today's mechanism produces an alternating one — not
+real auxin-based apical dominance, which needs a second channel flowing
+the other way and is not built here.
+
+**Why it is sequenced between Decisions 2 and 4 rather than after
+everything**, per `PLAN.md`'s own post-landing revision (see §8a): it is
+not independent of either. Decision 2 already restructures
+`diffuse_resource`'s execution shape and is what gives a polarity field
+room to exist at all; Decision 4 re-tunes `tree.ron`'s entire resource
+economy, and tuning that economy against isotropic transport and again
+after polarity lands is the exact double-tuning the owner's original
+"don't optimize if the diffusion mechanism is going to change" instruction
+was meant to prevent.
 
 ---
 
@@ -1035,38 +1081,767 @@ nothing.
 
 ---
 
-## 7. Deliberately out of scope
+## 7. Decision 6 — polarity and directional resource flux
 
-### 7a. Polarity and directional diffusion — deferred, by direct owner instruction
+Written after §1–§6 landed, as a deliberate reversal of what was then §7a's
+"deliberately out of scope" call. §8a records the reversal and its reason;
+this section is the design that reversal requires.
 
-`PLAN.md`'s summary of the research document's §5 identifies this as *"the
-highest emergent-behavior-per-effort item in the whole document"*:
-`organism::diffuse_resource` is isotropic neighbour-averaging, every real
-shape-generating process in plant development is polar, and symmetric
-diffusion can blur a gradient but never canalize it into a channel no
-matter how long it runs or how the weights are tuned.
+### 7a. The mechanism being modelled, from the primary source
 
-**It is nonetheless deliberately not designed here**, on the owner's
-explicit mid-session instruction: *"Let's plan all of this before we start
-implementing any of it. I don't want to optimize if we are going to make
-large changes to our diffusion mechanism."*
+**`Reports/plant-simulation-research.md` §5 states the problem exactly, and
+it is worth quoting rather than paraphrasing** (the file exists now — see
+§0's update):
 
-**Why that instruction is correct, briefly.** Polarity changes the *core
-transport mechanism* that Decisions 1, 3 and 4 would each otherwise be
-tuned against. `Grow`'s `cost`, `Photosynthesize`'s `rate`, the seed
-reserve of §5c, and `RootTip`'s soil-water income of §4d are all
-calibrated against how fast resource actually arrives where it is spent —
-which is exactly what a polar, flux-following transport rule would change,
-globally, for every one of them at once. Tuning that economy against
-isotropic diffusion and then replacing the diffusion is doing the tuning
+> Sachs's canalization hypothesis — the basis of the auxin mechanism
+> already cited in `m16-plant-biology.md` — is explicitly a **positive
+> feedback between flux and conductivity**: a path that carries more flux
+> becomes better at carrying flux, which is what turns a diffuse field into
+> a discrete channel. That is how veins form, how vascular strands form,
+> how one leader dominates its siblings.
+>
+> Symmetric averaging has no flux, therefore no feedback, therefore no
+> channels.
+
+That is the whole argument and this document accepts it without
+qualification. The formalization to implement against is **Mitchison, G.J.
+(1980), "A model for vein formation in higher plants," Proc. R. Soc. Lond.
+B 207:79–109**, which turned Sachs's verbal hypothesis into the first
+explicit flux/conductivity positive-feedback model, and its 1981 successor
+which moves the feedback onto membrane carrier permeability rather than a
+bulk diffusion coefficient — the form that survived, because it is the one
+that matches PIN biology.
+
+**The modern statement of that model, and the source of every functional
+form used below, is Feller, C., Farcot, E. & Mazza, C. (2015),
+*"Self-Organization of Plant Vascular Systems: Claims and Counter-Claims
+about the Flux-Based Auxin Transport Model,"* PLOS ONE 10(3):e0118238**
+([full text](https://journals.plos.org/plosone/article?id=10.1371%2Fjournal.pone.0118238)).
+Its carrier-update equation is
+
+```
+d p_ij / dt  =  ρ₀ · Φ( J_i→j )  −  μ · p_ij
+```
+
+— carrier density on cell *i*'s membrane facing cell *j* is inserted in
+proportion to a non-negative increasing response `Φ` of the auxin flux
+across that face, and removed at a constant turnover rate. **Three of that
+paper's findings are load-bearing for the decisions below**, and all three
+are used rather than cited decoratively:
+
+1. `Φ(x) = x²` (Mitchison's own quadratic) yields **steady-state patterns
+   that are loopless directed trees** — which is precisely the topology a
+   tree's vasculature has, and precisely the topology this engine wants.
+2. Unbounded `Φ` **diverges**, and the paper is explicit that this is an
+   intrinsic property of the model, not a numerical artefact. A real-time
+   simulation that runs indefinitely and never solves for a steady state
+   cannot ship a divergent update rule.
+3. A **bounded** `Φ` (their example: a Hill form `κx/(J_ref + x)`) is
+   stable but permits **loops** at steady state.
+
+§7e resolves (1) against (2)/(3) explicitly rather than picking one and
+hoping.
+
+**And the other half of the biology, which the auxin literature does not
+cover, is that the thing actually being transported here is
+photosynthate, not auxin.** Phloem transport is the **Münch (1930)
+pressure-flow** mechanism: sugar loaded at a source raises turgor,
+unloading at a sink lowers it, and bulk flow follows the resulting
+pressure gradient from source to sink. The direction in a given strand is
+therefore **set by which end is currently the sink**, not fixed by anatomy
+— which is why §7j can claim, as a mechanism rather than a hope, that a
+leaf's carbon goes to whichever sink is actually drawing. The hypothesis
+is well over ninety years old and was only recently tested end to end:
+Knoblauch et al. (2016), *"Testing the Münch hypothesis of long distance
+phloem transport in plants,"* eLife 5:e15341
+([eLife](https://elifesciences.org/articles/15341);
+[PMC4946904](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4946904/)), which
+found that **sieve-tube conductivity and turgor both rise sharply as
+source-to-sink distance increases** — i.e. the conductance of a real
+transport path is itself tuned to the transport demand placed on it. That
+is the same flux→conductance feedback Sachs described, measured in phloem
+rather than inferred from vein patterns, and it is direct empirical
+support for applying a canalization rule to the *resource* channel and not
+only to a hypothetical auxin one. See also
+[Phloem transport: a review of mechanisms and controls (J. Exp. Bot.
+64:4839)](https://academic.oup.com/jxb/article/64/16/4839/593231) for the
+source–sink control framing.
+
+### 7b. Data layout — four per-face conductances, not a packed direction
+
+**Decision: `OrganismCell` (Decision 2, §3c) gains one field.**
+
+```rust
+pub struct OrganismCell {
+    // ... every field Decision 2 §3c already defines, unchanged ...
+
+    /// Per-face carbon efflux conductance, indexed in `NEIGHBOURS_4`
+    /// order. `carbon_conductance[k]` governs export *out of this cell*
+    /// across face `k`; the neighbour on the other side of that face
+    /// stores its own, independent, opposing value.
+    carbon_conductance: [f32; 4],
+}
+```
+
+Sixteen bytes. Plain `f32`s, per Decision 2's whole point.
+
+**This deliberately rejects `plant-simulation-research.md` §5's own
+proposed layout** — *"three or four bits of per-cell polarity (8
+directions, plus 'none')"* — and the rejection is not a detail. Four
+reasons, in increasing order of importance:
+
+1. **The bit budget that motivated packing no longer exists.** The sketch
+   was written against `Cell::aux` at 16/16 bits full, where three or four
+   bits was the most anyone could hope for. Decision 2 removed that
+   constraint entirely. Quantizing a signal into 3 bits when the storage
+   is a plain struct field would repeat exactly the mistake §3a documents
+   canopy density already made — a constant (`CANOPY_DENSITY_DECAY_PER_
+   TICK`) tuned around a quantization half-step rather than around the
+   behaviour it controls.
+2. **Transport happens across shared faces, and the engine's diffusion
+   neighbourhood is already 4.** `diffuse_resource` iterates
+   `NEIGHBOURS_4`; `Grow` scores `NEIGHBOURS_8`. Those are different
+   things and both are correct as they stand: growth is a *placement*
+   decision, which has eight options in a square lattice, while transport
+   is an *exchange across a shared boundary*, and diagonal cells share
+   only a corner. There is no membrane there to put a carrier on. Adding
+   diagonal transport would also break the explicit-diffusion Fourier
+   bound (≤ 0.25) that `organism.rs`'s own `DIFFUSION_RATE` doc, and
+   `fire.rs`'s and `field.rs`'s, all derive and respect.
+3. **The biology is per-face.** PIN efflux carriers sit on a specific
+   membrane face; the model in §7a is indexed `p_ij`, per ordered cell
+   pair, for that reason. A single per-cell direction is a *summary* of
+   the per-face state, not the state itself.
+4. **A single stored direction cannot represent a branch point — which is
+   the one case the entire mechanism exists to resolve.** A cell feeding
+   two children has two faces genuinely carrying flux. An 8-direction
+   enum must pick one of them, which means the data structure decides
+   apical dominance before the update rule ever runs. That is precisely
+   the "authored outcome" `design-philosophy.md` §2b forbids, and it
+   would make the worked example in §7h vacuous. Four independent
+   conductances represent "one strong channel," "two co-equal channels,"
+   and "nothing established yet" natively, and let the *rule* decide which
+   one obtains.
+
+**How it interacts with the resource scalar it biases.** `carbon` (the
+scalar) is the amount present; `carbon_conductance` is the per-face
+capacity to move it. They are separate quantities with separate update
+rules on separate timescales — the scalar changes every transport substep,
+the conductance once per organism tick (§7e). A cell's *polarity*, where
+some caller wants a single direction (only `Grow` does, §7g), is a derived
+read, never a stored field.
+
+**Not stored, deliberately:** measured flux. Flux is produced and consumed
+inside one pass (§7d measures it, §7e folds it into conductance at the end
+of the same pass), so it lives in a scratch `Vec<[f32; 4]>` sized to the
+organism's own cell list, not on `OrganismCell`. Storing it would be a
+second copy of derivable state, and Decision 2's whole thesis is that
+storage is cheap but *duplicated* storage is where bugs live.
+
+### 7c. What replaces `diffuse_resource`'s symmetric average
+
+The current rule (organism.rs:588) is, for a cell with *n* same-organism
+`Plant` 4-neighbours:
+
+```
+new = here + (mean(neighbours) − here) · DIFFUSION_RATE
+```
+
+**Decision: replace it with a pairwise, carrier-shaped exchange, evaluated
+once per shared face.** For the face between cell *i* and cell *j*:
+
+```
+efflux(i→j) = RATE · c_ij · R_i          // carrier-mediated, source-concentration proportional
+efflux(j→i) = RATE · c_ji · R_j
+net J_ij    = efflux(i→j) − efflux(j→i)
+             = RATE · ( c_ij·R_i − c_ji·R_j )
+```
+
+and `J_ij` is moved from *i* to *j* (negative moves the other way). Four
+properties, each of which is a reason this is the right form and not
+merely a workable one:
+
+- **It reduces exactly to Fickian diffusion when polarity is absent.** Set
+  `c_ij = c_ji = c` and the net becomes `RATE · c · (R_i − R_j)` — the
+  symmetric rule, with `RATE · c` as the diffusion coefficient. **So
+  polarity is a strict generalization of what ships today**, and setting
+  `VEIN_GAIN = 0` (§7e) recovers current behaviour exactly. That is the
+  implementation's own A/B switch and it costs nothing.
+- **It is exactly conserving.** Every unit leaving *i* arrives at *j* in
+  the same statement. The current form is not: each cell independently
+  moves itself toward its neighbours' mean, in place, in sweep order, so
+  the total is only approximately preserved and depends on visit order.
+  Making transport pairwise is a free correctness win that falls out of
+  moving to Decision 2's per-organism pass.
+- **It matches the model in §7a.** `RATE · c_ij · R_i` is exactly the
+  carrier-mediated efflux term (`p_ij` times source concentration) that
+  `Φ` is a function of the *net* of.
+- **Walls are unchanged.** `is_wall` (a different `organism_id`, or a
+  non-`Plant` kind) is untouched, so `resource_does_not_cross_an_organism_
+  boundary` keeps its exact assertion. Decision 2 §3f's warning about
+  rewriting that test so it is not vacuous applies verbatim and is not
+  weakened here.
+
+**Implementation shape, concretely.** Iterate the organism's `cells` list;
+for each cell process only its `+x` and `+y` faces, applying both halves of
+the exchange. Every face is then visited exactly once, with no
+double-counting and no ordering dependence.
+
+**Substeps, and the stability bound they exist to respect.** The
+explicit 4-neighbour scheme requires `RATE · c ≤ 0.25` for the *largest*
+conductance in play, not the typical one. With the contrast ratio §7e
+lands on, that caps a single step's coefficient well below what today's
+flat `DIFFUSION_RATE = 0.2` delivers, so the pass runs
+`TRANSPORT_SUBSTEPS` iterations per organism tick instead of one.
+
+This is not a workaround — it is `plant-simulation-research.md` §6's own
+recommendation, adopted verbatim: *"Run diffusion to convergence, not one
+step per frame. Growth ticks are every 20–45 frames; the resource field
+could relax many times between them."* And it replaces something that is
+currently an accident rather than a decision: today `diffuse_resource`
+runs from the CA sweep on **every frame of every awake chunk**, so it
+happens to execute ~45 times per `ORGANISM_TICK_INTERVAL` because that is
+how often the sweep runs, not because 45 is right. `TRANSPORT_SUBSTEPS`
+makes that number an explicit, tunable parameter for the first time.
+**Starting value 16, and it is a first-class tuning target for Decision
+4's re-tune, not a constant to leave alone** — it sets, directly, how far
+resource travels between two growth decisions.
+
+### 7d. Measuring flux, and what "flux" means per tick
+
+Each substep accumulates `|J_ij|` (signed, per ordered face) into the
+scratch buffer. At the end of the organism tick, face *k* of cell *i* has
+`F_ik` = total net resource exported across that face this tick. **That
+total, not a per-substep value, is what feeds the conductance update** —
+which gives the two-timescale structure the biology actually has: bulk
+flow is fast, carrier turnover is slow. Only the *positive* part
+reinforces:
+
+```
+J_ik = max( F_ik , 0 )
+```
+
+**Why the clamp matters and is not a fudge:** conductance on cell *i*'s
+face toward *j* is an *efflux* capacity. Net import across that face is
+evidence that *j*'s opposing face is conducting, and *j* is the cell that
+should be credited for it — it will be, by its own entry. Crediting both
+sides of a reversing face would make a face that oscillates in direction
+read as a strong channel, which is the opposite of what canalization
+means.
+
+### 7e. The conductance update rule, and the response function
+
+**Decision:**
+
+```
+c ← c + VEIN_BASAL + VEIN_GAIN · Φ(J) − VEIN_DECAY · c
+
+           J²
+Φ(J) = ───────────
+        J_REF² + J²
+```
+
+**`Φ` is a Hill function with exponent 2, and that is a deliberate
+resolution of §7a's findings (1) versus (2)/(3), not a third option picked
+at random.** It is *convex* below `J_REF` and *concave* above it:
+
+- Below `J_REF` it behaves like Mitchison's quadratic — superlinear, so a
+  face with a flux advantage compounds that advantage faster than
+  linearly. This is the regime that produces §7a(1)'s loopless directed
+  trees, and it is the regime that makes canalization canalize.
+- Above `J_REF` it saturates at 1. This is §7a(3)'s bounded form, and it
+  is what makes the rule **provably non-divergent** where the pure
+  quadratic is provably divergent: `c` has a hard fixed-point ceiling at
+  `(VEIN_BASAL + VEIN_GAIN)/VEIN_DECAY`, reached only as `Φ → 1`.
+
+So the engine gets the quadratic's topology in the regime where topology
+is being decided, and the bounded form's stability in the regime where a
+long-running simulation would otherwise blow up. `J_REF` is the knob that
+places the operating point between the two, and it has a natural default:
+**`J_REF` = the species' `Grow.cost`** — the flux one growing tip's demand
+represents. Below one tip's worth of demand, the response is
+competition-amplifying; above it, it saturates. `tree.ron`'s `cost: 0.2`
+makes `J_REF = 0.2`.
+
+**The three constants, and the single ratio that actually matters.** The
+flux-free fixed point is `c_min = VEIN_BASAL / VEIN_DECAY`; the saturated
+fixed point is `c_max = (VEIN_BASAL + VEIN_GAIN) / VEIN_DECAY`. Their
+ratio is the only thing the behaviour depends on, and it deserves a name:
+
+```
+canalization contrast  =  c_max / c_min  =  1 + VEIN_GAIN / VEIN_BASAL
+```
+
+**Starting values: `VEIN_BASAL = 0.1`, `VEIN_DECAY = 0.1`, `VEIN_GAIN =
+2.9`** — so `c_min = 1.0`, `c_max = 30.0`, contrast 30:1. And with the
+stability bound `RATE · c_max ≤ 0.25`, `TRANSPORT_RATE = 0.008`.
+
+**The consequence of that contrast, stated before someone discovers it as
+a bug: unpolarized tissue transports resource much more slowly than it
+does today.** `TRANSPORT_RATE · c_min = 0.008` against today's flat `0.2`,
+recovered only over 16 substeps and only partially. **This is correct and
+is the point.** Undifferentiated parenchyma *is* a poor conductor; a
+vascular strand *is* a good one; the entire biological function of vascular
+tissue is that the contrast exists. It also makes a real, falsifiable
+prediction: a fresh seedling with no established vasculature will be
+transport-limited, and its first act will be to canalize a strand from its
+first `Leaf` to its tip. If instead seedlings simply never get going, the
+contrast ratio and `TRANSPORT_SUBSTEPS` are the two knobs, in that order.
+
+**A fresh cell with no established polarity.** All four faces initialize to
+`c_min`, not zero. **Zero would be a bootstrap deadlock** — zero
+conductance gives zero flux gives zero reinforcement, forever — and the
+literature has the same term for the same reason: `ρ₀` in §7a's equation
+is a *basal* insertion rate, constitutive and flux-independent, because
+carriers are inserted before they are polarized. `VEIN_BASAL` is that term
+and its presence is required, not decorative. Every cell therefore starts
+perfectly isotropic and identical to today's behaviour, and differentiates
+only from flux it actually carried.
+
+**A branch point — the case that matters.** Nothing special-cases it,
+which is the design's main claim. Two faces both carrying real flux both
+get reinforced, both rise, and the *ratio* between them is set by the
+ratio of their fluxes through `Φ`. Co-dominance is representable and is a
+genuine possible outcome; so is one channel pulling away. §7h works the
+arithmetic rather than asserting which.
+
+### 7f. Canopy density stays isotropic — and why that is principled
+
+`organism::diffuse_resource` currently carries two channels through one
+loop: resource and `tree-rewrite-design.md` §2b's canopy density.
+**Decision: only the resource channel becomes polar. Canopy density keeps
+the symmetric rule exactly as it is today.**
+
+Not a scope cut — the wrong thing would be for it to follow:
+
+- **Canopy density is not a transported substance.** It is a stigmergic
+  proxy for *how much of my own tissue is near this location*, deposited
+  at cell creation and read by `Grow` as a crowding penalty. There is no
+  vessel carrying it, no source, no sink, and no conserved quantity. The
+  deposit→diffuse→decay→follow shape is a spatial smoothing kernel, not a
+  flow.
+- **Following veins would make it blind exactly where it needs to see.**
+  A tip must avoid growing into dense canopy *in any direction*. If
+  density propagated preferentially along established conductance, a dense
+  clump sitting off-vein — which is the crowded direction a tip most needs
+  to detect — would be invisible to it. The signal would be strongest along
+  the path already taken, which is the one direction crowding does not
+  need to warn about.
+- **It would resurrect a known bug class.** `plant-simulation-research.md`
+  §2b's own framing is that the crowding term and isotropic diffusion are
+  *the same failure mode* — a mechanism named after a directional process
+  implemented as a symmetric one. The symmetric half of that pairing is
+  wrong for resource and right for crowding; treating them as one problem
+  is what produced the "always reads 0.0" bug in the first place.
+
+**Implementation consequence, and it keeps `tree-rewrite-design.md` §2b's
+"not a second diffusion implementation" property intact.** The pass stays
+one function over both channels, parameterized by where conductance comes
+from: the carbon channel reads `carbon_conductance`; the density channel
+passes a constant `1.0`. With a constant conductance the pairwise rule is
+identically Fickian (§7c), so density's behaviour is bit-for-bit the
+symmetric average it is today, expressed through the general form. One
+rule, two channels, one of which happens to have flat conductance.
+
+**Water, when it becomes real, gets its own array — and this is a
+prediction of the design, not an afterthought.**
+`plant-simulation-research.md` §5 notes that *"xylem moves water up and
+phloem moves photosynthate down, in separate directional tissues."* Two
+substances with genuinely opposite polarity cannot share one conductance
+field. `OrganismCell` therefore gets a second `[f32; 4]` when Decision 3B
+makes soil water a real currency with a real source — **at retrofit step 8,
+not here** (§10). Building it speculatively now would mean tuning a channel
+with no source against a sink that does not draw yet.
+
+### 7g. `Grow`'s candidate scoring — a replacement, not a new term
+
+**Decision: polarity adds no new scoring term and no new species
+parameter. It replaces the computation behind the existing
+`continuation_weight`.**
+
+Today (plant.rs:329–345), `away_from_growth` is the negated, normalized
+vector average of every same-organism 8-neighbour's offset —
+`tree-rewrite-design.md` §2a's fix for "grow away from the parent" being
+undefined at a branch point. It is a purely *geometric* proxy for "which
+way did I come from."
+
+Polarity supplies the real thing. For each of the four faces `d`, the
+neighbour `n = (x,y) + d` stores its own conductance on the face pointing
+back at this cell; that value is exactly "how strongly does `n` export
+into me":
+
+```
+supply_weight(d) = c_n[ face of n pointing toward this cell ]
+away_from_supply = −normalize( Σ_d supply_weight(d) · d )
+```
+
+and the scoring line becomes `dot(dir, away_from_supply) *
+continuation_weight`, with everything else in the formula untouched.
+
+**Why this is strictly better than the geometric version, on §2a's own
+terms.** §2a's problem was that a tip with several same-organism
+neighbours has no well-defined parent. The geometric average solves it by
+treating every neighbour as equally "behind you" — including a *sibling*
+tip created by the same branch event, which is beside you and feeds you
+nothing. That sibling's offset drags `away_from_growth` sideways and makes
+two fresh branches actively repel each other for purely positional
+reasons. Under `away_from_supply`, a sibling that exports nothing into
+this cell sits at `c_min` and contributes almost nothing to the sum, while
+the stem cell that actually feeds this tip has a strongly ratcheted face
+and dominates it. **The mechanism now distinguishes "adjacent to" from
+"supplied by," which is what §2a was approximating and could not express.**
+
+**Fallback, so §2a's proof survives the degenerate case.** When every
+supply weight is still at the basal floor — a seed's very first `Grow`,
+before any flux has ever been carried — the sum carries no information.
+Detect it (`max(supply_weight) < c_min · (1 + ε)`) and fall back to the
+existing geometric `away_from_growth`, whose `(0.0, −1.0)` zero-neighbour
+case is then reached exactly as it is today. So the first growth step of
+every organism is unchanged, and `tree.ron`'s `continuation_weight: 0.7`
+keeps its meaning and its tuning.
+
+**And nothing else in the scoring formula moves.** `photo`, `wind`,
+`gravity_or_water` and `crowding_weight` are untouched, including the
+`RootTip`/`GrowingTip` split and the MIZ1 branch. That matters for the
+re-tune: Decision 4 has to re-tune `cost`/`rate` regardless, and adding a
+seventh weight to a six-weight blend at the same time would make the
+comparison in `examples/debug_tree_variants.rs` unreadable.
+
+### 7h. Worked example — why one channel wins, and why it does not today
+
+`tree-rewrite-design.md` §2a set the standard here: a worked proof, not an
+assertion. And `tree-rewrite-design.md` §3 set the honesty standard by
+explicitly *withdrawing* revision 1's claim that plain diffusion produces
+apical dominance. This section has to clear both bars, so it works the
+same scenario twice — once with the shipped isotropic rule, once with
+Decision 6's — and compares.
+
+**Setup.** One stem cell `S` immediately below two `GrowingTip`s `A` and
+`B`, created by the same `branch_chance` roll, symmetric in every respect.
+`S` is fed from below by leaves and is held near `R_S = 1.0`. Total supply
+delivered from `S` is `Q = 0.3` per organism tick — the scarce regime, and
+deliberately so: two tips at `cost = 0.2` demand `0.4`, so supply limits
+growth, which is exactly the regime `tree.ron`'s own tuning header
+describes finding. Constants from §7e: `c_min = 1`, `Φ(J) = J²/(0.04 +
+J²)` at `J_REF = 0.2`, `c ← 0.9c + 0.1 + 2.9·Φ(J)`.
+
+The split between the two faces follows §7c directly: with a common
+upstream `R_S`, each face's flux is proportional to `c · h` where `h = R_S
+− R` is that tip's *hunger*. So
+
+```
+share_A = c_A·h_A / ( c_A·h_A + c_B·h_B )
+```
+
+**What this abstracts, said plainly so the example is not read as more
+precise than it is.** The tables below work at the granularity of one
+organism tick and treat `Q` as delivered in one lump, rather than
+simulating `TRANSPORT_SUBSTEPS` iterations. That is legitimate here, and
+only here, because **every claim in this section is about the *ratio*
+`share_A : share_B`, and that ratio is set by `c·h` at every substep
+alike** — the substep count changes how much total resource moves per
+tick (which is why it is a tuning target, §7c) but not how it is divided
+between two faces of the same cell. The absolute value `Q = 0.3` is
+illustrative; the split is not.
+
+**The one asymmetry, and it is not invented.** At `t = 1` both tips reach
+`0.30` and both try to grow; `A` grows, `B` does not, because `B`'s
+candidate set came back empty (`plant.rs`: `if candidates.is_empty() {
+continue; }` — every open neighbour scored ≤ 0, a routine outcome in
+crowded canopy). `A` spends `0.2` and drops to `0.10`; `B` keeps `0.30`.
+Nothing else ever differs. **The whole question is what the system does
+with one lost growth step.**
+
+#### Run 1 — today's isotropic rule (`c_A = c_B` always)
+
+| tick | h_A | h_B | share_A | R_A after | R_B after | grew |
+|---|---|---|---|---|---|---|
+| 2 | 0.90 | 0.70 | 0.563 | 0.069 | 0.231 | A, B |
+| 3 | 0.931 | 0.769 | 0.548 | 0.033 | 0.167 | A, B |
+| 4 | 0.967 | 0.833 | 0.537 | 0.195 | 0.106 | **B only** |
+| 5 | 0.806 | 0.894 | **0.474** | 0.137 | 0.063 | A, B |
+
+**By tick 5 the lead has flipped.** The reason is structural: hunger is a
+*negative* feedback. The tip that grows spends, becomes less hungry
+relative to the one that stalled, and hands the advantage straight back.
+The system alternates. Nothing accumulates, because nothing in the
+substrate remembers which face carried the resource.
+
+**This is not a hypothetical — it is the honest description
+`tree-rewrite-design.md` §3 already published**, that whether growth
+produces "one clearly dominant leader, several co-dominant branches, or a
+fairly even canopy is left genuinely emergent and variable." The
+arithmetic above is *why* it came out that way, and it is the same reason
+`plant-simulation-research.md` §5 gives: no flux term, no feedback, no
+channel.
+
+#### Run 2 — Decision 6's rule
+
+Ticks 0 and 1 are symmetric, so both faces ratchet identically: `c = 1 →
+2.044 → 2.984`. Then `A` grows and `B` does not, and the two diverge:
+
+| tick | c_A | c_B | h_A | h_B | share_A | J_A | J_B | grew |
+|---|---|---|---|---|---|---|---|---|
+| 2 | 2.984 | 2.984 | 0.900 | 0.700 | 0.563 | 0.169 | 0.131 | A, B |
+| 3 | 3.991 | 3.658 | 0.931 | 0.769 | 0.569 | 0.171 | 0.129 | A, B |
+| 4 | 4.915 | 4.246 | 0.960 | 0.840 | 0.570 | 0.171 | 0.129 | A, B |
+| 5 | 5.748 | 4.775 | 0.990 | 0.910 | 0.567 | 0.170 | 0.130 | **B only** |
+| 6 | 6.490 | 5.258 | 0.820 | 0.980 | **0.508** | 0.152 | 0.148 | **A only** |
+
+**Tick 6 is the whole argument.** `A` has just stalled and is markedly
+*less* hungry than `B` — `h_A = 0.820` against `h_B = 0.980`. Under Run
+1's rule that hunger gap alone determines the split and `A` would receive
+`0.820/1.800 = 45.6%`, losing the lead exactly as it did at tick 5 there.
+Under Decision 6, `A`'s face has ratcheted to `6.490` against `B`'s
+`5.258`, and `6.490 × 0.820 = 5.32` still beats `5.258 × 0.980 = 5.15`.
+**`A` takes 50.8% while being the less hungry tip, and grows again while
+`B` stalls.** The stored conductance has converted a transient, self-
+cancelling hunger lead into a persistent supply lead.
+
+**Where this converges, stated honestly rather than extrapolated
+optimistically.** The conductance ratio climbs 1.000 → 1.091 → 1.158 →
+1.204 → 1.234 and is decelerating. Its fixed point is computable directly:
+`c* = 1 + 29·Φ`, with `Φ_A ≈ 0.42` and `Φ_B ≈ 0.294`, giving `c_A* ≈ 13.2`,
+`c_B* ≈ 9.5`, **ratio ≈ 1.38**. So the flux/conductance feedback on its
+own does *not* run away to a single channel. It converges to a stable,
+permanent ~57/43 supply bias — roughly a 1.3:1 growth-rate ratio between
+the two branches, sustained indefinitely instead of oscillating.
+
+**That is loop one. The winner-take-all is loop two, and it needs loop one
+to exist.** A branch that grows 1.3× faster accumulates tips 1.3× faster,
+and every additional downstream tip is another `cost` per tick of demand
+drawing on the same face. Sink count enters the split the same way hunger
+does: with `n_A` and `n_B` tips downstream, the standing resource on each
+channel is depressed roughly in proportion to its own sink count, so
+
+```
+share_A  ≈  (c_A·n_A) / (c_A·n_A + c_B·n_B)
+```
+
+and growth-rate ratio ≈ share ratio ≈ `x = c_A n_A / (c_B n_B)`. So `n_A/
+n_B` grows at rate `x`, which raises `x`, which raises the flux ratio,
+which raises `c_A/c_B` through `Φ`, which raises `x` again. **Unlike loop
+one, that map has no stable fixed point above `x = 1`: any `x > 1`
+diverges.** Concretely, at the conductance ratio 1.38 and a subtree-size
+ratio of only 1.3, `share_A` is already `1.79/2.79 = 64%`, well past the
+57% loop one alone sustains.
+
+**And loop two cannot start without loop one.** Run 1's table is the
+proof: without stored conductance the lead flips every few ticks, so the
+subtree-size ratio random-walks around 1.0 and never establishes a
+direction for loop two to amplify. Conductance memory is what converts a
+sequence of coin flips into a committed choice. That is Sachs's
+hysteresis, and it is the same property Prusinkiewicz et al. (2009, PNAS
+106:17431–17436, already cited in `plant.rs`'s module doc) identify as the
+defining feature of the canalization switch: *hard to reverse once
+established.*
+
+**This is also exactly the Borchert–Honda allocation scheme that
+`plant-simulation-research.md` §5 says polarity unlocks** — basipetal flux
+accumulation followed by acropetal allocation, extended by Palubicki et
+al. (2009, ACM TOG 28:58) — arrived at from a local per-face rule rather
+than implemented as a two-pass whole-tree traversal. No cell ever computes
+its subtree size; the conductance field is what carries that information,
+because it is what the flux from that subtree wrote into it.
+
+### 7i. What this produces, and what it does not — the walk-back, up front
+
+Following `tree-rewrite-design.md` §3's precedent of stating the limit
+*before* someone tests for the thing that was never claimed:
+
+**Claimed, and supported by §7h:**
+- A real conductance hierarchy between established transport paths and
+  undifferentiated tissue (up to 30:1), i.e. vein-like structure.
+- Source-to-sink transport: a leaf's carbon preferentially reaching
+  whichever sink is actually drawing on it (§7j).
+- A *persistent* growth-rate bias between sibling branches where today's
+  mechanism produces an alternating one, and — via loop two — genuine
+  divergence of subtree sizes over long runs.
+- A trunk emerging as the highest-conductance path in the plant, because
+  it is the only path between the largest source aggregate (canopy) and
+  the largest sink aggregate (roots plus tips). This is Shinozaki's pipe
+  model arrived at from transport rather than asserted, and it is
+  *consistent with* `SecondaryThicken`'s independent leaf-count rule
+  rather than a competing account of the same thing.
+
+**Not claimed:**
+- **This is not real apical dominance.** Real apical dominance is an
+  *inhibitory* signal: auxin made at the apex flows basipetally and
+  prevents lateral buds from canalizing into the main stream at all
+  (`research/m16-plant-biology.md` §3–4). It flows in the **opposite**
+  direction to photosynthate, and this design carries exactly one polar
+  channel, in the source→sink direction. What §7h produces is competitive
+  *allocation*, not suppression. A lateral here is under-supplied; it is
+  not switched off.
+- The seam for the real version is drawn and costs nothing to leave open:
+  a second `[f32; 4]` and a second scalar on `OrganismCell`, sourced at
+  `GrowingTip` and sunk at the base, running the *identical* update rule
+  in the opposite polarity, feeding §2e's `BudBreak` threshold. That is a
+  future decision, deliberately not made here — §8's out-of-scope list.
+- No claim that any of the numbers above are tuned. They are internally
+  consistent and dimensionally sane; `examples/debug_tree_variants.rs` is
+  the authority, per §9's item 14.
+
+### 7j. Interaction with Decision 4's leaves and Decision 1's bud break
+
+**This is the main reason to build polarity at all, so it is stated
+directly rather than left implicit.**
+
+**Decision 4 makes a leaf a real source, and that changes what transport
+has to do.** Today `GrowingTip` carries `Photosynthesize` itself
+(`tree.ron`), so every sink is also its own source and transport barely
+matters — a tip largely funds itself. After Decision 4, `Photosynthesize`
+moves to `Leaf` only, and leaves sit *behind* the advancing tip along the
+shoot. **The source and the sink are now different cells, and every unit
+of carbon a tip spends has to be transported to it.** Transport stops
+being a background smoothing pass and becomes the plant's circulatory
+system.
+
+Under isotropic diffusion that goes badly, and the failure is documented
+in advance by `plant-simulation-research.md` §6: allocation becomes
+*"distance-dependent for numerical rather than biological reasons"* — a
+leaf's output spreads equally in all directions including backwards into
+mature wood that is not drawing, and the fraction reaching the tip falls
+off geometrically with path length. Tall plants would starve their
+extremities *because the solver converges slowly*, which, in that
+document's own words, *"will look like a biological result and won't be
+one."*
+
+**Under Decision 6 the leaf→tip face carries real net flux** — the tip
+drains itself to near zero every time it grows, so the gradient is
+persistently in that direction — **and ratchets, while the leaf→mature-wood
+face carries little and decays back toward `c_min`.** A strand
+differentiates between each leaf and the sink it is actually feeding. That
+is Münch source-to-sink flow (§7a), and it is why the direction is not
+hardcoded anywhere: a face's polarity is a consequence of which end is
+currently the sink, so **when a tip retires to `MatureBody` and stops
+spending, the flux across that face falls, its conductance decays, and the
+same leaf's output redirects to whatever is still drawing — the root
+system, or `SecondaryThicken`, or a newer tip.** Phloem in real plants
+reverses direction for exactly this reason when a sink becomes a source or
+stops drawing; nothing in the rule needs to know that it happened.
+
+**This is precisely why Decision 6 must land before Decision 4's re-tune,
+and the mechanism gives the reason `PLAN.md` states in the abstract.**
+`tree.ron`'s `Photosynthesize.rate` and `Grow.cost` are calibrated against
+*how much of a source's output actually reaches a sink per tick*. Under
+isotropic diffusion that fraction is one number; under a 30:1 vein/
+parenchyma contrast with 16 substeps it is a completely different number,
+and it is different *by different amounts* for a seedling (no vasculature,
+transport-limited) than for a mature tree (established strands,
+transport-saturated). Tuning `rate`/`cost` against the isotropic economy
+would produce values that are wrong in a size-dependent way the moment
+polarity lands. §10 sequences accordingly.
+
+**Decision 1's bud break gets a mechanism it did not have.** §2e defines
+`BudBreak` on a `MatureBody` cell with *surplus* resource and *low* local
+canopy density, and honestly notes that without canalization it will not
+produce a single dominant leader. That limitation stands (§7i). But
+polarity makes the *surplus* condition mean something specific: a cell
+whose downstream faces have decayed to `c_min` — because whatever they
+fed died, burned, was cut, or retired — **physically cannot export what it
+receives, so resource accumulates there and nowhere else.** Bud break then
+fires preferentially at the cell immediately upstream of a lost limb.
+
+That is the real epicormic-resprouting observable §2e cites, and under
+Decision 6 it is a consequence of the transport rule rather than a
+coincidence of two thresholds: resource backs up at a wound because the
+channel past the wound stopped carrying flux and decayed. §2e's own
+sentence — *"a tree that loses a limb re-sprouts near the wound, because
+that is precisely where downstream demand vanished and resource backs
+up"* — describes a mechanism that only exists once conductance can decay.
+Before Decision 6 it was an aspiration. **No change to Decision 2e is
+required or made**; it simply becomes true.
+
+### 7k. Migration, and what it does to the existing tests
+
+Polarity lands as one step (§10, step 2), after Decision 2's four
+sub-steps and before Decision 4. It is small because Decision 2 did the
+hard part: the per-organism pass over `OrganismState::cells` already
+exists, is already off the `CellSurface` trait, and already runs at its own
+cadence.
+
+- **`carbon_conductance: [f32; 4]`** added to `OrganismCell`, initialized
+  to `c_min` at every cell-creation site Decision 2 §3f step 2a already
+  enumerates. No new registration sites.
+- **The transport pass** gains the pairwise form (§7c), the substep loop,
+  the scratch flux buffer, and the end-of-tick conductance update (§7e).
+- **`Grow`** swaps `away_from_growth` for `away_from_supply` with the
+  documented fallback (§7g). One function, no new parameter, no `.ron`
+  change.
+- **`tree.ron` is not edited in this step.** That is the whole point of the
+  sequencing: the re-tune happens once, in step 3, with polarity already
+  running.
+
+Tests, named individually because §3f set that precedent:
+
+- `resource_diffuses_from_a_full_cell_toward_an_empty_same_organism_
+  neighbour` **passes unchanged.** Both cells start at `c_min`, the rule
+  reduces exactly to Fick (§7c), and resource still flows down the
+  gradient. If it fails, the reduction is wrong and that is the bug.
+- `resource_does_not_cross_an_organism_boundary` **passes unchanged** and
+  keeps §3f's warning about not letting it become vacuous.
+- `diffuse_resource_no_longer_decays_density_itself` **passes unchanged** —
+  the density channel is bit-for-bit today's behaviour (§7f).
+- **New, and the actual gate on this step:** a straight chain of cells with
+  a source at one end and a drained sink at the other develops a
+  conductance ratio well above 1 along the chain's axis versus across it,
+  within a bounded number of organism ticks. This is the minimal
+  observable proof that canalization is occurring at all.
+- **New:** the §7h Y-junction, as a regression test with the tick-6
+  assertion made explicit — the less-hungry-but-better-connected tip
+  receives the larger share. **This is the test that fails if `Φ`, `J_REF`
+  or the contrast ratio are mis-set**, and it fails in the specific,
+  diagnosable way of the lead flipping, which is Run 1's signature.
+- **New:** conductance is bounded — drive one face at saturating flux for
+  many ticks and assert `c ≤ c_max`. §7a(2) is explicit that the unbounded
+  form diverges; this asserts the bounded form was actually used.
+- **New:** setting `VEIN_GAIN = 0` reproduces the isotropic results
+  exactly. The A/B switch of §7c, made a test rather than a claim.
+
+---
+
+## 8. Deliberately out of scope
+
+### 8a. Polarity — no longer out of scope; this section records the reversal
+
+**Earlier revisions of this document deferred polarity/directional
+diffusion here, on the owner's explicit mid-session instruction:** *"Let's
+plan all of this before we start implementing any of it. I don't want to
+optimize if we are going to make large changes to our diffusion
+mechanism."* The reasoning given was that polarity changes the core
+transport mechanism Decisions 1, 3 and 4 would each be tuned against, so
+tuning against isotropic diffusion and then replacing it does the tuning
 pass twice.
 
-**One thing this document does do for it, which costs nothing:** Decision
-2's `OrganismCell` is a plain struct with room for any number of fields. A
-future polarity vector is two more `f32`s in it — no layout question, no
-bit budget, no migration. That is the seam, and it is deliberate.
+**That reasoning was right and the conclusion drawn from it was wrong, and
+`PLAN.md`'s post-landing revision ("Revised after landing", at the end of
+the `plant-substrate-v2-design.md` handoff entry) is where the correction
+is recorded.** Deferring polarity to *after* this whole phase does not
+avoid the double tuning — it guarantees it, because retrofit step 3 (real
+leaves) re-tunes `tree.ron`'s entire resource economy, and that re-tune is
+worth nothing if the transport mechanism underneath it changes afterwards.
+Two further points from that entry, both correct: Decision 2 already has
+to restructure `diffuse_resource`'s execution shape (off the generic
+`CellSurface` trait, onto a per-organism pass), which is the same code
+polarity has to change; and Decision 2 is also what gives a polarity field
+room to exist at all, since the old packed `aux` had no spare bits.
 
-### 7b. Evolution and genetics — future milestone, acknowledged only
+**Polarity is therefore now Decision 6 (§7), sequenced between retrofit
+steps 1 and 3** — after sidecar storage, before the leaf/reserve re-tune.
+The seam this document originally left for it (*"a future polarity vector
+is two more `f32`s in `OrganismCell` — no layout question, no bit budget,
+no migration"*) turned out to be exactly right about the cost and slightly
+wrong about the shape: §7b lands on four `f32`s per face, not a vector.
+
+**Still out of scope after Decision 6**, and named so the list stays
+honest: a second, oppositely-polarized auxin-like channel (§7i) — the
+piece that would produce real inhibitory apical dominance rather than
+competitive allocation; and directional transport of *water*, which needs
+its own conductance array and is deliberately deferred to retrofit step 8,
+where Decision 3B first gives water a real source (§7f).
+
+### 8b. Evolution and genetics — future milestone, acknowledged only
 
 Out of scope, per `PLAN.md`'s own framing (*"a real future milestone, not
 this phase"*). Two things above were nonetheless shaped so it is not
@@ -1078,7 +1853,10 @@ per-organism state over new assumptions that every individual is identical.
 
 ---
 
-## 8. Simplifications, stated honestly
+## 9. Simplifications, stated honestly
+
+*(This was §8 before Decision 6 was added; §7 is new and everything after
+it shifted by one.)*
 
 Collected in one place, in the spirit of `tree-rewrite-design.md` §3's
 walk-back of its own revision-1 overclaim.
@@ -1104,14 +1882,57 @@ walk-back of its own revision-1 overclaim.
 7. **`thicken()`'s "downstream" is still a flood fill** and must stay one
    (§3e) — the organism cell list gives a *whole-organism* leaf count,
    which is a different quantity and would silently break the pipe model.
-8. **No claim is made that any of this reads well.** Every number above is
-   a starting point for `examples/debug_tree_variants.rs`, and §9's
-   verification gates are the actual authority — the same standard
-   `tree-rewrite-design.md` §11 step 6 set and the tree rewrite honoured.
+8. **Polarity produces competitive allocation, not apical dominance**
+   (§7i). Real apical dominance is an inhibitory auxin signal flowing
+   apex→base, the *opposite* direction to photosynthate; this design
+   carries one polar channel, source→sink. A lateral branch here is
+   under-supplied, not switched off. Simplification 2 above (bud break is
+   not canalization) is narrowed but **not** retired by Decision 6: bud
+   break now has a real mechanism for *why* resource backs up at a wound
+   (§7j), and still no mechanism for suppressing a bud that is not at one.
+9. **The flux→conductance loop alone converges; it does not run away**
+   (§7h). Its fixed point is a ~1.38 conductance ratio and a ~57/43
+   supply split between siblings. The divergent, winner-take-all part of
+   the argument is the *second*, structural loop (subtree size → demand →
+   supply share), and it is the one that has not been demonstrated by
+   arithmetic here — only argued to have no stable fixed point above
+   parity. **A long run is the only real evidence**, and §10's step 10
+   gate is where it gets looked for.
+10. **`Φ` is a Hill function with exponent 2, which is neither of the two
+    forms the literature tests** (§7e). It is a deliberate hybrid: the
+    quadratic's convex, competition-amplifying behaviour below `J_REF`
+    (Mitchison's form, which Feller et al. 2015 show yields loopless
+    directed trees) with a bounded form's ceiling above it (which the same
+    paper shows is required, since unbounded `Φ` provably diverges). No
+    source tests exactly this function, and no claim is made that it
+    reproduces either paper's published patterns.
+11. **The two-timescale split is asserted, not measured** (§7d). Bulk flow
+    is updated `TRANSPORT_SUBSTEPS` times per organism tick and
+    conductance once. The direction is right — carrier turnover is far
+    slower than transport — but the ratio 16:1 is an engine number, not a
+    biological one.
+12. **Conductance is per-face and per-channel, and only carbon gets one**
+    (§7f). Real tissue runs xylem and phloem as separate strands with
+    opposite polarity; water keeps symmetric transport until retrofit step
+    8 gives it a real source.
+13. **Unpolarized tissue transports far more slowly than today's flat
+    `DIFFUSION_RATE = 0.2`** (§7e) — `c_min · TRANSPORT_RATE = 0.008` per
+    substep. This is intended (parenchyma is a poor conductor; that is
+    what vascular tissue is *for*) but it is a real behavioural change to
+    every seedling before it establishes a strand, and it is the most
+    likely thing to read badly first.
+14. **No claim is made that any of this reads well.** Every number above is
+    a starting point for `examples/debug_tree_variants.rs`, and §10's
+    verification gates are the actual authority — the same standard
+    `tree-rewrite-design.md` §11 step 6 set and the tree rewrite honoured.
 
 ---
 
-## 9. Retrofit order
+## 10. Retrofit order
+
+*(This was §9 before Decision 6 was added — `PLAN.md`'s handoff entry cites
+it under the old number. Polarity is now **step 2**, and every step after
+it shifted by one.)*
 
 Shaped like `tree-rewrite-design.md` §11: what unlocks what, what is safe
 in parallel, what is strictly sequential, and where the real gates are.
@@ -1130,7 +1951,27 @@ in parallel, what is strictly sequential, and where the real gates are.
    before 2c, not after — see §3f for why it could otherwise pass
    vacuously.
 
-2. **Decision 4** (§5), immediately after 2d. Chosen second, ahead of the
+2. **Decision 6 — polarity** (§7), immediately after 2d and **before
+   anything re-tunes `tree.ron`.** This is the step whose placement the
+   whole of §8a exists to justify: it needs Decision 2's sidecar to have
+   somewhere to live and needs Decision 2's per-organism transport pass to
+   have something to modify, and step 3 must not tune a resource economy
+   against a transport mechanism that is about to be replaced. Scope is
+   §7k: one field on `OrganismCell`, the pairwise transport rule with its
+   substep loop and conductance update, and `Grow`'s `away_from_growth` →
+   `away_from_supply` swap. **No `.ron` edits in this step at all.**
+   **Gate:** the four new tests in §7k, and the Y-junction one is the real
+   gate — the less-hungry-but-better-connected tip must take the larger
+   share at §7h's tick 6. Also assert `VEIN_GAIN = 0` reproduces the
+   isotropic results exactly, since that is what makes a regression here
+   bisectable. **Do not screenshot-verify tree shape at this step**: with
+   `Photosynthesize` still on `GrowingTip` (Decision 4 has not landed),
+   every tip largely funds itself and transport barely matters, so the
+   visible shape is expected to be nearly unchanged and proves nothing
+   either way. The unit gates are the authority here; the visible payoff
+   arrives in step 3.
+
+3. **Decision 4** (§5), immediately after polarity. Chosen ahead of the
    soil work, for three reasons: it is the smallest change with the largest
    visible effect (visible leaves, and `SecondaryThicken` firing for the
    first time); it is what actually fixes the one-cell trunk (§2b); and it
@@ -1138,39 +1979,56 @@ in parallel, what is strictly sequential, and where the real gates are.
    reuses rather than reinvents.
    **Gate:** re-run `examples/debug_tree_variants.rs`. `cost`/`rate` **must**
    be re-tuned here — §5c explains why both halves of the existing tuning
-   rationale are invalidated. Live screenshots under
-   `docs/screenshots/`, per standing practice: visible leaves, a trunk more
-   than one cell thick, and a seedling planted in shade that dies rather
-   than becoming an immortal stub.
+   rationale are invalidated. **And this is the single tuning pass for the
+   whole phase's resource economy, which is why polarity had to land
+   first:** the variant sweep must now cover `TRANSPORT_SUBSTEPS` and the
+   canalization contrast (§7e) alongside `cost`/`rate`/`reserve`, because
+   after Decision 4 the source and the sink are different cells (§7j) and
+   how much of a leaf's output reaches a tip is set by transport, not by
+   `rate` alone. Tuning `cost`/`rate` here and revisiting transport later
+   would be the exact double pass §8a's reversal exists to avoid.
+   Live screenshots under `docs/screenshots/`, per standing practice:
+   visible leaves, a trunk more than one cell thick, and a seedling planted
+   in shade that dies rather than becoming an immortal stub. **One new
+   thing to look for**, per §7e's own honest warning: a seedling that never
+   establishes a strand and stalls before its first leaf means the
+   contrast ratio or `TRANSPORT_SUBSTEPS` is wrong, not that the seed
+   reserve is too small — check transport before re-deriving §5c.
 
-**Safe in parallel with each other, once 1 and 2 land:**
+**Safe in parallel with each other, once 1–3 land:**
 
-3. **Decision 3, part A — soil moisture storage and drainage** (§4a, §4b,
+4. **Decision 3, part A — soil moisture storage and drainage** (§4a, §4b,
    §4d's drainage rule, §4e's `mud`). Touches only inert-cell `aux`,
    `decay.rs` and `material.rs`. No organism code at all. Independently
    testable: soak a soil column, watch a wetting front descend, watch mud
    appear at the plastic limit.
 
-4. **Decision 5, parts A and C — `leaf`/`rootwood` materials, and root soil
+5. **Decision 5, parts A and C — `leaf`/`rootwood` materials, and root soil
    stabilization** (§6a, §6d). `.ron` data plus one check in
    `update_powder`. Independent of everything above except that `leaf` as a
    material wants Decision 4's `Leaf` cells to exist to be visible.
 
-5. **Decision 5, part B — load reduces span** (§6c). One term in
+6. **Decision 5, part B — load reduces span** (§6c). One term in
    `organism_is_supported`. Fully independent.
 
 **Sequential again, and last:**
 
-6. **Decision 1(ii) — root displacement into soil** (§2c). Needs Decision
+7. **Decision 1(ii) — root displacement into soil** (§2c). Needs Decision
    3A's per-cell moisture (to credit water on the way through) and
    Decision 5A's `rootwood`. **This is where roots become real for the
    first time** — `germinate()` (plant.rs:594) should also stop gating the
    companion `RootTip` on `world.is_empty(x, y + 1)`, which is why the test
    scene's stone floor produced no roots at all.
 
-7. **Decision 3, part B — `Absorb` from soil, and anoxia necrosis** (§4c,
-   §4d paths 2 and 3). Needs 6. This is the step that closes `PLAN.md`'s
-   recorded `RootTip` income gap.
+8. **Decision 3, part B — `Absorb` from soil, and anoxia necrosis** (§4c,
+   §4d paths 2 and 3). Needs 7. This is the step that closes `PLAN.md`'s
+   recorded `RootTip` income gap. **This is also where water becomes a
+   real second currency with a real source, and therefore where §7f's
+   second conductance array lands if it is wanted** — a `water_conductance:
+   [f32; 4]` running the identical rule at the opposite polarity (root
+   source → canopy sink). Optional at this step and explicitly not
+   required by anything above it; symmetric water transport is a
+   defensible stopping point.
    **Gate, and it is the interesting one:** plant a tree over a water
    table and confirm the root system stabilizes *above* the saturated zone
    rather than growing into it and dying wholesale, or stalling short of
@@ -1178,7 +2036,7 @@ in parallel, what is strictly sequential, and where the real gates are.
    soil model is doing real work, and if it does not appear, the aeration
    threshold and `ANOXIA_LIMIT` are the two knobs.
 
-8. **Decision 1(iv) — bud break** (§2e). Deliberately **last**, and
+9. **Decision 1(iv) — bud break** (§2e). Deliberately **last**, and
    deliberately after everything else has been screenshot-verified. It is
    the one mechanism that removes the ceiling on total size, which means it
    is also the one that will expose every scaling problem in every decision
@@ -1191,15 +2049,33 @@ in parallel, what is strictly sequential, and where the real gates are.
    into a blob — the canopy-density self-avoidance term
    (`tree-rewrite-design.md` §2b) is what should prevent that, and this is
    the first workload that genuinely tests it.
+   **Second gate, added by Decision 6, and it is the one that tests §7h's
+   central claim:** this is the first workload long enough for the
+   structural loop to diverge. Over 50,000 ticks, sibling subtrees at an
+   early branch point should show a *growing* size disparity, not a random
+   walk around parity, and the conductance along the trunk should be
+   visibly higher than along a minor branch. §9's simplification 9 is
+   explicit that this loop is argued rather than demonstrated; **this is
+   where it gets demonstrated or withdrawn.** Also cut a limb here and
+   confirm the resprout appears near the wound (§7j) rather than uniformly
+   over the canopy.
 
-9. **Independent design review before commit**, per standing practice for a
-   change this size, specifically re-checking: that 2a's cell-slot
-   registration has no double-free path; that the organism-boundary
-   diffusion test is not vacuous after 2c; and that §5d's seedling death
-   actually frees the organism id rather than merely stopping the schedule.
+10. **Independent design review before commit**, per standing practice for
+    a change this size, specifically re-checking: that 2a's cell-slot
+    registration has no double-free path; that the organism-boundary
+    diffusion test is not vacuous after 2c; that §5d's seedling death
+    actually frees the organism id rather than merely stopping the
+    schedule; and — added by Decision 6 — that the transport pass visits
+    each shared face exactly once (§7c's `+x`/`+y`-only iteration is what
+    makes it conserving, and double-visiting it would silently double the
+    effective rate), and that `Grow`'s `away_from_supply` fallback (§7g)
+    actually fires for a fresh organism rather than reading four floor
+    values as a meaningful direction.
 
-**Explicitly not in this pass:** polarity/directional diffusion (§7a),
-evolution (§7b), a `Liquid`-kind flowing mud (§4e), a resistance-network
+**Explicitly not in this pass:** a second, oppositely-polarized auxin-like
+channel and the real inhibitory apical dominance it would give (§7i),
+evolution (§8b), a `Liquid`-kind flowing mud (§4e), a resistance-network
 transport solve, and Palubicki-style shadow-voxel light competition — the
 last two carried over unchanged from `organism-substrate-design.md` §7's
-own out-of-scope list.
+own out-of-scope list. **Polarity itself is no longer on this list** — it
+is Decision 6 (§7) and retrofit step 2; §8a records why it moved.
