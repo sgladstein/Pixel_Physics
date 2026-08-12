@@ -573,17 +573,18 @@ impl World {
                 }
                 let shade = self.rng.below(shades) as u8;
                 self.set(x, y, Cell::new(material, shade));
-                // M17: either side of this write might be a `Solid` that just
-                // gained or lost a neighbour it was relying on -- placing new
-                // stone, or erasing existing stone out from under something
-                // else. Schedule reactively rather than at every paint stroke
+                // M17: either side of this write might be a `Solid`/`Plant`
+                // (architecture item 9) that just gained or lost a neighbour
+                // it was relying on -- placing new stone, or erasing existing
+                // stone (or a tree trunk) out from under something else.
+                // Schedule reactively rather than at every paint stroke
                 // unconditionally, so a stroke over already-empty ground (the
                 // overwhelmingly common case while painting powders/liquids)
                 // costs nothing extra.
-                let placed_solid = matches!(self.materials.kind(material), material::MaterialKind::Solid);
-                let erased_solid = material == material::EMPTY
-                    && matches!(self.materials.kind(existing_material), material::MaterialKind::Solid);
-                if placed_solid || erased_solid {
+                let placed_structural = matches!(self.materials.kind(material), material::MaterialKind::Solid | material::MaterialKind::Plant);
+                let erased_structural = material == material::EMPTY
+                    && matches!(self.materials.kind(existing_material), material::MaterialKind::Solid | material::MaterialKind::Plant);
+                if placed_structural || erased_structural {
                     self.schedule_structural_check_around(x, y);
                 }
             }

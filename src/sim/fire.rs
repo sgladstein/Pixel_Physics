@@ -256,6 +256,10 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
     let material = surface.materials().get(cell.material);
     let burn_temp = material.burn_temperature;
     let burns_into = material.burns_into;
+    // `MaterialKind` is `Copy` — extracted up front for the same reason
+    // `burn_temp`/`burns_into` are: the burnout branch below needs it after
+    // `material`'s own borrow would otherwise still be live.
+    let was_structural = matches!(material.kind, material::MaterialKind::Solid | material::MaterialKind::Plant);
 
     // Burning radiates heat regardless of where the timer stands — a cell
     // one frame from burning out is exactly as hot as one that just ignited.
@@ -308,6 +312,32 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
                     kind: ActiveKind::Decay,
                     next_frame: surface.frame() + DECAY_TICK_INTERVAL,
                 });
+            }
+
+            // Architecture item 9: structural integrity now covers `Plant`
+            // as well as `Solid` (`structural.rs`), so a burnout that just
+            // removed a `Solid`/`Plant` cell might have taken a neighbour's
+            // only support with it -- the exact same "either side of this
+            // write might need re-evaluating" reasoning `World::paint_
+            // capsule`'s own `placed_solid`/`erased_solid` check already
+            // uses for the brush, generalized to cover `Plant` and applied
+            // here since a burnout is a *third* way a structural cell can
+            // disappear that isn't painting or an explosion. Every neighbour
+            // gets checked (not just this cell), including ones that are
+            // Powder/Liquid/etc. -- `structural::tick` itself no-ops
+            // immediately for anything that isn't `Solid`/`Plant`, so
+            // scheduling unconditionally here is cheap and correct, the
+            // same way `schedule_structural_check_around` already works.
+            if was_structural {
+                let frame = surface.frame();
+                for (dx, dy) in [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)] {
+                    surface.schedule_active_site(ActiveSite {
+                        x: x + dx,
+                        y: y + dy,
+                        kind: ActiveKind::StructuralCheck,
+                        next_frame: frame,
+                    });
+                }
             }
         }
     }

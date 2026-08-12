@@ -63,8 +63,11 @@ const STRUCTURAL_TICK_INTERVAL: u64 = 5;
 pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     let (x, y) = (site.x, site.y);
     let cell = world.get(x, y);
-    if world.materials.kind(cell.material) != MaterialKind::Solid {
-        return Vec::new(); // no longer solid (destroyed, converted) -- nothing to track
+    // Architecture item 9: `Plant` too, not just `Solid` -- a tree trunk is
+    // exactly as capable of being unsupported as a stone span is. See
+    // `Cell::aux`'s own doc for why the slot this borrows was actually free.
+    if !is_body_material(world, cell.material) {
+        return Vec::new(); // no longer part of the structural system (destroyed, converted) -- nothing to track
     }
     // A cell mid-burn has its aux slot committed to the burn timer (see
     // `Cell`'s own doc on `aux`'s priority order) -- defer rather than
@@ -85,7 +88,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         let mut has_burning_neighbour = false;
         for (dx, dy) in NEIGHBOURS_4 {
             let neighbour = world.get(x + dx, y + dy);
-            if world.materials.kind(neighbour.material) != MaterialKind::Solid {
+            if !is_body_material(world, neighbour.material) {
                 continue;
             }
             // A burning neighbour's aux is its burn timer, not a distance
@@ -165,13 +168,22 @@ fn schedule_solid_neighbours(world: &World, x: i32, y: i32) -> Vec<ActiveSite> {
         .iter()
         .filter_map(|&(dx, dy)| {
             let (nx, ny) = (x + dx, y + dy);
-            if world.materials.kind(world.get(nx, ny).material) == MaterialKind::Solid {
+            if is_body_material(world, world.get(nx, ny).material) {
                 Some(reschedule(world, nx, ny))
             } else {
                 None
             }
         })
         .collect()
+}
+
+/// Whether `material` participates in the structural system at all —
+/// `Solid` (M17) or `Plant` (architecture item 9, trees). Named after the
+/// same helper `rigid.rs` (M8) already has for exactly the same "which
+/// kinds of cell count as body, not air or clutter" question, since it's
+/// the identical question asked for a different purpose.
+fn is_body_material(world: &World, material: MaterialId) -> bool {
+    matches!(world.materials.kind(material), MaterialKind::Solid | MaterialKind::Plant)
 }
 
 /// Due `STRUCTURAL_TICK_INTERVAL` frames from now, so a cascade advances one
@@ -185,18 +197,21 @@ impl World {
     /// Schedule a structural check at `(x, y)` for the next scheduler pass —
     /// `next_frame` is stamped in here rather than by callers, so every
     /// call site doesn't have to know `STRUCTURAL_TICK_INTERVAL` exists.
-    /// Harmless (and cheap) to call on a position that isn't `Solid` at
-    /// all; `tick` above no-ops immediately in that case.
+    /// Harmless (and cheap) to call on a position that isn't part of the
+    /// structural system (`Solid`/`Plant`) at all; `tick` above no-ops
+    /// immediately in that case.
     pub fn schedule_structural_check(&mut self, x: i32, y: i32) {
         let frame = self.frame;
         self.schedule_active_site(ActiveSite { x, y, kind: ActiveKind::StructuralCheck, next_frame: frame });
     }
 
-    /// Schedule structural checks for `(x, y)` itself and every `Solid`
-    /// 4-neighbour. The shape every disturbance site (painting, erasing, an
-    /// explosion's cleared radius) actually wants: whatever just changed
-    /// might itself need re-evaluating (if it's now `Solid`), and anything
-    /// touching it might have just lost or gained a support.
+    /// Schedule structural checks for `(x, y)` itself and every 4-neighbour
+    /// (`is_body_material` decides which of them actually matter; harmless
+    /// to call on the rest). The shape every disturbance site (painting,
+    /// erasing, an explosion's cleared radius) actually wants: whatever
+    /// just changed might itself need re-evaluating (if it's now `Solid`/
+    /// `Plant`), and anything touching it might have just lost or gained a
+    /// support.
     pub fn schedule_structural_check_around(&mut self, x: i32, y: i32) {
         self.schedule_structural_check(x, y);
         for (dx, dy) in NEIGHBOURS_4 {
@@ -210,6 +225,7 @@ mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
     use crate::sim::scheduler;
+    use crate::sim::update;
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63))
@@ -257,6 +273,100 @@ mod tests {
 
         let gravel = w.materials.id_of("gravel").unwrap();
         assert_eq!(w.get(30, 63 - 5).material, gravel, "an over-span stone cell should have broken into gravel");
+    }
+
+    #[test]
+    fn a_wood_beam_exceeding_its_span_breaks_into_deadwood() {
+        // Architecture item 9: structural integrity extended to `Plant`,
+        // exercised through the exact same span/break mechanism the stone
+        // test above already proves, just with wood's own numbers (span 8,
+        // `breaks_into: "deadwood"`).
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").unwrap();
+        // A 12-cell horizontal beam anchored only at its left end (touching
+        // the world's left edge) -- longer than wood's span of 8, so the
+        // far end is unsupported once actually checked.
+        for x in 0..12 {
+            w.set(x, 30, Cell::new(wood, 0));
+        }
+        w.schedule_structural_check(11, 30); // the far end, distance 11
+        run(&mut w, 200);
+
+        let deadwood = w.materials.id_of("deadwood").unwrap();
+        assert_eq!(w.get(11, 30).material, deadwood, "an over-span wood cell should have broken into deadwood");
+    }
+
+    #[test]
+    fn a_short_wood_beam_stays_wood() {
+        // The other half of the claim above: a beam within wood's own span
+        // (8) must not break just because `Plant` is now checked at all.
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").unwrap();
+        for x in 0..6 {
+            w.set(x, 30, Cell::new(wood, 0));
+        }
+        w.schedule_structural_check(5, 30); // distance 5, within span
+        run(&mut w, 200);
+
+        assert_eq!(w.get(5, 30).material, wood, "a wood beam within its own span broke anyway");
+    }
+
+    #[test]
+    fn burning_a_trees_base_collapses_the_rest_of_the_trunk() {
+        // The end-to-end claim architecture item 9 actually cares about:
+        // fire.rs's burnout path now schedules a structural check around
+        // whatever it just burned away, so losing the base of a tree to
+        // fire brings the rest of it down too -- not just erasing/painting
+        // the base (already covered by the beam tests above), but burning
+        // it, which is the realistic way a tree's own base disappears.
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").unwrap();
+        // A 12-cell horizontal beam again (simpler to reason about than a
+        // vertical trunk, and exercises the identical span/anchor logic),
+        // anchored at the left edge.
+        for x in 0..12 {
+            w.set(x, 30, Cell::new(wood, 0));
+        }
+        run(&mut w, 200);
+        assert_eq!(w.get(11, 30).material, wood, "test setup: the intact, anchored beam should not have broken yet");
+
+        // Burn out the anchored end specifically -- ignite it with a timer
+        // short enough to burn out well within this test's own run. Needs
+        // the CA sweep running too, not just the scheduler (`run`'s own
+        // loop above), since fire.rs's `update` -- and therefore the
+        // burnout that schedules the structural recheck -- is only ever
+        // invoked from there. Unlike the beam tests above, this can't just
+        // wrap `update::step` in its own manual `begin_step`/`end_step`
+        // pair the way `run`'s loop does for `scheduler::step` alone --
+        // `update::step` already calls both internally, so doing it again
+        // here double-advanced `world.frame` and mis-promoted the
+        // dirty-rect state -- an earlier version of this test wrapped it
+        // anyway and `active_chunk_count()` stayed stuck at 0 forever,
+        // never actually burning the cell out at all.
+        let mut burning = w.get(0, 30);
+        burning.ignite(5);
+        w.set(0, 30, burning);
+        for _ in 0..400 {
+            update::step(&mut w);
+            scheduler::step(&mut w);
+        }
+
+        // Not "did (11, 30) become deadwood" -- deadwood is `Powder`, so
+        // once it breaks free it's also subject to gravity like anything
+        // else, and this test's beam has nothing under it to land on. The
+        // observable claim is "no longer standing there as wood", plus a
+        // sanity check that it actually became debris somewhere nearby
+        // rather than simply vanishing.
+        assert_ne!(w.get(11, 30).material, wood, "the far end of the beam never collapsed after fire burned away its anchor");
+        let deadwood = w.materials.id_of("deadwood").unwrap();
+        let ash = material::ASH;
+        // The full world, not just near the beam's original height -- with
+        // nothing underneath it, freed deadwood (a `Powder`) falls under
+        // gravity same as anything else, and this world is only 64 cells
+        // deep, so "somewhere in it" is still a meaningful check, not a
+        // vacuous one.
+        let debris_somewhere = (0..64).any(|x| (0..64).any(|y| { let m = w.get(x, y).material; m == deadwood || m == ash }));
+        assert!(debris_somewhere, "the collapsed beam left no deadwood or ash debris anywhere in the world");
     }
 
     #[test]

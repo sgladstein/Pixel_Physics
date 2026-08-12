@@ -1,8 +1,14 @@
 // Tree trunk and root material (M16). `kind: Plant`, not `Solid` — plant
-// cells never move via the CA sweep either way, but `Plant` keeps
-// `Cell::aux`'s meaning (growth-related bookkeeping) distinct from
-// `Solid`'s (M17's anchor distance), and lets future rules key on "is this
-// alive" without checking the material name.
+// cells never move via the CA sweep either way, and `Plant` lets other
+// rules key on "is this alive" without checking the material name. `Cell::
+// aux` was originally reserved separately for `Plant` (a future per-cell
+// growth stage) versus `Solid` (M17's anchor distance); that growth-stage
+// use never materialized -- real per-tip growth state lives in `TreeState`/
+// `Tip`/`RootTip` (see `plant.rs`) instead, which is where it needed to be
+// anyway (attractor lists and channel strength don't fit in a `u16`). With
+// the slot actually free, architecture item 9 extends M17's anchor-distance
+// tracking to cover `Plant` too — an unsupported trunk now breaks and falls
+// the same way an unsupported stone span does.
 //
 // Flammable with real numbers, same as oil: wood is what turns a grown
 // forest into an actual Drossel-Schwabl fire per the plan. Burns cooler and
@@ -25,4 +31,9 @@
     burn_duration: 420,
     burns_into: "ash",
     heat_conductivity: 0.15,
+    // The plan's own suggested number for wood specifically ("stone 3,
+    // wood 8, steel 20") -- unused until item 9 gave `Plant` a place to
+    // read it from.
+    max_unsupported_span: 8,
+    breaks_into: "deadwood",
 )

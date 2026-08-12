@@ -53,8 +53,13 @@ pub struct Cell {
     ///    the fire finishes, its steady-state `aux` value will need
     ///    recomputing anyway, so nothing of value is preserved by protecting it.
     /// 2. **Otherwise, by `MaterialKind`**:
-    ///    - `Solid` → distance to the nearest anchor (M17 structural integrity)
-    ///    - `Plant` → growth stage (M16)
+    ///    - `Solid` / `Plant` → distance to the nearest anchor (M17
+    ///      structural integrity, extended to `Plant` by architecture
+    ///      item 9). `Plant` originally reserved this slot for a per-cell
+    ///      growth stage instead; that never got built, since real per-tip
+    ///      growth state lives in `TreeState`/`Tip`/`RootTip` (`plant.rs`)
+    ///      instead — it doesn't fit in a `u16` regardless (attractor
+    ///      lists, channel strength) — so the slot was genuinely free.
     ///    - `Creature` → owning creature id (M18)
     ///    - `Powder` / `Liquid` / `Gas` → unused, always 0
     ///

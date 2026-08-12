@@ -1,0 +1,25 @@
+// A snapped branch or collapsed trunk segment — architecture report item 9
+// ("lower priority" tier), `wood`'s own `breaks_into` target once
+// structural integrity (M17) covers `Plant` as well as `Solid`. Powder, not
+// Plant: once it's broken free of the living tree it behaves exactly like
+// any other loose debris (falls, piles at an angle of repose), not like a
+// growing organism any more. Dry and disconnected from the tree's own
+// moisture uptake, so more flammable than living `wood`, not less.
+(
+    name: "deadwood",
+    display: "Deadwood",
+    kind: Powder,
+    density: 0.7,
+    friction_angle: 38.0,
+    colors: [
+        (74, 50, 30),
+        (86, 58, 34),
+        (64, 43, 26),
+        (96, 66, 40),
+    ],
+    flammability: 0.35,
+    burn_temperature: 700.0,
+    burn_duration: 300,
+    burns_into: "ash",
+    heat_conductivity: 0.15,
+)

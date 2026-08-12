@@ -321,6 +321,24 @@ uniformly dry, since the field was never actually being solved. Fixed, and
 a new `regrowth_scene` demoes the whole ash → soil → (sometimes) regrowth
 path end to end.
 
+**Two of the plan's "lower priority" extras are done too.** A tree's growth
+direction now leans downwind of a real pressure-field breeze — the same
+additive formula phototropism already uses, given a fixed-magnitude,
+direction-only wind term (not scaled by raw velocity — `field.rs` clamps
+pressure but never velocity, and an early version that did scale by
+magnitude let a nearby explosion's own shockwave dominate the formula
+outright; independent review caught it, along with the original test's
+one-shot impulse producing a decaying oscillation rather than a real steady
+breeze). And structural integrity (M17) now covers `Plant` as well as
+`Solid`: `wood.ron`
+finally has the span/`breaks_into` numbers the plan named from the start
+("stone 3, wood 8, steel 20"), a burnt-away trunk base brings the rest of
+the tree down the same way cutting a stone bridge's support does, and a
+broken trunk falls as a new `deadwood` material rather than vanishing. The
+`Cell::aux` slot this needed was reserved for a per-cell growth stage that
+was never actually built — real per-tip state lives in `TreeState` instead
+— so extending the slot's meaning was a resolution, not a workaround.
+
 ## M12/M13 status
 
 `Cell` widened from 4 to 8 bytes (32 MB instead of 16 for a 2048² world —

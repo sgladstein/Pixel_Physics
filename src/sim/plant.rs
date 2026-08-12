@@ -189,6 +189,24 @@ const SCATTER_HEIGHT: f32 = 56.0;
 const INFLUENCE_RADIUS: f32 = 16.0;
 const KILL_DISTANCE: f32 = 5.0;
 const SEGMENT_LENGTH: f32 = 2.0;
+/// Below this speed, the field's velocity at a tip's position doesn't count
+/// as wind at all — architecture §5d. Below the threshold: no lean, `(0.0,
+/// 0.0)`, the same shape `photo` already uses for "no gradient, no nudge."
+const WIND_SPEED_THRESHOLD: f32 = 0.05;
+/// Fixed magnitude of the wind lean once the threshold above is cleared —
+/// deliberately *not* scaled by how fast the wind actually is. `field.rs`
+/// clamps pressure but never velocity (only damps it), so a magnitude-
+/// proportional lean would let a nearby explosion's transient shockwave
+/// swamp `avg`/`dir` entirely for as long as the wave takes to pass —
+/// found by independent review, which measured a realistic-strength
+/// impulse producing a wind term several times the combined magnitude of
+/// every other input to this formula. A fixed nudge, direction-only,
+/// mirrors `photo`'s own fixed `0.25` and keeps the same "gentle lean, not
+/// an override" guarantee regardless of how strong the local field
+/// disturbance happens to be. Untuned against anything real, same as every
+/// other weight in this formula; `a_tip_leans_downwind_of_a_steady_breeze`
+/// is the actual authority on whether it's set right.
+const WIND_LEAN_MAGNITUDE: f32 = 0.2;
 const TREE_TICK_INTERVAL: u64 = 20;
 const GROWTH_COST: f32 = 4.0;
 /// Baseline photosynthesis-like energy trickle, independent of roots —
@@ -420,7 +438,34 @@ fn tree_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, tip_id: u32) -
     let light_above = world.field_at_bilinear(pos.0, pos.1 - 4.0).light;
     let photo = if light_above > light_here { (0.0, -0.25) } else { (0.0, 0.0) };
 
-    let new_dir = normalize((avg.0 * 0.75 + dir.0 * 0.25 + photo.0, avg.1 * 0.75 + dir.1 * 0.25 + photo.1));
+    // Wind lean — architecture §5d: "a vector field explosions write into,
+    // and vegetation that does not know it exists." A real, if gentle,
+    // growth-time bias rather than a per-frame visual sway (nothing in this
+    // engine's rendering can bend an already-placed cell), the same way a
+    // real tree exposed to a prevailing wind grows with a permanent lean,
+    // not just a momentary sway. Read at the tip's own position, not
+    // averaged or probed a second point like `photo` — velocity is already
+    // a smooth field-scale quantity, not a point sample that needs a
+    // second reading to expose a gradient.
+    //
+    // Direction-only, fixed magnitude — not scaled by wind speed. See
+    // `WIND_LEAN_MAGNITUDE`'s own doc for why: velocity has no upper clamp
+    // in `field.rs` the way pressure does, so scaling by raw magnitude let
+    // a nearby explosion's shockwave dominate this formula outright for as
+    // long as the transient took to pass, which is not "a gentle lean" by
+    // any reading.
+    let wind = world.field_at_bilinear(pos.0, pos.1);
+    let wind_speed = (wind.vx * wind.vx + wind.vy * wind.vy).sqrt();
+    let wind_lean = if wind_speed > WIND_SPEED_THRESHOLD {
+        (wind.vx / wind_speed * WIND_LEAN_MAGNITUDE, wind.vy / wind_speed * WIND_LEAN_MAGNITUDE)
+    } else {
+        (0.0, 0.0)
+    };
+
+    let new_dir = normalize((
+        avg.0 * 0.75 + dir.0 * 0.25 + photo.0 + wind_lean.0,
+        avg.1 * 0.75 + dir.1 * 0.25 + photo.1 + wind_lean.1,
+    ));
     let new_pos = (pos.0 + new_dir.0 * SEGMENT_LENGTH, pos.1 + new_dir.1 * SEGMENT_LENGTH);
     let (wx, wy) = (new_pos.0.round() as i32, new_pos.1.round() as i32);
 
@@ -919,6 +964,73 @@ mod tests {
         assert!(
             lit_pos.0 < unlit_pos.0,
             "a lit tip's extra vertical pull should also reduce its horizontal drift: lit={lit_pos:?}, unlit={unlit_pos:?}"
+        );
+    }
+
+    #[test]
+    fn a_tip_leans_downwind_of_a_steady_breeze() {
+        // Architecture §5d: "a vector field explosions write into, and
+        // vegetation that does not know it exists." A single attractor
+        // straight up (no horizontal pull of its own, same trick as the
+        // phototropism test above) means any horizontal drift in the
+        // result can only have come from wind.
+        //
+        // Unlike light, there's no `add_light`-style direct paint for
+        // velocity -- it only ever comes from the field solver actually
+        // running (`add_pressure_impulse` + enough `field::step` calls for
+        // the resulting outward flow to reach the tip), so this needs a
+        // real pressure impulse upwind of the tip rather than a one-line
+        // field write.
+        fn tick_once_and_get_new_pos(w: &mut World, windy: bool) -> (f32, f32) {
+            let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+            let (x, y) = (150, 150);
+            w.set(x, y, Cell::new(wood, 0));
+            let tip = Tip { pos: (x as f32, y as f32), dir: (0.0, -1.0), channel: 0.5, alive: true };
+            let root = RootTip { pos: (x as f32, y as f32), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: true, alive: true };
+            let state = TreeState {
+                attractors: vec![(x as f32, y as f32 - 8.0)], // straight up, no horizontal pull
+                tips: vec![tip],
+                roots: vec![root],
+                energy: 9999.0,
+                wood,
+            };
+            let tree_id = w.push_tree(state);
+            if windy {
+                // Upwind of the tip, re-applied every step rather than
+                // fired once -- a single impulse radiates outward as a
+                // wave that passes, reflects and oscillates (independent
+                // review measured the tip's own vx crossing back to
+                // *negative* by the time a one-shot version of this test
+                // reached step 27), which is a shockwave, not a steady
+                // breeze. Continuous small forcing instead keeps driving
+                // flow in the same direction every step, the way an actual
+                // prevailing wind would, and stays positive far more
+                // reliably than picking one lucky step count out of a
+                // decaying oscillation ever could.
+                for _ in 0..20 {
+                    w.add_pressure_impulse(x - 40, y, 6, 20.0);
+                    field::step(w);
+                }
+            }
+            tree_tip_tick(w, x, y, tree_id, 0);
+            w.tree(tree_id).tips[0].pos
+        }
+
+        let mut calm = test_world();
+        let calm_pos = tick_once_and_get_new_pos(&mut calm, false);
+        let mut windy = test_world();
+        let windy_pos = tick_once_and_get_new_pos(&mut windy, true);
+
+        let vx = windy.field_at_bilinear(150.0, 150.0).vx;
+        assert!(vx > 0.01, "test setup should have produced real rightward wind at the tip: vx={vx}");
+        assert!(
+            (calm_pos.0 - 150.0).abs() < 0.01,
+            "a straight-up attractor with no wind should climb with zero horizontal drift: calm={calm_pos:?}"
+        );
+        assert!(
+            windy_pos.0 > calm_pos.0,
+            "a tip in a rightward breeze should drift further right than an otherwise-identical calm one: \
+             calm={calm_pos:?}, windy={windy_pos:?}"
         );
     }
 

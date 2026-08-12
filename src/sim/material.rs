@@ -419,6 +419,7 @@ const EMBEDDED: &[&str] = &[
     // renumber every material after it and break those constants at
     // runtime, not just in a test.
     include_str!("../../assets/materials/soil.ron"),
+    include_str!("../../assets/materials/deadwood.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

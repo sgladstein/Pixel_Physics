@@ -1518,6 +1518,65 @@ updated at each milestone commit, not just when something is added.
   `regrowth_scene` demoes the full ash → soil → (sometimes) regrowth path
   end to end.
 
+**With the priority-ordered list above fully done (items 1–8), remaining
+work is item 9's own "lower priority, in whatever order suits" tier**:
+
+- **Plants read the velocity field** (§5d, wind bends canopy): **done.**
+  `tree_tip_tick`'s growth-direction formula gained a `wind_lean` term, the
+  same additive shape `photo` already uses. Deliberately a growth-time
+  lean, not a per-frame visual sway — nothing in this engine's rendering
+  can bend an already-placed cell, so the "large visual payoff" the report
+  describes comes from the tree's *grown shape* carrying a permanent
+  prevailing-wind bias, the same way a real wind-trained tree does, not
+  from real-time animation. Independent review caught a real problem with
+  the first version: it scaled the lean by raw velocity magnitude, and
+  `field.rs` clamps pressure but never velocity — a nearby explosion's own
+  shockwave (magnitudes the review measured at several times the combined
+  weight of every other input to the formula) could dominate the tip's
+  growth direction outright for as long as the transient took to pass,
+  contradicting the "gentle lean" the constant's own doc claimed. Fixed by
+  making the lean direction-only at a fixed magnitude (`WIND_LEAN_
+  MAGNITUDE`, gated by `WIND_SPEED_THRESHOLD` so a near-zero field reads as
+  no wind rather than an arbitrary direction) — mirrors `photo`'s own fixed
+  `0.25` nudge exactly. The review also found the original regression
+  test's one-shot `add_pressure_impulse` produced a decaying, sign-flipping
+  oscillation rather than a steady breeze (empirically confirmed: `vx` at
+  the tip crossed negative by step 27 of a test that read it at step 20,
+  passing only because that step happened to land in a lucky window).
+  Replaced with continuous per-step forcing instead of one impulse, which
+  settles into a genuinely stable window (confirmed by hand: 30+
+  consecutive steps of consistent sign after a brief initial transient) —
+  a real steady wind, not a lucky sample off a decaying wave.
+- **Structural integrity extended to `Plant`** (blocked on the `Cell::aux`
+  slot conflict M16's growth stage was originally reserved for):
+  **done.** Resolved, not deferred further — growth stage in `aux` was
+  never actually implemented (grepped for it: zero write sites in
+  `plant.rs`), since real per-tip growth state lives in `TreeState`/`Tip`/
+  `RootTip` instead, which is where it needed to be anyway (attractor
+  lists and channel strength don't fit in a `u16`). With the slot
+  genuinely free, `structural.rs` gained `is_body_material` (`Solid |
+  Plant`, replacing three separate `MaterialKind::Solid`-only checks), and
+  every place that already schedules a structural recheck reactively
+  (`World::paint_capsule`, `explosion::trigger`) now triggers on `Plant`
+  too. `wood.ron` gained the plan's own long-suggested numbers
+  ("stone 3, wood 8, steel 20") — `max_unsupported_span: 8`, `breaks_into:
+  "deadwood"` — and a new `deadwood` material (`Powder`, flammable, burns
+  to ash) for what a broken trunk actually falls as. A new hook in `fire::
+  tick_burn` schedules a structural recheck around whatever a burnout just
+  removed, generalizing the existing `placed_solid`/`erased_solid`
+  reasoning to a *third* way a structural cell disappears — burning is
+  neither painting nor an explosion, and needed its own hook rather than
+  falling out of either existing one for free. Found and fixed a real bug
+  while writing the end-to-end regression test for this: an early version
+  wrapped `update::step` in its own manual `begin_step`/`end_step` pair
+  inside the test loop, not realizing `update::step` already calls both
+  internally — the double call desynced `world.frame` and the dirty-rect
+  promotion badly enough that the test's burning cell never got swept at
+  all (`active_chunk_count()` stuck at 0 for the entire run). Four new
+  tests: span-exceeded and span-respected beam checks (mirroring the
+  existing stone ones), and the full burn-collapses-the-trunk path, each
+  confirmed to fail without its respective fix before being trusted.
+
 ---
 
 ## M19 — Visual polish: make the engine beautiful
