@@ -318,6 +318,17 @@ impl World {
         }
     }
 
+    /// Replay a `ChunkView`'s queued cross-chunk light write -- mirrors
+    /// `add_heat_local` exactly, one channel over.
+    pub(crate) fn add_light_local(&mut self, tile_coord: ChunkCoord, lx: i32, ly: i32, amount: f32) {
+        if let Some(tile) = self.fields.get_mut(&tile_coord) {
+            let mut cell = tile.get_local(lx, ly);
+            cell.light += amount;
+            tile.set_local(lx, ly, cell);
+            self.fields_settled = false;
+        }
+    }
+
     pub fn bounds(&self) -> Option<Rect> {
         self.bounds
     }
@@ -648,6 +659,11 @@ impl CellSurface for World {
     #[inline]
     fn add_heat(&mut self, x: i32, y: i32, radius: i32, amount: f32) {
         World::add_heat(self, x, y, radius, amount)
+    }
+
+    #[inline]
+    fn add_light(&mut self, x: i32, y: i32, radius: i32, amount: f32) {
+        World::add_light(self, x, y, radius, amount)
     }
 }
 

@@ -207,6 +207,32 @@ and `step_diffusion` had no wall awareness at all, so heat and light diffused
 straight through solid stone. All three are fixed, and each has a named
 regression test in `field.rs`.
 
+**The light channel had two readers from the start (`plant.rs`'s moss
+`shade_factor` and tree phototropism) and no writer until `Reports/emergent-
+world-architecture.md` §2** — both mechanisms existed but were permanently
+inert, since ambient light always read zero. Two writers now feed it: fire
+(`fire.rs`'s `tick_burn` pushes a small `add_light` next to its existing
+`add_heat`) and a constant sky boundary condition (`field::apply_sky`, run
+last in `field::step`'s pipeline, after `step_advection` — every earlier pass
+unconditionally overwrites every field cell it touches, sky row included, so
+anything applied earlier would just be clobbered). `apply_sky` forces the
+topmost field row *without a chunk resident directly above it* to `MAX_LIGHT`
+each step (unless that row's own cell is CA-blocked), which adapts correctly
+to an irregular or still-streaming chunk layout rather than assuming a single
+global top row. It deliberately does not clear `fields_settled` — unlike
+`add_light`/`add_heat`, it is a standing boundary condition, not a
+disturbance, and `is_converged`'s existing comparison already notices any
+real change on its own (a newly exposed or newly shaded cell shows up as a
+jump between the pre-step and post-step value, same mechanism issue #4
+already relies on for CA occupancy changes).
+
+`LIGHT_DECAY` is steep on purpose ("diffuse fast, decay hard," `field.rs`'s
+own phrase for the ambient-light shortcut) — a field cell two rows below the
+sky already reads under 6% of `MAX_LIGHT`, so light is a local glow around
+fire and open sky, not a distant illumination model. The regression test
+(`open_sky_reads_brighter_than_a_directly_blocked_cell`) probes one field row
+down for exactly that reason, rather than assuming light reaches any deeper.
+
 ## M12/M13 status
 
 `Cell` widened from 4 to 8 bytes (32 MB instead of 16 for a 2048² world —

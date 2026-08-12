@@ -390,6 +390,7 @@ pub fn step(world: &mut World) {
     step_velocity(world, &coords, &mut next);
     step_diffusion(world, &coords, &mut next);
     step_advection(&coords, bounds, &mut next);
+    apply_sky(world, &coords, &mut next);
 
     world.set_fields_settled(is_converged(world.fields_ref(), &coords, &next));
     world.replace_fields(next);
@@ -440,6 +441,44 @@ fn is_converged(old: &HashMap<ChunkCoord, FieldTile>, coords: &[ChunkCoord], nex
         }
     }
     true
+}
+
+/// Constant top-of-world light boundary condition — architecture report §2's
+/// sky source, the counterpart to fire's local light emission in `fire.rs`.
+/// Per column, not against one global `bounds.min_y` row: worldgen does not
+/// guarantee every column reaches the same height, and each column's own
+/// topmost *resident* chunk is what should read as exposed, not whichever
+/// row happens to be highest across the whole world.
+///
+/// Runs last, after `step_advection` — diffusion and advection both
+/// unconditionally overwrite every field cell they touch, sky row included,
+/// so applying this any earlier in the pipeline would just get clobbered.
+///
+/// Deliberately does **not** call `world.set_fields_settled(false)` the way
+/// `add_light`/`add_heat` do. Those mark an external disturbance the solver
+/// hasn't accounted for yet; this is a stable, ever-present boundary
+/// condition, and `is_converged`'s own old-vs-next comparison already
+/// recognizes it as settled once the sky row — and whatever it diffuses
+/// into — stops changing frame to frame. Force-waking every frame for a
+/// boundary condition that mostly holds steady would defeat field sleeping
+/// (issue #4) for any scene with open sky at all, which is most of them.
+fn apply_sky(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
+    for &coord in coords {
+        let above = ChunkCoord::new(coord.x, coord.y - 1);
+        if world.chunk(above).is_some() {
+            continue; // another chunk sits above it -- not exposed to sky
+        }
+        let Some(tile) = next.get_mut(&coord) else {
+            continue;
+        };
+        for lx in 0..FIELD_TILE_SIZE {
+            if !tile.is_blocked_local(lx, 0) {
+                let mut cell = tile.get_local(lx, 0);
+                cell.light = MAX_LIGHT;
+                tile.set_local(lx, 0, cell);
+            }
+        }
+    }
 }
 
 /// A field cell counts as blocked when any CA-solid cell falls inside its
@@ -913,6 +952,38 @@ mod tests {
     }
 
     #[test]
+    fn open_sky_reads_brighter_than_a_directly_blocked_cell() {
+        // apply_sky (architecture report §2) is what resurrects moss shade-
+        // seeking and tree phototropism -- both already read `field_at(..)
+        // .light`, but had nothing to read before this, since nothing wrote
+        // to the light channel except the isolated `add_light` case above.
+        //
+        // `LIGHT_DECAY` is steep by design (see this file's own "diffuse
+        // fast, decay hard" doc comment above `LIGHT_DIFFUSION_RATE`), so
+        // the probe has to sit close to the sky row to see a clear signal
+        // -- one field row down settles near `4.0 * LIGHT_DECAY *
+        // LIGHT_DIFFUSION_RATE` under this file's own constants, well
+        // above zero but nowhere near `MAX_LIGHT` itself.
+        let mut w = test_world();
+        // One field cell's worth of solid rock, aligned to the field grid
+        // (FIELD_SCALE = 8) so `rebuild_blocked` marks exactly this field
+        // cell and no other.
+        for x in 136..144 {
+            for y in 8..16 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for _ in 0..50 {
+            step(&mut w);
+        }
+
+        let open = w.field_at(20, 10).light; // open column, one field row below the sky
+        let blocked = w.field_at(140, 10).light; // inside the solid block itself
+        assert!(open > 0.5, "the open column under the sky did not brighten: {open}");
+        assert_eq!(blocked, 0.0, "a solid field cell should never carry a light value of its own");
+    }
+
+    #[test]
     fn heat_does_not_leak_through_a_sealed_wall_via_diffusion() {
         // Regression for a bug caught by independent review: step_diffusion
         // originally had no wall-awareness at all, unlike every other phase,
@@ -1140,8 +1211,14 @@ mod tests {
         // CA activity and returns early.
         let mut w = test_world();
         w.end_step();
-        step(&mut w);
-        assert!(w.fields_settled(), "an undisturbed field should already read as settled");
+        // Not just one step: the sky light source (architecture §2) needs
+        // several frames of diffusion to reach a fixed point throughout the
+        // world's full chunk depth, same as `stays_bounded_over_ten_
+        // thousand_frames`'s own reasoning for using more than one step.
+        for _ in 0..500 {
+            step(&mut w);
+        }
+        assert!(w.fields_settled(), "an undisturbed field should have converged to a fixed point by now");
 
         w.add_pressure_impulse(128, 128, 4, 200.0);
         assert!(!w.fields_settled(), "add_pressure_impulse should have cleared the settled flag immediately");

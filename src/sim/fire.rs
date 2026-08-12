@@ -253,6 +253,11 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
         // rate here is a rough first cut, not tuned against anything yet;
         // there is no test pinning it down, so revisit freely.
         surface.add_heat(x, y, 1, 2.0);
+
+        // Same reasoning, the light channel: resurrects moss shade-seeking
+        // and tree phototropism (M16) for anything burning nearby, per
+        // `Reports/emergent-world-architecture.md` §2. Also untuned.
+        surface.add_light(x, y, 1, 1.0);
     }
 
     cell.tick_burn();

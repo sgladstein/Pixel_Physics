@@ -47,6 +47,16 @@ pub trait CellSurface {
     /// think about which field tile a write lands in.
     fn add_heat(&mut self, x: i32, y: i32, radius: i32, amount: f32);
 
+    /// Raise ambient field light in a filled circle around a cell — the
+    /// light-writer work from `Reports/emergent-world-architecture.md` §2,
+    /// `fire::tick_burn`'s other caller alongside `add_heat`. Same shape,
+    /// same reasoning, a separate method rather than a generalized
+    /// `add_field(channel, ...)` — each channel's plumbing is small and
+    /// mechanical enough that duplicating it stays cheaper than the
+    /// abstraction, even with a moisture channel likely adding a third
+    /// one soon. See `World::add_light` for the general version.
+    fn add_light(&mut self, x: i32, y: i32, radius: i32, amount: f32);
+
     #[inline]
     fn is_empty(&self, x: i32, y: i32) -> bool {
         self.get(x, y).is_empty()

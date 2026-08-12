@@ -194,6 +194,9 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
         for (tile_coord, lx, ly, amount) in outcome.field_writes {
             world.add_heat_local(tile_coord, lx, ly, amount);
         }
+        for (tile_coord, lx, ly, amount) in outcome.light_writes {
+            world.add_light_local(tile_coord, lx, ly, amount);
+        }
         // See `ChunkView::field_touched`'s own doc: a same-chunk heat push
         // has no `&mut World` to clear `fields_settled` (issue #4) on the
         // spot, so it's replayed here instead, the same as every other
@@ -213,6 +216,7 @@ struct ChunkOutcome {
     remote_writes: HashMap<(i32, i32), Cell>,
     dirty_touches: Vec<(ChunkCoord, i32, i32)>,
     field_writes: Vec<(ChunkCoord, i32, i32, f32)>,
+    light_writes: Vec<(ChunkCoord, i32, i32, f32)>,
     field_touched: bool,
 }
 
@@ -247,18 +251,23 @@ struct ChunkView<'w> {
     remote_writes: HashMap<(i32, i32), Cell>,
     dirty_touches: Vec<(ChunkCoord, i32, i32)>,
     field_writes: Vec<(ChunkCoord, i32, i32, f32)>,
-    /// Set whenever `add_heat`'s same-chunk branch writes directly into
-    /// `self.field`, below — a worker has no `&mut World` to clear
-    /// `fields_settled` (issue #4) on the spot, unlike `World::add_heat`'s
-    /// serial path, so this is queued and applied once after the pass,
-    /// mirroring `field_writes`'s own reason for existing. Found by
-    /// independent review: without this, a same-chunk heat push (the
-    /// common case — `FIELD_SCALE` divides `CHUNK_SIZE` evenly, so
-    /// `tick_burn`'s radius-1 call almost always lands here) left
-    /// `fields_settled` unchanged, currently masked only by the coincidence
-    /// that a burning cell's own `tick_burn` also writes its cell every
-    /// frame it burns, independently keeping the chunk (and therefore
-    /// `active_chunk_count()`) awake regardless.
+    /// Same shape as `field_writes`, one channel over — queued cross-chunk
+    /// light writes from `add_light`, replayed via `World::add_light_local`.
+    light_writes: Vec<(ChunkCoord, i32, i32, f32)>,
+    /// Set whenever `add_heat`/`add_light`'s same-chunk branch writes
+    /// directly into `self.field`, below — a worker has no `&mut World` to
+    /// clear `fields_settled` (issue #4) on the spot, unlike `World::
+    /// add_heat`/`add_light`'s serial path, so this is queued and applied
+    /// once after the pass, mirroring `field_writes`'s own reason for
+    /// existing. Deliberately one flag for both channels, not two — this
+    /// only ever needs to answer "did *anything* change in my own field
+    /// tile," never which channel. Found by independent review: without
+    /// this, a same-chunk heat push (the common case — `FIELD_SCALE`
+    /// divides `CHUNK_SIZE` evenly, so `tick_burn`'s radius-1 call almost
+    /// always lands here) left `fields_settled` unchanged, currently masked
+    /// only by the coincidence that a burning cell's own `tick_burn` also
+    /// writes its cell every frame it burns, independently keeping the
+    /// chunk (and therefore `active_chunk_count()`) awake regardless.
     field_touched: bool,
 }
 
@@ -272,6 +281,7 @@ impl<'w> ChunkView<'w> {
             remote_writes: HashMap::new(),
             dirty_touches: Vec::new(),
             field_writes: Vec::new(),
+            light_writes: Vec::new(),
             field_touched: false,
         }
     }
@@ -289,6 +299,7 @@ impl<'w> ChunkView<'w> {
             remote_writes: self.remote_writes,
             dirty_touches: self.dirty_touches,
             field_writes: self.field_writes,
+            light_writes: self.light_writes,
             field_touched: self.field_touched,
         }
     }
@@ -398,6 +409,30 @@ impl CellSurface for ChunkView<'_> {
                     self.field_touched = true;
                 } else {
                     self.field_writes.push((tile_coord, lx, ly, amount));
+                }
+            }
+        }
+    }
+
+    fn add_light(&mut self, x: i32, y: i32, radius: i32, amount: f32) {
+        // Same field-cell-granular reasoning as `add_heat` above.
+        let (fcx, fcy) = field::field_coord_of(x, y);
+        let field_radius = radius / FIELD_SCALE;
+        let r2 = field_radius * field_radius + 1;
+        for dfy in -field_radius..=field_radius {
+            for dfx in -field_radius..=field_radius {
+                if dfx * dfx + dfy * dfy > r2 {
+                    continue;
+                }
+                let (fx, fy) = (fcx + dfx, fcy + dfy);
+                let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+                if tile_coord == self.coord {
+                    let mut cell = self.field.get_local(lx, ly);
+                    cell.light += amount;
+                    self.field.set_local(lx, ly, cell);
+                    self.field_touched = true;
+                } else {
+                    self.light_writes.push((tile_coord, lx, ly, amount));
                 }
             }
         }
@@ -665,7 +700,13 @@ mod tests {
         // it for an unrelated reason.
         let mut w = wide_world();
         w.end_step(); // promote the fresh world's initial full-dirty state so the field can actually reach "settled"
-        field::step(&mut w);
+        // More than one step: the sky light source (architecture §2) takes
+        // several frames of diffusion to reach a fixed point through the
+        // world's full chunk depth -- see `field::an_impulse_wakes_an_
+        // already_settled_field`'s own version of this reasoning.
+        for _ in 0..500 {
+            field::step(&mut w);
+        }
         assert!(w.fields_settled(), "test setup should have started with a converged field");
 
         let mut burning = SimCell::new(material::OIL, 0);

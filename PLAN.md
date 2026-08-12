@@ -1310,6 +1310,35 @@ updated at each milestone commit, not just when something is added.
   elsewhere needed to change at all (the issue's own estimate of "42
   places" was counting call sites on the assumption the constructor
   signature itself would need to change, which it didn't).
+- **Architecture §2** (light writer): **done.** Two writers for the M13 light
+  channel that had stood inert since M16 — `shade_factor` (moss) and tree
+  phototropism in `plant.rs` both already read `field_at(..).light`, but
+  nothing had ever written to it in real gameplay. `fire.rs`'s `tick_burn`
+  now pushes a small `add_light` alongside its existing `add_heat` call.
+  `field::step` gained a new `apply_sky` pass — run last, after
+  `step_advection` (which, like every other pass, unconditionally overwrites
+  every field cell it touches, sky row included) — that forces the topmost
+  *exposed* field row (no chunk resident directly above it, so this adapts
+  correctly to irregular/streaming chunk layouts rather than assuming one
+  global top row) to `MAX_LIGHT` every step, unless that cell is itself
+  CA-blocked. Deliberately does not clear `fields_settled` (unlike
+  `add_light`/`add_heat`): it's a stable boundary condition, not an external
+  disturbance, and `is_converged`'s existing old-vs-next comparison already
+  catches any real change (newly exposed or newly shaded cells) on its own.
+  `CellSurface` gained `add_light`, implemented by both `World` and
+  `ChunkView` as an exact mirror of their existing `add_heat` (including
+  `ChunkView`'s cross-chunk write-queueing and shared `field_touched` flag).
+  `LIGHT_DECAY` turned out steep by design ("diffuse fast, decay hard" —
+  see `field.rs`'s own doc comment): a sky-lit column reads near dark again
+  within about 3 field cells (24 world pixels), so the new regression test
+  (`open_sky_reads_brighter_than_a_directly_blocked_cell`) probes one field
+  row below the sky rather than assuming any deeper reach. Two pre-existing
+  field-sleeping tests (`an_impulse_wakes_an_already_settled_field`,
+  `a_same_chunk_heat_push_during_the_parallel_sweep_wakes_the_settled_field`)
+  needed their one-step "should already be settled" setup widened to a
+  bounded loop, since an undisturbed field now takes several frames to reach
+  its fixed point (light diffusing down from the new sky source) rather than
+  being trivially converged from frame one.
 
 ---
 
