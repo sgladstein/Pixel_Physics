@@ -247,8 +247,22 @@ impl App {
     /// preview and the hover inspector, both of which need to know where
     /// the cursor actually is on screen, not just that painting is
     /// currently happening somewhere.
-    pub fn draw(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
-        self.renderer.draw(&self.world, &self.particles, frame, WIDTH, HEIGHT);
+    ///
+    /// `&mut self`, unlike nearly every other read-only method here —
+    /// `Renderer::draw`'s own §11 dirty-rect skip needs to remember the
+    /// zoom/stride it last drew at, to know when the frame buffer it's
+    /// about to partially reuse was actually built at a different scale.
+    pub fn draw(&mut self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
+        // Anything `draw_hud` is about to paint over this frame's terrain
+        // -- a panel, the hover inspector, or the brush outline that
+        // follows the cursor -- has no footprint tracked from one frame to
+        // the next, so `Renderer::draw` has no way to know an old one needs
+        // erasing. Forcing a full redraw whenever any of this is showing is
+        // the simple, always-correct alternative to tracking that footprint
+        // separately; see `Renderer::draw`'s own doc for the full reasoning.
+        let force_full = cursor.is_some() || self.show_palette || self.show_help || self.show_tunables || self.show_hover_inspector;
+        let touched = self.world.take_touched_chunks();
+        self.renderer.draw(&self.world, &self.particles, &touched, frame, (WIDTH, HEIGHT), force_full);
         self.draw_hud(frame, cursor);
     }
 

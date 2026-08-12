@@ -1006,9 +1006,14 @@ updated at each milestone commit, not just when something is added.
 - **M14** (fire, heat, reactions): done, finishes M3.
 - **M7** (free particles): done.
 - **M15** (explosions): done.
-- **M6** (rendering upgrade — bloom/emissive lighting): **deferred**. Needs
-  live visual judgment a screenshot-and-reason-about-it loop can't substitute
-  for; parked for a session where that's available, not abandoned.
+- **M6** (rendering upgrade): **split**. The bloom/emissive shader half
+  stays **deferred** — needs live visual judgment a screenshot-and-reason-
+  about-it loop can't substitute for, parked for a session where that's
+  available, not abandoned. The dirty-region half shipped, reframed: the
+  originally-planned GPU texture upload path turned out to be blocked by
+  `pixels` 0.17.2's own architecture (see the overnight run's section 11
+  entry), so the actual win landed as a CPU-side skip in `Renderer::draw`
+  instead — measured 6.6ms → 0.0ms worst frame on a settled scene.
 - **M5** (multithreading): **done**, including an independent adversarial
   review that found no data-race or corruption bugs (it specifically tried
   to construct one across the two-active-chunks-sandwiching-a-passive-chunk
@@ -2607,6 +2612,122 @@ and what a visual bug actually looked like before its fix.
 `tunables_selected`). `src/main.rs` (`O` toggle; arrow keys and `Enter`
 guarded on the panel being open; `Escape` now contextual). `src/lib.rs`
 (registers the `tunables` module). `PLAN.md`/`README.md`.
+
+### Overnight run, section 11: M6 rendering upgrade — reframed as a CPU-side dirty-rect skip
+
+The plan's original split — dirty-region GPU texture uploads (objective)
+plus a runtime-tunable bloom shader (needs live judgment, stays deferred)
+— ran into an architectural wall on the first half before any code was
+written: reading `pixels` 0.17.2's own source (`render`/`render_with`,
+`PixelsContext`) confirmed both public entry points unconditionally
+re-upload the *entire* frame buffer to the GPU texture before the
+caller's render closure ever runs, and `PixelsContext::surface` is
+private, so there is no way to drive a narrower upload short of forking
+the crate. An independent review agent confirmed this reading and the
+follow-on reasoning: the GPU copy this would have saved is ~655KB/frame
+at 60fps (≈39MB/s) — nowhere near a real bottleneck on any GPU bus — so
+forking a dependency to shave it is a bad trade nobody asked for.
+
+**Reframed to the CPU-side cost that actually is real and already
+measured**: `cell_colour` (grain, heat glow, field-overlay tint) reruns
+for every one of up to 512×320 pixels every frame regardless of what
+changed — the fake-AO experiment M19 already recorded cutting for cost is
+concrete prior evidence this isn't hypothetical. `Renderer::draw` now
+skips recomputing pixels for any chunk that provably didn't change,
+verified via the engine's own existing capture tools (confirmed working
+in this environment before committing to the section — `PIXEL_PHYSICS_
+SCREENSHOT_AFTER_FRAMES` and `PIXEL_PHYSICS_CAPTURE_SEQUENCE` both still
+launch the real window and render correctly here, contrary to this
+session's earlier §6 finding, which turned out to be about frame
+*advancement* pacing specifically, not the render path itself).
+
+**Two real bugs found and fixed before this shipped, both via live/debug
+verification rather than only unit tests:**
+
+1. **A settled-chunk snapshot check is not the same question as "did this
+   change since I last drew it."** The first version checked `chunk.
+   is_settled()` directly inside `Renderer::draw`. A debug harness built
+   to stress exactly this — call `App::update()` 300 times, then draw
+   once — caught a sand pile that had fallen and landed rendering frozen
+   at its original mid-air position. Root cause: `main.rs`'s own
+   `MAX_TICKS_PER_FRAME` catch-up loop can run several ticks per draw on
+   any frame that runs behind, and a chunk that goes active and settles
+   again *within* that window reads as settled at draw time despite
+   having visibly moved. Fixed by moving the tracking to `World` itself:
+   a new `touched_chunks: HashSet<ChunkCoord>` accumulates across every
+   tick's `end_step`, drained once per render via `take_touched_chunks`
+   — `Renderer::draw` now takes `touched: &HashSet<ChunkCoord>` instead
+   of scanning `world.chunks()` for `!is_settled()`.
+2. **The touched-chunks fix above still had a one-tick lag for the first
+   write to an already-settled chunk**, caught by an independent review:
+   `end_step` computed `was_settled` *before* calling `end_sweep`, so a
+   chunk that was fully settled and then received exactly one
+   out-of-sweep write (organism growth via `step_active_sites`, an
+   explosion, a structural collapse, a landing free particle, a hot-
+   reload's `wake_all` — none of these are gated on the cursor being
+   over the window the way painting incidentally is) wouldn't appear in
+   `touched_chunks` until a *second* subsequent `end_step`, one whole
+   tick later than the write that actually changed its pixels. Fixed by
+   checking settledness on both sides of `end_sweep` — `!was_settled ||
+   !settled_now` — which correctly catches both transition directions
+   (a chunk going active, and a chunk a write just promoted out of
+   settled) without reintroducing the first bug. Both fixes were
+   confirmed via revert: each one's regression test was checked to fail
+   against the pre-fix code, then the fix restored.
+
+**Bypassed to a full redraw** (matching the original per-pixel loop
+exactly) whenever: the caller's own `force_full` is set (`App::draw`
+sets it whenever the cursor is on-screen or any HUD panel is open, since
+those are painted over the terrain with no tracked footprint of their
+own — painting requires the cursor, so this incidentally covers every
+paint/erase action too); `zoom`/`zoom_out_stride` changed since the
+renderer's own last `draw` call; the field overlay is on (the M13 field
+grid diffuses independently of chunk activity); `show_chunk_overlay` is
+on; or particles are non-empty (free debris has no tracked footprint —
+bypassing was judged simpler and cheap enough against tracking a
+leave/enter region for something already fast to just redraw).
+
+**Measured, not just asserted**: `examples/ascii.rs`'s existing
+`render_stress_scene` benchmark (full 512×320 sand scene, `Renderer::draw`
+timing isolated from simulation cost) went from **6.6ms worst frame to
+0.0ms** once the scene is genuinely settled and idle — the exact
+"densely-filled static world pays this cost forever" case the earlier
+fake-AO cut already flagged as real. `Renderer::draw` also returns the
+actual pixel-recompute count now, exercised directly by this module's own
+tests, rather than an env-var-gated instrumentation hook layered on
+separately.
+
+**7 new tests** (`render.rs`, prefixed `§11` in comments) cover: a
+partial redraw is pixel-identical to a full one after the world actually
+changes between two draws (confirmed via revert to catch a deliberately
+inverted settled-chunk polarity); a fully settled world recomputes zero
+pixels; the very first draw is always full regardless of `force_full`;
+zoom changes force one more full redraw; nonempty particles and an active
+field overlay both force a full redraw every frame; and the two
+regression tests above. Plus **2 new tests** in `world.rs` for the
+`touched_chunks` accumulation itself.
+
+**Visual verification kept and committed** under `docs/screenshots/
+section-11-dirty-rect-render/` (`mid-fall.png`, `mid-fall-2.png`,
+`settled.png`, `settled-after-skip.png`) — a real sand column painted,
+ticked through falling and landing with no intervening draws, confirming
+the settled pile renders at its true final position rather than a stale
+mid-air one.
+
+`cargo test`: 277 lib tests (up from 268), all green. `cargo clippy
+--all-targets -- -D warnings` clean.
+
+### Files touched
+
+`src/render.rs` (`Renderer::draw` signature gains `touched: &HashSet<
+ChunkCoord>` and returns `usize`; `last_zoom_state` field;
+`world_rect_to_screen_rect`; `Rect::union` used from `chunk.rs`).
+`src/sim/chunk.rs` (`Rect::union`). `src/sim/world.rs` (`touched_chunks`
+field, `end_step` checks settledness on both sides of `end_sweep`,
+`take_touched_chunks`). `src/app.rs` (`App::draw` is now `&mut self`,
+fetches and passes `touched`). `examples/ascii.rs` (`render_stress_scene`
+settles its world and measures the optimized path).
+`docs/screenshots/section-11-dirty-rect-render/`. `PLAN.md`/`README.md`.
 
 ---
 

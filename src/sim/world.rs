@@ -123,6 +123,26 @@ pub struct World {
     /// rather than needing separate tracking for it. Starts `false` so a
     /// freshly created world's field gets at least one real solve.
     fields_settled: bool,
+    /// §11: every chunk that changed state (checked on *both* sides of
+    /// `end_sweep`, see `end_step`'s own comment) during *any* tick since a
+    /// renderer last consumed this set via `take_touched_chunks`. Exists
+    /// because a chunk's own `is_settled()` is a snapshot of one instant
+    /// only — `main.rs`'s own frame loop can run `App::update` up to
+    /// `MAX_TICKS_PER_FRAME` times before the next `App::draw`, and a
+    /// chunk that goes active then settles again *within* that window
+    /// would read as settled at draw time despite having visibly moved in
+    /// between, leaving stale pixels behind. Accumulating across every
+    /// `end_step` since the last render, rather than reading one snapshot
+    /// at render time, is what closes that gap — found by a debug harness
+    /// that (deliberately, to stress exactly this) called `App::update`
+    /// 300 times before ever drawing again, and caught a settled pile of
+    /// sand still rendering at its original mid-air position. A second,
+    /// narrower gap (one write to an *already-settled* chunk missing by
+    /// exactly one `end_step`, since a write only arms `pending_dirty` and
+    /// the settled-before check alone can't see that promotion happening
+    /// in the very call that's checking it) was caught by an independent
+    /// review and closed the same way, checking both before and after.
+    touched_chunks: std::collections::HashSet<ChunkCoord>,
 }
 
 impl World {
@@ -141,6 +161,7 @@ impl World {
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
             fields_settled: false,
+            touched_chunks: std::collections::HashSet::new(),
         };
         world.ensure_chunks_for(bounds);
         world
@@ -781,13 +802,46 @@ impl World {
         // frame would burn cycles on a world that is otherwise supposed to
         // cost near-zero once everything sleeps.
         let materials = &self.materials;
+        let touched = &mut self.touched_chunks;
         for chunk in self.chunks.values_mut() {
             let was_settled = chunk.is_settled();
             chunk.end_sweep();
-            if !was_settled && chunk.is_settled() {
+            let settled_now = chunk.is_settled();
+            // Checked on *both* sides of `end_sweep`, not just before it —
+            // an independent review found that checking only `!was_settled`
+            // misses a chunk that was already fully settled (`dirty` and
+            // `pending_dirty` both `None`) and then received exactly one
+            // out-of-sweep write since the previous `end_step` (organism
+            // growth via `step_active_sites`, an explosion, a structural
+            // collapse, a landing free particle, a hot-reload's `wake_all`).
+            // Such a write only ever sets `pending_dirty` -- `was_settled`,
+            // read *before* `end_sweep` promotes it, still sees the old
+            // `dirty == None` and reports settled, so `!was_settled` alone
+            // stays false for this exact tick even though `end_sweep` right
+            // above just made the chunk genuinely active. Confirmed via a
+            // temporary test forcing exactly this sequence (one write, one
+            // `end_step`) before this fix, then reverted once fixed.
+            // `!was_settled` alone still matters too -- it is what catches
+            // the opposite transition, a chunk that *was* active and
+            // settles again this very tick (finished falling, burned out),
+            // which `settled_now` alone would miss since by definition it's
+            // `true` right when the render actually needs to see the change.
+            if !was_settled || !settled_now {
+                touched.insert(chunk.coord);
+            }
+            if !was_settled && settled_now {
                 chunk.recompute_reach(|cell| materials.get(cell.material).sweep_reach());
             }
         }
+    }
+
+    /// Every chunk touched by any tick since the last call to this method
+    /// — see `touched_chunks`'s own doc. `Renderer::draw` (via `App::draw`)
+    /// is the one real caller, once per frame; draining rather than only
+    /// reading is what makes "since the last call" true without the caller
+    /// needing to remember anything itself.
+    pub fn take_touched_chunks(&mut self) -> std::collections::HashSet<ChunkCoord> {
+        std::mem::take(&mut self.touched_chunks)
     }
 }
 
@@ -878,6 +932,53 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 127, 127))
+    }
+
+    // --- §11: touched_chunks --------------------------------------------
+
+    #[test]
+    fn a_single_out_of_sweep_write_to_a_settled_chunk_is_touched_after_one_end_step() {
+        // An independent review of §11's render optimization found this
+        // exact gap: `World::set` only ever arms `pending_dirty`, and the
+        // old `end_step` checked settledness *before* `end_sweep` promoted
+        // it -- so a chunk that was fully settled (both `dirty` and
+        // `pending_dirty` already `None`), then received exactly one write
+        // from outside the sweep (organism growth, an explosion, a
+        // structural collapse, a landing particle, none of which are
+        // gated on the cursor being over the window the way painting is),
+        // would not appear in `take_touched_chunks` until a *second*
+        // `end_step` -- one whole tick later than the write that actually
+        // changed its pixels. Confirmed via revert to fail against the
+        // pre-fix `!was_settled`-only check.
+        let mut w = test_world();
+        w.end_step();
+        w.end_step(); // fully settled
+        w.take_touched_chunks(); // drain the initial construction-time batch
+        assert!(w.take_touched_chunks().is_empty(), "test setup should start with nothing touched once drained");
+
+        w.set(10, 10, Cell::new(material::STONE, 0));
+        w.end_step();
+
+        let touched = w.take_touched_chunks();
+        assert!(!touched.is_empty(), "a single write to a settled chunk must be visible after exactly one end_step, not two");
+    }
+
+    #[test]
+    fn a_chunk_that_finishes_settling_this_very_tick_is_still_touched() {
+        // The opposite transition, already covered before this exact test
+        // was added but worth pinning down explicitly: a chunk that *was*
+        // active and settles again on this tick (nothing new pending)
+        // must still be reported touched -- `settled_now` alone would miss
+        // it, since by the time anyone checks, the chunk already reads
+        // settled.
+        let mut w = test_world();
+        w.set(10, 10, Cell::new(material::STONE, 0));
+        w.end_step(); // promotes pending_dirty -> dirty; not yet settled
+        w.take_touched_chunks();
+
+        w.end_step(); // nothing new written; this call settles it
+        let touched = w.take_touched_chunks();
+        assert!(!touched.is_empty(), "a chunk settling on this exact tick must still be reported touched");
     }
 
     #[test]

@@ -5,8 +5,10 @@
 //! two apart is what lets M6 swap in a GPU pipeline with lighting and bloom
 //! without touching a single movement rule.
 
+use std::collections::HashSet;
+
 use crate::sim::cell::AMBIENT_TEMPERATURE;
-use crate::sim::chunk::CHUNK_SIZE;
+use crate::sim::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
 use crate::sim::particle::ParticleSystem;
 use crate::sim::rng;
 use crate::sim::world::World;
@@ -146,6 +148,14 @@ pub struct Renderer {
     /// opts in, the same "toggled debug overlay, zero cost when off" shape
     /// `show_chunk_overlay` already uses.
     pub field_overlay: FieldOverlay,
+    /// `(zoom, zoom_out_stride)` as of the last `draw` call — a change since
+    /// then means the whole frame buffer's existing bytes were computed at
+    /// the wrong scale, forcing one full redraw to re-establish it before
+    /// `draw`'s dirty-rect skip (see its own doc) can trust anything already
+    /// in the buffer again. `None` until the first `draw`, so that call is
+    /// always full too, for the same reason: an unwritten buffer has nothing
+    /// valid to partially build on.
+    last_zoom_state: Option<(i32, i32)>,
 }
 
 impl Renderer {
@@ -157,6 +167,7 @@ impl Renderer {
             zoom: 1,
             zoom_out_stride: 1,
             field_overlay: FieldOverlay::Off,
+            last_zoom_state: None,
         }
     }
 
@@ -187,20 +198,156 @@ impl Renderer {
         }
     }
 
-    pub fn draw(&self, world: &World, particles: &ParticleSystem, frame: &mut [u8], width: u32, height: u32) {
-        for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-            let sx = (i % width as usize) as i32;
-            let sy = (i / width as usize) as i32;
-            let (wx, wy) = self.screen_to_world(sx, sy);
-            let colour = self.cell_colour(world, wx, wy);
-            pixel.copy_from_slice(&colour);
-        }
+    /// §11's dirty-rect render optimization. **Not a GPU-level change** —
+    /// `pixels` 0.17.2's `render`/`render_with` re-upload the *entire*
+    /// frame buffer to the GPU texture unconditionally, from a code path
+    /// with no hook to narrow it and no public accessor for the
+    /// `wgpu::Surface` needed to drive an alternative present path (the
+    /// underlying architectural constraint `PLAN.md`'s section 11 entry
+    /// documents, confirmed by reading `pixels`' own source before starting
+    /// here). What's actually skippable, and what this does instead, is the
+    /// CPU-side cost of *computing* those bytes in the first place: the
+    /// `cell_colour` pass this replaces reruns for every one of up to
+    /// 512*320 pixels every single frame regardless of whether anything
+    /// changed, a cost `cell_colour`'s own doc already names as real (the
+    /// fake-AO experiment it records being cut for measured cost, on top of
+    /// jitter and heat glow that stayed only after being budgeted).
+    ///
+    /// Recomputing pixels for exactly `touched`'s chunks — no more, no
+    /// less — is a sound skip condition, not an approximation, *given*
+    /// `touched` is accurate: `fire::update`'s `must_stay_dirty` (see
+    /// `fire.rs`) guarantees any cell still burning or still outside
+    /// `THERMAL_SETTLE_EPSILON` of ambient keeps re-dirtying its own chunk
+    /// every tick, and `fire::update`/movement both only ever run on a
+    /// chunk actually being swept — so a chunk *absent* from `touched` has,
+    /// by construction, cell data that provably did not change across every
+    /// tick since the caller last fetched that set. `cell_colour` is a pure
+    /// function of that data plus position (jitter) and a burning-only
+    /// flicker bucket that can't apply to an untouched cell either — so
+    /// recomputing it would reproduce the exact bytes already sitting in
+    /// `frame`, byte for byte. Skipping is lossless, not lossy.
+    ///
+    /// **Why `touched`, not a `chunk.is_settled()` check done here at draw
+    /// time** — the first version of this did exactly that, and a debug
+    /// harness that called `App::update` many times before ever drawing
+    /// again caught it stale: a chunk can go active and settle again
+    /// *between* two draws whenever more than one tick happens per draw,
+    /// which `main.rs`'s own catch-up loop (`MAX_TICKS_PER_FRAME`) does on
+    /// any frame that runs behind — `is_settled()` checked only at the end
+    /// answers "did this chunk change on its *most recent* tick," not "did
+    /// it change on *any* tick since I last drew it," and only the second
+    /// question is the one this function actually needs answered.
+    /// `World::take_touched_chunks` accumulates across every tick's
+    /// `end_step` instead of snapshotting one, closing that gap.
+    ///
+    /// Bypassed back to a full redraw (matching the original per-pixel
+    /// loop exactly) whenever *anything* could have written into the frame
+    /// buffer outside of touched-chunk logic: `zoom`/`zoom_out_stride`
+    /// changed since the last call (the existing buffer is at the wrong
+    /// scale, or covers different world positions, including the
+    /// out-of-bounds `VOID` fringe a stride>1 view can expose); the field
+    /// overlay is on (the M13 field grid diffuses independently of CA
+    /// activity, so an untouched chunk's *tint* can still be changing even
+    /// though its cells aren't); `show_chunk_overlay` is on (an active/
+    /// settled border colour can flip without the chunk's own cells
+    /// changing at all); or particles exist (free debris is drawn as a
+    /// second pass below, at a position nothing here tracks turn over
+    /// turn — bypassing avoids the alternative, real cost of tracking a
+    /// leave/enter footprint for something already fast to just redraw).
+    /// `force_full`, the caller's own get-out: `App::draw` sets it
+    /// whenever an on-screen overlay (HUD panels, the brush outline at the
+    /// cursor) is about to be painted over this frame's terrain, for the
+    /// identical reason — this function has no way to know an old cursor
+    /// position's outline needs erasing, so the caller says so instead.
+    ///
+    /// Returns how many pixels were actually recomputed, `width*height` on
+    /// a full redraw — the objective, no-visual-judgment measurement
+    /// `PLAN.md`'s section 11 asked for, exercised directly by this
+    /// module's own tests rather than an env-var-gated instrumentation
+    /// hook layered on afterward.
+    /// `touched` — every chunk any tick has actually swept since the last
+    /// call to `World::take_touched_chunks` (the caller's job to fetch;
+    /// see that method's own doc for why this can't just be `chunk.
+    /// is_settled()` checked here at draw time — a chunk can go active and
+    /// settle again *between* draws, if `App::update` runs more than once
+    /// per `App::draw`, which `main.rs`'s own catch-up loop does whenever a
+    /// frame runs behind).
+    pub fn draw(&mut self, world: &World, particles: &ParticleSystem, touched: &HashSet<ChunkCoord>, frame: &mut [u8], (width, height): (u32, u32), force_full: bool) -> usize {
+        let zoom_state = (self.zoom, self.zoom_out_stride);
+        let scale_changed = self.last_zoom_state != Some(zoom_state);
+        self.last_zoom_state = Some(zoom_state);
+
+        let full = force_full || scale_changed || self.field_overlay != FieldOverlay::Off || self.show_chunk_overlay || !particles.is_empty();
+
+        let recomputed = if full {
+            for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
+                let sx = (i % width as usize) as i32;
+                let sy = (i / width as usize) as i32;
+                let (wx, wy) = self.screen_to_world(sx, sy);
+                let colour = self.cell_colour(world, wx, wy);
+                pixel.copy_from_slice(&colour);
+            }
+            (width as usize) * (height as usize)
+        } else {
+            let mut dirty: Option<Rect> = None;
+            for coord in touched {
+                if let Some(r) = self.world_rect_to_screen_rect(coord.bounds(), width, height) {
+                    dirty = Some(match dirty {
+                        Some(d) => d.union(r),
+                        None => r,
+                    });
+                }
+            }
+            let mut n = 0usize;
+            if let Some(rect) = dirty {
+                for sy in rect.min_y..=rect.max_y {
+                    for sx in rect.min_x..=rect.max_x {
+                        let (wx, wy) = self.screen_to_world(sx, sy);
+                        let colour = self.cell_colour(world, wx, wy);
+                        put(frame, width, height, sx, sy, colour);
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
 
         self.draw_particles(world, particles, frame, width, height);
 
         if self.show_chunk_overlay {
             self.draw_chunk_overlay(world, frame, width, height);
         }
+
+        recomputed
+    }
+
+    /// The screen-space rect a world-space rect maps to at the current
+    /// zoom/stride/camera, clipped to the visible frame — `None` when it
+    /// falls entirely outside it. Reuses `world_to_screen`'s own per-point
+    /// mapping on just the two corners (magnify: the far corner's block
+    /// extends `zoom - 1` further; minify: `div_euclid` directly, same as
+    /// `screen_to_world`'s own inverse) rather than a separate mapping
+    /// scheme, so this can never disagree with the per-pixel loop about
+    /// where a world position lands on screen.
+    fn world_rect_to_screen_rect(&self, world_rect: Rect, width: u32, height: u32) -> Option<Rect> {
+        let (sx0, sy0, sx1, sy1) = if self.zoom > 1 {
+            (
+                (world_rect.min_x - self.camera_x) * self.zoom,
+                (world_rect.min_y - self.camera_y) * self.zoom,
+                (world_rect.max_x - self.camera_x) * self.zoom + self.zoom - 1,
+                (world_rect.max_y - self.camera_y) * self.zoom + self.zoom - 1,
+            )
+        } else {
+            let stride = self.zoom_out_stride.max(1);
+            (
+                (world_rect.min_x - self.camera_x).div_euclid(stride),
+                (world_rect.min_y - self.camera_y).div_euclid(stride),
+                (world_rect.max_x - self.camera_x).div_euclid(stride),
+                (world_rect.max_y - self.camera_y).div_euclid(stride),
+            )
+        };
+        let screen_bounds = Rect::new(0, 0, width as i32 - 1, height as i32 - 1);
+        Rect::new(sx0, sy0, sx1, sy1).intersection(screen_bounds)
     }
 
     /// Free particles are not CA cells, so the main per-pixel pass above
@@ -520,13 +667,13 @@ mod tests {
     fn draws_material_colours_and_void_outside_the_world() {
         let mut world = World::new(Rect::new(0, 0, 63, 63));
         world.set(30, 30, Cell::new(material::SAND, 0));
-        let renderer = Renderer::new();
+        let mut renderer = Renderer::new();
         let particles = ParticleSystem::new();
 
         // A 128-wide framebuffer over a 64-wide world: the right half is void.
         let (w, h) = (128u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &mut frame, w, h);
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
 
         // Not hot, so only the position-jitter grain (see `JITTER_STRENGTH`)
         // should have moved this away from the flat palette colour.
@@ -600,11 +747,11 @@ mod tests {
 
         let mut renderer = Renderer::new();
         let mut off = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &mut off, w, h);
+        renderer.draw(&world, &particles, &HashSet::new(), &mut off, (w, h), true);
 
         renderer.field_overlay = FieldOverlay::Pressure;
         let mut on = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &mut on, w, h);
+        renderer.draw(&world, &particles, &HashSet::new(), &mut on, (w, h), true);
 
         assert_ne!(off, on, "the pressure overlay should visibly change the render over a real pressure impulse");
     }
@@ -629,13 +776,13 @@ mod tests {
     #[test]
     fn draws_a_free_particle_at_its_rounded_position() {
         let world = World::new(Rect::new(0, 0, 63, 63));
-        let renderer = Renderer::new();
+        let mut renderer = Renderer::new();
         let mut particles = ParticleSystem::new();
         particles.spawn(10.4, 20.3, 0.0, 0.0, material::SAND, 1);
 
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &mut frame, w, h);
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
 
         let sand = world.materials.get(material::SAND).palette[1];
         let idx = (20 * w as usize + 10) * 4;
@@ -645,7 +792,7 @@ mod tests {
     #[test]
     fn a_particle_outside_the_framebuffer_does_not_panic_or_wrap() {
         let world = World::new(Rect::new(0, 0, 63, 63));
-        let renderer = Renderer::new();
+        let mut renderer = Renderer::new();
         let mut particles = ParticleSystem::new();
         particles.spawn(-5.0, -5.0, 0.0, 0.0, material::SAND, 0);
         particles.spawn(1000.0, 1000.0, 0.0, 0.0, material::SAND, 0);
@@ -653,7 +800,7 @@ mod tests {
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
         // Reaching this line without panicking is the assertion.
-        renderer.draw(&world, &particles, &mut frame, w, h);
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
     }
 
     #[test]
@@ -665,11 +812,11 @@ mod tests {
         let mut world = World::new(Rect::new(0, 0, 63, 63));
         world.set(0, 0, Cell::new(material::SAND, 0));
         world.set(10, 0, Cell::new(material::SAND, 0));
-        let renderer = Renderer::new();
+        let mut renderer = Renderer::new();
         let particles = ParticleSystem::new();
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &mut frame, w, h);
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
 
         let a = &frame[0..4];
         let b_idx = 10 * 4;
@@ -682,11 +829,11 @@ mod tests {
         let mut world = World::new(Rect::new(0, 0, 63, 63));
         world.set(0, 0, Cell::new(material::STONE, 0).with_temperature(20)); // ambient
         world.set(10, 0, Cell::new(material::STONE, 0).with_temperature(500)); // hot, not burning
-        let renderer = Renderer::new();
+        let mut renderer = Renderer::new();
         let particles = ParticleSystem::new();
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &mut frame, w, h);
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
 
         let cool = &frame[0..4];
         let hot_idx = 10 * 4;
@@ -710,7 +857,7 @@ mod tests {
         let mut burning = Cell::new(material::OIL, 0);
         burning.ignite(9999);
         world.set(30, 30, burning);
-        let renderer = Renderer::new();
+        let mut renderer = Renderer::new();
         let particles = ParticleSystem::new();
         let (w, h) = (64u32, 64u32);
         let idx = (30 * w as usize + 30) * 4;
@@ -722,7 +869,7 @@ mod tests {
         for bucket in 0..10 {
             world.frame = bucket * FLAME_FLICKER_PERIOD;
             let mut frame = vec![0u8; (w * h * 4) as usize];
-            renderer.draw(&world, &particles, &mut frame, w, h);
+            renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
             colours.insert(frame[idx..idx + 4].to_vec());
         }
         assert!(colours.len() > 1, "a burning cell rendered identically across every time bucket -- no flicker at all");
@@ -748,11 +895,11 @@ mod tests {
         let mut world = World::new(Rect::new(0, 0, 63, 63));
         let temperature = AMBIENT_TEMPERATURE + HEAT_GLOW_RANGE as i16; // heat_ratio == 1.0 exactly
         world.set(10, 0, Cell::new(material::STONE, 0).with_temperature(temperature));
-        let renderer = Renderer::new();
+        let mut renderer = Renderer::new();
         let particles = ParticleSystem::new();
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &mut frame, w, h);
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
 
         let hot_idx = 10 * 4;
         let actual = &frame[hot_idx..hot_idx + 4];
@@ -881,7 +1028,7 @@ mod tests {
         let particles = ParticleSystem::new();
         let (w, h) = (32u32, 32u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        r.draw(&world, &particles, &mut frame, w, h);
+        r.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
 
         let px = |x: i32, y: i32| -> [u8; 4] {
             let i = ((y as u32 * w + x as u32) * 4) as usize;
@@ -907,12 +1054,212 @@ mod tests {
         let mut frame = vec![0u8; (w * h * 4) as usize];
 
         // Freshly built chunks are dirty, so the border reads as active.
-        renderer.draw(&world, &particles, &mut frame, w, h);
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
         assert_eq!(&frame[0..4], &CHUNK_BORDER_ACTIVE);
 
         // Once settled it dims.
         world.end_step();
-        renderer.draw(&world, &particles, &mut frame, w, h);
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
         assert_eq!(&frame[0..4], &CHUNK_BORDER_SETTLED);
+    }
+
+    // --- §11: dirty-rect render skip -----------------------------------
+
+    #[test]
+    fn dirty_rect_skip_is_pixel_identical_to_a_full_redraw() {
+        use crate::sim::update;
+        let (w, h) = (128i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        // A sand column confined to the right half, tall enough to still be
+        // mid-fall after a few sweeps -- the left half's chunks settle once
+        // the floor itself stops changing, while the chunk(s) under this
+        // column stay active, so the world actually has both a settled and
+        // an unsettled region for the skip to distinguish between.
+        for y in 0..10 {
+            world.set(w - 10, y, Cell::new(material::SAND, 0));
+        }
+        for _ in 0..3 {
+            update::step(&mut world);
+        }
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+
+        // Warm up on the pre-step world -- the real-usage shape (frame N's
+        // buffer already holds frame N's correct bytes before frame N+1
+        // draws on top of it), and critically the thing that makes this
+        // test actually discriminating: an earlier version of it stepped
+        // the world *before* both draws and never again, so nothing
+        // differed between the warm-up and the "real" draw -- skipping the
+        // wrong chunks entirely still passed, since a chunk's already-drawn
+        // bytes cannot go stale by definition if its underlying cells never
+        // changed afterward either. Stepping again *between* the two draws
+        // closes that gap: the sand column's cells genuinely move this
+        // step, so a buggy skip (wrong polarity, an off-by-one in the
+        // world<->screen mapping, anything that leaves the wrong region
+        // untouched) would leave stale sand-coloured pixels sitting where
+        // the column used to be.
+        //
+        // `world.take_touched_chunks()` is called before *every* draw here,
+        // matching `App::draw`'s own real discipline -- not just before the
+        // `force_full: false` one. Skipping it on the warm-up call would
+        // leave that first batch of touches sitting in the accumulator
+        // un-consumed, so the second call would see *those* stale entries
+        // on top of whatever genuinely changed in between, rather than
+        // exactly what changed since the warm-up actually ran.
+        let mut subject = Renderer::new();
+        let mut actual = vec![0u8; (uw * uh * 4) as usize];
+        let warm_up_touched = world.take_touched_chunks();
+        subject.draw(&world, &particles, &warm_up_touched, &mut actual, (uw, uh), true);
+
+        update::step(&mut world);
+        let touched = world.take_touched_chunks();
+        let recomputed = subject.draw(&world, &particles, &touched, &mut actual, (uw, uh), false);
+
+        let mut baseline = Renderer::new();
+        let mut expected = vec![0u8; (uw * uh * 4) as usize];
+        baseline.draw(&world, &particles, &HashSet::new(), &mut expected, (uw, uh), true);
+
+        assert_eq!(actual, expected, "a dirty-rect-skipped redraw must be pixel-identical to a full one, after the world actually changed");
+        assert!(
+            recomputed < (uw * uh) as usize,
+            "with the left half settled, the skip should recompute fewer than every pixel (recomputed {recomputed} of {})",
+            uw * uh
+        );
+    }
+
+    #[test]
+    fn a_chunk_that_settles_between_two_draws_is_still_correctly_redrawn() {
+        // The exact bug a debug harness caught live: something falls, is
+        // never drawn again until well after it lands, and a renderer that
+        // asks `chunk.is_settled()` only at draw time sees a chunk that
+        // reads settled *right now* and wrongly concludes nothing needs
+        // redrawing there -- even though the chunk was very much active,
+        // repeatedly, across every tick in between. `App::draw` fetches
+        // `World::take_touched_chunks` every call specifically so this
+        // can't happen; this test drives `Renderer::draw` the same way,
+        // bypassing `App` entirely so a regression here fails fast and
+        // close to the actual mechanism, not several layers away.
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        world.set(30, 2, Cell::new(material::SAND, 0));
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (uw * uh * 4) as usize];
+        let warm_up_touched = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &warm_up_touched, &mut frame, (uw, uh), true); // warm up, sand visible near the top
+
+        // Run the sand all the way to the floor and fully settled -- *no*
+        // draw call anywhere in this loop, deliberately, so every tick's
+        // own touch has to survive purely in the accumulator rather than
+        // being individually consumed as it happens.
+        use crate::sim::update;
+        for _ in 0..100 {
+            update::step(&mut world);
+        }
+        assert!(world.chunks().all(|c| c.is_settled()), "the sand must have fully settled by now, or this test isn't exercising the gap");
+
+        let touched = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &touched, &mut frame, (uw, uh), false);
+
+        let mut baseline = Renderer::new();
+        let mut expected = vec![0u8; (uw * uh * 4) as usize];
+        baseline.draw(&world, &particles, &HashSet::new(), &mut expected, (uw, uh), true);
+
+        assert_eq!(frame, expected, "the settled pile's real position must render, not a stale mid-fall one left over from the warm-up draw");
+    }
+
+    #[test]
+    fn a_fully_settled_world_recomputes_nothing_on_the_next_draw() {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        world.set(30, 30, Cell::new(material::STONE, 0));
+        // Two calls, not one: `set` marks `pending_dirty`, and one
+        // `end_step` only promotes that into `dirty` (still unsettled) --
+        // it takes a second call, with no write in between, to promote the
+        // now-empty `pending_dirty` and actually clear `dirty`.
+        world.end_step();
+        world.end_step();
+
+        let (w, h) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let warm_up_touched = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &warm_up_touched, &mut frame, (w, h), true); // warm up
+        let touched = world.take_touched_chunks();
+        let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
+        assert_eq!(recomputed, 0, "nothing changed since the warm-up, so nothing should be recomputed");
+    }
+
+    #[test]
+    fn the_very_first_draw_is_always_full_even_with_force_full_false() {
+        // `last_zoom_state` starts `None` specifically so a freshly built
+        // `Renderer` can never mistake an unwritten frame buffer for one
+        // safe to partially reuse.
+        let mut world = World::new(Rect::new(0, 0, 15, 15));
+        world.set(5, 5, Cell::new(material::STONE, 0));
+        let (w, h) = (16u32, 16u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let touched = world.take_touched_chunks();
+        let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
+        assert_eq!(recomputed, (w * h) as usize, "the first draw ever must be full regardless of force_full");
+    }
+
+    #[test]
+    fn changing_zoom_between_draws_forces_one_more_full_redraw() {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        world.end_step();
+        let (w, h) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let warm_up_touched = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &warm_up_touched, &mut frame, (w, h), true); // warm up
+        renderer.zoom = 2;
+        let touched = world.take_touched_chunks();
+        let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
+        assert_eq!(recomputed, (w * h) as usize, "a zoom change invalidates the whole buffer, settled or not");
+    }
+
+    #[test]
+    fn a_nonempty_particle_system_forces_a_full_redraw_every_frame() {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        world.end_step();
+        let (w, h) = (64u32, 64u32);
+        let mut particles = ParticleSystem::new();
+        particles.spawn(5.0, 5.0, 0.0, 0.0, material::SAND, 0);
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let warm_up_touched = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &warm_up_touched, &mut frame, (w, h), true); // warm up
+        let touched = world.take_touched_chunks();
+        let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
+        assert_eq!(recomputed, (w * h) as usize, "particles have no tracked footprint, so their presence must force a full redraw");
+    }
+
+    #[test]
+    fn a_pending_field_overlay_forces_a_full_redraw_every_frame() {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        world.end_step();
+        let (w, h) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        renderer.field_overlay = FieldOverlay::Pressure;
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let warm_up_touched = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &warm_up_touched, &mut frame, (w, h), true); // warm up
+        let touched = world.take_touched_chunks();
+        let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
+        assert_eq!(recomputed, (w * h) as usize, "the field grid diffuses independent of chunk settledness, so its overlay must bypass the skip");
     }
 }

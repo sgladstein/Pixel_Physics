@@ -170,6 +170,16 @@ impl Rect {
         )
     }
 
+    /// The smallest rect containing both.
+    pub fn union(self, other: Rect) -> Self {
+        Self::new(
+            self.min_x.min(other.min_x),
+            self.min_y.min(other.min_y),
+            self.max_x.max(other.max_x),
+            self.max_y.max(other.max_y),
+        )
+    }
+
     /// The overlapping region, or `None` when the two are disjoint.
     pub fn intersection(self, other: Rect) -> Option<Rect> {
         let r = Self::new(

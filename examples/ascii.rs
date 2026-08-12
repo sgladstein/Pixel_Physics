@@ -105,13 +105,14 @@ fn main() {
         field_stress_setup,
     );
 
-    // M19: rendering has no dirty-rect skip of its own -- it redraws every
-    // visible pixel every frame regardless of what's settled -- so a
-    // densely-filled world pays render's per-pixel cost (grain, heat glow)
-    // forever, not just as a stress-test edge case. Measured here the same
-    // way the CA sweep is, since a wall-clock assertion inside `cargo
-    // test`'s parallel runner is unreliable (it competes for CPU with every
-    // other concurrently-running test, M5's rayon-based ones especially).
+    // M19 first measured this with no dirty-rect skip in rendering at all --
+    // a densely-filled *settled* world paid `cell_colour`'s per-pixel cost
+    // (grain, heat glow) forever, not just as a stress-test edge case: 6.6ms
+    // worst frame, on this exact scene. §11 added the skip; this scene now
+    // shows it working (0.0ms once every chunk has settled) rather than only
+    // asserting it does, since a wall-clock assertion inside `cargo test`'s
+    // parallel runner is unreliable (it competes for CPU with every other
+    // concurrently-running test, M5's rayon-based ones especially).
     render_stress_scene("stress: render a full screen of sand", 512, 320, stress_setup);
 
     // Sand pouring off a ledge onto a platform below, to show the shape of the
@@ -418,19 +419,33 @@ fn field_stress_scene(
 /// simulation cost, the way `field_stress_scene` isolates the combined
 /// figure. See that scene's call site for why this lives here rather than
 /// as a `cargo test` assertion.
+///
+/// `force_full: false` on every call after the warm-up -- exactly the case
+/// §11's dirty-rect skip exists for (`render.rs`'s own doc on `Renderer::
+/// draw`): a static scene sitting idle should recompute close to zero
+/// pixels per frame instead of the full frame every time. `setup`'s own
+/// `World::set` calls leave every touched chunk merely *dirtied*, not
+/// settled (a write only arms `pending_dirty`; it takes one `end_step`
+/// with nothing further written to actually promote and clear it) -- two
+/// calls here, not the one call that would leave every chunk permanently
+/// re-dirtying itself against its own initial paint.
 fn render_stress_scene(title: &str, w: i32, h: i32, setup: impl FnOnce(&mut World)) {
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     setup(&mut world);
-    let renderer = Renderer::new();
+    world.end_step();
+    world.end_step();
+    let mut renderer = Renderer::new();
     let particles = ParticleSystem::new();
     let mut frame = vec![0u8; (w as usize) * (h as usize) * 4];
 
-    renderer.draw(&world, &particles, &mut frame, w as u32, h as u32); // warm up
+    let warm_up_touched = world.take_touched_chunks();
+    renderer.draw(&world, &particles, &warm_up_touched, &mut frame, (w as u32, h as u32), true); // warm up
     let mut worst = std::time::Duration::ZERO;
     for _ in 0..30 {
+        let touched = world.take_touched_chunks();
         let started = std::time::Instant::now();
-        renderer.draw(&world, &particles, &mut frame, w as u32, h as u32);
+        renderer.draw(&world, &particles, &touched, &mut frame, (w as u32, h as u32), false);
         worst = worst.max(started.elapsed());
     }
     println!("worst render frame: {:.3} ms", worst.as_secs_f64() * 1000.0);

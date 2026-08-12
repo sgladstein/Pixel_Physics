@@ -1155,6 +1155,26 @@ leading comma before the appended field" check. Both fixed by making the
 relevant scans comment-aware, each confirmed via a test that failed
 against the pre-fix code first.
 
+## Rendering performance — overnight run, section 11
+
+`Renderer::draw` skips recomputing pixel colour for any screen region
+whose underlying chunk hasn't changed, instead of redrawing all 512×320
+pixels every frame regardless of what's settled. The originally-planned
+route (GPU dirty-region texture uploads) turned out to be blocked by the
+`pixels` crate's own architecture — its `render`/`render_with` always
+re-upload the whole frame internally, with no accessor for the underlying
+surface to drive an alternative path — so the actual fix landed CPU-side,
+where the real cost already was. Measured on the existing full-screen
+sand benchmark: 6.6ms → 0.0ms worst frame once the scene settles. A real
+bug surfaced twice while building this (a settled-chunk check done only
+at draw time misses a chunk that changes and re-settles *between* two
+draws, which the engine's own catch-up ticking can do on a slow frame;
+the initial fix for that still had a one-tick lag for a chunk's very
+first write) — both found live, both fixed, both covered by regression
+tests. The bloom/emissive shader half of M6 remains deferred, unchanged
+from before — that one genuinely needs a human watching it render, which
+this section's fix doesn't touch.
+
 ## M8 status — started, not complete
 
 The plan's own words for this milestone: "the largest single milestone —
