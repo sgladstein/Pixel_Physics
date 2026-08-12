@@ -125,10 +125,21 @@ pub struct MaterialDef {
     pub display: String,
     pub kind: MaterialKind,
     pub density: f32,
-    /// Angle of repose in degrees, for powders. 45 is the steepest a pile can
-    /// hold; lower values spread flatter. Ignored by other kinds.
+    /// Angle of repose in degrees, for powders — the shallower angle a pile
+    /// *already flowing* settles at. 45 is the steepest a pile can hold;
+    /// lower values spread flatter. Ignored by other kinds.
     #[serde(default = "default_friction_angle")]
     pub friction_angle: f32,
+    /// The steeper angle a *settled* pile can stand at without creeping,
+    /// degrees. `Reports/granular-mechanics-research.md` §2: real granular
+    /// piles show hysteresis — harder to start an avalanche than to keep one
+    /// going — which a single angle cannot express. 0.0 (the default for any
+    /// `.ron` that doesn't set this) means "unset": resolved to
+    /// `friction_angle + DEFAULT_STABILITY_ANGLE_GAP_DEGREES` in
+    /// `Material::from`. Set explicitly only for a powder whose real-world
+    /// repose/stability gap is unusually wide or narrow.
+    #[serde(default)]
+    pub max_stability_angle: f32,
     /// How far a gas may travel sideways in one step. `Liquid` kind ignores
     /// this — see `flow_rate`, the compressible-volume equivalent.
     #[serde(default)]
@@ -243,6 +254,14 @@ fn default_friction_angle() -> f32 {
     45.0
 }
 
+/// Default gap between `friction_angle` (repose) and `max_stability_angle`
+/// (maximum stability) when a `.ron` file leaves the latter unset. `Reports/
+/// granular-mechanics-research.md` §2 cites roughly this gap (Lee & Herrmann
+/// 1993; an ~8-degree gap in Metcalfe et al.) — flagged there as read via
+/// secondary sources, not a primary, so treat this constant as a reasonable
+/// starting point rather than a verified physical value.
+const DEFAULT_STABILITY_ANGLE_GAP_DEGREES: f32 = 8.0;
+
 /// Effectively unreachable under normal gameplay temperatures, so a threshold
 /// left unset in a `.ron` file never fires rather than firing at 0.0 — the
 /// field default a bare `f32` would otherwise get, which would make every
@@ -296,9 +315,19 @@ pub struct Material {
     /// Drives displacement: a denser material sinks through a lighter one.
     pub density: f32,
     pub friction_angle: f32,
-    /// Derived from `friction_angle`. How far a grain looks along a slope for
-    /// somewhere to fall before it settles — see `roll_reach`.
+    /// Derived from `friction_angle`. How far a grain *already flowing*
+    /// looks along a slope for somewhere to fall before it settles — see
+    /// `roll_reach_at`.
     roll_reach_base: f32,
+    /// Resolved (never the 0.0 "unset" sentinel) `max_stability_angle`, in
+    /// degrees. Always >= `friction_angle` — see `Material::from`'s clamp.
+    pub max_stability_angle: f32,
+    /// Derived from `max_stability_angle`. How far a grain at rest looks
+    /// along a slope before it starts creeping — see `stability_reach_at`.
+    /// Always <= `roll_reach_base`, since a steeper angle can only shorten
+    /// the reach; `Material::sweep_reach`'s `Powder` arm relies on this to
+    /// stay correct without also having to consider this field.
+    stability_reach_base: f32,
     pub dispersion: u8,
     pub flow_rate: u16,
     /// Per-cell colour variation. A cell picks one entry when it is created and
@@ -370,13 +399,27 @@ impl Material {
     /// would let a chunk fall asleep on a frame the dice said no, freezing
     /// grains that should have kept moving.
     pub fn roll_reach_at(&self, x: i32, y: i32) -> i32 {
-        let base = self.roll_reach_base.floor();
-        let extra = if rng::jitter(x, y) < self.roll_reach_base - base {
-            1
-        } else {
-            0
-        };
-        base as i32 + extra
+        Self::reach_from_base(self.roll_reach_base, x, y)
+    }
+
+    /// How many cells a grain *at rest* (not `Cell::flowing()`) may look
+    /// along the surface before it starts creeping — the two-angle model's
+    /// stricter counterpart to `roll_reach_at`, derived from
+    /// `max_stability_angle` the same way `roll_reach_at` is derived from
+    /// `friction_angle`. See `FLAG_FLOWING`'s doc (`cell.rs`) for which of
+    /// the two a caller should use.
+    pub fn stability_reach_at(&self, x: i32, y: i32) -> i32 {
+        Self::reach_from_base(self.stability_reach_base, x, y)
+    }
+
+    /// Shared by `roll_reach_at`/`stability_reach_at`: spend a reach's
+    /// fractional part across positions rather than over time — see
+    /// `roll_reach_at`'s own doc for why re-rolling per call instead would
+    /// be unsafe for sleeping chunks.
+    fn reach_from_base(base: f32, x: i32, y: i32) -> i32 {
+        let floor = base.floor();
+        let extra = if rng::jitter(x, y) < base - floor { 1 } else { 0 };
+        floor as i32 + extra
     }
 
     /// How far sideways this material's own movement rule can reach when
@@ -457,6 +500,24 @@ impl From<MaterialDef> for Material {
         let roll_reach_base =
             (1.0 / angle.to_radians().tan()).clamp(0.0, super::chunk::MAX_REACH as f32);
 
+        // 0.0 is the "unset" sentinel (`MaterialDef::max_stability_angle`'s
+        // own doc) — defaults to the repose angle plus a fixed gap. Clamped
+        // to never fall below `angle`: a `.ron` mistake that sets this
+        // *shallower* than repose would otherwise make `stability_reach_base`
+        // exceed `roll_reach_base`, breaking the invariant `sweep_reach`'s
+        // `Powder` arm relies on (that the flowing reach is always the
+        // worst case). Flooring it to `angle` instead just collapses to the
+        // old single-angle behaviour for that one material, silently and
+        // safely, rather than corrupting the sweep-reach bound.
+        let stability_angle_deg = if def.max_stability_angle <= 0.0 {
+            angle + DEFAULT_STABILITY_ANGLE_GAP_DEGREES
+        } else {
+            def.max_stability_angle
+        };
+        let stability_angle = stability_angle_deg.clamp(angle, 89.0);
+        let stability_reach_base =
+            (1.0 / stability_angle.to_radians().tan()).clamp(0.0, super::chunk::MAX_REACH as f32);
+
         // Issue #3: `Material::sweep_reach` defensively clamps every kind to
         // `MAX_REACH`, but `Gas`'s `dispersion` is the one reach-defining
         // value not already clamped by construction elsewhere (`roll_reach_base`
@@ -486,6 +547,8 @@ impl From<MaterialDef> for Material {
             density: def.density,
             friction_angle: angle,
             roll_reach_base,
+            max_stability_angle: stability_angle,
+            stability_reach_base,
             dispersion: def.dispersion,
             flow_rate: def.flow_rate,
             palette: def
@@ -591,6 +654,7 @@ impl MaterialRegistry {
             kind: MaterialKind::Empty,
             density: 0.0,
             friction_angle: 45.0,
+            max_stability_angle: 0.0,
             dispersion: 0,
             flow_rate: 0,
             colors: vec![[0, 0, 0]],
@@ -614,6 +678,7 @@ impl MaterialRegistry {
             kind: MaterialKind::Solid,
             density: f32::INFINITY,
             friction_angle: 45.0,
+            max_stability_angle: 0.0,
             dispersion: 0,
             flow_rate: 0,
             colors: vec![[20, 20, 24]],
@@ -980,6 +1045,78 @@ mod tests {
         for (x, y) in [(0, 0), (13, 7), (-5, 91), (1000, -1000)] {
             assert_eq!(sand.roll_reach_at(x, y), sand.roll_reach_at(x, y));
         }
+    }
+
+    #[test]
+    fn max_stability_angle_defaults_to_repose_plus_the_standard_gap() {
+        // `Reports/granular-mechanics-research.md` §2: a `.ron` that never
+        // sets `max_stability_angle` should still get real hysteresis, not
+        // silently collapse back to the old single-angle behaviour.
+        let reg = MaterialRegistry::builtin();
+        let sand = reg.get(SAND);
+        assert_eq!(
+            sand.max_stability_angle,
+            sand.friction_angle + DEFAULT_STABILITY_ANGLE_GAP_DEGREES,
+            "sand.ron sets no max_stability_angle, so it should get the default gap"
+        );
+    }
+
+    #[test]
+    fn max_stability_angle_below_friction_angle_is_clamped_up_to_it() {
+        // A `.ron` mistake (or a deliberately zero-gap material) must never
+        // produce a stability reach *longer* than the roll reach --
+        // `Material::sweep_reach`'s `Powder` arm assumes that never happens.
+        let def = ron::from_str::<MaterialDef>(
+            "(name: \"weird\", kind: Powder, density: 1.0, friction_angle: 40.0, \
+             max_stability_angle: 10.0, colors: [(1, 2, 3)])",
+        )
+        .unwrap();
+        let mat = Material::from(def);
+        assert_eq!(
+            mat.max_stability_angle, mat.friction_angle,
+            "max_stability_angle set shallower than friction_angle should clamp up to it, not invert the model"
+        );
+    }
+
+    #[test]
+    fn stability_reach_never_exceeds_roll_reach() {
+        // The invariant `sweep_reach`'s `Powder` arm relies on to stay
+        // correct without also considering `stability_reach_base`: whatever
+        // gap a material has, resting can only ever be *more* conservative
+        // than flowing, never less.
+        let reg = MaterialRegistry::builtin();
+        for name in [SAND, ASH, GRAVEL] {
+            let mat = reg.get(name);
+            for y in 0..20 {
+                for x in 0..20 {
+                    assert!(
+                        mat.stability_reach_at(x, y) <= mat.roll_reach_at(x, y),
+                        "{name:?} at ({x}, {y}): stability reach exceeded roll reach"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn stability_reach_is_shorter_than_roll_reach_on_average_when_a_real_gap_exists() {
+        let reg = MaterialRegistry::builtin();
+        let sand = reg.get(SAND);
+        let mean = |f: fn(&Material, i32, i32) -> i32| {
+            let mut total = 0;
+            for y in 0..40 {
+                for x in 0..40 {
+                    total += f(sand, x, y);
+                }
+            }
+            total as f32 / 1600.0
+        };
+        let roll = mean(Material::roll_reach_at);
+        let stability = mean(Material::stability_reach_at);
+        assert!(
+            stability < roll,
+            "stability reach ({stability}) should average shorter than roll reach ({roll}) for sand's default 8-degree gap"
+        );
     }
 
     #[test]

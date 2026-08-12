@@ -633,11 +633,14 @@ impl World {
     ///
     /// The displaced cell never needs flagging — it lands on the position being
     /// processed right now, which the sweep does not revisit.
+    ///
+    /// Delegates to `CellSurface::move_cell`'s default rather than
+    /// duplicating it, so this and the generic sweep path (`update.rs`) can
+    /// never silently diverge — `<Self as CellSurface>::move_cell` since an
+    /// inherent method of the same name would otherwise shadow the trait
+    /// one at the call site.
     pub fn move_cell(&mut self, fx: i32, fy: i32, tx: i32, ty: i32, revisited: bool) {
-        let mover = self.get(fx, fy).with_moved(revisited);
-        let displaced = self.get(tx, ty).with_moved(false);
-        self.set(fx, fy, displaced);
-        self.set(tx, ty, mover);
+        <Self as CellSurface>::move_cell(self, fx, fy, tx, ty, revisited);
     }
 
     /// Paint a filled circle at full density.

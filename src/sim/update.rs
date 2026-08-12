@@ -8,8 +8,11 @@
 //! * **Alternating horizontal direction.** Sweeping left-to-right every frame
 //!   biases every symmetric decision the same way, and piles visibly drift.
 //!
-//! Movement rules here are deliberately simple; M3 replaces them with the
-//! physically grounded model (friction angle, BTW toppling, hole propagation).
+//! Movement rules here are deliberately simple; M3 replaces the fall/diagonal
+//! rules with a physically grounded model (friction angle, and — per
+//! `Reports/granular-mechanics-research.md` §2/§3 — a two-angle repose model
+//! for real avalanche hysteresis, not Bak–Tang–Wiesenfeld toppling, which
+//! that report found does not match how real sandpiles actually avalanche).
 //!
 //! # Liquids are a compressible volume, not a discrete occupied cell
 //!
@@ -147,7 +150,21 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
     if try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1) {
         return true;
     }
-    roll_along_slope(surface, x, y, rightward)
+    if roll_along_slope(surface, x, y, rightward) {
+        return true;
+    }
+
+    // Nothing moved this frame: the cell has settled. Clear `flowing` so the
+    // *next* time it's asked to roll, it needs the steeper stability angle
+    // to start again — `Reports/granular-mechanics-research.md` §2's
+    // hysteresis, the part a single-angle model can't express. Guarded on
+    // the read so an already-settled cell (the overwhelming common case)
+    // never re-writes itself and never wakes its own chunk for nothing.
+    let cell = surface.get(x, y);
+    if cell.flowing() {
+        surface.set(x, y, cell.with_flowing(false));
+    }
+    false
 }
 
 /// Creep one cell along a slope, toward the nearest place the grain could fall.
@@ -158,9 +175,28 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
 /// sides. Rolling lets it keep going down a shallower slope, and the pile comes
 /// to rest once no surface grain can see anywhere to fall within its reach —
 /// which the material's friction angle sets.
+///
+/// **Two-angle repose** (`Reports/granular-mechanics-research.md` §2): which
+/// reach applies depends on whether this cell moved last frame
+/// (`Cell::flowing()`, set generically by `CellSurface::move_cell` on every
+/// successful move). A cell already flowing keeps using the shallower,
+/// lenient `roll_reach_at` (`friction_angle`) — real motion doesn't stop
+/// until the slope is genuinely down to the classical angle of repose. A
+/// settled cell instead uses the stricter, shorter `stability_reach_at`
+/// (`max_stability_angle`) — a resting pile can stand steeper than its own
+/// repose angle without creeping, and only starts if a *nearby* opening
+/// (within that shorter reach) actually appears, e.g. from something being
+/// dug out beside it. This is real hysteresis: harder to start an avalanche
+/// than to keep one going, which is why real sandpiles don't relevel to a
+/// single angle the way the old one-angle model implied.
 fn roll_along_slope<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
-    let material = surface.get(x, y).material;
-    let reach = surface.materials().get(material).roll_reach_at(x, y);
+    let cell = surface.get(x, y);
+    let mat = surface.materials().get(cell.material);
+    let reach = if cell.flowing() {
+        mat.roll_reach_at(x, y)
+    } else {
+        mat.stability_reach_at(x, y)
+    };
     if reach <= 0 {
         return false;
     }
@@ -653,6 +689,55 @@ mod tests {
     }
 
     #[test]
+    fn a_settled_grain_does_not_creep_across_a_gap_only_its_flowing_reach_can_see() {
+        // `Reports/granular-mechanics-research.md` §2's central claim: harder
+        // to *start* creeping than to *keep* creeping. Search for a position
+        // where sand's two reach thresholds actually diverge at a distance
+        // of 2+ -- not hardcoded, so this stays correct if the jitter
+        // function or sand's tuning ever changes. Distance 1 is deliberately
+        // excluded: a reach-1 opening is already caught by the plain
+        // diagonal fall before `roll_along_slope` is ever consulted (see
+        // `roll_reach_follows_the_angle_of_repose`'s own note on this), so a
+        // gap only visible at distance 1 would exercise the wrong code path.
+        let reg = material::MaterialRegistry::builtin();
+        let sand = reg.get(material::SAND);
+        let x = (20..100)
+            .find(|&x| sand.roll_reach_at(x, 0) >= 2 && sand.stability_reach_at(x, 0) < 2)
+            .expect("sand should have a position where the two reach thresholds diverge at distance 2");
+        let y = 0;
+
+        // Floor everywhere under the grain and one column short of the real
+        // opening, both directions -- blocks direct fall, both diagonal
+        // falls, and any nearer roll target, so only the reach search
+        // decides whether it moves at all, and only rightward.
+        let build = |flowing: bool| {
+            let mut w = World::new(Rect::new(0, 0, 127, 127));
+            for fx in (x - 15)..=(x + 1) {
+                w.set(fx, y + 1, Cell::new(material::STONE, 0));
+            }
+            // The real opening: two columns right, row below empty.
+            let grain = Cell::new(material::SAND, 0).with_flowing(flowing);
+            w.set(x, y, grain);
+            w
+        };
+
+        let mut settled = build(false);
+        step(&mut settled);
+        assert_eq!(
+            settled.get(x, y).material,
+            material::SAND,
+            "a settled grain should not creep toward a gap only the lenient reach can see"
+        );
+
+        let mut flowing = build(true);
+        step(&mut flowing);
+        assert!(
+            flowing.get(x, y).is_empty() && flowing.get(x + 1, y).material == material::SAND,
+            "a flowing grain should use the lenient reach and start toward the opening"
+        );
+    }
+
+    #[test]
     fn water_finds_its_level() {
         let mut w = world_with_floor();
         // A tall narrow column of water in the middle.
@@ -678,18 +763,33 @@ mod tests {
     /// would miss a grain stranded on a slope shallower than its angle of
     /// repose, which is exactly what the position-keyed reach exists to
     /// prevent.
+    ///
+    /// Two-angle-aware (`Reports/granular-mechanics-research.md` §2): a
+    /// settled cell (`!cell.flowing()`) is judged against the stricter
+    /// `stability_reach_at`, not `roll_reach_at` — checking every cell
+    /// against the lenient repose reach would flag a cell legitimately at
+    /// rest on a slope between the two angles as "stuck," which is the
+    /// intended behaviour now, not a bug. This mirrors `roll_along_slope`'s
+    /// own choice of reach exactly, so this helper is asserting the same
+    /// invariant the production code implements, not a different one.
     fn unstable_sand(w: &World) -> Vec<(i32, i32)> {
         let b = w.bounds().unwrap();
         let mut out = Vec::new();
         for y in b.min_y..=b.max_y {
             for x in b.min_x..=b.max_x {
-                if w.get(x, y).material != material::SAND {
+                let cell = w.get(x, y);
+                if cell.material != material::SAND {
                     continue;
                 }
                 let can_fall = [0, -1, 1]
                     .iter()
                     .any(|dx| w.in_bounds(x + dx, y + 1) && w.is_empty(x + dx, y + 1));
-                let reach = w.materials.get(material::SAND).roll_reach_at(x, y);
+                let mat = w.materials.get(material::SAND);
+                let reach = if cell.flowing() {
+                    mat.roll_reach_at(x, y)
+                } else {
+                    mat.stability_reach_at(x, y)
+                };
                 let can_roll = reach > 0
                     && (downhill_distance(w, x, y, -1, 1, reach).is_some()
                         || downhill_distance(w, x, y, 1, 1, reach).is_some());

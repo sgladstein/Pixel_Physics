@@ -3703,8 +3703,93 @@ both tracks are picked up, sequence the shared bit first (Report A §2 /
 Report B §8), then the two behaviors that consume it can proceed in
 parallel.
 
-**Status: both reports read, agreed with, and folded into this plan.
-Nothing in this section has been implemented.** Should either track be
-picked up next, `Reports/granular-mechanics-research.md` §10 and
+**Status: both reports read, agreed with, and folded into this plan. Report
+A's item 1 (the two-angle model, including the shared `FLAG_FLOWING` bit
+item 6 calls for) is now implemented — see the next section. Everything
+else in both reports — dilatancy, VOF's local-height fix, heightfield
+leveling, hydrostatic pressure, LBM — is still unbuilt.** Should either
+track be picked up next, `Reports/granular-mechanics-research.md` §10 and
 `Reports/liquid-simulation-research-r2.md` §9 each carry their own full
-recommended build order in more detail than the summaries above.
+recommended build order in more detail than the summaries above. Note for
+whoever picks up the liquid track: `Cell::flags`' `FLAG_FLOWING` bit
+already exists (`cell.rs`) and is already set generically by
+`CellSurface::move_cell` on every successful move, including a liquid's —
+Report B item 1 (gating the liquid horizontal search on it) can consume it
+directly rather than adding a second bit.
+
+### Granular two-angle repose model — implemented
+
+`Cell::flags` gained `FLAG_FLOWING` (`cell.rs`), set on every successful
+move by `CellSurface::move_cell`'s default implementation (`surface.rs`) —
+generic across every kind, since it's the one shared move seam, though
+only `Powder` currently reads it. `Material`/`MaterialDef` (`material.rs`)
+gained `max_stability_angle` (0.0 sentinel = unset, defaults to
+`friction_angle + 8.0` via `DEFAULT_STABILITY_ANGLE_GAP_DEGREES`, clamped
+to never sit shallower than `friction_angle` so `stability_reach_base`
+can never exceed `roll_reach_base` — the invariant `Material::sweep_reach`'s
+existing `Powder` arm relies on to stay correct without also considering
+the new field) and a `stability_reach_at` mirroring the existing
+`roll_reach_at`. `update.rs`'s `roll_along_slope` now picks between the two
+based on `cell.flowing()`: lenient `roll_reach_at` (repose-based) while
+flowing, strict `stability_reach_at` (stability-based) while settled;
+`update_powder` clears the flag when a cell fails to move at all,
+guarded so an already-settled cell never re-writes itself. No `.ron`
+content changed — every material gets the default 8-degree gap for free.
+
+**A real, if minor, side effect found along the way and fixed in the same
+pass:** `World::move_cell` (the inherent method) was a byte-for-byte
+duplicate of `CellSurface::move_cell`'s default, not a delegation to it —
+exactly the "two implementations of the same thing" pattern flagged
+elsewhere in this plan's code-review-findings section. Left alone, it would
+have silently *not* set `flowing`, a second divergent movement primitive
+appearing at the same moment the first one gained new behaviour. Fixed by
+making it delegate (`<Self as CellSurface>::move_cell`) instead of
+reimplementing the swap.
+
+**A real behavioural discovery, not a regression, surfaced by the existing
+test suite:** three tests (`settled_sand_is_never_left_unsupported`,
+`sand_is_stable_when_every_chunk_is_swept_in_full`,
+`every_unstable_cell_is_scheduled_for_examination`) failed immediately
+after the change, all via the shared `unstable_sand` test helper. Their own
+control test (the "every chunk swept in full" one, which rules out a
+dirty-rect bug by construction) confirmed the fault was the helper's
+definition of "stuck," not the movement rule: it judged every cell against
+the old, lenient single-angle reach regardless of state, which is now
+wrong on purpose — a settled cell resting on a slope between the two
+angles is correctly stable, not stuck. Fixed by making the helper mirror
+production exactly (`cell.flowing()` gates which reach it checks against,
+same as `roll_along_slope` itself). Temporarily reverting the production
+fix confirmed the new dedicated hysteresis test
+(`a_settled_grain_does_not_creep_across_a_gap_only_its_flowing_reach_can_see`)
+fails without it, per standing practice.
+
+**Verification:** `cargo test --lib` (296 tests) and
+`cargo clippy --all-targets -- -D warnings` both clean. Cost: the
+"stress: a full screen of sand and water" scene in `examples/ascii.rs`
+measured ~37.5 ms serial / ~8.7 ms parallel before and ~38.1 ms / ~7.8 ms
+after (git-stash-compared) — no regression against the report's own ≤15%
+bar. Independent review (general-purpose agent) traced the core invariant,
+the `FLAG_FLOWING` lifecycle including the sleep-interaction edge case, the
+generic-set-on-every-move decision, the `World::move_cell` delegation, and
+every new test for vacuousness — found no defects, one honest tradeoff
+worth naming: with the test helper now deriving its expected answer from
+the same `cell.flowing()` state production reads, the three
+`unstable_sand`-based tests can no longer independently catch a
+future bug that clears the flag prematurely (both sides would agree a
+cell is stable when it isn't). Not fixable without a genuinely independent
+oracle; not a defect in what's here, just a known limit of testing a
+hysteretic system this way. Visually confirmed via a throwaway probe
+(built two identical 40-degree wedges — between sand's 34-degree repose
+and 42-degree default stability — one placed settled, one placed flowing;
+after 600 frames the settled wedge held at 40.0 degrees exactly, the
+flowing one relaxed to 36.9 degrees), screenshotted to
+`docs/screenshots/section-granular-two-angle/`, then deleted per this
+project's standing practice for single-use verification harnesses.
+
+**Not yet built, from Report A's own remaining items:** the dilatancy/
+packing-fraction scalar (§5), the Janssen/force-chain caution (§4, know-
+about-don't-build), hole-propagation's spot-model caution (§6,
+build-only-if-needed), and the formal acceptance-criteria suite (§8 —
+column-collapse scaling, avalanche-distribution-shape, repose-accuracy
+within ~2 degrees). The wedge probe above is a manual spot-check of the
+core mechanism, not a substitute for those.

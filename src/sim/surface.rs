@@ -87,9 +87,15 @@ pub trait CellSurface {
     /// already there. See `World::move_cell` for what `revisited` means —
     /// unchanged here, just expressed in terms of `get`/`set` so every
     /// implementer gets it for free rather than reimplementing the swap.
+    ///
+    /// Also marks the mover `Cell::flowing()` — every successful move sets
+    /// it, not only a `Powder`'s, since this is the one seam every movement
+    /// rule already goes through. Harmless for kinds that never read it
+    /// (`Liquid`, `Gas`); `roll_along_slope` (`update.rs`) is the only
+    /// reader, and only for `Powder` — see `FLAG_FLOWING`'s doc (`cell.rs`).
     #[inline]
     fn move_cell(&mut self, fx: i32, fy: i32, tx: i32, ty: i32, revisited: bool) {
-        let mover = self.get(fx, fy).with_moved(revisited);
+        let mover = self.get(fx, fy).with_moved(revisited).with_flowing(true);
         let displaced = self.get(tx, ty).with_moved(false);
         self.set(fx, fy, displaced);
         self.set(tx, ty, mover);

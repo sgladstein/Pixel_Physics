@@ -20,6 +20,19 @@ const FLAG_MOVED: u8 = 0b0000_0001;
 /// to be aliased and no longer are).
 const FLAG_BURNING: u8 = 0b0000_0010;
 
+/// Set on a `Powder` cell that moved (fell or rolled) during the previous
+/// frame it was visited; cleared the first frame it fails to move at all.
+/// Read only by `roll_along_slope` (`update.rs`), which uses it to choose
+/// between two different repose thresholds — `Reports/granular-mechanics-
+/// research.md` §2's two-angle model: a settled pile (this bit clear) can
+/// stand at a steeper "maximum stability" angle without creeping, while a
+/// pile already in motion (this bit set) keeps flowing until it reaches the
+/// shallower, classical "angle of repose" — real hysteresis a single-angle
+/// model cannot express. Set generically by `CellSurface::move_cell`'s
+/// default implementation on every successful move, not just a powder's —
+/// harmless for `Liquid`/`Gas`, since nothing else reads this bit.
+const FLAG_FLOWING: u8 = 0b0000_0100;
+
 /// Default temperature for a newly created cell, in Celsius. Room temperature;
 /// chosen so cells created before the M13 ambient field exists still hold a
 /// believable value instead of 0 or an extreme.
@@ -67,9 +80,11 @@ pub struct Cell {
     ///   integrity, extended to `Plant` by architecture item 9).
     /// - `Creature` → owning creature id (M18).
     /// - `Powder` / `Gas` → unused, always 0.
-    /// - `Liquid` → unused, always 0, for now — the reason this field's
-    ///   independence from `burn_timer` mattered enough to widen `Cell` over.
-    ///   A compressible-volume fill amount is planned here; not built yet.
+    /// - `Liquid` → compressible-volume fill amount, on the
+    ///   `material::LIQUID_FULL` scale (`update.rs`'s module doc has the
+    ///   full model) — the reason this field's independence from
+    ///   `burn_timer` mattered enough to widen `Cell` over, since oil is
+    ///   both `Liquid` and flammable.
     ///
     /// A tagged union rather than several parallel side tables. Less
     /// elegant, but honest about what these engines actually do, and every
@@ -135,6 +150,18 @@ impl Cell {
     #[inline]
     pub fn with_moved(mut self, moved: bool) -> Self {
         self.set_flag(FLAG_MOVED, moved);
+        self
+    }
+
+    /// See `FLAG_FLOWING`'s own doc. Meaningful only for `Powder` kind.
+    #[inline]
+    pub fn flowing(self) -> bool {
+        self.flags & FLAG_FLOWING != 0
+    }
+
+    #[inline]
+    pub fn with_flowing(mut self, flowing: bool) -> Self {
+        self.set_flag(FLAG_FLOWING, flowing);
         self
     }
 
