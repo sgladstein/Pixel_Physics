@@ -3436,5 +3436,27 @@ tree rewrite's own step 8).
 **Status: fully planned, zero code written.** Next action for whoever
 picks this up is retrofit step 1 (`Cell::aux` → sidecar, design doc §3f),
 not a discussion — the planning phase the owner asked for is complete.
-Polarity/directional diffusion and evolution are confirmed out of scope
-for this phase (design doc §7), each wants its own future design pass.
+
+**Revised after landing:** polarity/directional diffusion was originally
+scoped out (design doc §7), deferred to its own future pass. Owner
+follow-up question caught a real gap in that call: it isn't independent of
+this phase after all — retrofit step 1 (sidecar storage) already has to
+restructure `diffuse_resource`'s own execution shape (moving it off the
+generic `CellSurface` trait to a per-organism pass, since a per-organism
+`Vec` needs that), which is the exact code polarity would also need to
+change, and step 1 is what actually gives a polarity field room to exist
+at all (no spare bits in the old packed `aux`). Worse, retrofit step 2
+(real leaves, leaf-gated photosynthesis) requires re-tuning `tree.ron`'s
+resource economy — tuning it once against isotropic diffusion and again
+after polarity lands later would be exactly the "don't optimize if a
+diffusion-mechanism change is coming" waste the owner flagged at the start
+of this whole planning pass. **Decision: move polarity up**, sequenced
+between retrofit steps 1 and 2 (before the leaf/reserve re-tune, not
+after). It needs the same design rigor as the other 5 decisions before it
+can actually occupy that slot — right now it's only a research-level
+sketch (`plant-simulation-research.md` §5: "three or four bits of
+polarity... a flux-following update rule"), not a decided mechanism with a
+concrete data layout, update rule, and retrofit steps. A follow-up design
+pass (Decision 6, extending `plant-substrate-v2-design.md` in place) is
+in progress to make it concrete before implementation starts. Evolution
+stays out of scope for this phase either way.
