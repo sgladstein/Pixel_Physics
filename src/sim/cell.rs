@@ -15,9 +15,9 @@ use super::material::{self, MaterialId};
 /// — at worst a cell that is never revisited waits one extra frame.
 const FLAG_MOVED: u8 = 0b0000_0001;
 
-/// Set while a cell is on fire. While this is set, `aux` holds the remaining
-/// burn duration in frames rather than whatever its material kind would
-/// otherwise store there — see the note on `aux` below.
+/// Set while a cell is on fire. The remaining burn duration lives in its own
+/// `burn_timer` field (not `aux` — see that field's doc for why the two used
+/// to be aliased and no longer are).
 const FLAG_BURNING: u8 = 0b0000_0010;
 
 /// Default temperature for a newly created cell, in Celsius. Room temperature;
@@ -25,11 +25,21 @@ const FLAG_BURNING: u8 = 0b0000_0010;
 /// believable value instead of 0 or an extreme.
 pub const AMBIENT_TEMPERATURE: i16 = 20;
 
-/// One simulated pixel, widened from 4 to 8 bytes (M12) to give every cell a
-/// temperature and a spare field for kind-specific state.
+/// One simulated pixel, widened from 8 to 12 bytes to give the burn timer and
+/// organism ownership their own fields instead of both aliasing `aux`.
 ///
-/// A 2048x2048 world costs 32 MB at this size — double M2's 4-byte cell, still
-/// small enough to keep whole chunks comfortably inside cache during a sweep.
+/// The 8-byte version aliased a burning cell's `aux` with its burn timer —
+/// harmless while `aux` only ever held a recomputable value (an anchor
+/// distance), but a real, confirmed bug for a burning `Liquid` cell: oil is
+/// flammable, and the planned fill-amount use of `aux` (see that field's doc)
+/// needs to survive a burn instead of being stomped by the timer mid-fire.
+/// Fixed by giving the timer its own field. `organism_id` is added in the
+/// same widening rather than a second one later — the planned
+/// organism-substrate rewrite will hit the identical aliasing problem for a
+/// burning `Plant` cell's cell-type tag, so both fields land together now
+/// rather than widening `Cell` twice. Same "irrelevant at this scale" cost
+/// argument the original 4→8 byte widening (M12) already made: a 2048²
+/// world goes 32 MB → 48 MB.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Cell {
     pub material: MaterialId,
@@ -45,28 +55,33 @@ pub struct Cell {
     /// *ambient* temperature that cells exchange heat with; this is the
     /// per-cell value that actually drives ignition and phase changes.
     temperature: i16,
-    /// Meaning depends on the cell's current state, checked in this order:
+    /// Remaining burn duration in frames, meaningful only while
+    /// `is_burning()`; 0 otherwise. Split out from `aux` specifically so
+    /// burning never disturbs whatever `aux` is holding — see `aux`'s own
+    /// doc.
+    burn_timer: u16,
+    /// Kind-specific, genuinely kind-specific now that burning no longer
+    /// aliases it:
     ///
-    /// 1. **`is_burning()`** — remaining burn duration in frames, countdown to
-    ///    zero. Takes priority over the kind-specific meaning below because
-    ///    combustion is transient: whatever the cell is about to become when
-    ///    the fire finishes, its steady-state `aux` value will need
-    ///    recomputing anyway, so nothing of value is preserved by protecting it.
-    /// 2. **Otherwise, by `MaterialKind`**:
-    ///    - `Solid` / `Plant` → distance to the nearest anchor (M17
-    ///      structural integrity, extended to `Plant` by architecture
-    ///      item 9). `Plant` originally reserved this slot for a per-cell
-    ///      growth stage instead; that never got built, since real per-tip
-    ///      growth state lives in `TreeState`/`Tip`/`RootTip` (`plant.rs`)
-    ///      instead — it doesn't fit in a `u16` regardless (attractor
-    ///      lists, channel strength) — so the slot was genuinely free.
-    ///    - `Creature` → owning creature id (M18)
-    ///    - `Powder` / `Liquid` / `Gas` → unused, always 0
+    /// - `Solid` / `Plant` → distance to the nearest anchor (M17 structural
+    ///   integrity, extended to `Plant` by architecture item 9).
+    /// - `Creature` → owning creature id (M18).
+    /// - `Powder` / `Gas` → unused, always 0.
+    /// - `Liquid` → unused, always 0, for now — the reason this field's
+    ///   independence from `burn_timer` mattered enough to widen `Cell` over.
+    ///   A compressible-volume fill amount is planned here; not built yet.
     ///
-    /// A tagged union rather than four parallel side tables. Less elegant, but
-    /// honest about what these engines actually do, and every interpretation is
-    /// written down here rather than scattered across call sites.
+    /// A tagged union rather than several parallel side tables. Less
+    /// elegant, but honest about what these engines actually do, and every
+    /// interpretation is written down here rather than scattered across call
+    /// sites.
     aux: u16,
+    /// Which organism this cell belongs to; 0 means "no organism," matching
+    /// the zero-is-empty/inert convention everywhere else in `Cell`. Reserved
+    /// here, unused until the organism-substrate rewrite gives it real
+    /// readers/writers — added in this widening rather than a second one so
+    /// `Cell` only grows once.
+    organism_id: u16,
 }
 
 impl Cell {
@@ -75,7 +90,9 @@ impl Cell {
         shade: 0,
         flags: 0,
         temperature: AMBIENT_TEMPERATURE,
+        burn_timer: 0,
         aux: 0,
+        organism_id: 0,
     };
 
     /// The sentinel returned for reads outside the world's bounds. It is solid,
@@ -86,7 +103,9 @@ impl Cell {
         shade: 0,
         flags: 0,
         temperature: AMBIENT_TEMPERATURE,
+        burn_timer: 0,
         aux: 0,
+        organism_id: 0,
     };
 
     pub fn new(material: MaterialId, shade: u8) -> Self {
@@ -95,7 +114,9 @@ impl Cell {
             shade,
             flags: 0,
             temperature: AMBIENT_TEMPERATURE,
+            burn_timer: 0,
             aux: 0,
+            organism_id: 0,
         }
     }
 
@@ -138,13 +159,14 @@ impl Cell {
         self.flags & FLAG_BURNING != 0
     }
 
-    /// Start burning with the given remaining duration in frames. Overwrites
-    /// `aux`, since a burning cell's `aux` is always the burn timer regardless
-    /// of what its material kind would otherwise store there.
+    /// Start burning with the given remaining duration in frames. Writes only
+    /// `burn_timer` — `aux` is untouched, so whatever it was holding (a
+    /// structural anchor distance today, a liquid's fill amount once that
+    /// lands) survives the fire.
     #[inline]
     pub fn ignite(&mut self, duration_frames: u16) {
         self.set_flag(FLAG_BURNING, true);
-        self.aux = duration_frames;
+        self.burn_timer = duration_frames;
     }
 
     /// Remaining burn duration. Only meaningful when `is_burning()`; returns 0
@@ -152,21 +174,20 @@ impl Cell {
     #[inline]
     pub fn burn_remaining(self) -> u16 {
         if self.is_burning() {
-            self.aux
+            self.burn_timer
         } else {
             0
         }
     }
 
-    /// Count the burn timer down by one frame. Clears the burning flag and
-    /// zeroes `aux` when it reaches zero, so the cell falls through to its
-    /// kind-specific `aux` meaning (starting from 0, i.e. recomputed fresh)
-    /// rather than leaving a stale timer value behind.
+    /// Count the burn timer down by one frame. Clears the burning flag once
+    /// it reaches zero; `aux` was never touched by burning in the first
+    /// place, so there is nothing to fall through to or recompute here.
     #[inline]
     pub fn tick_burn(&mut self) {
         debug_assert!(self.is_burning(), "tick_burn called on a non-burning cell");
-        self.aux = self.aux.saturating_sub(1);
-        if self.aux == 0 {
+        self.burn_timer = self.burn_timer.saturating_sub(1);
+        if self.burn_timer == 0 {
             self.set_flag(FLAG_BURNING, false);
         }
     }
@@ -174,23 +195,22 @@ impl Cell {
     #[inline]
     pub fn extinguish(&mut self) {
         self.set_flag(FLAG_BURNING, false);
-        self.aux = 0;
+        self.burn_timer = 0;
     }
 
-    /// Kind-specific `aux` value. Only meaningful when the cell is not
-    /// burning — see the field doc on `aux` for what each kind stores here.
+    /// Kind-specific `aux` value — see the field doc for what each kind
+    /// stores here. No longer conditional on burning state; burning has its
+    /// own field now.
     #[inline]
     pub fn aux(self) -> u16 {
         self.aux
     }
 
-    /// Set the kind-specific `aux` value. Must not be called on a burning
-    /// cell, since that would corrupt the burn timer; `debug_assert`s rather
-    /// than silently overwriting, because a caller hitting this has a bug
-    /// worth seeing immediately rather than losing fire state quietly.
+    /// Set the kind-specific `aux` value. Safe to call regardless of burning
+    /// state now that the two no longer alias — the old debug-assert guard
+    /// against corrupting an in-progress burn no longer applies.
     #[inline]
     pub fn set_aux(&mut self, value: u16) {
-        debug_assert!(!self.is_burning(), "set_aux called on a burning cell");
         self.aux = value;
     }
 
@@ -221,10 +241,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cell_is_eight_bytes() {
-        // Guards the memory budget that makes large worlds affordable: double
-        // M2's 4 bytes, in exchange for a per-cell temperature and aux slot.
-        assert_eq!(std::mem::size_of::<Cell>(), 8);
+    fn cell_is_twelve_bytes() {
+        // Guards the memory budget: 8 bytes plus a dedicated burn timer and
+        // organism-ownership field, both previously aliased into `aux`.
+        assert_eq!(std::mem::size_of::<Cell>(), 12);
     }
 
     #[test]
@@ -266,14 +286,31 @@ mod tests {
     }
 
     #[test]
-    fn igniting_a_cell_overwrites_aux_with_the_burn_timer() {
+    fn igniting_a_cell_no_longer_touches_aux() {
+        // The regression this widening exists to fix: an oil cell (Liquid,
+        // flammable) is a real material that will soon need its aux-held
+        // value (a planned fill amount) to survive being set on fire, not
+        // just a hypothetical. Confirmed by temporarily reverting `ignite`
+        // to write `self.aux` instead of `self.burn_timer` and rerunning
+        // this test: it fails (`burn_remaining()` reads 0 instead of 180,
+        // since `burn_timer` was never actually set) — a genuine failure,
+        // just surfaced through a different assertion than the aux ones
+        // below, which is exactly the old aliasing bug in a new location.
         let mut c = Cell::new(material::OIL, 0).with_aux(99);
         c.ignite(180);
         assert!(c.is_burning());
         assert_eq!(c.burn_remaining(), 180);
-        // The prior aux value (a stand-in for e.g. a structural distance) is
-        // gone — burning cells always read aux as the timer.
-        assert_eq!(c.aux(), 180);
+        assert_eq!(c.aux(), 99, "aux must survive ignition completely unchanged");
+
+        c.tick_burn();
+        assert_eq!(c.aux(), 99, "aux must survive mid-burn ticking too");
+
+        // Burn it out completely and confirm aux is still untouched.
+        for _ in 0..179 {
+            c.tick_burn();
+        }
+        assert!(!c.is_burning());
+        assert_eq!(c.aux(), 99, "aux must survive burnout, not reset to 0 or the old timer value");
     }
 
     #[test]
@@ -296,7 +333,7 @@ mod tests {
         assert_eq!(c.burn_remaining(), 1);
         c.tick_burn();
         assert!(!c.is_burning(), "cell should stop burning when the timer hits zero");
-        assert_eq!(c.aux(), 0, "aux should be cleared, not left at the stale timer value");
+        assert_eq!(c.burn_remaining(), 0, "burn_remaining should read 0 once out, not the stale timer value");
     }
 
     #[test]

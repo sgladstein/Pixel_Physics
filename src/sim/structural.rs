@@ -69,10 +69,13 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     if !is_body_material(world, cell.material) {
         return Vec::new(); // no longer part of the structural system (destroyed, converted) -- nothing to track
     }
-    // A cell mid-burn has its aux slot committed to the burn timer (see
-    // `Cell`'s own doc on `aux`'s priority order) -- defer rather than
-    // clobber it. The burning cell keeps its chunk awake on its own via
-    // `fire.rs`, and once it stops burning a later disturbance (or this
+    // Deferred while burning, conservatively rather than out of necessity --
+    // `Cell::aux` and the burn timer are separate fields now (`Cell`'s own
+    // doc), so a burning cell's anchor distance is valid to read. Kept as a
+    // defer anyway: the cell may still change material out from under this
+    // check the moment it burns out (`burns_into`), and the burning cell
+    // already keeps its chunk awake on its own via `fire.rs`, so nothing is
+    // lost by waiting -- once it stops burning, a later disturbance (or this
     // same check, re-scheduled) picks the distance question back up.
     if cell.is_burning() {
         return vec![reschedule(world, x, y)];
@@ -91,12 +94,11 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             if !is_body_material(world, neighbour.material) {
                 continue;
             }
-            // A burning neighbour's aux is its burn timer, not a distance
-            // (see the guard above) -- reading it here would misread an
-            // arbitrary countdown value as this cell's support, either
-            // masking a real break or triggering a false one depending on
-            // where the timer happens to be. Skip it; it carries no usable
-            // structural information until it stops burning.
+            // Same conservative defer as the guard above: a burning
+            // neighbour's `aux` is a valid distance now, not an aliased burn
+            // timer, but the neighbour may still change material out from
+            // under this the moment it burns out -- skipped for the same
+            // reason, not because reading it would be wrong today.
             if neighbour.is_burning() {
                 has_burning_neighbour = true;
                 continue;
@@ -449,16 +451,22 @@ mod tests {
 
     #[test]
     fn a_burning_solid_neighbours_burn_timer_is_never_read_as_its_distance() {
-        // A real bug an independent review caught: the neighbour-scanning
-        // loop read a burning `Solid` neighbour's `aux()` -- its burn-timer
-        // countdown, not a distance -- as if it were structural data.
-        // Reachable in real play via `explosion::trigger`'s fireball ring,
-        // which force-ignites nearby material through `World::ignite_circle`
-        // regardless of flammability, including stone.
+        // A real bug an independent review originally caught: the
+        // neighbour-scanning loop read a burning `Solid` neighbour's
+        // `aux()` -- its burn-timer countdown, not a distance -- as if it
+        // were structural data. `Cell::aux` and the burn timer are separate
+        // fields now, so the specific misread this test was written against
+        // is no longer even possible; kept as a regression test for the
+        // conservative defer-while-burning behaviour itself (see the
+        // comments at both `is_burning()` checks in `tick` above), which
+        // this scenario still exercises for real. Reachable in real play via
+        // `explosion::trigger`'s fireball ring, which force-ignites nearby
+        // material through `World::ignite_circle` regardless of
+        // flammability, including stone.
         let mut w = test_world();
         // A is on fire with a burn timer (500 frames) far larger than any
-        // shipped material's span -- the exact value this must never be
-        // read as A's structural distance.
+        // shipped material's span -- if the old aliasing bug ever came back,
+        // this is the value that would wrongly read as A's distance.
         w.set(30, 61, Cell::new(material::STONE, 0));
         let mut a = w.get(30, 61);
         a.ignite(500);

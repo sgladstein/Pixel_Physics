@@ -160,14 +160,15 @@ fn worm_tick(world: &mut World, x: i32, y: i32, creature_id: u16) -> Vec<ActiveS
     if cell.material != worm_id {
         return Vec::new();
     }
-    // A cell mid-burn has its aux slot committed to the burn timer, not the
-    // owning-creature id -- see `Cell`'s own doc on `aux`'s priority order,
-    // and `structural.rs`'s identical guard for `Solid` cells. Rebuilding
-    // the cell to move it (below) would silently clear `FLAG_BURNING` and
-    // the timer with it, extinguishing a burning worm the instant it next
-    // takes a step -- defer instead, the same as `structural::tick` does,
-    // and let `fire.rs` (which runs independently, every visited CA frame)
-    // finish deciding this worm's fate before creature.rs touches it again.
+    // The move below (`worm_tick`'s `Cell::new(worm_id, cell.shade)...`)
+    // rebuilds the cell from scratch rather than copying it, which would
+    // silently clear `FLAG_BURNING` and the burn timer with it -- moving a
+    // burning worm would extinguish it the instant it next takes a step.
+    // `aux` itself is unaffected either way (a separate field from the burn
+    // timer now, per `Cell`'s own doc), but the flags/timer loss is real, so
+    // defer instead, the same as `structural::tick` does, and let `fire.rs`
+    // (which runs independently, every visited CA frame) finish deciding
+    // this worm's fate before creature.rs touches it again.
     if cell.is_burning() {
         return vec![ActiveSite { x, y, kind: ActiveKind::Creature { creature: creature_id }, next_frame: world.frame + WORM_TICK_INTERVAL }];
     }

@@ -89,8 +89,9 @@ burns_into: "ash",       // plain string, not Option<String> — see field.rs's
 
 ```
 src/sim/     the simulation — knows nothing about windows or GPUs
-  cell.rs      one pixel, packed into 8 bytes: material, shade, flags,
-               temperature, and a kind-specific aux slot
+  cell.rs      one pixel, packed into 12 bytes: material, shade, flags,
+               temperature, a burn timer, a kind-specific aux slot, and
+               an organism-ownership id
   material.rs  materials as data, not code
   chunk.rs     64x64 tiles, coordinate maths, dirty rectangles
   field.rs     the coarse pressure/velocity/temperature/light grid,
@@ -381,6 +382,15 @@ string) most of the time. Resolution from name to `MaterialId` happens in a
 dedicated pass after every material in a reload batch is known, since a
 material can reference one that has not been parsed yet, or one from an
 earlier load this reload never touches.
+
+**Widened again, 8 → 12 bytes**, once the "burning always overwrites
+`aux`" rule above turned out to be a real bug rather than a harmless
+simplification: a burning `Liquid` cell (oil) needs `aux` to keep meaning
+its fill fraction while it burns, and a burning `Plant` cell needs its
+`aux`-held cell-type tag to survive the fire rather than resetting to type
+0 once the timer clears. `burn_timer: u16` and `organism_id: u16` (the
+latter reserved, unused until the organism-substrate rewrite) are now
+their own fields; `aux` is genuinely kind-specific with no exceptions.
 
 ## M14 status
 

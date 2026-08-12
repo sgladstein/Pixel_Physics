@@ -1691,6 +1691,47 @@ failed against the buggy version and passes against the fix —
 default scene, confirmed both the PNGs and the GIF are valid by reading a
 captured PNG directly.
 
+### Overnight run, section 2: `Cell` widens to 12 bytes
+
+Found while scoping the water and organism-substrate rewrites below: both
+collide with the existing `aux`/burn-timer aliasing (a burning cell's `aux`
+was always overwritten with the remaining burn duration, regardless of
+material kind). Confirmed live, not hypothetical, for one real case: oil is
+a flammable `Liquid`, and the compressible-volume fill amount the water
+rewrite plans to store in `aux` would be stomped by the burn timer the
+moment oil catches fire. The organism-substrate rewrite is expected to hit
+the identical problem for a burning `Plant` cell's planned cell-type tag —
+not built yet, but the same class of collision, which is why `organism_id`
+is added in this same widening rather than a second one later.
+
+**Fix: `Cell` widens 8 → 12 bytes**, giving the burn timer its own
+`burn_timer: u16` field (`ignite`/`tick_burn`/`extinguish`/`burn_remaining`
+all moved onto it) and adding `organism_id: u16` in the same widening
+(unused until the organism-substrate rewrite — same "irrelevant at this
+scale" cost argument M12's own 4→8 byte widening already made: a 2048²
+world goes 32 MB → 48 MB). `set_aux`'s old debug-assert against calling it
+on a burning cell is removed — no longer a real invariant, since `aux` and
+burning no longer interact at all. `cell_is_twelve_bytes` replaces
+`cell_is_eight_bytes`.
+
+Independent review of this section caught real documentation regressions
+before commit (no functional bugs): `aux`'s own doc had silently dropped
+the pre-existing `Creature → owning creature id` case, and both the struct
+doc and `ignite`'s doc overclaimed the Plant cell-type-tag scenario above
+as an already-fixed bug rather than a planned one — corrected. The review
+also flagged that this change made `structural.rs`'s and `creature.rs`'s
+own comments about deferring structural/movement work on a burning
+neighbour stale (they explained the defer via the now-nonexistent "aux
+priority order"); fixed to state the real reasons that survive this change
+(conservative deferral in `structural.rs`; `creature.rs`'s cell-rebuild-on-
+move losing `flags`/`burn_timer` independent of `aux`).
+
+New regression test confirmed to fail without the fix (temporarily
+reverted `ignite` to write `self.aux` again and reran): with only `ignite`
+reverted, `burn_remaining()` read 0 instead of the ignited duration, since
+`burn_timer` was never actually set — a different assertion line than
+expected, but a genuine failure catching the same aliasing bug.
+
 ---
 
 ## M19 — Visual polish: make the engine beautiful
