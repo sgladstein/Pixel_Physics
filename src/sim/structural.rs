@@ -157,30 +157,103 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
 /// Structural check for an organism-owned cell (`cell.organism_id() != 0`)
 /// — the branch `tick` routes to instead of the aux-cached relaxation
 /// above, whose cache `aux` no longer holds once it's carrying a cell-type
-/// tag and resource scalar instead. See `Reports/organism-substrate-
-/// design.md` §2/§5 for the full design: a bounded search
-/// (`organism::reachable_from_anchors`) from the organism's own anchor
-/// positions, replacing the per-cell cached distance.
-///
-/// **Deliberately a no-op in this pass.** No species retrofitted so far
-/// (moss is the only one) defines a finite `max_unsupported_span` on its
-/// material, and `OrganismState` doesn't track a real anchor list yet
-/// either (moss has no root/anchor concept — see `OrganismState`'s own
-/// doc). Both are real, needed work for the tree retrofit, deliberately
-/// deferred rather than faked with a placeholder anchor that wouldn't mean
-/// anything yet. What this function *does* guarantee, which is the actual
-/// correctness requirement for this pass: an organism-owned cell never
-/// falls through to the aux-cached path above and never gets treated as
-/// permanently unsupported by a check that has nothing real to search
-/// from.
-fn organism_structural_tick(world: &World, _x: i32, _y: i32, cell: Cell) -> Vec<ActiveSite> {
-    let has_finite_span = world.materials.get(cell.material).max_unsupported_span != u16::MAX;
-    debug_assert!(
-        !has_finite_span,
-        "material '{}' sets a finite max_unsupported_span but organism_structural_tick has no anchor-based check wired up yet for organism-owned cells -- see this function's own doc",
-        world.materials.get(cell.material).name
-    );
-    Vec::new()
+/// tag and resource scalar instead (`Reports/organism-substrate-
+/// design.md` §2/§5). No per-cell cached distance to relax incrementally
+/// — `organism_is_supported` below runs a fresh bounded BFS every call
+/// instead, from `(x, y)` outward rather than from a stored anchor list
+/// (`OrganismState` still doesn't track one — real future work, not faked
+/// here with a placeholder that wouldn't mean anything yet). Cheap enough
+/// for now: `max_span` bounds the search radius, and organisms stay small
+/// (this session's own live-verification tops out in the tens of cells).
+/// A no-op for a material with no finite span (moss's own, still — this
+/// only actually does anything for tree.ron's wood so far).
+fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Vec<ActiveSite> {
+    let material = world.materials.get(cell.material);
+    let max_span = material.max_unsupported_span;
+    if max_span == u16::MAX {
+        return Vec::new(); // this species' material doesn't participate at all (e.g. moss)
+    }
+    let organism_id = cell.organism_id();
+    if organism_is_supported(world, x, y, organism_id, max_span) {
+        // Supported and, unlike the aux-cached path, always an exact
+        // answer rather than one still converging -- nothing more to do
+        // until something else disturbs this organism's own structure.
+        return Vec::new();
+    }
+    let Some(into) = material.breaks_into else {
+        // Same "not actually participating" framing the aux-cached path
+        // above uses for the identical case.
+        return Vec::new();
+    };
+    break_free(world, x, y, into);
+    schedule_organism_neighbours(world, x, y, organism_id)
+}
+
+/// Whether `(x, y)` — a `Plant` cell belonging to `organism_id` — is
+/// within `max_span` connected same-organism `Plant` hops of ground: a
+/// cell (this one, or one reached through the search) touching a `Solid`-
+/// kind neighbour. The direct generalization of the aux-cached path's own
+/// `is_anchor` (touches `BEDROCK`) to a tree: a trunk resting on stone is
+/// exactly as anchored as a stone span touching bedrock is, and a root
+/// pressed against solid ground counts the same way. Growing *through*
+/// soil (not yet possible — `Grow`'s candidates are gated on `is_empty`,
+/// PLAN.md's own recorded gap) will extend this the same way once it
+/// exists; nothing here needs to change for that, since "touches Solid"
+/// stays true for a root embedded in solid-kind ground either way.
+fn organism_is_supported(world: &World, x: i32, y: i32, organism_id: u16, max_span: u16) -> bool {
+    let touches_solid_ground = |px: i32, py: i32| {
+        NEIGHBOURS_4.iter().any(|&(dx, dy)| world.materials.kind(world.get(px + dx, py + dy).material) == MaterialKind::Solid)
+    };
+    if touches_solid_ground(x, y) {
+        return true; // distance 0 -- this cell is itself the trunk base, or a root against bare ground
+    }
+
+    let mut visited = std::collections::HashSet::new();
+    let mut queue = std::collections::VecDeque::new();
+    visited.insert((x, y));
+    queue.push_back(((x, y), 0u16));
+    while let Some(((cx, cy), dist)) = queue.pop_front() {
+        if dist >= max_span {
+            continue; // do not expand past the span -- nothing beyond could still be in bounds
+        }
+        for (dx, dy) in NEIGHBOURS_4 {
+            let next @ (nx, ny) = (cx + dx, cy + dy);
+            if visited.contains(&next) {
+                continue;
+            }
+            let neighbour = world.get(nx, ny);
+            if neighbour.organism_id() != organism_id || world.materials.kind(neighbour.material) != MaterialKind::Plant {
+                continue; // a different organism, or non-Plant material, is a wall -- same convention diffuse_resource's own is_wall uses
+            }
+            visited.insert(next);
+            if touches_solid_ground(nx, ny) {
+                return true;
+            }
+            queue.push_back((next, dist + 1));
+        }
+    }
+    false
+}
+
+/// The organism-owned mirror of `schedule_solid_neighbours` — an organism
+/// cell that just broke free might have been the only thing keeping its
+/// own same-organism `Plant` neighbours anchored, so they need
+/// re-evaluating too. This is what turns one broken branch into a real
+/// cascade for a tree, the same way the aux-cached path already does for
+/// stone.
+fn schedule_organism_neighbours(world: &World, x: i32, y: i32, organism_id: u16) -> Vec<ActiveSite> {
+    NEIGHBOURS_4
+        .iter()
+        .filter_map(|&(dx, dy)| {
+            let (nx, ny) = (x + dx, y + dy);
+            let neighbour = world.get(nx, ny);
+            if neighbour.organism_id() == organism_id && world.materials.kind(neighbour.material) == MaterialKind::Plant {
+                Some(reschedule(world, nx, ny))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Small enough that one cell breaking free is a puff, not a blast --
@@ -265,6 +338,7 @@ impl World {
 mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
+    use crate::sim::organism;
     use crate::sim::scheduler;
     use crate::sim::update;
 
@@ -555,5 +629,96 @@ mod tests {
         w.schedule_structural_check(30, 63 - 5);
         run(&mut w, 200);
         assert_eq!(w.get(30, 63 - 5).material, material::STONE, "widening the span at runtime should have let the tall stack stand");
+    }
+
+    // --- Organism-owned cells: the real `organism_structural_tick` -------
+    //
+    // Tree rewrite step 5: `organism_structural_tick` was a documented,
+    // deliberate no-op until now. These mirror the plain-`Solid` span
+    // tests above exactly, just with organism-owned wood (`organism_id !=
+    // 0`, so `tick` routes through `organism_structural_tick`'s own BFS
+    // instead of the aux-cached relaxation) -- built directly via
+    // `push_organism`/`set` rather than simulating real `Grow` calls,
+    // since growth's own direction is randomized and irrelevant to what's
+    // being tested here.
+
+    fn organism_wood_cell(w: &mut World, organism_id: u16) -> Cell {
+        let wood = w.materials.id_of("wood").unwrap();
+        Cell::new(wood, 0).with_organism_id(organism_id).with_aux(organism::pack_aux(organism::CellType::MatureBody, 0.0))
+    }
+
+    #[test]
+    fn an_organism_tree_beam_within_its_span_stays_wood() {
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let organism_id = w.push_organism(tree_species);
+        // Anchored at the left end by a stone cell directly below it --
+        // organism_is_supported's own generalization of "touches BEDROCK"
+        // to "touches Solid ground". 6 cells, within wood's span of 8.
+        w.set(0, 31, Cell::new(material::STONE, 0));
+        for x in 0..6 {
+            let cell = organism_wood_cell(&mut w, organism_id);
+            w.set(x, 30, cell);
+        }
+        w.schedule_structural_check(5, 30); // the far end, distance 5
+        run(&mut w, 200);
+
+        for x in 0..6 {
+            assert_eq!(w.get(x, 30).organism_id(), organism_id, "an anchored, in-span organism beam broke (or lost its organism_id) at x={x}");
+        }
+    }
+
+    #[test]
+    fn an_organism_tree_beam_exceeding_its_span_breaks_into_deadwood() {
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let organism_id = w.push_organism(tree_species);
+        w.set(0, 31, Cell::new(material::STONE, 0));
+        // 12 cells -- longer than wood's span of 8, so the far end (distance
+        // 11) is unsupported once actually checked.
+        for x in 0..12 {
+            let cell = organism_wood_cell(&mut w, organism_id);
+            w.set(x, 30, cell);
+        }
+        w.schedule_structural_check(11, 30);
+        run(&mut w, 200);
+
+        let deadwood = w.materials.id_of("deadwood").unwrap();
+        assert_eq!(w.get(11, 30).material, deadwood, "an over-span organism-owned wood cell should have broken into deadwood");
+        assert_eq!(w.get(11, 30).organism_id(), 0, "broken-free debris should no longer belong to the organism");
+    }
+
+    #[test]
+    fn cutting_an_organism_trees_support_collapses_the_far_side() {
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let organism_id = w.push_organism(tree_species);
+        // Away from x=0 deliberately -- touching the world edge itself
+        // would anchor the beam via the same out-of-bounds-reads-as-
+        // BEDROCK sentinel `is_anchor` relies on elsewhere, which is
+        // exactly the confound an earlier version of this test tripped
+        // over (the stone anchor below could be removed with no effect,
+        // since the beam's own base cell at x=0 was already anchored by
+        // the edge regardless). x=10 keeps every neighbour used here well
+        // inside the 64-wide test world.
+        w.set(10, 31, Cell::new(material::STONE, 0));
+        // 4 cells -- comfortably within span 8 while anchored.
+        for x in 10..14 {
+            let cell = organism_wood_cell(&mut w, organism_id);
+            w.set(x, 30, cell);
+        }
+        w.schedule_structural_check(13, 30);
+        run(&mut w, 200);
+        assert_eq!(w.get(13, 30).organism_id(), organism_id, "test setup: the intact, anchored beam should not have broken yet");
+
+        // Cut the anchor itself -- every cell in the beam is now
+        // unsupported, not just one step further away, since it was the
+        // *only* thing touching Solid ground.
+        w.set(10, 31, Cell::EMPTY);
+        w.schedule_structural_check_around(10, 31);
+        w.schedule_structural_check(10, 30);
+        run(&mut w, 200);
+
+        assert_ne!(w.get(13, 30).organism_id(), organism_id, "the far end of the organism beam never collapsed after its only anchor was cut");
     }
 }

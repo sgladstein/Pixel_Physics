@@ -402,6 +402,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 let new_aux = organism::with_canopy_density(organism::pack_aux(cell_type, 0.0), GROW_CANOPY_DEPOSIT);
                 let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(new_aux);
                 world.set(tx, ty, new_cell);
+                world.schedule_structural_check_around(tx, ty);
                 resource -= cost;
                 world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), self_type_after_grow, resource)));
                 next.push(reschedule_organism(tx, ty, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
@@ -419,6 +420,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             let branch_aux = organism::with_canopy_density(organism::pack_aux(cell_type, 0.0), GROW_CANOPY_DEPOSIT);
                             let branch_cell = Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(branch_aux);
                             world.set(bx, by, branch_cell);
+                            world.schedule_structural_check_around(bx, by);
                             resource -= cost;
                             world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), self_type_after_grow, resource)));
                             next.push(reschedule_organism(bx, by, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
@@ -536,12 +538,14 @@ fn reschedule_organism(x: i32, y: i32, organism: u16, stale_ticks: u8, next_fram
 /// shape.
 fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell) -> Vec<ActiveSite> {
     world.set(x, y, cell.with_aux(organism::pack_aux(CellType::GrowingTip, 0.0)));
+    world.schedule_structural_check_around(x, y);
     let mut next = vec![reschedule_organism(x, y, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL)];
     if world.is_empty(x, y + 1) {
         let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
         let shade = world.rng.below(shades) as u8;
         let root_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::RootTip, 0.0));
         world.set(x, y + 1, root_cell);
+        world.schedule_structural_check_around(x, y + 1);
         next.push(reschedule_organism(x, y + 1, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
     }
     next
@@ -594,6 +598,7 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32)
             let shade = world.rng.below(shades) as u8;
             let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::MatureBody, 0.0));
             world.set(nx, ny, new_cell);
+            world.schedule_structural_check_around(nx, ny);
             break;
         }
     }
