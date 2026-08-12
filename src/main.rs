@@ -4,7 +4,7 @@
 //! behaviour lives in `app` and `sim`, which is what keeps those testable
 //! without a display.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -75,6 +75,14 @@ struct Handler {
     /// through its title bar; it just cannot see the canvas.
     screenshot_countdown: Option<u32>,
 
+    /// A multi-frame capture in progress, set from
+    /// `PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start_frame>,<interval_frames>,<count>`.
+    /// Complements `screenshot_countdown`'s single-moment dump for the case a
+    /// screenshot can't show: a change that only reads correctly across many
+    /// frames (a settling water column, an explosion's debris trajectory).
+    /// `None` once the capture completes; never re-arms.
+    capture_sequence: Option<CaptureSequence>,
+
     /// Cursor position in framebuffer pixels, `None` while outside the window.
     cursor: Option<(i32, i32)>,
     /// Previous painted position, so a drag paints a continuous stroke.
@@ -102,6 +110,7 @@ impl Handler {
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES")
                 .ok()
                 .and_then(|s| s.parse().ok()),
+            capture_sequence: CaptureSequence::from_env(),
             cursor: None,
             last_paint: None,
             painting: false,
@@ -180,6 +189,9 @@ impl Handler {
                         self.screenshot_countdown = Some(n - 1);
                     }
                 }
+                if let Some(seq) = &mut self.capture_sequence {
+                    seq.tick(pixels.frame());
+                }
                 pixels.render().err()
             }
             None => None,
@@ -187,6 +199,13 @@ impl Handler {
         if let Some(err) = render_error {
             self.fail(event_loop, format!("render failed: {err}"));
             return;
+        }
+        // Outside the `tick` call above, not because of the `pixels` borrow
+        // (that ends before this point regardless) but because `.take()`
+        // needs `&mut self.capture_sequence` free of the `&mut seq` borrow
+        // `tick` was just called through -- both borrow the same field.
+        if self.capture_sequence.as_ref().is_some_and(CaptureSequence::is_complete) {
+            self.capture_sequence.take().unwrap().finish();
         }
 
         // Retitling every frame is wasted work and makes the title flicker.
@@ -426,5 +445,256 @@ fn save_framebuffer_png(rgba: &[u8], width: u32, height: u32) {
     match image::save_buffer(&path, rgba, width, height, image::ColorType::Rgba8) {
         Ok(()) => eprintln!("screenshot saved: {}", path.display()),
         Err(e) => eprintln!("screenshot failed: {e}"),
+    }
+}
+
+/// A multi-frame companion to `save_framebuffer_png` for behaviour that only
+/// reads correctly across time — a water column settling, explosion debris
+/// scattering. One screenshot cannot show either; a strip of them can, and
+/// so can the assembled GIF `finish` writes alongside them.
+///
+/// Usage: run with `PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start_frame>,
+/// <interval_frames>,<count>` set (e.g. `0,15,40` — start immediately, one
+/// frame every 15 ticks, 40 captures). Numbered PNGs and one `sequence.gif`
+/// land in a fresh timestamped folder under `%TEMP%`. Scene setup is still a
+/// manual edit here, same limitation `save_framebuffer_png` already has.
+struct CaptureSequence {
+    /// Frames remaining before the next capture. Counts down to 0, at which
+    /// point a capture fires and this resets to `interval - 1` (see `tick`'s
+    /// own comment for why it's `- 1` and not `interval` bare) — or, for the
+    /// very first capture, counts down from the requested start delay.
+    countdown: u32,
+    interval: u32,
+    remaining: u32,
+    dir: PathBuf,
+    /// Raw RGBA frames, kept in memory rather than re-read from disk so the
+    /// GIF assembly in `finish` doesn't need a second decode pass.
+    frames: Vec<Vec<u8>>,
+}
+
+impl CaptureSequence {
+    fn from_env() -> Option<Self> {
+        let spec = std::env::var("PIXEL_PHYSICS_CAPTURE_SEQUENCE").ok()?;
+        let mut parts = spec.split(',').map(str::trim);
+        let start: u32 = parts.next()?.parse().ok()?;
+        let interval: u32 = parts.next()?.parse().ok()?;
+        let count: u32 = parts.next()?.parse().ok()?;
+        if count == 0 {
+            return None;
+        }
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        Some(Self {
+            countdown: start,
+            interval: interval.max(1),
+            remaining: count,
+            dir: std::env::temp_dir().join(format!("pixel_physics_capture_{timestamp}")),
+            frames: Vec::with_capacity(count as usize),
+        })
+    }
+
+    /// Called once per rendered frame. Captures `rgba` when the countdown
+    /// reaches zero, then resets it for the next capture.
+    fn tick(&mut self, rgba: &[u8]) {
+        if self.remaining == 0 {
+            return;
+        }
+        if self.countdown == 0 {
+            self.frames.push(rgba.to_vec());
+            self.remaining -= 1;
+            // `interval - 1`, not `interval`: this call already accounts for
+            // one tick (the capture itself), so counting down from `interval`
+            // would space captures `interval + 1` ticks apart instead of
+            // `interval` -- caught by a test expecting interval=1 to capture
+            // every tick, which instead captured every other one. Saturating,
+            // not bare subtraction: `from_env` is the only production path
+            // and already floors `interval` at 1, but a test-constructed
+            // `CaptureSequence` isn't bound by that, and this must not panic
+            // (or silently wrap in release) just because a caller built one
+            // with `interval: 0`.
+            self.countdown = self.interval.saturating_sub(1);
+        } else {
+            self.countdown -= 1;
+        }
+    }
+
+    fn is_complete(&self) -> bool {
+        self.remaining == 0
+    }
+
+    /// Writes every captured frame as a numbered PNG, then assembles the
+    /// same sequence into one animated GIF alongside them. Both
+    /// deliberately: the GIF is one shareable artifact for a human; the
+    /// individual PNGs exist so an agent can `Read` several of them
+    /// directly, which is the actual point — seeing change over time
+    /// without needing GIF-decoding support.
+    fn finish(self) {
+        if let Err(e) = std::fs::create_dir_all(&self.dir) {
+            eprintln!("capture sequence: failed to create {}: {e}", self.dir.display());
+            return;
+        }
+        // Real playback speed and a loop, not the `image::Frame::new`
+        // defaults (0ms delay, no NETSCAPE loop extension) -- a GIF that
+        // plays once, instantly, and stops on the last frame defeats the
+        // point of "one shareable artifact for a human" this exists for.
+        // 60 ticks/second is `main.rs`'s own fixed simulation rate
+        // (`TICKS_PER_SECOND`), so `interval` ticks between captures maps
+        // directly to real elapsed time.
+        let delay_ms = (self.interval as u64 * 1000) / 60;
+        let delay = image::Delay::from_saturating_duration(std::time::Duration::from_millis(delay_ms));
+        let mut gif_frames = Vec::with_capacity(self.frames.len());
+        for (i, rgba) in self.frames.iter().enumerate() {
+            let path = self.dir.join(format!("frame_{i:04}.png"));
+            if let Err(e) = image::save_buffer(&path, rgba, WIDTH, HEIGHT, image::ColorType::Rgba8) {
+                eprintln!("capture sequence: failed to save {}: {e}", path.display());
+            }
+            if let Some(buf) = image::RgbaImage::from_raw(WIDTH, HEIGHT, rgba.clone()) {
+                gif_frames.push(image::Frame::from_parts(buf, 0, 0, delay));
+            }
+        }
+        let gif_path = self.dir.join("sequence.gif");
+        match std::fs::File::create(&gif_path) {
+            Ok(file) => {
+                let mut encoder = image::codecs::gif::GifEncoder::new(file);
+                if let Err(e) = encoder.set_repeat(image::codecs::gif::Repeat::Infinite) {
+                    eprintln!("capture sequence: gif set_repeat failed: {e}");
+                }
+                if let Err(e) = encoder.encode_frames(gif_frames) {
+                    eprintln!("capture sequence: gif encode failed: {e}");
+                }
+            }
+            Err(e) => eprintln!("capture sequence: failed to create {}: {e}", gif_path.display()),
+        }
+        eprintln!("capture sequence saved: {} ({} frames)", self.dir.display(), self.frames.len());
+    }
+}
+
+#[cfg(test)]
+mod capture_sequence_tests {
+    use super::CaptureSequence;
+    use std::sync::Mutex;
+
+    /// `cargo test` runs tests in parallel within one process, and env vars
+    /// are process-global — without this, the `from_env` tests below would
+    /// race each other's `set_var`/`remove_var` calls. Guards only the tests
+    /// that touch `PIXEL_PHYSICS_CAPTURE_SEQUENCE`, not the pure `tick`
+    /// tests above them, which don't need it.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn seq(countdown: u32, interval: u32, remaining: u32) -> CaptureSequence {
+        CaptureSequence {
+            countdown,
+            interval,
+            remaining,
+            dir: std::env::temp_dir(),
+            frames: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn captures_immediately_when_start_countdown_is_zero() {
+        let mut s = seq(0, 15, 3);
+        s.tick(&[1, 2, 3, 4]);
+        assert_eq!(s.frames.len(), 1, "a zero start delay should capture on the first tick");
+        assert_eq!(s.remaining, 2);
+        assert_eq!(s.countdown, 14, "countdown resets to interval-1, so captures land exactly `interval` ticks apart");
+    }
+
+    #[test]
+    fn waits_out_the_start_delay_before_the_first_capture() {
+        let mut s = seq(2, 15, 3);
+        s.tick(&[0]);
+        s.tick(&[0]);
+        assert!(s.frames.is_empty(), "should not capture before the start delay elapses");
+        s.tick(&[9]);
+        assert_eq!(s.frames.len(), 1);
+        assert_eq!(s.frames[0], vec![9]);
+    }
+
+    #[test]
+    fn captures_land_exactly_interval_ticks_apart() {
+        // The regression this session's own review caught: an earlier
+        // version reset the countdown to `interval` rather than
+        // `interval - 1`, spacing captures `interval + 1` ticks apart.
+        let mut s = seq(0, 4, 3);
+        let mut capture_ticks = Vec::new();
+        for tick in 0..20 {
+            let before = s.frames.len();
+            s.tick(&[0]);
+            if s.frames.len() > before {
+                capture_ticks.push(tick);
+            }
+            if s.is_complete() {
+                break;
+            }
+        }
+        assert_eq!(capture_ticks, vec![0, 4, 8], "captures should land exactly 4 ticks apart, not 5");
+    }
+
+    #[test]
+    fn stops_capturing_once_remaining_hits_zero() {
+        let mut s = seq(0, 1, 2);
+        s.tick(&[1]);
+        s.tick(&[2]);
+        assert!(s.is_complete());
+        // A further tick must not capture a third frame or underflow `remaining`.
+        s.tick(&[3]);
+        assert_eq!(s.frames.len(), 2);
+    }
+
+    #[test]
+    fn is_complete_only_after_every_requested_frame_is_captured() {
+        let mut s = seq(0, 5, 2);
+        assert!(!s.is_complete());
+        s.tick(&[0]);
+        assert!(!s.is_complete(), "one of two captured is not complete");
+        for _ in 0..5 {
+            s.tick(&[0]);
+        }
+        assert!(s.is_complete());
+    }
+
+    #[test]
+    fn from_env_parses_start_interval_count() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // SAFETY: serialized by ENV_LOCK against every other test in this module.
+        unsafe { std::env::set_var("PIXEL_PHYSICS_CAPTURE_SEQUENCE", "5,15,40") };
+        let s = CaptureSequence::from_env().expect("valid spec should parse");
+        assert_eq!(s.countdown, 5);
+        assert_eq!(s.interval, 15);
+        assert_eq!(s.remaining, 40);
+        unsafe { std::env::remove_var("PIXEL_PHYSICS_CAPTURE_SEQUENCE") };
+    }
+
+    #[test]
+    fn from_env_is_none_when_unset_or_malformed() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // SAFETY: serialized by ENV_LOCK against every other test in this module.
+        unsafe { std::env::remove_var("PIXEL_PHYSICS_CAPTURE_SEQUENCE") };
+        assert!(CaptureSequence::from_env().is_none());
+
+        unsafe { std::env::set_var("PIXEL_PHYSICS_CAPTURE_SEQUENCE", "not,a,spec") };
+        assert!(CaptureSequence::from_env().is_none());
+        unsafe { std::env::remove_var("PIXEL_PHYSICS_CAPTURE_SEQUENCE") };
+
+        // A zero count would spin forever "complete" without ever capturing.
+        unsafe { std::env::set_var("PIXEL_PHYSICS_CAPTURE_SEQUENCE", "0,15,0") };
+        assert!(CaptureSequence::from_env().is_none());
+        unsafe { std::env::remove_var("PIXEL_PHYSICS_CAPTURE_SEQUENCE") };
+    }
+
+    #[test]
+    fn from_env_floors_a_zero_interval_at_one() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // A zero interval would mean "capture every frame forever" is fine,
+        // but the countdown-reset arithmetic (`countdown = interval`) must
+        // not get stuck re-triggering the same frame twice in the same tick.
+        // SAFETY: serialized by ENV_LOCK against every other test in this module.
+        unsafe { std::env::set_var("PIXEL_PHYSICS_CAPTURE_SEQUENCE", "0,0,3") };
+        let s = CaptureSequence::from_env().expect("valid spec should parse");
+        assert_eq!(s.interval, 1);
+        unsafe { std::env::remove_var("PIXEL_PHYSICS_CAPTURE_SEQUENCE") };
     }
 }

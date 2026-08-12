@@ -8,7 +8,7 @@ rust-version = "1.87"
 license = "MIT"
 
 [dependencies]
-image = { version = "0.25.10", default-features = false, features = ["png"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "gif"] }
 notify = "8.2.0"
 pixels = "0.17"
 rayon = "1.11"

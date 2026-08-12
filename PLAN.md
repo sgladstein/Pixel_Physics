@@ -1671,6 +1671,26 @@ deferred:
    migration plan for `TreeState`) is explicitly not resolved yet, and
    implementation remains unscheduled.
 
+### Overnight run, section 1: frame-sequence debugging capture
+
+A second, separate capture mechanism alongside the existing
+`PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES` single-shot dump — this one for
+behavior that only reads correctly across time, which a single screenshot
+can't show. `PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start_frame>,<interval_frames>,
+<count>` saves a numbered PNG sequence plus one assembled GIF into a
+timestamped temp folder. New `CaptureSequence` struct in `main.rs`, `gif`
+feature added to the existing `image` dependency.
+
+Caught a real off-by-one in its own first implementation: the countdown
+reset after a capture was `self.countdown = self.interval`, which spaced
+captures `interval + 1` ticks apart instead of `interval` (confirmed via a
+regression test asserting captures at ticks 0, 4, 8 for interval=4, which
+failed against the buggy version and passes against the fix —
+`self.countdown = self.interval - 1`). Verified end-to-end with a real
+`cargo run` pass (not just unit tests): captured 6 real frames of the
+default scene, confirmed both the PNGs and the GIF are valid by reading a
+captured PNG directly.
+
 ---
 
 ## M19 — Visual polish: make the engine beautiful
