@@ -174,6 +174,22 @@ impl World {
         field::sample(&self.fields, self.bounds, world_x, world_y)
     }
 
+    /// Bilinear-interpolated field read at a fractional world position —
+    /// architecture report §6a, "the resolution problem." Unlike `field_at`,
+    /// two positions inside the same `FIELD_SCALE`-sided block don't
+    /// necessarily read identically, which is what a gradient-follower with
+    /// a short sensor offset needs: a worm's own four ±1-cell neighbours
+    /// land in the same coarse block ~7 times in 8, degenerating a
+    /// block-nearest `min_by` into "always pick the first candidate" rather
+    /// than real thermotaxis. The fallback `sample_bilinear` substitutes for
+    /// a blocked interpolation corner is this same position's own
+    /// block-nearest reading — the gradient-follower equivalent of
+    /// advection's "the destination cell's own pre-advection value."
+    pub fn field_at_bilinear(&self, fx: f32, fy: f32) -> FieldCell {
+        let fallback = self.field_at(fx.floor() as i32, fy.floor() as i32);
+        field::sample_bilinear(&self.fields, self.bounds, fx, fy, fallback)
+    }
+
     /// Whether the field cell covering this position is blocked by CA-solid
     /// material — the field's own occupancy map, recomputed every field step
     /// from a full 8x8 (or whatever `FIELD_SCALE` is) scan. Distinct from

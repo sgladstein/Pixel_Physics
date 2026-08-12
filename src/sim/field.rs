@@ -258,8 +258,10 @@ pub(crate) fn is_blocked(tiles: &HashMap<ChunkCoord, FieldTile>, bounds: Option<
 }
 
 /// Bilinear sample at a fractional world position, for advection's
-/// back-traced lookups. Falls back gracefully at the edges of loaded data
-/// because `sample` already does — no special casing needed for that.
+/// back-traced lookups and — as of architecture report §6a —
+/// `World::field_at_bilinear`, the gradient-followers' entry point. Falls
+/// back gracefully at the edges of loaded data because `sample` already does
+/// — no special casing needed for that.
 ///
 /// Blocked-corner handling is not automatic, though, and matters: a plain
 /// bilinear sample reads whatever is stored at all four surrounding corners
@@ -275,7 +277,7 @@ pub(crate) fn is_blocked(tiles: &HashMap<ChunkCoord, FieldTile>, bounds: Option<
 /// grid with the modest velocities this solver produces makes that gap small
 /// in practice, and it is exactly the kind of thing worth revisiting if a
 /// future milestone needs sharper containment than this gives.
-fn sample_bilinear(
+pub(crate) fn sample_bilinear(
     tiles: &HashMap<ChunkCoord, FieldTile>,
     bounds: Option<Rect>,
     fx: f32,
@@ -1092,6 +1094,47 @@ mod tests {
              (dist to near {dist_to_near}, dist to far {dist_to_far})",
             quarter.pressure
         );
+    }
+
+    #[test]
+    fn field_at_bilinear_resolves_what_field_at_flattens_within_one_block() {
+        // Architecture §6a's actual claim: `field_at` (block-nearest) reads
+        // byte-identical values for any two positions sharing a `FIELD_
+        // SCALE`-sided block, which is precisely the geometry of a
+        // gradient-follower's own short-range candidates (a worm's ±1-cell
+        // neighbours, a tree tip's 4-pixel-up phototropism probe). Both land
+        // inside the same 8-wide block ~7 times out of 8, degenerating
+        // `min_by`-style gradient descent into "always pick the first
+        // candidate." `field_at_bilinear` is what's supposed to fix that.
+        let mut w = test_world();
+        w.add_heat(64, 64, 1, 300.0); // field cell containing (64, 64)
+        for _ in 0..3 {
+            step(&mut w);
+        }
+
+        // Both inside field block [56, 64) -- the one immediately left of
+        // the heated block [64, 72) -- but at opposite edges of it: `a` near
+        // the far edge, `b` right up against the boundary with the hot
+        // block. `field_at` reads the same stored value for the whole
+        // block regardless of position within it, so both must read
+        // identically through it; `field_at_bilinear` should not.
+        let a = (57, 64);
+        let b = (63, 64);
+        assert_eq!(
+            w.field_at(a.0, a.1),
+            w.field_at(b.0, b.1),
+            "test setup assumption broke: these two positions should read identically through field_at"
+        );
+
+        let ta = w.field_at_bilinear(a.0 as f32, a.1 as f32).temperature;
+        let tb = w.field_at_bilinear(b.0 as f32, b.1 as f32).temperature;
+        assert!(
+            (ta - tb).abs() > 0.01,
+            "field_at_bilinear should have told the two positions apart: a={ta}, b={tb}"
+        );
+        // `b` sits right against the boundary with the heated block; `a`
+        // sits near its far edge.
+        assert!(tb > ta, "the position closer to the heat source's block should read hotter: a={ta}, b={tb}");
     }
 
     #[test]

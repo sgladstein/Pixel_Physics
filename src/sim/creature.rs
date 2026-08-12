@@ -189,11 +189,17 @@ fn worm_tick(world: &mut World, x: i32, y: i32, creature_id: u16) -> Vec<ActiveS
         // descending the field's temperature gradient is the entire
         // mechanism, same as the real AFD neuron comparing against a
         // remembered set-point.
+        // Bilinear, not block-nearest (architecture §6a) — every candidate
+        // here is only 1 cell from `(x, y)`, well inside the same
+        // `FIELD_SCALE`-sided field block `field_at` would read, which
+        // otherwise makes every candidate compare temperature-equal and
+        // `min_by` silently degenerate into "always pick the first
+        // neighbour" instead of real gradient descent.
         *candidates
             .iter()
             .min_by(|a, b| {
-                let ta = world.field_at(a.0, a.1).temperature;
-                let tb = world.field_at(b.0, b.1).temperature;
+                let ta = world.field_at_bilinear(a.0 as f32, a.1 as f32).temperature;
+                let tb = world.field_at_bilinear(b.0 as f32, b.1 as f32).temperature;
                 ta.partial_cmp(&tb).unwrap()
             })
             .expect("candidates is non-empty here")
@@ -386,6 +392,55 @@ mod tests {
             .find(|&x| w.get(x, y).material == worm_id)
             .expect("worm should still be alive and somewhere in the corridor");
         assert!(fx < 100, "worm at x={fx} did not move away from the heat source at x=135");
+    }
+
+    #[test]
+    fn a_worm_flees_east_even_though_west_is_checked_first() {
+        // Architecture §6a regression. `NEIGHBOURS_4` checks west before
+        // east, and `Iterator::min_by` returns the *first* minimum on a tie
+        // -- so a block-nearest thermotaxis read, which reads the same
+        // value for both of a worm's ±1-cell neighbours whenever they share
+        // a coarse `FIELD_SCALE`-wide field block (the common case, since
+        // FIELD_SCALE = 8), would silently degenerate into "always flee
+        // west" regardless of where the heat actually is. The test above
+        // puts the heat to the east, where "always flee west" happens to
+        // also be the correct answer -- both a working gradient read and
+        // the degenerate bug pick the same direction there, so it can't
+        // tell them apart. This one is built so the two disagree.
+        //
+        // `add_heat`'s own paint is flat within its radius (no falloff), so
+        // the only place a real temperature *gradient* exists at all is at
+        // the edge of the painted disc -- deep inside it, every field cell
+        // (and therefore every ±1-cell neighbour) reads identically no
+        // matter how it's sampled. A tiny radius (smaller than
+        // `FIELD_SCALE`) paints exactly one field cell, so the worm can be
+        // placed a couple of world-cells in from that cell's *eastern* edge
+        // -- close enough to the ambient cell next door for
+        // `field_at_bilinear` to read a real, position-dependent blend
+        // toward it (block-nearest can't, since both neighbours floor to
+        // the same cell), and far enough from that edge that west and east
+        // both still floor to the painted cell, keeping the old
+        // "same-block, so tied, so always-west" bug fully in play if this
+        // change were ever reverted.
+        let mut w = test_world();
+        let y = 100;
+        for x in 60..120 {
+            w.set(x, y - 1, Cell::new(material::STONE, 0));
+            w.set(x, y + 1, Cell::new(material::STONE, 0));
+        }
+        // Field cell (11, *) spans world x 88..=95; radius 4 (< FIELD_SCALE
+        // = 8) paints only the one field cell containing (88, 100). Field
+        // cell (12, *) -- world x 96..=103, immediately east -- stays
+        // ambient.
+        w.add_heat(88, y, 4, 400.0);
+        w.plant_worm(93, y); // 5 cells into the painted cell, 2 short of its eastern edge
+        run(&mut w, 300);
+
+        let worm_id = w.materials.id_of("worm").unwrap();
+        let fx = (60..120)
+            .find(|&x| w.get(x, y).material == worm_id)
+            .expect("worm should still be alive and somewhere in the corridor");
+        assert!(fx > 93, "worm at x={fx} did not move toward the cooler cell immediately to its east");
     }
 
     #[test]

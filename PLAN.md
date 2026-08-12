@@ -1339,6 +1339,36 @@ updated at each milestone commit, not just when something is added.
   bounded loop, since an undisturbed field now takes several frames to reach
   its fixed point (light diffusing down from the new sky source) rather than
   being trivially converged from frame one.
+- **Architecture §6a** (bilinear field sampler, "the resolution problem"):
+  **done.** `sample_bilinear` (`field.rs`) already existed for advection's
+  own back-traced lookups and was private; it is now `pub(crate)`, wrapped by
+  a new public `World::field_at_bilinear(fx, fy)` that computes its own
+  blocked-corner fallback (this position's own block-nearest reading).
+  Routed the two existing short-range gradient-followers through it: the
+  worm's thermotaxis `min_by` (`creature.rs`) and the tree tip's
+  phototropism probe (`plant.rs`) — both were comparing candidates only 1–4
+  world cells apart, well inside the same `FIELD_SCALE = 8` block `field_at`
+  reads identically for, degenerating "follow the gradient" into "always
+  pick whichever candidate was checked first." New regression test
+  (`field_at_bilinear_resolves_what_field_at_flattens_within_one_block`)
+  proves the specific claim: two probe points sharing one coarse block read
+  identically through `field_at` but distinctly through `field_at_bilinear`.
+  An independent review found the diff itself correct but flagged that
+  neither existing consumer test actually discriminated the fix from the bug
+  it fixes — the worm's own flee-test happened to put the heat where "always
+  flee west" (the degenerate tie-break) was also the right answer, and no
+  phototropism test existed at all. Two regression tests added in response,
+  both confirmed to fail (by temporarily reverting the call site to
+  `field_at`, running the test, then restoring) before being trusted:
+  `a_worm_flees_east_even_though_west_is_checked_first` (heat placed so the
+  degenerate and correct answers disagree) and
+  `a_tip_leans_more_steeply_upward_when_lit_from_above` (a hand-constructed
+  `TreeState` with a single off-axis attractor, so the photo term's
+  y-only nudge has a real x/y mix to bias rather than a purely-vertical
+  vector it can't visibly change after normalization). Does not yet touch
+  the trail-*width* half of "the resolution problem" — that is explicitly a
+  future moisture/pheromone-channel-resolution question (§4), out of scope
+  here.
 
 ---
 

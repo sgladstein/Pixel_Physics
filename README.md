@@ -233,6 +233,19 @@ fire and open sky, not a distant illumination model. The regression test
 (`open_sky_reads_brighter_than_a_directly_blocked_cell`) probes one field row
 down for exactly that reason, rather than assuming light reaches any deeper.
 
+**`World::field_at` is block-nearest** — any two positions inside the same
+8x8 field block read byte-identical values, which quietly broke every
+short-range gradient-follower built against it: a worm's thermotaxis
+compares its four ±1-cell neighbours, and a tree tip's phototropism compares
+"here" against a 4-pixel-up probe, both almost always landing inside the
+same coarse block and degenerating "follow the gradient" into "always pick
+whichever candidate was checked first." `World::field_at_bilinear(fx, fy)`
+(architecture §6a) exposes the interpolated sampler `step_advection` already
+used internally, and both consumers now read through it instead. Left
+alone, deliberately: trail *width* (a one-cell-wide pheromone trail smeared
+across an 8-cell field block stays smeared no matter how it's sampled) —
+that's a future moisture/pheromone channel-resolution question, not this one.
+
 ## M12/M13 status
 
 `Cell` widened from 4 to 8 bytes (32 MB instead of 16 for a 2048² world —

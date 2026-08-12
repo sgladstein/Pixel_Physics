@@ -392,8 +392,13 @@ fn tree_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, tip_id: u32) -
     // Gentle phototropic lean: bias toward the brighter of "here" and
     // "just above" rather than Palubicki's full shadow-voxel propagation —
     // see the module doc for why that's the one piece left simplified.
-    let light_here = world.field_at(pos.0 as i32, pos.1 as i32).light;
-    let light_above = world.field_at(pos.0 as i32, (pos.1 - 4.0) as i32).light;
+    // Bilinear, not block-nearest (architecture §6a): `pos` already carries
+    // sub-cell precision, and a 4-pixel-up probe is well within the same
+    // `FIELD_SCALE`-sided field block `field_at` would read, which would
+    // otherwise compare light-equal almost every tick and leave phototropism
+    // inert exactly like the light channel itself was before §2.
+    let light_here = world.field_at_bilinear(pos.0, pos.1).light;
+    let light_above = world.field_at_bilinear(pos.0, pos.1 - 4.0).light;
     let photo = if light_above > light_here { (0.0, -0.25) } else { (0.0, 0.0) };
 
     let new_dir = normalize((avg.0 * 0.75 + dir.0 * 0.25 + photo.0, avg.1 * 0.75 + dir.1 * 0.25 + photo.1));
@@ -802,6 +807,83 @@ mod tests {
         assert!(
             damp_moss > dry_moss * 3,
             "moss should spread much more over damp stone ({damp_moss}) than dry ({dry_moss})"
+        );
+    }
+
+    #[test]
+    fn a_tip_leans_more_steeply_upward_when_lit_from_above() {
+        // Architecture §6a regression: `tree_tip_tick`'s phototropism term
+        // (`light_here` vs `light_above`, both read via `field_at_bilinear`
+        // since this change) only ever nudges the growth direction's own
+        // *y*-component. If the attractor pull is already purely vertical,
+        // that nudge is invisible after normalization -- a purely-vertical
+        // vector nudged further vertical is still purely vertical. So this
+        // test deliberately gives the tip a single attractor up-and-to-one-
+        // side, producing a growth direction with a real horizontal
+        // component for the light-driven vertical nudge to compete against:
+        // a lit tip should climb a little steeper (smaller x drift, more
+        // negative y) than an otherwise-identical unlit one.
+        //
+        // Constructs `TreeState` directly rather than through
+        // `plant_tree_seed` (whose 50 randomly scattered attractors would
+        // add noise this test doesn't need) and calls `tree_tip_tick`
+        // directly for one tick rather than running the scheduler, so the
+        // only difference between the two worlds is the light field.
+        fn tick_once_and_get_new_pos(w: &mut World, lit: bool) -> (f32, f32) {
+            let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+            let (x, y) = (100, 150);
+            w.set(x, y, Cell::new(wood, 0));
+            let tip = Tip { pos: (x as f32, y as f32), dir: (0.0, -1.0), channel: 0.5, alive: true };
+            let root = RootTip { pos: (x as f32, y as f32), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: true, alive: true };
+            let state = TreeState {
+                attractors: vec![(x as f32 + 8.0, y as f32 - 8.0)], // up-and-right, within INFLUENCE_RADIUS
+                tips: vec![tip],
+                roots: vec![root],
+                energy: 9999.0, // never gated on GROWTH_COST
+                wood,
+            };
+            let tree_id = w.push_tree(state);
+            if lit {
+                // Both probes (`(x, y)` and `(x, y - 4)`) fall inside the
+                // same `FIELD_SCALE`-wide field block (144..=151 spans both
+                // 146 and 150), so a plain `field_at` would read them
+                // identically -- exactly the degenerate case §6a fixes.
+                // `field_at_bilinear` blends each toward the block *below*
+                // it, weighted by how far into the block it sits: `y - 4`
+                // (closer to this block's own top) leans toward this lit
+                // block, `y` itself (closer to the block below) leans
+                // toward the unlit one below it, so lighting only this one
+                // block already gives `light_above > light_here`. A radius
+                // smaller than `FIELD_SCALE` paints exactly one field cell.
+                w.add_light(x, y - 3, 1, 5.0);
+            }
+            tree_tip_tick(w, x, y, tree_id, 0);
+            w.tree(tree_id).tips[0].pos
+        }
+
+        let mut unlit = test_world();
+        let unlit_pos = tick_once_and_get_new_pos(&mut unlit, false);
+        let mut lit = test_world();
+        let lit_pos = tick_once_and_get_new_pos(&mut lit, true);
+
+        // Setup check: the lit world's tip should actually have seen a
+        // brighter reading above it than at its own position, or the rest
+        // of this test is meaningless.
+        let light_here = lit.field_at_bilinear(100.0, 150.0).light;
+        let light_above = lit.field_at_bilinear(100.0, 146.0).light;
+        assert!(
+            light_above > light_here,
+            "test setup should have made the field above the tip brighter than at the tip: \
+             here={light_here}, above={light_above}"
+        );
+
+        assert!(
+            lit_pos.1 < unlit_pos.1,
+            "a lit tip should climb higher (smaller y) in one tick than an unlit one: lit={lit_pos:?}, unlit={unlit_pos:?}"
+        );
+        assert!(
+            lit_pos.0 < unlit_pos.0,
+            "a lit tip's extra vertical pull should also reduce its horizontal drift: lit={lit_pos:?}, unlit={unlit_pos:?}"
         );
     }
 
