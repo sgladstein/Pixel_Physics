@@ -343,16 +343,31 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
 
                 let photo = organism::phototropism_dir(world, x as f32, y as f32);
                 let wind = organism::wind_lean_dir(world, x as f32, y as f32);
-                // Gravitropism/hydrotropism antagonism (MIZ1): contributes
-                // nothing to canopy growth in practice, since `tree.ron`
-                // sets `GrowingTip`'s own `upward_weight` near zero -- the
-                // weight does the species-differentiation work here, not a
-                // cell-type branch inside this dispatch (`Reports/tree-
-                // rewrite-design.md` §2's own "the weight does the work"
-                // shape, applied to this term too).
-                let gravity_or_water = match organism::moisture_pull(world, x as f32, y as f32) {
-                    Some((dir, strength)) if strength >= MIZ_THRESHOLD => dir,
-                    _ => (0.0, 1.0), // down
+                // A real independent review caught this term inverted for
+                // canopy: it used to default to `(0.0, 1.0)` (down) for
+                // *every* cell type, so `GrowingTip`'s own positive `
+                // upward_weight` was actually rewarding downward growth,
+                // the opposite of its name and `tree.ron`'s own intent --
+                // this doc used to (wrongly) claim the term "contributes
+                // nothing to canopy growth in practice" because the weight
+                // was small (0.1), not because the direction was correct.
+                // It could also pull a `GrowingTip` toward a moisture
+                // gradient via MIZ1, which `Reports/tree-rewrite-
+                // design.md` §2 explicitly scopes to roots only.
+                //
+                // Gravitropism/hydrotropism antagonism (MIZ1) stays
+                // `RootTip`-only, matching that scoping exactly; canopy
+                // gets a true, fixed "up" reference instead, with no MIZ1
+                // override -- `RootTip`'s own branch is untouched from
+                // before this fix, so its already-tuned resource economy
+                // doesn't need re-verifying.
+                let gravity_or_water = if cell_type == CellType::RootTip {
+                    match organism::moisture_pull(world, x as f32, y as f32) {
+                        Some((dir, strength)) if strength >= MIZ_THRESHOLD => dir,
+                        _ => (0.0, 1.0), // down
+                    }
+                } else {
+                    (0.0, -1.0) // up
                 };
 
                 // §2b: score every open 8-neighbour, weighted-random
@@ -434,8 +449,20 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // §3's branching: a second successful `Grow`, in a
                 // different direction, this same tick -- gated by the
                 // same resource economy as the first, not a separate
-                // mechanic.
-                if resource >= cost && world.rng.chance(branch_chance) {
+                // mechanic. Also gated by `max_active_tips` again here
+                // (the "+1" accounts for the primary child just created
+                // above, which isn't in `world`'s own `active_sites` yet
+                // -- it's still sitting in this call's own `next`, only
+                // merged in by the caller after this returns, so `world.
+                // organism_active_tip_count` can't see it yet on its own).
+                // A real independent review caught this cap only being
+                // checked once, before the primary child, which let a
+                // single tick's branch roll overshoot it by one right at
+                // the cap.
+                if resource >= cost
+                    && world.rng.chance(branch_chance)
+                    && world.organism_active_tip_count(organism_id, cell_type) + 1 < max_active_tips as usize
+                {
                     let alt: Vec<(i32, i32, f32)> = candidates.into_iter().filter(|&(nx, ny, _)| (nx, ny) != (tx, ty)).collect();
                     if !alt.is_empty() {
                         let (bx, by, _) = alt[world.rng.below(alt.len() as u32) as usize];
@@ -1404,7 +1431,7 @@ mod tests {
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
         let organism_id = w.push_organism(tree_species);
-        // Comfortably above tree.ron's GrowingTip `Grow` cost (0.4), in
+        // Comfortably above tree.ron's GrowingTip `Grow` cost (0.2), in
         // open space on every side, so this call is guaranteed to find a
         // positive-scoring candidate and actually grow.
         let aux = organism::pack_aux(CellType::GrowingTip, 2.0);
