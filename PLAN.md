@@ -2958,6 +2958,85 @@ other structural change (`design-philosophy.md` §3, `organism-substrate-
 design.md`'s own retrofit-order precedent). Not started; recorded here so
 the next design pass has the full picture rather than rediscovering it.
 
+**External research, folded into this same phase: `Reports/plant-
+simulation-research.md`** (owner-supplied, written against an earlier
+commit than the tree rewrite's own completion — two of its own findings,
+the crowding-reads-an-always-empty-cell bug and "finish or delete
+`TreeState`," were independently found and fixed by this session before
+the document was read, which is a real cross-check that its other
+findings are trustworthy too). Full document is the source of record;
+summarized here so this phase's eventual design pass doesn't have to
+rediscover it:
+
+- **The load-bearing finding: accretion is not growth.** A `Plant` cell is
+  immovable and exactly one pixel; growth can only write into an *empty*
+  neighbour. That's the growth mode of moss, lichen, and coral — not a
+  tree. It's a deeper diagnosis of the one-pixel-trunk problem than this
+  session's own (`SecondaryThicken`'s pipe-ratio trigger almost never
+  firing): *even if* that trigger fired constantly, "grow sideways into
+  an empty cell" is still accretion, not real thickening — a trunk
+  already surrounded by wood has no empty neighbour to accrete into at
+  all. Three ways out, increasing ambition: (i) accept accretive growth
+  as the honest target (moss/lichen/coral are real biology, not a
+  compromise), (ii) a displacement primitive — a growing cell pushes the
+  column ahead of it by one (the root-grows-through-soil idea already
+  recorded above is this, at the smallest possible scope: one cell
+  converted, not a pushed column), (iii) a continuous turgor/extension
+  scalar reusing the liquid rewrite's own fill-amount trick, promoting to
+  a whole cell on saturation — sub-pixel growth *rate* without needing
+  displacement. This project's own preliminary lean (not yet decided):
+  accept (i) for canopy, use the small-scope version of (ii) for roots
+  growing through soil specifically, (iii) for rate. **This decision is
+  first in the eventual design report** — every other plant mechanic in
+  this phase inherits it.
+- **`Cell::aux` is already fully packed (16/16 bits)**, and this phase's
+  own vision needs more: a second resource currency (carbon vs.
+  water/nitrogen — collapsing them to one scalar removes the trade-off
+  that makes allocation interesting), organ age (for leaf lifespan),
+  and canopy density's own 4 bits are already coarse enough to produce
+  quantization ties. Recommendation: stop packing into `Cell` entirely —
+  organism cells are a small fraction of any world, so a sidecar table
+  keyed by position costs little and removes the ceiling permanently.
+  Worth deciding *before* this phase's own leaf/soil scalars get added,
+  not after, to avoid building on a foundation about to need
+  restructuring anyway.
+- **`organism::diffuse_resource` is isotropic (symmetric neighbour
+  averaging), and every real shape-generating process in plant
+  development is polar** (auxin moves basipetally, xylem/phloem are
+  separate directional tissues) — symmetric diffusion can blur a
+  gradient but never canalize it into a channel, no matter how long it
+  runs or how weights are tuned. Named as the same failure-mode *family*
+  as this session's own crowding bug: a mechanism named after a
+  directional process, implemented as a symmetric or inert one. A few
+  bits of per-cell polarity plus a flux-following update rule (move
+  preferentially along polarity; rotate polarity toward whatever
+  direction carried the most flux last tick) would make apical dominance
+  and vein-like structure real emergent outcomes instead of tuned
+  weights — highest emergent-behavior-per-effort item in the whole
+  document, but it changes the core diffusion mechanism, not a leaf node.
+  Sequence *after* the soil/leaf work, not before, per "simple mechanics
+  first."
+- **Evolution is where this architecture is unusually well-suited, not a
+  stretch fit.** The `.ron` species file is already a genotype;
+  `organism_tick` is already a developmental program; `structural.rs`
+  already measures one of Niklas's four adaptive-walk fitness tasks
+  (mechanical stability — light interception and water conservation are
+  also already measurable from existing field data, only reproduction is
+  missing). The document's central warning: fitness has to be multi-task
+  (3+ conflicting objectives) or selection collapses the whole population
+  onto one morphology — a real trade-off (leaf economics spectrum: fast
+  photosynthesis inversely coupled to leaf lifespan/durability; wood
+  density vs. growth rate, both sides already exist as `density`/`max_
+  unsupported_span`) has to be built in before any selection runs, not
+  discovered after. A real future milestone, not this phase — recorded
+  here so it isn't lost, not scheduled.
+- **Standing gotcha for evolution specifically, once it's scheduled:**
+  `Chunk::rng` is seeded from chunk coordinate, so the same genotype
+  planted in two different places draws a different random sequence —
+  position becomes a hidden inherited variable, which is exactly the kind
+  of confound that produces a spurious "evolutionary" result. A
+  per-organism RNG stream seeded from the organism id would remove it.
+
 **Standing constraint for all of the above, restated by the owner:**
 today's organism substrate (`OrganismState { species: SpeciesId }`,
 species-level shared behavior data) should be built so a later per-
