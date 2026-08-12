@@ -681,6 +681,11 @@ impl CellSurface for World {
     fn add_light(&mut self, x: i32, y: i32, radius: i32, amount: f32) {
         World::add_light(self, x, y, radius, amount)
     }
+
+    #[inline]
+    fn field_moisture_at(&self, x: i32, y: i32) -> f32 {
+        World::field_at(self, x, y).moisture
+    }
 }
 
 /// Squared distance from a cell to the segment `a`–`b`, which is what makes the

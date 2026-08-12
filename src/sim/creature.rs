@@ -82,6 +82,23 @@ const WORM_IDLE_COST: f32 = 0.3;
 /// have given for free.
 const WORM_BURROW_DENSITY_COST: f32 = 12.0;
 
+/// Reference scale for normalizing a `field_at(..).moisture` reading into a
+/// 0..1 "how saturated" fraction — matches `field.rs`'s own private
+/// `MAX_MOISTURE`, which isn't reachable from here, so this is a documented
+/// assumption about that scale rather than a shared constant.
+const WORM_MOISTURE_SATURATION: f32 = 4.0;
+/// Maximum fraction burrow cost is discounted by at full saturation —
+/// architecture §4's "worm burrowing" consumer. The cited research
+/// (`research/m18-creature-biology.md` §1) says moisture modulates
+/// substrate resistance but does not say which direction, so this is a
+/// judgment call, not a cited number: slightly damp substrate holds a
+/// tunnel shape and is easier to displace than the same material bone-dry
+/// (the everyday "damp sand castle vs. dry sand collapsing" effect), so
+/// moisture makes burrowing *cheaper* here, capped well short of free —
+/// fully waterlogged ground is a harder regime this engine doesn't model,
+/// not an easier one, so this is deliberately not allowed to approach 1.0.
+const WORM_MOISTURE_DISCOUNT: f32 = 0.3;
+
 /// Energy recovered from burrowing into (eating) a `Powder` cell. Kept
 /// smaller than a typical burrow's own cost, so burrowing is still a net
 /// energy expense on its own — real foraging value comes from doing it
@@ -172,7 +189,7 @@ fn worm_tick(world: &mut World, x: i32, y: i32, creature_id: u16) -> Vec<ActiveS
             if target.is_burning() {
                 return None;
             }
-            move_cost(world, target.material).map(|cost| (nx, ny, cost))
+            move_cost(world, nx, ny, target.material).map(|cost| (nx, ny, cost))
         })
         .collect();
 
@@ -235,16 +252,22 @@ fn worm_tick(world: &mut World, x: i32, y: i32, creature_id: u16) -> Vec<ActiveS
     apply_energy_delta(world, tx, ty, creature_id, delta)
 }
 
-/// Energy cost to move into `target_material`, or `None` if it's not
-/// enterable at all. `Solid` (stone), `Liquid` (not modelled as aquatic
-/// this milestone), `Plant` and other `Creature` cells are all impassable;
-/// `Empty`/`Gas` cost the flat open-ground rate; `Powder` scales with the
-/// target's own `density`, tying burrow cost to already-tracked physical
-/// data rather than a material-kind whitelist (see `WORM_BURROW_DENSITY_COST`).
-fn move_cost(world: &World, target_material: material::MaterialId) -> Option<f32> {
+/// Energy cost to move into `target_material` at `(x, y)`, or `None` if
+/// it's not enterable at all. `Solid` (stone), `Liquid` (not modelled as
+/// aquatic this milestone), `Plant` and other `Creature` cells are all
+/// impassable; `Empty`/`Gas` cost the flat open-ground rate; `Powder` scales
+/// with the target's own `density`, tying burrow cost to already-tracked
+/// physical data rather than a material-kind whitelist (see `WORM_BURROW_
+/// DENSITY_COST`), then discounted by local ambient moisture (architecture
+/// §4 — see `WORM_MOISTURE_DISCOUNT`'s own doc for the direction and why).
+fn move_cost(world: &World, x: i32, y: i32, target_material: material::MaterialId) -> Option<f32> {
     match world.materials.kind(target_material) {
         MaterialKind::Empty | MaterialKind::Gas => Some(WORM_MOVE_COST_OPEN),
-        MaterialKind::Powder => Some(WORM_MOVE_COST_OPEN + world.materials.density(target_material) * WORM_BURROW_DENSITY_COST),
+        MaterialKind::Powder => {
+            let base = WORM_MOVE_COST_OPEN + world.materials.density(target_material) * WORM_BURROW_DENSITY_COST;
+            let saturation = (world.field_at(x, y).moisture / WORM_MOISTURE_SATURATION).clamp(0.0, 1.0);
+            Some(base * (1.0 - saturation * WORM_MOISTURE_DISCOUNT))
+        }
         MaterialKind::Solid | MaterialKind::Liquid | MaterialKind::Plant | MaterialKind::Creature => None,
     }
 }
@@ -290,6 +313,7 @@ impl World {
 mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
+    use crate::sim::field;
     use crate::sim::scheduler;
     use crate::sim::update;
 
@@ -303,6 +327,45 @@ mod tests {
             scheduler::step(w);
             w.end_step();
         }
+    }
+
+    #[test]
+    fn damp_sand_is_cheaper_to_burrow_through_than_dry_sand() {
+        // Architecture §4's worm-burrowing consumer. `move_cost` is a plain
+        // function of position and material, so this checks it directly
+        // rather than through a full burrowing run -- cleaner than fighting
+        // the forage tier's own rng for a measurable difference.
+        //
+        // One water cell in the corner of an otherwise all-sand field block
+        // is enough: `apply_moisture_sources` forces the *whole* block
+        // containing a `Liquid` cell to `MAX_MOISTURE` the moment `field::
+        // step` runs (see its own doc on why it doesn't gate on distance),
+        // so a single step -- no diffusion wait needed -- makes every sand
+        // cell sharing that block read as saturated.
+        let mut dry = test_world();
+        for x in 96..104 {
+            for y in 96..104 {
+                dry.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+        field::step(&mut dry);
+
+        let mut damp = test_world();
+        for x in 96..104 {
+            for y in 96..104 {
+                damp.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+        damp.set(96, 96, Cell::new(material::WATER, 0)); // corner of the same field block as the probe below
+        field::step(&mut damp);
+
+        let probe = (100, 100); // same field block as (96, 96): FIELD_SCALE = 8, block spans 96..=103
+        let dry_cost = move_cost(&dry, probe.0, probe.1, material::SAND).expect("sand should always be enterable");
+        let damp_cost = move_cost(&damp, probe.0, probe.1, material::SAND).expect("sand should always be enterable");
+        assert!(
+            damp_cost < dry_cost,
+            "damp sand should be cheaper to burrow through than dry sand: dry={dry_cost}, damp={damp_cost}"
+        );
     }
 
     #[test]

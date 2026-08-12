@@ -437,6 +437,16 @@ impl CellSurface for ChunkView<'_> {
             }
         }
     }
+
+    fn field_moisture_at(&self, x: i32, y: i32) -> f32 {
+        let (fx, fy) = field::field_coord_of(x, y);
+        let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+        debug_assert_eq!(
+            tile_coord, self.coord,
+            "field_moisture_at called with a position outside this worker's own chunk"
+        );
+        self.field.get_local(lx, ly).moisture
+    }
 }
 
 #[cfg(test)]

@@ -29,8 +29,6 @@ const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
 /// Frames between a moss tip's growth attempts.
 const MOSS_TICK_INTERVAL: u64 = 45;
-/// How far a candidate cell is checked for standing water.
-const MOSS_DAMP_RADIUS: i32 = 3;
 /// Spread chance when the candidate cell is actually damp.
 const MOSS_DAMP_CHANCE: f32 = 0.35;
 /// Spread chance when it isn't — small but nonzero, since real moss can
@@ -83,7 +81,7 @@ fn moss_tick(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSi
     let mut next = vec![reschedule(x, y, ActiveKind::Moss { stale_ticks: 0 }, world.frame + MOSS_TICK_INTERVAL)];
 
     let (tx, ty) = candidates[world.rng.below(candidates.len() as u32) as usize];
-    let damp = is_damp(world, tx, ty, MOSS_DAMP_RADIUS);
+    let damp = is_damp(world, tx, ty);
     let chance = (if damp { MOSS_DAMP_CHANCE } else { MOSS_DRY_CHANCE }) * shade_factor(world, tx, ty);
     if world.rng.chance(chance) {
         let shades = world.materials.get(moss_id).palette.len().max(1) as u32;
@@ -108,15 +106,20 @@ fn has_growable_neighbour(world: &World, x: i32, y: i32, moss_id: material::Mate
     })
 }
 
-fn is_damp(world: &World, x: i32, y: i32, radius: i32) -> bool {
-    for dy in -radius..=radius {
-        for dx in -radius..=radius {
-            if world.materials.kind(world.get(x + dx, y + dy).material) == MaterialKind::Liquid {
-                return true;
-            }
-        }
-    }
-    false
+/// Below this reading, `field_at`'s ambient humidity counts as "dry" —
+/// architecture report §4. Untuned against anything real, same as every
+/// other threshold on this channel; `moss_spreads_over_damp_stone_and_not_
+/// over_dry` is the actual authority on whether it's set right.
+const DAMP_MOISTURE_THRESHOLD: f32 = 0.3;
+
+/// Replaces the old O(r²) hand-rolled neighbour scan (architecture §4,
+/// "hand-rolled sensing that should be field reads") with a single read of
+/// the moisture channel `apply_moisture_sources` already maintains. No
+/// radius parameter any more — diffusion is what gives "sensing at range"
+/// now, not a wider manual scan, so unlike the function it replaces this
+/// reads the same way regardless of how far the caller wants to sense.
+fn is_damp(world: &World, x: i32, y: i32) -> bool {
+    world.field_at(x, y).moisture > DAMP_MOISTURE_THRESHOLD
 }
 
 /// Lower ambient light reads as more shaded, which favours spreading —
@@ -203,11 +206,22 @@ const MAX_TIPS_PER_TREE: usize = 14;
 
 const ROOT_SEGMENT_LENGTH: f32 = 2.0;
 const ROOT_TICK_INTERVAL: u64 = 25;
-const ROOT_SENSE_RADIUS: i32 = 4;
-/// Minimum local-water-direction pull strength (fraction of sensed
-/// neighbours that are water) before MIZ1-style suppression of gravity
-/// kicks in and the root steers toward water instead of straight down.
-const MIZ_THRESHOLD: f32 = 0.15;
+/// How far apart `moisture_pull`'s two opposing probes sit, per axis —
+/// architecture §6a's bilinear-sampling reasoning applies here exactly like
+/// it does to tree phototropism's own probe offset: too small and the
+/// probes round to the same coarse field block, too large and the "local"
+/// gradient stops being local.
+const MOISTURE_SENSOR_OFFSET: f32 = 4.0;
+/// Minimum moisture-gradient magnitude before MIZ1-style suppression of
+/// gravity kicks in and the root steers toward water instead of straight
+/// down. A gradient, not a raw moisture reading — MIZ1 biology is
+/// specifically a response to a *change* in local humidity, not merely
+/// "some water is nearby" (see `moisture_pull`'s own doc). Retuned from the
+/// pre-field version's 0.15 (a fraction of sensed neighbours, 0..1 scale) to
+/// this channel's own difference-of-readings scale; `roots_steer_toward_
+/// off_axis_water_via_hydrotropism` is the actual authority on whether it's
+/// set right, same as every other threshold on this channel.
+const MIZ_THRESHOLD: f32 = 0.05;
 const ROOT_WATER_ENERGY: f32 = 5.0;
 /// Cost debited from the shared energy pool for each step of root growth
 /// through soil (not water, which is a net gain via `ROOT_WATER_ENERGY`).
@@ -511,7 +525,7 @@ fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) 
     // suppresses the gravity response under a strong moisture gradient),
     // not a blend of the two pulls.
     let gravity = (0.0f32, 1.0f32);
-    let water_pull = strongest_water_pull(world, pos.0 as i32, pos.1 as i32, ROOT_SENSE_RADIUS);
+    let water_pull = moisture_pull(world, pos.0, pos.1);
     let base = match water_pull {
         Some((dir, strength)) if strength >= MIZ_THRESHOLD => dir,
         _ => gravity,
@@ -604,7 +618,7 @@ fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) 
     // Oscillator-based priming, not a flat per-tick probability: only
     // *consider* branching periodically, and only follow through if local
     // conditions (water nearby) actually support a new lateral root.
-    if primed && is_damp(world, wx, wy, 3) && world.tree(tree_id).roots.len() < MAX_ROOTS_PER_TREE {
+    if primed && is_damp(world, wx, wy) && world.tree(tree_id).roots.len() < MAX_ROOTS_PER_TREE {
         let angle = if world.rng.flip() { ROOT_BRANCH_ANGLE_RAD } else { -ROOT_BRANCH_ANGLE_RAD };
         let branch =
             RootTip { pos: new_pos, dir: rotate(new_dir, angle), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood, alive: true };
@@ -616,32 +630,29 @@ fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) 
     next
 }
 
-/// Direction and strength of the strongest nearby pull toward water — the
-/// fraction of sensed neighbours in that general direction that are water,
-/// used both to decide whether MIZ1-style suppression should kick in and
-/// which way to steer if so.
-fn strongest_water_pull(world: &World, x: i32, y: i32, radius: i32) -> Option<((f32, f32), f32)> {
-    let mut sum = (0.0f32, 0.0f32);
-    let mut water_count = 0;
-    let mut total = 0;
-    for dy in -radius..=radius {
-        for dx in -radius..=radius {
-            if dx == 0 && dy == 0 {
-                continue;
-            }
-            total += 1;
-            if world.materials.kind(world.get(x + dx, y + dy).material) == MaterialKind::Liquid {
-                water_count += 1;
-                let d = normalize((dx as f32, dy as f32));
-                sum.0 += d.0;
-                sum.1 += d.1;
-            }
-        }
-    }
-    if water_count == 0 {
+/// Direction and magnitude of the moisture gradient at `(x, y)` — replaces
+/// the old O(r²) hand-rolled neighbour scan (architecture §4, "hand-rolled
+/// sensing that should be field reads") with two pairs of opposing field
+/// reads, one per axis, the same central-difference shape `tree_tip_tick`'s
+/// phototropism probe uses. Bilinear (§6a), not block-nearest: the two
+/// probes on either axis are only `2 * MOISTURE_SENSOR_OFFSET` world cells
+/// apart, well inside the same coarse field block block-nearest reads would
+/// flatten to identical values.
+///
+/// `None` when the gradient is flat (`(0.0, 0.0)`, no direction to
+/// `normalize`) — open dry ground with no nearby source, or a spot exactly
+/// balanced between two sources, both of which should fall through to plain
+/// gravitropism rather than pick an arbitrary direction.
+fn moisture_pull(world: &World, x: f32, y: f32) -> Option<((f32, f32), f32)> {
+    let gx =
+        world.field_at_bilinear(x + MOISTURE_SENSOR_OFFSET, y).moisture - world.field_at_bilinear(x - MOISTURE_SENSOR_OFFSET, y).moisture;
+    let gy =
+        world.field_at_bilinear(x, y + MOISTURE_SENSOR_OFFSET).moisture - world.field_at_bilinear(x, y - MOISTURE_SENSOR_OFFSET).moisture;
+    let magnitude = (gx * gx + gy * gy).sqrt();
+    if magnitude <= f32::EPSILON {
         return None;
     }
-    Some((normalize(sum), water_count as f32 / total as f32))
+    Some((normalize((gx, gy)), magnitude))
 }
 
 fn reschedule(x: i32, y: i32, kind: ActiveKind, next_frame: u64) -> ActiveSite {
@@ -735,6 +746,7 @@ impl World {
 mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
+    use crate::sim::field;
     use crate::sim::update;
 
     fn test_world() -> World {
@@ -745,6 +757,21 @@ mod tests {
         for _ in 0..frames {
             update::step(w);
             w.step_active_sites();
+        }
+    }
+
+    /// Same as `run`, plus `field::step` every frame, ordered last to match
+    /// `App::update`'s own real frame order. Only the tests that actually
+    /// depend on a field channel (moisture, light) use this instead of
+    /// plain `run` — most of this module's tests deliberately don't touch
+    /// the field solver at all, isolating CA/scheduler behaviour from field
+    /// behaviour the same way `field.rs`'s own module doc explains for the
+    /// reverse case.
+    fn run_with_fields(w: &mut World, frames: usize) {
+        for _ in 0..frames {
+            update::step(w);
+            w.step_active_sites();
+            field::step(w);
         }
     }
 
@@ -794,7 +821,7 @@ mod tests {
         }
         w.plant_moss_seed(20, 49);
         w.plant_moss_seed(70, 49);
-        run(&mut w, 4000);
+        run_with_fields(&mut w, 4000);
 
         let moss = w.materials.id_of("moss").unwrap();
         let damp_moss = (10..30).filter(|&x| (44..51).any(|y| w.get(x, y).material == moss)).count();
@@ -1014,9 +1041,9 @@ mod tests {
         // straight down into (walls at x=47/63 don't block x=50, which
         // sits between them), but whose water is offset to the right
         // (x=52..60) rather than directly below the seed -- close enough
-        // to be sensed (within `ROOT_SENSE_RADIUS`, 4 cells of x=50) as
-        // soon as the root's descent reaches the water's depth, without
-        // gravity alone ever carrying it there.
+        // for the moisture field's own diffusion to carry a real gradient
+        // over to x=50 by the time the root's descent reaches the water's
+        // depth, without gravity alone ever carrying it there.
         for x in 47..63 {
             w.set(x, 115, Cell::new(material::STONE, 0)); // floor
         }
@@ -1029,7 +1056,7 @@ mod tests {
                 w.set(x, y, Cell::new(material::WATER, 0));
             }
         }
-        run(&mut w, 1500);
+        run_with_fields(&mut w, 1500);
 
         // Tree id 0: the first (only) tree planted into a fresh `World`.
         let root_x_positions: Vec<f32> = w.tree(0).roots.iter().map(|r| r.pos.0).collect();

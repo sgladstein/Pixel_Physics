@@ -53,6 +53,23 @@ use super::surface::CellSurface;
 /// warmed cell dirty forever.
 const THERMAL_SETTLE_EPSILON: f32 = 1.0;
 
+/// Reference scale for normalizing a `field_moisture_at` reading into a 0..1
+/// "how saturated" fraction — matches `field.rs`'s own private `MAX_
+/// MOISTURE`, which isn't reachable from here, the same documented-
+/// assumption pattern `creature.rs`'s `WORM_MOISTURE_SATURATION` uses.
+const MOISTURE_SATURATION: f32 = 4.0;
+/// Maximum fraction `flammability` is suppressed by at full saturation —
+/// architecture §4's fire-resistance consumer ("wet material should resist
+/// ignition; nothing implements this today"). Only the probabilistic
+/// contact-ignition path below is affected, not the deterministic `cell.
+/// temperature() >= ignition_temperature` crossing above it in `try_ignite`
+/// — a fire hot enough to boil off the material's own moisture first can
+/// still set it alight, which is physically right (wet wood does eventually
+/// burn in a large enough fire) and keeps this from making moisture a hard
+/// fireproofing switch. Set high, not 1.0: real wet material is *very*
+/// resistant to catching from a neighbour, not perfectly immune.
+const MOISTURE_IGNITION_RESISTANCE: f32 = 0.9;
+
 /// Update heat, fire and phase state for the cell at `(x, y)`. Called once
 /// per visited cell, before movement is attempted — a phase change (stone
 /// melting into lava) needs to happen before this frame's movement dispatch
@@ -278,9 +295,11 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
 
 /// Two independent ways to catch fire: contact with a burning neighbour
 /// (probabilistic, rolled fresh — see the module doc for why that is safe
-/// here), or the cell's own temperature crossing its `ignition_temperature`
-/// (deterministic, not probabilistic at all, so it carries none of
-/// `roll_reach_at`'s staleness risk regardless of chunk sleep timing).
+/// here, and suppressed by local moisture — architecture §4 — see `MOISTURE_
+/// IGNITION_RESISTANCE`'s own doc), or the cell's own temperature crossing
+/// its `ignition_temperature` (deterministic, not probabilistic at all, so
+/// it carries none of `roll_reach_at`'s staleness risk regardless of chunk
+/// sleep timing, and not moisture-gated either — see that same doc).
 fn try_ignite<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
     let material = surface.materials().get(cell.material);
     let flammability = material.flammability;
@@ -302,7 +321,12 @@ fn try_ignite<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) 
     }
     let neighbours = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)];
     let any_burning = neighbours.iter().any(|&(nx, ny)| surface.get(nx, ny).is_burning());
-    if any_burning && surface.rng().chance(flammability) {
+    if !any_burning {
+        return;
+    }
+    let saturation = (surface.field_moisture_at(x, y) / MOISTURE_SATURATION).clamp(0.0, 1.0);
+    let effective_flammability = flammability * (1.0 - saturation * MOISTURE_IGNITION_RESISTANCE);
+    if surface.rng().chance(effective_flammability) {
         ignite(surface, cell);
     }
 }
@@ -410,6 +434,7 @@ fn try_react<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
 mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
+    use crate::sim::field;
     use crate::sim::material;
     use crate::sim::world::World;
 
@@ -543,6 +568,52 @@ mod tests {
         }
         assert_eq!(w.get(31, 30).material, material::ASH, "oil should burn out into ash");
         assert!(!w.get(31, 30).is_burning());
+    }
+
+    #[test]
+    fn moisture_suppresses_ignition_from_a_burning_neighbour() {
+        // Architecture §4's fire-resistance consumer. `World::new` always
+        // starts `Rng::default()` from the same fixed seed (see `rng.rs`'s
+        // own module doc), and `Rng::chance(p)` draws exactly one value for
+        // any `p` strictly between 0.0 and 1.0 (it only short-circuits
+        // without drawing at those two exact endpoints) -- both this test's
+        // probabilities do (oil's flammability is 0.5 dry, 0.5 * (1.0 -
+        // `MOISTURE_IGNITION_RESISTANCE`) = 0.05 wet), so two fresh worlds
+        // running the identical sequence of `update` calls draw the *same*
+        // underlying random values each frame, and the only thing that can
+        // differ between a dry and a wet run is which frame that draw first
+        // clears the (lower, for wet) threshold. Wet must therefore ignite
+        // no earlier than dry, deterministically, not just on average -- no
+        // statistics needed.
+        fn ignites_within(wet: bool, frames: usize) -> Option<usize> {
+            let mut w = test_world();
+            let mut source = Cell::new(material::OIL, 0);
+            source.ignite(9999); // stays burning for the whole test
+            w.set(30, 30, source);
+            w.set(31, 30, Cell::new(material::OIL, 0));
+            if wet {
+                // Same field block as (31, 30) -- FIELD_SCALE = 8, block
+                // spans (24..=31, 24..=31) -- so one `field::step` call
+                // forces this whole block to MAX_MOISTURE immediately
+                // (`apply_moisture_sources`), no diffusion wait needed.
+                w.set(24, 24, Cell::new(material::WATER, 0));
+                field::step(&mut w);
+            }
+            for i in 0..frames {
+                update(&mut w, 31, 30);
+                if w.get(31, 30).is_burning() {
+                    return Some(i);
+                }
+            }
+            None
+        }
+
+        let dry = ignites_within(false, 200).expect("dry oil should have ignited well within 200 frames");
+        let wet = ignites_within(true, 200);
+        assert!(
+            wet.is_none_or(|w| w > dry),
+            "wet oil should ignite later than dry oil, or not at all within the window: dry={dry}, wet={wet:?}"
+        );
     }
 
     #[test]

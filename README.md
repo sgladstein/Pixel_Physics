@@ -246,6 +246,25 @@ alone, deliberately: trail *width* (a one-cell-wide pheromone trail smeared
 across an 8-cell field block stays smeared no matter how it's sampled) —
 that's a future moisture/pheromone channel-resolution question, not this one.
 
+**A fifth channel, moisture, closes architecture §4** — `Liquid` CA cells now
+push ambient humidity into the field (`apply_moisture_sources`, same shape as
+`apply_sky`), which diffuses, evaporates faster near heat, and replaces two
+hand-rolled O(r²) grid scans (`is_damp`, `strongest_water_pull` in
+`plant.rs`) with one shared field every consumer reads. `rebuild_blocked`'s
+own CA scan now also detects `Liquid` presence in the same pass, which cost
+it its early exit on finding a solid cell: the first version kept the
+original "stop at the first solid cell" short-circuit and broke moss
+detecting a directly-adjacent puddle whenever an unrelated solid cell (a
+retaining wall, say) happened to sit earlier in scan order than the water —
+caught by `moss_spreads_over_damp_stone_and_not_over_dry` regressing from
+"spreads over damp stone" to "spreads over almost nothing." Every field
+block is now scanned in full instead. Measured against the same full-screen
+stress scene the issue #4/#5/#6 numbers above use: **no measurable
+regression** — 28.0 ms serial / 8.3 ms parallel, statistically the same as
+the ~28 ms/~9 ms already on record. The scan itself was never the bottleneck
+in a scene this CA-heavy; if a future scene turns out to actually feel this
+cost, it's the first place to look.
+
 ## M12/M13 status
 
 `Cell` widened from 4 to 8 bytes (32 MB instead of 16 for a 2048² world —

@@ -57,6 +57,14 @@ pub trait CellSurface {
     /// one soon. See `World::add_light` for the general version.
     fn add_light(&mut self, x: i32, y: i32, radius: i32, amount: f32);
 
+    /// Ambient moisture at `(x, y)` — architecture §4's fire-resistance
+    /// consumer, `try_ignite`'s only caller. A read, not a write, unlike
+    /// `add_heat`/`add_light` above: `(x, y)` is always the cell currently
+    /// being visited, which is always inside the caller's own chunk, so
+    /// `ChunkView` can answer this from its own field tile without
+    /// reaching into the shared `World` at all.
+    fn field_moisture_at(&self, x: i32, y: i32) -> f32;
+
     #[inline]
     fn is_empty(&self, x: i32, y: i32) -> bool {
         self.get(x, y).is_empty()

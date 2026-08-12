@@ -101,6 +101,25 @@ const HEAT_DIFFUSION_RATE: f32 = 0.2;
 const LIGHT_DIFFUSION_RATE: f32 = 0.3;
 const LIGHT_DECAY: f32 = 0.85;
 
+/// Humidity spreads through air more readily than it evaporates away, unlike
+/// light — a much larger diffusion rate than `LIGHT_DIFFUSION_RATE`, still
+/// comfortably under the 2D stability bound. Kept well below 1.0; see
+/// `HEAT_DIFFUSION_RATE`'s own comment for why that ceiling exists.
+const MOISTURE_DIFFUSION_RATE: f32 = 0.4;
+/// Base per-step evaporation, applied before the temperature-scaled term
+/// below. Gentler than `LIGHT_DECAY`: real humidity lingers over minutes,
+/// not the near-instant falloff a point light source gets away with.
+const MOISTURE_BASE_DECAY: f32 = 0.97;
+/// Extra evaporation per degree above ambient, on top of the base rate —
+/// the "decay/evaporation modulated by temperature" extra loop
+/// `Reports/emergent-world-architecture.md` §4 calls out: humidity now
+/// evaporates faster near fire and, once §5h's day/night oscillator drives
+/// temperature, faster at midday than at night, for free. Untuned against
+/// anything real, same as every other constant in this file — the actual
+/// authority is `stays_bounded_over_ten_thousand_frames` and the scene-based
+/// checks, not this number in isolation.
+const MOISTURE_EVAPORATION_PER_DEGREE: f32 = 0.0002;
+
 /// How much of a cell's new value comes from sampling the old snapshot at the
 /// back-traced position (transport) versus the locally computed value
 /// (diffusion/pressure/velocity). 1.0 would be pure advection with no local
@@ -120,6 +139,11 @@ const MAX_TEMPERATURE: f32 = 4000.0;
 /// during a single damped step without that being a bug worth chasing.
 const MIN_TEMPERATURE: f32 = -270.0;
 const MAX_LIGHT: f32 = 4.0;
+/// Architecture report §4. No physical unit — a relative "how much ambient
+/// humidity" scalar, same spirit as `MAX_LIGHT`: not calibrated against a
+/// real quantity, just a fixed ceiling the diffusion/decay constants below
+/// are tuned against.
+const MAX_MOISTURE: f32 = 4.0;
 
 /// One coarse cell: ambient conditions for an `FIELD_SCALE`-sided block of the
 /// CA grid.
@@ -132,17 +156,24 @@ pub struct FieldCell {
     /// the module doc on `Cell` for why both exist.
     pub temperature: f32,
     pub light: f32,
+    /// Ambient humidity — architecture report §4. Sourced from `Liquid` CA
+    /// cells (`apply_moisture_sources`), diffuses and evaporates like every
+    /// other channel here. Replaces the two hand-rolled O(r²) grid scans
+    /// `is_damp`/`strongest_water_pull` used to do this privately, per cell,
+    /// with one shared field every consumer reads.
+    pub moisture: f32,
 }
 
 impl FieldCell {
-    /// Rest state: no pressure, no motion, room temperature, dark. What every
-    /// field cell starts as and what an unloaded region reads as.
+    /// Rest state: no pressure, no motion, room temperature, dark, dry. What
+    /// every field cell starts as and what an unloaded region reads as.
     pub const AMBIENT: FieldCell = FieldCell {
         pressure: 0.0,
         vx: 0.0,
         vy: 0.0,
         temperature: AMBIENT_TEMPERATURE as f32,
         light: 0.0,
+        moisture: 0.0,
     };
 }
 
@@ -153,7 +184,8 @@ impl Default for FieldCell {
 }
 
 /// The field data for one chunk: an 8x8 grid of [`FieldCell`], plus which of
-/// those cells are blocked by CA-solid material.
+/// those cells are blocked by CA-solid material and which contain a
+/// `Liquid` CA cell.
 #[derive(Clone)]
 pub struct FieldTile {
     cells: Box<[FieldCell]>,
@@ -162,6 +194,14 @@ pub struct FieldTile {
     /// solve, because the solve reads it many times per step and CA lookups
     /// are not free.
     blocked: Box<[bool]>,
+    /// Also recomputed every step, in the same scan as `blocked` — whether
+    /// any `Liquid` CA cell falls inside this field block. `apply_moisture_
+    /// sources` reads this at the end of `step` (mirroring `apply_sky`'s use
+    /// of `blocked`) to force the moisture channel back up to `MAX_MOISTURE`
+    /// wherever it's still true, the same "recompute the source condition
+    /// fresh every active frame, don't try to track it incrementally"
+    /// approach `blocked` itself already uses.
+    moisture_source: Box<[bool]>,
 }
 
 impl FieldTile {
@@ -171,6 +211,7 @@ impl FieldTile {
         Self {
             cells: vec![FieldCell::AMBIENT; FIELD_TILE_AREA].into_boxed_slice(),
             blocked: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
+            moisture_source: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
         }
     }
 
@@ -197,6 +238,16 @@ impl FieldTile {
     #[inline]
     fn set_blocked_local(&mut self, lx: i32, ly: i32, blocked: bool) {
         self.blocked[Self::local_index(lx, ly)] = blocked;
+    }
+
+    #[inline]
+    fn is_moisture_source_local(&self, lx: i32, ly: i32) -> bool {
+        self.moisture_source[Self::local_index(lx, ly)]
+    }
+
+    #[inline]
+    fn set_moisture_source_local(&mut self, lx: i32, ly: i32, source: bool) {
+        self.moisture_source[Self::local_index(lx, ly)] = source;
     }
 }
 
@@ -323,6 +374,7 @@ pub(crate) fn sample_bilinear(
         vy: lerp(a.vy, b.vy, t),
         temperature: lerp(a.temperature, b.temperature, t),
         light: lerp(a.light, b.light, t),
+        moisture: lerp(a.moisture, b.moisture, t),
     };
     mix(mix(c00, c10, tx), mix(c01, c11, tx), ty)
 }
@@ -393,6 +445,7 @@ pub fn step(world: &mut World) {
     step_diffusion(world, &coords, &mut next);
     step_advection(&coords, bounds, &mut next);
     apply_sky(world, &coords, &mut next);
+    apply_moisture_sources(&coords, &mut next);
 
     world.set_fields_settled(is_converged(world.fields_ref(), &coords, &next));
     world.replace_fields(next);
@@ -415,6 +468,7 @@ const SETTLE_EPSILON_PRESSURE: f32 = 0.01;
 const SETTLE_EPSILON_VELOCITY: f32 = 0.001;
 const SETTLE_EPSILON_TEMPERATURE: f32 = 0.02;
 const SETTLE_EPSILON_LIGHT: f32 = 0.005;
+const SETTLE_EPSILON_MOISTURE: f32 = 0.005;
 
 /// Whether every field cell in `next` is within its channel's settle epsilon
 /// of the corresponding cell in `old` — the field's own notion of "stopped
@@ -436,6 +490,7 @@ fn is_converged(old: &HashMap<ChunkCoord, FieldTile>, coords: &[ChunkCoord], nex
                     || (a.vy - b.vy).abs() > SETTLE_EPSILON_VELOCITY
                     || (a.temperature - b.temperature).abs() > SETTLE_EPSILON_TEMPERATURE
                     || (a.light - b.light).abs() > SETTLE_EPSILON_LIGHT
+                    || (a.moisture - b.moisture).abs() > SETTLE_EPSILON_MOISTURE
                 {
                     return false;
                 }
@@ -483,6 +538,48 @@ fn apply_sky(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord
     }
 }
 
+/// Constant moisture source wherever a `Liquid` CA cell is present —
+/// architecture report §4. Same shape and same reasoning as `apply_sky`
+/// immediately above: forces `moisture` to `MAX_MOISTURE` at every field
+/// block `rebuild_blocked` flagged this frame (`moisture_source`), run last
+/// for the same "everything upstream overwrites unconditionally" reason, and
+/// does **not** clear `fields_settled` — a body of standing water is a
+/// stable condition, not a disturbance, and moving water already keeps its
+/// own chunk (and therefore `active_chunk_count()`) awake independently,
+/// which is what actually re-triggers `rebuild_blocked`'s scan and lets
+/// `is_converged` notice a source appearing or disappearing.
+///
+/// Unlike `apply_sky`, this does **not** skip blocked field cells. A
+/// shallow puddle resting on a thin floor — the overwhelmingly common case,
+/// not an edge case — routinely shares its own coarse field block with the
+/// ground right underneath it (`FIELD_SCALE` is 8 world cells; a 1-cell-deep
+/// puddle and the floor it sits on are almost always within 8 cells of each
+/// other), which is enough for `rebuild_blocked`'s over-blocking bias to
+/// mark that whole block impassable. Gating on `!blocked` the way `apply_
+/// sky` does silently zeroed out moisture for exactly the geometry this
+/// channel most needs to get right — caught by `moss_spreads_over_damp_
+/// stone_and_not_over_dry` going from "spreads over damp stone" to "spreads
+/// over almost nothing" once that test switched from the old per-cell scan
+/// to a real field read. The forced value still won't cross into an
+/// *unblocked* neighbour via diffusion (`step_diffusion`'s own blocked-
+/// neighbour substitution sees to that), so this only affects reads that
+/// land inside the wet-but-blocked block itself — exactly where a puddle's
+/// own dampness needs to still be visible.
+fn apply_moisture_sources(coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
+    for &coord in coords {
+        let tile = next.get_mut(&coord).expect("next was pre-populated with every coord in coords");
+        for ly in 0..FIELD_TILE_SIZE {
+            for lx in 0..FIELD_TILE_SIZE {
+                if tile.is_moisture_source_local(lx, ly) {
+                    let mut cell = tile.get_local(lx, ly);
+                    cell.moisture = MAX_MOISTURE;
+                    tile.set_local(lx, ly, cell);
+                }
+            }
+        }
+    }
+}
+
 /// A field cell counts as blocked when any CA-solid cell falls inside its
 /// `FIELD_SCALE`-sided block. Biased toward over-blocking rather than
 /// under-blocking: a field cell that is mostly open but partly solid still
@@ -510,7 +607,44 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                 let bx0 = ox + lx * FIELD_SCALE;
                 let by0 = oy + ly * FIELD_SCALE;
                 let mut blocked = false;
-                'scan: for dy in 0..FIELD_SCALE {
+                // Whether any `Liquid` CA cell falls in this block —
+                // architecture §4's moisture source. Recorded in the same
+                // scan `blocked` already runs, rather than a second pass
+                // over every CA cell. Costs this function's own early exit,
+                // though: a first attempt still broke out the moment `blocked`
+                // went true, on the reasoning that a sealed block can't leak
+                // moisture to a neighbour regardless of what's inside it —
+                // true for diffusion *outward*, but wrong for a direct read
+                // *of* that same block, which is exactly what a shallow puddle
+                // resting on a thin floor needs (see `apply_moisture_sources`'s
+                // own doc for the full story). `moss_spreads_over_damp_stone_
+                // and_not_over_dry` caught it: the block containing this
+                // test's own puddle also contains an unrelated solid wall
+                // cell earlier in scan order than the water, so breaking on
+                // the wall skipped the water entirely. Every block is now
+                // scanned in full (bar the world-bounds case below, which
+                // stays unconditionally true, since nothing outside the
+                // world can ever be liquid) — a real, measured-and-
+                // documented regression against issue #5/#6's own early-exit
+                // for the dominant "solid ground" case; see the README's
+                // Performance section for the honest numbers.
+                //
+                // No `break` anywhere in this loop any more, on either
+                // condition — an independent review of an earlier version
+                // (which still broke out on the out-of-bounds case) found
+                // that leaves the exact same class of bug it was fixing one
+                // level up: for a world whose size isn't a multiple of
+                // `FIELD_SCALE`, a block straddling the boundary would abort
+                // its *entire* scan on the first out-of-bounds cell it hit
+                // (`dy = 0`, if the boundary runs vertically), silently
+                // never examining the fully in-bounds rows below it where a
+                // real `Liquid` cell could sit. Currently unreachable in
+                // practice -- every `World::new` call site in this codebase
+                // uses `FIELD_SCALE`-aligned dimensions -- but nothing
+                // enforces that, so it stays fixed rather than relying on
+                // that holding forever.
+                let mut has_liquid = false;
+                for dy in 0..FIELD_SCALE {
                     for dx in 0..FIELD_SCALE {
                         // `World::new` eagerly creates every chunk
                         // overlapping `bounds` (`ensure_chunks_for`), so a
@@ -532,7 +666,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         // reads elsewhere: solid, so blocked.
                         if !world.in_bounds(bx0 + dx, by0 + dy) {
                             blocked = true;
-                            break 'scan;
+                            continue;
                         }
                         let cell = chunk.get_world(bx0 + dx, by0 + dy);
                         // `Plant` blocks too, not just `Solid` -- a tree
@@ -554,11 +688,14 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         let kind = world.materials.kind(cell.material);
                         if matches!(kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant) {
                             blocked = true;
-                            break 'scan;
+                        }
+                        if kind == super::material::MaterialKind::Liquid {
+                            has_liquid = true;
                         }
                     }
                 }
                 tile.set_blocked_local(lx, ly, blocked);
+                tile.set_moisture_source_local(lx, ly, has_liquid);
             }
         }
     }
@@ -740,16 +877,27 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
                 let down = neighbour(0, FIELD_SCALE);
                 let neighbour_avg_t = (left.temperature + right.temperature + up.temperature + down.temperature) / 4.0;
                 let neighbour_avg_l = (left.light + right.light + up.light + down.light) / 4.0;
+                let neighbour_avg_m = (left.moisture + right.moisture + up.moisture + down.moisture) / 4.0;
 
                 let temperature = (here.temperature
                     + (neighbour_avg_t - here.temperature) * HEAT_DIFFUSION_RATE)
                     .clamp(MIN_TEMPERATURE, MAX_TEMPERATURE);
                 let light = ((here.light + (neighbour_avg_l - here.light) * LIGHT_DIFFUSION_RATE) * LIGHT_DECAY)
                     .clamp(0.0, MAX_LIGHT);
+                // Evaporation speeds up above ambient temperature -- the
+                // "extra loop" architecture §4 calls out, tying moisture to
+                // heat instead of decaying at one fixed rate regardless of
+                // how hot the air is.
+                let evaporation = (MOISTURE_BASE_DECAY
+                    - (here.temperature - AMBIENT_TEMPERATURE as f32).max(0.0) * MOISTURE_EVAPORATION_PER_DEGREE)
+                    .clamp(0.0, 1.0);
+                let moisture = ((here.moisture + (neighbour_avg_m - here.moisture) * MOISTURE_DIFFUSION_RATE) * evaporation)
+                    .clamp(0.0, MAX_MOISTURE);
 
                 let mut cell = tile.get_local(lx, ly);
                 cell.temperature = temperature;
                 cell.light = light;
+                cell.moisture = moisture;
                 tile.set_local(lx, ly, cell);
             }
         }
@@ -789,6 +937,7 @@ fn step_advection(coords: &[ChunkCoord], bounds: Option<Rect>, next: &mut HashMa
                     vy: lerp(here.vy, transported.vy, ADVECTION_BLEND),
                     temperature: lerp(here.temperature, transported.temperature, ADVECTION_BLEND),
                     light: lerp(here.light, transported.light, ADVECTION_BLEND),
+                    moisture: lerp(here.moisture, transported.moisture, ADVECTION_BLEND),
                 };
 
                 tile.set_local(lx, ly, blended);
@@ -983,6 +1132,88 @@ mod tests {
         let blocked = w.field_at(140, 10).light; // inside the solid block itself
         assert!(open > 0.5, "the open column under the sky did not brighten: {open}");
         assert_eq!(blocked, 0.0, "a solid field cell should never carry a light value of its own");
+    }
+
+    #[test]
+    fn standing_water_is_a_moisture_source_that_diffuses_and_decays_with_distance() {
+        // Architecture §4. `apply_moisture_sources` forces `MAX_MOISTURE`
+        // into every field block `rebuild_blocked` flagged as containing a
+        // `Liquid` CA cell, every step -- this is the replacement for the
+        // two hand-rolled O(r^2) grid scans (`is_damp`, `strongest_water_
+        // pull` in `plant.rs`) that used to detect water this way privately.
+        let mut w = test_world();
+        for x in 124..132 {
+            for y in 124..132 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        for _ in 0..50 {
+            step(&mut w);
+        }
+
+        let near = w.field_at(128, 128).moisture;
+        let far = w.field_at(128, 220).moisture;
+        assert!(near > 0.0, "standing water did not register as a moisture source");
+        assert!(far < near, "moisture did not fall off with distance");
+    }
+
+    #[test]
+    fn moisture_does_not_leak_through_a_sealed_wall() {
+        // Same reasoning as `heat_does_not_leak_through_a_sealed_wall_via_
+        // diffusion` below, one channel over: a sealed stone room should
+        // stay dry even sitting right next to standing water, since
+        // `step_diffusion` is wall-aware for every channel it carries, not
+        // just temperature and light.
+        let mut w = test_world();
+        for x in 96..160 {
+            for y in [96, 159] {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for y in 96..160 {
+            for x in [96, 159] {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 40..90 {
+            for y in 124..132 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        for _ in 0..50 {
+            step(&mut w);
+        }
+
+        let inside = w.field_at(128, 128).moisture;
+        assert_eq!(inside, 0.0, "moisture leaked through a sealed wall: {inside}");
+    }
+
+    #[test]
+    fn a_liquid_cell_is_detected_even_in_a_field_block_that_straddles_the_world_edge() {
+        // Regression an independent review of §4 flagged: `rebuild_blocked`'s
+        // scan used to `break` its *entire* block scan (both loops) the
+        // moment it found an out-of-bounds cell, on the same "nothing more
+        // to learn" reasoning that justifies stopping on a solid cell. That
+        // reasoning doesn't hold here -- a world whose size isn't a multiple
+        // of FIELD_SCALE has a block straddling its edge, and a *vertical*
+        // edge puts an out-of-bounds cell at the same dx in every row
+        // (dy = 0's own row hits it first), aborting before any later row
+        // -- fully in-bounds -- is ever scanned. A `Liquid` cell sitting in
+        // one of those later rows would be silently missed.
+        //
+        // Width 102 (0..=101) is not a multiple of `FIELD_SCALE` (8); height
+        // 104 (0..=103) is, isolating the straddle to the x edge only so
+        // this doesn't also trip a y-edge case at the same time.
+        let mut w = World::new(Rect::new(0, 0, 101, 103));
+        // Field block (12, 12) spans world (96..=103, 96..=103); x 102..103
+        // is out of bounds (max_x = 101), x 96..101 is not. Row dy=0 (y=96)
+        // hits the out-of-bounds column first; the water sits at dy=3
+        // (y=99), a fully in-bounds row the old `break` would never reach.
+        w.set(96, 99, Cell::new(material::WATER, 0));
+        step(&mut w);
+
+        let moisture = w.field_at(96, 99).moisture;
+        assert!(moisture > 0.0, "a liquid cell in a later row of an edge-straddling block was not detected as a moisture source");
     }
 
     #[test]

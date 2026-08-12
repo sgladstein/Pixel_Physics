@@ -1369,6 +1369,66 @@ updated at each milestone commit, not just when something is added.
   the trail-*width* half of "the resolution problem" — that is explicitly a
   future moisture/pheromone-channel-resolution question (§4), out of scope
   here.
+- **Architecture §4** (moisture field channel): **done.** `FieldCell` gained
+  a fifth channel (`moisture`), sourced from `Liquid` CA cells
+  (`apply_moisture_sources`, same shape as `apply_sky`), diffusing
+  (`MOISTURE_DIFFUSION_RATE`) and evaporating faster above ambient
+  temperature (`MOISTURE_EVAPORATION_PER_DEGREE` — the "extra loop" the
+  architecture report itself suggested, tying moisture to heat rather than
+  a single fixed decay rate). All four waiting consumers wired in: `plant.rs`'s
+  `is_damp` and `strongest_water_pull` (renamed `moisture_pull`, now a
+  gradient read through `field_at_bilinear` per §6a rather than an O(r²)
+  hand-rolled scan) for moss and root hydrotropism; `creature.rs`'s
+  `move_cost` discounts a worm's burrow cost by local saturation
+  (`WORM_MOISTURE_DISCOUNT` — damp substrate holds a tunnel shape better
+  than dry, a documented judgment call since the cited research names
+  moisture as a resistance modulator without specifying direction);
+  `fire.rs`'s `try_ignite` suppresses (not eliminates) the probabilistic
+  contact-ignition path by local saturation (`MOISTURE_IGNITION_RESISTANCE`),
+  leaving the deterministic temperature-crossing path untouched so a fire
+  hot enough to boil off the water can still set wet material alight.
+  `CellSurface` gained a `field_moisture_at` read (fire's only field read,
+  unlike every other consumer here, which is why it needed the trait
+  extended rather than just calling `World::field_at` directly — `ChunkView`
+  answers it from its own field tile with no shared-`World` access needed,
+  since the query position is always inside the caller's own chunk).
+  `rebuild_blocked`'s CA scan now also detects `Liquid` presence in the same
+  pass, at a real, measured, and honestly-documented cost: its first version
+  kept the original early-exit on finding a solid cell, which broke the
+  common "puddle resting on a thin floor" case whenever an unrelated solid
+  cell happened to sit earlier in scan order than the water — caught by
+  `moss_spreads_over_damp_stone_and_not_over_dry` regressing hard once it
+  switched from the old scan to a real field read. Every block is now
+  scanned in full; measured against the full-screen stress scene, no
+  significant regression (28.0 ms serial / 8.3 ms parallel vs. ~28 ms/~9 ms
+  already on record) — see README's Performance section. Four regression
+  tests, one per consumer, each confirmed to fail without its fix before
+  being trusted: `standing_water_is_a_moisture_source_...`/`moisture_does_
+  not_leak_through_a_sealed_wall` (field.rs), `roots_steer_toward_off_axis_
+  water_via_hydrotropism`/`moss_spreads_over_damp_stone_and_not_over_dry`
+  (plant.rs, both switched to a new `run_with_fields` test helper that also
+  steps the field solver — most of `plant.rs`'s other tests deliberately
+  don't, isolating CA/scheduler behaviour from field behaviour), `damp_sand_
+  is_cheaper_to_burrow_through_than_dry_sand` (creature.rs), and `moisture_
+  suppresses_ignition_from_a_burning_neighbour` (fire.rs — exploits `World::
+  new`'s fixed RNG seed for an exact, non-statistical comparison: two fresh
+  worlds draw the identical random sequence each frame, so a lower
+  ignition-chance threshold can only ignite the same frame or later, never
+  earlier, deterministically). Independent review found one real bug: the
+  first version of `rebuild_blocked`'s rewritten scan still broke its entire
+  block scan on the first out-of-bounds cell it hit, reintroducing — one
+  level up — the exact "scan order can hide a liquid cell" bug it had just
+  fixed for the solid-cell case. A world whose size isn't a multiple of
+  `FIELD_SCALE` has field blocks straddling its own edge, and a vertical
+  edge puts an out-of-bounds cell at the same column in every row, so hitting
+  it on row zero aborted the scan before any later, fully in-bounds row —
+  where a real `Liquid` cell could sit — was ever examined. Currently
+  unreachable in practice (every `World::new` call site in this codebase
+  uses `FIELD_SCALE`-aligned dimensions) but not guarded against, so fixed
+  rather than left latent: no early exit anywhere in the scan any more, on
+  either condition. New regression test (`a_liquid_cell_is_detected_even_in_
+  a_field_block_that_straddles_the_world_edge`), confirmed to fail against
+  the reverted behaviour before being trusted.
 
 ---
 
