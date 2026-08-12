@@ -159,14 +159,25 @@ Window, fixed-timestep loop, `pixels` framebuffer, FPS overlay. Render noise to 
 > **Not built:** flammability, melting and boiling points, and reactions — the
 > whole thermal half of the schema below. **M14 finishes it.** BTW toppling and
 > hole-propagation granular flow were also skipped; the friction-angle roll
-> already delivers tunable, irregular slopes, so those are now optional polish.
+> already delivers tunable, irregular slopes, so those were left as optional
+> polish. **Superseded:** `Reports/granular-mechanics-research.md` §3 finds BTW
+> toppling should not be built at all, not just deprioritized — real 2D
+> sandpiles don't show the power-law avalanche distribution BTW predicts
+> (Jaeger/Liu/Nagel; the Oslo rice-pile result), and the actual mechanism
+> (dilatancy + velocity-weakening, §5 and §2 of that report) produces *better*
+> granular behavior for less code. See the granular-mechanics entry in the
+> execution order below for what replaces this.
 
 
 Replace ad-hoc "try down, then down-left/down-right" with rules that have physical meaning. This is where the academic work pays off:
 
 - **Angle of repose from a friction angle.** Klár et al., [*Drucker-Prager Elastoplasticity for Sand Animation*](https://math.ucdavis.edu/~jteran/papers/KGPSJT16.pdf) (SIGGRAPH 2016) models sand via a yield criterion relating shear to normal stress. Do **not** implement MPM — far too slow. Steal the *parameterization*: give each powder a `friction_angle` instead of a magic "spread factor." It maps directly to pile slope and tunes predictably across every material you add.
-- **Pile relaxation via BTW toppling.** The Bak–Tang–Wiesenfeld sandpile model ([overview](https://www.hiskp.uni-bonn.de/uploads/media/sandpiles.pdf)): when a cell exceeds critical height, it topples to neighbors and cascades until stable. Gives avalanches with power-law size distribution *for free* — precisely the emergent surprise the million-pixel project lacked.
-- **Granular flow as upward hole propagation.** Baxter & Behringer, *Physica D* (1991); [Kozicki & Tejchman, *Granular Matter* (2005)](https://link.springer.com/article/10.1007/s10035-004-0190-x). Modeling voids diffusing *up* rather than grains falling *down* is cheap and produces correct funnel/mass-flow behavior. Also see [friction in lattice CA granular models](https://www.researchgate.net/publication/274430628_The_Inclusion_of_Friction_in_Lattice-Based_Cellular_Automata_Modeling_of_Granular_Flows).
+- ~~**Pile relaxation via BTW toppling.**~~ **Do not build** — see the
+  "Superseded" note above. `Reports/granular-mechanics-research.md` §2's
+  two-angle model (θ_ms/θ_r, one `Cell::flags` bit) is what actually
+  produces avalanches, hysteresis and bistability, and is cited there as
+  the *accurate* replacement for this, not a cheaper approximation of it.
+- **Granular flow as upward hole propagation.** Baxter & Behringer, *Physica D* (1991); [Kozicki & Tejchman, *Granular Matter* (2005)](https://link.springer.com/article/10.1007/s10035-004-0190-x). **Caution added:** `Reports/granular-mechanics-research.md` §6 finds the naive void-random-walk formulation over-mixes badly (confirmed against the same literature this section already cites) — if built, use the report's correlated "spot" model instead of a single-cell void walk, and only once an actual hopper/silo use case needs it (§10 there recommends deferring past piles/pours/avalanches, which the two-angle model already covers).
 - **Density-driven displacement:** heavier materials sink through lighter ones. One rule, enormous behavioral payoff.
 
 Move definitions into `assets/materials/*.ron`, loaded into a `MaterialRegistry` at startup, hot-reloaded via `notify`. Schema: `name`, `category` (Powder/Liquid/Gas/Solid/Fire), `density`, `friction_angle`, `dispersion`, `color_palette`, `flammability`, `melting_point`, `boiling_point`, `reactions[]`. Update functions dispatch on category and are parameterized entirely by data.
@@ -3423,40 +3434,277 @@ able to cite it for real.
    supplies. What *is* missing is load: a scoped one-term addition to
    `organism_is_supported` (reduces effective span under weight).
 
-**Retrofit order (full detail in the doc's own §9), in short:** sidecar
-storage (blocking, step 1) → real leaves (step 2, re-tune `tree.ron` here)
-→ soil moisture storage + differentiated materials + load-reduces-span (
-parallelizable, steps 3-5) → root displacement into soil (step 6) → soil
-`Absorb` + anoxia necrosis (step 7, the water-table equilibrium is the
-actual proof this works) → bud break (step 8, deliberately last — it
-removes the size ceiling, so it's what will expose scaling problems in
-everything before it) → independent review (step 9, same rigor as the
-tree rewrite's own step 8).
+**Retrofit order — updated below to the final 10-step version (design
+doc §10; this entry originally cited the pre-Decision-6 §9 numbering,
+which shifted by one once polarity was inserted).** In short: sidecar
+storage (blocking, step 1) → **polarity** (step 2, immediately after the
+sidecar lands and *before* any `.ron` re-tune — see "Revised after
+landing" below for why) → real leaves (step 3, re-tune `tree.ron` here,
+now sweeping `TRANSPORT_SUBSTEPS` and canalization contrast alongside
+`cost`/`rate`/`reserve` since polarity already landed) → soil moisture
+storage + differentiated materials/root-soil-stabilization + load-reduces-
+span (parallelizable, steps 4-6) → root displacement into soil (step 7) →
+soil `Absorb` + anoxia necrosis (step 8, the water-table equilibrium is the
+actual proof this works, and optionally where a second `water_conductance`
+array lands per §7f) → bud break (step 9, deliberately last — it removes
+the size ceiling, so it's what will expose scaling problems in everything
+before it, and is also the first workload long enough to demonstrate or
+withdraw §7h's structural-loop claim) → independent review (step 10, same
+rigor as the tree rewrite's own step 8, now also checking the transport
+pass visits each shared face exactly once and that `away_from_supply`'s
+fallback fires sanely for a fresh organism).
 
-**Status: fully planned, zero code written.** Next action for whoever
-picks this up is retrofit step 1 (`Cell::aux` → sidecar, design doc §3f),
-not a discussion — the planning phase the owner asked for is complete.
+**Status: fully planned (all 6 decisions, all 10 retrofit steps), zero
+code written.** Next action for whoever picks this up is retrofit step 1
+(`Cell::aux` → sidecar, design doc §3f), not a discussion — the planning
+phase the owner asked for is complete, including the polarity addendum
+below.
 
-**Revised after landing:** polarity/directional diffusion was originally
-scoped out (design doc §7), deferred to its own future pass. Owner
-follow-up question caught a real gap in that call: it isn't independent of
-this phase after all — retrofit step 1 (sidecar storage) already has to
-restructure `diffuse_resource`'s own execution shape (moving it off the
-generic `CellSurface` trait to a per-organism pass, since a per-organism
-`Vec` needs that), which is the exact code polarity would also need to
-change, and step 1 is what actually gives a polarity field room to exist
-at all (no spare bits in the old packed `aux`). Worse, retrofit step 2
-(real leaves, leaf-gated photosynthesis) requires re-tuning `tree.ron`'s
-resource economy — tuning it once against isotropic diffusion and again
-after polarity lands later would be exactly the "don't optimize if a
-diffusion-mechanism change is coming" waste the owner flagged at the start
-of this whole planning pass. **Decision: move polarity up**, sequenced
-between retrofit steps 1 and 2 (before the leaf/reserve re-tune, not
-after). It needs the same design rigor as the other 5 decisions before it
-can actually occupy that slot — right now it's only a research-level
-sketch (`plant-simulation-research.md` §5: "three or four bits of
-polarity... a flux-following update rule"), not a decided mechanism with a
-concrete data layout, update rule, and retrofit steps. A follow-up design
-pass (Decision 6, extending `plant-substrate-v2-design.md` in place) is
-in progress to make it concrete before implementation starts. Evolution
-stays out of scope for this phase either way.
+**Revised after landing, and now itself landed:** polarity/directional
+diffusion was originally scoped out (design doc §7 in its first draft),
+deferred to its own future pass. Owner follow-up question caught a real
+gap in that call: it isn't independent of this phase after all — retrofit
+step 1 (sidecar storage) already has to restructure `diffuse_resource`'s
+own execution shape (moving it off the generic `CellSurface` trait to a
+per-organism pass, since a per-organism `Vec` needs that), which is the
+exact code polarity would also need to change, and step 1 is what actually
+gives a polarity field room to exist at all (no spare bits in the old
+packed `aux`). Worse, retrofit step 2 (real leaves, leaf-gated
+photosynthesis) requires re-tuning `tree.ron`'s resource economy — tuning
+it once against isotropic diffusion and again after polarity lands later
+would be exactly the "don't optimize if a diffusion-mechanism change is
+coming" waste the owner flagged at the start of this whole planning pass.
+**Decision: move polarity up**, sequenced between retrofit steps 1 and 2
+(before the leaf/reserve re-tune, not after).
+
+**Decision 6, now written in full** (design doc §7, ~1000 lines): four
+per-face `carbon_conductance: [f32; 4]` scalars on `OrganismCell` (§7b —
+rejected a packed direction-only encoding, since conductance itself, not
+just direction, is what has to update); pairwise carrier-shaped transport
+`J_ij = RATE·(c_ij·R_i − c_ji·R_j)` replacing `diffuse_resource`'s
+symmetric average, visiting each shared face exactly once for
+conservation (§7c); a Hill-function conductance-ratcheting update rule
+(§7e) — this is the actual "polarity" mechanism, canalization by
+use-dependent strengthening, not a stored direction; `Grow`'s
+`away_from_growth` term becomes `away_from_supply`, reading local
+conductance rather than crowding (§7g). Canopy density deliberately stays
+isotropic (§7f) — a principled scope cut, not an oversight. **Honest
+walk-back, stated by the report itself (§7i):** this produces *competitive
+resource allocation* between tips (a well-connected, less-hungry tip can
+out-compete a starved-but-needy one — demonstrated in the §7h worked
+example), not literal auxin-transport apical dominance; a second,
+oppositely-polarized inhibitory channel that would give the real thing is
+explicitly deferred, not built. The four new tests in §7k gate step 2 of
+the retrofit; the Y-junction test (the less-hungry-but-better-connected
+tip taking the larger share at §7h tick 6) is the load-bearing one, and
+`VEIN_GAIN = 0` must reproduce today's isotropic results exactly so a
+future regression here stays bisectable. Evolution stays out of scope for
+this phase either way (§8b).
+
+---
+
+## `Reports/granular-mechanics-research.md` and `Reports/liquid-simulation-research-r2.md` — landed, plan updated (session handoff)
+
+Two more research reports ("Report A" and "Report B" of a planned four —
+Report C on solid-granular-fluid coupling and Report D on worldgen erosion
+are referenced by both as forthcoming but do not exist in `Reports/` yet;
+treat any conclusion either report calls provisional-pending-C as still
+open) arrived via a raw GitHub-web upload to `origin/master`
+(`e6ad4dd`, "Add files via upload") while this session worked entirely on
+local commits descended from `838c557` — a genuine history divergence,
+resolved with `git merge origin/master --no-edit` (clean, zero conflicts,
+disjoint file sets: `2 files changed, 1297 insertions(+)`).
+
+**Agreement, stated up front, since the owner asked for updates "assuming
+you agree with them":** both reports' central recommendations are accepted
+as-is below. The one place this entry pushes back rather than transcribes
+is Report A §6 (hole-propagation) — the report itself already frames that
+finding as a caution rather than a build order, and this entry keeps it
+that way rather than upgrading it to a task. Everything else (two-angle
+repose, deleting BTW, the `FLAG_FLOWING` unification across both reports,
+VOF's local-height fix, the dilatancy packing scalar, hydrostatic
+pressure's path-trace) is agreed with and folded into the plan below with
+no changes to the reports' own reasoning.
+
+### Granular (Report A) — what changes in the plan
+
+The M3 section above already struck the BTW-toppling bullet and
+hole-propagation caution; this is the constructive side.
+
+1. **Two-angle repose model** (`granular-mechanics-research.md` §2). One
+   new bit in `Cell::flags`' free bits, `FLAG_FLOWING`. Content model: keep
+   `friction_angle` meaning the *repose* angle θ_r (no change to existing
+   `.ron` files — this is additive), add an optional `max_stability_angle`
+   per material defaulting to `friction_angle + 8.0` (the θ_ms/θ_r gap
+   Metcalfe et al. and Lee & Herrmann 1993 report — flagged §11 as read via
+   secondary sources, worth checking a primary before the acceptance-test
+   number below is treated as a hard bar). A resting pile can stand up to
+   θ_ms; once *any* cell starts moving it flows down to θ_r and doesn't
+   re-lock until it's below that — real hysteresis and bistability, which
+   the current single-angle `roll_along_slope` structurally cannot express
+   (§1 of the report is explicit that this is a ceiling of the current
+   model, not a missing tuning pass).
+2. **Delete, don't build: BTW toppling** (§3). Real 2D sandpile avalanches
+   don't show BTW's power-law size distribution — Jaeger/Liu/Nagel 1989,
+   the Oslo rice-pile studies, a recent 5-bead-drum result are all cited
+   against it. The lattice *stability condition* BTW is built on
+   (`|h_x − h_{x+1}| < tan(θ_r)`) is worth keeping as a **test invariant**
+   for the two-angle model above, just not as toppling dynamics. Already
+   reflected in the M3 edit above and README.md's "not yet built" list.
+3. **Dilatancy / packing state** (§5), lower priority, sequenced after 1.
+   Reuse `Powder`'s currently-unused `aux` as a packing-fraction scalar —
+   the exact same precedent the compressible-liquid `aux`-as-fill-fraction
+   design already set (§4 above), so this is a proven pattern in this
+   codebase, not a new one. Dilate on move, compact at rest (Reynolds
+   dilatancy), packing modulates the two-angle reach. **Needs an early-exit
+   for cost**, per the report's own citation of this project's M14
+   `heat_conductivity` lesson (a per-cell scalar recompute that skips
+   settled cells cheaply) — don't build this without that guard.
+4. **Known and deliberately not built now:** force chains / Janssen effect
+   (§4) — noted as sharing `structural.rs`'s existing relaxation shape if
+   ever built, and an explicit warning not to conflate granular stress with
+   the engine's `pressure` field (that channel is air pressure) *or* with
+   Report B's hydrostatic liquid pressure below, once that lands — three
+   different quantities, one tempting shared name. μ(I) rheology (§7)
+   needs velocity+stress fields this engine doesn't have; explicitly
+   flagged as Report C's problem, not this plan's.
+5. **Hole-propagation caution** (§6): if a hopper/silo use case ever
+   surfaces, the correct model is Bazant's correlated "spot" model, not a
+   single-cell void random walk — the naive version measurably over-mixes
+   against real hopper data. Not scheduled; recorded so it isn't
+   rediscovered the naive way later.
+
+**Acceptance criteria added to this plan's verification bar** (§8 of the
+report, cost ceiling flagged as needing re-measurement against current
+`~23ms`, not assumed): a 2D column-collapse test matching Lube et al.'s
+scaling numbers (flagged §11 as needing primary-source verification before
+treating as a hard pass/fail bar); the θ_ms − θ_r gap test targeting
+δ ≈ 8°; an avalanche-size-distribution test asserting Gaussian shape, *not*
+power-law (the direct, checkable version of finding 2's claim); a repose-
+accuracy test within ~2° of an authored θ_ms (current single-angle model
+sits 5-6° under); cost regression ≤15% against the current serial
+baseline.
+
+**Where this sits relative to the plant-substrate-v2 work:** independent
+tracks. This touches `Cell::flags`, `update.rs`'s powder path, and
+`material.rs`; the plant work touches `organism.rs`/`plant.rs` and (once
+its own retrofit step 1 lands) a new sidecar `Vec` on `OrganismState`. No
+shared files, no ordering dependency either direction — safe to build in
+either order, or interleave, without the "don't tune before a mechanism
+change lands" trap that drove the plant/polarity resequencing.
+
+### Liquid (Report B) — what changes in the plan
+
+The §4 "water/liquid leveling — compressible-volume rewrite" section above
+is already-shipped work this report evaluates and extends, not a rewrite
+of it — read the two together.
+
+1. **Symptom 3, named for the first time: flotsam-and-jetsam** (§3a). The
+   "draining pools decay to residual droplets" behaviour this session's own
+   playtesting has seen is a documented, named VOF failure mode, not a bug
+   specific to this engine's implementation. **Fix (§3b):** a published
+   3-cell local height-function read, computed only for surface cells, not
+   a global solve — cited as eliminating the droplet artifact and giving
+   exact mass conservation versus standard VOF's ~2% gain. This is the
+   single highest-value item in Report B: it's a local, cheap, already-
+   proven fix for a bug this project has already independently observed.
+2. **`MIN_LIQUID_TRANSFER = 150` reframed** (§3c): the value this session
+   arrived at empirically (documented at `update.rs`'s own doc comment and
+   PLAN.md's §4 entry above, tuned 8 → 150 purely by measuring convergence
+   time) is, per this report, a 15%-of-`FULL` dead band large enough to
+   lock in a permanently uneven surface — **"treat as diagnostic of the
+   underlying leveling algorithm being too slow, not as the correct
+   setting."** Recommended path: fix symptom 2 properly (item 3 below),
+   then re-measure whether `MIN_LIQUID_TRANSFER` can drop back toward 8
+   without reintroducing the original long-tail convergence problem — do
+   not lower it first, since without a faster leveling mechanism that
+   regresses straight back to the ~12,000-frame tail this session already
+   measured and rejected once.
+3. **Symptom 2 (wide bodies level in O(width²)) has a real fix, not just
+   more tuning: heightfield-is-1D** (§5). This engine's own §4 fix
+   (`HORIZONTAL_TRANSFER_REACH = 8`) is a mitigation, honestly — the
+   100-cell test column still only reaches "flat to within about 3 cells,"
+   not truly flat. The actual fix reframes settled liquid bodies as a 1D
+   array of column heights (virtual-pipes / Mei-Decaudin-Hu), giving
+   O(width) leveling instead of O(width²) — and doubles as the worldgen
+   erosion mechanism Report D is expected to need, so this is not a
+   liquid-only investment. **The real difficulty is named honestly (§5a):**
+   a side-view world isn't purely a heightfield — caves, overhangs, sealed
+   vessels all break a pure column model — so this needs a hybrid: small/
+   dynamic water stays the existing CA model, large/settled bodies promote
+   to per-column heights, with demotion back to CA on disturbance.
+   `rigid::label_component` is flagged as suggestive existing
+   infrastructure for the promotion/demotion boundary, "currently wired to
+   nothing." **§5a's own recommendation: prototype the promotion/demotion
+   seam first, not the pipe physics** — that's where the real risk is.
+4. **Symptom 4, hydrostatic pressure, named for the first time** (§6). The
+   engine's `pressure` field channel already has writers (explosion,
+   `structural::break_free`) but liquid never reads or writes it — there is
+   currently no "deep water pushes harder" behaviour at all. Dwarf
+   Fortress's documented path-trace approach ("pressure never exceeds the
+   first full cell found tracing up from a cell") is directly portable.
+   **Three cautions carried forward as-is:** needs a hard length cap once
+   M10 streaming exists, since DF's rule bounds height but not trace
+   length, and an unbounded trace against a streamed water table could get
+   expensive; must sample via `field_at_bilinear`, not `field_at` — the
+   same block-nearest degeneracy already fixed once for worm thermotaxis
+   and tree phototropism, worth not reintroducing here; whether granular
+   stress (Report A §4), hydrostatic liquid pressure, and the existing air-
+   pressure channel can share one field is an open question — starting
+   with liquid as **read-only** on the existing channel is the recommended
+   first step, deferring the shared-channel question.
+5. **LBM — deferred, and re-justified, not just re-asserted** (§4). Real
+   bandwidth arithmetic: D2Q9 f32 is 36 bytes/cell, 72 bytes/cell/step of
+   traffic, ~11.8 MB/step at this engine's current resident size, 0.6-
+   1.2ms at typical bandwidth — cheap enough on its own. **The actual
+   reason it's deferred is composability and M10, not cost (§4b, §4c):**
+   LBM would own the entire liquid layer with no notion of the density-
+   driven cell-swap displacement this engine's CA model gets for free, and
+   at an assumed (not measured — §12 is explicit about this) 10x resident-
+   chunk count under M10 streaming, LBM is the one subsystem whose cost
+   scales with resident world size rather than activity — breaking this
+   engine's core cost-proportional-to-change architecture. **Gated, not
+   scheduled:** any LBM prototype must (a) demonstrate real sleep/
+   coarsening, not defer the problem, (b) be measured at actual streaming
+   scale, not the current test scene, (c) report mass conservation across
+   a coarse/fine boundary. Thürey & Rüde 2009 flagged (§12) as identified
+   via citations only — read it in full before any prototype, not after.
+6. **Unifies with Report A, explicitly (§8):** Report A's `FLAG_FLOWING`
+   bit and this engine's own already-planned same-step horizontal search
+   (§4 above) are the same underlying mechanism — a settled/flowing state
+   bit — and should be one implementation shared by both the granular and
+   liquid paths, not two. Gating the horizontal search on `FLAG_FLOWING`
+   also means settled pools stop paying for the search every tick, which
+   is real budget back and lets more chunks sleep.
+
+**Acceptance criteria added to this plan's verification bar** (§10 of the
+report): 0.5% mass conservation over a 2000-frame dam-break; a 2%-of-
+`FULL` surface-flatness bar for a 100-cell pool (today's dead band permits
+15%, so this fails by construction until item 2/3 above land); a 300-frame
+leveling-time bar (current behaviour is hundreds to thousands of frames);
+zero detached droplets after drainage (item 1 above); a U-tube
+communicating-vessels test equalizing within one cell (fails outright
+today — no hydrostatic pressure at all); initial pour slope ≤10° after 60
+frames (current behaviour reproduces a 30-40° sand-like slope, the exact
+symptom-1 diagnosis this whole track started from); cost ceiling ≤15%
+regression against current serial/parallel baselines; **and a new
+variable-resident-area stress scene added to `examples/ascii.rs`**,
+independent of the liquid work and needed before M10 regardless — bar is
+sub-linear worst-frame growth as resident chunk count grows, replacing the
+10x-multiplier assumption above with an actual measurement.
+
+**Where this sits relative to the plant-substrate-v2 work:** independent,
+same reasoning as the granular section above — `update.rs`'s liquid path,
+`field.rs`'s new pressure read, and `Cell::flags` again, none of it
+touching `organism.rs`/`plant.rs` or the sidecar. **Where it sits relative
+to the granular work:** genuinely coupled, per item 6 — `FLAG_FLOWING`
+should be designed and built once, shared by both, not built twice. If
+both tracks are picked up, sequence the shared bit first (Report A §2 /
+Report B §8), then the two behaviors that consume it can proceed in
+parallel.
+
+**Status: both reports read, agreed with, and folded into this plan.
+Nothing in this section has been implemented.** Should either track be
+picked up next, `Reports/granular-mechanics-research.md` §10 and
+`Reports/liquid-simulation-research-r2.md` §9 each carry their own full
+recommended build order in more detail than the summaries above.

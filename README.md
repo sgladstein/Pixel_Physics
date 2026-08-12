@@ -1447,11 +1447,17 @@ Known limitations:
   milestone needs the in-app framebuffer dump instead of the normal
   screenshot script.
 
-Not yet built: Bak–Tang–Wiesenfeld toppling for avalanches, hole-propagation
-granular flow, rigid bodies past connected-component labeling (see M8
-status above), character physics, the streaming world, M18 Phase 2
-(Reynolds-steering entities, after M8), multi-creature-kind predator/prey
-dynamics, and Lua scripting.
+Not yet built: a two-angle (repose vs. maximum-stability) granular model
+and the dilatancy/packing-state it would enable — see
+`Reports/granular-mechanics-research.md`; **Bak–Tang–Wiesenfeld avalanche
+toppling is deliberately not planned at all** (that report found real
+sandpile avalanches don't follow BTW's power-law prediction, so the
+two-angle model above replaces it rather than sitting alongside it) —
+hole-propagation granular flow is likewise on hold pending an actual
+hopper/silo use case, per the same report; rigid bodies past
+connected-component labeling (see M8 status above), character physics, the
+streaming world, M18 Phase 2 (Reynolds-steering entities, after M8),
+multi-creature-kind predator/prey dynamics, and Lua scripting.
 
 ## License
 
