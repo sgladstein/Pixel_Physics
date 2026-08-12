@@ -4,7 +4,8 @@
 //! display, and so the windowing layer can be replaced later without touching
 //! any behaviour.
 
-use crate::render::Renderer;
+use crate::hud;
+use crate::render::{self, Renderer};
 use crate::sim::chunk::Rect;
 use crate::sim::material::{self, MaterialId, MaterialKind};
 use crate::sim::organism;
@@ -37,6 +38,15 @@ pub struct App {
     /// Feedback from the last material/species reload — the only place a
     /// typo in a `.ron` file shows up.
     pub message: Option<String>,
+    /// `I` — material/temperature/field readout for whatever's under the
+    /// cursor. Off by default (§9 of `PLAN.md`'s UI-improvement pass).
+    pub show_hover_inspector: bool,
+    /// `Tab` — the material picker as an on-screen swatch row, not just
+    /// something inferred from the number keys/status line.
+    pub show_palette: bool,
+    /// `/` (displayed as `?`) — every control, for a player who hasn't
+    /// read `README.md`'s table.
+    pub show_help: bool,
 }
 
 /// Re-read both the material and species directories over the current
@@ -89,7 +99,22 @@ impl App {
             paused: false,
             step_once: false,
             message,
+            show_hover_inspector: false,
+            show_palette: false,
+            show_help: false,
         }
+    }
+
+    pub fn toggle_hover_inspector(&mut self) {
+        self.show_hover_inspector = !self.show_hover_inspector;
+    }
+
+    pub fn toggle_palette(&mut self) {
+        self.show_palette = !self.show_palette;
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
     }
 
     pub fn update(&mut self) {
@@ -113,8 +138,128 @@ impl App {
         self.world.step_fields();
     }
 
-    pub fn draw(&self, frame: &mut [u8]) {
+    /// `cursor`, when present, is a screen position (framebuffer pixels,
+    /// already accounting for window scaling — the same space `main.rs`'s
+    /// own `self.cursor` already tracks) — used for the brush outline
+    /// preview and the hover inspector, both of which need to know where
+    /// the cursor actually is on screen, not just that painting is
+    /// currently happening somewhere.
+    pub fn draw(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
         self.renderer.draw(&self.world, &self.particles, frame, WIDTH, HEIGHT);
+        self.draw_hud(frame, cursor);
+    }
+
+    fn draw_hud(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
+        const WHITE: [u8; 4] = [255, 255, 255, 255];
+        const YELLOW: [u8; 4] = [255, 240, 120, 255];
+
+        // Brush label -- always on, bottom-left, the data `status()` above
+        // already computes just shown persistently instead of only in the
+        // window title bar.
+        let label = format!("{} R{}", self.selected_name(), self.brush_radius);
+        hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
+
+        if let Some((sx, sy)) = cursor {
+            // Brush outline preview -- always on while the cursor is in the
+            // window, scaled to match whatever `render.rs`'s own zoom is
+            // doing so the ring actually matches the area a click would
+            // paint, not the unscaled brush_radius regardless of zoom.
+            let screen_radius = if self.renderer.zoom > 1 {
+                self.brush_radius * self.renderer.zoom
+            } else {
+                (self.brush_radius / self.renderer.zoom_out_stride.max(1)).max(1)
+            };
+            render::draw_circle_outline(frame, WIDTH, HEIGHT, sx, sy, screen_radius, WHITE);
+
+            if self.show_hover_inspector {
+                self.draw_hover_inspector(frame, sx, sy, YELLOW);
+            }
+        }
+
+        if self.show_palette {
+            self.draw_palette(frame);
+        }
+
+        if self.show_help {
+            self.draw_help(frame);
+        }
+    }
+
+    /// Material name, position, temperature/burning state, and every M13
+    /// field channel at the world position under the cursor — every
+    /// existing data path `I` toggles into view rather than needing a
+    /// debugger to inspect.
+    fn draw_hover_inspector(&self, frame: &mut [u8], sx: i32, sy: i32, colour: [u8; 4]) {
+        let (wx, wy) = self.renderer.screen_to_world(sx, sy);
+        let cell = self.world.get(wx, wy);
+        let material = self.world.materials.get(cell.material).display.clone();
+        let field = self.world.field_at(wx, wy);
+        let lines = [
+            format!("{material} ({wx},{wy})"),
+            format!("TEMP {}C{}", cell.temperature(), if cell.is_burning() { " BURNING" } else { "" }),
+            format!("P{:.1} T{:.0} L{:.1} M{:.1}", field.pressure, field.temperature, field.light, field.moisture),
+        ];
+        for (i, line) in lines.iter().enumerate() {
+            hud::draw_text(frame, WIDTH, HEIGHT, 4, 4 + i as i32 * 9, line, colour);
+        }
+    }
+
+    /// Swatch row along the bottom for every paintable material — `Tab` —
+    /// the material picker made visible instead of only inferred from the
+    /// number keys or the status line's own material name.
+    fn draw_palette(&self, frame: &mut [u8]) {
+        const SWATCH: i32 = 7;
+        const GAP: i32 = 2;
+        let y = HEIGHT as i32 - 24;
+        for (i, &id) in self.paintable.iter().enumerate() {
+            let x = 4 + i as i32 * (SWATCH + GAP);
+            let colour = self.world.materials.get(id).palette[0];
+            for dy in 0..SWATCH {
+                for dx in 0..SWATCH {
+                    render::put(frame, WIDTH, HEIGHT, x + dx, y + dy, colour);
+                }
+            }
+            if i == self.selected {
+                let border = [255, 255, 255, 255];
+                for dx in -1..=SWATCH {
+                    render::put(frame, WIDTH, HEIGHT, x + dx, y - 1, border);
+                    render::put(frame, WIDTH, HEIGHT, x + dx, y + SWATCH, border);
+                }
+                for dy in -1..=SWATCH {
+                    render::put(frame, WIDTH, HEIGHT, x - 1, y + dy, border);
+                    render::put(frame, WIDTH, HEIGHT, x + SWATCH, y + dy, border);
+                }
+            }
+        }
+    }
+
+    /// Every control from `README.md`'s own table, including everything
+    /// this UI-improvement pass added — `/` (labelled `?` in-app, since
+    /// `/` itself has no glyph reserved for it and `?` is what a player
+    /// actually looks for).
+    fn draw_help(&self, frame: &mut [u8]) {
+        const BG: [u8; 4] = [10, 10, 16, 255];
+        const WHITE: [u8; 4] = [235, 235, 235, 255];
+        let (left, top, right, bottom) = (20, 20, WIDTH as i32 - 20, HEIGHT as i32 - 20);
+        for y in top..bottom {
+            for x in left..right {
+                render::put(frame, WIDTH, HEIGHT, x, y, BG);
+            }
+        }
+        let lines = [
+            "SPACE PAUSE    . STEP    R RESET",
+            "F1 CHUNK OVERLAY    F5 RELOAD",
+            "LEFT CLICK PAINT    RIGHT CLICK ERASE",
+            "[ ] BRUSH SIZE    = - ZOOM",
+            "Q E CYCLE MATERIAL    1-9 SELECT",
+            "F IGNITE    P BURST    X EXPLODE",
+            "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
+            "I HOVER INSPECTOR    V FIELD OVERLAY",
+            "TAB MATERIAL PALETTE    ? THIS HELP",
+        ];
+        for (i, line) in lines.iter().enumerate() {
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 8 + i as i32 * 10, line, WHITE);
+        }
     }
 
     /// Re-read the material and species files. Ids are keyed by name, so

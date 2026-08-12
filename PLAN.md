@@ -2386,6 +2386,104 @@ tick`). `src/sim/mod.rs` (registers the `organism` module). `src/app.rs`
 `reload_materials`). `src/main.rs` (`watch_materials` now also watches
 the species directory). `PLAN.md`/`README.md`.
 
+### Overnight run, section 9: UI improvements
+
+All 8 sub-steps from the plan's own list, built on a new `src/hud.rs` text
+primitive — the engine's first on-screen text at all (`render.rs`'s own
+comment on the window title bar previously called it "cheaper than
+rendering text").
+
+**Step 0, the font, deliberately narrower than planned.** The plan
+sketched full ASCII 0x20-0x7E (95 glyphs); shipped instead with space,
+`A`-`Z`, `0`-`9`, and a small punctuation set — hand-authoring 95 accurate
+bitmap glyphs with no reference font to check transcription against risks
+silently shipping wrong data for characters nothing would ever exercise
+enough to notice. HUD text upper-cases internally as the direct
+consequence. **Caught before commit by an actual visual check** (render
+sample text to a PNG, read it, don't just trust the hand-copied bit
+patterns): `[`/`]` — used by the help overlay's own "brush size" line —
+had no glyph at all and rendered as a silent gap. Fixed, with a test that
+checks every character the module doc claims to support actually lights a
+pixel, confirmed via revert to fail against the original omission.
+
+**Steps 1-7**, each landing exactly where the plan specified: zoom
+(`=`/`-`, one continuous scale across `Renderer::zoom` (magnify, 1-8) and
+`zoom_out_stride` (minify via sampling, 1-4) rather than two independent
+controls — zooming out counts the stride down/up before magnification
+engages the other way, so the key pair reads as one control, not two);
+brush label (always on, the data `status()` already computed, now
+persistent instead of title-bar-only); hover inspector (`I` — material,
+temperature/burning, every M13 field channel at the cursor); field overlay
+(`V`, cycling pressure/temperature/light/moisture, including over empty
+cells — a field reading exists over vacuum same as anywhere, so
+`cell_colour`'s empty-cell early return routes through the overlay too,
+not just the non-empty path); brush outline preview (a midpoint-circle
+primitive, `render::draw_circle_outline`, reusable beyond just this);
+material palette (`Tab`, swatch row, selection outlined); keybind help
+(`/`, shown as `?`).
+
+**Key-collision check re-run against the plan's own list** (taken: Esc,
+Space, `.`, R, F1, F5, F, P, X, T, M, W, `[`, `]`, Q, E, 1-9) — `=`, `-`,
+`I`, `V`, `Tab`, `/` all confirmed free, matching what the plan predicted;
+no collisions introduced. `README.md`'s controls table also had a
+pre-existing gap independent of this section (no `W`/plant-worm row at
+all) — fixed alongside the new entries since it was noticed in passing,
+not left for a future pass to rediscover.
+
+**Live-verified via a throwaway direct-construction harness**
+(`examples/debug_hud.rs`, deleted after use, mirroring `debug_explosion.rs`'s
+and `debug_font.rs`'s pattern from earlier sections) rather than the real
+windowed event loop — this session's §6 already found that loop doesn't
+reliably advance frames headlessly in this environment, and HUD state
+(toggle booleans) doesn't need real simulation ticks to verify anyway, just
+`App::draw` called directly with the toggles set and a synthetic cursor.
+Confirmed: brush label, hover inspector readout, palette swatches with a
+visible selection outline, the help overlay's full text block (including
+the `[`/`]` fix), and a magnified brush outline at `zoom = 3` all render
+correctly. **Notably absent from that list: the field overlay's own
+appearance** — not screenshotted, just spot-checked via a unit test at the
+time, which is exactly the gap the next finding fell through.
+
+**Independent review of the implementation found one real bug before
+commit, in the field overlay's blend math.** `apply_field_overlay`'s first
+version used a flat 60% blend strength regardless of how far a channel's
+reading sat from its own ambient baseline, deliberately — the reasoning at
+the time was that scaling blend by magnitude would wash out exactly the
+low-but-real readings the overlay exists to show. But every channel's
+*ramp colour* at a baseline (zero pressure, ambient temperature, no light,
+no moisture) is some fixed saturated colour, not `base` itself — so a flat
+blend actually tinted *every* pixel toward that fixed colour regardless of
+whether the channel was elevated there at all. Concretely, for pressure:
+toggling the overlay blended the *entire visible world* 60% toward white,
+not just cells near a real disturbance — directly contradicting this
+function's own doc comment, which explicitly claimed "an unaffected cell
+should look exactly like it does with the overlay off." The existing test
+only asserted the whole-frame output changed with the overlay on, which
+is trivially true once the screen turns white, for the wrong reason.
+Fixed: blend strength now scales with magnitude (0 at true baseline, up
+to `MAX_BLEND` at a fully saturated reading), so an ambient cell renders
+byte-identical to the overlay being off while a genuinely elevated one
+still reads clearly. Two new tests —
+`field_overlay_leaves_an_unaffected_cell_unchanged_even_when_on` (the
+actual property that broke, confirmed via revert to a flat blend to fail
+exactly as described above) and `field_overlay_off_matches_the_pre_
+overlay_render_exactly` (replacing a tautological off-vs-off comparison
+with one against a hand-computed pre-overlay expected value) — plus the
+existing near-impulse test renamed to `pressure_overlay_tints_a_cell_
+near_a_real_impulse` to make clear what it does and doesn't cover.
+
+### Files touched
+
+`src/hud.rs` (new — font, `draw_text`, `text_width`). `src/render.rs`
+(`Renderer::zoom`/`zoom_out_stride`/`adjust_zoom`, `FieldOverlay` +
+`cycle_field_overlay`/`apply_field_overlay`, `draw_circle_outline`,
+`world_to_screen`, `screen_to_world` updated for zoom, `put` made
+`pub(crate)` for `hud.rs` to reuse). `src/app.rs` (`draw`'s new `cursor`
+parameter, `draw_hud`/`draw_hover_inspector`/`draw_palette`/`draw_help`,
+the three new toggle fields/methods). `src/main.rs` (six new key
+bindings). `src/lib.rs` (registers the `hud` module).
+`PLAN.md`/`README.md`.
+
 ---
 
 ## M19 — Visual polish: make the engine beautiful

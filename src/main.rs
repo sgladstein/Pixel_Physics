@@ -181,7 +181,7 @@ impl Handler {
         // ends, since `fail` needs all of `self`.
         let render_error = match &mut self.pixels {
             Some(pixels) => {
-                self.app.draw(pixels.frame_mut());
+                self.app.draw(pixels.frame_mut(), self.cursor);
                 if let Some(n) = self.screenshot_countdown {
                     if n <= 1 {
                         self.screenshot_countdown = None;
@@ -272,6 +272,12 @@ impl Handler {
             }
             KeyCode::BracketLeft => self.app.adjust_brush(-2),
             KeyCode::BracketRight => self.app.adjust_brush(2),
+            KeyCode::Equal => self.app.renderer.adjust_zoom(1),
+            KeyCode::Minus => self.app.renderer.adjust_zoom(-1),
+            KeyCode::KeyV => self.app.renderer.cycle_field_overlay(),
+            KeyCode::KeyI => self.app.toggle_hover_inspector(),
+            KeyCode::Tab => self.app.toggle_palette(),
+            KeyCode::Slash => self.app.toggle_help(),
             KeyCode::KeyQ => self.app.cycle_material(-1),
             KeyCode::KeyE => self.app.cycle_material(1),
             KeyCode::Digit1 => self.app.select_material(1),

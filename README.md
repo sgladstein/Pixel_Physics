@@ -20,6 +20,7 @@ cargo test
 | `1`–`9` | Select material by number |
 | `Q` / `E` | Cycle material |
 | `[` / `]` or scroll | Brush size |
+| `=` / `-` | Zoom in / out (§9: one continuous scale — zooming out past 1x uses a sample stride instead of shrinking pixels) |
 | `Space` | Pause |
 | `.` | Step one frame while paused |
 | `F` | Force-ignite whatever's under the brush (debug tool) |
@@ -27,14 +28,22 @@ cargo test
 | `X` | Trigger an explosion at the brush radius |
 | `T` | Plant a tree seed under the brush (M16 debug tool) |
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
+| `W` | Plant a worm under the brush (M18 debug tool) |
+| `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
+| `V` | Cycle the field overlay: off → pressure → temperature → light → moisture → off |
+| `Tab` | Toggle the material palette (swatch row, current selection outlined) |
+| `/` (shown as `?`) | Toggle the keybind help overlay |
 | `F1` | Chunk overlay — green borders are awake, grey are asleep |
-| `F5` | Reload materials by hand |
+| `F5` | Reload materials and species by hand |
 | `R` | Reset |
 | `Esc` | Quit |
 
 The window title shows frame rate, selected material, how many chunks are
-awake, and the result of the last material reload. `0/40 awake` on a still
-world means chunk sleeping is working.
+awake, and the result of the last material/species reload. `0/40 awake` on
+a still world means chunk sleeping is working. A persistent HUD line
+(bottom-left) shows the same material/brush-size reading always, not just
+in the title bar — §9's `hud.rs` bitmap-text primitive, the engine's first
+on-screen text.
 
 ## Materials
 
@@ -1065,6 +1074,51 @@ regardless), and a positive existence assertion added to
 `a_worm_burrows_through_sand_but_never_enters_stone`, which previously only
 checked the stone wall was undisturbed and could have passed vacuously the
 same way the three tests above did, for an unrelated reason, in the future.
+
+## UI improvements — overnight run, section 9
+
+The engine's first on-screen text, and everything built on top of it.
+Before this, `render.rs`'s own comment on the window title bar called it
+"cheaper than rendering text" — every status readout lived in the OS
+window chrome, invisible the moment the window lost focus or a screenshot
+cropped it out.
+
+**`hud.rs`**: a fixed-width 5x7 bitmap font, deliberately *not* the plan's
+originally-sketched full ASCII 0x20-0x7E range (95 glyphs). Hand-authoring
+95 accurate glyphs with no reference font to check against risks silently
+shipping wrong bitmap data for characters nothing exercises before they're
+ever seen; scoped down instead to what the HUD actually needs — space,
+`A`-`Z`, `0`-`9`, and a small punctuation set — with HUD text upper-cased
+internally as the direct consequence (no lowercase glyphs exist). A visual
+check (rendering sample text to a PNG and reading it, not just trusting
+the hand-transcribed bit patterns) caught one real gap before commit:
+`[`/`]`, used by the help overlay's own brush-size line, had no glyph at
+all and rendered as an invisible gap — fixed, with a regression test that
+checks every character the module doc claims to support actually lights a
+pixel, confirmed via revert to fail against the original omission.
+
+**Zoom** (`=`/`-`, `Renderer::zoom`/`zoom_out_stride`): one continuous
+scale across two fields rather than two independent controls — zooming
+out first counts down a sample stride (seeing more world per pixel, up to
+4 cells per pixel) before magnification (`zoom`, up to 8 screen pixels per
+world cell) ever engages the other way, so the key pair reads as a single
+"more/less zoom" control. `screen_to_world`/`world_to_screen` both use
+`div_euclid`, not `/` — the same reasoning `ChunkCoord::containing`
+already established: a screen position left of the camera must floor
+toward negative infinity, not fold onto the same world cell a position to
+its right would.
+
+**Brush label** (always on), **brush outline preview** (a midpoint-circle
+outline at the cursor, scaled to match the zoom level so the ring is
+actually the size a click would paint), **hover inspector** (`I` — cell
+material/temperature/burning state plus every M13 field channel at the
+cursor), **material palette** (`Tab` — a swatch row, current selection
+outlined), and **keybind help** (`/`, shown as `?`) round out the pass.
+The field overlay (`V`, cycling pressure/temperature/light/moisture) tints
+every pixel by the selected channel, including empty cells — a field
+reading exists over vacuum the same as anywhere else, so the overlay
+routes through both the empty- and non-empty-cell paths in
+`Renderer::cell_colour` rather than only the latter.
 
 ## M8 status — started, not complete
 

@@ -12,5 +12,6 @@
 //! testable without a window or a GPU.
 
 pub mod app;
+pub mod hud;
 pub mod render;
 pub mod sim;

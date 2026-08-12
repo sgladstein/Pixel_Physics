@@ -61,6 +61,65 @@ const FLAME_FLICKER_PERIOD: u64 = 4;
 /// to make a hot cell ever read as merely warm.
 const FLAME_FLICKER_STRENGTH: f32 = 0.3;
 
+/// Which M13 field channel `Renderer::field_overlay` tints the screen by,
+/// cycled by `V` — parallel to `F1`'s existing chunk overlay, for seeing
+/// the coarse field grid instead of chunk activity.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum FieldOverlay {
+    #[default]
+    Off,
+    Pressure,
+    Temperature,
+    Light,
+    Moisture,
+}
+
+impl FieldOverlay {
+    fn next(self) -> Self {
+        match self {
+            FieldOverlay::Off => FieldOverlay::Pressure,
+            FieldOverlay::Pressure => FieldOverlay::Temperature,
+            FieldOverlay::Temperature => FieldOverlay::Light,
+            FieldOverlay::Light => FieldOverlay::Moisture,
+            FieldOverlay::Moisture => FieldOverlay::Off,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FieldOverlay::Off => "OFF",
+            FieldOverlay::Pressure => "PRESSURE",
+            FieldOverlay::Temperature => "TEMPERATURE",
+            FieldOverlay::Light => "LIGHT",
+            FieldOverlay::Moisture => "MOISTURE",
+        }
+    }
+}
+
+/// Display-only normalization ranges for the field overlay — not the
+/// field's own internal clamp bounds (`field.rs`'s `MAX_TEMPERATURE`/
+/// `MAX_LIGHT`/`MAX_MOISTURE` are private to that module, the same
+/// "documented assumption about a scale this module can't reach"
+/// `creature.rs`'s own `WORM_MOISTURE_SATURATION` already accepts for the
+/// identical reason). Chosen to make the *common* range of each channel
+/// legible, not to bound it exactly — a value past the range end still
+/// renders, just clamped to the most saturated colour rather than blowing
+/// out past it.
+const PRESSURE_OVERLAY_RANGE: f32 = 30.0;
+const TEMPERATURE_OVERLAY_MAX: f32 = 900.0;
+const LIGHT_OVERLAY_MAX: f32 = 4.0;
+const MOISTURE_OVERLAY_MAX: f32 = 4.0;
+
+/// Clamp bounds for `Renderer::zoom` — magnifying, screen pixels per world
+/// cell. `8` is arbitrary (untuned against anything but "still recognizably
+/// the sandbox, not a single giant cell filling the window" at the engine's
+/// 512x320 simulation resolution).
+const MAX_ZOOM: i32 = 8;
+/// Clamp bounds for `Renderer::zoom_out_stride` — minifying, world cells
+/// per screen pixel. `4` keeps a stride-sampled view still readable as
+/// "the same kind of picture, zoomed out" rather than aliasing into noise.
+const MAX_ZOOM_OUT_STRIDE: i32 = 4;
+
 pub struct Renderer {
     /// World coordinate displayed at the top-left pixel. Fixed at the origin
     /// for M2; M10 moves it with the player.
@@ -69,6 +128,24 @@ pub struct Renderer {
     /// Draws chunk boundaries tinted by whether the chunk will be swept next
     /// frame. This is the primary way to confirm sleeping actually works.
     pub show_chunk_overlay: bool,
+    /// Screen pixels per world cell, 1-`MAX_ZOOM`, nearest-neighbour
+    /// magnify. `1` is the original unscaled mapping M2 shipped with.
+    /// Mutually exclusive with `zoom_out_stride > 1` in practice —
+    /// `adjust_zoom` never lets both climb above 1 at once, though nothing
+    /// below is structurally prevented from being called with both set;
+    /// it would just be a confusing scale to be in, not an unsafe one.
+    pub zoom: i32,
+    /// World cells sampled per screen pixel, 1-`MAX_ZOOM_OUT_STRIDE` — the
+    /// reverse direction, seeing more of the world at once at the cost of
+    /// skipping cells between samples rather than averaging them (a proper
+    /// minify filter is not worth it for a debug/overview zoom level).
+    pub zoom_out_stride: i32,
+    /// Tints every pixel by an M13 field channel instead of (blended over)
+    /// the ordinary cell colour — `V` cycles it. `Off` by default, so it
+    /// costs nothing (no extra `World::field_at` calls) unless a player
+    /// opts in, the same "toggled debug overlay, zero cost when off" shape
+    /// `show_chunk_overlay` already uses.
+    pub field_overlay: FieldOverlay,
 }
 
 impl Renderer {
@@ -77,6 +154,36 @@ impl Renderer {
             camera_x: 0,
             camera_y: 0,
             show_chunk_overlay: false,
+            zoom: 1,
+            zoom_out_stride: 1,
+            field_overlay: FieldOverlay::Off,
+        }
+    }
+
+    pub fn cycle_field_overlay(&mut self) {
+        self.field_overlay = self.field_overlay.next();
+    }
+
+    /// `delta > 0` zooms in a step, `delta < 0` zooms out a step — `=`/`-`
+    /// in the live app. The two fields form one continuous scale rather
+    /// than being independently adjustable: zooming in past `zoom_out_
+    /// stride > 1` counts down the stride back to 1 before `zoom` itself
+    /// starts climbing, and symmetrically the other way, so the key pair
+    /// reads as a single "more/less zoom" control, not two separate ones a
+    /// player has to understand are different mechanisms.
+    pub fn adjust_zoom(&mut self, delta: i32) {
+        if delta > 0 {
+            if self.zoom_out_stride > 1 {
+                self.zoom_out_stride -= 1;
+            } else {
+                self.zoom = (self.zoom + 1).min(MAX_ZOOM);
+            }
+        } else if delta < 0 {
+            if self.zoom > 1 {
+                self.zoom -= 1;
+            } else {
+                self.zoom_out_stride = (self.zoom_out_stride + 1).min(MAX_ZOOM_OUT_STRIDE);
+            }
         }
     }
 
@@ -84,7 +191,8 @@ impl Renderer {
         for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
             let sx = (i % width as usize) as i32;
             let sy = (i / width as usize) as i32;
-            let colour = self.cell_colour(world, sx + self.camera_x, sy + self.camera_y);
+            let (wx, wy) = self.screen_to_world(sx, sy);
+            let colour = self.cell_colour(world, wx, wy);
             pixel.copy_from_slice(&colour);
         }
 
@@ -96,23 +204,29 @@ impl Renderer {
     }
 
     /// Free particles are not CA cells, so the main per-pixel pass above
-    /// never sees them — drawn here as a second, small pass instead. One
-    /// pixel each, no interpolation between a particle's sub-cell position
-    /// and the pixel grid; the CA cell it becomes on landing carries all the
-    /// same visual weight bulk material has, so a free particle mid-flight
-    /// not doing that too is not a loss worth the complexity of drawing it
-    /// any richer.
+    /// never sees them — drawn here as a second, small pass instead. At
+    /// `zoom > 1` each particle fills the same `zoom`x`zoom` screen block
+    /// its position would round to for a CA cell, rather than staying a
+    /// single screen pixel while everything around it magnifies — the
+    /// otherwise-jarring case being debris that visually shrinks to a dot
+    /// against its own newly-oversized surroundings the instant zoom goes
+    /// up. No interpolation between a particle's sub-cell position and the
+    /// pixel grid beyond that; the CA cell it becomes on landing carries
+    /// all the same visual weight bulk material has, so a free particle
+    /// mid-flight not doing that too is not a loss worth more complexity.
     fn draw_particles(&self, world: &World, particles: &ParticleSystem, frame: &mut [u8], width: u32, height: u32) {
         for particle in particles.iter() {
-            let sx = particle.x.round() as i32 - self.camera_x;
-            let sy = particle.y.round() as i32 - self.camera_y;
-            if sx < 0 || sy < 0 || sx >= width as i32 || sy >= height as i32 {
+            let Some((sx, sy)) = self.world_to_screen(particle.x.round() as i32, particle.y.round() as i32) else {
                 continue;
-            }
+            };
             let palette = &world.materials.get(particle.material).palette;
             let colour = palette[particle.shade as usize % palette.len()];
-            let idx = (sy as usize * width as usize + sx as usize) * 4;
-            frame[idx..idx + 4].copy_from_slice(&colour);
+            let block = self.zoom.max(1);
+            for dy in 0..block {
+                for dx in 0..block {
+                    put(frame, width, height, sx + dx, sy + dy, colour);
+                }
+            }
         }
     }
 
@@ -126,7 +240,11 @@ impl Renderer {
         // reload in M3 without invalidating cells already in the world.
         let base = palette[cell.shade as usize % palette.len()];
         if cell.is_empty() {
-            return base; // nothing to texture, glow or occlude in vacuum
+            // Still route through the field overlay below (a field reading
+            // exists over empty space same as anywhere else -- pressure and
+            // temperature very much propagate through vacuum) rather than
+            // returning here the way the pre-overlay code always did.
+            return self.apply_field_overlay(world, x, y, base);
         }
         let mut rgb = [base[0], base[1], base[2]];
 
@@ -193,7 +311,66 @@ impl Renderer {
         // lesson M5's `ChunkView` already applied to the sweep) before it's
         // safe to turn back on.
 
-        [rgb[0], rgb[1], rgb[2], 255]
+        self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255])
+    }
+
+    /// Blends `base` toward a colour ramp keyed on the currently-selected
+    /// field channel — a no-op returning `base` unchanged when the overlay
+    /// is off, so every caller can route through this unconditionally
+    /// rather than each needing its own `if field_overlay != Off` guard.
+    ///
+    /// Blend strength scales with `magnitude` (0..1, how far the reading
+    /// sits from that channel's own ambient/baseline value) up to
+    /// `MAX_BLEND` at full saturation — **not** a flat blend regardless of
+    /// value. An earlier version used a flat blend specifically to avoid
+    /// washing out low readings, but every channel's ramp colour at
+    /// `magnitude == 0` is some fixed, saturated colour (`Off` aside), not
+    /// `base` itself — a flat blend therefore tints *every* unaffected
+    /// pixel toward that fixed colour regardless of whether the channel is
+    /// actually elevated there, which independent review caught
+    /// concretely for pressure (every ambient cell, i.e. nearly the whole
+    /// visible world nearly all the time, blended 60% toward white). Real
+    /// elevation still reads clearly under magnitude-scaling — a fully
+    /// saturated reading still reaches `MAX_BLEND` — it just no longer
+    /// paints the entire screen for a channel currently near zero
+    /// everywhere.
+    fn apply_field_overlay(&self, world: &World, x: i32, y: i32, base: [u8; 4]) -> [u8; 4] {
+        let (ramp, magnitude) = match self.field_overlay {
+            FieldOverlay::Off => return base,
+            FieldOverlay::Pressure => {
+                let f = world.field_at(x, y);
+                // Signed: red for positive (compression), blue for negative
+                // (rarefaction) -- `magnitude` (not the ramp colour itself)
+                // is what fades this to `base` at zero, so both directions
+                // share one ramp pair rather than needing a third "zero"
+                // colour of their own.
+                let t = (f.pressure / PRESSURE_OVERLAY_RANGE).clamp(-1.0, 1.0);
+                let colour = if t >= 0.0 { [255.0, 60.0, 60.0] } else { [60.0, 90.0, 255.0] };
+                (colour, t.abs())
+            }
+            FieldOverlay::Temperature => {
+                let f = world.field_at(x, y);
+                let t = ((f.temperature - AMBIENT_TEMPERATURE as f32) / TEMPERATURE_OVERLAY_MAX).clamp(0.0, 1.0);
+                ([255.0, 140.0, 40.0], t)
+            }
+            FieldOverlay::Light => {
+                let f = world.field_at(x, y);
+                let t = (f.light / LIGHT_OVERLAY_MAX).clamp(0.0, 1.0);
+                ([255.0, 255.0, 190.0], t)
+            }
+            FieldOverlay::Moisture => {
+                let f = world.field_at(x, y);
+                let t = (f.moisture / MOISTURE_OVERLAY_MAX).clamp(0.0, 1.0);
+                ([60.0, 140.0, 255.0], t)
+            }
+        };
+        const MAX_BLEND: f32 = 0.75;
+        let blend = magnitude.clamp(0.0, 1.0) * MAX_BLEND;
+        let mut out = base;
+        for (c, r) in out.iter_mut().take(3).zip(ramp) {
+            *c = (*c as f32 + (r - *c as f32) * blend).round().clamp(0.0, 255.0) as u8;
+        }
+        out
     }
 
     fn draw_chunk_overlay(&self, world: &World, frame: &mut [u8], width: u32, height: u32) {
@@ -204,19 +381,60 @@ impl Renderer {
                 CHUNK_BORDER_ACTIVE
             };
             let (ox, oy) = chunk.coord.origin();
-            let sx = ox - self.camera_x;
-            let sy = oy - self.camera_y;
             for i in 0..CHUNK_SIZE {
-                put(frame, width, height, sx + i, sy, colour);
-                put(frame, width, height, sx, sy + i, colour);
+                // Each world-space border point maps through zoom/stride
+                // individually rather than scaling the whole chunk-sized
+                // loop bound -- simpler than special-casing the two zoom
+                // directions here, at the cost of a thin (not `zoom`-wide)
+                // line when magnified, an accepted minor look rather than
+                // added complexity for a debug overlay.
+                if let Some((sx, sy)) = self.world_to_screen(ox + i, oy) {
+                    put(frame, width, height, sx, sy, colour);
+                }
+                if let Some((sx, sy)) = self.world_to_screen(ox, oy + i) {
+                    put(frame, width, height, sx, sy, colour);
+                }
             }
         }
     }
 
-    /// World position under a screen pixel. The inverse of the camera offset
-    /// applied in `draw`, used to turn cursor position into a brush position.
+    /// World position under a screen pixel — the camera offset plus the
+    /// zoom/stride scale `draw`'s own per-pixel loop applies, used to turn
+    /// cursor position into a brush position (so painting lands on the
+    /// cell actually under the cursor at any zoom level, not the
+    /// unscaled-1:1 cell it would be at `zoom == 1`).
+    ///
+    /// `div_euclid`, not `/`: a screen position left of the camera (a
+    /// negative `sx`, reachable once panning exists) must floor toward
+    /// negative infinity the same way `ChunkCoord::containing` already
+    /// establishes is required — truncating division would fold screen
+    /// column -1 onto the same world cell as column 0.
     pub fn screen_to_world(&self, sx: i32, sy: i32) -> (i32, i32) {
-        (sx + self.camera_x, sy + self.camera_y)
+        if self.zoom > 1 {
+            (self.camera_x + sx.div_euclid(self.zoom), self.camera_y + sy.div_euclid(self.zoom))
+        } else {
+            (self.camera_x + sx * self.zoom_out_stride, self.camera_y + sy * self.zoom_out_stride)
+        }
+    }
+
+    /// Inverse of `screen_to_world`, for placing something drawn in world
+    /// space (a particle, a chunk border) onto the screen. `None` when the
+    /// position falls between two stride-sampled columns/rows at
+    /// `zoom_out_stride > 1` and so has no single screen pixel of its own —
+    /// distinct from simply being off-screen, which callers already clip
+    /// against separately via `put`'s own bounds check.
+    fn world_to_screen(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        if self.zoom > 1 {
+            Some(((x - self.camera_x) * self.zoom, (y - self.camera_y) * self.zoom))
+        } else if self.zoom_out_stride > 1 {
+            let (dx, dy) = (x - self.camera_x, y - self.camera_y);
+            if dx.rem_euclid(self.zoom_out_stride) != 0 || dy.rem_euclid(self.zoom_out_stride) != 0 {
+                return None;
+            }
+            Some((dx.div_euclid(self.zoom_out_stride), dy.div_euclid(self.zoom_out_stride)))
+        } else {
+            Some((x - self.camera_x, y - self.camera_y))
+        }
     }
 }
 
@@ -226,12 +444,39 @@ impl Default for Renderer {
     }
 }
 
-fn put(frame: &mut [u8], width: u32, height: u32, x: i32, y: i32, colour: [u8; 4]) {
+pub(crate) fn put(frame: &mut [u8], width: u32, height: u32, x: i32, y: i32, colour: [u8; 4]) {
     if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
         return;
     }
     let i = (y as usize * width as usize + x as usize) * 4;
     frame[i..i + 4].copy_from_slice(&colour);
+}
+
+/// Midpoint circle algorithm, eight-way symmetry — the brush outline
+/// preview (§9 of `PLAN.md`'s UI-improvement pass), and reusable for
+/// anything else that ever wants a cheap outline (a future explosion
+/// radius preview, say). `radius <= 0` draws nothing rather than a
+/// degenerate single pixel, since a zero-radius brush is a real, valid
+/// brush size and a dot at the cursor would misleadingly suggest a
+/// one-cell circle instead.
+pub(crate) fn draw_circle_outline(frame: &mut [u8], width: u32, height: u32, cx: i32, cy: i32, radius: i32, colour: [u8; 4]) {
+    if radius <= 0 {
+        return;
+    }
+    let mut x = radius;
+    let mut y = 0;
+    let mut err = 0;
+    while x >= y {
+        for (dx, dy) in [(x, y), (y, x), (-y, x), (-x, y), (-x, -y), (-y, -x), (y, -x), (x, -y)] {
+            put(frame, width, height, cx + dx, cy + dy, colour);
+        }
+        y += 1;
+        err += 1 + 2 * y;
+        if 2 * (err - x) + 1 > 0 {
+            x -= 1;
+            err += 1 - 2 * x;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -240,6 +485,36 @@ mod tests {
     use crate::sim::cell::Cell;
     use crate::sim::chunk::Rect;
     use crate::sim::material;
+
+    #[test]
+    fn circle_outline_lights_the_ring_but_not_the_centre() {
+        let (w, h) = (32u32, 32u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let white = [255, 255, 255, 255];
+        draw_circle_outline(&mut frame, w, h, 16, 16, 10, white);
+
+        let px = |x: i32, y: i32| -> [u8; 4] {
+            let i = ((y as u32 * w + x as u32) * 4) as usize;
+            frame[i..i + 4].try_into().unwrap()
+        };
+        // The four axis-aligned points at exactly `radius` away are always
+        // lit for any radius under the midpoint algorithm's own symmetry.
+        assert_eq!(px(26, 16), white, "east point of the ring should be lit");
+        assert_eq!(px(6, 16), white, "west point of the ring should be lit");
+        assert_eq!(px(16, 26), white, "south point of the ring should be lit");
+        assert_eq!(px(16, 6), white, "north point of the ring should be lit");
+        // An outline, not a filled disc.
+        assert_ne!(px(16, 16), white, "the centre should not be lit by an outline");
+    }
+
+    #[test]
+    fn a_zero_or_negative_radius_circle_draws_nothing() {
+        let (w, h) = (16u32, 16u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        draw_circle_outline(&mut frame, w, h, 8, 8, 0, [255, 255, 255, 255]);
+        draw_circle_outline(&mut frame, w, h, 8, 8, -5, [255, 255, 255, 255]);
+        assert!(frame.iter().all(|&b| b == 0), "a zero/negative radius should draw nothing, not a stray pixel");
+    }
 
     #[test]
     fn draws_material_colours_and_void_outside_the_world() {
@@ -271,6 +546,85 @@ mod tests {
         assert_eq!(&frame[outside..outside + 4], &VOID);
     }
 
+    #[test]
+    fn field_overlay_off_matches_the_pre_overlay_render_exactly() {
+        // The overlay must be a genuine no-op when off, not just
+        // visually negligible -- `apply_field_overlay` is unconditionally
+        // in the call path now (both the empty- and non-empty-cell
+        // branches route through it). Compares against a `cell_colour`
+        // computed by hand the pre-overlay way (grain + heat glow, nothing
+        // else) rather than `Off` against `Off`, which would trivially
+        // pass regardless of whether the refactor preserved anything.
+        let mut world = World::new(Rect::new(0, 0, 31, 31));
+        world.set(10, 10, Cell::new(material::STONE, 0));
+        world.add_pressure_impulse(5, 5, 3, 20.0); // field nonzero nearby, still must not show through when off
+        let renderer = Renderer::new();
+        let base = world.materials.get(material::STONE).palette[0];
+        let jitter_permille = ((rng::jitter(10, 10) - 0.5) * 2000.0 * JITTER_STRENGTH) as i32;
+        let expected = [
+            (base[0] as i32 + (base[0] as i32 * jitter_permille) / 1000).clamp(0, 255) as u8,
+            (base[1] as i32 + (base[1] as i32 * jitter_permille) / 1000).clamp(0, 255) as u8,
+            (base[2] as i32 + (base[2] as i32 * jitter_permille) / 1000).clamp(0, 255) as u8,
+            255,
+        ];
+        assert_eq!(renderer.cell_colour(&world, 10, 10), expected);
+    }
+
+    #[test]
+    fn field_overlay_leaves_an_unaffected_cell_unchanged_even_when_on() {
+        // The exact property an independent review caught broken in an
+        // earlier version: a flat blend regardless of reading magnitude
+        // tinted *every* pixel toward a fixed colour, including cells with
+        // a perfectly ordinary ambient reading, not just ones near a real
+        // disturbance. A cell far from the one active impulse below,
+        // for every channel, must render identically to the overlay
+        // being off -- confirmed to fail (for Pressure specifically) with
+        // the blend strength reverted to a flat constant.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        world.set(50, 50, Cell::new(material::STONE, 0));
+        world.add_pressure_impulse(5, 5, 3, 40.0); // disturbance confined to a far corner
+        let mut renderer = Renderer::new();
+        let off = renderer.cell_colour(&world, 50, 50);
+        for overlay in [FieldOverlay::Pressure, FieldOverlay::Temperature, FieldOverlay::Light, FieldOverlay::Moisture] {
+            renderer.field_overlay = overlay;
+            assert_eq!(renderer.cell_colour(&world, 50, 50), off, "{overlay:?} tinted an unaffected cell far from any real disturbance");
+        }
+    }
+
+    #[test]
+    fn pressure_overlay_tints_a_cell_near_a_real_impulse() {
+        let mut world = World::new(Rect::new(0, 0, 31, 31));
+        world.add_pressure_impulse(15, 15, 5, 40.0);
+        let particles = ParticleSystem::new();
+        let (w, h) = (32u32, 32u32);
+
+        let mut renderer = Renderer::new();
+        let mut off = vec![0u8; (w * h * 4) as usize];
+        renderer.draw(&world, &particles, &mut off, w, h);
+
+        renderer.field_overlay = FieldOverlay::Pressure;
+        let mut on = vec![0u8; (w * h * 4) as usize];
+        renderer.draw(&world, &particles, &mut on, w, h);
+
+        assert_ne!(off, on, "the pressure overlay should visibly change the render over a real pressure impulse");
+    }
+
+    #[test]
+    fn cycle_field_overlay_visits_every_channel_and_returns_to_off() {
+        let mut r = Renderer::new();
+        assert_eq!(r.field_overlay, FieldOverlay::Off);
+        let mut seen = vec![r.field_overlay];
+        for _ in 0..4 {
+            r.cycle_field_overlay();
+            seen.push(r.field_overlay);
+        }
+        assert_eq!(
+            seen,
+            vec![FieldOverlay::Off, FieldOverlay::Pressure, FieldOverlay::Temperature, FieldOverlay::Light, FieldOverlay::Moisture]
+        );
+        r.cycle_field_overlay();
+        assert_eq!(r.field_overlay, FieldOverlay::Off, "cycling should wrap back to Off, not stop at Moisture");
+    }
 
     #[test]
     fn draws_a_free_particle_at_its_rounded_position() {
@@ -448,6 +802,99 @@ mod tests {
         r.camera_x = 100;
         r.camera_y = -20;
         assert_eq!(r.screen_to_world(5, 7), (105, -13));
+    }
+
+    #[test]
+    fn zoomed_in_screen_to_world_maps_a_zoom_wide_block_to_one_world_cell() {
+        let mut r = Renderer::new();
+        r.zoom = 4;
+        // Screen columns 0-3 should all land on world column 0; column 4
+        // starts the next world cell.
+        assert_eq!(r.screen_to_world(0, 0), (0, 0));
+        assert_eq!(r.screen_to_world(3, 0), (0, 0));
+        assert_eq!(r.screen_to_world(4, 0), (1, 0));
+    }
+
+    #[test]
+    fn zoomed_out_screen_to_world_skips_by_the_stride() {
+        let mut r = Renderer::new();
+        r.zoom_out_stride = 3;
+        assert_eq!(r.screen_to_world(0, 0), (0, 0));
+        assert_eq!(r.screen_to_world(1, 0), (3, 0));
+        assert_eq!(r.screen_to_world(2, 0), (6, 0));
+    }
+
+    #[test]
+    fn screen_to_world_floors_toward_negative_infinity_at_zoom() {
+        // Mirrors ChunkCoord::containing's own div_euclid reasoning: a
+        // screen position left of the camera must not fold onto the same
+        // world cell as one to its right of it.
+        let mut r = Renderer::new();
+        r.zoom = 2;
+        assert_eq!(r.screen_to_world(-1, 0), (-1, 0));
+        assert_eq!(r.screen_to_world(-2, 0), (-1, 0));
+        assert_eq!(r.screen_to_world(-3, 0), (-2, 0));
+    }
+
+    #[test]
+    fn adjust_zoom_forms_one_continuous_scale_across_both_fields() {
+        let mut r = Renderer::new();
+        assert_eq!((r.zoom, r.zoom_out_stride), (1, 1));
+
+        // Zooming out first counts up zoom_out_stride, zoom staying at 1.
+        r.adjust_zoom(-1);
+        assert_eq!((r.zoom, r.zoom_out_stride), (1, 2));
+        r.adjust_zoom(-1);
+        assert_eq!((r.zoom, r.zoom_out_stride), (1, 3));
+
+        // Zooming back in counts zoom_out_stride back down to 1 before
+        // zoom itself ever climbs above 1.
+        r.adjust_zoom(1);
+        assert_eq!((r.zoom, r.zoom_out_stride), (1, 2));
+        r.adjust_zoom(1);
+        assert_eq!((r.zoom, r.zoom_out_stride), (1, 1));
+        r.adjust_zoom(1);
+        assert_eq!((r.zoom, r.zoom_out_stride), (2, 1));
+    }
+
+    #[test]
+    fn zoom_and_zoom_out_stride_clamp_at_their_own_bounds() {
+        let mut r = Renderer::new();
+        for _ in 0..20 {
+            r.adjust_zoom(1);
+        }
+        assert_eq!(r.zoom, MAX_ZOOM, "zoom should clamp rather than grow unbounded");
+
+        let mut r = Renderer::new();
+        for _ in 0..20 {
+            r.adjust_zoom(-1);
+        }
+        assert_eq!(r.zoom_out_stride, MAX_ZOOM_OUT_STRIDE, "zoom_out_stride should clamp rather than grow unbounded");
+    }
+
+    #[test]
+    fn drawing_at_zoom_two_fills_a_two_by_two_block_per_world_cell() {
+        let mut world = World::new(Rect::new(0, 0, 15, 15));
+        world.set(2, 2, Cell::new(material::STONE, 0));
+        let mut r = Renderer::new();
+        r.zoom = 2;
+        let particles = ParticleSystem::new();
+        let (w, h) = (32u32, 32u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        r.draw(&world, &particles, &mut frame, w, h);
+
+        let px = |x: i32, y: i32| -> [u8; 4] {
+            let i = ((y as u32 * w + x as u32) * 4) as usize;
+            frame[i..i + 4].try_into().unwrap()
+        };
+        // World cell (2, 2) should occupy screen block (4..6, 4..6).
+        let stone_colour = px(4, 4);
+        assert_eq!(px(5, 4), stone_colour);
+        assert_eq!(px(4, 5), stone_colour);
+        assert_eq!(px(5, 5), stone_colour);
+        // One column/row past the block should already be back to void
+        // (world cell (3, 2), still empty).
+        assert_ne!(px(6, 4), stone_colour);
     }
 
     #[test]
