@@ -251,12 +251,18 @@ real change on its own (a newly exposed or newly shaded cell shows up as a
 jump between the pre-step and post-step value, same mechanism issue #4
 already relies on for CA occupancy changes).
 
-`LIGHT_DECAY` is steep on purpose ("diffuse fast, decay hard," `field.rs`'s
-own phrase for the ambient-light shortcut) — a field cell two rows below the
-sky already reads under 6% of `MAX_LIGHT`, so light is a local glow around
-fire and open sky, not a distant illumination model. The regression test
-(`open_sky_reads_brighter_than_a_directly_blocked_cell`) probes one field row
-down for exactly that reason, rather than assuming light reaches any deeper.
+`LIGHT_DECAY` retuned from 0.85 to 0.997 (owner request: real outdoor sunlight
+depth rather than requiring every plant within a couple of field rows of open
+sky, which the original steep decay effectively forced once the tree
+rewrite's `Germinate` made light-gated growth real) — a field cell reads
+above a `0.1` threshold to roughly 75 world cells below open sky now, versus
+roughly 20 before. The real cost: convergence to a static sky amplitude now
+takes roughly 100x longer (`field.rs`'s own `LIGHT_DECAY` doc has the
+specifics) — the field-sleep optimization (issue #4) stays correct, it just
+spends more real frames awake near each day/night peak/trough first. The
+regression test (`open_sky_reads_brighter_than_a_directly_blocked_cell`)
+still only probes one field row down — that's checking the sky boundary
+condition itself, not the full depth range.
 
 **`World::field_at` is block-nearest** — any two positions inside the same
 8x8 field block read byte-identical values, which quietly broke every

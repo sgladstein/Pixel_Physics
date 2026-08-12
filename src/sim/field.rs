@@ -93,13 +93,30 @@ const HEAT_DIFFUSION_RATE: f32 = 0.2;
 /// Light does not physically diffuse — it travels in straight lines and falls
 /// off with distance and occlusion. Modelling that properly means casting
 /// rays or solving a transport equation, and this is a coarse approximation
-/// grid, not a renderer. Treating light as "diffuse fast, decay hard" is the
-/// same shortcut Noita-likes generally take for ambient/bounce lighting: it
-/// blurs outward from emitters and fades with distance, which looks
-/// approximately right without being physically accurate. Revisit if M6's
-/// rendering needs something better.
+/// grid, not a renderer. Treating light as diffusion-with-decay is the same
+/// shortcut Noita-likes generally take for ambient/bounce lighting: it blurs
+/// outward from emitters and fades with distance, which looks approximately
+/// right without being physically accurate. Revisit if M6's rendering needs
+/// something better.
 const LIGHT_DIFFUSION_RATE: f32 = 0.3;
-const LIGHT_DECAY: f32 = 0.85;
+/// Retuned from an original 0.85 ("diffuse fast, decay hard," a genuine
+/// local-glow-only reading) to 0.997, by explicit owner request: outdoor
+/// sunlight reaching real depth is more realistic than requiring every
+/// tree to be planted within a couple of field rows of open sky, which the
+/// original steep decay effectively forced (`Germinate`'s own light gate
+/// made that a hard requirement, not just an aesthetic one, once the tree
+/// rewrite made light-gated germination real). At the old value, light
+/// crossed below a `0.1` reading roughly 20 world cells below open sky; at
+/// this value, roughly 75 (see the git history for the exact depth-probe
+/// numbers this was tuned against). The real cost: convergence to a static
+/// sky amplitude now takes roughly 100x longer (`the_sky_keeps_cycling_
+/// through_day_and_night_even_after_the_field_goes_quiet`'s own updated
+/// doc has the specifics) — the field-sleep optimization (issue #4) stays
+/// correct, it just spends more real frames awake near each day/night
+/// peak/trough before qualifying. A live perf re-check against the stress
+/// scene is worth doing before this ships broadly; not done as part of
+/// this change.
+const LIGHT_DECAY: f32 = 0.997;
 
 /// Humidity spreads through air more readily than it evaporates away, unlike
 /// light — a much larger diffusion rate than `LIGHT_DIFFUSION_RATE`, still
@@ -1168,12 +1185,10 @@ mod tests {
         // .light`, but had nothing to read before this, since nothing wrote
         // to the light channel except the isolated `add_light` case above.
         //
-        // `LIGHT_DECAY` is steep by design (see this file's own "diffuse
-        // fast, decay hard" doc comment above `LIGHT_DIFFUSION_RATE`), so
-        // the probe has to sit close to the sky row to see a clear signal
-        // -- one field row down settles near `4.0 * LIGHT_DECAY *
-        // LIGHT_DIFFUSION_RATE` under this file's own constants, well
-        // above zero but nowhere near `MAX_LIGHT` itself.
+        // The probe still sits close to the sky row (one field row down),
+        // even though `LIGHT_DECAY`'s own doc now describes real depth
+        // penetration -- this is just checking that the sky boundary
+        // condition itself works, not exercising the full depth range.
         let mut w = test_world();
         // One field cell's worth of solid rock, aligned to the field grid
         // (FIELD_SCALE = 8) so `rebuild_blocked` marks exactly this field
@@ -1237,8 +1252,21 @@ mod tests {
         // what's being tested is that most of those calls can stay cheap
         // no-ops while the ones during an actual dawn/dusk transition still
         // do real work.
+        // `LIGHT_DECAY` moved much closer to 1.0 (0.997) to let sunlight
+        // reach real depth rather than only a local glow (owner request:
+        // "add more light to the env" rather than requiring every tree to
+        // be planted within a couple of field rows of open sky) -- the
+        // direct cost is that genuine convergence to a static sky
+        // amplitude now takes roughly 100x longer than the old decay's
+        // own ~50 steps, since each step's marginal correction shrinks
+        // far more slowly. Still bounded and still real, just slower; the
+        // field-sleep optimization (issue #4) stays correct either way,
+        // it just spends more real frames awake near each day/night
+        // peak/trough before qualifying. A live perf re-check against the
+        // stress scene is worth doing before this ships broadly, not done
+        // here.
         let mut w = test_world();
-        for _ in 0..50 {
+        for _ in 0..5000 {
             step(&mut w); // converge to frame 0's (noon) amplitude
         }
         assert!(w.fields_settled(), "test setup should have reached a converged, quiet field");
