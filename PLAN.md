@@ -33,15 +33,19 @@
 > whatever the first colony-forming creature work turns out to be),
 > [`Reports/pixel-physics-issues.md`](Reports/pixel-physics-issues.md) (eleven
 > concrete performance/correctness/housekeeping issues against the codebase as
-> it stood then — all eleven are now closed, so read it as a historical
-> record rather than a live backlog), and
+> it stood then — nine are closed; issue #3 closed in the overnight run's
+> section 5, and issue #8 (generational tree-state indices) is scheduled to
+> close in section 8, so this is not quite a purely historical record yet),
 > [`Reports/design-philosophy.md`](Reports/design-philosophy.md) (the short,
 > opinionated statement of the philosophy the other four already implied —
-> read this one first). These are **not milestone research** the way
-> `research/` is — they're a direction-setting pass that reshapes near-term
-> priority order. Read the relevant report before touching anything it
-> covers; this file's condensed version is not a substitute for the
-> reasoning behind it.
+> read this one first), and
+> [`Reports/organism-substrate-design.md`](Reports/organism-substrate-design.md)
+> (overnight run section 7: the shared, cell-typed species/behavior model
+> replacing `TreeState`/`CreatureState`, built for section 8). These are
+> **not milestone research** the way `research/` is — they're a
+> direction-setting pass that reshapes near-term priority order. Read the
+> relevant report before touching anything it covers; this file's condensed
+> version is not a substitute for the reasoning behind it.
 
 ## Context
 
@@ -1665,11 +1669,13 @@ deferred:
    behavior from simple rules."* Needs a longer design conversation before
    any code changes — added to the TODO list, not started.
    **Update:** that design conversation happened next (see
-   `Reports/design-philosophy.md`). The *direction* is now settled — a
+   `Reports/design-philosophy.md`). The *direction* was settled there — a
    cell-typed, CA-native organism model, generalized past trees to any
-   species — but the technical design (data schema, transport mechanics,
-   migration plan for `TreeState`) is explicitly not resolved yet, and
-   implementation remains unscheduled.
+   species. **Second update:** the technical design itself (data schema,
+   transport mechanics, secondary thickening, connectivity, the
+   `TreeState`/`CreatureState` migration plan) is now written up in full —
+   see `Reports/organism-substrate-design.md`, the overnight run's section
+   7 — and implementation is scheduled as section 8, next.
 
 ### Overnight run, section 1: frame-sequence debugging capture
 
@@ -2095,6 +2101,58 @@ still landing at points scattered across the whole visible world by frame
 `ParticleSystem`'s own `rng: Rng` field, the `ranged` helper, `step`
 applying both, the new `particles_spawned_with_identical_velocity_diverge_
 over_time`).
+
+### Overnight run, section 7: `Reports/organism-substrate-design.md`
+
+Research-and-design section, no code changes — the deliverable is the
+report itself, [`Reports/organism-substrate-design.md`](Reports/organism-substrate-design.md),
+read in full before starting section 8.
+
+Grounded in the actual current code, not the plan's own description of
+it, which mattered: `plant.rs`/`creature.rs`/`structural.rs` were read in
+full first, and two of the plan's premises turned out to need correcting
+before the report could be written honestly:
+
+- The plan's `Cell::aux` layout for `Plant`/`Creature` (cell-type tag +
+  resource scalar, 16 bits, no room left over) silently drops the anchor
+  distance `Plant` cells currently store in that same field for M17
+  structural integrity — a real conflict the plan text never resolved.
+  Decided here: `Plant` structural integrity moves off the per-cell cache
+  entirely, onto an event-triggered bounded reachability search from the
+  organism's own anchors, rather than `Solid`'s incremental relaxation
+  (which needs the per-cell cache `Plant` no longer has room for).
+- The plan asked to "factor `structural.rs`'s BFS-from-anchors into a
+  generic primitive." `structural.rs` does not run a BFS — it's an
+  incremental local relaxation (`min(neighbour.aux()) + 1`, cached per
+  cell, recomputed reactively). There is no full-graph search anywhere in
+  the current codebase to extract. The report designs the actual shared
+  primitive the two different storage strategies (`Solid`'s cache,
+  `Plant`'s on-demand search) can both be built from instead — a bounded
+  BFS with a caller-supplied anchor set and connectivity predicate, used
+  three ways: an M17 verification pass, the organism substrate's primary
+  structural mechanism, and `SecondaryThicken`'s downstream-leaf-count
+  flood fill.
+
+Four citations researched and verified with real, fetched URLs (a
+dedicated background research pass, separate from writing the report
+itself, specifically so no URL in the final document was guessed): Münch
+(1930)/Knoblauch et al. (2016) for the real phloem pressure-flow mechanism
+this engine's diffusion-based transport is a named simplification of;
+Shinozaki, Yoda, Hozumi & Kira (1964) for the pipe model theory
+`SecondaryThicken` translates, plus Lehnebach et al. (2018)'s review of
+its real, documented limits (the proportionality constant is tree-local,
+not universal — directly shapes `pipe_ratio` being a per-species
+parameter, not a hardcoded constant); L-PEACH and MuSCA as the FSPM tier
+of coupled-transport-on-explicit-architecture this engine is deliberately
+not attempting, cited so that's a stated decision rather than a gap no one
+noticed.
+
+Also closes out issue #8's design question (`Reports/pixel-physics-
+issues.md`): generational `organism_id` indices with a free list, built in
+section 8 rather than deferred again, since the organism substrate makes
+`TreeState`'s existing leak guaranteed to matter (moss/worm reseeding, and
+section 12's ants, all churn through far more short-lived organisms than
+a tree ever did).
 
 ---
 
