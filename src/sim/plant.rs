@@ -63,6 +63,53 @@ fn candidate_crowding(world: &World, x: i32, y: i32, organism_id: u16) -> f32 {
     }
 }
 
+/// Canopy density's decay factor, applied once per `organism_tick` call
+/// (this module's own scheduling cadence, `ORGANISM_TICK_INTERVAL` apart)
+/// rather than once per CA frame the way an earlier version of this
+/// mechanism did. That earlier placement (inside `organism::diffuse_
+/// resource`, which every awake chunk's CA sweep visits every single
+/// frame) decayed a fresh deposit to zero within about ten frames at its
+/// old per-frame rate — long before a neighbour's own next `Grow` check,
+/// `ORGANISM_TICK_INTERVAL` (45) frames later on average, ever got a
+/// chance to read it. Found by live verification (`docs/screenshots/
+/// tree-rewrite-live-verification/`): growth still read as a dense round
+/// clump even after fixing the separate bug where density was being
+/// erased outright (see `pack_aux_preserving_density`'s own doc) — the
+/// decay-cadence mismatch was erasing what that fix had just started
+/// preserving, just more slowly.
+///
+/// A multiplicative retain fraction, not a flat subtraction: applied once
+/// every `ORGANISM_TICK_INTERVAL`, 0.5 halves a fresh deposit each cycle
+/// a cell's own tick fires, which comfortably clears `with_canopy_density`'s
+/// quantization half-step (`CANOPY_DENSITY_SCALE / 15.0 / 2 ≈ 0.133`) on
+/// every single application regardless of the density's current value —
+/// unlike the old per-frame placement, this decay never needs to be tuned
+/// small to survive many consecutive calls before the next real read, so
+/// it doesn't reopen the quantization-lock bug class `organism.rs`'s own
+/// `CANOPY_DENSITY_DECAY` history already found once (see that module's
+/// diff for the original fix). Still fades a deposit toward zero over a
+/// handful of cycles once nothing nearby keeps refreshing it — the same
+/// "let later growth reclaim space near mature wood" intent the original
+/// mechanism described, now actually reachable by the checks that matter.
+const CANOPY_DENSITY_DECAY_PER_TICK: f32 = 0.5;
+
+/// `organism::pack_aux` alone always resets canopy density to zero (its
+/// own doc: "Bits 12-15 start zero") -- every ordinary resource/type
+/// update in this dispatch that isn't a brand-new `Grow`/`Divide` child
+/// (which correctly gets a fresh deposit via `with_canopy_density`) needs
+/// to carry the *existing* cell's density forward instead, or a candidate
+/// tip's own deposited signal gets silently erased by the very next
+/// `Photosynthesize`/`Absorb`/`Divide` write to that same cell -- typically
+/// within the same or the next `organism_tick` cycle, well before decay or
+/// diffusion ever get a chance to fade it on their own. `existing_aux`
+/// should be the cell's aux from *before* this tick's writes (`organism_
+/// tick`'s own `cell.aux()`, read once at the top) -- nothing in this
+/// dispatch modifies density mid-tick, so that single read stays valid for
+/// every self-update this tick makes.
+fn pack_aux_preserving_density(existing_aux: u16, cell_type: CellType, resource: f32) -> u16 {
+    organism::with_canopy_density(organism::pack_aux(cell_type, resource), organism::canopy_density(existing_aux))
+}
+
 // --- Organism-owned cells (`Reports/organism-substrate-design.md`) ------
 //
 // Generic dispatch for any species — moss is the only one retrofitted so
@@ -175,6 +222,17 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     // cheap relative to the field reads a single `Divide` already does.
     let behaviors: Vec<Behavior> = world.species.get(species_id).behaviors(cell_type).to_vec();
 
+    // Canopy density decays once per call, on this function's own
+    // schedule -- see `CANOPY_DENSITY_DECAY_PER_TICK`'s own doc for why
+    // this replaced an earlier per-CA-frame placement. Written and rebound
+    // into `cell` immediately, before any behavior below reads or
+    // preserves density via `pack_aux_preserving_density`, so every write
+    // this tick carries the already-decayed value forward, not the
+    // pre-decay one.
+    let decayed_density = organism::canopy_density(cell.aux()) * CANOPY_DENSITY_DECAY_PER_TICK;
+    let cell = cell.with_aux(organism::with_canopy_density(cell.aux(), decayed_density));
+    world.set(x, y, cell);
+
     let mut next = Vec::new();
     let mut found_candidate = false;
     for behavior in behaviors {
@@ -215,7 +273,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         .with_aux(organism::pack_aux(cell_type, 0.0));
                     world.set(tx, ty, new_cell);
                     resource -= cost;
-                    world.set(x, y, cell.with_aux(organism::pack_aux(cell_type, resource)));
+                    world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
                     next.push(reschedule_organism(tx, ty, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
                 }
             }
@@ -323,7 +381,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(new_aux);
                 world.set(tx, ty, new_cell);
                 resource -= cost;
-                world.set(x, y, cell.with_aux(organism::pack_aux(cell_type, resource)));
+                world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
                 next.push(reschedule_organism(tx, ty, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
 
                 // §3's branching: a second successful `Grow`, in a
@@ -340,7 +398,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             let branch_cell = Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(branch_aux);
                             world.set(bx, by, branch_cell);
                             resource -= cost;
-                            world.set(x, y, cell.with_aux(organism::pack_aux(cell_type, resource)));
+                            world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
                             next.push(reschedule_organism(bx, by, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
                         }
                     }
@@ -349,7 +407,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             Behavior::Photosynthesize { rate } => {
                 let light = ambient_light_above(world, x, y);
                 resource = (resource + rate * light).min(organism::RESOURCE_SCALE);
-                world.set(x, y, cell.with_aux(organism::pack_aux(cell_type, resource)));
+                world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
             }
             Behavior::Absorb { rate } => {
                 // `Reports/tree-rewrite-design.md` §5: only the passive,
@@ -370,7 +428,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
                     }
                 }
-                world.set(x, y, cell.with_aux(organism::pack_aux(cell_type, resource)));
+                world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
             }
             Behavior::SecondaryThicken { pipe_ratio } => {
                 thicken(world, x, y, organism_id, pipe_ratio);
@@ -423,7 +481,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         // in `tree.ron`) never firing on anything, since nothing would
         // ever actually carry that cell type. Carries the tip's own
         // current `resource` forward rather than resetting it.
-        world.set(x, y, cell.with_aux(organism::pack_aux(CellType::MatureBody, resource)));
+        world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), CellType::MatureBody, resource)));
         // `MatureBody` still needs its own periodic upkeep if the species
         // gave it any behavior (`SecondaryThicken`) -- one more check now,
         // at the standard interval, so it doesn't just go permanently
@@ -1911,5 +1969,55 @@ mod tests {
 
         let density = candidate_crowding(&w, 50, 50, this_organism);
         assert_eq!(density, 0.0, "a different organism's canopy density should not count as this organism's own crowding");
+    }
+
+    // --- Decay-cadence regression (`CANOPY_DENSITY_DECAY_PER_TICK`) ------
+    //
+    // Decay used to apply once per CA frame, inside `organism::diffuse_
+    // resource` -- fast enough to erase a fresh deposit within about ten
+    // frames, long before a neighbour's own next `Grow` check
+    // (`ORGANISM_TICK_INTERVAL`, 45 frames, on average) ever read it. Moved
+    // to `organism_tick`'s own per-cell cadence instead.
+
+    #[test]
+    fn a_fresh_deposit_survives_one_organism_tick_cycle_on_a_neighbour() {
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let wood = w.materials.id_of("wood").unwrap();
+        let organism_id = w.push_organism(tree_species);
+        let aux = organism::with_canopy_density(organism::pack_aux(CellType::MatureBody, 1.0), GROW_CANOPY_DEPOSIT);
+        w.set(100, 20, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+
+        // One full organism_tick cycle on this cell itself -- the same
+        // cadence a neighbour's own Grow check would be running on.
+        let _ = organism_tick(&mut w, 100, 20, organism_id, 0);
+
+        let density = organism::canopy_density(w.get(100, 20).aux());
+        assert!(density > 0.0, "a fresh deposit should still be visible to a neighbour after one organism_tick cycle, got {density}");
+    }
+
+    #[test]
+    fn canopy_density_decays_across_organism_tick_cycles_without_getting_stuck() {
+        // Guards the same quantization-lock bug class the old per-frame
+        // decay placement's own history already found once
+        // (`CANOPY_DENSITY_DECAY_PER_TICK`'s own doc) -- moved to a new
+        // location, so the same "doesn't stay permanently stuck at the
+        // packed maximum" property needs to hold here too.
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let wood = w.materials.id_of("wood").unwrap();
+        let organism_id = w.push_organism(tree_species);
+        let aux = organism::with_canopy_density(organism::pack_aux(CellType::MatureBody, 1.0), organism::CANOPY_DENSITY_SCALE);
+        w.set(100, 20, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+
+        for _ in 0..20 {
+            let _ = organism_tick(&mut w, 100, 20, organism_id, 0);
+        }
+
+        let density = organism::canopy_density(w.get(100, 20).aux());
+        assert!(
+            density < organism::CANOPY_DENSITY_SCALE,
+            "density should decay across repeated organism_tick calls, not stay stuck at the packed maximum, got {density}"
+        );
     }
 }

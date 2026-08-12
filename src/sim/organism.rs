@@ -533,27 +533,6 @@ pub fn reachable_from_anchors<S: CellSurface>(
 /// every visited tick have more chances to compound than heat's single
 /// channel does.
 const DIFFUSION_RATE: f32 = 0.2;
-/// Canopy density decays every tick it's diffused — the "decay" in
-/// deposit → diffuse → decay → follow — so old growth's crowding signal
-/// fades once nothing nearby is still depositing into it, letting later
-/// growth reclaim space near mature wood. The old attractor-based
-/// self-avoidance this replaces had no equivalent: a consumed attractor
-/// never came back, ever, for the rest of that tree's life.
-///
-/// Set well above `CANOPY_DENSITY_SCALE / 15.0`'s own half-step (≈0.133),
-/// deliberately, not tuned down to look small: `here_density` is always
-/// re-read from the *quantized* 4-bit packed value, not accumulated in a
-/// hidden higher-precision field, so any decay smaller than roughly half a
-/// quantization step rounds back to the exact same packed bits every
-/// single call, forever — a real, permanently-stuck bug, not a "just
-/// needs more ticks" one, found by a test that ran 500 consecutive
-/// diffusion steps on an isolated cell and confirmed it. `deposit`
-/// (below) happening once at `Grow`'s own creation moment, not every
-/// tick, is what actually keeps decay from erasing a fresh signal before
-/// `Grow`'s own far-less-frequent checks ever read it — decay does not
-/// need to *also* be tuned slow to protect that, now that it isn't
-/// fighting a continuous re-deposit every tick.
-const CANOPY_DENSITY_DECAY: f32 = 0.15;
 
 /// Run one diffusion step for the organism-owned cell at `(x, y)` — a
 /// no-op for `organism_id() == 0` (inert material) or an unrecognized
@@ -593,20 +572,22 @@ pub fn diffuse_resource<S: CellSurface>(surface: &mut S, x: i32, y: i32) {
     }
 
     // An isolated organism cell (every neighbour a wall) has nothing to
-    // exchange with -- still lets its own density decay below, but skips
-    // the diffusion terms entirely rather than dividing by zero. Density
-    // has no per-tick re-deposit here (unlike an earlier version of this
-    // function) -- `Behavior::Grow`'s own dispatch deposits once, directly,
-    // at the moment it creates a new cell (see `plant.rs`), and this
-    // function's only job afterward is spreading and fading that one
-    // deposit, not continuously topping it back up.
+    // exchange with, and nothing to do here at all -- unlike an earlier
+    // version of this function, decay no longer lives on this per-frame
+    // pass (see `plant::CANOPY_DENSITY_DECAY_PER_TICK`'s own doc for why:
+    // a decay applied every single CA frame erases a fresh deposit within
+    // a handful of frames, long before a neighbour's much-less-frequent
+    // `Grow` check ever gets a chance to read it — a real bug, found by
+    // live verification, not a hypothetical). This function's only job is
+    // spatial spread now; `organism_tick`'s own per-cell cadence is what
+    // fades a deposit over time.
     let (new_resource, new_density) = if neighbours == 0 {
-        (here_resource, (here_density - CANOPY_DENSITY_DECAY).max(0.0))
+        (here_resource, here_density)
     } else {
         let resource_avg = resource_sum / neighbours as f32;
         let density_avg = density_sum / neighbours as f32;
         let resource = here_resource + (resource_avg - here_resource) * DIFFUSION_RATE;
-        let density = here_density + (density_avg - here_density) * DIFFUSION_RATE - CANOPY_DENSITY_DECAY;
+        let density = here_density + (density_avg - here_density) * DIFFUSION_RATE;
         (resource.max(0.0), density.clamp(0.0, CANOPY_DENSITY_SCALE))
     };
 
@@ -805,16 +786,15 @@ mod tests {
     }
 
     #[test]
-    fn canopy_density_decays_on_an_isolated_cell_given_enough_ticks() {
-        // Deliberately *not* asserting a single call already shows a
-        // visible drop: `CANOPY_DENSITY_DECAY` is tuned small on purpose,
-        // so a deposit's crowding signal survives many CA-sweep visits
-        // (which happen far more often than `Grow`'s own `ORGANISM_TICK_
-        // INTERVAL`-spaced checks that actually read it) rather than
-        // vanishing before the next `Grow` call ever sees it. What must
-        // still hold is that it isn't *permanently* stuck at the packed
-        // maximum — decay has to eventually cross at least one
-        // quantization step given enough visits.
+    fn diffuse_resource_no_longer_decays_density_itself() {
+        // Decay moved to `plant::organism_tick`'s own per-cell cadence
+        // (see that module's `CANOPY_DENSITY_DECAY_PER_TICK` doc for why:
+        // a decay applied on this function's per-CA-frame cadence erased a
+        // fresh deposit within a handful of frames, long before a
+        // neighbour's much-less-frequent `Grow` check ever read it). This
+        // function's own job is spatial spread only now -- an isolated
+        // cell (no diffusion partner) should see its density completely
+        // unchanged after any number of calls.
         use super::super::chunk::Rect;
         use super::super::world::World;
 
@@ -828,9 +808,10 @@ mod tests {
             diffuse_resource(&mut w, 5, 5);
         }
 
-        assert!(
-            canopy_density(w.get(5, 5).aux()) < CANOPY_DENSITY_SCALE,
-            "an isolated cell's own deposited density should decay eventually, not stay permanently stuck at the packed maximum"
+        assert_eq!(
+            canopy_density(w.get(5, 5).aux()),
+            CANOPY_DENSITY_SCALE,
+            "an isolated cell's density should not decay from repeated diffuse_resource calls alone"
         );
     }
 
