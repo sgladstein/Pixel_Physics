@@ -762,6 +762,17 @@ impl MaterialRegistry {
         &self.materials[id.0 as usize]
     }
 
+    /// Live in-place mutation, for `tunables.rs`'s panel adjusting a value
+    /// this frame without waiting on a file write — a save (or a later
+    /// `F5`/hot-reload) is what makes a change durable, this is what makes
+    /// it felt immediately. Not exposed as a way to add/remove materials
+    /// or rename one (`by_name` would go stale); only individual field
+    /// values on an already-registered material.
+    #[inline]
+    pub fn get_mut(&mut self, id: MaterialId) -> &mut Material {
+        &mut self.materials[id.0 as usize]
+    }
+
     #[inline]
     pub fn kind(&self, id: MaterialId) -> MaterialKind {
         self.get(id).kind

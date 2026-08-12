@@ -33,10 +33,14 @@ cargo test
 | `V` | Cycle the field overlay: off → pressure → temperature → light → moisture → off |
 | `Tab` | Toggle the material palette (swatch row, current selection outlined) |
 | `/` (shown as `?`) | Toggle the keybind help overlay |
+| `O` | Toggle the live tunables panel (§10 — browse/adjust/save material fields at runtime) |
+| `↑` / `↓` | Move the tunables selection (only while the panel is open) |
+| `←` / `→` | Adjust the selected tunable's live value by its own step (only while the panel is open) |
+| `Enter` | Save the selected tunable back to its `.ron` file, preserving comments (only while the panel is open) |
 | `F1` | Chunk overlay — green borders are awake, grey are asleep |
 | `F5` | Reload materials and species by hand |
 | `R` | Reset |
-| `Esc` | Quit |
+| `Esc` | Close the tunables panel if open (without saving); quit otherwise |
 
 The window title shows frame rate, selected material, how many chunks are
 awake, and the result of the last material/species reload. `0/40 awake` on
@@ -1119,6 +1123,37 @@ every pixel by the selected channel, including empty cells — a field
 reading exists over vacuum the same as anywhere else, so the overlay
 routes through both the empty- and non-empty-cell paths in
 `Renderer::cell_colour` rather than only the latter.
+
+## Live tunables panel — overnight run, section 10
+
+A generic `(category, name, value, min, max, step)` registry
+(`tunables.rs`), built on section 9's text primitive rather than a bespoke
+UI per subsystem. Only `Material`'s finite `f32` fields register this
+round — integer fields and anything still at the "never" (`f32::INFINITY`)
+sentinel are deliberately skipped. `O` opens it; adjusting a value applies
+immediately to the live registry (felt next frame); `Enter` saves back to
+the `.ron` file via a targeted text-span edit that never touches anything
+but the one value, so hand-written comments (`oil.ron`'s own header, for
+one) survive; `Esc` closes without saving, though the live-adjusted value
+stays in effect for the session regardless.
+
+Live PNG verification against the real asset files (not just hand-built
+test strings) caught two bugs the unit tests had missed: saving failed for
+most materials, because most files only write the fields that differ from
+`Material`'s own defaults (`stone.ron` never mentions
+`heat_conductivity`), and the original save path treated "field not in the
+file" as an error rather than the common case it actually is — fixed to
+append the field before the file's closing paren instead. Separately, the
+panel's last row overlapped the save-confirmation message whenever both
+happened to land on the same pixels — fixed by reserving that footer space
+unconditionally rather than only when a message happened to be showing.
+An independent review then caught two more: the value-span search that
+finds `field: value` to replace didn't know about `//` comments, so a
+value written with a trailing inline comment would silently lose it on
+save; and the same blind spot existed in the "does this file need a
+leading comma before the appended field" check. Both fixed by making the
+relevant scans comment-aware, each confirmed via a test that failed
+against the pre-fix code first.
 
 ## M8 status — started, not complete
 

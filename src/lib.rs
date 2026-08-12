@@ -15,3 +15,4 @@ pub mod app;
 pub mod hud;
 pub mod render;
 pub mod sim;
+pub mod tunables;

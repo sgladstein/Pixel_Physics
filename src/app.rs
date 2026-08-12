@@ -13,6 +13,7 @@ use crate::sim::parallel;
 use crate::sim::particle::ParticleSystem;
 use crate::sim::world::World;
 use crate::sim::Cell;
+use crate::tunables::{self, Tunable};
 
 /// Simulation resolution, in cells. The window is larger; `pixels` scales the
 /// framebuffer up, which is what gives the chunky pixel look.
@@ -47,6 +48,14 @@ pub struct App {
     /// `/` (displayed as `?`) — every control, for a player who hasn't
     /// read `README.md`'s table.
     pub show_help: bool,
+    /// `O` — the live-tunables panel (§10 of `PLAN.md`'s UI-improvement
+    /// pass). Not `P` — already `spawn_burst`.
+    pub show_tunables: bool,
+    /// Index into a freshly-rebuilt `tunables::from_materials` list every
+    /// time the panel draws or an adjustment/save is applied — there is no
+    /// persistent `Vec<Tunable>` on `App` to keep in sync with material
+    /// hot-reload, deliberately; see `tunables_list`'s own doc.
+    tunables_selected: usize,
 }
 
 /// Re-read both the material and species directories over the current
@@ -102,6 +111,8 @@ impl App {
             show_hover_inspector: false,
             show_palette: false,
             show_help: false,
+            show_tunables: false,
+            tunables_selected: 0,
         }
     }
 
@@ -115,6 +126,98 @@ impl App {
 
     pub fn toggle_help(&mut self) {
         self.show_help = !self.show_help;
+    }
+
+    /// Resets the selection to the top of the list on every open — a
+    /// stale index from a previous session (materials since hot-reloaded,
+    /// possibly with a different count) would otherwise point at a
+    /// different entry than whatever it last pointed at, silently.
+    pub fn toggle_tunables(&mut self) {
+        self.show_tunables = !self.show_tunables;
+        if self.show_tunables {
+            self.tunables_selected = 0;
+        }
+    }
+
+    /// Freshly rebuilt every call, not cached on `App` — materials are
+    /// cheap to enumerate (a few dozen entries) and this sidesteps keeping
+    /// a persistent list in sync with hot-reload (`F5`) entirely, the same
+    /// tradeoff `tunables.rs`'s own module doc explains.
+    fn tunables_list(&self) -> Vec<Tunable> {
+        tunables::from_materials(&self.world.materials)
+    }
+
+    pub fn tunables_move(&mut self, delta: i32) {
+        let len = self.tunables_list().len();
+        if len == 0 {
+            return;
+        }
+        let next = self.tunables_selected as i32 + delta;
+        self.tunables_selected = next.rem_euclid(len as i32) as usize;
+    }
+
+    /// Adjusts the selected tunable's live value by `sign` (-1 or 1) times
+    /// its own registered `step`, applied directly to the in-memory
+    /// `MaterialRegistry` — felt immediately (the next frame's friction/
+    /// flammability/etc. reads the new value), not deferred to a save.
+    /// Session-only until `tunables_save` (`Enter`) writes it back to disk.
+    pub fn tunables_adjust(&mut self, sign: i32) {
+        let Some(t) = self.tunables_list().into_iter().nth(self.tunables_selected) else {
+            return;
+        };
+        let Some(id) = self.world.materials.id_of(&t.category) else {
+            return;
+        };
+        let new_value = (t.value + sign as f32 * t.step).clamp(t.min, t.max);
+        let m = self.world.materials.get_mut(id);
+        match t.name.as_str() {
+            "density" => m.density = new_value,
+            "friction_angle" => m.friction_angle = new_value,
+            "flammability" => m.flammability = new_value,
+            "heat_conductivity" => m.heat_conductivity = new_value,
+            "ignition_temperature" => m.ignition_temperature = new_value,
+            "burn_temperature" => m.burn_temperature = new_value,
+            "melting_point" => m.melting_point = new_value,
+            "boiling_point" => m.boiling_point = new_value,
+            // `tunables::from_materials` is the only source of entries, so
+            // every `t.name` it can produce is handled above -- this is a
+            // defensive floor against the two lists drifting apart, not a
+            // reachable case today.
+            _ => {}
+        }
+    }
+
+    /// Write the selected tunable's current live value back to its
+    /// `.ron` file — a targeted span-edit (`tunables::write_field_value`),
+    /// never a full `ron::ser` re-serialization, which would silently
+    /// destroy every comment in the file. Verifies the edited text still
+    /// parses *before* ever touching disk; on failure, aborts and reports
+    /// rather than writing a broken file.
+    ///
+    /// Known, accepted cosmetic tradeoff (an independent review flagged
+    /// this): the disk write below is itself picked up by `main.rs`'s file
+    /// watcher a couple hundred milliseconds later, which calls
+    /// `reload_materials` and overwrites this method's own "saved X.Y = Z"
+    /// confirmation with a generic "reloaded N materials" one. Harmless —
+    /// the reload just re-reads the exact value already live in memory —
+    /// and not worth a cross-module suppression flag to prevent one
+    /// message from briefly outliving another.
+    pub fn save_tunable(&mut self) {
+        let Some(t) = self.tunables_list().into_iter().nth(self.tunables_selected) else {
+            return;
+        };
+        let path = tunables::material_file_path(material::ASSET_DIR, &t.category);
+        let result = (|| -> Result<(), String> {
+            let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+            let updated = tunables::write_field_value(&source, &t.name, t.value)?;
+            ron::from_str::<material::MaterialDef>(&updated).map_err(|e| format!("edit would corrupt the file: {e}"))?;
+            std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+            Ok(())
+        })();
+        self.message = Some(match result {
+            Ok(()) => format!("saved {}.{} = {}", t.category, t.name, t.value),
+            Err(e) => format!("{}: {e}", path.display()),
+        });
     }
 
     pub fn update(&mut self) {
@@ -182,6 +285,65 @@ impl App {
 
         if self.show_help {
             self.draw_help(frame);
+        }
+
+        if self.show_tunables {
+            self.draw_tunables_panel(frame);
+        }
+    }
+
+    /// A scrollable list of every registered `Tunable`, grouped by
+    /// category (material name) in the order `tunables_list` produces
+    /// them, current selection highlighted and shown with its live value
+    /// plus a `[SAVED]`/error tag via `self.message` (the same feedback
+    /// channel a material reload already uses, reused rather than adding
+    /// a second one). Scrolls to keep the selection on screen once the
+    /// list is taller than the panel — a fixed window of rows centred
+    /// around `tunables_selected` rather than a real scrollbar.
+    fn draw_tunables_panel(&self, frame: &mut [u8]) {
+        const BG: [u8; 4] = [10, 10, 16, 255];
+        const WHITE: [u8; 4] = [235, 235, 235, 255];
+        const SELECTED: [u8; 4] = [255, 220, 100, 255];
+        let (left, top, right, bottom) = (20, 20, WIDTH as i32 - 20, HEIGHT as i32 - 20);
+        for y in top..bottom {
+            for x in left..right {
+                render::put(frame, WIDTH, HEIGHT, x, y, BG);
+            }
+        }
+
+        let list = self.tunables_list();
+        hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 6, "TUNABLES  UP DOWN SELECT  LEFT RIGHT ADJUST  ENTER SAVE  ESC CLOSE", WHITE);
+        if list.is_empty() {
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 20, "NOTHING REGISTERED", WHITE);
+            return;
+        }
+
+        const ROW_HEIGHT: i32 = 10;
+        // Reserved unconditionally, not only when `self.message` is
+        // currently `Some` -- a live PNG check caught the list running
+        // rows straight through this space when the reservation was
+        // message-dependent: a save's resulting message would land on the
+        // same pixels as the list's own last row, both unreadable. The
+        // footer must stay put whether or not there's a message to put in
+        // it, so the two can never collide.
+        const FOOTER_HEIGHT: i32 = 16;
+        let rows_bottom = bottom - FOOTER_HEIGHT;
+        let visible_rows = ((rows_bottom - (top + 20)) / ROW_HEIGHT).max(1) as usize;
+        // Centre the window on the selection, clamped so it never scrolls
+        // past either end of the list.
+        let half = visible_rows / 2;
+        let first = self.tunables_selected.saturating_sub(half).min(list.len().saturating_sub(visible_rows));
+
+        for (row, (i, t)) in list.iter().enumerate().skip(first).take(visible_rows).enumerate() {
+            let selected = i == self.tunables_selected;
+            let colour = if selected { SELECTED } else { WHITE };
+            let marker = if selected { ">" } else { " " };
+            let line = format!("{marker} {}.{} = {:.3}", t.category, t.name, t.value);
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 20 + row as i32 * ROW_HEIGHT, &line, colour);
+        }
+
+        if let Some(message) = &self.message {
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, bottom - 12, message, WHITE);
         }
     }
 
@@ -278,6 +440,15 @@ impl App {
         // Friction and dispersion may have changed, so nothing at rest can be
         // assumed to still be at rest.
         self.world.wake_all();
+        // A reload can change which conditional fields (ignition_temperature
+        // et al.) are registered per material, shifting every later
+        // flattened `tunables_list` index -- an independent review pointed
+        // out that leaving a stale `tunables_selected` in place could land
+        // a subsequent save on a field the player never selected. Reset to
+        // the top, same as `toggle_tunables` already does on open, rather
+        // than trying to track identity across a rebuild neither list nor
+        // registry otherwise needs.
+        self.tunables_selected = 0;
     }
 
     pub fn selected_material(&self) -> MaterialId {

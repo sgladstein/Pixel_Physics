@@ -233,7 +233,17 @@ impl Handler {
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
         match code {
-            KeyCode::Escape => event_loop.exit(),
+            // Contextual: closes the tunables panel first (the one overlay
+            // with real "editing" semantics, where a close-without-saving
+            // distinction matters -- see `App::toggle_tunables`'s own
+            // doc), quits only once nothing is open to close instead.
+            KeyCode::Escape => {
+                if self.app.show_tunables {
+                    self.app.show_tunables = false;
+                } else {
+                    event_loop.exit();
+                }
+            }
             KeyCode::Space => self.app.paused = !self.app.paused,
             // Single-step while paused, for inspecting a rule frame by frame.
             KeyCode::Period => self.app.step_once = true,
@@ -278,6 +288,14 @@ impl Handler {
             KeyCode::KeyI => self.app.toggle_hover_inspector(),
             KeyCode::Tab => self.app.toggle_palette(),
             KeyCode::Slash => self.app.toggle_help(),
+            KeyCode::KeyO => self.app.toggle_tunables(),
+            // Arrow keys and Enter only drive the tunables panel, and only
+            // while it's open -- they have no other binding to steal.
+            KeyCode::ArrowUp if self.app.show_tunables => self.app.tunables_move(-1),
+            KeyCode::ArrowDown if self.app.show_tunables => self.app.tunables_move(1),
+            KeyCode::ArrowLeft if self.app.show_tunables => self.app.tunables_adjust(-1),
+            KeyCode::ArrowRight if self.app.show_tunables => self.app.tunables_adjust(1),
+            KeyCode::Enter if self.app.show_tunables => self.app.save_tunable(),
             KeyCode::KeyQ => self.app.cycle_material(-1),
             KeyCode::KeyE => self.app.cycle_material(1),
             KeyCode::Digit1 => self.app.select_material(1),

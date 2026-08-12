@@ -2484,6 +2484,118 @@ the three new toggle fields/methods). `src/main.rs` (six new key
 bindings). `src/lib.rs` (registers the `hud` module).
 `PLAN.md`/`README.md`.
 
+### Overnight run, section 10: in-game live tunables panel
+
+A generic `(category, name, value, min, max, step)` registry
+(`src/tunables.rs`, new) rather than a bespoke UI per subsystem — any
+already data-driven value can register into it, and only `Material`'s
+finite `f32` fields register this round (`density`, `friction_angle`,
+`flammability`, `heat_conductivity`, `ignition_temperature`,
+`burn_temperature`, `melting_point`, `boiling_point`). Integer fields
+(`dispersion`, `flow_rate`, `burn_duration`, `max_unsupported_span`) and
+fields left at the "never" sentinel (`f32::INFINITY`) are deliberately not
+registered — scoped down from the plan's own text, documented in the
+module's doc rather than silently dropped.
+
+**`O`** toggles the panel; `↑`/`↓` move the selection, `←`/`→` adjust by
+the tunable's own step (applied immediately to the live `MaterialRegistry`
+— felt next frame, not deferred), `Enter` saves, `Esc` closes without
+saving (the live-adjusted value stays in effect for the session either
+way — closing the panel was never what would have discarded it). `Esc`'s
+existing unconditional-quit binding became contextual: closes the panel
+first if open, quits only once there's nothing left to close.
+
+**Saving is a targeted text-span edit, never a `ron::ser` round-trip** —
+the standing reason: re-serializing would silently destroy every comment
+in a material file, and those comments carry real reasoning (`oil.ron`'s
+own header, for one). `write_field_value` finds the existing `field:
+value` span and replaces just the value; verified to still parse
+(`ron::from_str::<MaterialDef>`) *before* ever touching disk, aborting and
+reporting rather than writing a broken file on failure.
+
+**Live PNG verification (a throwaway `examples/debug_tunables.rs`, direct
+`App` construction, deleted after use — the real windowed event loop still
+doesn't reliably advance frames headlessly here, per §6's finding) caught
+two real bugs the unit tests hadn't exercised, both fixed before an
+independent review even ran:**
+
+1. **Saving failed for most real materials.** `write_field_value`
+   originally *errored* when `field` wasn't already present as literal
+   text in the file — but most material files only write the handful of
+   fields that differ from `Material`'s own `serde` defaults (`stone.ron`
+   never mentions `heat_conductivity` at all), so "field absent from the
+   text" is the *common* case for a registered tunable, not a typo.
+   Running the debug harness against `stone.ron` for real (not just the
+   hand-built strings in this module's own tests) surfaced it immediately:
+   adjusting `heat_conductivity` worked live, saving it reported "field
+   not found." Fixed: when the field isn't found as an existing key,
+   `write_field_value` now appends `field: value,` on its own line just
+   before the file's own closing `)` (every shipped material file is a
+   single top-level struct, so its last `)` is unambiguous), inserting a
+   leading comma only when the preceding content doesn't already end in
+   one.
+2. **The panel's last visible row overlapped the status-message footer.**
+   `draw_tunables_panel`'s row count was computed from the full panel
+   height, with the message drawn into space that was only reserved when
+   `self.message` happened to be `Some` at draw time — so the list's own
+   last row and a just-set save confirmation landed on the same pixels,
+   both unreadable, visible immediately in the saved PNG. Fixed: the
+   footer is now reserved unconditionally.
+
+**Independent review of the fixed implementation before commit found two
+further, more subtle bugs, both confirmed by writing a failing test
+first, then fixed:**
+
+3. **`find_field_value_span` was comment-unaware.** A field written as
+   `density: 1.0 // heavy` (no shipped file happens to use this style
+   today, but nothing stopped a future one from being hand-edited that
+   way) had its trailing comment silently folded into the matched span and
+   deleted on save — the result was still valid RON, so the pre-write
+   parse check didn't catch it, and the comment was gone permanently.
+   Fixed: the value-span search now also stops at `//`, not just
+   `,`/`)`/newline.
+4. **The insert-if-missing path's "does the file need a leading comma"
+   check read through comments the same naive way.** A file whose last
+   content before `)` was a bare trailing comment (rather than a field)
+   could either insert a stray comma or skip a genuinely needed one,
+   depending on what the comment's own last character happened to be —
+   the stray-comma case is caught by the pre-write parse check (fails
+   safely, if confusingly), but the fix is the same underlying one either
+   way: added `last_significant_char`, which strips each line's own `//`
+   comment before checking what's really there.
+
+**Two lower-severity findings from the same review were assessed and
+deliberately left as-is, documented rather than engineered around:** the
+disk write in `save_tunable` is picked up by `main.rs`'s existing file
+watcher a couple hundred milliseconds later, which calls
+`reload_materials` and overwrites the "saved X.Y = Z" confirmation with a
+generic "reloaded N materials" one — harmless (the reload just re-reads
+the identical value already live in memory), not worth a cross-module
+suppression flag for one message briefly outliving another. Separately, a
+hot-reload while the panel is open can change which conditional fields
+are registered per material, shifting every later flattened list index —
+`tunables_selected` is now reset to 0 on every `reload_materials` call
+(matching the existing precedent `self.selected`'s own reset already
+set), closing the one version of this that could have silently landed a
+save on the wrong field.
+
+All four confirmed bugs were verified via revert: each fix's own new test
+was checked to fail against the pre-fix code, then the fix restored.
+`cargo test` (268 lib tests, up from 266) and `cargo clippy --all-targets
+-- -D warnings` both clean.
+
+### Files touched
+
+`src/tunables.rs` (new — `Tunable`, `from_materials`,
+`write_field_value`, `find_field_value_span`, `last_significant_char`,
+`format_value`). `src/sim/material.rs` (`MaterialRegistry::get_mut`).
+`src/app.rs` (`show_tunables`/`tunables_selected` fields,
+`toggle_tunables`/`tunables_list`/`tunables_move`/`tunables_adjust`/
+`save_tunable`, `draw_tunables_panel`, `reload_materials` now also resets
+`tunables_selected`). `src/main.rs` (`O` toggle; arrow keys and `Enter`
+guarded on the panel being open; `Escape` now contextual). `src/lib.rs`
+(registers the `tunables` module). `PLAN.md`/`README.md`.
+
 ---
 
 ## M19 — Visual polish: make the engine beautiful
