@@ -58,10 +58,6 @@ pub enum ActiveKind {
     /// rest of the program's life — the unbounded cost the scheduler's
     /// whole design exists to avoid).
     Organism { organism: u16, stale_ticks: u8 },
-    /// A tree's growing branch tip.
-    TreeTip { tree: u32, tip: u32 },
-    /// A root tip extending through soil/rock in search of water.
-    RootTip { tree: u32, root: u32 },
     /// M17: a `Solid` cell whose distance-to-anchor may need recomputing —
     /// scheduled reactively (painting, erasing, an explosion), never at
     /// world-gen time, so pre-placed terrain is never retroactively
@@ -162,7 +158,7 @@ pub fn step(world: &mut World) {
         }
         heap.pop();
         let produced = match site.kind {
-            ActiveKind::Organism { .. } | ActiveKind::TreeTip { .. } | ActiveKind::RootTip { .. } => plant::tick(world, &site),
+            ActiveKind::Organism { .. } => plant::tick(world, &site),
             ActiveKind::StructuralCheck => structural::tick(world, &site),
             ActiveKind::Creature { .. } => creature::tick(world, &site),
             ActiveKind::Decay => decay::tick(world, &site),

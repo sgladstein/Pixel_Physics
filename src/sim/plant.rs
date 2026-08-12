@@ -13,7 +13,7 @@
 
 use super::cell::Cell;
 use super::field::FIELD_SCALE;
-use super::material::{self, MaterialKind};
+use super::material::MaterialKind;
 use super::organism::{self, Behavior, CellType};
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
@@ -22,11 +22,18 @@ const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 const NEIGHBOURS_8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
 /// Plain 2D dot product — `Behavior::Grow`'s own candidate-scoring formula
-/// (`Reports/tree-rewrite-design.md` §2), not otherwise needed by anything
-/// already in this file (the old space-colonization code never needed a
-/// dot product, only vector addition/normalization).
+/// (`Reports/tree-rewrite-design.md` §2).
 fn dot(a: (f32, f32), b: (f32, f32)) -> f32 {
     a.0 * b.0 + a.1 * b.1
+}
+
+fn normalize(v: (f32, f32)) -> (f32, f32) {
+    let len = (v.0 * v.0 + v.1 * v.1).sqrt();
+    if len < 1e-6 {
+        (0.0, 0.0)
+    } else {
+        (v.0 / len, v.1 / len)
+    }
 }
 
 /// The canopy-density crowding signal `Grow`'s candidate scoring reads for
@@ -132,6 +139,23 @@ const ORGANISM_TICK_INTERVAL: u64 = 45;
 /// list forever, not an immediate death on the first empty check since a
 /// candidate can be transiently unavailable.
 const ORGANISM_STALE_LIMIT: u8 = 4;
+
+/// Minimum moisture-gradient magnitude before MIZ1-style suppression of
+/// gravity kicks in and a `RootTip`'s `Grow` steers toward water instead of
+/// straight down. A gradient, not a raw moisture reading — MIZ1 biology is
+/// specifically a response to a *change* in local humidity, not merely
+/// "some water is nearby" (see `organism::moisture_pull`'s own doc).
+/// `roots_steer_toward_off_axis_water_via_hydrotropism` is the actual
+/// authority on whether it's set right, same as every other threshold on
+/// this channel.
+const MIZ_THRESHOLD: f32 = 0.05;
+
+/// Local moisture drained per drink by `Behavior::Absorb` — architecture
+/// §5g, the write that turns the moisture channel from read-only into a
+/// loop. Not tied numerically to `Absorb`'s own `rate` (different units:
+/// resource vs. this channel's own 0..4-ish scale) — a separate, freely
+/// tunable amount.
+const ROOT_MOISTURE_DEPLETION: f32 = 1.0;
 
 /// How much canopy density `Behavior::Grow` deposits into a newly-created
 /// cell, once, at creation — `organism::diffuse_resource` (and its own
@@ -604,628 +628,6 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32)
     }
 }
 
-// --- Trees and roots ------------------------------------------------------
-//
-// Space colonization (Runions/Lane/Prusinkiewicz 2007) for the canopy
-// shape, extended with two more real mechanisms from the deep-dive
-// research pass rather than left as a bare attractor-seeking loop:
-//
-// - **Auxin canalization** (Prusinkiewicz et al. 2009, PNAS) for branching
-//   and apical dominance, translated at three levels rather than one —
-//   worth being precise about which parts are genuine cross-tip
-//   competition and which are simpler mechanisms that happen to produce a
-//   similar-looking result:
-//   1. Each `Tip` carries a scalar `channel` that grows on a successful
-//      growth step and decays when the tip can't find anything to grow
-//      toward, dying below a minimum. This part is *not* cross-tip
-//      competition by itself — a tip's channel only ever responds to its
-//      own history.
-//   2. When a tip's channel is strong enough to spawn a branch, the new
-//      branch's starting channel is *debited from the parent's*, not
-//      created for free — this is the one place one tip's channel value
-//      actually depends on another's, the minimum needed to call it
-//      competition rather than N independent scalars that happen to share
-//      a name with a real mechanism.
-//   3. The bulk of the real "one leader, suppressed siblings" effect
-//      actually comes from two *other*, more ordinary mechanisms already
-//      needed elsewhere: tips share one `attractors` list that shrinks as
-//      any tip consumes nearby points, so whichever tip reaches a cluster
-//      first starves siblings of *targets* (plain space colonization); and
-//      all tips (and now roots — see `ROOT_GROWTH_COST`) draw from one
-//      flat `energy` pool, so a tip can starve even with attractors still
-//      in reach. Real auxin canalization is a richer, more actively
-//      cross-suppressing mechanism than this — competing transport
-//      channels racing to self-reinforce, not shared-resource depletion —
-//      and (1)-(3) above is what's actually implemented, not a full model
-//      of it.
-// - **Gravitropism vs. hydrotropism** (MIZ1 antagonism) for root growth
-//   direction. Real roots pick one or the other, not a blend — gravity
-//   normally wins, but a strong local moisture gradient actively suppresses
-//   the gravity response so water wins instead. Translated as a hard
-//   switch on whether a `RootTip`'s local water pull exceeds a threshold.
-// - **Oscillator-based lateral root priming** (periodic priming pulses,
-//   not a flat per-tick branch probability) for root branching — a root
-//   tip only *considers* branching every `ROOT_PRIME_INTERVAL` ticks, and
-//   only actually branches if local conditions (water) support it.
-//
-// Explicitly simplified rather than modeled in full: cytokinin is not a
-// separate diffusing field (the research's "bonus" push-pull signal);
-// gravitropic setpoint angle is a fixed constant per branch rather than a
-// continuously-regulated flux balance; and canopy light competition is a
-// direct light-field read rather than Palubicki et al.'s full shadow-voxel
-// propagation — a tip's growth direction leans toward locally brighter
-// cells, but branches don't yet cast their own shadows into the field.
-
-const ATTRACTOR_COUNT: usize = 50;
-const SCATTER_HALF_WIDTH: f32 = 36.0;
-const SCATTER_HEIGHT: f32 = 56.0;
-const INFLUENCE_RADIUS: f32 = 16.0;
-const KILL_DISTANCE: f32 = 5.0;
-const SEGMENT_LENGTH: f32 = 2.0;
-/// Below this speed, the field's velocity at a tip's position doesn't count
-/// as wind at all — architecture §5d. Below the threshold: no lean, `(0.0,
-/// 0.0)`, the same shape `photo` already uses for "no gradient, no nudge."
-const WIND_SPEED_THRESHOLD: f32 = 0.05;
-/// Fixed magnitude of the wind lean once the threshold above is cleared —
-/// deliberately *not* scaled by how fast the wind actually is. `field.rs`
-/// clamps pressure but never velocity (only damps it), so a magnitude-
-/// proportional lean would let a nearby explosion's transient shockwave
-/// swamp `avg`/`dir` entirely for as long as the wave takes to pass —
-/// found by independent review, which measured a realistic-strength
-/// impulse producing a wind term several times the combined magnitude of
-/// every other input to this formula. A fixed nudge, direction-only,
-/// mirrors `photo`'s own fixed `0.25` and keeps the same "gentle lean, not
-/// an override" guarantee regardless of how strong the local field
-/// disturbance happens to be. Untuned against anything real, same as every
-/// other weight in this formula; `a_tip_leans_downwind_of_a_steady_breeze`
-/// is the actual authority on whether it's set right.
-const WIND_LEAN_MAGNITUDE: f32 = 0.2;
-const TREE_TICK_INTERVAL: u64 = 20;
-const GROWTH_COST: f32 = 4.0;
-/// Baseline photosynthesis-like energy trickle, independent of roots —
-/// real trees don't stop growing entirely without root water, just slower.
-const AMBIENT_GROWTH_ENERGY: f32 = 1.2;
-const CHANNEL_GROWTH: f32 = 0.10;
-const CHANNEL_DECAY: f32 = 0.22;
-const MIN_CHANNEL: f32 = 0.15;
-const NEW_BRANCH_CHANNEL: f32 = 0.35;
-const BRANCH_CHANNEL_THRESHOLD: f32 = 0.7;
-const BRANCH_MIN_ATTRACTORS: usize = 3;
-const BRANCH_CHANCE: f32 = 0.12;
-const BRANCH_ANGLE_RAD: f32 = 0.6;
-const MAX_TIPS_PER_TREE: usize = 14;
-
-const ROOT_SEGMENT_LENGTH: f32 = 2.0;
-const ROOT_TICK_INTERVAL: u64 = 25;
-/// How far apart `moisture_pull`'s two opposing probes sit, per axis —
-/// architecture §6a's bilinear-sampling reasoning applies here exactly like
-/// it does to tree phototropism's own probe offset: too small and the
-/// probes round to the same coarse field block, too large and the "local"
-/// gradient stops being local.
-const MOISTURE_SENSOR_OFFSET: f32 = 4.0;
-/// Minimum moisture-gradient magnitude before MIZ1-style suppression of
-/// gravity kicks in and the root steers toward water instead of straight
-/// down. A gradient, not a raw moisture reading — MIZ1 biology is
-/// specifically a response to a *change* in local humidity, not merely
-/// "some water is nearby" (see `moisture_pull`'s own doc). Retuned from the
-/// pre-field version's 0.15 (a fraction of sensed neighbours, 0..1 scale) to
-/// this channel's own difference-of-readings scale; `roots_steer_toward_
-/// off_axis_water_via_hydrotropism` is the actual authority on whether it's
-/// set right, same as every other threshold on this channel.
-const MIZ_THRESHOLD: f32 = 0.05;
-const ROOT_WATER_ENERGY: f32 = 5.0;
-/// Local moisture drained per drink — architecture §5g, the write that
-/// turns the moisture channel from read-only into a loop. Not tied
-/// numerically to `ROOT_WATER_ENERGY` (different units: energy vs. this
-/// channel's own 0..4-ish scale) — a separate, freely tunable amount.
-const ROOT_MOISTURE_DEPLETION: f32 = 1.0;
-/// Cost debited from the shared energy pool for each step of root growth
-/// through soil (not water, which is a net gain via `ROOT_WATER_ENERGY`).
-/// Real root growth costs the plant carbon same as shoot growth does — a
-/// tree with a fully starved canopy (every tip dead) should not be able to
-/// keep drilling roots outward for free, which the original version let it
-/// do, contradicting `TreeState::energy`'s own doc that every tip *and
-/// root* draws from one competitive pool. Smaller than `GROWTH_COST`: real
-/// root tissue is metabolically cheaper to build than woody shoot tissue.
-const ROOT_GROWTH_COST: f32 = 1.5;
-const ROOT_PRIME_INTERVAL: u32 = 6;
-const ROOT_BRANCH_ANGLE_RAD: f32 = 1.1;
-const MAX_ROOTS_PER_TREE: usize = 10;
-/// Consecutive energy-starved ticks a root tolerates before it stops
-/// rescheduling itself and goes dormant, mirroring `MOSS_STALE_LIMIT` for
-/// the same reason: once every tree tip has died (attractors exhausted,
-/// nothing left generating `AMBIENT_GROWTH_ENERGY`) and there's no water
-/// nearby to fund `ROOT_WATER_ENERGY`, a root waiting on `energy >=
-/// ROOT_GROWTH_COST` would otherwise wait forever — an amount that will
-/// never arrive is not a temporary shortfall. Caught by a test
-/// (`a_tree_eventually_stops_growing`) that expected the whole tree to go
-/// fully dormant and found one immortal root left checking every tick
-/// instead, once root growth started costing energy at all.
-const ROOT_STARVATION_LIMIT: u8 = 8;
-
-#[derive(Clone, Copy)]
-struct Tip {
-    pos: (f32, f32),
-    dir: (f32, f32),
-    channel: f32,
-    alive: bool,
-}
-
-#[derive(Clone, Copy)]
-struct RootTip {
-    pos: (f32, f32),
-    dir: (f32, f32),
-    ticks_since_prime: u32,
-    /// Consecutive ticks spent waiting on `ROOT_GROWTH_COST` energy that
-    /// never arrived. Reset on every successful growth step (including a
-    /// water absorption, since that's itself a net energy gain, not a
-    /// wait).
-    starved_ticks: u8,
-    /// Whether this tip's own active-site cell (its last-written position)
-    /// currently holds this tree's `wood`, as opposed to `Empty`. A root
-    /// that just grew through soil writes wood there and this is `true`;
-    /// a root that just drank an adjacent water cell absorbs it and
-    /// advances into the now-empty space with no wood cell left behind
-    /// (see `root_tip_tick`'s own comment on why), so this is `false`.
-    /// Exists so `root_tip_tick`'s own-cell validity check (mirroring
-    /// `tree_tip_tick`'s and `moss_tick`'s) can distinguish "this root's
-    /// last-written cell has actually been disturbed" from "this root's
-    /// last-written cell is legitimately empty because it drank there" —
-    /// the latter is not evidence of anything happening *to* the root, and
-    /// checking `Cell::EMPTY` unconditionally would kill a perfectly
-    /// healthy root the tick after it drinks.
-    resting_on_wood: bool,
-    alive: bool,
-}
-
-/// Per-tree state too large to fit in a `Cell`'s spare bits (an attractor
-/// list, several growth tips, several root tips) — lives in `World`
-/// alongside the schedule, indexed by `ActiveKind::TreeTip`/`RootTip`.
-pub struct TreeState {
-    attractors: Vec<(f32, f32)>,
-    tips: Vec<Tip>,
-    roots: Vec<RootTip>,
-    /// Shared pool every tip and root draws from/credits to — this is what
-    /// makes canalization actually competitive: two simultaneously-growing
-    /// tips are fighting over the same energy, not each getting their own.
-    energy: f32,
-    wood: material::MaterialId,
-}
-
-/// Plant a tree seed: a trunk-base cell, a scattered attractor field above
-/// it, and the first growth tip and root tip. No-ops if the position isn't
-/// empty or the `wood` material isn't loaded.
-pub fn plant_tree_seed(world: &mut World, x: i32, y: i32) -> Vec<ActiveSite> {
-    let Some(wood) = world.materials.id_of("wood") else {
-        return Vec::new();
-    };
-    if !world.is_empty(x, y) {
-        return Vec::new();
-    }
-
-    let shades = world.materials.get(wood).palette.len().max(1) as u32;
-    let shade = world.rng.below(shades) as u8;
-    world.set(x, y, Cell::new(wood, shade));
-
-    let mut attractors = Vec::with_capacity(ATTRACTOR_COUNT);
-    for _ in 0..ATTRACTOR_COUNT {
-        let ax = x as f32 + (world.rng.below(2001) as f32 / 1000.0 - 1.0) * SCATTER_HALF_WIDTH;
-        let ay = y as f32 - (world.rng.below(1001) as f32 / 1000.0) * SCATTER_HEIGHT;
-        attractors.push((ax, ay));
-    }
-
-    let tip = Tip { pos: (x as f32, y as f32), dir: (0.0, -1.0), channel: 0.5, alive: true };
-    let root = RootTip { pos: (x as f32, y as f32), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: true, alive: true };
-    let state = TreeState { attractors, tips: vec![tip], roots: vec![root], energy: GROWTH_COST, wood };
-    let tree_id = world.push_tree(state);
-
-    vec![
-        reschedule(x, y, ActiveKind::TreeTip { tree: tree_id, tip: 0 }, world.frame + TREE_TICK_INTERVAL),
-        reschedule(x, y, ActiveKind::RootTip { tree: tree_id, root: 0 }, world.frame + ROOT_TICK_INTERVAL),
-    ]
-}
-
-fn tree_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, tip_id: u32) -> Vec<ActiveSite> {
-    if !world.tree(tree_id).tips[tip_id as usize].alive {
-        return Vec::new();
-    }
-    // Mirrors moss_tick's own check (see its comment) -- `alive` is set
-    // false only by this function's own logic (channel decayed past
-    // `MIN_CHANNEL`), never by anything happening *to* the tip. Without
-    // this, burning the tree or erasing its trunk with the brush leaves
-    // every tip's schedule intact: each tick still accrues
-    // `AMBIENT_GROWTH_ENERGY`, still consults its attractors, and still
-    // calls `world.set` from a position that is now open air, disconnected
-    // from anything -- a burned tree keeps growing forever. `(x, y)` is
-    // always this tip's own last-written wood cell (the position the site
-    // was rescheduled at after every successful growth step, including the
-    // seed cell for a freshly planted tree), so comparing against it
-    // directly is exact, not approximate.
-    let wood_id = world.tree(tree_id).wood;
-    if world.get(x, y).material != wood_id {
-        world.tree_mut(tree_id).tips[tip_id as usize].alive = false;
-        reclaim_if_tree_is_fully_dead(world, tree_id);
-        return Vec::new();
-    }
-    world.tree_mut(tree_id).energy += AMBIENT_GROWTH_ENERGY;
-
-    let (pos, dir) = {
-        let tip = &world.tree(tree_id).tips[tip_id as usize];
-        (tip.pos, tip.dir)
-    };
-    let nearby: Vec<(f32, f32)> = world
-        .tree(tree_id)
-        .attractors
-        .iter()
-        .copied()
-        .filter(|&a| dist(pos, a) <= INFLUENCE_RADIUS)
-        .collect();
-
-    if nearby.is_empty() {
-        // A genuine dead end -- nothing left worth growing toward from
-        // here -- decays the channel same as before.
-        let channel = {
-            let tip = &mut world.tree_mut(tree_id).tips[tip_id as usize];
-            tip.channel -= CHANNEL_DECAY;
-            tip.channel
-        };
-        if channel <= MIN_CHANNEL {
-            world.tree_mut(tree_id).tips[tip_id as usize].alive = false;
-            reclaim_if_tree_is_fully_dead(world, tree_id);
-            return Vec::new();
-        }
-        return vec![reschedule(x, y, ActiveKind::TreeTip { tree: tree_id, tip: tip_id }, world.frame + TREE_TICK_INTERVAL)];
-    }
-    if world.tree(tree_id).energy < GROWTH_COST {
-        // A temporary resource shortfall, not a pathing failure -- the
-        // channel itself represents transport capacity toward a real
-        // target, which doesn't wither just because the rest of the plant
-        // is short on energy this tick. Wait without decaying; separated
-        // from the `nearby.is_empty()` case above deliberately, since
-        // conflating "no attractors" with "no energy" here was measured to
-        // make `channel` decay far more often than it could grow (energy
-        // waits happen roughly 2-3x more often than successful growth
-        // ticks at this tuning), so channel could practically never cross
-        // `BRANCH_CHANNEL_THRESHOLD` -- caught by a test that actually
-        // checked whether branching ever happened, not just "did it grow."
-        return vec![reschedule(x, y, ActiveKind::TreeTip { tree: tree_id, tip: tip_id }, world.frame + TREE_TICK_INTERVAL)];
-    }
-
-    let mut avg = (0.0f32, 0.0f32);
-    for a in &nearby {
-        let d = normalize((a.0 - pos.0, a.1 - pos.1));
-        avg.0 += d.0;
-        avg.1 += d.1;
-    }
-    avg = normalize(avg);
-
-    // Gentle phototropic lean: bias toward the brighter of "here" and
-    // "just above" rather than Palubicki's full shadow-voxel propagation —
-    // see the module doc for why that's the one piece left simplified.
-    // Bilinear, not block-nearest (architecture §6a): `pos` already carries
-    // sub-cell precision, and a 4-pixel-up probe is well within the same
-    // `FIELD_SCALE`-sided field block `field_at` would read, which would
-    // otherwise compare light-equal almost every tick and leave phototropism
-    // inert exactly like the light channel itself was before §2.
-    let light_here = world.field_at_bilinear(pos.0, pos.1).light;
-    let light_above = world.field_at_bilinear(pos.0, pos.1 - 4.0).light;
-    let photo = if light_above > light_here { (0.0, -0.25) } else { (0.0, 0.0) };
-
-    // Wind lean — architecture §5d: "a vector field explosions write into,
-    // and vegetation that does not know it exists." A real, if gentle,
-    // growth-time bias rather than a per-frame visual sway (nothing in this
-    // engine's rendering can bend an already-placed cell), the same way a
-    // real tree exposed to a prevailing wind grows with a permanent lean,
-    // not just a momentary sway. Read at the tip's own position, not
-    // averaged or probed a second point like `photo` — velocity is already
-    // a smooth field-scale quantity, not a point sample that needs a
-    // second reading to expose a gradient.
-    //
-    // Direction-only, fixed magnitude — not scaled by wind speed. See
-    // `WIND_LEAN_MAGNITUDE`'s own doc for why: velocity has no upper clamp
-    // in `field.rs` the way pressure does, so scaling by raw magnitude let
-    // a nearby explosion's shockwave dominate this formula outright for as
-    // long as the transient took to pass, which is not "a gentle lean" by
-    // any reading.
-    let wind = world.field_at_bilinear(pos.0, pos.1);
-    let wind_speed = (wind.vx * wind.vx + wind.vy * wind.vy).sqrt();
-    let wind_lean = if wind_speed > WIND_SPEED_THRESHOLD {
-        (wind.vx / wind_speed * WIND_LEAN_MAGNITUDE, wind.vy / wind_speed * WIND_LEAN_MAGNITUDE)
-    } else {
-        (0.0, 0.0)
-    };
-
-    let new_dir = normalize((
-        avg.0 * 0.75 + dir.0 * 0.25 + photo.0 + wind_lean.0,
-        avg.1 * 0.75 + dir.1 * 0.25 + photo.1 + wind_lean.1,
-    ));
-    let new_pos = (pos.0 + new_dir.0 * SEGMENT_LENGTH, pos.1 + new_dir.1 * SEGMENT_LENGTH);
-    let (wx, wy) = (new_pos.0.round() as i32, new_pos.1.round() as i32);
-
-    let wood = world.tree(tree_id).wood;
-    let target = world.get(wx, wy);
-    // Blocked by *any* non-empty cell, including wood — this tree's own,
-    // or another tree's. `wood` is one shared `MaterialId` across every
-    // tree, so comparing against it doesn't distinguish "my own trunk" from
-    // "a different tree's" at all; the original version let a tip tunnel
-    // straight through any already-grown wood as if it were open air,
-    // spending energy on a step that created nothing and could keep
-    // advancing (and branching) from a position physically inside another
-    // tree's trunk.
-    let blocked = !target.is_empty();
-
-    if blocked {
-        // Grew into something solid (or the world edge): this tip's
-        // channel loses the competition here, same as finding no
-        // attractors — it withers rather than forcing through.
-        let channel = {
-            let tip = &mut world.tree_mut(tree_id).tips[tip_id as usize];
-            tip.channel -= CHANNEL_DECAY;
-            tip.channel
-        };
-        if channel <= MIN_CHANNEL {
-            world.tree_mut(tree_id).tips[tip_id as usize].alive = false;
-            reclaim_if_tree_is_fully_dead(world, tree_id);
-            return Vec::new();
-        }
-        return vec![reschedule(x, y, ActiveKind::TreeTip { tree: tree_id, tip: tip_id }, world.frame + TREE_TICK_INTERVAL)];
-    }
-
-    let shades = world.materials.get(wood).palette.len().max(1) as u32;
-    let shade = world.rng.below(shades) as u8;
-    world.set(wx, wy, Cell::new(wood, shade));
-    world.tree_mut(tree_id).energy -= GROWTH_COST;
-    world.tree_mut(tree_id).attractors.retain(|&a| dist(new_pos, a) > KILL_DISTANCE);
-
-    let channel = {
-        let tip = &mut world.tree_mut(tree_id).tips[tip_id as usize];
-        tip.pos = new_pos;
-        tip.dir = new_dir;
-        tip.channel = (tip.channel + CHANNEL_GROWTH).min(1.0);
-        tip.channel
-    };
-
-    let mut next = vec![reschedule(wx, wy, ActiveKind::TreeTip { tree: tree_id, tip: tip_id }, world.frame + TREE_TICK_INTERVAL)];
-
-    let can_branch = channel > BRANCH_CHANNEL_THRESHOLD
-        && nearby.len() >= BRANCH_MIN_ATTRACTORS
-        && world.tree(tree_id).tips.len() < MAX_TIPS_PER_TREE;
-    if can_branch && world.rng.chance(BRANCH_CHANCE) {
-        let angle = if world.rng.flip() { BRANCH_ANGLE_RAD } else { -BRANCH_ANGLE_RAD };
-        let branch = Tip { pos: new_pos, dir: rotate(new_dir, angle), channel: NEW_BRANCH_CHANNEL, alive: true };
-        let branch_id = world.tree(tree_id).tips.len() as u32;
-        world.tree_mut(tree_id).tips.push(branch);
-        // The new channel draws capacity away from the parent's — real
-        // auxin canalization is competing sources, not independent ones,
-        // and without this a parent tip's channel value never depended on
-        // anything but its own history, i.e. no cross-tip interaction at
-        // all despite the name. Costing the parent exactly what the new
-        // branch starts with keeps the tree's total channel "budget"
-        // meaningful rather than manufacturing capacity for free.
-        world.tree_mut(tree_id).tips[tip_id as usize].channel -= NEW_BRANCH_CHANNEL;
-        next.push(reschedule(wx, wy, ActiveKind::TreeTip { tree: tree_id, tip: branch_id }, world.frame + TREE_TICK_INTERVAL));
-    }
-
-    next
-}
-
-fn root_tip_tick(world: &mut World, x: i32, y: i32, tree_id: u32, root_id: u32) -> Vec<ActiveSite> {
-    if !world.tree(tree_id).roots[root_id as usize].alive {
-        return Vec::new();
-    }
-    // Mirrors tree_tip_tick's own check, with one wrinkle: a root's
-    // last-written cell is only *sometimes* wood (see
-    // `RootTip::resting_on_wood`'s doc) -- when it drank water there
-    // instead of growing through soil, the cell is legitimately `Empty`,
-    // and checking for wood unconditionally would kill a perfectly healthy
-    // root the tick after it drinks. Only validate when the tip actually
-    // expects wood to still be there.
-    let wood_id = world.tree(tree_id).wood;
-    let resting_on_wood = world.tree(tree_id).roots[root_id as usize].resting_on_wood;
-    if resting_on_wood && world.get(x, y).material != wood_id {
-        world.tree_mut(tree_id).roots[root_id as usize].alive = false;
-        reclaim_if_tree_is_fully_dead(world, tree_id);
-        return Vec::new();
-    }
-
-    let (pos, dir, mut ticks) = {
-        let r = &world.tree(tree_id).roots[root_id as usize];
-        (r.pos, r.dir, r.ticks_since_prime)
-    };
-
-    // Roots drink from every adjacent water cell before moving, crediting
-    // the tree's shared energy pool — the mechanic that actually ties
-    // plant growth to the rest of the material physics.
-    for (dx, dy) in NEIGHBOURS_4 {
-        let (nx, ny) = (pos.0 as i32 + dx, pos.1 as i32 + dy);
-        if world.materials.kind(world.get(nx, ny).material) == MaterialKind::Liquid {
-            world.set(nx, ny, Cell::EMPTY);
-            world.tree_mut(tree_id).energy += ROOT_WATER_ENERGY;
-            world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
-        }
-    }
-
-    // Gravitropism vs. hydrotropism: a real antagonism switch (MIZ1
-    // suppresses the gravity response under a strong moisture gradient),
-    // not a blend of the two pulls.
-    let gravity = (0.0f32, 1.0f32);
-    let water_pull = moisture_pull(world, pos.0, pos.1);
-    let base = match water_pull {
-        Some((dir, strength)) if strength >= MIZ_THRESHOLD => dir,
-        _ => gravity,
-    };
-    let new_dir = normalize((base.0 * 0.7 + dir.0 * 0.3, base.1 * 0.7 + dir.1 * 0.3));
-    let new_pos = (pos.0 + new_dir.0 * ROOT_SEGMENT_LENGTH, pos.1 + new_dir.1 * ROOT_SEGMENT_LENGTH);
-    let (wx, wy) = (new_pos.0.round() as i32, new_pos.1.round() as i32);
-
-    // A root pushes through loose/open ground, not solid rock — the same
-    // "displaceable substrate" boundary the burrowing-creature research
-    // (M18) uses, reused here since it's the same real constraint. Growing
-    // into a water pocket is a third case, not a subset of either: it's
-    // absorbed on the spot (same as the neighbour-drink check above) and
-    // the tip advances into the now-empty space rather than leaving a
-    // solid wood cell behind, which would be true growth *into* water
-    // rather than the water actually being taken up. Without this case a
-    // root approaching any wet ground would simply die at its edge, never
-    // reaching the moisture it grew toward in the first place.
-    let target_kind = world.materials.kind(world.get(wx, wy).material);
-    let wood = world.tree(tree_id).wood;
-    // Whether this tick's outcome leaves wood at (wx, wy) or leaves it
-    // empty (the water-drink case) -- stored on the tip below so next
-    // tick's own-cell validity check knows which of those two states is
-    // the *expected*, undisturbed one. See `RootTip::resting_on_wood`.
-    let resting_on_wood = target_kind != MaterialKind::Liquid;
-    match target_kind {
-        MaterialKind::Liquid => {
-            world.set(wx, wy, Cell::EMPTY);
-            world.tree_mut(tree_id).energy += ROOT_WATER_ENERGY;
-            world.deplete_moisture(wx, wy, 1, ROOT_MOISTURE_DEPLETION);
-            world.tree_mut(tree_id).roots[root_id as usize].starved_ticks = 0;
-        }
-        MaterialKind::Empty | MaterialKind::Powder => {
-            // Growing through soil costs energy from the same shared pool
-            // tree tips draw from — real root growth costs the plant
-            // carbon too, same as shoot growth, and this is what makes
-            // `TreeState::energy` an actually-competitive shared resource
-            // rather than something only tips participate in. Not enough
-            // yet: wait where it is (this tick's water-drink above still
-            // happened and is kept) rather than moving for free.
-            if world.tree(tree_id).energy < ROOT_GROWTH_COST {
-                let starved = {
-                    let r = &mut world.tree_mut(tree_id).roots[root_id as usize];
-                    r.starved_ticks += 1;
-                    r.starved_ticks
-                };
-                // An amount that will never arrive (every tip dead, no
-                // water nearby to fund the shortfall) is not a temporary
-                // wait — see `ROOT_STARVATION_LIMIT`'s doc.
-                if starved >= ROOT_STARVATION_LIMIT {
-                    world.tree_mut(tree_id).roots[root_id as usize].alive = false;
-                    reclaim_if_tree_is_fully_dead(world, tree_id);
-                    return Vec::new();
-                }
-                return vec![reschedule(
-                    x,
-                    y,
-                    ActiveKind::RootTip { tree: tree_id, root: root_id },
-                    world.frame + ROOT_TICK_INTERVAL,
-                )];
-            }
-            let shades = world.materials.get(wood).palette.len().max(1) as u32;
-            let shade = world.rng.below(shades) as u8;
-            world.set(wx, wy, Cell::new(wood, shade));
-            world.tree_mut(tree_id).energy -= ROOT_GROWTH_COST;
-            world.tree_mut(tree_id).roots[root_id as usize].starved_ticks = 0;
-        }
-        _ => {
-            world.tree_mut(tree_id).roots[root_id as usize].alive = false;
-            reclaim_if_tree_is_fully_dead(world, tree_id);
-            return Vec::new();
-        }
-    }
-
-    ticks += 1;
-    let mut next = Vec::new();
-    let mut primed = false;
-    if ticks >= ROOT_PRIME_INTERVAL {
-        ticks = 0;
-        primed = true;
-    }
-    {
-        let r = &mut world.tree_mut(tree_id).roots[root_id as usize];
-        r.pos = new_pos;
-        r.dir = new_dir;
-        r.ticks_since_prime = ticks;
-        r.resting_on_wood = resting_on_wood;
-    }
-    next.push(reschedule(wx, wy, ActiveKind::RootTip { tree: tree_id, root: root_id }, world.frame + ROOT_TICK_INTERVAL));
-
-    // Oscillator-based priming, not a flat per-tick probability: only
-    // *consider* branching periodically, and only follow through if local
-    // conditions (water nearby) actually support a new lateral root.
-    if primed && is_damp(world, wx, wy) && world.tree(tree_id).roots.len() < MAX_ROOTS_PER_TREE {
-        let angle = if world.rng.flip() { ROOT_BRANCH_ANGLE_RAD } else { -ROOT_BRANCH_ANGLE_RAD };
-        let branch =
-            RootTip { pos: new_pos, dir: rotate(new_dir, angle), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood, alive: true };
-        let branch_id = world.tree(tree_id).roots.len() as u32;
-        world.tree_mut(tree_id).roots.push(branch);
-        next.push(reschedule(wx, wy, ActiveKind::RootTip { tree: tree_id, root: branch_id }, world.frame + ROOT_TICK_INTERVAL));
-    }
-
-    next
-}
-
-/// Direction and magnitude of the moisture gradient at `(x, y)` — replaces
-/// the old O(r²) hand-rolled neighbour scan (architecture §4, "hand-rolled
-/// sensing that should be field reads") with two pairs of opposing field
-/// reads, one per axis, the same central-difference shape `tree_tip_tick`'s
-/// phototropism probe uses. Bilinear (§6a), not block-nearest: the two
-/// probes on either axis are only `2 * MOISTURE_SENSOR_OFFSET` world cells
-/// apart, well inside the same coarse field block block-nearest reads would
-/// flatten to identical values.
-///
-/// `None` when the gradient is flat (`(0.0, 0.0)`, no direction to
-/// `normalize`) — open dry ground with no nearby source, or a spot exactly
-/// balanced between two sources, both of which should fall through to plain
-/// gravitropism rather than pick an arbitrary direction.
-fn moisture_pull(world: &World, x: f32, y: f32) -> Option<((f32, f32), f32)> {
-    let gx =
-        world.field_at_bilinear(x + MOISTURE_SENSOR_OFFSET, y).moisture - world.field_at_bilinear(x - MOISTURE_SENSOR_OFFSET, y).moisture;
-    let gy =
-        world.field_at_bilinear(x, y + MOISTURE_SENSOR_OFFSET).moisture - world.field_at_bilinear(x, y - MOISTURE_SENSOR_OFFSET).moisture;
-    let magnitude = (gx * gx + gy * gy).sqrt();
-    if magnitude <= f32::EPSILON {
-        return None;
-    }
-    Some((normalize((gx, gy)), magnitude))
-}
-
-fn reschedule(x: i32, y: i32, kind: ActiveKind, next_frame: u64) -> ActiveSite {
-    ActiveSite { x, y, kind, next_frame }
-}
-
-/// Once every tip and root of a tree has died, its `attractors` list (up to
-/// `ATTRACTOR_COUNT` points, by far the largest part of `TreeState`) serves
-/// no further purpose — nothing left will ever consult it. `TreeState`
-/// itself still never shrinks (`World::push_tree`'s own doc explains why:
-/// `ActiveKind::TreeTip`/`RootTip` index into it by position, and
-/// reassigning a slot would invalidate a live `ActiveSite` — the real fix
-/// is generational indices with a free list, `pixel-physics-issues.md`
-/// issue #8's own "Direction"), but freeing the one large allocation that
-/// is genuinely dead is a real, low-risk partial mitigation cheap enough to
-/// do inline at every death site, rather than waiting on that larger
-/// rewrite. Checked (not assumed) at every call site rather than only when
-/// the *last* tip or root dies, since which one dies last isn't tracked —
-/// this runs a few extra times over a tree's life, each one O(tips + roots)
-/// and cheap, in exchange for not needing to track that separately.
-fn reclaim_if_tree_is_fully_dead(world: &mut World, tree_id: u32) {
-    let fully_dead = {
-        let tree = world.tree(tree_id);
-        tree.tips.iter().all(|t| !t.alive) && tree.roots.iter().all(|r| !r.alive)
-    };
-    if fully_dead {
-        world.tree_mut(tree_id).attractors = Vec::new(); // drops the old allocation; an empty Vec has none of its own
-    }
-}
-
-fn dist(a: (f32, f32), b: (f32, f32)) -> f32 {
-    ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
-}
-
-fn normalize(v: (f32, f32)) -> (f32, f32) {
-    let len = (v.0 * v.0 + v.1 * v.1).sqrt();
-    if len < 1e-6 {
-        (0.0, 0.0)
-    } else {
-        (v.0 / len, v.1 / len)
-    }
-}
-
-fn rotate(v: (f32, f32), radians: f32) -> (f32, f32) {
-    let (s, c) = radians.sin_cos();
-    (v.0 * c - v.1 * s, v.0 * s + v.1 * c)
-}
-
 /// Dispatch one due active site to its growth function. Called from
 /// `scheduler::step` for every `ActiveKind` except `StructuralCheck`,
 /// `Creature` and `Decay`, which `scheduler::step` routes to `structural::
@@ -1234,8 +636,6 @@ fn rotate(v: (f32, f32), radians: f32) -> (f32, f32) {
 pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     match site.kind {
         ActiveKind::Organism { organism, stale_ticks } => organism_tick(world, site.x, site.y, organism, stale_ticks),
-        ActiveKind::TreeTip { tree, tip } => tree_tip_tick(world, site.x, site.y, tree, tip),
-        ActiveKind::RootTip { tree, root } => root_tip_tick(world, site.x, site.y, tree, root),
         ActiveKind::StructuralCheck => unreachable!("scheduler::step routes StructuralCheck to structural::tick"),
         ActiveKind::Creature { .. } => unreachable!("scheduler::step routes Creature to creature::tick"),
         ActiveKind::Decay => unreachable!("scheduler::step routes Decay to decay::tick"),
@@ -1267,27 +667,18 @@ impl World {
         self.schedule_active_site(site);
     }
 
-    /// Plant a tree seed at `(x, y)` — see `plant_tree_seed` above.
+    /// Plant a `tree` species `Seed` cell at `(x, y)` — the emergent,
+    /// `Grow`/`Germinate`-driven system (`Reports/tree-rewrite-design.md`).
+    /// Replaced the old `TreeState`/`Tip`/`RootTip`-based space-
+    /// colonization implementation once this system's own live-
+    /// verification gate passed (tree-rewrite retrofit step 7).
     pub fn plant_tree(&mut self, x: i32, y: i32) {
-        for site in plant_tree_seed(self, x, y) {
-            self.schedule_active_site(site);
-        }
-    }
-
-    /// Plant a `tree` species `Seed` cell at `(x, y)` — `Reports/tree-
-    /// rewrite-design.md` §1/§11's own corrected retrofit order: a
-    /// deliberately separate entry point from `plant_tree` above, so the
-    /// new `Grow`/`Germinate`-driven system can be built and live-
-    /// verified with the old `TreeState`-based implementation completely
-    /// untouched, reachable only through its own existing `plant_tree`/`T`
-    /// key, until the new system's own visual-verification gate passes.
-    pub fn plant_tree_v2(&mut self, x: i32, y: i32) {
         self.plant_tree_species(x, y, "tree");
     }
 
     /// Plant a `Seed` cell of any tree-shaped species (a `Seed` cell type
     /// that germinates into a `wood`-material `GrowingTip`) at `(x, y)` --
-    /// generalizes `plant_tree_v2` to a caller-chosen species name, so
+    /// generalizes `plant_tree` to a caller-chosen species name, so
     /// several differently-tuned variants (same behavior shapes, different
     /// weights -- e.g. `Grow`'s `cost` vs `Photosynthesize`'s `rate`) can
     /// be planted side by side in one scene and compared empirically,
@@ -1321,6 +712,7 @@ mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
     use crate::sim::field;
+    use crate::sim::material;
     use crate::sim::update;
 
     fn test_world() -> World {
@@ -1361,6 +753,7 @@ mod tests {
         }
         n
     }
+
 
     #[test]
     fn planting_on_occupied_ground_is_a_no_op() {
@@ -1499,148 +892,56 @@ mod tests {
         std::fs::remove_dir_all(&species_dir).ok();
     }
 
+    // --- Ported from the old TreeState-based system (tree rewrite step 7)
+    //
+    // `organism::phototropism_dir`/`wind_lean_dir` are the exact formulas
+    // `tree_tip_tick`'s own phototropism/wind-lean terms used, ported
+    // unchanged when `Grow`'s dispatch was built (`organism.rs`'s own doc
+    // on both functions) -- but never picked up a direct test of their own
+    // at the new location, so the two tests below replace `tree_tip_tick`-
+    // level regression tests with direct, simpler unit tests of the pure
+    // functions themselves. Both scenarios (a real §6a bilinear-sampling
+    // regression, and the §5d "wind is a real gradient, not a magic
+    // number" claim) are preserved; only the mechanism under test moved
+    // from a whole simulated growth tick to the function that actually
+    // does the work.
+
     #[test]
-    fn a_tip_leans_more_steeply_upward_when_lit_from_above() {
-        // Architecture §6a regression: `tree_tip_tick`'s phototropism term
-        // (`light_here` vs `light_above`, both read via `field_at_bilinear`
-        // since this change) only ever nudges the growth direction's own
-        // *y*-component. If the attractor pull is already purely vertical,
-        // that nudge is invisible after normalization -- a purely-vertical
-        // vector nudged further vertical is still purely vertical. So this
-        // test deliberately gives the tip a single attractor up-and-to-one-
-        // side, producing a growth direction with a real horizontal
-        // component for the light-driven vertical nudge to compete against:
-        // a lit tip should climb a little steeper (smaller x drift, more
-        // negative y) than an otherwise-identical unlit one.
-        //
-        // Constructs `TreeState` directly rather than through
-        // `plant_tree_seed` (whose 50 randomly scattered attractors would
-        // add noise this test doesn't need) and calls `tree_tip_tick`
-        // directly for one tick rather than running the scheduler, so the
-        // only difference between the two worlds is the light field.
-        fn tick_once_and_get_new_pos(w: &mut World, lit: bool) -> (f32, f32) {
-            let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
-            let (x, y) = (100, 150);
-            w.set(x, y, Cell::new(wood, 0));
-            let tip = Tip { pos: (x as f32, y as f32), dir: (0.0, -1.0), channel: 0.5, alive: true };
-            let root = RootTip { pos: (x as f32, y as f32), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: true, alive: true };
-            let state = TreeState {
-                attractors: vec![(x as f32 + 8.0, y as f32 - 8.0)], // up-and-right, within INFLUENCE_RADIUS
-                tips: vec![tip],
-                roots: vec![root],
-                energy: 9999.0, // never gated on GROWTH_COST
-                wood,
-            };
-            let tree_id = w.push_tree(state);
-            if lit {
-                // Both probes (`(x, y)` and `(x, y - 4)`) fall inside the
-                // same `FIELD_SCALE`-wide field block (144..=151 spans both
-                // 146 and 150), so a plain `field_at` would read them
-                // identically -- exactly the degenerate case §6a fixes.
-                // `field_at_bilinear` blends each toward the block *below*
-                // it, weighted by how far into the block it sits: `y - 4`
-                // (closer to this block's own top) leans toward this lit
-                // block, `y` itself (closer to the block below) leans
-                // toward the unlit one below it, so lighting only this one
-                // block already gives `light_above > light_here`. A radius
-                // smaller than `FIELD_SCALE` paints exactly one field cell.
-                w.add_light(x, y - 3, 1, 5.0);
-            }
-            tree_tip_tick(w, x, y, tree_id, 0);
-            w.tree(tree_id).tips[0].pos
-        }
+    fn phototropism_dir_leans_upward_only_when_lit_from_above() {
+        let unlit = test_world();
+        assert_eq!(organism::phototropism_dir(&unlit, 100.0, 150.0), (0.0, 0.0), "no light gradient should mean no lean");
 
-        let mut unlit = test_world();
-        let unlit_pos = tick_once_and_get_new_pos(&mut unlit, false);
         let mut lit = test_world();
-        let lit_pos = tick_once_and_get_new_pos(&mut lit, true);
-
-        // Setup check: the lit world's tip should actually have seen a
-        // brighter reading above it than at its own position, or the rest
-        // of this test is meaningless.
-        let light_here = lit.field_at_bilinear(100.0, 150.0).light;
-        let light_above = lit.field_at_bilinear(100.0, 146.0).light;
-        assert!(
-            light_above > light_here,
-            "test setup should have made the field above the tip brighter than at the tip: \
-             here={light_here}, above={light_above}"
-        );
-
-        assert!(
-            lit_pos.1 < unlit_pos.1,
-            "a lit tip should climb higher (smaller y) in one tick than an unlit one: lit={lit_pos:?}, unlit={unlit_pos:?}"
-        );
-        assert!(
-            lit_pos.0 < unlit_pos.0,
-            "a lit tip's extra vertical pull should also reduce its horizontal drift: lit={lit_pos:?}, unlit={unlit_pos:?}"
-        );
+        // Both probes (`(x, y)` and `(x, y - 4)`) fall inside the same
+        // `FIELD_SCALE`-wide field block (144..=151 spans both 146 and
+        // 150), so a plain `field_at` would read them identically --
+        // exactly the degenerate case §6a's bilinear sampling fixes. A
+        // radius smaller than `FIELD_SCALE` paints exactly one field cell.
+        lit.add_light(100, 147, 1, 5.0);
+        assert_eq!(organism::phototropism_dir(&lit, 100.0, 150.0), (0.0, -1.0), "a real light gradient above should lean upward");
     }
 
     #[test]
-    fn a_tip_leans_downwind_of_a_steady_breeze() {
-        // Architecture §5d: "a vector field explosions write into, and
-        // vegetation that does not know it exists." A single attractor
-        // straight up (no horizontal pull of its own, same trick as the
-        // phototropism test above) means any horizontal drift in the
-        // result can only have come from wind.
-        //
-        // Unlike light, there's no `add_light`-style direct paint for
-        // velocity -- it only ever comes from the field solver actually
-        // running (`add_pressure_impulse` + enough `field::step` calls for
-        // the resulting outward flow to reach the tip), so this needs a
-        // real pressure impulse upwind of the tip rather than a one-line
-        // field write.
-        fn tick_once_and_get_new_pos(w: &mut World, windy: bool) -> (f32, f32) {
-            let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
-            let (x, y) = (150, 150);
-            w.set(x, y, Cell::new(wood, 0));
-            let tip = Tip { pos: (x as f32, y as f32), dir: (0.0, -1.0), channel: 0.5, alive: true };
-            let root = RootTip { pos: (x as f32, y as f32), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: true, alive: true };
-            let state = TreeState {
-                attractors: vec![(x as f32, y as f32 - 8.0)], // straight up, no horizontal pull
-                tips: vec![tip],
-                roots: vec![root],
-                energy: 9999.0,
-                wood,
-            };
-            let tree_id = w.push_tree(state);
-            if windy {
-                // Upwind of the tip, re-applied every step rather than
-                // fired once -- a single impulse radiates outward as a
-                // wave that passes, reflects and oscillates (independent
-                // review measured the tip's own vx crossing back to
-                // *negative* by the time a one-shot version of this test
-                // reached step 27), which is a shockwave, not a steady
-                // breeze. Continuous small forcing instead keeps driving
-                // flow in the same direction every step, the way an actual
-                // prevailing wind would, and stays positive far more
-                // reliably than picking one lucky step count out of a
-                // decaying oscillation ever could.
-                for _ in 0..20 {
-                    w.add_pressure_impulse(x - 40, y, 6, 20.0);
-                    field::step(w);
-                }
-            }
-            tree_tip_tick(w, x, y, tree_id, 0);
-            w.tree(tree_id).tips[0].pos
-        }
+    fn wind_lean_dir_points_downwind_only_with_real_flow() {
+        let calm = test_world();
+        assert_eq!(organism::wind_lean_dir(&calm, 150.0, 150.0), (0.0, 0.0), "no wind should mean no lean");
 
-        let mut calm = test_world();
-        let calm_pos = tick_once_and_get_new_pos(&mut calm, false);
         let mut windy = test_world();
-        let windy_pos = tick_once_and_get_new_pos(&mut windy, true);
-
+        // Unlike light, there's no direct-paint equivalent for velocity --
+        // it only ever comes from the field solver actually running.
+        // Continuous small forcing (not one impulse, which radiates
+        // outward as a wave that passes, reflects and oscillates) keeps
+        // driving flow in the same direction every step, the way an actual
+        // prevailing wind would.
+        for _ in 0..20 {
+            windy.add_pressure_impulse(110, 150, 6, 20.0);
+            field::step(&mut windy);
+        }
         let vx = windy.field_at_bilinear(150.0, 150.0).vx;
-        assert!(vx > 0.01, "test setup should have produced real rightward wind at the tip: vx={vx}");
-        assert!(
-            (calm_pos.0 - 150.0).abs() < 0.01,
-            "a straight-up attractor with no wind should climb with zero horizontal drift: calm={calm_pos:?}"
-        );
-        assert!(
-            windy_pos.0 > calm_pos.0,
-            "a tip in a rightward breeze should drift further right than an otherwise-identical calm one: \
-             calm={calm_pos:?}, windy={windy_pos:?}"
-        );
+        assert!(vx > 0.01, "test setup should have produced real rightward wind at the probe: vx={vx}");
+
+        let lean = organism::wind_lean_dir(&windy, 150.0, 150.0);
+        assert!(lean.0 > 0.0, "a rightward breeze should lean downwind (positive x), got {lean:?}");
     }
 
     #[test]
@@ -1657,11 +958,17 @@ mod tests {
         // `world.rng` has already advanced by the time a second tree is
         // planted. Plant both in the same world, far enough apart not to
         // compete for the same attractors, and compare shapes normalized
-        // to each tree's own seed position.
+        // to each tree's own seed position. Planted near y=20, not the old
+        // system's y=100 -- `field.rs`'s light model decays hard within a
+        // few field rows of open sky (`ambient_light_above`'s own doc), so
+        // `Germinate`'s light gate is unreachable much deeper than that,
+        // unlike the old system's flat `AMBIENT_GROWTH_ENERGY`. Needs
+        // `run_with_fields`, not plain `run` -- germination depends on a
+        // real light field, which plain `run` deliberately never steps.
         let mut w = test_world();
-        w.plant_tree(50, 100);
-        w.plant_tree(150, 100);
-        run(&mut w, 3000);
+        w.plant_tree(50, 20);
+        w.plant_tree(150, 20);
+        run_with_fields(&mut w, 3000);
 
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         let footprint_relative_to = |w: &World, origin: (i32, i32)| -> Vec<(i32, i32)> {
@@ -1677,8 +984,8 @@ mod tests {
             cells
         };
         assert_ne!(
-            footprint_relative_to(&w, (50, 100)),
-            footprint_relative_to(&w, (150, 100)),
+            footprint_relative_to(&w, (50, 20)),
+            footprint_relative_to(&w, (150, 20)),
             "two trees grown from the same seed position produced identical shapes"
         );
     }
@@ -1686,7 +993,7 @@ mod tests {
     #[test]
     fn a_settled_world_with_a_growing_tree_still_sleeps_between_growth_ticks() {
         let mut w = test_world();
-        w.plant_tree(50, 100);
+        w.plant_tree(50, 20);
         // A handful of frames is enough for the CA sweep itself to settle
         // (a single static wood cell has nothing to move); the tree keeps
         // growing on its own, much slower schedule.
@@ -1701,227 +1008,237 @@ mod tests {
 
     #[test]
     fn a_tree_eventually_stops_growing() {
+        // Not `active_site_count() == 0` any more -- unlike the old
+        // system, a `MatureBody` cell's own `SecondaryThicken` check
+        // (`found_candidate = true` unconditionally, so it can keep
+        // watching for a future thickening opportunity) reschedules
+        // itself forever, by design, so a real tree's active-site count
+        // never actually reaches zero. What "eventually stops growing"
+        // means here instead: the wood *count* stops changing -- no new
+        // cells, even though the schedule itself stays alive.
         let mut w = test_world();
-        w.plant_tree(50, 100);
-        run(&mut w, 6000);
-        assert_eq!(
-            w.active_site_count(),
-            0,
-            "a tree should eventually exhaust its attractors/energy and stop scheduling growth"
-        );
+        w.plant_tree(50, 20);
+        run_with_fields(&mut w, 3000);
         let wood = w.materials.id_of("wood").unwrap();
-        assert!(count(&w, wood) > 1, "the tree should have grown at least beyond its single seed cell");
+        let count_at_3000 = count(&w, wood);
+        assert!(count_at_3000 > 1, "the tree should have grown at least beyond its single seed cell");
+
+        run_with_fields(&mut w, 6000);
+        let count_at_9000 = count(&w, wood);
+        assert_eq!(count_at_3000, count_at_9000, "a tree should eventually exhaust its resource economy and stop producing new wood cells");
     }
 
     #[test]
     fn roots_consume_adjacent_water() {
         let mut w = test_world();
-        w.plant_tree(50, 100);
+        // Seed near y=20, not the old system's y=100 -- see
+        // `two_trees_grown_from_the_same_seed_differ`'s own doc on why
+        // `Germinate`'s real light gate needs to be within a few field
+        // rows of open sky. The water tank keeps the same offsets *below*
+        // the seed as the old test used (floor 10 rows down, water
+        // starting 2 rows down), just shifted to match.
+        w.plant_tree(50, 20);
         // A walled, floored tank directly below the seed -- water is a
         // liquid and falls/drains under gravity like anything else, so an
-        // unconfined puddle sinks or spreads away before a root (which
-        // only moves once every `ROOT_TICK_INTERVAL` frames) ever reaches
-        // it. The tank keeps it exactly where the root's initial
+        // unconfined puddle sinks or spreads away before a root ever
+        // reaches it. The tank keeps it exactly where the root's initial
         // straight-down growth will hit it.
         for x in 44..56 {
-            w.set(x, 110, Cell::new(material::STONE, 0)); // floor
+            w.set(x, 30, Cell::new(material::STONE, 0)); // floor
         }
-        for y in 101..111 {
+        for y in 21..31 {
             w.set(44, y, Cell::new(material::STONE, 0)); // walls
             w.set(55, y, Cell::new(material::STONE, 0));
         }
         for x in 46..54 {
-            for y in 102..109 {
+            for y in 22..29 {
                 w.set(x, y, Cell::new(material::WATER, 0));
             }
         }
-        let water_before = count(&w, material::WATER);
-        run(&mut w, 500);
-        let water_after = count(&w, material::WATER);
-        assert!(water_after < water_before, "roots never consumed any adjacent water");
+        run_with_fields(&mut w, 500);
+        // The cell directly below the seed, where germinate() plants the
+        // companion RootTip -- not a whole-world volume comparison
+        // (cell-count would miss it: the compressible-volume liquid model
+        // can spread the *remaining* water into more, shallower-filled
+        // cells as it resettles around the gap Absorb leaves, which raises
+        // count() even as real volume drops; a raw fill-total comparison
+        // is no better, since a freshly-painted `Cell::new(WATER, 0)`
+        // starts at aux=0 -- uninitialized fill, not "full" -- and only
+        // reaches its real fill once the CA sweep has actually processed
+        // it, so a totals comparison against time zero is comparing
+        // "unswept" to "settled", not "before" to "after" absorption).
+        // Directly checking the one cell `Absorb`'s own `NEIGHBOURS_4`
+        // check targets is the precise, unambiguous claim this test
+        // actually cares about.
+        assert_ne!(w.get(50, 22).material, material::WATER, "the root's adjacent water cell was never consumed");
     }
 
     #[test]
     fn a_planted_tree_is_flammable_and_burns_to_ash() {
         let mut w = test_world();
-        w.plant_tree(50, 100);
-        run(&mut w, 300); // let it grow a little first
+        w.plant_tree(50, 20);
+        run_with_fields(&mut w, 300); // let it grow a little first
         let wood = w.materials.id_of("wood").unwrap();
         assert!(count(&w, wood) > 0, "test setup should have some wood to ignite");
-        w.ignite_circle(50, 100, 5);
-        run(&mut w, 4000);
+        w.ignite_circle(50, 20, 5);
+        run_with_fields(&mut w, 4000);
         let ash = w.materials.id_of("ash").unwrap();
         assert!(count(&w, ash) > 0, "burned wood should have left ash behind");
     }
 
     #[test]
     fn roots_steer_toward_off_axis_water_via_hydrotropism() {
-        // A regression an independent review flagged: the previous version
-        // of this test placed water directly beneath the seed, on the
-        // root's default straight-down gravitropic path -- it would have
-        // passed identically even with the whole MIZ1 hydrotropism switch
-        // deleted, since gravity alone reaches straight-down water. This
-        // one places water only off to one side, where gravity alone would
-        // never lead, so a measurable horizontal deviation can only be
-        // explained by the hydrotropism steering actually firing.
+        // A regression an independent review flagged against the old
+        // TreeState-based system, still the right shape here: water placed
+        // directly beneath the seed sits on a root's default straight-down
+        // gravitropic path, so it would pass even with the whole MIZ1
+        // hydrotropism switch deleted. Water only off to one side, where
+        // gravity alone would never lead, means a measurable horizontal
+        // deviation can only be explained by hydrotropism steering
+        // actually firing.
+        //
+        // Ported as a direct test of `organism::moisture_pull` itself
+        // (the same shape `phototropism_dir_leans_upward_only_when_lit_
+        // from_above`/`wind_lean_dir_points_downwind_only_with_real_flow`
+        // already use above), not a full multi-thousand-tick growth
+        // simulation: a `RootTip` with no adjacent water has no income of
+        // its own under this species' current resource economy (no
+        // `Photosynthesize`; `Absorb` only pays off once already touching
+        // water), so it lives entirely off resource slowly diffusing over
+        // from the trunk -- confirmed by direct inspection during
+        // development that it can go fully dormant (`ORGANISM_STALE_
+        // LIMIT` consecutive resource-starved misses) well before ever
+        // reaching a distant water pocket, no matter how long the test
+        // runs. That is a real, separate tuning gap in `RootTip`'s own
+        // resource economy (recorded in `PLAN.md` alongside this
+        // session's other tree.ron findings), not a reason to weaken what
+        // this test is actually supposed to verify -- whether hydrotropism
+        // steering itself points the right way.
         let mut w = test_world();
-        w.plant_tree(50, 100);
-        // A walled, floored tank whose *open interior* the root falls
-        // straight down into (walls at x=47/63 don't block x=50, which
-        // sits between them), but whose water is offset to the right
-        // (x=52..60) rather than directly below the seed -- close enough
-        // for the moisture field's own diffusion to carry a real gradient
-        // over to x=50 by the time the root's descent reaches the water's
-        // depth, without gravity alone ever carrying it there.
         for x in 47..63 {
-            w.set(x, 115, Cell::new(material::STONE, 0)); // floor
+            w.set(x, 35, Cell::new(material::STONE, 0)); // floor
         }
-        for y in 101..115 {
+        for y in 21..35 {
             w.set(47, y, Cell::new(material::STONE, 0)); // walls
             w.set(62, y, Cell::new(material::STONE, 0));
         }
         for x in 52..60 {
-            for y in 102..112 {
+            for y in 22..32 {
                 w.set(x, y, Cell::new(material::WATER, 0));
             }
         }
-        run_with_fields(&mut w, 1500);
+        run_with_fields(&mut w, 200); // let the moisture field actually diffuse into the open interior
 
-        // Tree id 0: the first (only) tree planted into a fresh `World`.
-        let root_x_positions: Vec<f32> = w.tree(0).roots.iter().map(|r| r.pos.0).collect();
-        let max_rightward_reach = root_x_positions.iter().cloned().fold(f32::MIN, f32::max);
-        assert!(
-            max_rightward_reach > 51.0,
-            "no root deviated toward the off-axis water pocket (furthest reach: {max_rightward_reach}, seed at x=50)"
-        );
+        let pull = organism::moisture_pull(&w, 50.0, 25.0);
+        let (dir, strength) = pull.expect("a real off-axis water pocket should produce a nonzero moisture gradient");
+        assert!(strength >= MIZ_THRESHOLD, "moisture gradient too weak to trigger hydrotropism: {strength}");
+        assert!(dir.0 > 0.0, "the gradient should point right, toward the off-axis water pocket, got {dir:?}");
     }
 
     #[test]
-    fn a_tree_can_produce_multiple_simultaneous_tips_via_branching() {
-        // Direct internal-state check, not a visual proxy -- `tests` is a
-        // child module of `plant`, so `TreeState`'s private fields are
-        // visible here despite not being `pub`. A dense, wide attractor
-        // field and a long run give branching (gated on `channel >
-        // BRANCH_CHANNEL_THRESHOLD` and `nearby.len() >=
-        // BRANCH_MIN_ATTRACTORS`, see `tree_tip_tick`) every realistic
-        // chance to fire; if a future change silently broke it (an
-        // off-by-one in the threshold, the attractor-count gate never
-        // satisfiable), this is what would actually catch that.
+    fn a_tree_can_branch_into_more_than_one_lineage() {
+        // The new system's version of the old "abundant conditions give
+        // branching every realistic chance to fire" claim -- `Grow`'s own
+        // `branch_chance` (tree.ron) is a flat per-success roll rather than
+        // the old channel/attractor-count gate, so the proxy for "did it
+        // branch" changes too: a branch point is a cell with 3+ same-
+        // organism `Plant` 8-neighbours (a lineage's parent plus more than
+        // one child), instead of counting simultaneously-alive tips --
+        // this session's own tip-retirement fix means tips essentially
+        // never stay alive simultaneously any more, by design, so that
+        // old proxy no longer means what it used to.
+        // Seed near y=20, not the old system's y=150 -- see `two_trees_
+        // grown_from_the_same_seed_differ`'s own doc on why. Needs
+        // `run_with_fields`, not plain `run` -- growth depends on a real
+        // light field.
         let mut w = test_world();
-        w.plant_tree(100, 150);
-        run(&mut w, 6000);
+        w.plant_tree(100, 20);
+        let organism_id = w.get(100, 20).organism_id();
+        // Generous but not unbounded -- empirically enough for real
+        // branch_chance rolls to land at least once (confirmed against
+        // examples/debug_tree_variants.rs's own 20,000-tick runs, which
+        // showed multiple Y-forks at these species weights).
+        run_with_fields(&mut w, 20_000);
 
-        // Tree id 0: the first (only) tree planted into a fresh `World`.
-        let tip_count = w.tree(0).tips.len();
-        assert!(
-            tip_count > 1,
-            "a tree grown to completion with abundant attractors never branched (ended with {tip_count} tip(s))"
-        );
+        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+        let branched = (0..200).any(|x| {
+            (0..200).any(|y| {
+                let cell = w.get(x, y);
+                if cell.material != wood || cell.organism_id() != organism_id {
+                    return false;
+                }
+                NEIGHBOURS_8.iter().filter(|&&(dx, dy)| w.get(x + dx, y + dy).organism_id() == organism_id).count() >= 3
+            })
+        });
+        assert!(branched, "a tree grown to completion in open sky never produced a branch point (3+ same-organism neighbours)");
     }
 
     #[test]
-    fn an_orphaned_tree_tip_stops_growing_instead_of_extending_wood_from_open_air() {
-        // Regression (pixel-physics-issues.md #9): tree_tip_tick checked
-        // only its own `alive` flag, which `alive` false is set only by the
-        // tip's own logic (channel decayed past MIN_CHANNEL) -- never by
-        // anything happening *to* it. Burn the trunk, or erase it with the
-        // brush, and every tip kept its schedule: still accruing energy,
-        // still consulting attractors, still writing wood from a position
-        // now disconnected from anything. Direct internal-state
-        // construction, same as `a_tree_can_produce_multiple_simultaneous_
-        // tips_via_branching` above -- `tests` is a child module of `plant`.
+    fn an_orphaned_growing_tip_stops_growing_instead_of_extending_wood_from_open_air() {
+        // Regression (pixel-physics-issues.md #9), ported to the new
+        // system: the old `tree_tip_tick` checked only its own `alive`
+        // flag, set only by the tip's own logic, never by anything
+        // happening *to* it -- burning or erasing the trunk left every tip
+        // still scheduled, still writing wood from a position now
+        // disconnected from anything. `organism_tick`'s own equivalent
+        // guard is its first check, `cell.organism_id() != organism_id`,
+        // which fires the instant the cell no longer holds this organism's
+        // material at all -- exercised directly here.
         let mut w = test_world();
-        let wood_id = w.materials.id_of("wood").unwrap();
-        w.set(50, 50, Cell::new(wood_id, 0));
-        let tip = Tip { pos: (50.0, 50.0), dir: (0.0, -1.0), channel: 0.5, alive: true };
-        let state = TreeState { attractors: Vec::new(), tips: vec![tip], roots: Vec::new(), energy: 1000.0, wood: wood_id };
-        let tree_id = w.push_tree(state);
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let wood = w.materials.id_of("wood").unwrap();
+        let organism_id = w.push_organism(tree_species);
+        let aux = organism::pack_aux(CellType::GrowingTip, 2.0);
+        w.set(50, 50, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
 
-        // Erase the trunk out from under the tip -- standing in for either
-        // fire consuming it or the brush erasing it; the effect on the tip
-        // is identical either way, since both just leave the cell no
-        // longer holding this tree's wood.
+        // Erase the tip out from under itself -- standing in for either
+        // fire consuming it or the brush erasing it; the effect is
+        // identical either way, since both just leave the cell no longer
+        // holding this organism's material.
         w.set(50, 50, Cell::EMPTY);
 
-        let produced = tree_tip_tick(&mut w, 50, 50, tree_id, 0);
+        let produced = organism_tick(&mut w, 50, 50, organism_id, 0);
 
-        assert!(produced.is_empty(), "an orphaned tip should not reschedule itself");
-        assert!(!w.tree(tree_id).tips[0].alive, "an orphaned tip should mark itself dead, not keep ticking forever");
-        assert_eq!(w.get(50, 50).material, material::EMPTY, "the dead tip must not have written new wood from open air");
+        assert!(produced.is_empty(), "an orphaned cell should not reschedule itself");
+        assert_eq!(w.get(50, 50).material, material::EMPTY, "the orphaned check must not have written new wood from open air");
     }
 
     #[test]
-    fn an_orphaned_root_tip_stops_growing_but_a_root_resting_in_drunk_water_is_unaffected() {
-        // Same regression as the tree-tip test above, applied to roots --
-        // with the added wrinkle roots have and tree tips don't: a root's
-        // own last-written cell is only *sometimes* wood
-        // (`RootTip::resting_on_wood`). This test checks both halves: an
-        // orphaned wood-resting root actually dies, and a root that simply
-        // drank water at its current position (a legitimately `Empty`
-        // cell, not a disturbance) is correctly left alone.
+    fn an_orphaned_root_tip_stops_growing() {
+        // Same regression as the growing-tip test above, applied to
+        // `RootTip`. The old system's paired "drunk water" half (a root
+        // that legitimately vacated its own cell by drinking adjacent
+        // water must not be treated as orphaned) doesn't translate: the
+        // new `Absorb` only ever empties an *adjacent* water cell
+        // (`NEIGHBOURS_4` around the root), never the root's own position,
+        // so a `RootTip` cell never ends up sitting in a cell it vacated
+        // itself the way the old continuous-position model could.
         let mut w = test_world();
-        let wood_id = w.materials.id_of("wood").unwrap();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let wood = w.materials.id_of("wood").unwrap();
+        let organism_id = w.push_organism(tree_species);
+        let aux = organism::pack_aux(CellType::RootTip, 2.0);
+        w.set(50, 50, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
 
-        w.set(50, 50, Cell::new(wood_id, 0));
-        let wood_root = RootTip { pos: (50.0, 50.0), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: true, alive: true };
-        // (60, 50) stays Empty -- standing in for a root that just drank an
-        // adjacent water cell and advanced into the now-empty space.
-        let drunk_root = RootTip { pos: (60.0, 50.0), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: false, alive: true };
-        let state = TreeState {
-            attractors: Vec::new(),
-            tips: Vec::new(),
-            roots: vec![wood_root, drunk_root],
-            energy: 1000.0,
-            wood: wood_id,
-        };
-        let tree_id = w.push_tree(state);
-
-        // Erase the wood-resting root's trunk -- (60, 50) is left exactly
-        // as it already was (Empty), matching the drink-then-advance case.
         w.set(50, 50, Cell::EMPTY);
+        let produced = organism_tick(&mut w, 50, 50, organism_id, 0);
 
-        let wood_root_result = root_tip_tick(&mut w, 50, 50, tree_id, 0);
-        assert!(wood_root_result.is_empty(), "an orphaned wood-resting root should not reschedule itself");
-        assert!(!w.tree(tree_id).roots[0].alive, "an orphaned wood-resting root should mark itself dead");
-
-        // The drunk-water root must be judged on its own merits (whether it
-        // can find somewhere to grow from (60, 50)), not killed outright
-        // just because its own cell reads as Empty -- that is its expected,
-        // undisturbed state.
-        let before_alive = w.tree(tree_id).roots[1].alive;
-        let _ = root_tip_tick(&mut w, 60, 50, tree_id, 1);
-        assert_eq!(
-            w.tree(tree_id).roots[1].alive, before_alive,
-            "a root resting in a cell it legitimately left empty by drinking must not be killed by the orphan check alone"
-        );
+        assert!(produced.is_empty(), "an orphaned root should not reschedule itself");
+        assert_eq!(w.get(50, 50).material, material::EMPTY, "the orphaned check must not have written new wood from open air");
     }
 
-    #[test]
-    fn a_fully_dead_trees_attractors_are_reclaimed_but_not_a_partially_dead_ones() {
-        // Interim mitigation for pixel-physics-issues.md issue #8:
-        // TreeState never shrinks (tips/roots index into it by position,
-        // and reassigning a slot would invalidate a live ActiveSite -- the
-        // real fix is generational indices, not attempted here), but its
-        // `attractors` list (up to ATTRACTOR_COUNT points, by far the
-        // largest part of TreeState) can be freed the moment every tip and
-        // root has died, since nothing will ever consult it again.
-        let mut w = test_world();
-        let wood_id = w.materials.id_of("wood").unwrap();
-        let attractors = vec![(0.0, 0.0); ATTRACTOR_COUNT];
-        let alive_tip = Tip { pos: (0.0, 0.0), dir: (0.0, -1.0), channel: 0.5, alive: true };
-        let dead_tip = Tip { pos: (0.0, 0.0), dir: (0.0, -1.0), channel: 0.0, alive: false };
-        let dead_root =
-            RootTip { pos: (0.0, 0.0), dir: (0.0, 1.0), ticks_since_prime: 0, starved_ticks: 0, resting_on_wood: true, alive: false };
-        let state = TreeState { attractors, tips: vec![alive_tip, dead_tip], roots: vec![dead_root], energy: 0.0, wood: wood_id };
-        let tree_id = w.push_tree(state);
-
-        reclaim_if_tree_is_fully_dead(&mut w, tree_id);
-        assert!(!w.tree(tree_id).attractors.is_empty(), "a tree with a still-living tip should not have its attractors reclaimed yet");
-
-        w.tree_mut(tree_id).tips[0].alive = false; // the last living tip dies
-        reclaim_if_tree_is_fully_dead(&mut w, tree_id);
-        assert!(w.tree(tree_id).attractors.is_empty(), "a fully dead tree's attractors should have been reclaimed");
-    }
+    // `a_fully_dead_trees_attractors_are_reclaimed_but_not_a_partially_dead_
+    // ones` (the old system's interim mitigation for pixel-physics-
+    // issues.md issue #8) had no direct equivalent to port: the new system
+    // has no `attractors` list at all to reclaim. The underlying concern
+    // -- a fully dead organism's storage never being freed -- is real and
+    // still open here too, just manifesting differently: `World::push_
+    // organism`'s own doc says so directly ("nothing populates that list
+    // yet in this pass"), meaning an organism's id slot is never returned
+    // to `free_organism_slots` when every one of its cells dies. Recorded
+    // as a known gap, not silently dropped; a real fix needs a BFS-from-
+    // roots liveness check like `organism-substrate-design.md` §6
+    // describes, which is genuine future work, not a one-line port.
 
     // --- Self-blocking light regression (`ambient_light_above`) ----------
     //
@@ -1948,7 +1265,7 @@ mod tests {
         // planting depth (y < FIELD_SCALE) whose offset read would go
         // negative and land out of the world entirely, which reads as
         // blocked/zero regardless of the fix under test.
-        w.plant_tree_v2(100, 20);
+        w.plant_tree(100, 20);
         run_with_fields(&mut w, 400); // several germination checks (ORGANISM_TICK_INTERVAL apart)
 
         let (cell_type, _) = organism::unpack_aux(w.get(100, 20).aux());

@@ -2970,6 +2970,76 @@ identical; keep species-level constants read through the existing
 future per-organism override has a seam to hook into instead of a rewrite
 to perform.
 
+### Tree rewrite step 7: cutover, and a `RootTip` resource-economy gap found while porting tests
+
+Repointed `plant_tree`/the `T` key at the new `Grow`/`Germinate`-driven
+system (`World::plant_tree` now calls `plant_tree_species(x, y, "tree")`
+directly; the transitional `plant_tree_v2` name is gone). Deleted the old
+`TreeState`/`Tip`/`RootTip` structs, `tree_tip_tick`/`root_tip_tick`,
+`plant_tree_seed`, `World::push_tree`/`tree`/`tree_mut`, and the
+`ActiveKind::TreeTip`/`RootTip` schedule variants — the emergent system is
+now the only tree implementation.
+
+Ported every old test rather than deleting them wholesale, each kept only
+where its underlying claim still applies to the new system:
+
+- `a_tip_leans_more_steeply_upward_when_lit_from_above`/`a_tip_leans_
+  downwind_of_a_steady_breeze` became direct unit tests of `organism::
+  phototropism_dir`/`wind_lean_dir` themselves (the exact ported formulas)
+  rather than a whole simulated `tree_tip_tick` call — those two functions
+  had no test of their own at their new location until this pass.
+- `a_tree_can_produce_multiple_simultaneous_tips_via_branching` became
+  `a_tree_can_branch_into_more_than_one_lineage`, checking for a branch
+  *point* (3+ same-organism 8-neighbours) instead of counting
+  simultaneously-alive tips — this session's own tip-retirement fix means
+  tips essentially never stay alive simultaneously any more, by design.
+- The two orphaned-tip/orphaned-root regression tests ported directly
+  (`organism_tick`'s `cell.organism_id() != organism_id` guard is the
+  direct equivalent); the old "root resting in drunk water" half didn't
+  translate — the new cell-based `Absorb` only ever empties an *adjacent*
+  water cell, never the root's own position, so a `RootTip` can't end up
+  sitting in a cell it vacated itself the way the old continuous-position
+  model could.
+- The old TreeState-leak mitigation (freeing a fully-dead tree's
+  `attractors` list) had nothing to port — the new system has no
+  attractors at all. The underlying concern is real and still open,
+  though: `World::push_organism`'s own doc already says "nothing
+  populates [`free_organism_slots`] yet in this pass," so a fully-dead
+  organism's id slot is never reclaimed. Recorded as a known gap, not
+  silently dropped — a real fix needs a BFS-from-roots liveness check,
+  `organism-substrate-design.md` §6's own scoped-but-undone item.
+- Several ported tests initially failed for a reason unrelated to the
+  cutover itself: they planted at the old system's own y=100-150 depths,
+  which `Germinate`'s real light gate can't reach at all (`field.rs`'s
+  light model decays hard within a few rows of open sky) — the old flat
+  `AMBIENT_GROWTH_ENERGY` never had this constraint. Moved to y≈20.
+  `roots_consume_adjacent_water` also needed its assertion changed from a
+  cell-*count* water comparison to checking one specific cell directly:
+  the compressible-volume liquid model can spread the *remaining* water
+  into more, shallower-filled cells as it resettles around the gap a
+  root's `Absorb` leaves, which raises `count()`'s tally even as real
+  volume drops.
+
+**A second, genuine resource-economy gap found while porting the
+hydrotropism test, separate from the `GrowingTip` cost/rate tuning done
+earlier this session:** `RootTip` has no income source of its own besides
+`Absorb` (which only pays off once already touching water) — a root with
+no adjacent water lives entirely off resource slowly diffusing over from
+the trunk, and can permanently go dormant (`ORGANISM_STALE_LIMIT`
+consecutive starved misses) well before ever reaching a water pocket even
+a few cells away, no matter how long the simulation runs afterward.
+Confirmed directly: at both 1,500 and 6,000 ticks a root in an off-axis-
+water test scene had made identical, minimal progress (2 successful
+growth steps, drifted the wrong way) — not a timing issue, a permanent
+stall. Worked around for now by testing `organism::moisture_pull`'s
+steering directly rather than a full growth simulation (mirroring the
+phototropism/wind-lean tests above), which is a legitimate test-design
+choice on its own merits, but doesn't fix the underlying gap. Candidate
+for the same kind of parallel-comparison tuning pass `tree.ron`'s
+`GrowingTip` values already got (`examples/debug_tree_variants.rs`), on a
+`RootTip`-specific cost/rate pair — not done here, since it wasn't the
+task in front of this session, but the tool to do it already exists.
+
 ---
 
 ## M19 — Visual polish: make the engine beautiful

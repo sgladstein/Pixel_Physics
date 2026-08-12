@@ -20,7 +20,6 @@ use super::creature::CreatureState;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::material::{self, MaterialId, MaterialRegistry};
 use super::organism::{OrganismState, SpeciesId, SpeciesRegistry};
-use super::plant::TreeState;
 use super::rng::Rng;
 use super::scheduler::{self, ActiveSite};
 use super::surface::CellSurface;
@@ -83,11 +82,6 @@ pub struct World {
     /// thing every frame regardless, and a `HashMap`'s randomized iteration
     /// order was the engine's one documented source of non-determinism).
     active_sites: BinaryHeap<Reverse<ActiveSite>>,
-    /// M16: per-tree state (attractor points, growth tips, root tips) too
-    /// large to fit in a `Cell` — see `plant::TreeState`. Never shrinks;
-    /// entries are indexed by `ActiveKind::TreeTip`/`RootTip` and never
-    /// reassigned, the same stability guarantee `MaterialId`s get.
-    trees: Vec<TreeState>,
     /// M18: per-creature state (currently just its energy budget) — see
     /// `creature::CreatureState`. Never shrinks, mirroring `trees` above;
     /// indexed by `u16`, not `u32` like `trees`, because `Cell::aux` (also
@@ -155,7 +149,6 @@ impl World {
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
             active_sites: BinaryHeap::new(),
-            trees: Vec::new(),
             creatures: Vec::new(),
             species: SpeciesRegistry::builtin(),
             organisms: Vec::new(),
@@ -245,20 +238,6 @@ impl World {
 
     pub(crate) fn set_active_sites(&mut self, sites: BinaryHeap<Reverse<ActiveSite>>) {
         self.active_sites = sites;
-    }
-
-    /// Store a new tree's state and return its stable id.
-    pub(crate) fn push_tree(&mut self, tree: TreeState) -> u32 {
-        self.trees.push(tree);
-        (self.trees.len() - 1) as u32
-    }
-
-    pub(crate) fn tree(&self, id: u32) -> &TreeState {
-        &self.trees[id as usize]
-    }
-
-    pub(crate) fn tree_mut(&mut self, id: u32) -> &mut TreeState {
-        &mut self.trees[id as usize]
     }
 
     /// Store a new creature's state and return its stable id.
