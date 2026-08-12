@@ -573,6 +573,21 @@ unreasonable for a first cut; a version that actually checks flammability
 (closer to `fire::try_ignite`'s temperature-driven path) would be the more
 correct fix.
 
+**Debris realism, added later (overnight run §6).** The corner-aware
+gradient above was right about *direction* but every cell within roughly
+one field tile (`world.field_at`'s own coarse-block granularity) read the
+same quantized gradient, so a whole tile's debris launched with near-
+identical velocity and read as a moving block rather than a scatter —
+fixed with position-keyed jitter (`rng::jitter`) added to each cell's
+launch velocity, scaled by that cell's own computed speed rather than raw
+`strength` (a `* strength` term would have pinned every particle to
+`particle::MAX_SPEED_PER_AXIS`'s clamp and made debris *more* uniform, not
+less). Separately, every particle shared one flat `GRAVITY` with no
+per-particle variation, so identically-launched particles fell in lockstep
+forever — `Particle` now carries its own `drag`/`gravity_scale`, drawn once
+at spawn from `ParticleSystem`'s own internal RNG stream and held for the
+particle's whole flight.
+
 ## M6 deferral
 
 Rendering upgrade (dirty-region texture uploads, a custom wgpu pipeline for

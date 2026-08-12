@@ -21,6 +21,7 @@
 //! add a cross-system read when something concrete needs it.
 
 use super::material::MaterialId;
+use super::rng::Rng;
 use super::world::World;
 
 /// Cells per frame per frame. Chosen so a particle's fall visually resembles
@@ -34,6 +35,16 @@ const GRAVITY: f32 = 0.15;
 /// single step before substepping ever gets a chance to check for it.
 const MAX_SPEED_PER_AXIS: f32 = 8.0;
 
+/// Per-particle horizontal drag, drawn once at spawn and held for the
+/// particle's whole flight — see `Particle::drag`'s own doc.
+const MIN_DRAG: f32 = 0.985;
+const MAX_DRAG: f32 = 1.0;
+
+/// Per-particle gravity multiplier, drawn once at spawn — see
+/// `Particle::gravity_scale`'s own doc.
+const MIN_GRAVITY_SCALE: f32 = 0.9;
+const MAX_GRAVITY_SCALE: f32 = 1.1;
+
 pub struct Particle {
     pub x: f32,
     pub y: f32,
@@ -41,6 +52,30 @@ pub struct Particle {
     pub vy: f32,
     pub material: MaterialId,
     pub shade: u8,
+    /// Multiplies `vx` every step, in `MIN_DRAG..MAX_DRAG` (`ranged`'s upper
+    /// bound is exclusive; irrelevant at this granularity). Drawn once at
+    /// spawn and held for life, not redrawn per frame — the same "stable
+    /// decision, not reconsidered every tick" shape `Chunk::rng`'s own doc
+    /// argues for, here so two particles launched with identical velocity
+    /// (the common case: several cells in the same field tile read a
+    /// near-identical pressure gradient, see `explosion.rs`'s own doc) don't
+    /// keep tracing identical arcs forever and reading as a single moving
+    /// block instead of a scatter.
+    pub drag: f32,
+    /// Multiplies the `GRAVITY` added to `vy` every step, in
+    /// `MIN_GRAVITY_SCALE..MAX_GRAVITY_SCALE` (exclusive upper bound, same
+    /// as `drag`). Same reasoning as `drag`,
+    /// for the vertical axis: without this, particles that start identical
+    /// keep falling at exactly the same rate and never visually separate.
+    pub gravity_scale: f32,
+}
+
+/// Uniform in `min..max` (exclusive upper bound, inherited from `Rng::
+/// below`'s own `0..n`). Not a method on `Rng` itself: this crate's `Rng`
+/// deliberately stays a minimal integer/bool primitive (see its own module
+/// doc), and the only two callers needing a ranged float are both here.
+fn ranged(rng: &mut Rng, min: f32, max: f32) -> f32 {
+    min + (rng.below(10_000) as f32 / 10_000.0) * (max - min)
 }
 
 /// Owns every free particle currently in flight. Lives alongside `World`
@@ -50,14 +85,28 @@ pub struct Particle {
 /// of no.
 pub struct ParticleSystem {
     particles: Vec<Particle>,
+    /// This system's own RNG stream, used only to draw each new particle's
+    /// `drag`/`gravity_scale` at spawn — the same "owns its own stream
+    /// rather than sharing `World::rng`" shape `Chunk::rng` already uses,
+    /// for the same reason: nothing here was ever required to be
+    /// reproducible (see `rng.rs`'s own module doc), so there is no benefit
+    /// to threading `&mut World` (or `&mut Rng`) through every `spawn`
+    /// call site — `app.rs`'s `spawn_burst`, `render.rs`'s tests,
+    /// `explosion.rs` — just to reach a shared generator.
+    rng: Rng,
 }
 
 impl ParticleSystem {
     pub fn new() -> Self {
-        Self { particles: Vec::new() }
+        Self {
+            particles: Vec::new(),
+            rng: Rng::default(),
+        }
     }
 
     pub fn spawn(&mut self, x: f32, y: f32, vx: f32, vy: f32, material: MaterialId, shade: u8) {
+        let drag = ranged(&mut self.rng, MIN_DRAG, MAX_DRAG);
+        let gravity_scale = ranged(&mut self.rng, MIN_GRAVITY_SCALE, MAX_GRAVITY_SCALE);
         self.particles.push(Particle {
             x,
             y,
@@ -65,6 +114,8 @@ impl ParticleSystem {
             vy: vy.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS),
             material,
             shade,
+            drag,
+            gravity_scale,
         });
     }
 
@@ -101,7 +152,8 @@ impl ParticleSystem {
         let mut still_flying = Vec::with_capacity(self.particles.len());
 
         for mut particle in self.particles.drain(..) {
-            particle.vy += GRAVITY;
+            particle.vy += GRAVITY * particle.gravity_scale;
+            particle.vx *= particle.drag;
             particle.vx = particle.vx.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
             particle.vy = particle.vy.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
 
@@ -273,6 +325,32 @@ mod tests {
         // Still clamped after gravity is added in step().
         let still_clamped = ps.iter().next().map(|p| p.vy.abs() <= MAX_SPEED_PER_AXIS).unwrap_or(true);
         assert!(still_clamped);
+    }
+
+    #[test]
+    fn particles_spawned_with_identical_velocity_diverge_over_time() {
+        // Before this section, every particle shared one flat `GRAVITY`
+        // constant with no per-particle variation, so two particles launched
+        // identically kept tracing exactly identical arcs forever -- the
+        // "lockstep falling" `drag`/`gravity_scale` exist to break. `vx: 0.0`
+        // deliberately, so this isolates `gravity_scale`'s effect on the
+        // vertical fall from `drag`'s (which has nothing to act on when `vx`
+        // never leaves zero).
+        let mut w = test_world();
+        let mut ps = ParticleSystem::new();
+        ps.spawn(10.0, 5.0, 0.0, -1.0, material::SAND, 0);
+        ps.spawn(20.0, 5.0, 0.0, -1.0, material::SAND, 0);
+
+        for _ in 0..30 {
+            ps.step(&mut w);
+        }
+
+        let ys: Vec<f32> = ps.iter().map(|p| p.y).collect();
+        assert_eq!(ys.len(), 2, "expected both particles still flying after 30 frames");
+        assert!(
+            (ys[0] - ys[1]).abs() > 0.01,
+            "two particles spawned with identical velocity fell by the exact same amount: {ys:?}"
+        );
     }
 
     #[test]

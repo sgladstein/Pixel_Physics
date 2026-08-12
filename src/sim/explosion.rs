@@ -12,6 +12,7 @@ use super::cell::Cell;
 use super::field::FIELD_SCALE;
 use super::material;
 use super::particle::ParticleSystem;
+use super::rng;
 use super::world::World;
 
 /// How much of the blast's `strength` becomes the field's heat spike, versus
@@ -54,6 +55,32 @@ const VAPORIZE_FRACTION: f32 = 0.12;
 /// noticeably further than the crater without being unbounded — untuned
 /// against anything real, same as every other constant in this file.
 const SHOCKWAVE_RADIUS_MULTIPLIER: f32 = 1.8;
+
+/// Scales the position-keyed jitter `debris_velocity` adds to each cell's
+/// launch velocity, as a fraction of that cell's own computed `speed` — not
+/// a flat value, and deliberately **not** scaled by raw `strength`.
+/// `strength` values large enough to throw debris convincingly (150-200 in
+/// this module's own tests) already push `speed` at or past
+/// `particle::MAX_SPEED_PER_AXIS` once multiplied by `SPEED_PER_STRENGTH`,
+/// so a `* strength` jitter term
+/// would pin every particle straight to that clamp and make debris *more*
+/// uniform, not less — caught during planning, before this was ever
+/// implemented against raw `strength`. `0.4`, roughly ±20% of launch speed,
+/// is enough to break the same-field-tile cohesion `debris_velocity`'s own
+/// doc describes (every cell within one `FIELD_SCALE` tile reads a
+/// near-identical pressure gradient and would otherwise launch with
+/// near-identical velocity, reading as a moving block rather than a
+/// scatter), while staying small enough that the gradient's own shape still
+/// dominates the overall blast direction.
+const DEBRIS_JITTER_STRENGTH: f32 = 0.4;
+
+/// Offset applied to the *x* input of the *y* jitter sample, so a cell's x
+/// and y jitter values are not the same number twice. Without this, jitter
+/// would only ever push diagonally (`vx`/`vy` jitter identically), not
+/// scatter in every direction. Arbitrary — any fixed nonzero offset works,
+/// this just needs to be a value distinct from a real world x-coordinate
+/// range colliding in a way that would systematically correlate the two.
+const JITTER_AXIS_OFFSET: i32 = 7919;
 
 /// Trigger an explosion centred on `(cx, cy)` with the given `radius` (world
 /// cells) and `strength` (feeds both the pressure impulse and, scaled down,
@@ -233,7 +260,7 @@ fn debris_velocity(world: &World, x: i32, y: i32, cx: i32, cy: i32, strength: f3
     let mag = (gx * gx + gy * gy).sqrt();
     let speed = strength * SPEED_PER_STRENGTH;
 
-    if mag > 0.01 {
+    let (vx, vy) = if mag > 0.01 {
         (gx / mag * speed, gy / mag * speed)
     } else {
         // No usable gradient (dead centre, or walled in on every side) —
@@ -243,7 +270,16 @@ fn debris_velocity(world: &World, x: i32, y: i32, cx: i32, cy: i32, strength: f3
         let (dx, dy) = ((x - cx) as f32, (y - cy) as f32);
         let d = (dx * dx + dy * dy).sqrt().max(1.0);
         (dx / d * speed, dy / d * speed)
-    }
+    };
+
+    // Position-keyed (not frame-keyed) so a given cell's jitter is stable —
+    // matters here only for test determinism, not gameplay, since a cell is
+    // cleared to `Cell::EMPTY` and never revisited the moment it's thrown.
+    // See `DEBRIS_JITTER_STRENGTH`'s own doc for why this is scaled by
+    // `speed`, not raw `strength`.
+    let jx = (rng::jitter(x, y) - 0.5) * DEBRIS_JITTER_STRENGTH * speed;
+    let jy = (rng::jitter(x + JITTER_AXIS_OFFSET, y) - 0.5) * DEBRIS_JITTER_STRENGTH * speed;
+    (vx + jx, vy + jy)
 }
 
 #[cfg(test)]
@@ -291,6 +327,31 @@ mod tests {
 
         assert!(w.field_at(40, 40).pressure.abs() > 1.0, "no pressure impulse");
         assert!(w.field_at(40, 40).temperature > 20.0, "no heat spike");
+    }
+
+    #[test]
+    fn debris_velocity_varies_within_a_single_field_tile() {
+        // Diagnosis this section fixed: `debris_velocity` samples the field
+        // (via `World::field_at`, a coarse block lookup -- see its own doc)
+        // at exactly +/- FIELD_SCALE, so every cell within roughly one field
+        // tile read the exact same quantized pressure gradient and launched
+        // with identical velocity, reading as a moving block rather than a
+        // scatter of debris. An entirely open world (no walls to trip the
+        // blocked-fallback path instead of the real gradient one) with a
+        // real pressure impulse, so `x = 34` and `x = 35` (`y` held fixed)
+        // land in the same coarse blocks for all four samples and would
+        // read a bit-identical gradient before this section's jitter --
+        // confirmed to fail (`vx1 == vx2 && vy1 == vy2` exactly) with
+        // `DEBRIS_JITTER_STRENGTH` temporarily zeroed.
+        let mut w = test_world();
+        w.add_pressure_impulse(40, 40, 8, 200.0);
+        let (vx1, vy1) = debris_velocity(&w, 34, 34, 40, 40, 200.0);
+        let (vx2, vy2) = debris_velocity(&w, 35, 34, 40, 40, 200.0);
+        assert!(
+            (vx1 - vx2).abs() > 0.01 || (vy1 - vy2).abs() > 0.01,
+            "adjacent cells reading the same coarse field block launched with identical velocity: \
+             ({vx1}, {vy1}) vs ({vx2}, {vy2})"
+        );
     }
 
     #[test]
@@ -457,11 +518,28 @@ mod tests {
         let mut particles = ParticleSystem::new();
         trigger(&mut w, &mut particles, 40, 40, 8, 200.0);
 
-        // For every fast-moving particle, its velocity should point away
-        // from (40, 40), not toward it — checked via the dot product of
-        // (position - centre) and velocity, which should be positive for
-        // outward motion.
+        // For every fast-moving particle, its velocity should point broadly
+        // away from (40, 40), not toward it — checked via the cosine of the
+        // angle between (position - centre) and velocity, which should be
+        // strongly positive on average.
+        //
+        // The per-particle bound is a tolerance, not a strict `> 0.0`:
+        // `debris_velocity` reads a *pressure gradient*, which already
+        // legitimately grazes close to perpendicular for some positions near
+        // a filled square's corner even with `DEBRIS_JITTER_STRENGTH` at 0 —
+        // measured directly (temporarily zeroing the constant) at cos ~=
+        // 0.14 (~81.9 degrees) for this exact scene, a thin pre-existing
+        // margin that has nothing to do with jitter. `DEBRIS_JITTER_STRENGTH`
+        // (added this section) then spends some of that margin on purpose —
+        // the whole point is to scatter debris rather than have it launch in
+        // lockstep — so a small number of already-marginal cells can graze
+        // a few degrees past perpendicular. `COS_TOLERANCE` allows that
+        // without allowing what this test actually exists to catch: a
+        // genuine sign error that sends debris *backward into* the blast
+        // (a strongly negative cosine, not a graze).
+        const COS_TOLERANCE: f32 = -0.2;
         let mut checked = 0;
+        let mut cos_sum = 0.0;
         for p in particles.iter() {
             let (dx, dy) = (p.x - 40.0, p.y - 40.0);
             let dist = (dx * dx + dy * dy).sqrt();
@@ -469,18 +547,27 @@ mod tests {
             if dist < 0.5 || speed < 0.5 {
                 continue; // too close to the centre or too slow to judge direction
             }
-            let dot = dx * p.vx + dy * p.vy;
+            let cos = (dx * p.vx + dy * p.vy) / (dist * speed);
             assert!(
-                dot > 0.0,
-                "debris at ({}, {}) moving ({}, {}) points toward the epicentre, not away",
+                cos > COS_TOLERANCE,
+                "debris at ({}, {}) moving ({}, {}) points strongly toward the epicentre, not away (cos = {cos})",
                 p.x,
                 p.y,
                 p.vx,
                 p.vy
             );
+            cos_sum += cos;
             checked += 1;
         }
         assert!(checked > 0, "no particle was far/fast enough to check direction on");
+        // The population as a whole must skew strongly outward -- a real
+        // sign-flip bug would show up here as a mean well below this, not
+        // just one grazing cell.
+        assert!(
+            cos_sum / checked as f32 > 0.5,
+            "debris does not skew outward on average: mean cos = {}",
+            cos_sum / checked as f32
+        );
     }
 
     #[test]
