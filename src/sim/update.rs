@@ -850,9 +850,20 @@ fn find_lateral_descent<S: CellSurface>(surface: &S, x: i32, y: i32, dir: i32) -
             return None;
         }
         let path = surface.get(tx, y);
-        // `is_empty()` is managed-aware, so a promoted body's cells
-        // correctly block the path rather than being flowed through.
-        if !path.is_empty() && path.material != src.material {
+        // `path.managed()` explicitly, *not* left to `is_empty()`.
+        //
+        // `is_empty()` is managed-aware, so it does block a body's
+        // materially-empty container cells. But a promoted body's own liquid
+        // cells are not materially empty and hold the same material as the
+        // scanning cell, so `path.material != src.material` was false for
+        // them and the scan walked straight across a lake's surface -- past
+        // its far edge, and out the other side. That is exactly the
+        // "skating along a managed surface hunting for an edge to fall off"
+        // that `update_liquid`'s absorption guard exists to prevent, and
+        // that guard only covers a body directly *below* the scanning cell.
+        // Found by review; the comment here previously claimed the opposite
+        // of what the condition did.
+        if !path.is_empty() && (path.managed() || path.material != src.material) {
             return None;
         }
 
@@ -1127,6 +1138,57 @@ mod tests {
             flowing.get(x, y).is_empty() && flowing.get(x + 1, y).material == material::SAND,
             "a flowing grain should use the lenient reach and start toward the opening"
         );
+    }
+
+    /// A liquid must not scan *through* a promoted body's cells.
+    ///
+    /// `find_lateral_descent` walks sideways looking for a column to fall
+    /// from, stopping at the first cell that is neither open space nor more
+    /// of its own liquid. A body's cells are made of that same liquid, so
+    /// they passed that test and the scan flowed straight through them --
+    /// the "skating along a managed surface hunting for an edge to fall off"
+    /// that `update_liquid`'s absorption guard exists to stop, and that
+    /// guard only covers a body directly *below* the scanning cell.
+    ///
+    /// Uses `set_owned` to mark a short managed strip rather than promoting
+    /// a real body, deliberately: `MIN_BODY_COLUMNS` is 32 and
+    /// `LIQUID_LATERAL_REACH` is 24, so a scan can never reach across a
+    /// genuine body and the predicate would go untested. `liquid.rs`'s own
+    /// tests use `set_owned` as tooling the same way.
+    ///
+    /// Latent rather than live today, since nothing in production promotes a
+    /// body (`127e177`) -- which is why review found it and play did not.
+    #[test]
+    fn a_liquid_does_not_scan_through_managed_cells_of_its_own_material() {
+        let floor_y = 40;
+        let mut w = World::new(Rect::new(0, 0, 79, 63));
+        for x in 0..80 {
+            w.set(x, floor_y, Cell::new(material::STONE, 0));
+        }
+        // Scanning cell, then three managed cells of the same material, then
+        // a column it would dearly like to fall down.
+        w.set(10, floor_y - 1, Cell::new(material::WATER, 0));
+        for x in 11..14 {
+            w.set(x, floor_y - 1, Cell::new(material::WATER, 0));
+            let owned = w.get(x, floor_y - 1).with_managed(true);
+            w.set_owned(x, floor_y - 1, owned);
+        }
+        w.set(15, floor_y, Cell::EMPTY);
+        assert!(w.get(12, floor_y - 1).managed(), "test setup: the strip should be managed");
+
+        assert_eq!(
+            find_lateral_descent(&w, 10, floor_y - 1, 1),
+            None,
+            "the scan passed through managed cells to reach the drop beyond them"
+        );
+
+        // Control: with the strip unmanaged, the very same scan does find it,
+        // so the assertion above is about `managed` and not about geometry.
+        for x in 11..14 {
+            let plain = w.get(x, floor_y - 1).with_managed(false);
+            w.set_owned(x, floor_y - 1, plain);
+        }
+        assert_eq!(find_lateral_descent(&w, 10, floor_y - 1, 1), Some(15));
     }
 
     #[test]
