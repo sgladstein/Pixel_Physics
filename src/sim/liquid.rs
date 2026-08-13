@@ -722,6 +722,31 @@ impl LiquidBody {
         for (cx, cy) in new_container {
             if !old_container.contains(&(cx, cy)) {
                 let cell = world.get(cx, cy);
+                // Never claim live liquid of our own kind as container.
+                //
+                // At promotion this case cannot arise: `label_body` takes a
+                // maximal connected region, so anything adjacent to it is by
+                // construction *not* more of the same unmanaged liquid. An
+                // incremental claim breaks that invariant -- extending onto
+                // column `x0 - 1` exposes `x0 - 2` as new container, and that
+                // may be an ordinary CA puddle of our own material that was
+                // simply too shallow to claim this time.
+                //
+                // Flagging it `managed` froze it permanently: `update_cell`
+                // skips managed cells, and no body's `h[]` owns it, so it was
+                // simulated by nothing and belonged to nothing. It is also
+                // the reachable path into `World::absorb_liquid`'s bounds
+                // miss, which drops fill the caller has already debited.
+                //
+                // Skipping is right rather than merely safe. The container
+                // flag means "a liquid body depends on you", which is a claim
+                // about structure -- a bed, a wall. Our own live liquid is
+                // not structure; it is a candidate for the *next*
+                // `try_extend`, and leaving it unflagged is what lets that
+                // happen. Found by review.
+                if cell.material == self.material && !cell.managed() {
+                    continue;
+                }
                 world.set_owned(cx, cy, cell.with_managed(true));
             }
         }
@@ -1532,6 +1557,41 @@ mod tests {
         (id, demoted_x)
     }
 
+    /// Absorbing at a body's edge must not destroy the fill.
+    ///
+    /// `update::transfer_liquid_vertical` empties the source cell and credits
+    /// the whole amount through `absorb_liquid` in the same call, so that a
+    /// debit can never be separated from its credit — `CellSurface::
+    /// absorb_liquid`'s own doc says as much. A bounds check inside
+    /// `absorb_liquid` was separating them anyway: `find_body_at` resolves a
+    /// body for its *container* cells too (bed and walls, at `x0 - 1` and
+    /// `x0 + columns()`), which are outside `h`, and the fill was silently
+    /// dropped there.
+    ///
+    /// Found by review, and reachable in principle via `try_extend`'s
+    /// container claim. Latent in practice today only because nothing in
+    /// production promotes a body (`127e177`).
+    #[test]
+    fn absorbing_at_a_bodys_container_edge_conserves_the_fill() {
+        let mut w = test_world();
+        build_pool(&mut w);
+        let id = w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+        let before = w.body(id).unwrap().total_fill();
+
+        // A container cell: outside `h`, but `owns` resolves the body for it.
+        let edge_x = POOL_X0 - 1;
+        assert!(w.body(id).unwrap().owns(edge_x, WATER_Y), "test setup: the wall should resolve to this body");
+
+        w.absorb_liquid(edge_x, WATER_Y, 2_500);
+
+        let after = w.body(id).expect("body should still be alive").total_fill();
+        assert_eq!(
+            after,
+            before + 2_500,
+            "absorbing at the body's own container edge lost the fill: {before} -> {after}"
+        );
+    }
+
     #[test]
     fn try_extend_claims_an_adjacent_puddle() {
         let mut w = test_world();
@@ -1548,6 +1608,50 @@ mod tests {
         let body = w.body(id).expect("body should still be alive");
         assert!(body.columns() > columns_before, "try_extend should have reclaimed the demoted column once the cooldown expired");
         assert!(w.get(demoted_x, WATER_Y).managed(), "the reclaimed cell should now be managed again");
+    }
+
+    /// Extending must not freeze the CA water just beyond the column it
+    /// claims.
+    ///
+    /// `try_extend` flags every newly-exposed container position `managed`.
+    /// At promotion that is safe by construction — `label_body` takes a
+    /// maximal connected region, so nothing adjacent to it is more of the
+    /// same unmanaged liquid. An incremental claim breaks the invariant:
+    /// claiming column `x0 - 1` exposes `x0 - 2` as new container, and that
+    /// can be an ordinary CA puddle of the body's own material.
+    ///
+    /// Flagged, such a cell is simulated by nothing (`update_cell` skips
+    /// managed cells) and owned by nothing (no body's `h[]` covers it) —
+    /// water frozen permanently, and the reachable path into
+    /// `World::absorb_liquid`'s bounds miss. Found by review.
+    #[test]
+    fn try_extend_does_not_freeze_the_ca_water_beyond_the_column_it_claims() {
+        let mut w = test_world();
+        let (id, demoted_x) = build_pool_with_a_real_edge_demotion(&mut w);
+
+        // An ordinary CA puddle one column further out than the one
+        // `try_extend` is about to reclaim — exactly the position that
+        // becomes "new container" the moment it does.
+        let beyond_x = demoted_x - 1;
+        w.set(beyond_x, FLOOR_Y, Cell::new(material::STONE, 0));
+        w.set(beyond_x, WATER_Y, Cell::new(material::WATER, 0));
+        assert!(!w.get(beyond_x, WATER_Y).managed(), "test setup: the puddle beyond starts unmanaged");
+
+        for _ in 0..(DEMOTE_COOLDOWN_FRAMES + EXTEND_INTERVAL * 2) {
+            w.begin_step();
+            w.step_liquid_bodies();
+        }
+
+        let body = w.body(id).expect("body should still be alive");
+        assert!(w.get(demoted_x, WATER_Y).managed(), "test setup: the demoted column should have been reclaimed");
+
+        let beyond = w.get(beyond_x, WATER_Y);
+        let owned_by_body = body.owns(beyond_x, WATER_Y) && beyond_x >= body.x0;
+        assert!(
+            !beyond.managed() || owned_by_body,
+            "the CA puddle at x={beyond_x} was flagged managed without being taken into the body: \
+             nothing simulates it and nothing owns it, so it is frozen for good"
+        );
     }
 
     #[test]

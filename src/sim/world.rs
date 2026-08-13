@@ -655,16 +655,32 @@ impl World {
         }
         let Some(mut body) = slot.state.take() else { return };
 
-        let i = x - body.x0;
-        if i >= 0 && (i as usize) < body.h.len() {
-            let i = i as usize;
-            body.h[i] += fill;
-            // New mass to redistribute -- a sleeping body (design doc
-            // §7d/§8c) must wake to actually do that, or it would sit
-            // asleep with a pile absorption just dropped on it forever.
-            body.asleep = false;
-            body.rasterize_column(self, i);
+        // Clamped into the body's own columns rather than skipped when it
+        // falls outside them, because **the caller has already spent the
+        // mass**. `update::transfer_liquid_vertical` writes `Cell::EMPTY`
+        // over the source and credits the whole amount here in the same
+        // call, precisely so a debit can never be separated from its credit
+        // -- and the bounds check this replaces was doing exactly that
+        // separating, silently destroying the fill.
+        //
+        // Reachable because `owns` is broader than `h`: it deliberately
+        // covers a body's container cells, its bed and its walls, which sit
+        // at `x0 - 1` and `x0 + columns()`. `find_body_at` resolving one of
+        // those means the water landed on the body's *edge*, so crediting
+        // the edge column is not a fudge to conserve mass -- it is where the
+        // water went. Found by review.
+        if body.h.is_empty() {
+            self.register_body_chunks(id, &body);
+            self.bodies[id.index as usize].state = Some(body);
+            return;
         }
+        let i = (x - body.x0).clamp(0, body.columns() as i32 - 1) as usize;
+        body.h[i] += fill;
+        // New mass to redistribute -- a sleeping body (design doc
+        // §7d/§8c) must wake to actually do that, or it would sit
+        // asleep with a pile absorption just dropped on it forever.
+        body.asleep = false;
+        body.rasterize_column(self, i);
 
         self.register_body_chunks(id, &body);
         self.bodies[id.index as usize].state = Some(body);
