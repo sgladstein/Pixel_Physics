@@ -2355,6 +2355,74 @@ mod liquid_acceptance {
         );
     }
 
+    /// The whisker bar: one-cell-tall sheets of water with open air both
+    /// above and below, which draw as a comb of detached horizontal ledges
+    /// along a spreading front. Reported from live play as "horizontal
+    /// banding", and distinct from the row banding below — that one is a
+    /// fill deficit inside the body, this one is the shape of its edge.
+    ///
+    /// Bar 400, measured **290** on a falling, spreading body. Open, and
+    /// deliberately barred at roughly today's value rather than at zero:
+    /// three candidate fixes have been measured and all three rejected, so
+    /// this exists to stop it getting *worse* while the real fix is found,
+    /// not to claim it is solved.
+    ///
+    /// What has been tried, so it is not tried again:
+    ///
+    /// - **Disable `find_lateral_descent`.** Removes 75% of them (2540 to
+    ///   621 on a larger scene) and destroys the property that rule exists
+    ///   for — without it water reads as sand, which is the original bug.
+    /// - **Land the mover at `(tx, y)` and let it fall next frame** instead
+    ///   of at `(tx, y + 1)`. Whiskers 2540 to 1635, but fully-enclosed
+    ///   holes inside the body went 289 to 1040. Net worse.
+    /// - **Shrink `LIQUID_LATERAL_REACH`.** A pure trade against levelling
+    ///   speed, with diminishing returns and no path to zero: reach 24/12/6/3
+    ///   gives whiskers 290/175/151/119 against levelling times of
+    ///   343/557/1017/1661 frames. Halving reach costs 62% of the levelling
+    ///   speed for 40% of the whiskers.
+    ///
+    /// What the measurements say about the cause, for whoever picks this up:
+    /// `find_lateral_descent` is **not** teleporting water. 75% of its moves
+    /// are a single-cell diagonal step and only 3% land with air two cells
+    /// below. Whiskers survive at reach 3, so they are not primarily long
+    /// jumps. They look instead like the surface monolayer advancing one
+    /// diagonal step per frame with nothing above to refill the row it
+    /// vacates — which may mean the honest fix is not in the movement rule
+    /// at all, but in how a one-cell-thick sheet is drawn.
+    #[test]
+    fn a_spreading_front_does_not_shed_a_comb_of_detached_ledges() {
+        const WIDTH: i32 = 512;
+        const HEIGHT: i32 = 320;
+        let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
+        stone_floor(&mut w, WIDTH, HEIGHT, 8);
+        for x in 20..250 {
+            for y in 20..200 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+
+        let films = |w: &World| {
+            (1..WIDTH - 1)
+                .flat_map(|x| (1..HEIGHT - 1).map(move |y| (x, y)))
+                .filter(|&(x, y)| {
+                    w.get(x, y).material == material::WATER
+                        && w.get(x, y - 1).is_empty()
+                        && w.get(x, y + 1).is_empty()
+                })
+                .count()
+        };
+
+        let mut worst = 0;
+        for _ in 0..400 {
+            parallel::step(&mut w);
+            worst = worst.max(films(&w));
+        }
+        assert!(
+            worst <= 400,
+            "a spreading front is shedding {worst} one-cell-tall detached ledges              (bar 400, measured 290; this bar holds the line, it does not claim the bug is fixed)"
+        );
+    }
+
     /// The bar that did not exist, and whose absence let a regression ship.
     ///
     /// `e816477` reverted a fix that cleared torn rows on horizontal chunk
