@@ -1075,7 +1075,7 @@ mod tests {
     /// 988 for correct ordering -- see `liquid_acceptance`'s banding bar in
     /// `update.rs`, which is what caught the second attempt before it
     /// shipped.
-    ///
+    #[test]
     fn falling_water_does_not_tear_a_line_along_a_horizontal_chunk_seam() {
         const W: i32 = 512;
         const H: i32 = 320;
