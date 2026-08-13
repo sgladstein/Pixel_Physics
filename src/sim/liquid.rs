@@ -34,11 +34,25 @@ pub const MIN_BODY_COLUMNS: usize = 32;
 /// ordinary play and the cap exists only to bound worst-case promotion cost.
 pub const MAX_BODY_CELLS: usize = 20_000;
 
-/// One promoted liquid body — design doc §2b/§3a/§9a. `h[i]` and the column
-/// bounds are all that exist in step 1; there is no flux array and no
-/// solver yet (`Reports/liquid-heightfield-design.md` §11 step 3 adds
-/// those). A body is always exactly one material (`Reports/liquid-
-/// heightfield-design.md` §3b.1) and always exactly one contiguous run of
+/// Persistent per-interface flux gain — design doc §7a/§7c: the piece
+/// without which a per-step relaxation is merely diffusion at a coarser
+/// granularity. `0.4` is the design doc's own recommended starting point
+/// (well inside the `c <= 0.5` diffusive-stability bound, the conservative
+/// reading). **Untuned against real play, flagged as such** — the design
+/// doc's own §7f says this should eventually become the `flow_rate` a
+/// material already carries in its `.ron` (rescaled), not a second,
+/// parallel viscosity knob; deferred here since retuning a value the CA
+/// path also reads risks a regression in already-tuned behaviour that
+/// can't be verified without watching it played, not something to do
+/// blind in an unattended pass.
+const SOLVER_GAIN: f64 = 0.4;
+
+/// Per-frame flux retention — design doc §7c. `0.9` is the design doc's own
+/// recommended starting point. **Untuned**, same caveat as `SOLVER_GAIN`.
+const SOLVER_DAMP: f64 = 0.9;
+
+/// One promoted liquid body — design doc §2b/§3a/§7/§9a. A body is always
+/// exactly one material (§3b.1) and always exactly one contiguous run of
 /// x-columns — 4-connectivity guarantees no gaps (`label_body`'s own doc).
 pub struct LiquidBody {
     pub material: MaterialId,
@@ -53,6 +67,15 @@ pub struct LiquidBody {
     /// cells at promotion (`World::promote_liquid_body`) and never
     /// otherwise — this is what makes promotion mass-free.
     pub h: Vec<u32>,
+    /// Signed flux across interface `i | i+1`, one entry per adjacent
+    /// column pair (`columns() - 1` long) — design doc §7a/§7b. Positive
+    /// means flow from column `i` to `i + 1`. Persistent across frames on
+    /// purpose: this *is* the mechanism that makes leveling O(width) rather
+    /// than O(width²) diffusion (§7a's own correction to the research
+    /// report it's built from). The number of columns never changes after
+    /// promotion in the steps built so far (only a later step's `try_
+    /// extend` would), so this never needs resizing.
+    pub flux: Vec<i32>,
 }
 
 impl LiquidBody {
@@ -116,64 +139,207 @@ impl LiquidBody {
         self.container_positions().contains(&(x, y))
     }
 
-    /// Rasterize column `i` back into cells if its whole-cell count has
-    /// changed since it was last written — design doc §7e. Called after
-    /// `h[i]` changes (today, only `World::absorb_liquid`'s credit; a later
-    /// step's solver calls it too). A no-op, deliberately, when the count
-    /// hasn't changed: nothing is written, so nothing dirties, so a quiet
-    /// column keeps letting its chunk sleep.
+    /// Write cell `(x, y)` of this body's own material with `fill` units,
+    /// preserving the existing shade if the cell is already this body's own
+    /// material (so a cell that merely changes its partial fill doesn't
+    /// redraw with fresh grain every frame), drawing a new one otherwise.
     ///
-    /// **Step 2 only ever grows a column** (absorption adds mass; nothing
-    /// yet removes it — the solver, §11 step 3, is what makes shrinking a
-    /// real case). Growing means claiming new cells upward from the current
-    /// `top_y[i]` and flagging their own new left/right/below neighbours as
-    /// container cells, exactly mirroring what `World::promote_liquid_body`
-    /// did for the body's initial footprint — just incrementally, for the
-    /// rows that are actually new. Only the newly claimed rows plus the
-    /// previously-topmost row (whose fill may have flipped from partial to
-    /// full) are ever rewritten; every cell below stays byte-identical.
+    /// A genuine no-op — no `set_owned` call at all — when the cell is
+    /// already exactly correct. Found by independent review: without this
+    /// check, the "same whole-cell count" branch of `rasterize_column`
+    /// below unconditionally rewrote the topmost cell every single call,
+    /// which `Chunk::set_world`/`mark_dirty` reads as a real change
+    /// regardless of whether the bytes actually differ — so every live
+    /// body's chunk stayed marked dirty on every solver frame even at
+    /// perfect, unmoving equilibrium, defeating design doc §7e's entire
+    /// point ("nothing written, so nothing dirties, so a quiet column
+    /// keeps letting its chunk sleep") and, transitively, the sleep
+    /// mechanism step 4 depends on.
+    fn write_liquid_cell(&self, world: &mut World, x: i32, y: i32, fill: u16) {
+        // `aux == 0` is `liquid_fill`'s own "treat as full" sentinel
+        // (`update::liquid_fill`'s doc), not "empty" -- a genuinely full
+        // cell is written as 0, matching every other liquid write.
+        let aux = if fill >= material::LIQUID_FULL { 0 } else { fill };
+        let existing = world.get(x, y);
+        if existing.material == self.material && existing.managed() && existing.aux() == aux {
+            return;
+        }
+        let cell = if existing.material == self.material {
+            existing.with_managed(true).with_aux(aux)
+        } else {
+            let shades = world.materials.get(self.material).palette.len().max(1) as u32;
+            let shade = world.rng.below(shades) as u8;
+            Cell::new(self.material, shade).with_managed(true).with_aux(aux)
+        };
+        world.set_owned(x, y, cell);
+    }
+
+    /// Rasterize column `i` back into cells if its whole-cell count, or its
+    /// topmost cell's own partial fill, has changed since it was last
+    /// written — design doc §7e. Called after `h[i]` changes (`World::
+    /// absorb_liquid`'s credit, and `step`'s own solver below). A no-op,
+    /// deliberately, when nothing actually changed: nothing is written, so
+    /// nothing dirties, so a quiet column keeps letting its chunk sleep.
+    ///
+    /// Three cases, all driven by comparing the whole-cell count `h[i]`
+    /// implies against what's currently on the grid (`bed_y[i] - top_y[i]`):
+    /// **grows** (claims new cells upward from `top_y[i]`, flagging their
+    /// own newly-exposed left/right/below neighbours as container cells,
+    /// mirroring what `World::promote_liquid_body` did for the body's
+    /// initial footprint, just incrementally); **shrinks** (§11 step 3's
+    /// solver is what makes this reachable — nothing before it ever removed
+    /// mass — clearing the vacated rows back to `Cell::EMPTY` and unflagging
+    /// any container cell no longer adjacent to *any* remaining body cell);
+    /// or **stays the same count** but the topmost cell's own partial fill
+    /// changed (a small solver step that doesn't cross a whole-cell
+    /// boundary) — the one case Step 2's original version of this function
+    /// missed entirely, since absorption's whole-cell-at-a-time credits
+    /// never exercised it, but the solver's small, continuous transfers do.
     pub(crate) fn rasterize_column(&mut self, world: &mut World, i: usize) {
         let whole = self.h[i] / material::LIQUID_FULL as u32;
         let partial = (self.h[i] % material::LIQUID_FULL as u32) as u16;
         let new_count = whole as i32 + i32::from(partial > 0);
         let old_count = self.bed_y[i] - self.top_y[i];
+        let x = self.x0 + i as i32;
+
         if new_count == old_count {
+            // Same cell count, but the topmost cell's own partial fill may
+            // still have moved -- always safe, and only ever one cell, to
+            // just re-check it.
+            if new_count > 0 {
+                self.write_liquid_cell(world, x, self.top_y[i], if partial > 0 { partial } else { material::LIQUID_FULL });
+            }
             return;
         }
-        debug_assert!(
-            new_count > old_count,
-            "a liquid body column shrank -- step 2 has no solver to remove mass, only absorption to add it"
-        );
 
-        // Snapshotted before growing so the container-flagging pass below
-        // can tell exactly which positions are newly exposed, rather than
-        // re-flagging (harmlessly, but wastefully) ones that were already
-        // correct.
+        // Snapshotted before changing the footprint so the container-
+        // flagging pass below can tell exactly which positions are newly
+        // exposed or newly abandoned, rather than touching ones that were
+        // already correct.
         let old_container: HashSet<(i32, i32)> = self.container_positions().into_iter().collect();
-
         let old_top = self.top_y[i];
-        let new_top = old_top - (new_count - old_count);
-        self.top_y[i] = new_top;
 
-        let x = self.x0 + i as i32;
-        let shades = world.materials.get(self.material).palette.len().max(1) as u32;
-        for y in new_top..=old_top {
-            let fill = if y == new_top && partial > 0 { partial } else { material::LIQUID_FULL };
-            // `aux == 0` is `liquid_fill`'s own "treat as full" sentinel
-            // (`update::liquid_fill`'s doc), not "empty" -- a genuinely
-            // full cell is written as 0, matching every other liquid write
-            // in the engine.
-            let aux = if fill >= material::LIQUID_FULL { 0 } else { fill };
-            let shade = world.rng.below(shades) as u8;
-            let cell = Cell::new(self.material, shade).with_managed(true).with_aux(aux);
-            world.set_owned(x, y, cell);
+        if new_count > old_count {
+            let grow = new_count - old_count;
+            let new_top = old_top - grow;
+            self.top_y[i] = new_top;
+            for y in new_top..=old_top {
+                let fill = if y == new_top && partial > 0 { partial } else { material::LIQUID_FULL };
+                self.write_liquid_cell(world, x, y, fill);
+            }
+        } else {
+            let shrink = old_count - new_count;
+            let new_top = old_top + shrink;
+            for y in old_top..new_top {
+                world.set_owned(x, y, Cell::EMPTY);
+            }
+            self.top_y[i] = new_top;
+            if new_count > 0 {
+                self.write_liquid_cell(world, x, new_top, if partial > 0 { partial } else { material::LIQUID_FULL });
+            }
         }
 
-        for (cx, cy) in self.container_positions() {
-            if !old_container.contains(&(cx, cy)) {
-                let cell = world.get(cx, cy);
-                world.set_owned(cx, cy, cell.with_managed(true));
+        // Container cells: flag newly-exposed ones, clear ones no longer
+        // adjacent to any remaining body cell of *this* body. Known,
+        // accepted gap: if a position happens to also be a container cell
+        // of a *different* live body (two bodies with immediately
+        // touching footprints), clearing it here would incorrectly
+        // un-protect that other body's own wall too -- rare enough
+        // (different bodies are already different materials, so this only
+        // arises from two disjoint same-material components separated by
+        // exactly one cell) that it's flagged rather than solved in this
+        // pass.
+        let new_container: HashSet<(i32, i32)> = self.container_positions().into_iter().collect();
+        for &(cx, cy) in new_container.difference(&old_container) {
+            let cell = world.get(cx, cy);
+            world.set_owned(cx, cy, cell.with_managed(true));
+        }
+        for &(cx, cy) in old_container.difference(&new_container) {
+            let cell = world.get(cx, cy);
+            if cell.managed() {
+                world.set_owned(cx, cy, cell.with_managed(false));
             }
+        }
+    }
+
+    /// Advance this body by one frame — the persistent-flux pipe solver,
+    /// design doc §7a-§7c. No-op for a single-column body (nothing to level
+    /// against). Three full passes over the interfaces/columns, matching
+    /// the design doc's own pseudocode exactly rather than interleaving
+    /// them, since a later interface's flux update in step 1 must not see
+    /// an already-clamped value from step 2.
+    pub(crate) fn step(&mut self, world: &mut World) {
+        let n = self.columns();
+        if n < 2 {
+            return;
+        }
+        // Any fixed reference works -- only differences ever get used
+        // (design doc §7b) -- so this is recomputed locally each call
+        // rather than stored. The deepest bed keeps every `level` value
+        // non-negative, which isn't load-bearing but is easier to read
+        // while debugging than an arbitrary offset would be.
+        let ref_bed = self.bed_y.iter().copied().max().unwrap_or(0);
+        let level: Vec<i64> =
+            (0..n).map(|i| (ref_bed - self.bed_y[i]) as i64 * material::LIQUID_FULL as i64 + self.h[i] as i64).collect();
+
+        // 1. Flux update -- the persistent term is the whole point (§7a).
+        for i in 0..n - 1 {
+            let d = level[i] - level[i + 1];
+            let damped = (self.flux[i] as f64 * SOLVER_DAMP).round() as i64;
+            let gained = (SOLVER_GAIN * d as f64).round() as i64;
+            self.flux[i] = damped.saturating_add(gained).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        }
+
+        // 2. K clamp: a column cannot pay out more than it holds (§7b step
+        // 2). Single forward pass over columns, exactly as pseudocoded --
+        // a later column's own clamp can further shrink a flux value an
+        // earlier column's clamp already touched, which is conservative
+        // (never lets `h` go negative) even though it isn't perfectly
+        // optimal, the same trade the design doc's own pseudocode accepts.
+        for i in 0..n {
+            let right_out = if i + 1 < n { self.flux[i].max(0) as i64 } else { 0 };
+            let left_out = if i > 0 { (-self.flux[i - 1]).max(0) as i64 } else { 0 };
+            let out = right_out + left_out;
+            if out > self.h[i] as i64 && out > 0 {
+                let cap = self.h[i] as i64;
+                if i + 1 < n && self.flux[i] > 0 {
+                    self.flux[i] = ((self.flux[i] as i64 * cap) / out) as i32;
+                }
+                if i > 0 && self.flux[i - 1] < 0 {
+                    self.flux[i - 1] = -(((-self.flux[i - 1]) as i64 * cap) / out) as i32;
+                }
+            }
+        }
+
+        // 3. Apply -- exactly conservative by construction (§7b step 3):
+        // every interface debits one column and credits its neighbour by
+        // the same integer, so `Σ h` is invariant regardless of what steps
+        // 1-2 computed. `.min` against the paying column's own `h` is a
+        // second, redundant safety net on top of the K clamp above --
+        // cheap, and turns "the clamp had a bug" into "leveling is
+        // slightly off" instead of an integer underflow panic.
+        for i in 0..n - 1 {
+            let f = self.flux[i];
+            if f > 0 {
+                let amount = (f as u32).min(self.h[i]);
+                self.h[i] -= amount;
+                self.h[i + 1] += amount;
+            } else if f < 0 {
+                // `unsigned_abs`, not `-f as u32` -- `-i32::MIN` overflows
+                // (`i32::MIN`'s magnitude has no positive `i32`
+                // representation), while `unsigned_abs` computes it
+                // directly in `u32`, which does have room. Not reachable
+                // today given `MAX_BODY_CELLS` bounds every realistic
+                // fill/flux value far below either limit, but a correct,
+                // equally cheap spelling costs nothing to just use.
+                let amount = f.unsigned_abs().min(self.h[i + 1]);
+                self.h[i] += amount;
+                self.h[i + 1] -= amount;
+            }
+        }
+
+        for i in 0..n {
+            self.rasterize_column(world, i);
         }
     }
 }
@@ -306,6 +472,7 @@ mod tests {
     use crate::sim::parallel;
     use crate::sim::particle::ParticleSystem;
     use crate::sim::update;
+    use crate::sim::world::BodyId;
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 99, 99))
@@ -747,5 +914,137 @@ mod tests {
         // stops holding for that region.
         w.set(x, new_top, Cell::new(material::SAND, 0));
         assert_eq!(w.body_count(), 0, "a disturbance in the newly-crossed chunk should have demoted the body");
+    }
+
+    // --- Step 3 (design doc §11): the persistent-flux pipe solver.
+
+    fn max_h_diff(w: &World, id: BodyId) -> i64 {
+        let body = w.body(id).unwrap();
+        let max_h = *body.h.iter().max().unwrap();
+        let min_h = *body.h.iter().min().unwrap();
+        max_h as i64 - min_h as i64
+    }
+
+    #[test]
+    fn the_solver_levels_an_uneven_column_over_many_frames() {
+        let mut w = test_world();
+        build_pool(&mut w);
+        let id = w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+        let spike_x = POOL_X0 + 5;
+        // Grows one column dramatically taller than its neighbours,
+        // directly via absorb_liquid rather than physically simulating the
+        // pour -- the claim under test is the solver's own leveling, not
+        // absorption (already covered by step 2's own tests).
+        w.absorb_liquid(spike_x, WATER_Y, 20_000);
+
+        let diff_before = max_h_diff(&w, id);
+        assert!(diff_before > 15_000, "test setup should have created a real height difference, got {diff_before}");
+
+        for _ in 0..2000 {
+            w.step_liquid_bodies();
+        }
+
+        let diff_after = max_h_diff(&w, id);
+        assert!(diff_after < diff_before / 4, "the solver should have substantially leveled the spike over 2000 frames: before={diff_before}, after={diff_after}");
+    }
+
+    #[test]
+    fn the_solver_conserves_mass_every_frame() {
+        let mut w = test_world();
+        build_pool(&mut w);
+        let id = w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+        w.absorb_liquid(POOL_X0 + 5, WATER_Y, 20_000);
+        let total_before = w.body(id).unwrap().total_fill();
+
+        for frame in 0..500 {
+            w.step_liquid_bodies();
+            let total_now = w.body(id).expect("body should stay alive across ordinary solver steps").total_fill();
+            assert_eq!(total_now, total_before, "mass drifted at frame {frame}");
+        }
+    }
+
+    #[test]
+    fn the_solver_is_deterministic() {
+        let run = || {
+            let mut w = test_world();
+            build_pool(&mut w);
+            let id = w.promote_liquid_body(POOL_X0, WATER_Y).unwrap();
+            w.absorb_liquid(POOL_X0 + 5, WATER_Y, 20_000);
+            w.absorb_liquid(POOL_X0 + 30, WATER_Y, 8_000);
+            for _ in 0..500 {
+                w.step_liquid_bodies();
+            }
+            w.body(id).unwrap().h.clone()
+        };
+        assert_eq!(run(), run(), "the same starting state should level to bit-identical column heights every run");
+    }
+
+    #[test]
+    fn the_solver_levels_correctly_across_a_chunk_boundary() {
+        let mut w = World::new(Rect::new(0, 0, 99, 199));
+        let floor_y = 151;
+        let water_y = 150;
+        for x in (POOL_X0 - 1)..=(POOL_X0 + POOL_WIDTH) {
+            w.set(x, floor_y, Cell::new(material::STONE, 0));
+        }
+        for x in POOL_X0..POOL_X0 + POOL_WIDTH {
+            w.set(x, water_y, Cell::new(material::WATER, 0));
+        }
+        let id = w.promote_liquid_body(POOL_X0, water_y).expect("test setup: pool should promote");
+        let spike_col = 5;
+        let spike_x = POOL_X0 + spike_col;
+        // Grows the spike column far enough to cross a real chunk boundary
+        // (matching `a_column_growing_across_a_chunk_boundary_stays_
+        // findable`'s own setup), so the solver's own writes during
+        // leveling exercise the cross-chunk path too, not just growth.
+        w.absorb_liquid(spike_x, water_y, 70_000);
+        assert!(water_y - w.body(id).unwrap().top_y[spike_col as usize] >= 64, "test setup should have crossed a chunk boundary");
+
+        let diff_before = max_h_diff(&w, id);
+        for _ in 0..3000 {
+            w.step_liquid_bodies();
+        }
+        let diff_after = max_h_diff(&w, id);
+        assert!(diff_after < diff_before / 4, "leveling across a chunk boundary should still substantially converge: before={diff_before}, after={diff_after}");
+        assert_eq!(w.body_count(), 1, "the body should still be alive and singular after leveling across a chunk boundary");
+
+        // `register_body_chunks` must keep `body_index` correct not just
+        // once (at the growth that first crossed the boundary) but across
+        // every subsequent solver frame -- disturbing the crossed chunk's
+        // own top cell here, after 3000 frames of solver activity, should
+        // still resolve to and demote the body.
+        let top = w.body(id).unwrap().top_y[spike_col as usize];
+        w.set(spike_x, top, Cell::new(material::SAND, 0));
+        assert_eq!(w.body_count(), 0, "a disturbance in the crossed chunk should still demote the body after many solver frames");
+    }
+
+    #[test]
+    fn a_flat_body_at_equilibrium_does_not_keep_dirtying_its_chunk() {
+        // Independent review's finding: `rasterize_column`'s "same whole-
+        // cell count" branch used to call `write_liquid_cell`
+        // unconditionally, and `Chunk::set_world`/`mark_dirty` don't
+        // compare bytes -- so a perfectly flat, already-level body (every
+        // interface's flux settling near zero, nothing left to redistribute)
+        // still marked its own chunk dirty every single frame the solver
+        // ran, defeating design doc §7e's entire point and, transitively,
+        // the sleep mechanism a later step depends on.
+        let mut w = test_world();
+        build_pool(&mut w);
+        w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+
+        // Real per-frame order (CA sweep, then liquid bodies), matching
+        // `app.rs`, for a few frames so any initial dirty state clears.
+        for _ in 0..5 {
+            parallel::step(&mut w);
+            w.step_liquid_bodies();
+        }
+        w.take_touched_chunks();
+
+        for _ in 0..20 {
+            parallel::step(&mut w);
+            w.step_liquid_bodies();
+        }
+        let touched = w.take_touched_chunks();
+        assert!(touched.is_empty(), "a flat, already-level body should not keep dirtying its chunk every frame: {touched:?}");
     }
 }

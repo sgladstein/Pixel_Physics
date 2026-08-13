@@ -4236,7 +4236,125 @@ and a full audit of every `.is_empty()` call site in the codebase — found
 the two bugs above (cross-chunk `body_index`, render/ignite mismatches),
 confirmed everything else sound.
 
-**Not yet built:** the persistent-flux pipe solver (step 3), the terminal
-equilibrium snap and body sleep (step 4), `try_extend`/edge demotion/
-cooldowns (step 5), dropping `MIN_LIQUID_TRANSFER` (step 6). Automatic
-promotion still doesn't exist — see the gap noted above.
+**Not yet built at the time Step 2 shipped:** the persistent-flux pipe
+solver (step 3), the terminal equilibrium snap and body sleep (step 4),
+`try_extend`/edge demotion/cooldowns (step 5), dropping `MIN_LIQUID_
+TRANSFER` (step 6). Automatic promotion still doesn't exist — see the gap
+noted above.
+
+### Step 3 (§11) — the persistent-flux pipe solver — implemented
+
+**`LiquidBody` gained `flux: Vec<i32>`**, one signed entry per interface
+between adjacent columns (`columns() - 1` long, never resized after
+promotion in any step built so far), and **`LiquidBody::step`**, run every
+frame for every live body from `World::step_liquid_bodies` (wired as a
+no-op back in step 1; now does the actual work). Three full passes, matching
+design doc §7b's pseudocode exactly rather than interleaving them:
+
+1. **Flux update** (§7a/§7b step 1) — each interface's flux is `damp(flux)
+   + gain * (level[i] - level[i+1])`, where `level[i]` is a per-column
+   surface elevation on the `LIQUID_FULL` scale, computed fresh each call
+   from a locally-chosen reference row (only differences ever matter, so
+   nothing needs to persist). **The persistence of `flux` itself across
+   frames is the entire point** (§7a's own correction to the research
+   report this design is built from) — a naive per-step recompute
+   degenerates to O(width²) diffusion; the persistent term makes leveling
+   a real O(width) travelling wave.
+2. **K clamp** (§7b step 2) — a single forward pass scaling down any
+   column's total outflow (across both interfaces) if it would exceed that
+   column's own current `h[i]`, exact-rational via `i64` intermediates.
+3. **Apply** (§7b step 3) — debit/credit `h[i]`/`h[i+1]` by the clamped
+   flux, exactly conservative by construction regardless of what the first
+   two passes computed.
+
+`SOLVER_GAIN = 0.4` / `SOLVER_DAMP = 0.9`, the design doc's own recommended
+starting values — **both explicitly untuned against real play.** Design doc
+§7f says `SOLVER_GAIN` should eventually become the `flow_rate` a material
+already carries in its own `.ron` (rescaled), replacing a second parallel
+viscosity knob with a real job for the existing one — deliberately deferred:
+`flow_rate` is also read by the ordinary CA path, and retuning a shared
+value blind (no live-play feedback available in an unattended pass) risks a
+regression in already-tuned CA behaviour that can't be verified without
+watching it played.
+
+**`LiquidBody::rasterize_column` (step 2) rewritten to handle three cases,
+not one** — growing (already existed), **shrinking** (newly reachable: the
+solver's flux is the first thing that can ever reduce `h[i]`, clearing
+vacated rows to `Cell::EMPTY` and unflagging container cells no longer
+adjacent to any remaining body cell), and **same whole-cell-count but the
+topmost cell's own partial fill changed** (a small solver step that
+doesn't cross a whole-cell boundary — absorption's whole-cell-at-a-time
+credits never exercised this case, so step 2's version of the function
+silently handled it wrong; see the bug below).
+
+**Two real bugs found by independent review, both fixed in the same pass:**
+
+1. **Every live body's chunk stayed dirty on every single solver frame,
+   forever — the sleep mechanism step 4 needs was already broken before
+   step 4 was even built.** `rasterize_column`'s "same cell count" branch
+   called `write_liquid_cell` unconditionally, and `Chunk::set_world`/
+   `mark_dirty` don't compare bytes — so even a perfectly flat body at true
+   equilibrium (flux settled near zero, nothing left to redistribute) kept
+   marking its chunk dirty every frame purely from being rewritten with
+   identical content. Fixed by making `write_liquid_cell` itself a genuine
+   no-op (no `set_owned` call at all) when the cell is already exactly
+   correct — material, `managed`, and `aux` all already match. Regression
+   test (`a_flat_body_at_equilibrium_does_not_keep_dirtying_its_chunk`,
+   using the real per-frame order — `parallel::step` then `step_liquid_
+   bodies`, matching `app.rs` — since `touched_chunks` is only promoted
+   from `pending_dirty` by the CA sweep's own `end_step`) confirmed to fail
+   without the fix (found 2 chunks still dirty after 20 quiescent frames).
+2. **The exact cross-chunk `body_index` gap Step 2's review already found
+   and fixed for `absorb_liquid` alone was reintroduced by the new solver
+   call path** — `LiquidBody::step`'s own redistribution can grow a column
+   across a `CHUNK_SIZE` boundary exactly like absorption's growth can, and
+   `World::step_liquid_bodies` never registered anything. Fixed by
+   factoring the registration into a shared `World::register_body_chunks`,
+   called from both `absorb_liquid` and `step_liquid_bodies` — specifically
+   so a third future caller can't reintroduce the same gap a third time.
+   Independent review verified this live (grew a body only via the
+   solver's own redistribution, confirmed a disturbance in the newly-
+   crossed chunk silently failed to demote before the fix); the regression
+   test added here (extending `the_solver_levels_correctly_across_a_
+   chunk_boundary`) confirms the registration survives 3000 solver frames
+   but does not itself force a *fresh* mid-solve crossing — a known,
+   accepted test-coverage gap given the review's own direct verification
+   already covers that exact mechanism.
+
+One more overflow-safety fix, low likelihood but free to make correct: the
+apply step's `-flux` negation used `.unsigned_abs()` instead of `-f as u32`,
+which would panic on `f == i32::MIN` (not reachable today given `MAX_BODY_
+CELLS` bounds every realistic value far below either limit, but there's no
+reason to leave a trap for whenever that bound changes).
+
+**Verification:** new tests in `liquid.rs` — the solver substantially
+levels a large single-column imbalance within a fixed frame budget; mass
+is exact every single frame, not just at the end; the same starting state
+levels to bit-identical column heights across two independent runs
+(determinism); leveling still converges correctly across a real chunk
+boundary; the two bug-specific regression tests above. `cargo test --lib`
+(323 tests) and `cargo clippy --all-targets -- -D warnings` both clean.
+Cost re-checked on the `ascii` stress scene (no promoted bodies exist in
+that scene, so this is really confirming zero incidental overhead from the
+new code paths, not solver cost itself) — held at the ~38ms/~8ms baseline
+across three runs. Independent review (general-purpose agent) hand-verified
+the flux/K-clamp/apply math against the design doc's pseudocode line by
+line (confirmed correct — and found the K clamp's single-forward-pass
+scaling is actually *fully* conservative, not merely "conservative but not
+optimal" as its own code comment suggested: each interface's flux is
+touched by at most one column's clamp iteration, so the `.min()` calls in
+apply are genuinely redundant safety nets, not masking a real gap), found
+the two bugs above by writing and running temporary reproduction tests
+(fully reverted afterward), and confirmed the take-then-restore pattern in
+`step_liquid_bodies` is sound across multiple bodies in one call.
+
+**A B-8-style formal cost bound for the solver itself (≥4 bodies, ≥1,000
+columns total, serial body phase under 0.5ms) was not measured this
+pass** — no `examples/ascii.rs` scene exists yet with multiple promoted
+bodies to measure against, and building one is infrastructure work
+orthogonal to the solver's own correctness. Flagged as deferred, not
+skipped silently.
+
+**Not yet built:** the terminal equilibrium snap and body sleep (step 4),
+`try_extend`/edge demotion/cooldowns (step 5), dropping `MIN_LIQUID_
+TRANSFER` (step 6). Automatic promotion still doesn't exist.

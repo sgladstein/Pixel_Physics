@@ -262,12 +262,41 @@ impl World {
     /// phase, after the CA sweep and before active sites (`app.rs`'s own
     /// comment on the call site has the frame-order reasoning; design doc
     /// §8a has why it must be serial rather than inside the parallel
-    /// sweep). A no-op today: step 1 of `Reports/liquid-heightfield-
-    /// design.md`'s build order gives a promoted body no solver, so a
-    /// `LiquidBody` never changes once promoted. Wired in now so later
-    /// steps (absorption, the pipe solver, sleep) land in an already-
-    /// correctly-ordered phase rather than needing frame-order surgery.
-    pub fn step_liquid_bodies(&mut self) {}
+    /// sweep). Since design doc §11 step 3: runs each live body's own
+    /// `LiquidBody::step` (the persistent-flux pipe solver).
+    ///
+    /// Collects every live `BodyId` first, then takes/steps/restores one at
+    /// a time — same take-then-restore reasoning as `absorb_liquid`
+    /// (`LiquidBody::step` needs `&mut World` and `&mut LiquidBody`
+    /// simultaneously), just over every body rather than one. Collecting
+    /// the id list up front rather than iterating `self.bodies` directly
+    /// means a body demoted mid-loop (a disturbance a solver's own
+    /// rasterization triggers, say) doesn't invalidate the iteration —
+    /// the next id in the list simply resolves to `None` and is skipped.
+    pub fn step_liquid_bodies(&mut self) {
+        let ids: Vec<BodyId> = self
+            .bodies
+            .iter()
+            .enumerate()
+            .filter_map(|(index, slot)| slot.state.is_some().then_some(BodyId { index: index as u32, generation: slot.generation }))
+            .collect();
+        for id in ids {
+            let Some(slot) = self.bodies.get_mut(id.index as usize) else { continue };
+            if slot.generation != id.generation {
+                continue;
+            }
+            let Some(mut body) = slot.state.take() else { continue };
+            body.step(self);
+            // See `register_body_chunks`'s own doc: the solver's own
+            // redistribution can grow a column across a chunk boundary
+            // exactly like `absorb_liquid`'s growth can, and needs the
+            // identical registration.
+            self.register_body_chunks(id, &body);
+            if let Some(slot) = self.bodies.get_mut(id.index as usize) {
+                slot.state = Some(body);
+            }
+        }
+    }
 
     /// Queue a site to be checked by the scheduler once it's due. Used by
     /// `plant::plant_moss_seed`/`plant_tree` and by growth itself scheduling
@@ -509,7 +538,8 @@ impl World {
     /// (design doc §2a/§9a's `promote` contract, §10's conservation table).
     pub fn promote_liquid_body(&mut self, x: i32, y: i32) -> Option<BodyId> {
         let scan = liquid::label_body(self, x, y)?;
-        let body = LiquidBody { material: scan.material, x0: scan.x0, top_y: scan.top_y, bed_y: scan.bed_y, h: scan.fill };
+        let flux = vec![0i32; scan.fill.len().saturating_sub(1)];
+        let body = LiquidBody { material: scan.material, x0: scan.x0, top_y: scan.top_y, bed_y: scan.bed_y, h: scan.fill, flux };
 
         let managed: Vec<(i32, i32)> = body.managed_positions().collect();
         let container = body.container_positions();
@@ -601,22 +631,37 @@ impl World {
             body.rasterize_column(self, i);
         }
 
-        // Register any chunk the growth above just crossed into. Found by
-        // independent review: `promote_liquid_body` only ever registers a
-        // body's *initial* footprint in `body_index`, but `rasterize_
-        // column` can claim new cells in a chunk the body never touched at
-        // promotion time (a tall enough spike crosses a `CHUNK_SIZE`
-        // boundary). `find_body_at` — the one path both this method and
-        // the write-seam's `demote_body_at` use to resolve `(x, y) →
-        // BodyId` — hard-fails on a chunk with no `body_index` entry at
-        // all, rather than falling back to a scan. Left unregistered,
-        // further absorption into the new chunk would silently lose mass
-        // (`absorb_liquid` finding no body and returning), and a
-        // disturbance there would silently fail to demote. Recomputed from
-        // the body's current full footprint rather than tracked
-        // incrementally — same "not cached, bounded and rare" trade `
-        // container_positions` already makes; `list.contains` skips an
-        // already-registered chunk rather than duplicating the entry.
+        self.register_body_chunks(id, &body);
+        self.bodies[id.index as usize].state = Some(body);
+    }
+
+    /// Register every chunk `body`'s current full footprint touches in
+    /// `body_index`, without duplicating an already-present entry. Called
+    /// after anything that can move a body's footprint — `absorb_liquid`'s
+    /// growth and `LiquidBody::step`'s own solver-driven growth alike.
+    ///
+    /// Found by independent review, twice: `promote_liquid_body` only ever
+    /// registers a body's *initial* footprint, but both `rasterize_column`'s
+    /// growth (Step 2) and the solver's own redistribution (Step 3) can
+    /// claim cells in a chunk that was never touched at promotion time (a
+    /// tall enough column crosses a `CHUNK_SIZE` boundary). `find_body_at`
+    /// — the one path both `absorb_liquid` and the write-seam's `demote_
+    /// body_at` use to resolve `(x, y) → BodyId` — hard-fails on a chunk
+    /// with no `body_index` entry at all, rather than falling back to a
+    /// scan. Left unregistered: further absorption into the new chunk
+    /// silently loses mass, and a disturbance there silently fails to
+    /// demote. The first fix (in `absorb_liquid` alone) missed the second
+    /// call path entirely — factored out here specifically so a third
+    /// future caller can't reintroduce the same gap a third time.
+    ///
+    /// Recomputed from the body's current full footprint rather than
+    /// tracked incrementally — same "not cached, bounded and rare" trade
+    /// `container_positions` already makes. Does not remove entries for
+    /// chunks a *shrinking* column no longer touches; a stale entry is
+    /// harmless (`find_body_at`'s `body.owns(x, y)` check simply fails for
+    /// it), just a wasted candidate check, not a correctness gap — noted in
+    /// `PLAN.md` rather than fixed here.
+    fn register_body_chunks(&mut self, id: BodyId, body: &LiquidBody) {
         let touched: std::collections::HashSet<ChunkCoord> =
             body.managed_positions().chain(body.container_positions()).map(|(px, py)| ChunkCoord::containing(px, py)).collect();
         for coord in touched {
@@ -625,8 +670,6 @@ impl World {
                 list.push(id);
             }
         }
-
-        self.bodies[id.index as usize].state = Some(body);
     }
 
     /// Total live promoted bodies — for tests and the debug overlay, not
