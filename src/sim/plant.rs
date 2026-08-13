@@ -441,7 +441,21 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 let new_aux = organism::with_canopy_density(organism::pack_aux(cell_type, 0.0), GROW_CANOPY_DEPOSIT);
                 let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(new_aux);
                 world.set(tx, ty, new_cell);
-                world.schedule_structural_check_around(tx, ty);
+                // Deliberately no `schedule_structural_check_around` here --
+                // growth only ever adds material, never removes support, so
+                // it is not a disturbance to the structural system the way
+                // painting/erasing/an explosion/a burnout is (`structural.rs`'s
+                // own module doc: checks are reactive to disturbance, never
+                // proactive at creation time). A `GrowingTip` advancing away
+                // from the ground is *expected* to be transiently unsupported
+                // until the organism eventually reconnects (e.g. a root tip
+                // reaching soil) -- checking it here would prune ordinary
+                // in-progress growth as if it were damage. Found the hard way:
+                // `World::schedule_active_site`'s take/replace fix (code-
+                // review-findings item #2 follow-up) made this call actually
+                // reach the heap for the first time ever, and every open-sky
+                // tree test immediately started failing -- the call had been
+                // a silent no-op since this behavior shipped.
                 resource -= cost;
                 world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), self_type_after_grow, resource)));
                 next.push(reschedule_organism(tx, ty, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
@@ -471,7 +485,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             let branch_aux = organism::with_canopy_density(organism::pack_aux(cell_type, 0.0), GROW_CANOPY_DEPOSIT);
                             let branch_cell = Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(branch_aux);
                             world.set(bx, by, branch_cell);
-                            world.schedule_structural_check_around(bx, by);
+                            // No structural check here either -- see the
+                            // primary child's identical case above.
                             resource -= cost;
                             world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), self_type_after_grow, resource)));
                             next.push(reschedule_organism(bx, by, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
@@ -588,15 +603,18 @@ fn reschedule_organism(x: i32, y: i32, organism: u16, stale_ticks: u8, next_fram
 /// "one tip up, one root down, both starting at the seed's own position"
 /// shape.
 fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell) -> Vec<ActiveSite> {
+    // No `schedule_structural_check_around` on either the new tip or the
+    // root -- see the identical reasoning on `Behavior::Grow`'s own child
+    // creation above. A freshly germinated seed is not yet connected to any
+    // ground and is not expected to be; checking it here would destroy
+    // every seedling before its root ever gets the chance to reach soil.
     world.set(x, y, cell.with_aux(organism::pack_aux(CellType::GrowingTip, 0.0)));
-    world.schedule_structural_check_around(x, y);
     let mut next = vec![reschedule_organism(x, y, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL)];
     if world.is_empty(x, y + 1) {
         let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
         let shade = world.rng.below(shades) as u8;
         let root_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::RootTip, 0.0));
         world.set(x, y + 1, root_cell);
-        world.schedule_structural_check_around(x, y + 1);
         next.push(reschedule_organism(x, y + 1, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
     }
     next
@@ -649,7 +667,9 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32)
             let shade = world.rng.below(shades) as u8;
             let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::MatureBody, 0.0));
             world.set(nx, ny, new_cell);
-            world.schedule_structural_check_around(nx, ny);
+            // No structural check here either -- same reasoning as `Grow`'s
+            // own child creation: thickening only adds material sideways
+            // off an already-supported `MatureBody`, never removes support.
             break;
         }
     }

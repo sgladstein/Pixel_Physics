@@ -82,6 +82,28 @@ pub struct World {
     /// thing every frame regardless, and a `HashMap`'s randomized iteration
     /// order was the engine's one documented source of non-determinism).
     active_sites: BinaryHeap<Reverse<ActiveSite>>,
+    /// Positions with an `ActiveKind::StructuralCheck` currently somewhere
+    /// in `active_sites` — a dedup index the heap itself can't answer
+    /// cheaply (a `BinaryHeap` has no membership test). Exists because
+    /// `structural::schedule_structural_check_around` fans out to five
+    /// positions (the disturbed cell plus its four neighbours) per call,
+    /// and disturbance sites routinely overlap — an explosion clearing a
+    /// filled circle calls it once per cleared cell, so a radius-20
+    /// explosion (~1,256 cells) can raise up to ~6,280 raw requests for a
+    /// handful of genuinely distinct positions near the boundary. Without
+    /// this, every one of those lands in the heap and gets processed the
+    /// same frame (`next_frame` is always "now" for a structural check),
+    /// spiking that frame's cost in proportion to explosion size — exactly
+    /// what the active-site scheduler's whole design exists to avoid.
+    /// `StructuralCheck` carries no state beyond position, so `(x, y)`
+    /// alone is an unambiguous key. Kept in lockstep with `active_sites`:
+    /// inserted in `structural::schedule_structural_check` only when not
+    /// already present (skipping the push entirely when it is), removed
+    /// in `scheduler::step` the instant a `StructuralCheck` site is popped
+    /// — before `structural::tick` runs, so a check that legitimately
+    /// re-schedules itself or a neighbour while running is a fresh
+    /// request, not a stale one being silently dropped.
+    pending_structural_checks: std::collections::HashSet<(i32, i32)>,
     /// M18: per-creature state (currently just its energy budget) — see
     /// `creature::CreatureState`. Never shrinks, mirroring `trees` above;
     /// indexed by `u16`, not `u32` like `trees`, because `Cell::aux` (also
@@ -149,6 +171,7 @@ impl World {
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
             active_sites: BinaryHeap::new(),
+            pending_structural_checks: std::collections::HashSet::new(),
             creatures: Vec::new(),
             species: SpeciesRegistry::builtin(),
             organisms: Vec::new(),
@@ -193,7 +216,33 @@ impl World {
     /// Queue a site to be checked by the scheduler once it's due. Used by
     /// `plant::plant_moss_seed`/`plant_tree` and by growth itself scheduling
     /// its own continuation.
+    ///
+    /// **The one canonical insertion point for `ActiveKind::StructuralCheck`
+    /// dedup** (`pending_structural_checks`'s own doc). An independent
+    /// review of the first version of this dedup found it only covered
+    /// `structural::schedule_structural_check`'s own callers — `fire.rs`'s
+    /// burnout fan-out builds `ActiveSite`s by hand and calls
+    /// `CellSurface::schedule_active_site` directly, which for the serial
+    /// path *is* `World::schedule_active_site` and for the parallel path
+    /// reaches it anyway via `ChunkView`'s `pending_active_sites` queue and
+    /// `parallel::run_pass`'s replay (`for site in outcome.pending_active_
+    /// sites { world.schedule_active_site(site); }`) — so putting the
+    /// check here, at the one point every external `StructuralCheck`
+    /// insertion actually passes through regardless of caller, closes that
+    /// gap for good rather than chasing each new call site individually.
+    /// `structural::schedule_structural_check` no longer duplicates this
+    /// check itself. Only `scheduler::step`'s own `produced_this_frame`
+    /// loop (a tick rescheduling itself or a neighbour) is a genuinely
+    /// separate insertion point — `world.active_sites` has already been
+    /// taken out of `self` by the time that loop runs, so it can't route
+    /// through here, and carries the identical check inline instead.
     pub fn schedule_active_site(&mut self, site: ActiveSite) {
+        if matches!(site.kind, scheduler::ActiveKind::StructuralCheck) {
+            if self.structural_check_pending(site.x, site.y) {
+                return;
+            }
+            self.mark_structural_check_pending(site.x, site.y);
+        }
         self.active_sites.push(Reverse(site));
     }
 
@@ -232,12 +281,52 @@ impl World {
     // --- crate-internal seams used only by `scheduler::step` and
     // `plant.rs` -----------------------------------------------------------
 
-    pub(crate) fn take_active_sites(&mut self) -> BinaryHeap<Reverse<ActiveSite>> {
-        std::mem::take(&mut self.active_sites)
+    /// Pop the next active site if it's due by `due` (`next_frame <= due`),
+    /// or `None` if the heap is empty or its minimum isn't due yet (nothing
+    /// after it, in a min-heap ordered by `next_frame`, can be due either).
+    /// Clears the popped site's `pending_structural_checks` entry first when
+    /// it's a `StructuralCheck` — before the caller dispatches it to `tick`,
+    /// so a check that legitimately reschedules itself or a neighbour while
+    /// running is a fresh request, not a stale one being silently dropped.
+    ///
+    /// Deliberately pops one at a time rather than taking the whole heap out
+    /// (`scheduler::step`'s previous shape, via a since-removed `take_active_
+    /// sites`/`set_active_sites` pair): taking the heap out left `self.
+    /// active_sites` field genuinely empty for the whole dispatch loop, so
+    /// any `schedule_active_site` call made *from inside* a dispatched tick
+    /// (a growth behaviour scheduling a structural check around a new cell,
+    /// say) silently wrote into that empty field and was then discarded when
+    /// the real heap was written back over it at the end. Popping in place
+    /// keeps `self.active_sites` live and correctly populated (holding every
+    /// not-yet-dispatched-this-frame site) for the entire duration of every
+    /// tick, so `schedule_active_site` — and anything that reads the heap,
+    /// like `organism_active_tip_count` — works correctly no matter where in
+    /// the call stack it's invoked from.
+    pub(crate) fn pop_due_active_site(&mut self, due: u64) -> Option<ActiveSite> {
+        let &Reverse(site) = self.active_sites.peek()?;
+        if site.next_frame > due {
+            return None;
+        }
+        self.active_sites.pop();
+        if let scheduler::ActiveKind::StructuralCheck = site.kind {
+            self.clear_structural_check_pending(site.x, site.y);
+        }
+        Some(site)
     }
 
-    pub(crate) fn set_active_sites(&mut self, sites: BinaryHeap<Reverse<ActiveSite>>) {
-        self.active_sites = sites;
+    /// See `pending_structural_checks`'s own doc. `true` means a check for
+    /// this exact position is already somewhere in the heap; the caller
+    /// should skip scheduling a duplicate.
+    pub(crate) fn structural_check_pending(&self, x: i32, y: i32) -> bool {
+        self.pending_structural_checks.contains(&(x, y))
+    }
+
+    pub(crate) fn mark_structural_check_pending(&mut self, x: i32, y: i32) {
+        self.pending_structural_checks.insert((x, y));
+    }
+
+    pub(crate) fn clear_structural_check_pending(&mut self, x: i32, y: i32) {
+        self.pending_structural_checks.remove(&(x, y));
     }
 
     /// Store a new creature's state and return its stable id.

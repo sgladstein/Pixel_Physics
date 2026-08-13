@@ -23,8 +23,6 @@
 //! `next_frame`, independent of chunk sleep state, so there's no equivalent
 //! of "an unlucky roll could let the chunk sleep and freeze this forever."
 
-use std::cmp::Reverse;
-
 use super::creature;
 use super::decay;
 use super::plant;
@@ -140,37 +138,66 @@ impl PartialOrd for ActiveSite {
 /// heap's total order removes that, the one documented non-determinism
 /// source in the engine (`Reports/emergent-world-architecture.md` §8b).
 ///
-/// Newly-produced sites (a tip's own reschedule, a branch) are collected
-/// into `produced_this_frame` and only pushed into the heap *after* the
-/// due-processing loop below finishes, never re-examined against `due`
-/// within this same call -- matching the old version's behaviour exactly
-/// (it always deferred a freshly-produced site to the map that became
-/// *next* frame's active sites), which matters if anything is ever
-/// rescheduled with `next_frame == due` rather than strictly later.
+/// Every due site is popped out of `world`'s own heap up front, into a
+/// plain `Vec`, before any dispatch runs — never taken out as a whole
+/// heap and swapped back in at the end (`World::pop_due_active_site`'s own
+/// doc explains why: that older shape left `world`'s heap genuinely empty
+/// for the whole dispatch loop, silently discarding any `schedule_active_
+/// site` call made *from inside* a dispatched tick). Because the due batch
+/// is committed to a fixed list before dispatch starts, a site a tick
+/// produces this frame — whether returned in its own `Vec<ActiveSite>` or
+/// scheduled directly via `world.schedule_active_site` mid-tick — is never
+/// re-examined against `due` within this same call even if it comes back
+/// with `next_frame == due`, matching the scheduler's long-standing
+/// "a freshly-produced site always waits for *next* frame" rule.
+///
+/// **Per-frame budget** (`MAX_SITES_PER_FRAME`): due-ness alone bounds
+/// *which* sites this loop is allowed to touch, not *how many* — every
+/// `StructuralCheck` a disturbance schedules is due immediately
+/// (`next_frame` is always "now"), so a single large explosion can put
+/// thousands of sites in front of this loop on the very frame it
+/// happens. Deduping at the source (`World::schedule_active_site`) cuts
+/// the raw count a lot, but a big-enough disturbance can still
+/// legitimately have hundreds of genuinely distinct positions to check.
+/// The cap stops popping after `MAX_SITES_PER_FRAME` regardless of how
+/// many more are due, leaving the rest sitting in the heap exactly where
+/// `pop_due_active_site` will find them again next frame — not lost, not
+/// requeued, just deferred, spreading a big backlog across several frames
+/// instead of spiking one.
 pub fn step(world: &mut World) {
     let due = world.frame;
-    let mut heap = world.take_active_sites();
-    let mut produced_this_frame: Vec<ActiveSite> = Vec::new();
-
-    while let Some(&Reverse(site)) = heap.peek() {
-        if site.next_frame > due {
-            break; // nothing else in a min-heap ordered by next_frame can be due either
+    let mut due_sites = Vec::new();
+    while due_sites.len() < MAX_SITES_PER_FRAME {
+        match world.pop_due_active_site(due) {
+            Some(site) => due_sites.push(site),
+            None => break,
         }
-        heap.pop();
+    }
+
+    for site in due_sites {
         let produced = match site.kind {
             ActiveKind::Organism { .. } => plant::tick(world, &site),
             ActiveKind::StructuralCheck => structural::tick(world, &site),
             ActiveKind::Creature { .. } => creature::tick(world, &site),
             ActiveKind::Decay => decay::tick(world, &site),
         };
-        produced_this_frame.extend(produced);
+        // Routed through the one canonical insertion point -- `world.
+        // active_sites` is live for the whole loop now, so there's no
+        // longer a separate "taken out" case to special-case here.
+        for produced_site in produced {
+            world.schedule_active_site(produced_site);
+        }
     }
-
-    for site in produced_this_frame {
-        heap.push(Reverse(site));
-    }
-    world.set_active_sites(heap);
 }
+
+/// Starting point, not empirically pinned down to the frame budget yet —
+/// generous enough that ordinary play (a few dozen growing tips, the odd
+/// structural check) never comes close, and a real backstop against the
+/// worst case named in `step`'s own doc: a large explosion's structural-
+/// check flood, even after dedup. Revisit with a real per-site cost
+/// measurement if a scene is ever found where this is either too low
+/// (visibly slows legitimate settling) or too high (still spikes a frame).
+const MAX_SITES_PER_FRAME: usize = 2000;
 
 #[cfg(test)]
 mod tests {
@@ -179,6 +206,39 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 127, 127))
+    }
+
+    #[test]
+    fn scheduler_processes_at_most_the_per_frame_budget() {
+        // Code-review-findings item #2: an explosion (or any single event)
+        // can put far more due sites in front of `step` than it's safe to
+        // process in one frame. `schedule_active_site` now dedups
+        // `StructuralCheck` by position (see its own doc), so this needs
+        // genuinely distinct positions -- a 2D spread, not a repeated
+        // single row -- or the dedup this same test suite also checks
+        // would collapse them long before the budget ever came into play.
+        let mut w = test_world();
+        let total = MAX_SITES_PER_FRAME + 500;
+        for i in 0..total {
+            w.schedule_active_site(ActiveSite {
+                x: (i % 127) as i32,
+                y: (i / 127) as i32,
+                kind: ActiveKind::StructuralCheck,
+                next_frame: 0,
+            });
+        }
+        w.begin_step();
+        step(&mut w);
+        assert_eq!(
+            w.active_site_count(),
+            500,
+            "the budget should cap processing at MAX_SITES_PER_FRAME this frame, leaving the rest pending"
+        );
+
+        // Due-ness hasn't changed (still frame 0) -- a second call should
+        // drain exactly what the first one deferred, not lose or re-cap it.
+        step(&mut w);
+        assert_eq!(w.active_site_count(), 0, "a second step call should finish draining what the budget deferred");
     }
 
     #[test]
@@ -224,9 +284,8 @@ mod tests {
         w.schedule_active_site(ActiveSite { x: 1, y: 1, kind: ActiveKind::StructuralCheck, next_frame: 10 });
         w.schedule_active_site(ActiveSite { x: 3, y: 3, kind: ActiveKind::StructuralCheck, next_frame: 10 });
 
-        let mut heap = w.take_active_sites();
         let mut order = Vec::new();
-        while let Some(Reverse(site)) = heap.pop() {
+        while let Some(site) = w.pop_due_active_site(10) {
             order.push((site.x, site.y));
         }
         assert_eq!(order, vec![(1, 1), (3, 3), (5, 5)], "sites due on the same frame should pop in ascending (x, y) order, deterministically");

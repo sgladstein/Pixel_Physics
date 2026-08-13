@@ -508,6 +508,41 @@ mod tests {
     }
 
     #[test]
+    fn overlapping_burnouts_do_not_duplicate_structural_checks() {
+        // Code-review-findings item #2, the gap an independent review
+        // found in the first version of the scheduler dedup fix: this
+        // burnout fan-out (`was_structural`, below) builds `ActiveSite`s
+        // by hand and calls `CellSurface::schedule_active_site` directly,
+        // bypassing `structural::schedule_structural_check`'s own dedup
+        // entirely -- fixed by moving the dedup into `World::schedule_
+        // active_site` itself, the one point both paths funnel through.
+        // Two adjacent burning wood cells finishing their timer the same
+        // tick is the fire equivalent of two adjacent explosion-cleared
+        // cells: each schedules a 5-position StructuralCheck fan-out
+        // (itself + 4 neighbours), and the two fan-outs share 2 positions,
+        // for 8 distinct StructuralCheck positions, not the raw 10 --
+        // matching `structural.rs`'s own `overlapping_schedule_
+        // structural_check_around_calls_do_not_duplicate` exactly. Each
+        // burnout also schedules one `Decay` site (wood burns into ash),
+        // which is not deduped against anything -- 2 more, for 10 total.
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").unwrap();
+        for &(x, y) in &[(30, 30), (31, 30)] {
+            let mut cell = Cell::new(wood, 0);
+            cell.ignite(1); // ticks to 0 and burns out on the next `update`
+            w.set(x, y, cell);
+        }
+        update(&mut w, 30, 30);
+        update(&mut w, 31, 30);
+
+        assert_eq!(
+            w.active_site_count(),
+            10,
+            "two overlapping burnouts should dedup their StructuralCheck fan-outs to 8 distinct positions, plus 2 undeduped Decay sites"
+        );
+    }
+
+    #[test]
     fn a_reaction_transforms_both_cells() {
         // No shipped material has a reaction yet (that needs a real "lava"
         // material, which needs an intrinsic-temperature schema field this

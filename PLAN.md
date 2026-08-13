@@ -3293,6 +3293,58 @@ tracking only, no action needed):**
 - Two coexisting tree implementations / `tree.ron` not existing — the old
   `TreeState`/`Tip`/`RootTip` system is fully deleted, `tree.ron` exists and
   is the only tree system, `plant_tree`/the `T` key point at it.
+- **Item #2, no dedup/budget on the active-site heap — fixed, plus two
+  bugs it uncovered along the way.** `pending_structural_checks: HashSet<
+  (i32,i32)>` on `World`, deduping `ActiveKind::StructuralCheck` inside
+  `World::schedule_active_site` itself (the one point every insertion path
+  — `structural::schedule_structural_check`, `fire.rs`'s hand-built
+  burnout fan-out, the parallel driver's `ChunkView` replay — funnels
+  through). `scheduler::MAX_SITES_PER_FRAME = 2000` caps how much of the
+  due backlog one `step()` call drains, leaving the rest exactly where the
+  heap will find it again next frame. Regression tests:
+  `overlapping_schedule_structural_check_around_calls_do_not_duplicate`,
+  `overlapping_burnouts_do_not_duplicate_structural_checks`,
+  `scheduler_processes_at_most_the_per_frame_budget` — all three confirmed
+  to fail without their respective fix.
+  - **Bug #1, found by independent review:** the dedup's first cut only
+    covered `structural::schedule_structural_check`'s own callers, missing
+    `fire.rs`'s direct `ActiveSite` construction and `structural.rs`'s own
+    self-rescheduling paths. Fixed by centralizing into `schedule_active_
+    site` as above, rather than chasing each call site.
+  - **Bug #2, found by the same review, larger:** any `world.schedule_
+    active_site` call made *from inside* a dispatched tick (`plant.rs`'s
+    `Grow`/`germinate`/`thicken` calling `schedule_structural_check_around`
+    mid-tick; `decay.rs`'s reseed calling `plant_moss_seed`/`plant_tree`)
+    was silently discarded — `scheduler::step`'s old take-the-whole-heap-
+    out-then-write-it-back-at-the-end shape (`take_active_sites`/`set_
+    active_sites`) left `world.active_sites` genuinely empty for the whole
+    dispatch loop, so a mid-tick schedule call wrote into the empty field
+    and was overwritten when the real heap replaced it. Fixed by replacing
+    that shape with `World::pop_due_active_site`, which pops one due site
+    at a time *in place* rather than taking the field out — `world.
+    active_sites` stays live and correctly populated through every tick,
+    so `schedule_active_site` (and anything reading the heap, like
+    `organism_active_tip_count`, which was *also* silently undercounting
+    to near-zero during dispatch under the old shape) works correctly
+    everywhere. Regression test: `decay.rs`'s `a_reseeded_organism_keeps_
+    growing_after_its_first_tick`, confirmed to fail against the old shape
+    (cell count stuck at 3, forever) and pass against the fix.
+  - **Fixing bug #2 surfaced a real, previously-untested design gap**:
+    once `schedule_structural_check_around` calls made from `Grow`/
+    `germinate`/`thicken` actually reached the heap for the first time
+    ever, every open-sky tree test started failing — a freshly germinated
+    seedling, not yet connected to any ground, read as unsupported and
+    was destroyed by its own first structural check. Resolved by removing
+    those calls entirely: ordinary growth only ever adds material, never
+    removes support, so — unlike painting, erasing, an explosion, or a
+    burnout — it isn't a disturbance the structural system needs to react
+    to, matching this module's own long-standing "checked reactively,
+    never at creation time" rule (previously applied to world-gen and
+    Solid painting, now extended to organism growth for the same reason).
+  - Cost re-checked on the `ascii` stress scene both times (dedup/budget
+    alone, then again after the pop-in-place refactor): serial ~38-40ms,
+    parallel ~8ms, matching the pre-session baseline — no regression from
+    either change.
 
 **Still real and unaddressed — verified against current code just now:**
 
@@ -3301,40 +3353,29 @@ tracking only, no action needed):**
    touched this session (worm migration onto `organism.rs` is still
    pending, above). Real, same shape as the tree-side issue #8 that got
    fixed for organisms but not creatures.
-2. **No dedup or per-frame budget on the active-site heap, and this
-   session's own work made the exposure worse, not better.**
-   `explosion::trigger` calls `schedule_structural_check_around` per
-   cleared cell (5 sites each, all due the same frame); `scheduler::step`'s
-   drain loop (`src/sim/scheduler.rs` `step`, the `while let Some(...)`
-   loop) has no cap on how much it processes in one frame. This session
-   added several *new* `schedule_structural_check_around` call sites for
-   tree growth (every successful `Grow`, every `germinate()`) on top of the
-   existing explosion flood — worth prioritizing highest of this list, both
-   because it's the one most likely to produce a visible frame stutter in
-   ordinary play and because the exposure just grew.
-3. **`ChunkView::set` redundantly recomputes neighbour-waking for a
+2. **`ChunkView::set` redundantly recomputes neighbour-waking for a
    cross-boundary write.** Confirmed by tracing it: `queue_touch_neighbours`
    queues `dirty_touches` during the parallel pass, then `run_pass`'s replay
    calls `world.set(x, y, cell)` (which internally calls `touch_neighbours`
    again) *and* separately replays the queued `dirty_touches` for the same
    write. Real, but low-impact — idempotent, just wasted cycles, not a
    correctness bug.
-4. **CI never runs a debug build.** `.github/workflows/ci.yml`'s three real
+3. **CI never runs a debug build.** `.github/workflows/ci.yml`'s three real
    steps (`cargo test`, `cargo clippy`, `cargo run --example ascii`) are all
    `--release`. The codebase leans on `debug_assert!` as a real guard
    mechanism (organism/creature index overflow, `clear_moved` ownership,
    `tick_burn` on a non-burning cell, `organism_structural_tick`'s span
    assertion) — none of it is compiled in CI today.
-5. **`examples/ascii.rs` gates nothing.** Its worst-frame numbers are
+4. **`examples/ascii.rs` gates nothing.** Its worst-frame numbers are
    treated as the de facto perf regression suite (README, CI comment) but
    the example has no assertions and always exits 0 — only a panic fails
    it. A 10x regression would pass silently.
-6. **`cargo fmt --check` is `continue-on-error: true`.** Confirmed
+5. **`cargo fmt --check` is `continue-on-error: true`.** Confirmed
    deliberate, not an oversight — the CI file has an honest comment
    explaining the codebase predates `rustfmt.toml` and hasn't had a full
    pass run against it yet (`pixel-physics-issues.md` issue #10). Still an
    open item, just not a silent one.
-7. **Doc drift, three confirmed-stale claims:**
+6. **Doc drift, three confirmed-stale claims:**
    - README:631 claims `grep -rn unsafe src/` returns nothing but doc
      comments — false; `src/main.rs` has real `unsafe { std::env::set_var
      }`/`remove_var` blocks in tests (correctly `ENV_LOCK`-guarded, but the
@@ -3350,12 +3391,11 @@ tracking only, no action needed):**
      issue #4 was actually fixed without this passage being removed.
 
 **Suggested priority when this track gets picked back up** (owner hasn't
-committed to this order, just the reviewer's/agent's own read): #2
-(scheduler budget) first since it's a real perf risk this session's own
-work made larger; then the CI debug-build step (#4) and `ascii.rs`
-regression gate (#5) together since they're the same "make the safety net
-real" theme; then the doc-drift fixes (#7, cheap); #1 (creature reclaim)
-and #3 (redundant touch_neighbours) whenever convenient, both low urgency.
+committed to this order, just the reviewer's/agent's own read): the CI
+debug-build step (#3) and `ascii.rs` regression gate (#4) together since
+they're the same "make the safety net real" theme; then the doc-drift
+fixes (#6, cheap); #1 (creature reclaim) and #2 (redundant touch_
+neighbours) whenever convenient, both low urgency.
 Also worth a decision, not just a fix: whether to make `master` the
 default branch (or merge into `main`) and close out the
 `pixel-physics-issues.md` items that are actually resolved now.

@@ -192,6 +192,80 @@ mod tests {
     }
 
     #[test]
+    fn a_reseeded_organism_keeps_growing_after_its_first_tick() {
+        // Code-review-findings item #2 follow-up: `plant_moss_seed`/
+        // `plant_tree` are called from *inside* `decay::tick` -- itself a
+        // scheduler-dispatched tick -- and schedule the new organism's own
+        // first growth check via `World::schedule_active_site` directly,
+        // not through this function's own returned `Vec<ActiveSite>`.
+        // Before `World::pop_due_active_site` replaced the old take-the-
+        // whole-heap-out/put-it-back shape, that call landed in a
+        // temporarily emptied `active_sites` field and was silently
+        // discarded the moment `scheduler::step` finished writing the real
+        // heap back over it -- so a decay-reseeded seed got planted (the
+        // material check in the test above can't tell the difference) but
+        // never grew a single cell beyond itself, forever. Confirmed to
+        // fail against the pre-fix code: the moss/wood count below never
+        // increases past whatever reseeding alone produced.
+        let mut w = test_world();
+        let ash = material::ASH;
+        let moss = w.materials.id_of("moss").expect("moss is a compiled-in material");
+        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+
+        let mut ash_x = Vec::new();
+        for &puddle_start in &[10, 40, 70, 100, 130, 160] {
+            w.set(puddle_start - 1, 99, Cell::new(material::STONE, 0));
+            w.set(puddle_start + 6, 99, Cell::new(material::STONE, 0));
+            for x in puddle_start..puddle_start + 6 {
+                w.set(x, 99, Cell::new(material::WATER, 0));
+            }
+            for x in (puddle_start - 5)..puddle_start - 1 {
+                ash_x.push(x);
+            }
+            for x in (puddle_start + 7)..(puddle_start + 12) {
+                ash_x.push(x);
+            }
+        }
+        for &x in &ash_x {
+            w.set(x, 100, Cell::new(ash, 0));
+            w.schedule_active_site(ActiveSite { x, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
+        }
+
+        // Scans the whole world, not just row 99 -- growth (moss dividing,
+        // a tree's canopy/roots) spreads away from the exact reseed
+        // position, so a narrower scan would undercount and risk a false
+        // "no growth" reading even when growth is real.
+        let count_moss_and_wood = |w: &World| -> usize {
+            let bounds = w.bounds().unwrap();
+            let mut n = 0;
+            for y in bounds.min_y..=bounds.max_y {
+                for x in bounds.min_x..=bounds.max_x {
+                    let m = w.get(x, y).material;
+                    if m == moss || m == wood {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+
+        run(&mut w, 20_000);
+        let after_reseed = count_moss_and_wood(&w);
+        assert!(after_reseed > 0, "test setup: nothing reseeded at all in twenty thousand frames");
+
+        // Long enough for moss's own near-zero Divide cost (or a tree's
+        // Germinate/Grow cadence) to have produced several more cells if
+        // -- and only if -- the reseeded organism's own scheduling
+        // actually reached the heap.
+        run(&mut w, 20_000);
+        let after_more_growth = count_moss_and_wood(&w);
+        assert!(
+            after_more_growth > after_reseed,
+            "reseeded growth never advanced past its own first cell: {after_reseed} then {after_more_growth}"
+        );
+    }
+
+    #[test]
     fn a_burned_out_cell_schedules_its_own_decay_check() {
         // Integration-level: fire.rs's burnout path is what actually
         // schedules decay in real play, not a hand-built ActiveSite like

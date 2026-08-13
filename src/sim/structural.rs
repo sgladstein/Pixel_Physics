@@ -315,6 +315,10 @@ impl World {
     /// structural system (`Solid`/`Plant`) at all; `tick` above no-ops
     /// immediately in that case.
     pub fn schedule_structural_check(&mut self, x: i32, y: i32) {
+        // Deduped inside `schedule_active_site` itself, not here -- see
+        // that method's own doc for why the check needed to move there
+        // (this was its first home, but `fire.rs`'s burnout fan-out
+        // reaches the heap through a different path that skipped it).
         let frame = self.frame;
         self.schedule_active_site(ActiveSite { x, y, kind: ActiveKind::StructuralCheck, next_frame: frame });
     }
@@ -352,6 +356,26 @@ mod tests {
             scheduler::step(w);
             w.end_step();
         }
+    }
+
+    #[test]
+    fn overlapping_schedule_structural_check_around_calls_do_not_duplicate() {
+        // `Reports` code-review-findings item #2: `schedule_structural_
+        // check_around` fans out to 5 positions per call, and disturbance
+        // sites routinely overlap (adjacent cleared cells in an explosion
+        // share neighbours). Two adjacent calls here share exactly 2 of
+        // their 5 positions each -- (10,10)'s own 5 are (10,10),(9,10),
+        // (11,10),(10,9),(10,11); (11,10)'s own 5 are (11,10),(10,10),
+        // (12,10),(11,9),(11,11) -- so 8 distinct positions total, not 10,
+        // and deduping should land on exactly 8 pending sites, not 10.
+        let mut w = test_world();
+        w.schedule_structural_check_around(10, 10);
+        w.schedule_structural_check_around(11, 10);
+        assert_eq!(
+            w.active_site_count(),
+            8,
+            "two overlapping schedule_structural_check_around calls should dedup to 8 distinct positions, not the raw 10"
+        );
     }
 
     #[test]
