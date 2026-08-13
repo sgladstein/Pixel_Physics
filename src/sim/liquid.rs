@@ -1730,6 +1730,44 @@ mod tests {
         assert!(body_fill < fill_before, "the body should have handed mass back to the CA, not kept all {fill_before}");
     }
 
+    /// A body that has shed itself down to a single column must hand the rest
+    /// back, not sit on it.
+    ///
+    /// `LiquidBody::step` bails at `columns() < 2` — there are no interfaces
+    /// left to move flux across, so the solver has nothing to do. Before edge
+    /// shedding could fire on an *uncontained* body (`edge_with_room`) that
+    /// state was unreachable in practice; it is now the normal end of a body
+    /// spreading onto open floor.
+    ///
+    /// Without the hand-back the leftovers strand. Measured on a 100-column
+    /// basin: a promoted body walked itself down to one column still holding
+    /// 40,000 fill — forty cells of water stacked in a single column that
+    /// nothing would ever move again — and the basin never levelled at all,
+    /// finishing at a flatness of 24,174 against a bar of 20.
+    #[test]
+    fn a_body_shed_down_to_one_column_demotes_instead_of_stranding() {
+        let mut w = test_world();
+        build_pool(&mut w);
+        let id = w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: the pool should promote");
+
+        // `build_pool` has no walls, so this body is uncontained and sheds.
+        for _ in 0..6000 {
+            super::super::update::step(&mut w);
+            w.step_liquid_bodies();
+        }
+
+        match w.body(id) {
+            None => {} // handed back entirely, which is the point
+            Some(b) => assert!(
+                b.columns() >= 2,
+                "a body shed down to {} column(s) is stranded: its solver bails at <2, so the {} fill it \
+                 still holds can never move again",
+                b.columns(),
+                b.total_fill()
+            ),
+        }
+    }
+
     #[test]
     fn try_extend_claims_an_adjacent_puddle() {
         let mut w = test_world();

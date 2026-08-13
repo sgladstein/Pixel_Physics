@@ -308,8 +308,25 @@ impl World {
             if !(was_asleep && body.asleep) {
                 self.register_body_chunks(id, &body);
             }
+            let stranded = body.columns() < 2;
             if let Some(slot) = self.bodies.get_mut(id.index as usize) {
                 slot.state = Some(body);
+            }
+            // A body that has shed itself down to a single column hands the
+            // rest back rather than sitting on it.
+            //
+            // `LiquidBody::step` bails at `columns() < 2` -- there are no
+            // interfaces left to move flux across, so the solver has nothing
+            // to do -- and before edge shedding could fire on an uncontained
+            // body (`edge_with_room`) that was unreachable in practice. Now
+            // it is the *normal* end state of a body spreading onto open
+            // floor, and without this the leftovers strand: measured on a
+            // 100-column basin, a promoted body walked itself down to one
+            // column still holding 40,000 fill, forty cells of water stacked
+            // in a single column that nothing would ever move again, and the
+            // basin never levelled at all.
+            if stranded {
+                self.demote_body(id);
             }
         }
     }
