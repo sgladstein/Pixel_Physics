@@ -204,6 +204,18 @@ fn advance_and_check_landing(world: &World, particle: &mut Particle) -> Option<(
     for _ in 0..steps {
         let (next_x, next_y) = (particle.x + step_x, particle.y + step_y);
         let (cell_x, cell_y) = (next_x.round() as i32, next_y.round() as i32);
+        // `world.is_empty` deliberately, and deliberately *not* changed to a
+        // raw material test the way `explosion::trigger` was. The question
+        // here is "is this position available to land in", which is precisely
+        // the question `Cell::is_empty()`'s managed-awareness exists to
+        // answer: a promoted body's reserved container cell is not available,
+        // and a particle converting itself into a CA cell there would disturb
+        // the body. A review flagged this alongside the explosion case as an
+        // "invisible wall along a body's outline", and that description is
+        // accurate -- those cells draw as empty -- but blocking is the safer
+        // of the two behaviours and the alternative demotes bodies from a
+        // stray grain. Left as-is on purpose; revisit if bodies ever promote
+        // in production and the outline is actually visible in play.
         if !world.in_bounds(cell_x, cell_y) || !world.is_empty(cell_x, cell_y) {
             return Some((cell_x, cell_y));
         }

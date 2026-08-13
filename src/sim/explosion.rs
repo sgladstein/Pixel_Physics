@@ -111,10 +111,22 @@ pub fn trigger(world: &mut World, particles: &mut ParticleSystem, cx: i32, cy: i
                 continue;
             }
             let cell = world.get(x, y);
+            // A raw material test, not `cell.is_empty()`. This function's own
+            // question is "is there material here to destroy", not "is this
+            // position available to use" -- and `is_empty()` answers the
+            // second, treating a promoted liquid body's reserved container
+            // cells as occupied even though they hold `material::EMPTY`.
+            // Through `is_empty()` an explosion overlapping a lake's outline
+            // spawned debris particles whose material was `EMPTY`: invisible
+            // flying nothing, which then lands and writes itself into the
+            // world as a cell. `render.rs` and `World::ignite_circle` already
+            // made exactly this switch, each for its own version of the same
+            // reason. Found by review.
+            //
             // Bedrock is the world's own boundary material and never
             // destructible by anything, the same way it is never a target
             // for painting (`World::paint_circle`) or ignition.
-            if cell.is_empty() || cell.material == material::BEDROCK {
+            if cell.material == material::EMPTY || cell.material == material::BEDROCK {
                 continue;
             }
 
@@ -634,5 +646,39 @@ mod tests {
         let mut particles = ParticleSystem::new();
         trigger(&mut w, &mut particles, 40, 40, 0, 150.0);
         // Reaching this line without panicking is the assertion.
+    }
+
+    /// An explosion must not turn a promoted body's reserved container cells
+    /// into flying nothing.
+    ///
+    /// `Cell::is_empty()` is managed-aware: a body's container cells hold
+    /// `material::EMPTY` but report as *not* empty, because for the callers
+    /// that motivated that behaviour the question is "is this position
+    /// available to use". An explosion's question is the other one — "is
+    /// there material here to destroy" — so routing it through `is_empty()`
+    /// made it treat those cells as destructible and spawn debris particles
+    /// carrying `material::EMPTY`, which then land and write themselves back
+    /// into the world.
+    ///
+    /// Latent rather than live today: nothing in production promotes a body
+    /// (`127e177`). Found by review.
+    #[test]
+    fn an_explosion_does_not_spawn_debris_made_of_nothing() {
+        let mut w = test_world();
+        let mut particles = ParticleSystem::new();
+
+        // A reserved container cell: materially empty, but managed. This is
+        // exactly the shape `LiquidBody` rasterizes around its own edges.
+        let container = Cell::EMPTY.with_managed(true);
+        for x in 60..70 {
+            w.set_owned(x, 60, container);
+        }
+        assert!(!w.get(64, 60).is_empty(), "test setup: a container cell reads as not-empty");
+        assert_eq!(w.get(64, 60).material, material::EMPTY, "test setup: but holds no material");
+
+        trigger(&mut w, &mut particles, 64, 60, 12, 4.0);
+
+        let nothing: usize = particles.iter().filter(|p| p.material == material::EMPTY).count();
+        assert_eq!(nothing, 0, "{nothing} debris particles were spawned with no material at all");
     }
 }
