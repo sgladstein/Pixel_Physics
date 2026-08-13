@@ -823,6 +823,26 @@ fn try_move<S: CellSurface>(surface: &mut S, x: i32, y: i32, tx: i32, ty: i32) -
         return false;
     }
 
+    // Never displace a cell that has already moved this frame.
+    //
+    // `move_cell` flags a displaced cell when it is pushed into a row the
+    // bottom-to-top sweep has not reached yet, but that flag only stops the
+    // cell being processed as a *mover* -- `update_cell` skips it. Nothing
+    // stopped it being displaced *again*, and that is the actual bug: with
+    // sand resting on water, the sweep displaces the same water parcel once
+    // per sand row as it works upward, so the water crossed the entire
+    // height of the sand in a single frame. Measured directly on a walled
+    // 50-row block: the highest water row went from 150 to 100 in one step,
+    // which on screen is water erupting out of the top of a sinking blob
+    // instead of welling up around it.
+    //
+    // Refusing here costs the mover one frame of waiting, which is the same
+    // price every other cell pays for the one-move-per-frame rule the
+    // `moved` flag exists to enforce.
+    if dst.moved() {
+        return false;
+    }
+
     let src_density = surface.materials().density(surface.get(x, y).material);
     let dst_density = surface.materials().density(dst.material);
     let displaces = match (ty - y).signum() {
@@ -1662,3 +1682,75 @@ mod pour_slope {
 }
 
 
+
+
+
+
+#[cfg(test)]
+mod displacement {
+    use super::*;
+    use crate::sim::chunk::Rect;
+    use crate::sim::parallel;
+
+    /// Displaced material must rise at most one cell per frame.
+    ///
+    /// Reported from live play: dropping a sand blob into water made the
+    /// water appear on top of the blob almost immediately and spray out of
+    /// it. Rows are swept bottom to top, so as the sweep worked upward each
+    /// successive sand cell displaced the *same* water parcel again, and it
+    /// crossed the whole height of the sand in a single frame -- measured
+    /// here at 50 rows in one step before the fix.
+    fn displaced_water_rises_at_most_one_cell_per_frame(parallel_driver: bool) {
+        let floor_y = 220;
+        let mut w = World::new(Rect::new(0, 0, 63, floor_y));
+        for x in 0..64 {
+            w.set(x, floor_y, Cell::new(material::STONE, 0));
+        }
+        // Walled, so displaced water cannot escape sideways -- this isolates
+        // the vertical displacement path from `find_lateral_descent`, which
+        // otherwise carries the surface water off before the displacement
+        // ever fires (an earlier version of this test measured identically
+        // with and without the fix for exactly that reason).
+        for y in 0..floor_y {
+            w.set(10, y, Cell::new(material::STONE, 0));
+            w.set(53, y, Cell::new(material::STONE, 0));
+        }
+        for x in 11..53 {
+            for y in 150..floor_y {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        for x in 11..53 {
+            for y in 100..150 {
+                w.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+
+        let highest_water = |w: &World| (0..floor_y).find(|&y| (11..53).any(|x| w.get(x, y).material == material::WATER));
+        let mut previous = highest_water(&w).expect("test setup: water exists");
+        for frame in 1..=6 {
+            if parallel_driver {
+                parallel::step(&mut w);
+            } else {
+                step(&mut w);
+            }
+            let now = highest_water(&w).expect("water vanished");
+            assert!(
+                previous - now <= 1,
+                "water rose {} rows in frame {frame} (from {previous} to {now}); displaced material must move at most one cell per frame",
+                previous - now
+            );
+            previous = now;
+        }
+    }
+
+    #[test]
+    fn displaced_water_rises_at_most_one_cell_per_frame_serial() {
+        displaced_water_rises_at_most_one_cell_per_frame(false);
+    }
+
+    #[test]
+    fn displaced_water_rises_at_most_one_cell_per_frame_parallel() {
+        displaced_water_rises_at_most_one_cell_per_frame(true);
+    }
+}
