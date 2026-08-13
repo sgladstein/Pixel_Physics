@@ -5,6 +5,23 @@ already heavily documented and the architecture is written up at length
 elsewhere — see below. What is not written down anywhere else, and what this
 project keeps re-learning the expensive way, is the method.
 
+## What this project is optimising for
+
+**Looks good and realistic, in motion, at play scale.** Stated by the owner
+directly. Two consequences that have already changed decisions:
+
+- **Exactness is not a goal.** A mechanism whose measured advantage is
+  numerical precision — an exactly flat surface rather than a nearly flat
+  one — is not buying anything here, however well argued. Judge liquid work
+  by how it looks while it is moving, not by its final residual.
+- **The current 512x320 world is a test environment, not the target.** It
+  will grow (M10 streaming). So a cost that is invisible today because the
+  world is small is still worth taking seriously, and a mechanism whose
+  advantage only appears at large width is not automatically useless — but
+  it does have to actually *have* that advantage when measured, which is
+  not something to take from a report on faith. See
+  `Reports/open-bugs-handoff.md` §6 for a case where it did not.
+
 ## Where knowledge already lives — read it, don't re-derive it
 
 | File | Holds |
