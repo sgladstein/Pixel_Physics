@@ -4113,10 +4113,130 @@ against the report's own text, not a bug; a forward-looking watch-item on
 positions()` rebuilding its `HashSet`s on every disturbance resolution
 with no caching, bounded and rare by design but worth measuring later).
 
-**Not yet built:** everything past Step 1 — absorption (§11 step 2), the
+**Not yet built at the time Step 1 shipped:** absorption (§11 step 2), the
 persistent-flux pipe solver (step 3), the terminal equilibrium snap and
 body sleep (step 4), `try_extend`/edge demotion/cooldowns (step 5),
 dropping `MIN_LIQUID_TRANSFER` toward 8 as the verdict on steps 3-4
 (step 6). No automatic promotion trigger exists yet either (design doc
 §3e's candidate queue) — every test and any real use today calls
 `World::promote_liquid_body` directly.
+
+**A real gap surfaced when the owner tested Step 1 in live play:** neither
+Step 1 nor Step 2 (below) can produce any visible difference in ordinary
+play. Nothing in either step's own scope calls `promote_liquid_body`
+automatically — the design doc's §3e candidate queue is real but was never
+assigned to any of the 6 numbered build steps' own file lists, an actual
+gap in the design's own build order, not an oversight in what got
+implemented. Flagged to the owner directly; decision was to keep building
+the numbered steps in order and wire up automatic promotion once the
+solver (step 3) exists, since a promoted-but-not-yet-solved body would
+look identical to before promotion anyway (frozen, matching whatever it
+started as) — there is nothing to actually *see* until leveling exists.
+
+### Step 2 (§11) — absorption and lazy rasterization — implemented
+
+Still no solver: a column that absorbs mass grows taller in place rather
+than spreading sideways — the design doc's own predicted "informative
+failure," confirmed directly by a new test
+(`repeated_pours_onto_one_column_pile_up_into_a_visible_spike`).
+
+**`update::transfer_liquid_vertical` gained a managed branch.** When the
+cell below is `FLAG_MANAGED` and the same material, the *entire* source
+cell is absorbed (not `flow_rate`-limited — the body's own future solver
+spreads it in O(width); throttling the handoff here would only pile a
+waterfall up above the surface) via the new `CellSurface::absorb_liquid`
+trait method, mirroring `schedule_active_site`'s exact shape: `World`
+resolves and credits directly, `ChunkView` (`parallel.rs`) queues into a
+new `absorptions` field, replayed in `run_pass`.
+
+**`World::absorb_liquid`** takes the `LiquidBody` out of its slot for the
+call's duration (mirroring `scheduler::step`'s take-then-restore shape —
+`rasterize_column` needs `&mut World` and `&mut LiquidBody` at once, which
+can't both be live while the body is still borrowed from `self.bodies`),
+credits `h[i]`, and calls the new **`LiquidBody::rasterize_column`**
+(`liquid.rs`), which implements design doc §7e: writes only when a
+column's whole-cell count actually changed, claims new cells upward from
+the current top (full except the newest, topmost partial cell, using the
+`aux == 0` "full" sentinel `liquid_fill` already defines), and flags any
+newly-exposed container cells (bed/walls) via a before/after `HashSet`
+diff of `container_positions()`.
+
+**Absorptions and demotions in `parallel.rs`'s `run_pass` are both
+deferred until every chunk from the pass is reinserted** (same reasoning
+as Step 1's demotion deferral — `rasterize_column`'s writes can cross into
+a chunk that isn't resident yet), **and absorptions resolve strictly
+before demotions**: an absorption's debit (the source cell emptying)
+already happened synchronously during the sweep, so resolving a demotion
+of the same body first would make the pending credit find no live body
+and silently lose that mass. Absorbing first means the credit either
+lands on a still-live body or gets rasterized into ordinary cells that the
+following demotion then correctly folds back into the CA grid — never
+lost either way.
+
+**A real, subtle bug found while writing this step's own tests, fixed in
+the same pass:** `Cell::is_empty()` (`cell.rs`) checked only material, so
+a container cell — materially `Cell::EMPTY` but `FLAG_MANAGED` — still
+read as available. Ordinary movement (`try_move`'s diagonal fallback, in
+particular) would move straight into it, which *does* correctly demote
+the body via `World::set`'s disturbance check, but only by winning an
+incidental race against the *intended* path (vertical absorption into the
+body's own top cell) — and in real play, any loose material merely
+falling *near* a lake, not into it, would repeatedly graze its wall and
+demote it for no physically meaningful reason. Fixed by making `is_empty()`
+also require `!managed()` — every caller already means "is this position
+available to use," which a reserved container cell never is. Confirmed to
+fail without the fix (`repeated_pours_onto_one_column_pile_up_into_a_
+visible_spike`, traced live: the second of four drops repeatedly
+triggered exactly this false-disturbance path).
+
+**A second real bug, found by independent review, fixed in the same
+pass:** `rasterize_column`'s growth can claim cells in a chunk `body_index`
+never registered (`promote_liquid_body` only records a body's *initial*
+footprint), so once a column's height crosses a `CHUNK_SIZE` (64-row)
+boundary, `find_body_at` — the one path both `absorb_liquid` and the
+write-seam's `demote_body_at` use — hard-fails on the unregistered chunk:
+further absorption there silently loses mass, and a disturbance there
+silently fails to demote. Fixed by registering every chunk the body's
+current full footprint touches after each `rasterize_column` call.
+Regression test (`a_column_growing_across_a_chunk_boundary_stays_
+findable`) grows a column across a real chunk boundary directly via
+`absorb_liquid` (70,000 fill in one call, avoiding tens of thousands of
+simulated frames) and confirms both failure modes; confirmed to fail
+without the fix.
+
+**Two more independent-review findings, both fixed, lower severity:**
+`render.rs`'s `cell_colour` used `cell.is_empty()` as its background-vs-
+material branch — with the fix above, a container cell would fall through
+into grain-jitter/heat-glow code instead of flat background, a visible
+static artifact along every heightfield body's silhouette. `World::
+ignite_circle`'s debug brush had the identical mismatch (skipping a
+container cell would ignite "nothing" and, as a side effect, demote a
+nearby body the brush merely passed over). Both fixed with a raw
+`cell.material == material::EMPTY` check instead — the question both
+callers actually ask ("is there material here") differs from `is_empty()`'s
+new "is this position available to use."
+
+**Verification:** new tests in `liquid.rs` — a single absorption grows
+`h[i]` exactly and conserves total world fill; the predicted spike shape
+under repeated pours; demotion after growth clears every newly-claimed
+cell too; digging beside a newly-grown cell (not just the original
+footprint) demotes the body; absorption works identically under the
+parallel driver; the cross-chunk-growth regression above. `cargo test
+--lib` (318 tests) and `cargo clippy --all-targets -- -D warnings` both
+clean. Cost re-checked on the `ascii` stress scene across seven runs:
+serial settled at the ~38ms baseline in five of seven (two noise spikes,
+consistent with this machine's established jitter pattern from earlier in
+the session), parallel at ~8ms in six of seven — no real regression.
+Independent review (general-purpose agent) traced the take-then-restore
+borrow pattern, the absorb-before-demote ordering (including the specific
+"two workers absorb into the same column" race — not actually reachable,
+since the first absorption in a pass synchronously empties the only
+source cell that could produce a second), multi-row growth in one call,
+and a full audit of every `.is_empty()` call site in the codebase — found
+the two bugs above (cross-chunk `body_index`, render/ignite mismatches),
+confirmed everything else sound.
+
+**Not yet built:** the persistent-flux pipe solver (step 3), the terminal
+equilibrium snap and body sleep (step 4), `try_extend`/edge demotion/
+cooldowns (step 5), dropping `MIN_LIQUID_TRANSFER` (step 6). Automatic
+promotion still doesn't exist — see the gap noted above.

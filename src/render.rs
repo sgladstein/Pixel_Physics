@@ -9,6 +9,7 @@ use std::collections::HashSet;
 
 use crate::sim::cell::AMBIENT_TEMPERATURE;
 use crate::sim::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
+use crate::sim::material;
 use crate::sim::particle::ParticleSystem;
 use crate::sim::rng;
 use crate::sim::world::World;
@@ -386,7 +387,15 @@ impl Renderer {
         // Modulo keeps any shade value valid, so a palette can shrink on hot
         // reload in M3 without invalidating cells already in the world.
         let base = palette[cell.shade as usize % palette.len()];
-        if cell.is_empty() {
+        // A raw material check, not `cell.is_empty()` -- a promoted liquid
+        // body's container cell (`Reports/liquid-heightfield-design.md`
+        // §3c) is materially empty but `FLAG_MANAGED`, and `is_empty()`'s
+        // now-managed-aware meaning ("available to use") isn't the question
+        // rendering is asking ("what does this position actually look
+        // like"). Using `is_empty()` here would draw a container cell with
+        // grain jitter/heat-glow instead of flat background -- a visible,
+        // static artifact along the outline of every heightfield body.
+        if cell.material == material::EMPTY {
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
             // temperature very much propagate through vacuum) rather than

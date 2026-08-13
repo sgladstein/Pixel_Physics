@@ -311,6 +311,17 @@ fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
 /// Never revisits: the sweep is bottom-to-top, so row `y + 1` was already
 /// swept this frame regardless of scan direction, same as `try_move`'s own
 /// downward case.
+///
+/// **Absorption** (`Reports/liquid-heightfield-design.md` §6b): when the
+/// cell below is `FLAG_MANAGED` (owned by a promoted `liquid::LiquidBody`)
+/// and the same material, the *entire* source cell is absorbed rather than
+/// a `flow_rate`-limited amount — the body's own solver (once one exists)
+/// spreads it across the body in O(width), so throttling the handoff here
+/// would only make a waterfall pile up above the surface instead of being
+/// drawn in. Exactly conservative: the source becomes `Cell::EMPTY` and the
+/// same integer is credited to the body via `CellSurface::absorb_liquid`,
+/// both in this one call, so the debit and credit can never be separated by
+/// a failure in between (that method's own doc / design doc §8b).
 fn transfer_liquid_vertical<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     if !surface.in_bounds(x, y + 1) {
         return false;
@@ -319,6 +330,12 @@ fn transfer_liquid_vertical<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> 
     let dst = surface.get(x, y + 1);
     if dst.material != src.material {
         return false;
+    }
+    if dst.managed() {
+        let src_fill = liquid_fill(src);
+        surface.set(x, y, Cell::EMPTY);
+        surface.absorb_liquid(x, y + 1, src_fill as u32);
+        return true;
     }
     let flow_rate = surface.materials().get(src.material).flow_rate;
     let src_fill = liquid_fill(src);

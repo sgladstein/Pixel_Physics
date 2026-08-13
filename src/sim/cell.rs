@@ -147,9 +147,27 @@ impl Cell {
         }
     }
 
+    /// A materially-empty cell that is `FLAG_MANAGED` (one of a promoted
+    /// liquid body's container cells, still holding `Cell::EMPTY` until
+    /// something actually writes into it — `Reports/liquid-heightfield-
+    /// design.md` §3c) reads as **not** empty. Found the hard way: without
+    /// this, ordinary movement rules (`try_move`'s diagonal case, in
+    /// particular) treat a body's own wall as ordinary open air and move
+    /// straight into it, which does correctly demote the body via `World::
+    /// set`'s own disturbance check — but only *after* the movement has
+    /// already won a race against the *intended* path (vertical absorption
+    /// into the body's own top cell), so which one fires depends on
+    /// incidental scan order rather than on anything physically meaningful.
+    /// Worse, in real play a body's wall sits directly beside its own top
+    /// surface, so any loose material merely falling *near* a lake — not
+    /// into it — would repeatedly graze that wall and demote it. Every
+    /// caller of `is_empty` (movement, growth candidates, planting) already
+    /// means "is this position available to use," which a reserved
+    /// container cell never is, so this is the one place that needs to
+    /// change rather than auditing each caller individually.
     #[inline]
     pub fn is_empty(self) -> bool {
-        self.material == material::EMPTY
+        self.material == material::EMPTY && !self.managed()
     }
 
     /// True when this cell moved into its position during a sweep that will

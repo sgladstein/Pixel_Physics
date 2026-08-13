@@ -78,6 +78,20 @@ pub trait CellSurface {
     /// as `field_writes`/`light_writes`.
     fn schedule_active_site(&mut self, site: ActiveSite);
 
+    /// Absorb `fill` units into the promoted liquid body that owns
+    /// `(x, y)` — `Reports/liquid-heightfield-design.md` §6b/§8b.
+    /// `update_liquid`'s only caller: when a falling liquid cell's vertical
+    /// transfer finds a `FLAG_MANAGED` cell of the same material below it,
+    /// the source cell empties itself via the ordinary `set` and the whole
+    /// amount is credited here in the same call, so the debit and credit
+    /// can never be separated by a failure in between. A no-op if `(x, y)`
+    /// doesn't resolve to a live body (should not happen given the caller's
+    /// own `managed()` check, but not asserted — see `World::absorb_liquid`
+    /// for why silently doing nothing is the right failure mode here). Only
+    /// `World` owns `bodies`, so `ChunkView` queues this and replays it in
+    /// `parallel::run_pass` — the same shape as `schedule_active_site`.
+    fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32);
+
     #[inline]
     fn is_empty(&self, x: i32, y: i32) -> bool {
         self.get(x, y).is_empty()

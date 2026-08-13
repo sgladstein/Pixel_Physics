@@ -189,6 +189,11 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
     // until every chunk from this pass is back in `world.chunks` — see the
     // loop's trailing comment.
     let mut pending_demotions: Vec<(i32, i32)> = Vec::new();
+    // Liquid absorbed into a body this pass, same deferred-resolution
+    // reasoning: `World::absorb_liquid`'s own rasterization
+    // (`LiquidBody::rasterize_column`) can write into a chunk the growing
+    // column just crossed into, which might not be reinserted yet.
+    let mut pending_absorptions: Vec<(i32, i32, u32)> = Vec::new();
 
     for outcome in outcomes {
         world.put_chunk(outcome.coord, outcome.chunk);
@@ -230,16 +235,27 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
             world.schedule_active_site(site);
         }
         pending_demotions.extend(outcome.demotions);
+        pending_absorptions.extend(outcome.absorptions);
     }
 
-    // Liquid-body demotions last, only once every chunk from this pass is
-    // resident again — see `pending_demotions`'s own doc above and `
-    // ChunkView::set`'s comment on the same-chunk case for why resolving
-    // any earlier could silently miss clearing `FLAG_MANAGED` on part of a
-    // body that spans two same-parity active chunks. `demote_body_at` is
-    // safe to call more than once for the same body (a no-op once it's
-    // already gone), so no dedup is needed even though several disturbed
-    // positions commonly share one owner.
+    // Absorptions before demotions, both only once every chunk from this
+    // pass is resident again (see `pending_demotions`'s/`pending_
+    // absorptions`'s own doc above). The order between the two matters:
+    // an absorption's debit (the source cell emptying) already happened
+    // synchronously during the sweep, so if the same body were demoted
+    // *before* its pending credit resolved, `absorb_liquid` would find no
+    // live body and silently drop the fill -- a real mass loss. Resolving
+    // absorption first instead means that credit either lands on a still-
+    // live body, or -- if something else also disturbed this body this
+    // same pass -- gets written into ordinary cells by `rasterize_column`
+    // and then correctly folded into the CA grid by the demotion that
+    // follows, never lost either way. `demote_body_at` is safe to call
+    // more than once for the same body (a no-op once it's already gone),
+    // so no dedup is needed even though several disturbed positions
+    // commonly share one owner.
+    for (x, y, fill) in pending_absorptions {
+        world.absorb_liquid(x, y, fill);
+    }
     for (x, y) in pending_demotions {
         world.demote_body_at(x, y);
     }
@@ -263,6 +279,15 @@ struct ChunkOutcome {
     /// others here, not something `World::set`'s own disturbance check
     /// already covers.
     demotions: Vec<(i32, i32)>,
+    /// Liquid absorbed into a promoted body (`Reports/liquid-heightfield-
+    /// design.md` §6b/§8b) — `(x, y)` is the managed cell the fill was
+    /// absorbed *into*, not the source (already emptied via the ordinary
+    /// same-pass `set`/`remote_writes` path). Only `World` owns `bodies`,
+    /// so this is queued and resolved in `run_pass`, same reasoning as
+    /// `demotions` — deferred until every chunk from the pass is resident
+    /// again, since `World::absorb_liquid`'s own rasterization can write
+    /// into a chunk the growing column just crossed into.
+    absorptions: Vec<(i32, i32, u32)>,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -324,6 +349,8 @@ struct ChunkView<'w> {
     pending_active_sites: Vec<ActiveSite>,
     /// See `ChunkOutcome::demotions`'s own doc.
     demotions: Vec<(i32, i32)>,
+    /// See `ChunkOutcome::absorptions`'s own doc.
+    absorptions: Vec<(i32, i32, u32)>,
 }
 
 impl<'w> ChunkView<'w> {
@@ -340,6 +367,7 @@ impl<'w> ChunkView<'w> {
             field_touched: false,
             pending_active_sites: Vec::new(),
             demotions: Vec::new(),
+            absorptions: Vec::new(),
         }
     }
 
@@ -360,6 +388,7 @@ impl<'w> ChunkView<'w> {
             field_touched: self.field_touched,
             pending_active_sites: self.pending_active_sites,
             demotions: self.demotions,
+            absorptions: self.absorptions,
         }
     }
 
@@ -534,6 +563,10 @@ impl CellSurface for ChunkView<'_> {
 
     fn schedule_active_site(&mut self, site: ActiveSite) {
         self.pending_active_sites.push(site);
+    }
+
+    fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32) {
+        self.absorptions.push((x, y, fill));
     }
 }
 

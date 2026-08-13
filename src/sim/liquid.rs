@@ -17,7 +17,8 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use super::material::{MaterialId, MaterialKind};
+use super::cell::Cell;
+use super::material::{self, MaterialId, MaterialKind};
 use super::world::World;
 
 /// Below this many columns, ordinary CA diffusion levels a puddle fast
@@ -113,6 +114,67 @@ impl LiquidBody {
             }
         }
         self.container_positions().contains(&(x, y))
+    }
+
+    /// Rasterize column `i` back into cells if its whole-cell count has
+    /// changed since it was last written — design doc §7e. Called after
+    /// `h[i]` changes (today, only `World::absorb_liquid`'s credit; a later
+    /// step's solver calls it too). A no-op, deliberately, when the count
+    /// hasn't changed: nothing is written, so nothing dirties, so a quiet
+    /// column keeps letting its chunk sleep.
+    ///
+    /// **Step 2 only ever grows a column** (absorption adds mass; nothing
+    /// yet removes it — the solver, §11 step 3, is what makes shrinking a
+    /// real case). Growing means claiming new cells upward from the current
+    /// `top_y[i]` and flagging their own new left/right/below neighbours as
+    /// container cells, exactly mirroring what `World::promote_liquid_body`
+    /// did for the body's initial footprint — just incrementally, for the
+    /// rows that are actually new. Only the newly claimed rows plus the
+    /// previously-topmost row (whose fill may have flipped from partial to
+    /// full) are ever rewritten; every cell below stays byte-identical.
+    pub(crate) fn rasterize_column(&mut self, world: &mut World, i: usize) {
+        let whole = self.h[i] / material::LIQUID_FULL as u32;
+        let partial = (self.h[i] % material::LIQUID_FULL as u32) as u16;
+        let new_count = whole as i32 + i32::from(partial > 0);
+        let old_count = self.bed_y[i] - self.top_y[i];
+        if new_count == old_count {
+            return;
+        }
+        debug_assert!(
+            new_count > old_count,
+            "a liquid body column shrank -- step 2 has no solver to remove mass, only absorption to add it"
+        );
+
+        // Snapshotted before growing so the container-flagging pass below
+        // can tell exactly which positions are newly exposed, rather than
+        // re-flagging (harmlessly, but wastefully) ones that were already
+        // correct.
+        let old_container: HashSet<(i32, i32)> = self.container_positions().into_iter().collect();
+
+        let old_top = self.top_y[i];
+        let new_top = old_top - (new_count - old_count);
+        self.top_y[i] = new_top;
+
+        let x = self.x0 + i as i32;
+        let shades = world.materials.get(self.material).palette.len().max(1) as u32;
+        for y in new_top..=old_top {
+            let fill = if y == new_top && partial > 0 { partial } else { material::LIQUID_FULL };
+            // `aux == 0` is `liquid_fill`'s own "treat as full" sentinel
+            // (`update::liquid_fill`'s doc), not "empty" -- a genuinely
+            // full cell is written as 0, matching every other liquid write
+            // in the engine.
+            let aux = if fill >= material::LIQUID_FULL { 0 } else { fill };
+            let shade = world.rng.below(shades) as u8;
+            let cell = Cell::new(self.material, shade).with_managed(true).with_aux(aux);
+            world.set_owned(x, y, cell);
+        }
+
+        for (cx, cy) in self.container_positions() {
+            if !old_container.contains(&(cx, cy)) {
+                let cell = world.get(cx, cy);
+                world.set_owned(cx, cy, cell.with_managed(true));
+            }
+        }
     }
 }
 
@@ -274,6 +336,23 @@ mod tests {
     /// clears) and the other was snapshotted while still promoted.
     fn same_content(a: Cell, b: Cell) -> bool {
         a.material == b.material && a.aux() == b.aux()
+    }
+
+    /// Sum of `liquid_fill` over every `Liquid`-kind cell in the world --
+    /// the actual conserved quantity (not cell count, which absorption's
+    /// whole point is to change).
+    fn total_liquid_fill(w: &World) -> u64 {
+        let bounds = w.bounds().unwrap();
+        let mut sum = 0u64;
+        for y in bounds.min_y..=bounds.max_y {
+            for x in bounds.min_x..=bounds.max_x {
+                let c = w.get(x, y);
+                if w.materials.kind(c.material) == MaterialKind::Liquid {
+                    sum += update::liquid_fill(c) as u64;
+                }
+            }
+        }
+        sum
     }
 
     #[test]
@@ -494,5 +573,179 @@ mod tests {
         assert_eq!(w.get(target_x, WATER_Y).material, steam, "the reaction should have written steam into the managed cell");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // --- Step 2 (design doc §11): absorption and lazy rasterization.
+    // Deliberately still no solver -- a column that absorbs mass grows
+    // taller in place ("the informative failure" the design doc itself
+    // predicts) rather than spreading sideways.
+
+    #[test]
+    fn absorbing_a_falling_cell_grows_the_body_and_conserves_mass() {
+        let mut w = test_world();
+        build_pool(&mut w);
+        let id = w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+        let col = 5usize;
+        let x = POOL_X0 + col as i32;
+        // A full, unmanaged water cell directly above the free surface --
+        // `transfer_liquid_vertical` will find the managed cell below it
+        // on the very next CA step.
+        w.set(x, WATER_Y - 1, Cell::new(material::WATER, 0));
+
+        let h_before = w.body(id).unwrap().h[col];
+        let total_before = total_liquid_fill(&w);
+
+        update::step(&mut w);
+
+        let body = w.body(id).expect("the body should still be alive -- absorption is not a disturbance");
+        assert_eq!(
+            body.h[col],
+            h_before + material::LIQUID_FULL as u32,
+            "the body's own column should have gained exactly the source cell's fill"
+        );
+        // Rasterization writes the absorbed mass straight back into the
+        // same position the source cell fell from -- the column grew by
+        // exactly one cell, and that new cell is the topmost.
+        let top = w.get(x, WATER_Y - 1);
+        assert!(top.managed(), "the newly rasterized cell should be flagged managed");
+        assert_eq!(top.material, material::WATER);
+        assert_eq!(top.aux(), 0, "a full rasterized cell should carry the LIQUID_FULL sentinel (aux == 0), not a raw 1000");
+        assert_eq!(total_liquid_fill(&w), total_before, "absorption must not create or destroy mass");
+    }
+
+    #[test]
+    fn repeated_pours_onto_one_column_pile_up_into_a_visible_spike() {
+        // The design doc's own predicted step-2 behaviour, made concrete:
+        // without a solver to spread it, repeatedly pouring onto one
+        // column grows *that* column while its neighbours stay untouched.
+        let mut w = test_world();
+        build_pool(&mut w);
+        w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+        let spike_x = POOL_X0 + 5;
+        let quiet_x = POOL_X0 + 25;
+
+        // Dropped from well above the free surface, not repeatedly at a
+        // fixed row just above it -- once the first pour rasterizes into
+        // that exact row, it is itself managed, and painting a *second*
+        // cell directly there would be a disturbance (`World::set`'s own
+        // check), demoting the body instead of growing it. Free-falling
+        // from further up lands correctly on the current top regardless of
+        // how tall the column has grown by that point.
+        for _ in 0..4 {
+            w.set(spike_x, WATER_Y - 10, Cell::new(material::WATER, 0));
+            for _ in 0..12 {
+                update::step(&mut w);
+            }
+        }
+
+        let column_height = |w: &World, x: i32| -> i32 {
+            let mut y = WATER_Y;
+            let mut h = 0;
+            while w.get(x, y).managed() && w.materials.kind(w.get(x, y).material) == MaterialKind::Liquid {
+                h += 1;
+                y -= 1;
+            }
+            h
+        };
+        let spike_height = column_height(&w, spike_x);
+        let quiet_height = column_height(&w, quiet_x);
+        assert!(spike_height > quiet_height, "repeated pours onto one column should pile up higher than an untouched column: spike={spike_height}, quiet={quiet_height}");
+        assert_eq!(quiet_height, 1, "an untouched column should be exactly as tall as it started");
+    }
+
+    #[test]
+    fn demoting_a_grown_body_clears_every_newly_claimed_cell_too() {
+        let mut w = test_world();
+        build_pool(&mut w);
+        let id = w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+        let x = POOL_X0 + 5;
+        w.set(x, WATER_Y - 1, Cell::new(material::WATER, 0));
+        update::step(&mut w);
+        assert!(w.get(x, WATER_Y - 1).managed(), "test setup: the pour should have grown the column by one managed cell");
+        let grown_cell_before = w.get(x, WATER_Y - 1);
+
+        w.demote_body(id);
+
+        assert_eq!(w.body_count(), 0);
+        let grown_cell_after = w.get(x, WATER_Y - 1);
+        assert!(!grown_cell_after.managed(), "the newly-grown cell should be unmanaged after demotion");
+        assert!(same_content(grown_cell_after, grown_cell_before), "demotion should not change the grown cell's own content");
+    }
+
+    #[test]
+    fn digging_beside_a_newly_grown_cell_demotes_the_body() {
+        // The container-cell bookkeeping must extend as the body grows, not
+        // just cover its original footprint at promotion time.
+        let mut w = test_world();
+        build_pool(&mut w);
+        w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+        let x = POOL_X0 + 5;
+        w.set(x, WATER_Y - 1, Cell::new(material::WATER, 0));
+        update::step(&mut w);
+        assert!(w.get(x, WATER_Y - 1).managed(), "test setup: the pour should have grown the column by one managed cell");
+        let wall = (x - 1, WATER_Y - 1);
+        assert!(w.get(wall.0, wall.1).managed(), "the newly grown row's own wall should have been flagged managed too");
+
+        w.set(wall.0, wall.1, Cell::EMPTY);
+
+        assert_eq!(w.body_count(), 0, "digging beside a newly grown cell should have demoted the body");
+    }
+
+    #[test]
+    fn absorption_works_under_the_parallel_driver_too() {
+        let mut w = test_world();
+        build_pool(&mut w);
+        let id = w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+        let col = 5usize;
+        let x = POOL_X0 + col as i32;
+        w.set(x, WATER_Y - 1, Cell::new(material::WATER, 0));
+        let total_before = total_liquid_fill(&w);
+
+        parallel::step(&mut w);
+
+        let body = w.body(id).expect("the body should still be alive under the parallel driver too");
+        assert_eq!(body.h[col], material::LIQUID_FULL as u32 * 2, "absorption should credit the body the same way under the parallel driver");
+        assert_eq!(total_liquid_fill(&w), total_before, "absorption must not create or destroy mass under the parallel driver either");
+    }
+
+    #[test]
+    fn a_column_growing_across_a_chunk_boundary_stays_findable() {
+        // Independent review's finding: `promote_liquid_body` only ever
+        // registers a body's *initial* footprint in `body_index`, but
+        // `rasterize_column`'s growth can claim cells in a chunk the body
+        // never touched at promotion time. Grown directly via
+        // `World::absorb_liquid` with a large fill, rather than physically
+        // simulating tens of thousands of frames of falling cells, to cross
+        // a real `CHUNK_SIZE` (64-row) boundary in one call.
+        let mut w = World::new(Rect::new(0, 0, 99, 199));
+        let floor_y = 151;
+        let water_y = 150;
+        for x in (POOL_X0 - 1)..=(POOL_X0 + POOL_WIDTH) {
+            w.set(x, floor_y, Cell::new(material::STONE, 0));
+        }
+        for x in POOL_X0..POOL_X0 + POOL_WIDTH {
+            w.set(x, water_y, Cell::new(material::WATER, 0));
+        }
+        let id = w.promote_liquid_body(POOL_X0, water_y).expect("test setup: pool should promote");
+        let col = 5usize;
+        let x = POOL_X0 + col as i32;
+
+        w.absorb_liquid(x, water_y, 70_000);
+
+        let new_top = w.body(id).unwrap().top_y[col];
+        assert!(water_y - new_top >= 64, "test setup: growth should have crossed at least one chunk boundary, only reached {}", water_y - new_top);
+
+        // Absorption into the same column, now resolved entirely inside
+        // the newly-crossed chunk, must still find the body -- silently
+        // lost mass is exactly the bug independent review found.
+        let h_before = w.body(id).unwrap().h[col];
+        w.absorb_liquid(x, new_top, 500);
+        assert_eq!(w.body(id).unwrap().h[col], h_before + 500, "absorption into the newly-crossed chunk was silently lost");
+
+        // A disturbance in the newly-crossed chunk must also still demote
+        // the body -- the write-seam's whole invariant otherwise silently
+        // stops holding for that region.
+        w.set(x, new_top, Cell::new(material::SAND, 0));
+        assert_eq!(w.body_count(), 0, "a disturbance in the newly-crossed chunk should have demoted the body");
     }
 }

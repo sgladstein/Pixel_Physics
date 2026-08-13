@@ -571,6 +571,64 @@ impl World {
         }
     }
 
+    /// Absorb `fill` units into whichever body owns `(x, y)` — design doc
+    /// §6b/§8b, `CellSurface::absorb_liquid`'s own doc has the caller-side
+    /// contract. Silently does nothing if `(x, y)` doesn't resolve to a
+    /// live body: the only caller (`update::transfer_liquid_vertical`)
+    /// already checked `managed()` before deciding to absorb, so this
+    /// should never actually miss in practice, but the check exists to be
+    /// looked up rather than assumed, the same defensive shape `body`/
+    /// `demote_body_at` already use for a stale or nonexistent `BodyId`.
+    ///
+    /// Takes the `LiquidBody` out of its slot for the duration — mirroring
+    /// `scheduler::step`'s own take-then-restore shape for the identical
+    /// reason: `rasterize_column` needs `&mut World` (to read/write cells,
+    /// draw a shade) at the same time as `&mut LiquidBody`, which can't
+    /// both be live simultaneously while the body is still borrowed *from*
+    /// `self.bodies`.
+    pub(crate) fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32) {
+        let Some(id) = self.find_body_at(x, y) else { return };
+        let Some(slot) = self.bodies.get_mut(id.index as usize) else { return };
+        if slot.generation != id.generation {
+            return;
+        }
+        let Some(mut body) = slot.state.take() else { return };
+
+        let i = x - body.x0;
+        if i >= 0 && (i as usize) < body.h.len() {
+            let i = i as usize;
+            body.h[i] += fill;
+            body.rasterize_column(self, i);
+        }
+
+        // Register any chunk the growth above just crossed into. Found by
+        // independent review: `promote_liquid_body` only ever registers a
+        // body's *initial* footprint in `body_index`, but `rasterize_
+        // column` can claim new cells in a chunk the body never touched at
+        // promotion time (a tall enough spike crosses a `CHUNK_SIZE`
+        // boundary). `find_body_at` — the one path both this method and
+        // the write-seam's `demote_body_at` use to resolve `(x, y) →
+        // BodyId` — hard-fails on a chunk with no `body_index` entry at
+        // all, rather than falling back to a scan. Left unregistered,
+        // further absorption into the new chunk would silently lose mass
+        // (`absorb_liquid` finding no body and returning), and a
+        // disturbance there would silently fail to demote. Recomputed from
+        // the body's current full footprint rather than tracked
+        // incrementally — same "not cached, bounded and rare" trade `
+        // container_positions` already makes; `list.contains` skips an
+        // already-registered chunk rather than duplicating the entry.
+        let touched: std::collections::HashSet<ChunkCoord> =
+            body.managed_positions().chain(body.container_positions()).map(|(px, py)| ChunkCoord::containing(px, py)).collect();
+        for coord in touched {
+            let list = self.body_index.entry(coord).or_default();
+            if !list.contains(&id) {
+                list.push(id);
+            }
+        }
+
+        self.bodies[id.index as usize].state = Some(body);
+    }
+
     /// Total live promoted bodies — for tests and the debug overlay, not
     /// consulted by any correctness-bearing path.
     #[cfg(test)]
@@ -977,7 +1035,15 @@ impl World {
                     continue;
                 }
                 let mut cell = self.get(x, y);
-                if cell.is_empty() || cell.is_burning() {
+                // A raw material check, not `cell.is_empty()` -- this debug
+                // brush's own question is "is there material here to
+                // ignite," not "is this position available to use," so a
+                // promoted liquid body's materially-empty-but-`FLAG_
+                // MANAGED` container cell should be skipped the same way
+                // any other empty cell is, not treated as occupied and
+                // igniting nothing while incidentally demoting a nearby
+                // body it merely brushed past.
+                if cell.material == material::EMPTY || cell.is_burning() {
                     continue;
                 }
                 let duration = self.materials.get(cell.material).burn_duration;
@@ -1218,6 +1284,11 @@ impl CellSurface for World {
     #[inline]
     fn schedule_active_site(&mut self, site: ActiveSite) {
         World::schedule_active_site(self, site)
+    }
+
+    #[inline]
+    fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32) {
+        World::absorb_liquid(self, x, y, fill)
     }
 }
 
