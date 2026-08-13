@@ -110,7 +110,23 @@ pub trait CellSurface {
     #[inline]
     fn move_cell(&mut self, fx: i32, fy: i32, tx: i32, ty: i32, revisited: bool) {
         let mover = self.get(fx, fy).with_moved(revisited).with_flowing(true);
-        let displaced = self.get(tx, ty).with_moved(false);
+        // The displaced cell travels the *opposite* direction to the mover,
+        // so it needs the opposite `revisited` answer -- not an
+        // unconditional `false`.
+        //
+        // `revisited` means "this cell landed in a row the sweep has not
+        // reached yet, so skip it once or it will move again this frame."
+        // Rows are swept bottom to top. When a denser cell moves *down*
+        // (`revisited == false`), whatever it displaces goes *up*, into a
+        // row still to come -- and clearing its flag let it be displaced
+        // again by the next cell up, and again, once per row, so it
+        // travelled the entire height of a falling body in a single frame.
+        // Dropping a sand blob into water made the water surf the sweep
+        // straight to the top of the blob and erupt out of it, instead of
+        // being pushed up one cell at a time and flowing around the sides.
+        // Reported from live play; the "one cell per frame" reading of this
+        // line was wrong.
+        let displaced = self.get(tx, ty).with_moved(!revisited);
         self.set(fx, fy, displaced);
         self.set(tx, ty, mover);
     }
