@@ -753,7 +753,17 @@ fn find_lateral_descent<S: CellSurface>(surface: &S, x: i32, y: i32, dir: i32) -
     // baseline. The Powder Toy solves the same problem with its
     // `FLAG_STAGNANT` bit, narrowing the search for particles surrounded by
     // their own kind.
-    if surface.get(x, y - 1).material == src.material
+    // Gated on "is anything on top of me", not "is more of *my own kind* on
+    // top of me". Both mean this cell is not at a free surface and so has
+    // nothing to gain from relocating -- whatever covers it would simply
+    // fall into the vacated spot -- but the narrower same-material test
+    // left a large hole: liquid lying under a *different* material (water
+    // beneath sand, the entire interface in a mixed scene) failed it and
+    // ran the full scan every frame, walking the whole pool sideways
+    // through its own kind. That interface is O(width) cells each paying
+    // O(reach) chunk lookups, and it measured as the dominant cost of this
+    // rule on the ascii stress scene.
+    if !surface.get(x, y - 1).is_empty()
         && surface.get(x - 1, y).material == src.material
         && surface.get(x + 1, y).material == src.material
     {

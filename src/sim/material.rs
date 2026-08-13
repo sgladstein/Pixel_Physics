@@ -73,7 +73,7 @@ pub const HORIZONTAL_TRANSFER_REACH: i32 = 8;
 /// already rests on. Set to that bound rather than under it, because the
 /// entire reason water read as sand was a search too short to find the
 /// bottom of a pile it was sitting on.
-pub const LIQUID_LATERAL_REACH: i32 = 16;
+pub const LIQUID_LATERAL_REACH: i32 = 24;
 
 /// Well-known ids for the shipped materials.
 ///
