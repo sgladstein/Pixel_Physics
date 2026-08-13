@@ -110,12 +110,40 @@ what persists is chunks awake doing invisible fill shuffling.
 This is what the heightfield bodies exist to fix (O(width) instead), and
 they are blocked on the promotion gap below.
 
-### 5. Automatic promotion is still reverted
+### 5. Automatic promotion — blocker removed, still not ready
 
-`promote_liquid_body` is called **only from tests**. Automatic promotion was
-implemented and reverted (`127e177`) because a promoted flat body cannot
-expand into open floor beside it. So `liquid.rs` — the pipe solver, the
-seam, ~1000 lines — never runs in play, and every bug in it is latent.
+`promote_liquid_body` is called **only from tests**, so `liquid.rs` — the
+pipe solver, the seam, ~1000 lines — never runs in play and every bug in it
+is latent.
+
+**The documented blocker is now fixed.** `127e177` reverted automatic
+promotion because "the persistent-flux solver has no mechanism to drive an
+internally-level body to expand into open floor space beside it", and
+`edge_with_room` is that mechanism (`95c917f`, `68371d7`). A promoted body
+that can still spill no longer sleeps through it and sheds its edge column
+back to the CA, which is what §6c always said outflow should be.
+
+**But promotion is still not worth turning on**, measured on the exact
+scene the revert names — the 100-column block from
+`a_wide_deep_water_column_levels_out_instead_of_only_eroding_at_the_edges`,
+promoted deliberately at frame 0:
+
+| | spread at 6000 |
+|---|---|
+| before the fix | **106, frozen from frame 10** |
+| after the fix | 57–68, still moving |
+| no promotion at all (plain CA) | **128** |
+
+So the freeze is genuinely gone — the body sheds steadily, 100 columns and
+4.9M fill down to 50 and 2.45M — and it still ends up *worse* than leaving
+the water to the CA. Shedding one column per `DEMOTE_COOLDOWN_FRAMES` is
+simply slower than the CA spreading it directly.
+
+That points at the promotion *criteria* rather than at another mechanism:
+a body should probably not be promoted while it is still visibly spreading,
+only once it is contained. §4a already argues quiescence is the wrong gate;
+containment (`edge_with_room` returning `None`) looks like a better one and
+is now cheap to test. Not attempted.
 
 ---
 
