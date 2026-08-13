@@ -44,34 +44,6 @@ pub trait CellSurface {
     /// `Chunk::set_world_quiet` for why neither may dirty its chunk.
     fn clear_undercut(&mut self, x: i32, y: i32);
 
-    /// Whether `(x, y)` belongs to a chunk this frame will sweep *after* the
-    /// one currently being swept.
-    ///
-    /// `move_cell`'s `revisited` argument answers "will the sweep reach this
-    /// cell again this frame", and every caller computes it from row order
-    /// alone — rows go bottom to top, so a downward move lands in a row
-    /// already passed. That reasoning is only valid for a single global
-    /// sweep. Once the sweep is cut into chunks it is wrong wherever the
-    /// receiving chunk has not run yet: the cell moves, the receiving chunk
-    /// sweeps, and it moves *again* — two cells in one frame.
-    ///
-    /// Visible as a dark line one row tall lying exactly on a horizontal
-    /// chunk seam, in a falling body under the parallel driver, on exactly
-    /// half of all horizontal seams (`parallel::step` runs its four passes
-    /// in index order, so an even-`cy` chunk row always sweeps before the
-    /// odd row beneath it). Reported from live play; measured at a mean fill
-    /// deficit of 427/1000 on the affected rows, against a serial driver
-    /// that shows none, since `World::chunks_to_sweep` already orders lower
-    /// chunk rows first.
-    ///
-    /// Defaults to `false`, which is exactly right for `World`: its own
-    /// chunk order is bottom-up, so a downward move always lands in a chunk
-    /// already swept. Only `ChunkView` overrides it.
-    #[inline]
-    fn swept_after_me(&self, _x: i32, _y: i32) -> bool {
-        false
-    }
-
     fn materials(&self) -> &MaterialRegistry;
 
     /// Movement tie-breaks, fire's ignition rolls, reaction chances. `World`
@@ -151,14 +123,7 @@ pub trait CellSurface {
         // *vacancy* and never a grain: a cell that picked it up by being
         // displaced into one must not carry it along to wherever it goes
         // next. Only the two writes below can ever set it.
-        // `|| swept_after_me(tx, ty)`: the caller derived `revisited` from row
-        // order alone, which stops being the whole answer the moment the
-        // sweep is cut into chunks. See `swept_after_me`'s own doc. Asked
-        // about the *mover's* destination only -- the displaced cell below
-        // lands back at `(fx, fy)`, which is always inside the chunk being
-        // swept right now, so pass ordering cannot affect its answer.
-        let mover_revisited = revisited || self.swept_after_me(tx, ty);
-        let mover = self.get(fx, fy).with_moved(mover_revisited).with_flowing(true).with_undercut(false);
+        let mover = self.get(fx, fy).with_moved(revisited).with_flowing(true).with_undercut(false);
         // The displaced cell travels the *opposite* direction to the mover,
         // so it needs the opposite `revisited` answer -- not an
         // unconditional `false`.
