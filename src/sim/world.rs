@@ -286,22 +286,26 @@ impl World {
                 continue;
             }
             let Some(mut body) = slot.state.take() else { continue };
-            // Checked *before* `step` (which is itself already a no-op
-            // once asleep — its own doc) so a long-sleeping body skips
-            // `register_body_chunks` too, not just the solver math. Found
-            // by independent review: registering unconditionally every
-            // frame rebuilds a `HashSet` over the body's whole footprint
-            // regardless of sleep state, which is real allocation-bearing
-            // work `step`'s own no-op doesn't cover — undercutting design
-            // doc §8c's "a sleeping body costs nothing per frame" for as
-            // long as it stays asleep. Still registers once on the frame a
-            // body actually falls asleep (`was_asleep` false, `step` may
-            // have called `terminal_snap`, whose own `rasterize_column`
-            // calls could in principle still cross into an unregistered
-            // chunk on that exact frame).
+            // Skipping `register_body_chunks` while a body stays asleep
+            // avoids rebuilding a `HashSet` over its whole footprint every
+            // frame for no reason (design doc §8c: "a sleeping body costs
+            // nothing per frame"). But `try_extend` runs even while
+            // asleep (so a sleeping body can still reclaim a neighbour),
+            // and a successful claim can grow the footprint into a chunk
+            // never touched before. Gating registration on the *pre-step*
+            // sleep state alone (`was_asleep`) missed that case: a body
+            // asleep going in that wakes via `try_extend` this frame
+            // skipped registration entirely, silently desyncing
+            // disturbance/demotion handling in the newly claimed chunk
+            // (found by independent review). Register whenever the body
+            // wasn't asleep on both sides of `step` — skip only the
+            // steady-state case where it was asleep before and is still
+            // asleep after, since nothing but `try_extend` can change a
+            // sleeping body's footprint, and a no-op `try_extend` leaves
+            // `asleep` untouched.
             let was_asleep = body.asleep;
             body.step(self);
-            if !was_asleep {
+            if !(was_asleep && body.asleep) {
                 self.register_body_chunks(id, &body);
             }
             if let Some(slot) = self.bodies.get_mut(id.index as usize) {
@@ -565,6 +569,7 @@ impl World {
             // structural non-requirement for promotion, so nothing here
             // guarantees it).
             asleep: false,
+            extend_cooldown_until: 0,
         };
 
         let managed: Vec<(i32, i32)> = body.managed_positions().collect();

@@ -4436,3 +4436,125 @@ columns scene) both remain deferred — B-2 in particular needs either
 automatic promotion or a hand-built multi-thousand-frame scene to be a
 faithful reproduction, and is the natural thing to verify once automatic
 promotion exists rather than before.
+
+### Step 5 (§11) — `try_extend`, edge demotion, and post-demotion cooldowns — implemented
+
+**`overloaded_edge`/`demote_edge_column`** (§6c): if an edge column's fill
+exceeds `EDGE_OVERFLOW_RATIO` (2.0) times the body's own average, and the
+position just outside it has room, that column demotes back to ordinary CA
+cells — array entries removed, `x0` adjusted, `flux` trimmed by one entry,
+container cells no longer needed by any surviving column unflagged via a
+before/after `container_positions()` diff. "Has room" is checked by raw
+material/kind, not `managed()` — the position just outside an edge is
+always the body's own pre-flagged container wall, so `managed()` there is
+always `true` and the real check has to see through it.
+
+**`try_extend`** (§3d): the reverse operation, claims one more edge column
+if the cells just outside hold unmanaged same-material liquid with a free
+surface above. Scans the *candidate's own* actual vertical extent
+independently (anchored at the neighbouring edge column's bed row, walking
+upward through contiguous same-material unmanaged cells, capped by
+`MAX_EXTEND_SCAN`) rather than assuming it matches the surviving
+neighbour's height — a demoted column is routinely much taller than the
+flat neighbour it demoted from, so validating against the neighbour's own
+row range made the "free surface above" check fail by reading more of the
+candidate's own water as if it were open air.
+
+**`extend_cooldown_until: u64`** (§4c): gates both operations on the same
+edge. Set by a demotion (stopping an instant re-claim of what was just
+shed) *and* by a successful claim (stopping the newly-claimed column from
+being judged overloaded and demoted right back before it's had any real
+frames to solve). `step`'s structure changed to check `try_extend` *before*
+the `asleep` early return — a settled body still needs to periodically
+check for a reclaimable neighbour — with a successful claim clearing
+`asleep` and returning immediately, deferring the solver/edge-demotion
+check to the next frame.
+
+**Three real bugs found and fixed during implementation** (beyond the
+thrash-control design itself, which needed two attempts — see below):
+
+- **Mass creation**: `rasterize_column`'s grow branch, when growing a
+  column from genuinely zero cells (`old_count == 0`, so `old_top ==
+  bed_y`), wrote through `bed_y` itself — the container/bed cell, not a
+  body cell — via an inclusive-range off-by-one. Found via debug
+  instrumentation that located a stray managed liquid cell exactly at a
+  column's own bed position, inflating `total_liquid_fill` by exactly one
+  `LIQUID_FULL` unit at frame 2 of an otherwise-idle 500-frame test. Fixed
+  with a conditional upper bound: `old_top` if `old_count > 0`, else
+  `old_top - 1`.
+- **Wrong-candidate validation**: covered above under `try_extend`.
+- **Extend/demote thrash, two layers**: (a) a successful claim falling
+  through to the same frame's `overloaded_edge` check could re-demote the
+  just-reclaimed column instantly — fixed by returning immediately after a
+  claim; (b) that alone only spread the cycle across two frames instead of
+  one — a column reclaimed while still genuinely overloaded relative to the
+  new average got re-demoted a frame or two later, resetting a fresh
+  cooldown each time and thrashing forever on a slower cycle. Confirmed via
+  a background test process that hung indefinitely (had to be killed with
+  `taskkill` — it held a lock on the test `.exe`, breaking subsequent
+  `cargo test` runs with a linker error until found and killed) and via
+  debug output showing `cooldown_until` growing unboundedly. Fixed by
+  making a successful claim *also* set `extend_cooldown_until`, and gating
+  `overloaded_edge` itself on that same field, not just `try_extend`'s own
+  trigger.
+
+**Verification:** four new tests (`an_overloaded_edge_column_demotes_
+when_it_has_somewhere_to_spill`, `try_extend_claims_an_adjacent_puddle`,
+`try_extend_refuses_a_puddle_of_a_different_material`,
+`extend_is_suppressed_during_the_post_demotion_cooldown_then_resumes` —
+the last with a hard 10,000-iteration guard as a permanent regression net
+against the thrash bug above) plus a shared `build_pool_with_a_real_edge_
+demotion` helper. Two Step 3 tests (`the_solver_conserves_mass_every_
+frame`, `a_leveling_body_eventually_snaps_flat_and_sleeps`) updated to
+check whole-world `total_liquid_fill` instead of `body.total_fill()` alone,
+since edge demotion now legitimately moves mass out of the body's own
+accounting onto the ordinary grid — a real conservation, not a loss.
+`cargo test --lib` (330 tests, then 331 after the review fix below) and
+`cargo clippy --all-targets -- -D warnings` both clean. Cost re-checked on
+the `ascii` stress scene (still no bodies in that scene, so still zero
+incidental overhead, not solver cost) — held at baseline (~37-38ms serial,
+~7.5ms parallel) across three runs both before and after the review fix.
+
+Independent review (general-purpose agent) verified the scan bounds (no
+off-by-one — the `top..bed` range matches `top_y`/`bed_y` semantics
+exactly), stress-tested the thrash-prevention logic beyond the existing
+regression test (simultaneous double-edge overload and an extreme
+single-edge overload, both run 20,000 frames, both converged after one or
+two changes and stayed stable, mass exact throughout — no oscillation
+found), verified `flux` sizing stays correct under repeated grow/shrink
+alternation, and confirmed the container-flagging/unflagging diff pattern
+is safe under overlap. One real, fixed finding: `step_liquid_bodies` gates
+`register_body_chunks` on the body's *pre-step* sleep state (`was_asleep`)
+to avoid rebuilding a `HashSet` over the whole footprint every frame a
+body stays asleep (§8c: sleeping costs nothing) — but `try_extend` runs
+even while asleep specifically so a sleeping body can reclaim a neighbour,
+and a successful claim can grow the footprint into a chunk never touched
+before. A body asleep going into the exact frame it reclaims a
+chunk-crossing column skipped registration entirely, silently desyncing
+disturbance/demotion handling in that chunk from then on — this is the
+same "unregistered chunk" bug class `register_body_chunks` was factored
+out to prevent a third time (Step 3's own doc), recurring a fourth time via
+a new growth path. Fixed by registering whenever the body wasn't asleep on
+*both* sides of `step` (`!(was_asleep && body.asleep)`) rather than just
+before it — skips only the true steady-state case where nothing could have
+changed. New regression test
+(`a_body_that_wakes_via_try_extend_from_asleep_registers_its_new_chunk`)
+builds a real edge demotion, piles extra water on the demoted column past
+a genuine chunk boundary, drives the body to sleep before the cooldown
+expires, advances frames without stepping to land exactly on the
+reclaiming frame while still asleep going in, and confirms a disturbance
+in the newly-claimed chunk still demotes the body — confirmed to fail
+against the pre-fix gate (reverted it locally, reran, watched it fail with
+`demote_body_at` silently no-op'ing) before restoring the fix.
+
+**Untuned constants, flagged, not guessed:** `EXTEND_INTERVAL = 30`,
+`MAX_EXTEND_SCAN = 10_000`, `EDGE_OVERFLOW_RATIO = 2.0`, `DEMOTE_COOLDOWN_
+FRAMES = 120`. **Known non-issue, noted for completeness:** at exactly 2
+columns, `overloaded_edge` can never fire (`h[edge] > avg * 2` reduces to
+requiring the other column's fill be negative) — not a thrash risk, acts
+as a floor against demoting below 2 columns; a very skewed 2-column body
+can only shed mass by growing a third via `try_extend` first.
+
+**Not yet built:** dropping `MIN_LIQUID_TRANSFER` (step 6). Automatic
+promotion still doesn't exist. The same deferred B-8/B-2 verification bars
+noted in Step 4 remain deferred for the same reason.
