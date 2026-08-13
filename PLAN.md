@@ -3753,8 +3753,25 @@ earns `flowing()` under its move-only definition, so gating it would have
 silently undone the fix for the exact cells it targets. The landed version
 is unconditional.
 
-**Reverted again, for a real reason this time — not a testing gap.** A
-live report caught what the "landed" paragraph above missed: dropping a
+**Reverted again, for a real reason this time — not a testing gap. The
+reordered version is not lost — it's exact git history, not a memory.**
+`git show eeefceb:src/sim/update.rs` reconstructs it precisely (`eeefceb`
+= "Fix liquid pour stalling at chunk boundaries: horizontal before
+vertical"; `dcb761c` = the revert immediately after it, this same
+commit). This matters concretely: the reordered version's water behavior
+was genuinely better overall, not just on the one narrow chunk-boundary-
+stall symptom it was written to fix — the ballooning was the one thing
+wrong with it. A replacement design should be benchmarked *against the
+reordered version's own numbers* (full flatness by frame 900 on the
+three-tall-columns scene, vs. a residual step still at frame 1800 on the
+original), not against the slower pre-reorder baseline — and that
+comparison can be run for real, checking out `eeefceb`'s `update.rs`
+into a scratch copy or worktree, rather than trusted from this summary.
+`a_landing_column_does_not_balloon_in_cell_count` (`parallel.rs`) is the
+one hard constraint that must never regress; the frame-900 flatness bar
+is the target to match or beat, not just avoid failing.
+
+A live report caught what the "landed" paragraph above missed: dropping a
 column onto a floor made it visibly balloon out to nearly 5x its own cell
 count within a couple hundred frames before slowly re-collapsing, while
 total fill stayed *exactly* conserved throughout (checked every single
