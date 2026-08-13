@@ -991,4 +991,116 @@ mod tests {
              its own cell count just because a column landed)"
         );
     }
+
+    /// Falling water must not tear a dark line along a horizontal chunk seam.
+    ///
+    /// Reported from live play: two thin dark horizontal lines lying exactly
+    /// on chunk gridlines, in a large body of water that was still falling
+    /// and spreading. They could be painted over and never appeared in
+    /// settled water, which is the tell that this is material *in motion*
+    /// rather than corruption.
+    ///
+    /// Cause: `try_move` marks a downward move `revisited = false` because
+    /// rows sweep bottom to top and the sweep will not come back. True
+    /// within one chunk, false at a horizontal seam whose lower chunk runs
+    /// in a later pass — `step` runs its four groups in index order, so an
+    /// even-`cy` chunk row always sweeps before the odd row beneath it, and
+    /// a cell dropped across that seam is moved on *again* by the receiving
+    /// chunk in the same frame. Two cells in one frame thins the body
+    /// exactly at the seam. Fixed by `CellSurface::swept_after_me`.
+    ///
+    /// Measured as a **fill** deficit, not an occupancy one: the rows are
+    /// not empty, they are uniformly low on fill, which `render.rs` draws as
+    /// a dark line. An occupancy metric finds nothing here — the same trap
+    /// that cost three reproductions in `update.rs`'s `seam_terracing`.
+    ///
+    /// The serial driver is the control: its chunk order is already
+    /// bottom-up, so it never had this and must keep not having it.
+    /// **Open bug -- and the first fix for it was withdrawn. See below.**
+    ///
+    /// `#[ignore]`d rather than deleted because the reproduction is the
+    /// expensive part and it is known-good: it failed at exactly 2 torn rows
+    /// before the withdrawn fix and passed after it. Run with
+    /// `cargo test -- --ignored` when picking this back up.
+    ///
+    /// The withdrawn fix was `CellSurface::swept_after_me` (reverted in
+    /// `e816477`): a mover landing in a chunk this frame had not swept yet
+    /// was marked `revisited`, so the receiving chunk would not move it a
+    /// second time. It did clear these torn rows -- and the owner reported
+    /// it introduced a much larger striped-banding artifact in live play,
+    /// which this test could not see, because it only ever looked at rows
+    /// lying exactly on a chunk seam. A replacement must clear the torn seam
+    /// rows **and** leave general row banding no worse, and a bar for the
+    /// latter has to exist before the next attempt.
+    ///
+    /// Suspected mechanism for that regression, unverified: `group_of` makes
+    /// the flagging strongly asymmetric by chunk parity -- a group-0 chunk
+    /// has both its rightward and downward cross-chunk moves stalled, a
+    /// group-3 chunk has almost none -- so flow is throttled unevenly on a
+    /// two-chunk period rather than uniformly.
+    #[test]
+    #[ignore = "open bug: the first fix caused a worse banding artifact and was reverted"]
+    fn falling_water_does_not_tear_a_line_along_a_horizontal_chunk_seam() {
+        const W: i32 = 512;
+        const H: i32 = 320;
+        const FLOOR: i32 = H - 8;
+
+        let scene = || {
+            let mut w = World::new(Rect::new(0, 0, W - 1, H - 1));
+            for x in 0..W {
+                for y in FLOOR..H {
+                    w.set(x, y, SimCell::new(material::STONE, 0));
+                }
+            }
+            for x in 20..492 {
+                for y in 40..FLOOR {
+                    w.set(x, y, SimCell::new(material::WATER, 0));
+                }
+            }
+            w
+        };
+
+        // Mean fill per row across the body, on the `LIQUID_FULL` scale.
+        let row_fill = |w: &World, y: i32| {
+            let total: u32 = (20..492)
+                .map(|x| {
+                    let c = w.get(x, y);
+                    if c.material == material::WATER {
+                        crate::sim::update::liquid_fill(c) as u32
+                    } else {
+                        0
+                    }
+                })
+                .sum();
+            (total / 472) as i32
+        };
+        // Rows markedly darker than both neighbours, while inside the body.
+        let dark_seam_rows = |w: &World| {
+            (41..FLOOR - 1)
+                .filter(|&y| {
+                    let neighbours = (row_fill(w, y - 1) + row_fill(w, y + 1)) / 2;
+                    neighbours > 300 && row_fill(w, y) < neighbours * 3 / 4 && y.rem_euclid(CHUNK_SIZE) == 0
+                })
+                .count()
+        };
+
+        let mut parallel_world = scene();
+        let mut serial_world = scene();
+        let (mut parallel_worst, mut serial_worst) = (0, 0);
+        for frame in 1..=600 {
+            step(&mut parallel_world);
+            update::step(&mut serial_world);
+            if frame % 20 == 0 {
+                parallel_worst = parallel_worst.max(dark_seam_rows(&parallel_world));
+                serial_worst = serial_worst.max(dark_seam_rows(&serial_world));
+            }
+        }
+
+        assert_eq!(serial_worst, 0, "the serial driver should never tear a seam row -- its chunk order is bottom-up");
+        assert_eq!(
+            parallel_worst, 0,
+            "falling water is thinning out exactly on horizontal chunk seams under the parallel sweep \
+             (before the fix: 2 such rows, short by 427/1000 and 333/1000 of full fill)"
+        );
+    }
 }
