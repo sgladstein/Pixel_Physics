@@ -1,0 +1,226 @@
+//! Renders a scene to a **contact sheet**: several frames of one run laid out
+//! in a grid, through the same `Renderer` the sandbox itself draws with, with
+//! no window and no GPU.
+//!
+//! This exists because a numeric metric only ever sees the one quantity it was
+//! written to see, and choosing that quantity correctly turns out to be the
+//! hard part. Repeatedly, a metric written before anyone had looked at the
+//! artifact measured the wrong thing and reported "nothing here" on a scene
+//! that visibly had something: surface height hid a 9x chunk-seam effect that
+//! column volume showed plainly, and occupancy hid torn seam rows that were a
+//! fill deficit rather than a hole. Worse, a metric cannot see what it was not
+//! asked about, so a fix that cleared one artifact while introducing a larger
+//! one passed its own test and had to be reverted from live play
+//! (`e816477`). An image has the opposite property: it shows everything at
+//! once, including whatever nobody thought to measure.
+//!
+//! `examples/ascii.rs` already makes this argument ("movement rules are far
+//! easier to judge by eye than by assertion") and answers it in the terminal.
+//! This answers it in actual pixels, which is what the bug reports are about.
+//!
+//! # Why a grid rather than a GIF
+//!
+//! `main.rs`'s capture hook already writes a `sequence.gif`, and it is the
+//! right thing for a human watching it. But several of these bugs are only
+//! legible *in motion* — a fringe that regenerates every frame reads very
+//! differently from one that sits still — and an animation cannot be taken in
+//! at a glance or quoted in a report. Laying time out along space solves both:
+//! one image, one look, motion visible as difference between neighbouring
+//! tiles.
+//!
+//! # Why crop and zoom are not optional extras
+//!
+//! At 1:1 a one-pixel-tall dark line across a 512-wide world is genuinely
+//! easy to miss — that is exactly how the horizontal chunk-seam tearing went
+//! unnoticed until it was pointed out. `crop` and `zoom` are the difference
+//! between "I looked at it" and "I saw it".
+//!
+//! ```text
+//! cargo run --release --example filmstrip -- scene=pour start=100 every=60 count=6
+//! cargo run --release --example filmstrip -- scene=pour crop=160,180,120,80 zoom=4
+//! ```
+
+use std::collections::HashSet;
+
+use pixel_physics::render::Renderer;
+use pixel_physics::sim::cell::Cell;
+use pixel_physics::sim::chunk::Rect;
+use pixel_physics::sim::particle::ParticleSystem;
+use pixel_physics::sim::world::World;
+use pixel_physics::sim::{material, parallel, update};
+
+const WIDTH: i32 = 512;
+const HEIGHT: i32 = 320;
+const FLOOR_THICKNESS: i32 = 8;
+
+fn stone_floor(w: &mut World) {
+    for x in 0..WIDTH {
+        for y in (HEIGHT - FLOOR_THICKNESS)..HEIGHT {
+            w.set(x, y, Cell::new(material::STONE, 0));
+        }
+    }
+}
+
+/// The scenes the current bug list is about. Adding one is three lines, and
+/// is much preferred to editing an existing one — a scene that quietly
+/// changed underneath a recorded measurement is worse than no scene.
+fn build(scene: &str) -> World {
+    let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
+    let floor_y = HEIGHT - FLOOR_THICKNESS;
+    match scene {
+        // A large body released against the left wall, spreading right across
+        // seven vertical chunk seams. The terracing/banding reproduction.
+        "pour" => {
+            stone_floor(&mut w);
+            for x in 0..200 {
+                for y in 30..floor_y {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+        }
+        // Falling and spreading, rather than resting on the floor already:
+        // the state the horizontal seam tearing shows up in.
+        "fall" => {
+            stone_floor(&mut w);
+            for x in 20..250 {
+                for y in 20..200 {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+        }
+        // A dense blob dropped into a walled pool: the displacement striping.
+        "blob" => {
+            stone_floor(&mut w);
+            for y in 0..floor_y {
+                w.set(120, y, Cell::new(material::STONE, 0));
+                w.set(392, y, Cell::new(material::STONE, 0));
+            }
+            for x in 121..392 {
+                for y in 160..floor_y {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+            w.paint_circle(256, 80, 34, material::SAND);
+        }
+        // Sand blobs dropped on a floor: the original chunk-seam cliffs.
+        "sand" => {
+            stone_floor(&mut w);
+            w.paint_circle(120, 70, 40, material::SAND);
+            w.paint_circle(250, 70, 40, material::SAND);
+            w.paint_circle(380, 70, 24, material::SAND);
+        }
+        other => panic!("unknown scene {other:?}; known: pour, fall, blob, sand"),
+    }
+    w
+}
+
+struct Args {
+    scene: String,
+    start: usize,
+    every: usize,
+    count: usize,
+    cols: usize,
+    zoom: i32,
+    crop: Rect,
+    parallel_driver: bool,
+    out: String,
+}
+
+fn parse() -> Args {
+    let mut a = Args {
+        scene: "pour".into(),
+        start: 100,
+        every: 60,
+        count: 6,
+        cols: 3,
+        zoom: 1,
+        crop: Rect::new(0, 0, WIDTH - 1, HEIGHT - 1),
+        parallel_driver: true,
+        out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
+    };
+    for arg in std::env::args().skip(1) {
+        let Some((k, v)) = arg.split_once('=') else { continue };
+        match k {
+            "scene" => a.scene = v.into(),
+            "start" => a.start = v.parse().expect("start"),
+            "every" => a.every = v.parse().expect("every"),
+            "count" => a.count = v.parse().expect("count"),
+            "cols" => a.cols = v.parse().expect("cols"),
+            "zoom" => a.zoom = v.parse().expect("zoom"),
+            "driver" => a.parallel_driver = v != "serial",
+            "out" => a.out = v.into(),
+            "crop" => {
+                let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
+                assert_eq!(n.len(), 4, "crop=x,y,w,h");
+                a.crop = Rect::new(n[0], n[1], n[0] + n[2] - 1, n[1] + n[3] - 1);
+            }
+            other => panic!("unknown argument {other:?}"),
+        }
+    }
+    a
+}
+
+fn main() {
+    let args = parse();
+    let mut world = build(&args.scene);
+    let mut renderer = Renderer::new();
+    let particles = ParticleSystem::new();
+    let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+
+    let (cw, ch) = (args.crop.width(), args.crop.height());
+    let (tile_w, tile_h) = (cw * args.zoom, ch * args.zoom);
+    let gap = 2i32;
+    let rows = args.count.div_ceil(args.cols) as i32;
+    let sheet_w = args.cols as i32 * tile_w + (args.cols as i32 - 1) * gap;
+    let sheet_h = rows * tile_h + (rows - 1) * gap;
+    // Mid-grey gutters, so a tile that is legitimately all-black stays
+    // distinguishable from the space between tiles.
+    let mut sheet = vec![90u8; (sheet_w * sheet_h * 4) as usize];
+    for p in sheet.chunks_exact_mut(4) {
+        p[3] = 255;
+    }
+
+    let mut captured = 0usize;
+    let mut step_no = 0usize;
+    while captured < args.count {
+        let target = args.start + captured * args.every;
+        while step_no < target {
+            if args.parallel_driver {
+                parallel::step(&mut world);
+            } else {
+                update::step(&mut world);
+            }
+            step_no += 1;
+        }
+        // `force_full`, not the dirty-rect path: this must draw the whole
+        // world every time regardless of what moved, or a tile would inherit
+        // pixels from whichever frame last touched them.
+        let touched: HashSet<_> = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
+
+        let (gx, gy) = (captured as i32 % args.cols as i32, captured as i32 / args.cols as i32);
+        let (ox, oy) = (gx * (tile_w + gap), gy * (tile_h + gap));
+        for y in 0..ch {
+            for x in 0..cw {
+                let (sx, sy) = (args.crop.min_x + x, args.crop.min_y + y);
+                if sx < 0 || sy < 0 || sx >= WIDTH || sy >= HEIGHT {
+                    continue;
+                }
+                let src = (((sy * WIDTH) + sx) * 4) as usize;
+                for zy in 0..args.zoom {
+                    for zx in 0..args.zoom {
+                        let (dx, dy) = (ox + x * args.zoom + zx, oy + y * args.zoom + zy);
+                        let dst = (((dy * sheet_w) + dx) * 4) as usize;
+                        sheet[dst..dst + 4].copy_from_slice(&frame[src..src + 4]);
+                    }
+                }
+            }
+        }
+        println!("  tile {captured}: frame {target}, awake {}/{}", world.active_chunk_count(), world.chunk_count());
+        captured += 1;
+    }
+
+    image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
+        .expect("writing the contact sheet");
+    println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
+}
