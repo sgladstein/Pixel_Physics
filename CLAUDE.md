@@ -7,8 +7,9 @@ project keeps re-learning the expensive way, is the method.
 
 ## What this project is optimising for
 
-**Looks good and realistic, in motion, at play scale.** Stated by the owner
-directly. Two consequences that have already changed decisions:
+**Looks good and realistic, in motion, at play scale — without ruining
+performance.** Stated by the owner directly. Three consequences that have
+already changed decisions:
 
 - **Exactness is not a goal.** A mechanism whose measured advantage is
   numerical precision — an exactly flat surface rather than a nearly flat
@@ -21,6 +22,14 @@ directly. Two consequences that have already changed decisions:
   it does have to actually *have* that advantage when measured, which is
   not something to take from a report on faith. See
   `Reports/open-bugs-handoff.md` §6 for a case where it did not.
+- **Frame cost is a hard constraint, not a tiebreaker.** A visual
+  improvement that costs the dirty-rect render skip, keeps chunks awake, or
+  slows the sweep is not automatically worth it — say what it costs when
+  proposing it. `examples/ascii.rs` reports worst-frame timings and CI runs
+  it; that is the number to quote. The corollary cuts the other way too:
+  because exactness is not wanted, *stopping work early* is a legitimate
+  optimisation. A pool that is visually flat but still shuffling fill for
+  another quarter of an hour is a real cost buying nothing.
 
 ## Where knowledge already lives — read it, don't re-derive it
 
