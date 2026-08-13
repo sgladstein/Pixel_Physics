@@ -231,6 +231,37 @@ fn roll_along_slope<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: 
 /// Falls freely like a powder while there's open space to fall into, then
 /// switches to compressible-volume fill transfer — see the module doc for
 /// why liquids need a different mechanism from `flow_sideways`/`dispersion`.
+///
+/// **Horizontal before vertical** (`Reports/liquid-simulation-research.md`
+/// §5): a cell still stacked on top of a falling/settling column would
+/// otherwise always be offered `transfer_liquid_vertical` first, packing
+/// straight down before ever spreading sideways — measured directly (a
+/// diagnostic sweep comparing a tall multi-chunk pour with and without this
+/// reordering, later locked in as `parallel.rs`'s `three_tall_columns_
+/// spanning_chunk_boundaries_flatten_within_900_frames`) to leave a residual
+/// step still unresolved at frame 1800, against full flatness by frame 900
+/// with horizontal tried first.
+///
+/// Unconditional, not gated on `Cell::flowing()` the way `Reports/liquid-
+/// simulation-research-r2.md` §8 suggested: a packed liquid column rarely
+/// earns `flowing()` under its current move-only definition (most of a
+/// settling column's own movement is fill transfer, not a whole-cell move),
+/// so gating on it would silently mostly undo the fix for the exact cells
+/// it targets — a deliberate departure from §8's specific proposal, not an
+/// application of it.
+///
+/// **This has a real, measured cost, not a free reorder**: git-stash-
+/// compared on the `examples/ascii.rs` sand-and-water stress scene, the
+/// serial worst frame went from ~37.9ms to ~42.6ms (~12%) — most likely
+/// because trying horizontal first means more cells actively transfer
+/// simultaneously during the initial chaotic settling burst, even though
+/// the whole body then reaches true flatness sooner. Within `Reports/
+/// liquid-simulation-research-r2.md` §10g's 15% regression ceiling, but
+/// consuming most of that budget — whoever adds the next liquid mechanism
+/// on top of this (the VOF height function, virtual pipes, or lowering
+/// `MIN_LIQUID_TRANSFER`) needs to re-measure against this new baseline,
+/// not the pre-reordering one, or the ceiling can be blown without any
+/// single change looking responsible for it.
 fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
     // Free-fall into open space, same whole-cell move as a powder. Not
     // routed through fill transfer, which is deliberately rate-limited by
@@ -245,11 +276,11 @@ fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
         return true;
     }
 
-    if transfer_liquid_vertical(surface, x, y) {
+    if transfer_liquid_horizontal(surface, x, y, first, rightward) || transfer_liquid_horizontal(surface, x, y, second, rightward) {
         return true;
     }
 
-    transfer_liquid_horizontal(surface, x, y, first, rightward) || transfer_liquid_horizontal(surface, x, y, second, rightward)
+    transfer_liquid_vertical(surface, x, y)
 }
 
 /// Push fill from `(x, y)` down into `(x, y + 1)`, when that cell is the
@@ -407,6 +438,17 @@ fn write_liquid_transfer<S: CellSurface>(
     } else {
         dst
     };
+    // `Reports/liquid-simulation-research-r2.md` §3d: `aux == 0` on a
+    // `Liquid` cell means "untouched, treat as full" (`liquid_fill`'s own
+    // doc), not empty -- so writing it here would silently manufacture a
+    // full cell of liquid from nothing. Both branches above already avoid
+    // this by construction (the source converts to `Cell::EMPTY` outright
+    // instead, and `new_dst_fill` is always `dst_fill + amount` with
+    // `amount > 0`, both callers having already returned early on
+    // `amount == 0`) -- this asserts that invariant stays true rather than
+    // silently relying on it, since `Cell::set_aux` itself has no way to
+    // check a material's kind and enforce it there.
+    debug_assert_ne!(new_dst_fill, 0, "write_liquid_transfer must never write aux == 0 to a live Liquid cell -- convert to Cell::EMPTY instead");
     new_dst.set_aux(new_dst_fill);
     surface.set(dx, dy, new_dst.with_moved(dst_revisited));
 }

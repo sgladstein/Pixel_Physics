@@ -3624,12 +3624,22 @@ of it — read the two together.
    the *persistent* failure mode the literature describes. **Locked in as a
    permanent regression test**
    (`a_splash_settles_with_no_stray_droplets_and_no_mass_drift`,
-   `update.rs`) rather than left as a one-off check. Building the local-
-   height-function fix now would be solving a problem not demonstrated to
-   exist here; if transient mid-drain droplets are ever judged worth
-   smoothing over purely for visual polish, that is a smaller, differently-
-   scoped problem than what §3b describes, and should be diagnosed fresh
-   against a real complaint rather than reusing this report's justification.
+   `update.rs`) rather than left as a one-off check.
+
+   **Correction, caught by the owner directly: the paragraph above does not
+   show the §3b fix wouldn't help — it only shows the pre-fix code doesn't
+   exhibit a persistent version of the symptom the fix targets.** Those are
+   different claims. The fix itself (the 3-cell local-height read) was
+   never implemented, so there is no before/after comparison of it, only a
+   symptom-absence check on the *unfixed* code — and that check used the
+   same serial-only, small-scale methodology that produced a confirmed
+   false negative on the liquid-ordering fix directly above. The correct
+   status is **untested, not tested-and-rejected**: build §3b for real and
+   compare directly (mass-conservation precision, visual surface
+   smoothness, the transient mid-drain droplets already confirmed real),
+   the same way the ordering fix was actually validated, rather than
+   inferring its value from whether the current code already has a
+   problem.
 2. **`MIN_LIQUID_TRANSFER = 150` reframed** (§3c): the value this session
    arrived at empirically (documented at `update.rs`'s own doc comment and
    PLAN.md's §4 entry above, tuned 8 → 150 purely by measuring convergence
@@ -3699,39 +3709,49 @@ of it — read the two together.
    also means settled pools stop paying for the search every tick, which
    is real budget back and lets more chunks sleep.
 
-**Attempted and reverted: rev1 §5's mechanism-ordering fix (build-order
-item 1 below) does not actually fix symptom 1, per direct measurement —
-recorded here so this isn't re-attempted the same way.** Two
-implementations were tried against a real diagnostic (a corrected,
-non-cumulative frame-count sweep, not a guess): (a) an eager whole-cell
-"roll toward an opening" reusing `roll_along_slope`'s own machinery, and
-(b) a literal reading of rev1 §5 — trying `transfer_liquid_horizontal`
-before `transfer_liquid_vertical` for a `flowing()` cell. Neither changed a
-60-tall column's spread width or peak height at any matched frame count by
-more than measurement noise, gated or unconditional. Root cause, traced
-rather than guessed: `try_move`'s downward case requires the cell below to
-be `Cell::EMPTY` outright (`dst.is_empty()`), and `write_liquid_transfer`
-only produces `Cell::EMPTY` once a cell's fill reaches exactly 0 — so a row
-in a stacked pour cannot even attempt to fall via `try_move` until the row
-below has *fully* drained sideways, and that draining is itself capped by
-`flow_rate`/`HORIZONTAL_TRANSFER_REACH`'s throughput. Which function runs
-first each frame doesn't change that cap. **This means symptom 1 (pour
-shape) and symptom 2 (wide-body leveling speed, §5 below) likely share one
-root cause — fill-transfer throughput — not two separate bugs**, contrary
-to how the report's own build order treats them as independently
-fixable. Also worth naming: `Cell::flowing()` (Report A's definition, "did
-a whole-cell move happen") barely ever becomes true for a densely stacked
-pour at all, since most cells there never get a chance to `try_move` in
-the first place — gating on it, as designed for granular material, doesn't
-transfer cleanly to liquid's fill-based movement without also making
-`write_liquid_transfer` set the flag, which was not attempted once the
-ordering itself proved to have no effect regardless. **Recommendation:**
-don't retry the ordering fix in isolation; it's very likely subsumed by
-build-order item 4 (the 1D virtual-pipes leveling redesign) rather than a
-prerequisite for it. Re-evaluate symptom 1 once item 4 lands, or open a
-fresh, first-principles diagnosis of the actual throughput bound (by hand,
-from `flow_rate`/`HORIZONTAL_TRANSFER_REACH`'s numbers) before attempting
-a targeted fix, rather than reordering existing calls again.
+**Superseded — the original rejection below was itself a false negative,
+now confirmed and corrected.** The first attempt at rev1 §5's reordering
+fix was tested on a single 60-tall column in a narrow world and showed no
+effect; that null result was wrongly generalized to "this doesn't work,"
+when it only meant "this specific tiny scenario doesn't have enough total
+lateral redistribution to distinguish the two orderings." A live playtest
+report (three tall multi-chunk water columns, visibly stalling with sharp
+vertical walls landing at chunk boundaries, still unresolved after ~15
+real seconds) forced a much larger, more realistic reproduction. That
+reproduction, run through the real parallel driver: (a) a `wake_all()`-
+every-frame control run produced the *same* stall pattern as the normal
+run, ruling out the chunk/sleep machinery as the cause and confirming the
+stall is `update_liquid`'s own transfer priority, not a parallel-specific
+bug; (b) the reordering fix, retested at this corrected scale, showed a
+real, repeatable effect — full flatness by frame 900 against a residual
+step still present at frame 1800 without it. **Landed** (`update.rs`'s
+`update_liquid`, doc comment there has the full mechanism and the
+measured ~12% worst-frame cost this reorder carries — see below), with a
+permanent regression test (`parallel.rs`'s `three_tall_columns_spanning_
+chunk_boundaries_flatten_within_900_frames`) confirmed to fail without the
+fix and pass with it.
+
+The original diagnosis below is *not* invalidated by this — it correctly
+traced *why* the small-scenario test showed nothing (fill-transfer
+throughput capped by `flow_rate`/`HORIZONTAL_TRANSFER_REACH`), and that
+throughput cap is real and still there. What was wrong was concluding the
+reordering therefore "doesn't help" — it does, meaningfully, even though
+it doesn't remove the underlying O(width²) cap. Symptom 1 (pour shape) and
+symptom 2 (wide-body leveling speed) do still likely share that one root
+cause, and the structural fix for the cap itself remains build-order item
+4 (1D virtual pipes) below, not this reordering. Kept for the record
+(original text): "Root cause, traced rather than guessed: `try_move`'s
+downward case requires the cell below to be `Cell::EMPTY` outright, and
+`write_liquid_transfer` only produces `Cell::EMPTY` once a cell's fill
+reaches exactly 0 — so a row in a stacked pour cannot even attempt to fall
+via `try_move` until the row below has fully drained sideways, and that
+draining is itself capped by `flow_rate`/`HORIZONTAL_TRANSFER_REACH`'s
+throughput." `Cell::flowing()` gating (§8's specific proposal) was tried
+and correctly rejected for a different reason than originally stated —
+not because it wouldn't matter, but because a packed liquid column rarely
+earns `flowing()` under its move-only definition, so gating it would have
+silently undone the fix for the exact cells it targets. The landed version
+is unconditional.
 
 **Acceptance criteria added to this plan's verification bar** (§10 of the
 report): 0.5% mass conservation over a 2000-frame dam-break; a 2%-of-

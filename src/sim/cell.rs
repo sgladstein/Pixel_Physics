@@ -236,6 +236,17 @@ impl Cell {
     /// Set the kind-specific `aux` value. Safe to call regardless of burning
     /// state now that the two no longer alias — the old debug-assert guard
     /// against corrupting an in-progress burn no longer applies.
+    ///
+    /// **Hazard for `Liquid` cells specifically**
+    /// (`Reports/liquid-simulation-research-r2.md` §3d): `aux == 0` there
+    /// means "untouched since creation, treat as full," not empty (see
+    /// `material::LIQUID_FULL`'s own doc) — writing `0` on a live `Liquid`
+    /// cell silently manufactures a full cell from nothing. Use
+    /// `Cell::EMPTY` instead of `cell.set_aux(0)` when a liquid cell is
+    /// meant to become genuinely empty. `Cell` has no `MaterialRegistry`
+    /// access by design, so this can't be enforced here for every kind at
+    /// once; `update.rs`'s `write_liquid_transfer` carries the real guard
+    /// via a `debug_assert` at its own two call sites.
     #[inline]
     pub fn set_aux(&mut self, value: u16) {
         self.aux = value;

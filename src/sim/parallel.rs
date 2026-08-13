@@ -811,4 +811,64 @@ mod tests {
         }
         total
     }
+
+    fn column_height(w: &World, x: i32, id: material::MaterialId, floor_y: i32) -> i32 {
+        let mut h = 0;
+        let mut y = floor_y - 1;
+        while w.get(x, y).material == id {
+            h += 1;
+            y -= 1;
+        }
+        h
+    }
+
+    #[test]
+    fn three_tall_columns_spanning_chunk_boundaries_flatten_within_900_frames() {
+        // The owner's own live-play report: pour tall water columns spanning
+        // several chunks, watch them level -- and watch the surface stall
+        // with sharp vertical walls landing at chunk boundaries, still
+        // visibly unresolved after ~15 real seconds (900 frames at 60 Hz).
+        // Confirmed directly (not assumed): a `wake_all()`-every-frame
+        // control run produces the *same* stall positions as the normal
+        // run, which rules out the chunk/sleep machinery and points at
+        // `update_liquid`'s own transfer priority -- a cell still stacked on
+        // a settling column always got `transfer_liquid_vertical` offered
+        // first, packing straight down before ever spreading sideways.
+        // Measured before/after: unfixed, a 3-cell step is still present at
+        // frame 900 and needs ~1800 to fully resolve; with horizontal tried
+        // first, frame 900 is already fully flat. This locks that in.
+        let stone = material::STONE;
+        let floor_y = 300;
+        let mut w = World::new(Rect::new(0, 0, 511, floor_y + 10));
+        for x in 0..512 {
+            w.set(x, floor_y, SimCell::new(stone, 0));
+        }
+        for &(cx0, cx1) in &[(80, 110), (220, 250), (400, 430)] {
+            for y in (floor_y - 260)..floor_y {
+                for x in cx0..cx1 {
+                    w.set(x, y, SimCell::new(material::WATER, 0));
+                }
+            }
+        }
+
+        for _ in 0..900 {
+            step(&mut w);
+        }
+
+        // A real step, not single-cell rendering noise -- same threshold
+        // the live investigation used.
+        let mut steps = Vec::new();
+        for x in 1..512 {
+            let dh = (column_height(&w, x, material::WATER, floor_y) - column_height(&w, x - 1, material::WATER, floor_y)).abs();
+            if dh >= 3 {
+                steps.push((x, dh));
+            }
+        }
+        assert!(
+            steps.is_empty(),
+            "surface should be fully flat by frame 900 (the owner's own ~15-second report); found {} step(s): {:?}",
+            steps.len(),
+            steps
+        );
+    }
 }
