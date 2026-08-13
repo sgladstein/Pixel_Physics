@@ -38,6 +38,13 @@ const CHUNK_BORDER_SETTLED: [u8; 4] = [60, 60, 70, 255];
 /// palette shade already is.
 const JITTER_STRENGTH: f32 = 0.12;
 
+/// How bright a `Liquid` cell holding almost nothing still draws, as a
+/// fraction of its full-fill colour. Floored well above zero on purpose: a
+/// nearly-drained cell is still water and must read as water, not fade into
+/// the background and look like a hole. See `cell_colour`'s own comment for
+/// why fill is drawn at all.
+const MIN_LIQUID_BRIGHTNESS: f32 = 0.35;
+
 /// How far above ambient a cell needs to be for `HEAT_GLOW_RANGE` to
 /// saturate the warm-tint blend fully. Oil burns at 900C, so this is a
 /// fraction of that — hot enough to mean something, not so high that only
@@ -403,6 +410,31 @@ impl Renderer {
             return self.apply_field_overlay(world, x, y, base);
         }
         let mut rgb = [base[0], base[1], base[2]];
+
+        // Partial fill, drawn. A `Liquid` cell holds a continuous amount
+        // (`Cell::aux`, see `update.rs`'s module doc) and until now none of
+        // it reached the screen: a cell holding 2% drew identically to one
+        // holding 100%. That made the entire compressible-volume model
+        // unfalsifiable by eye -- three sessions of liquid work measured
+        // fill while the display showed only occupancy, so "the pool
+        // levelled" and "the pool looks exactly the same" were both true at
+        // once, and every fix was judged against numbers the renderer never
+        // drew. It also made the "ballooning" failure mode (mass spread
+        // thin across many cells) read as water *multiplying* rather than
+        // as water thinning out, which is what got two otherwise-promising
+        // fixes reverted.
+        //
+        // Dimming toward the empty-cell colour (black) is the cheapest
+        // honest representation and needs no new per-pixel lookups. Clamped
+        // at 1.0 so a compressed (over-full) cell doesn't draw *brighter*
+        // than a full one -- depth should not glow.
+        if world.materials.kind(cell.material) == material::MaterialKind::Liquid {
+            let fill = crate::sim::update::liquid_fill(cell) as f32 / material::LIQUID_FULL as f32;
+            let strength = MIN_LIQUID_BRIGHTNESS + (1.0 - MIN_LIQUID_BRIGHTNESS) * fill.clamp(0.0, 1.0);
+            for c in &mut rgb {
+                *c = (*c as f32 * strength).round() as u8;
+            }
+        }
 
         // Grain: a stable per-position brightness jitter — see the module
         // constant doc for why this is the Sandspiel trick, not dithering.

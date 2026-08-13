@@ -55,6 +55,26 @@ pub const LIQUID_MAX_COMPRESS: u16 = 10;
 /// why 8, not the derivation of the number itself.
 pub const HORIZONTAL_TRANSFER_REACH: i32 = 8;
 
+/// How far a `Liquid` cell may look sideways for a column it can actually
+/// fall from — `update::find_lateral_descent`'s own bound, and the
+/// mechanism that makes water level in seconds rather than holding a slope.
+///
+/// This is a different question from `HORIZONTAL_TRANSFER_REACH` above,
+/// which bounds how far *fill* is equalised between neighbours. That is
+/// diffusion: it moves a fraction of a difference and converges in
+/// O(width²). This bounds how far a whole cell may *travel* to reach lower
+/// ground, which is ballistic and converges in roughly O(width / reach).
+/// Both external precedents for this engine's own architecture use a large
+/// value here: The Powder Toy searches up to 30 cells sideways in one frame
+/// (`rt`, `Simulation.cpp`), and Noita — whose 64×64 chunks and four-pass
+/// checkerboard are the same design as this engine's — permits a pixel to
+/// move within its own chunk plus 32 cells cardinally, which is exactly
+/// `MAX_REACH` here and the bound `parallel.rs`'s write-disjointness proof
+/// already rests on. Set to that bound rather than under it, because the
+/// entire reason water read as sand was a search too short to find the
+/// bottom of a pile it was sitting on.
+pub const LIQUID_LATERAL_REACH: i32 = 16;
+
 /// Well-known ids for the shipped materials.
 ///
 /// These are stable because `builtin` always runs first and assigns ids in
@@ -455,7 +475,12 @@ impl Material {
             // one more from its position-keyed jitter — the true worst case,
             // not just the base value.
             MaterialKind::Powder => self.roll_reach_base.floor() as i32 + 1,
-            MaterialKind::Liquid => HORIZONTAL_TRANSFER_REACH,
+            // The larger of the two liquid reaches: fill equalisation looks
+            // `HORIZONTAL_TRANSFER_REACH` sideways, but a whole-cell lateral
+            // descent (`update::find_lateral_descent`) travels up to
+            // `LIQUID_LATERAL_REACH`, so a stale cell that far away genuinely
+            // does need re-examining.
+            MaterialKind::Liquid => HORIZONTAL_TRANSFER_REACH.max(LIQUID_LATERAL_REACH),
             // `flow_sideways` (`update.rs`) does not stop at `dispersion`:
             // once its initial walk covers as much of that as it can, its
             // free-surface branch searches a further `SURFACE_SEARCH`
@@ -1133,10 +1158,10 @@ mod tests {
     }
 
     #[test]
-    fn sweep_reach_for_liquid_matches_horizontal_transfer_reach() {
+    fn sweep_reach_for_liquid_covers_the_lateral_descent_reach() {
         let reg = MaterialRegistry::builtin();
-        assert_eq!(reg.get(WATER).sweep_reach(), HORIZONTAL_TRANSFER_REACH);
-        assert_eq!(reg.get(OIL).sweep_reach(), HORIZONTAL_TRANSFER_REACH);
+        assert_eq!(reg.get(WATER).sweep_reach(), LIQUID_LATERAL_REACH, "liquid sweep width must cover find_lateral_descent's travel distance, not just fill equalisation's");
+        assert_eq!(reg.get(OIL).sweep_reach(), LIQUID_LATERAL_REACH);
     }
 
     #[test]

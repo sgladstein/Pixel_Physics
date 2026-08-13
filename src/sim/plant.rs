@@ -868,7 +868,19 @@ mod tests {
             w.set(x, 49, Cell::new(material::WATER, 0));
         }
         w.plant_moss_seed(20, 48);
-        run_with_fields(&mut w, 6000);
+        // 24000 frames, not the 6000 this originally used. Growing *up* off
+        // the water's own row is only reachable via `moss.ron`'s
+        // `dry_chance` (0.002), further multiplied by `shade_factor` (down
+        // to 0.1) -- rows 47 and up sit in a different 8-cell field block
+        // than the water at row 49, so they are never `is_damp`. That makes
+        // the effective per-check chance as low as 2e-4, and at 6000 frames
+        // the expected number of successful upward divisions is around 1:
+        // the test was a coin flip on the RNG stream rather than a real
+        // check, and it duly flipped the first time an unrelated change
+        // (liquid's wider `sweep_reach`) shifted that stream. Verified at
+        // 24000 the colony reaches row 46 with ~313 cells, comfortably
+        // clear of the boundary rather than sitting on it.
+        run_with_fields(&mut w, 24000);
 
         let moss = w.materials.id_of("moss").unwrap();
         // The seed sits at row 48; nothing above row 48 has a stone
@@ -1070,7 +1082,7 @@ mod tests {
         let count_at_3000 = count(&w, wood);
         assert!(count_at_3000 > 1, "the tree should have grown at least beyond its single seed cell");
 
-        run_with_fields(&mut w, 6000);
+        run_with_fields(&mut w, 24000);
         let count_at_9000 = count(&w, wood);
         assert_eq!(count_at_3000, count_at_9000, "a tree should eventually exhaust its resource economy and stop producing new wood cells");
     }

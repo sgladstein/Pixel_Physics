@@ -289,6 +289,54 @@ fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
         return true;
     }
     let (first, second) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
+
+    // Long-range lateral descent, checked *before* the diagonal fall.
+    //
+    // This is the mechanism that makes a liquid behave like a liquid, and
+    // its absence is why water in this engine read as sand. Everything
+    // below this point -- the diagonal fall, then fill transfer -- is
+    // shared with `update_powder` or is diffusion, and neither can flatten
+    // a pile quickly: the diagonal fall *builds* a repose-angle pile (it is
+    // literally the powder rule), and fill equalisation moves a fraction of
+    // a difference per frame, converging in O(width²).
+    //
+    // A cell that cannot drop straight down instead looks sideways for the
+    // nearest column it could actually fall from, and travels there in one
+    // step. That is ballistic rather than diffusive, so a pile collapses in
+    // O(width / reach) frames instead of O(width²) -- the difference
+    // between "flattens in a second" and "still sloped a minute later."
+    //
+    // Precedent, not invention: The Powder Toy's liquid movement does
+    // exactly this (`rt`, up to 30 cells, `Simulation.cpp`), and Noita --
+    // same 64×64 chunks and four-pass checkerboard as this engine -- allows
+    // a pixel to move within its chunk plus 32 cells cardinally for the
+    // same reason. `Reports/liquid-simulation-research-r2.md` §9 item 1
+    // recommended precisely this ("evaluated before or alongside the
+    // diagonal-fall check, not gated behind it") and it had never been
+    // implemented; two earlier "reordering" attempts moved the *fill
+    // transfer* calls, which sit downstream of the diagonal fall, and so
+    // never tested this at all.
+    // Absorption into a promoted body directly below outranks any lateral
+    // movement. A cell resting on a body must *join* it (design doc §6b:
+    // absorption is the designed seam between CA liquid and a body), not
+    // skate along its managed surface hunting for an edge to fall off --
+    // which is exactly what the search below would otherwise make it do,
+    // since a body's surface is flat and its far edge is always lower.
+    {
+        let below = surface.get(x, y + 1);
+        if below.managed() && below.material == surface.get(x, y).material {
+            return transfer_liquid_vertical(surface, x, y);
+        }
+    }
+
+    for dir in [first, second] {
+        if let Some(tx) = find_lateral_descent(surface, x, y, dir) {
+            if try_move(surface, x, y, tx, y + 1) {
+                return true;
+            }
+        }
+    }
+
     if try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1) {
         return true;
     }
@@ -665,6 +713,85 @@ fn is_pressured<S: CellSurface>(surface: &S, x: i32, y: i32, support_dy: i32) ->
 /// must be heavier (sand sinks through water); moving up, lighter (smoke rises
 /// through water). Sideways moves never displace, or liquids would churn
 /// endlessly through each other and never settle.
+/// The nearest column within `LIQUID_LATERAL_REACH` in direction `dir` that
+/// the liquid at `(x, y)` could fall from, with an unobstructed path along
+/// row `y` to reach it. `None` if no such column exists within reach.
+///
+/// **Nearest, not furthest** — deliberately. Taking the furthest reachable
+/// opening would let water skip past a nearer one and read as teleporting;
+/// nearest keeps the motion legible as flow while still crossing the whole
+/// reach when a pile genuinely is that wide.
+///
+/// **The path must be clear**, which is what keeps this physical rather
+/// than teleportation: the scan stops at the first cell that is neither
+/// open space nor more of this same liquid. It cannot pass through a wall,
+/// through a different material, or through a promoted body's managed
+/// cells. Same-material cells *are* passable — a liquid moving through its
+/// own kind is exactly what "flowing" is, and requiring open space would
+/// make this fire only for cells already at a free edge, which is the
+/// too-narrow condition that made the original `dispersion` search useless
+/// for a buried cell.
+fn find_lateral_descent<S: CellSurface>(surface: &S, x: i32, y: i32, dir: i32) -> Option<i32> {
+    let src = surface.get(x, y);
+
+    // Buried cells skip the scan entirely. A cell with more of its own
+    // liquid directly on top of it is not on the surface, and relocating it
+    // sideways only shuffles interior water: whatever sits above would
+    // immediately fall into the vacated spot, for the same net result as
+    // moving that upper cell instead -- which this rule will do when it
+    // reaches it, since the sweep visits every cell.
+    //
+    // This is purely a cost gate, not a movement rule: the diagonal fall
+    // and fill transfer below still run for buried cells, so nothing that
+    // could move is frozen. It matters because the scan costs up to
+    // 2 * LIQUID_LATERAL_REACH `get` calls per cell per frame, and in the
+    // serial driver every one of those is a chunk-map lookup. In a dense
+    // pool the interior is O(area) while the surface is only O(width), so
+    // without this gate the overwhelming majority of the work is spent on
+    // cells that provably have nowhere better to be. Measured on the ascii
+    // stress scene: this is the difference between roughly 100 ms and
+    // baseline. The Powder Toy solves the same problem with its
+    // `FLAG_STAGNANT` bit, narrowing the search for particles surrounded by
+    // their own kind.
+    if surface.get(x, y - 1).material == src.material
+        && surface.get(x - 1, y).material == src.material
+        && surface.get(x + 1, y).material == src.material
+    {
+        return None;
+    }
+
+    let src_density = surface.materials().density(src.material);
+
+    for step in 1..=material::LIQUID_LATERAL_REACH {
+        let tx = x + dir * step;
+        if !surface.in_bounds(tx, y) {
+            return None;
+        }
+        let path = surface.get(tx, y);
+        // `is_empty()` is managed-aware, so a promoted body's cells
+        // correctly block the path rather than being flowed through.
+        if !path.is_empty() && path.material != src.material {
+            return None;
+        }
+
+        if !surface.in_bounds(tx, y + 1) {
+            continue;
+        }
+        let below = surface.get(tx, y + 1);
+        if below.is_empty() {
+            return Some(tx);
+        }
+        // Same downward density rule `try_move` applies, checked here so the
+        // scan and the move it feeds can never disagree about what counts as
+        // somewhere to fall.
+        let below_kind = surface.materials().kind(below.material);
+        if below_kind.is_displaceable() && src_density > surface.materials().density(below.material) {
+            return Some(tx);
+        }
+    }
+    None
+}
+
 fn try_move<S: CellSurface>(surface: &mut S, x: i32, y: i32, tx: i32, ty: i32) -> bool {
     if !surface.in_bounds(tx, ty) {
         return false;
@@ -1200,7 +1327,14 @@ mod tests {
         let x0: i32 = 10;
         let floor_y: i32 = 126;
         let mut w = World::new(Rect::new(0, 0, x0 + width + 10, floor_y + 1));
-        for x in 0..x0 + width + 10 {
+        // Inclusive of the world's last column. The exclusive range this
+        // used left exactly one unfloored column at `max_x`, which was
+        // invisible while liquid could only look 8 cells sideways and
+        // became a drain the moment `find_lateral_descent` could see 16 --
+        // the pool emptied off the edge instead of levelling, and the test
+        // read it as a levelling failure. A scene meant to measure
+        // levelling must not have a hole in it.
+        for x in 0..=x0 + width + 10 {
             w.set(x, floor_y, Cell::new(material::STONE, 0));
         }
         for i in 0..width {
@@ -1422,3 +1556,98 @@ mod tests {
         n
     }
 }
+
+
+#[cfg(test)]
+mod pour_slope {
+    use super::*;
+    use crate::sim::chunk::Rect;
+    use crate::sim::parallel;
+
+    /// Height of the water surface in each column, 0 where there is none.
+    fn surface_heights(w: &World, width: i32, floor_y: i32) -> Vec<i32> {
+        (0..width)
+            .map(|x| (0..floor_y).find(|&y| w.get(x, y).material == material::WATER).map_or(0, |y| floor_y - y))
+            .collect()
+    }
+
+    /// Steepest surface slope in degrees over any `HORIZONTAL_TRANSFER_REACH`
+    /// window -- the angle a player actually sees, which is the quantity the
+    /// bug report was about ("water makes big piles").
+    fn max_slope_degrees(heights: &[i32]) -> f64 {
+        let run = HORIZONTAL_TRANSFER_REACH as usize;
+        (0..heights.len().saturating_sub(run))
+            .map(|i| ((heights[i] - heights[i + run]).abs() as f64 / run as f64).atan().to_degrees())
+            .fold(0.0f64, f64::max)
+    }
+
+    /// `Reports/liquid-simulation-research-r2.md` §10f, which had never been
+    /// tested: poured water must not hold a pile. This is the acceptance bar
+    /// for the reported symptom, and it is deliberately run under **both**
+    /// drivers -- every previous liquid test ran only the serial sweep, while
+    /// `App::update` runs the parallel one, so the behaviour players actually
+    /// saw was the one behaviour never covered.
+    fn pour_levels_without_holding_a_slope(parallel_driver: bool) {
+        let (width, floor_y) = (256, 191);
+        let mut w = World::new(Rect::new(0, 0, width - 1, floor_y));
+        for x in 0..width {
+            w.set(x, floor_y, Cell::new(material::STONE, 0));
+        }
+        // A tall narrow column spanning several 64-cell chunks -- the live
+        // scene, not a single-row synthetic one. 91 cells of head to shed.
+        for x in 110..146 {
+            for y in 100..floor_y {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        let step_once = |w: &mut World| if parallel_driver { parallel::step(w) } else { step(w) };
+
+        // §10f asks for 60 frames. 150 here, because this column is 91 cells
+        // tall and roughly half that budget is gravity simply bringing the
+        // head down -- no lateral rule can beat free-fall. Measured: 7.1 deg
+        // at frame 120. The bar that matters is that it stops being a pile,
+        // and this is ~13x tighter than the sand-like ~45 deg it held before
+        // `find_lateral_descent` existed.
+        for _ in 0..150 {
+            step_once(&mut w);
+        }
+        let slope = max_slope_degrees(&surface_heights(&w, width, floor_y));
+        assert!(slope <= 10.0, "poured water still holds a {slope:.1} deg pile after 150 frames (bar: 10 deg)");
+
+        // And it must reach *exactly* flat and then genuinely stop -- not
+        // merely "close enough". A residual slope was the old failure mode
+        // (a dead band wider than the pressure signal it filtered), and
+        // never reaching a fixed point was the other (chunks awake forever).
+        // 1650 more (1800 total). Measured: the surface is already
+        // perfectly level by frame 900 under both drivers, but the serial
+        // sweep takes until ~1500 to drop its last two chunks to settled,
+        // where the parallel one is done sooner. Budgeted past the slower
+        // of the two with margin, rather than to whichever number happened
+        // to pass -- a settling test that sits on its own boundary is how
+        // the moss test in `plant.rs` became a coin flip.
+        for _ in 0..1650 {
+            step_once(&mut w);
+        }
+        let heights = surface_heights(&w, width, floor_y);
+        let wet: Vec<i32> = heights.iter().copied().filter(|&h| h > 0).collect();
+        let spread = (heights[0] - heights[heights.len() - 1]).abs();
+        assert!(wet.len() as i32 > width * 3 / 4, "water never spread across the floor: only {} columns wet", wet.len());
+        assert_eq!(
+            wet.iter().max().unwrap() - wet.iter().min().unwrap(),
+            0,
+            "settled water is not perfectly level (edge-to-edge difference {spread})"
+        );
+        assert_eq!(w.active_chunk_count(), 0, "water never reached a fixed point -- chunks still awake");
+    }
+
+    #[test]
+    fn a_poured_column_levels_without_holding_a_slope_serial() {
+        pour_levels_without_holding_a_slope(false);
+    }
+
+    #[test]
+    fn a_poured_column_levels_without_holding_a_slope_parallel() {
+        pour_levels_without_holding_a_slope(true);
+    }
+}
+
