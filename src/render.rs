@@ -38,8 +38,12 @@ const CHUNK_BORDER_SETTLED: [u8; 4] = [60, 60, 70, 255];
 /// palette shade already is.
 const JITTER_STRENGTH: f32 = 0.12;
 
-/// Where a `Liquid` cell's brightness grain comes from — a prototype switch
-/// for a reported visual problem, not a settled feature.
+/// Where a `Liquid` cell's brightness grain comes from.
+///
+/// **Kept as a live selector on purpose, not a prototype to be collapsed.**
+/// The owner asked for it to stay so the look can keep being iterated on;
+/// `AnimatedMuted` is the current preference, and `Position` remains the
+/// default so nothing changes for anyone who does not press `G`.
 ///
 /// Reported from live play: water on a platform reads as *clearly static* in
 /// the middle while the edges move, because the grain above is keyed on world
@@ -273,10 +277,11 @@ impl Renderer {
         }
     }
 
-    /// `G` — step through the prototype liquid grain modes. Temporary: this
-    /// exists so the variants can be judged on real moving water in the real
-    /// app, which is the only way a "does this look right" question gets
-    /// answered. Delete along with `GrainMode` once one is chosen.
+    /// `G` — step through the liquid grain modes. This exists so the
+    /// variants can be judged on real moving water in the real app, which is
+    /// the only way a "does this look right" question gets answered, and it
+    /// stays for the same reason: the look is expected to keep being
+    /// iterated on rather than settled once.
     pub fn cycle_grain(&mut self) {
         self.grain = self.grain.next();
     }
@@ -408,7 +413,7 @@ impl Renderer {
             GrainMode::AnimatedSmooth => true,
             _ => false,
         };
-        let full = force_full || scale_changed || animating || self.field_overlay != FieldOverlay::Off || self.show_chunk_overlay || !particles.is_empty();
+        let full = force_full || scale_changed || self.field_overlay != FieldOverlay::Off || self.show_chunk_overlay || !particles.is_empty();
 
         let recomputed = if full {
             for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
@@ -427,6 +432,24 @@ impl Renderer {
                         Some(d) => d.union(r),
                         None => r,
                     });
+                }
+            }
+            // An animated grain changes its output with nothing in the world
+            // changing, so those chunks have to be redrawn even though the
+            // sweep did not touch them -- but only the ones actually holding
+            // liquid, since that is the only kind whose grain animates.
+            // Redrawing the whole screen instead measured at ~10 ms on a
+            // fully settled world, against 0.000 ms for every non-animated
+            // mode; this makes the cost scale with visible water rather than
+            // with screen size.
+            if animating {
+                for chunk in world.chunks().filter(|c| c.has_liquid()) {
+                    if let Some(r) = self.world_rect_to_screen_rect(chunk.coord.bounds(), width, height) {
+                        dirty = Some(match dirty {
+                            Some(d) => d.union(r),
+                            None => r,
+                        });
+                    }
                 }
             }
             let mut n = 0usize;

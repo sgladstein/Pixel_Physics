@@ -82,7 +82,7 @@ use rayon::prelude::*;
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
 use super::field::{self, FieldTile, FIELD_SCALE};
-use super::material::MaterialRegistry;
+use super::material::{MaterialKind, MaterialRegistry};
 use super::rng::Rng;
 use super::scheduler::ActiveSite;
 use super::surface::CellSurface;
@@ -513,7 +513,8 @@ impl CellSurface for ChunkView<'_> {
                 self.demotions.push((x, y));
             }
             let reach = self.world.materials.get(cell.material).sweep_reach();
-            self.chunk.set_world(x, y, cell, reach);
+            let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;
+            self.chunk.set_world(x, y, cell, reach, is_liquid);
         } else {
             // Reach for this chunk's own tracked value is handled when this
             // write is replayed through the ordinary `World::set` after the

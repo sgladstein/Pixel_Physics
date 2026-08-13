@@ -19,7 +19,7 @@ use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
 use super::creature::CreatureState;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::liquid::{self, LiquidBody};
-use super::material::{self, MaterialId, MaterialRegistry};
+use super::material::{self, MaterialId, MaterialKind, MaterialRegistry};
 use super::organism::{OrganismState, SpeciesId, SpeciesRegistry};
 use super::rng::Rng;
 use super::scheduler::{self, ActiveSite};
@@ -1013,9 +1013,10 @@ impl World {
         }
         let coord = ChunkCoord::containing(x, y);
         let reach = self.materials.get(cell.material).sweep_reach();
+        let is_liquid = self.materials.kind(cell.material) == MaterialKind::Liquid;
         let chunk = self.chunks.entry(coord).or_insert_with(|| Chunk::new(coord));
         let old = chunk.get_world(x, y);
-        chunk.set_world(x, y, cell, reach);
+        chunk.set_world(x, y, cell, reach, is_liquid);
         self.touch_neighbours(x, y, coord);
         old
     }
@@ -1342,6 +1343,7 @@ impl World {
             }
             if !was_settled && settled_now {
                 chunk.recompute_reach(|cell| materials.get(cell.material).sweep_reach());
+                chunk.recompute_has_liquid(|cell| materials.kind(cell.material) == MaterialKind::Liquid);
             }
         }
     }

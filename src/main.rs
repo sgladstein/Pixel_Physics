@@ -285,7 +285,6 @@ impl Handler {
             KeyCode::Equal => self.app.renderer.adjust_zoom(1),
             KeyCode::Minus => self.app.renderer.adjust_zoom(-1),
             KeyCode::KeyV => self.app.renderer.cycle_field_overlay(),
-            // Temporary, alongside the `GrainMode` prototype it drives.
             KeyCode::KeyG => self.app.renderer.cycle_grain(),
             KeyCode::KeyI => self.app.toggle_hover_inspector(),
             KeyCode::Tab => self.app.toggle_palette(),

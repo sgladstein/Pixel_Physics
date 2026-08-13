@@ -447,8 +447,7 @@ impl App {
             "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
             "I HOVER INSPECTOR    V FIELD OVERLAY",
             "TAB MATERIAL PALETTE    ? THIS HELP",
-            // Temporary, alongside the `render::GrainMode` prototype.
-            "G WATER GRAIN (PROTOTYPE)",
+            "G WATER GRAIN",
         ];
         for (i, line) in lines.iter().enumerate() {
             hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 8 + i as i32 * 10, line, WHITE);

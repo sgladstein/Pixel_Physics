@@ -234,6 +234,19 @@ pub struct Chunk {
     /// chunk still needs its one immediate neighbour re-examined when
     /// something adjacent changes.
     reach: i32,
+    /// Whether this chunk currently holds any `Liquid`-kind cell.
+    ///
+    /// Tracked exactly like `reach` above and for the same reasons: grown
+    /// for free on every write (`set_world`), and only ever *shrunk* by a
+    /// full scan (`recompute_has_liquid`) at the one moment that is both
+    /// cheap and safe, when the chunk settles. A stale `true` costs one
+    /// pointless chunk redraw; a stale `false` would drop an animation
+    /// frame, which is why it is never cleared except by that scan.
+    ///
+    /// Read only by `render.rs`, to redraw just the chunks holding liquid on
+    /// the frames an animated `GrainMode` steps — the whole screen was being
+    /// redrawn, which measured at ~10 ms on a settled world.
+    has_liquid: bool,
 }
 
 impl Chunk {
@@ -247,6 +260,7 @@ impl Chunk {
             pending_dirty: None,
             rng: Rng::new(seed_from_coord(coord)),
             reach: 1,
+            has_liquid: false,
         }
     }
 
@@ -266,10 +280,25 @@ impl Chunk {
     /// `self.reach`; see the field's own doc for why shrinking is handled
     /// separately, in `recompute_reach`.
     #[inline]
-    pub fn set_world(&mut self, x: i32, y: i32, cell: Cell, reach: i32) {
+    pub fn set_world(&mut self, x: i32, y: i32, cell: Cell, reach: i32, is_liquid: bool) {
         self.cells[local_index(x, y)] = cell;
         self.mark_dirty(x, y);
         self.reach = self.reach.max(reach);
+        self.has_liquid |= is_liquid;
+    }
+
+    /// See the field's own doc. Read by `render.rs`.
+    #[inline]
+    pub fn has_liquid(&self) -> bool {
+        self.has_liquid
+    }
+
+    /// The shrinking counterpart to `set_world`'s growth, run at the same
+    /// active-to-settled moment `recompute_reach` is and for the same
+    /// reason -- a chunk whose last liquid cell drained away has no way to
+    /// discover that from writes alone.
+    pub fn recompute_has_liquid(&mut self, is_liquid: impl Fn(Cell) -> bool) {
+        self.has_liquid = self.cells.iter().any(|&cell| is_liquid(cell));
     }
 
     /// Write without marking the chunk dirty.
@@ -449,7 +478,7 @@ mod tests {
         chunk.end_sweep(); // clear the initial full-chunk dirty region
         assert!(chunk.is_settled());
 
-        chunk.set_world(10, 10, Cell::new(material::SAND, 0), 1);
+        chunk.set_world(10, 10, Cell::new(material::SAND, 0), 1, false);
         // The write must not extend the sweep currently in flight...
         assert!(chunk.is_settled());
         // ...but must be picked up by the next one.
@@ -467,7 +496,7 @@ mod tests {
         let mut chunk = Chunk::new(coord);
         chunk.end_sweep();
         // A write in the corner would expand past the chunk edge.
-        chunk.set_world(0, 0, Cell::new(material::SAND, 0), 1);
+        chunk.set_world(0, 0, Cell::new(material::SAND, 0), 1, false);
         chunk.end_sweep();
         let region = chunk.sweep_region().unwrap();
         assert_eq!(region.min_x, 0);
@@ -485,7 +514,7 @@ mod tests {
         let coord = ChunkCoord::new(0, 0);
         let mut chunk = Chunk::new(coord);
         chunk.end_sweep();
-        chunk.set_world(30, 30, Cell::new(material::SAND, 0), 1);
+        chunk.set_world(30, 30, Cell::new(material::SAND, 0), 1, false);
         chunk.end_sweep();
         let region = chunk.sweep_region().unwrap();
         assert_eq!(region.min_x, 30 - 1);
@@ -497,7 +526,7 @@ mod tests {
         // recently completed sweep interval; `end_sweep` replaces it rather
         // than accumulating across calls, so this region is centred on the
         // second write alone, not the union of both).
-        chunk.set_world(40, 40, Cell::new(material::SMOKE, 0), 6);
+        chunk.set_world(40, 40, Cell::new(material::SMOKE, 0), 6, false);
         chunk.end_sweep();
         let region = chunk.sweep_region().unwrap();
         assert_eq!(region.min_x, 40 - 6);
@@ -506,7 +535,7 @@ mod tests {
         // The widened reach persists for a later write even with a smaller
         // reach of its own -- proving it is `set_world`'s `max`, not a
         // per-write value that would reset.
-        chunk.set_world(30, 30, Cell::new(material::SAND, 0), 1);
+        chunk.set_world(30, 30, Cell::new(material::SAND, 0), 1, false);
         chunk.end_sweep();
         let region = chunk.sweep_region().unwrap();
         assert_eq!(region.min_x, 30 - 6);
@@ -522,19 +551,19 @@ mod tests {
         let coord = ChunkCoord::new(0, 0);
         let mut chunk = Chunk::new(coord);
         chunk.end_sweep();
-        chunk.set_world(30, 30, Cell::new(material::SMOKE, 0), 6);
+        chunk.set_world(30, 30, Cell::new(material::SMOKE, 0), 6, false);
         chunk.end_sweep();
         let widened = chunk.sweep_region().unwrap();
         assert_eq!(widened.max_x - widened.min_x, 12);
 
-        chunk.set_world(30, 30, Cell::EMPTY, 0);
+        chunk.set_world(30, 30, Cell::EMPTY, 0, false);
         chunk.end_sweep();
         // Still wide -- nothing has recomputed it yet.
         let still_wide = chunk.sweep_region().unwrap();
         assert_eq!(still_wide.max_x - still_wide.min_x, 12);
 
         chunk.recompute_reach(|_| 0);
-        chunk.set_world(30, 30, Cell::EMPTY, 0); // re-dirty so sweep_region is Some again
+        chunk.set_world(30, 30, Cell::EMPTY, 0, false); // re-dirty so sweep_region is Some again
         chunk.end_sweep();
         let region = chunk.sweep_region().unwrap();
         assert_eq!(region.max_x - region.min_x, 2); // back to the floor of 1
