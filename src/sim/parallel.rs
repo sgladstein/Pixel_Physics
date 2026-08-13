@@ -1,7 +1,8 @@
 //! M5: the multithreaded CA sweep.
 //!
-//! `rayon` over the plan's 4-pass checkerboard — chunk `(cx, cy)` belongs to
-//! group `(cx % 2, cy % 2)` — but the actual concurrency-safety design here
+//! `rayon` over a checkerboard sweep — one pass per (chunk row, `cx` parity),
+//! taken bottom row first (see `step` for why it is not the plan's original
+//! `(cx % 2, cy % 2)` four-group form) — but the concurrency-safety design here
 //! is not what the plan originally sketched (a single `unsafe` function
 //! handing out overlapping mutable 3x3 chunk neighbourhoods). That version
 //! turned out to need a second proof — that queuing everything through it
@@ -31,13 +32,14 @@
 //!   cell falling diagonally (`|dx|=1, |dy|=1` exactly — nothing else moves
 //!   on both axes at once), so the two same-parity diagonal chunks that
 //!   could reach it land on its two *opposite* corners, never the same cell.
-//! - Working out which of a chunk's 8 neighbours can be co-active with which
-//!   other neighbour (by comparing `(cx%2, cy%2)` pairwise) shows these are
-//!   the *only* co-active configurations the checkerboard produces — a
-//!   passive chunk never receives writes from, say, its top neighbour and
-//!   its left neighbour in the same pass. Each passive chunk this pass
-//!   touches receives writes from at most one geometrically opposite pair,
-//!   and that pair's footprints are always disjoint by construction.
+//! - Vertical co-activity cannot arise at all: a pass holds exactly one
+//!   chunk row (`pass_key`), so a passive chunk's top and bottom neighbours
+//!   are never active together, and the top/bottom case above reduces to a
+//!   single writer. Each passive chunk this pass touches therefore receives
+//!   writes from at most one horizontally opposite pair, whose footprints are
+//!   disjoint by construction. This is strictly *narrower* than the four-group
+//!   form it replaced — fewer chunks are co-active, never more — so it cannot
+//!   invalidate any argument that held there.
 //!
 //! That settles *cross-chunk* safety: two different workers this pass never
 //! write the same cell. It does **not** by itself settle *within one
@@ -68,11 +70,10 @@
 //! matching `update::step`'s own semantics: a write during this frame's
 //! sweep does not get examined again until next frame (`Chunk::end_sweep`
 //! only promotes `pending_dirty` to `dirty` once, at the very end). Pass
-//! order among the 4 groups does not affect correctness — no single move
-//! ever crosses two chunk boundaries at once, since every reach is bounded
-//! by `MAX_REACH`, which is itself bounded by one `CHUNK_SIZE` — only, at
-//! most, exactly how many frames a particular grain takes to cross a
-//! particular pass boundary, which was never a guarantee this engine made.
+//! order does not affect *safety* — no single move ever crosses two chunk
+//! boundaries at once, since every reach is bounded by `MAX_REACH`, itself
+//! bounded by one `CHUNK_SIZE`. It does affect behaviour, which is the whole
+//! reason chunk rows are ordered rather than parity-split: see `step`.
 
 use std::collections::HashMap;
 
@@ -100,22 +101,66 @@ pub fn step(world: &mut World) {
 
     // Snapshotted once, up front — see the module doc's note on why this
     // must not be recomputed mid-frame.
-    let mut groups: [Vec<ChunkCoord>; 4] = Default::default();
-    for coord in world.chunks_to_sweep() {
-        groups[group_of(coord)].push(coord);
-    }
+    let active = world.chunks_to_sweep();
 
-    for group in groups {
-        run_pass(world, &group, rightward);
+    // **Chunk rows bottom to top, and only then a checkerboard on `cx`.**
+    //
+    // The obvious four-group form — `(cx % 2, cy % 2)`, run in index order —
+    // silently breaks the engine's other ordering rule. Rows sweep bottom to
+    // top so a falling column descends as a unit, and that requires the chunk
+    // row *below* to be swept before the one above. A parity split on `cy`
+    // cannot deliver it: `cy` and `cy + 1` always land in different groups,
+    // so whichever fixed order the four passes run in, half of all horizontal
+    // seams get the upper chunk first. A cell dropped across such a seam is
+    // then moved again by the receiving chunk in the same frame — two cells
+    // in one frame, which thins a falling body into a dark one-row line lying
+    // exactly on the seam. Reported from live play, on exactly the half of
+    // the seams this predicts.
+    //
+    // Marking those cells `revisited` instead was tried twice and reverted
+    // both times (`e816477`): it does clear the line, and it replaces it with
+    // a throttle at the same seam, because every crossing cell now waits a
+    // frame. Measured at a summed row-fill deficit of 2236 asking about every
+    // cross-chunk move and 1948 asking only about downward ones, against 988
+    // for this ordering. The artifact moves; it does not go away. Ordering
+    // the sweep correctly costs no cell anything.
+    //
+    // Safety is unchanged, and rests on the same argument the module doc
+    // makes: every chunk in a pass now shares a `cy` *and* a `cx` parity, so
+    // any two are at least two apart horizontally, and `MAX_REACH` being
+    // exactly `CHUNK_SIZE / 2` keeps their write footprints — into each
+    // other, into a shared horizontal neighbour, or into the rows above and
+    // below — disjoint by construction. Chunk rows are processed strictly one
+    // at a time, so a worker's ±1-row writes never land in a row anyone else
+    // is currently sweeping.
+    // Grouped through `pass_key` rather than by open-coding the same
+    // predicate here, so the driver and the safety tests that check the
+    // co-activity invariant cannot drift apart. Ordered chunk row descending
+    // (lower rows are larger `cy`, and they must go first), then parity.
+    let mut passes: Vec<(i32, i32)> = active.iter().map(|&c| pass_key(c)).collect();
+    passes.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    passes.dedup();
+
+    for key in passes {
+        let pass: Vec<ChunkCoord> = active.iter().copied().filter(|&c| pass_key(c) == key).collect();
+        run_pass(world, &pass, rightward);
     }
 
     world.end_step();
 }
 
-/// Which of the four checkerboard passes a chunk belongs to.
+/// Which pass a chunk is swept in, as an orderable key: chunk row first,
+/// then `cx` parity. Two chunks run **concurrently exactly when this
+/// matches**, which is the property every safety argument in this module is
+/// stated against.
+///
+/// Was `(cx % 2, cy % 2)` collapsed into one of four groups. That form put
+/// vertically adjacent chunk rows in different groups and therefore in a
+/// fixed order, which broke the bottom-to-top row invariant at half of all
+/// horizontal seams -- see `step`.
 #[inline]
-fn group_of(coord: ChunkCoord) -> usize {
-    (coord.x.rem_euclid(2) * 2 + coord.y.rem_euclid(2)) as usize
+fn pass_key(coord: ChunkCoord) -> (i32, i32) {
+    (coord.y, coord.x.rem_euclid(2))
 }
 
 fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
@@ -600,22 +645,24 @@ mod tests {
     }
 
     #[test]
-    fn group_of_covers_all_four_groups_and_matches_rem_euclid_parity() {
+    fn a_pass_holds_one_chunk_row_and_one_cx_parity() {
         use std::collections::HashSet;
         let mut seen = HashSet::new();
         for x in -5..5 {
             for y in -5..5 {
-                let g = group_of(ChunkCoord::new(x, y));
-                assert!(g < 4);
-                seen.insert(g);
-                assert_eq!(g, (x.rem_euclid(2) * 2 + y.rem_euclid(2)) as usize);
+                let k = pass_key(ChunkCoord::new(x, y));
+                assert_eq!(k, (y, x.rem_euclid(2)));
+                seen.insert(k);
             }
         }
-        assert_eq!(seen.len(), 4, "not every group was reachable");
+        // Ten rows, two parities each: every pass in the neighbourhood is
+        // reachable, and no two rows are ever merged into one pass -- which
+        // is the property that keeps chunk rows strictly ordered.
+        assert_eq!(seen.len(), 20, "not every pass was reachable");
     }
 
     #[test]
-    fn same_group_chunks_are_never_within_reach_of_each_other() {
+    fn concurrent_chunks_are_never_within_reach_of_each_other() {
         // The load-bearing property the whole module leans on, checked
         // exhaustively for every pair within a wide neighbourhood rather
         // than trusted from the hand derivation alone. "Within reach" means
@@ -632,11 +679,11 @@ mod tests {
         for cx in -6..6 {
             for cy in -6..6 {
                 let a = ChunkCoord::new(cx, cy);
-                let group = group_of(a);
+                let group = pass_key(a);
                 for ocx in -6..6 {
                     for ocy in -6..6 {
                         let b = ChunkCoord::new(ocx, ocy);
-                        if a == b || group_of(b) != group {
+                        if a == b || pass_key(b) != group {
                             continue;
                         }
                         let a_reach = reachable_chunks(a);
@@ -1016,30 +1063,19 @@ mod tests {
     ///
     /// The serial driver is the control: its chunk order is already
     /// bottom-up, so it never had this and must keep not having it.
-    /// **Open bug -- and the first fix for it was withdrawn. See below.**
+    /// Fixed by ordering the sweep's passes bottom chunk row first, rather
+    /// than by penalising the crossing cell -- see `step`.
     ///
-    /// `#[ignore]`d rather than deleted because the reproduction is the
-    /// expensive part and it is known-good: it failed at exactly 2 torn rows
-    /// before the withdrawn fix and passed after it. Run with
-    /// `cargo test -- --ignored` when picking this back up.
+    /// Two earlier attempts marked the crossing cell `revisited` so the
+    /// receiving chunk would not move it twice. Both cleared these rows and
+    /// both were reverted (`e816477`), because they replaced the tear with a
+    /// throttle at the same seam: every crossing cell now waited a frame.
+    /// Measured as a summed row-fill deficit of 2236 asking about every
+    /// cross-chunk move and 1948 asking only about downward ones, against
+    /// 988 for correct ordering -- see `liquid_acceptance`'s banding bar in
+    /// `update.rs`, which is what caught the second attempt before it
+    /// shipped.
     ///
-    /// The withdrawn fix was `CellSurface::swept_after_me` (reverted in
-    /// `e816477`): a mover landing in a chunk this frame had not swept yet
-    /// was marked `revisited`, so the receiving chunk would not move it a
-    /// second time. It did clear these torn rows -- and the owner reported
-    /// it introduced a much larger striped-banding artifact in live play,
-    /// which this test could not see, because it only ever looked at rows
-    /// lying exactly on a chunk seam. A replacement must clear the torn seam
-    /// rows **and** leave general row banding no worse, and a bar for the
-    /// latter has to exist before the next attempt.
-    ///
-    /// Suspected mechanism for that regression, unverified: `group_of` makes
-    /// the flagging strongly asymmetric by chunk parity -- a group-0 chunk
-    /// has both its rightward and downward cross-chunk moves stalled, a
-    /// group-3 chunk has almost none -- so flow is throttled unevenly on a
-    /// two-chunk period rather than uniformly.
-    #[test]
-    #[ignore = "open bug: the first fix caused a worse banding artifact and was reverted"]
     fn falling_water_does_not_tear_a_line_along_a_horizontal_chunk_seam() {
         const W: i32 = 512;
         const H: i32 = 320;
