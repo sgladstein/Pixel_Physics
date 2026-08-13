@@ -146,17 +146,21 @@ pub trait CellSurface {
         // `FLAG_UNDERCUT`'s own doc (`cell.rs`) for why a sideways escape and
         // a straight-down fall have to leave different kinds of hole.
         //
-        // Gated on the *mover* being a `Powder`, unlike `flowing` above,
-        // because unlike `flowing` this one is read from a cell the writer
-        // does not own: `update_powder` tests the hole beneath a grain, and
-        // that hole may perfectly well have been vacated by a liquid flowing
-        // out from under the grain or a gas rising diagonally past it.
-        // Leaving it ungated made either of those stall the sand above for a
-        // frame -- a real coupling between kinds, not the "harmless for the
-        // kinds that never read it" that holds for `flowing`. A registry
+        // Gated on the *mover*'s kind, unlike `flowing` above, because
+        // unlike `flowing` this one is read back from a cell the writer does
+        // not own: `update_powder`/`update_liquid` test the hole beneath a
+        // cell, and that hole may have been vacated by something of another
+        // kind entirely. Leaving it ungated let a gas rising diagonally past
+        // a sand pile stall the sand for a frame -- a real coupling between
+        // kinds, not the "harmless for the kinds that never read it" that
+        // holds for `flowing`.
+        //
+        // `Powder` and `Liquid` are exactly the two kinds that read it back,
+        // because they are the two that pile against a free face, and both
+        // were terracing on chunk seams for the same reason. A registry
         // lookup in the hottest path in the engine, but only on the moves
         // that actually go sideways.
-        let undercut = tx != fx && self.materials().kind(mover.material) == MaterialKind::Powder;
+        let undercut = tx != fx && matches!(self.materials().kind(mover.material), MaterialKind::Powder | MaterialKind::Liquid);
         let displaced = self.get(tx, ty).with_moved(!revisited).with_undercut(undercut);
         self.set(fx, fy, displaced);
         self.set(tx, ty, mover);

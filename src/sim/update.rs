@@ -327,7 +327,21 @@ fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
     // `flow_rate` -- that rate-limit exists for the slower pressure-driven
     // redistribution once a cell is resting against something, and must not
     // also throttle an ordinary unobstructed drop through open air.
-    if try_move(surface, x, y, x, y + 1) {
+    //
+    // Gated on `undercut` for exactly the reason `update_powder` is, and it
+    // is the same bug: a body of water meeting a vertical chunk seam held a
+    // terrace there, flat within each chunk column and dropping sharply on
+    // the boundary, because both drivers sweep chunk by chunk and the
+    // seam column could only shed one cell per frame off its bottom while
+    // the column above slumped down to refill it. Reported from live play
+    // with the F1 overlay on, risers landing exactly on the gridlines --
+    // and the ragged one-cell-tall films fringing each riser are the same
+    // thing seen close up. Measured on `seam_terracing` below: mean column
+    // step across a seam went from 9.0x the interior step, and still
+    // climbing, to 1.7x and falling.
+    let below = surface.get(x, y + 1);
+    let hole_from_a_sideways_escape = below.is_empty() && below.undercut();
+    if !hole_from_a_sideways_escape && try_move(surface, x, y, x, y + 1) {
         return true;
     }
     let (first, second) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
@@ -1918,6 +1932,124 @@ mod seam_cliffs {
             "the chunked sweep settles differently from a single-region sweep: \
              worst face {a} chunked vs {b} whole-world"
         );
+    }
+}
+
+#[cfg(test)]
+mod seam_terracing {
+    use super::*;
+    use crate::sim::chunk::{Rect, CHUNK_SIZE};
+    use crate::sim::parallel;
+
+    const WIDTH: i32 = 512;
+    const HEIGHT: i32 = 320;
+    const FLOOR_Y: i32 = HEIGHT - 8;
+
+    /// The reported scene at the sandbox's own resolution: a large body of
+    /// water released against the left wall, spreading right across seven
+    /// vertical chunk seams.
+    fn released_body() -> World {
+        let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
+        for x in 0..WIDTH {
+            for y in FLOOR_Y..HEIGHT {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 0..200 {
+            for y in 30..FLOOR_Y {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        w
+    }
+
+    /// Water in each column measured as **volume**, not as the height of its
+    /// topmost cell.
+    ///
+    /// This distinction is the whole reason the first three reproductions of
+    /// this bug failed. A `Liquid` cell holds a continuous fill (`Cell::aux`)
+    /// and the terracing comes fringed with one-cell-tall, near-empty films
+    /// — the "whiskers" in the bug report. Those films are barely visible on
+    /// screen (`render.rs` dims a liquid toward black by its fill) but a
+    /// topmost-cell metric counts them at full height, which smooths over
+    /// precisely the risers being complained about: measured that way the
+    /// seams looked at worst 1.7x the interior, against 9.0x by volume.
+    fn column_volumes(w: &World) -> Vec<i32> {
+        (0..WIDTH)
+            .map(|x| {
+                (0..FLOOR_Y)
+                    .map(|y| {
+                        let c = w.get(x, y);
+                        if c.material == material::WATER {
+                            liquid_fill(c) as i32
+                        } else {
+                            0
+                        }
+                    })
+                    .sum::<i32>()
+                    / material::LIQUID_FULL as i32
+            })
+            .collect()
+    }
+
+    /// Mean absolute column-to-column step exactly across a chunk boundary,
+    /// against the mean everywhere else. Seams being *special* is the claim
+    /// under test, so this compares them against the surface's own natural
+    /// roughness rather than against a fixed threshold — a slope is allowed
+    /// to be steep, it just may not be steep only on the gridlines.
+    fn seam_step_ratio(volumes: &[i32]) -> f64 {
+        let (mut seam, mut seam_n, mut interior, mut interior_n) = (0.0, 0usize, 0.0, 0usize);
+        for i in 0..volumes.len() - 1 {
+            if volumes[i] == 0 || volumes[i + 1] == 0 {
+                continue;
+            }
+            let step = (volumes[i + 1] - volumes[i]).abs() as f64;
+            if (i as i32 + 1).rem_euclid(CHUNK_SIZE) == 0 {
+                seam += step;
+                seam_n += 1;
+            } else {
+                interior += step;
+                interior_n += 1;
+            }
+        }
+        (seam / seam_n.max(1) as f64) / (interior / interior_n.max(1) as f64).max(0.001)
+    }
+
+    /// Water must not hold a terrace on a chunk boundary.
+    ///
+    /// The liquid twin of `seam_cliffs` above, reported from live play in
+    /// the same way and with the same signature: a spreading body held flat
+    /// plateaus with sharp risers landing exactly on the F1 overlay's
+    /// gridlines. Same cause — both drivers sweep chunk by chunk, so a
+    /// seam column sheds one cell per frame off its bottom while the column
+    /// above slumps in to refill it — and the same fix, `FLAG_UNDERCUT`,
+    /// which had been gated to `Powder` movers and so did nothing here.
+    ///
+    /// The bar is a ratio, and it is checked *late*: the failure mode is
+    /// that the dam grows without bound rather than that it exists at all.
+    /// Measured before the fix: 3.5x at frame 600 climbing to 9.0x at 1600.
+    /// After: 1.4x at 600 and 1.7x at 1600, no longer climbing.
+    fn water_does_not_terrace_on_a_chunk_boundary(driver: fn(&mut World)) {
+        let mut w = released_body();
+        for _ in 0..1600 {
+            driver(&mut w);
+        }
+        let ratio = seam_step_ratio(&column_volumes(&w));
+        assert!(
+            ratio <= 4.0,
+            "water is damming on chunk boundaries: the mean column step across a seam is {ratio:.1}x \
+             the step everywhere else (bar: 4x; before the fix this reached 9x and was still climbing)"
+        );
+    }
+
+    #[test]
+    fn water_does_not_terrace_on_a_chunk_boundary_serial() {
+        water_does_not_terrace_on_a_chunk_boundary(step);
+    }
+
+    #[test]
+    fn water_does_not_terrace_on_a_chunk_boundary_parallel() {
+        water_does_not_terrace_on_a_chunk_boundary(parallel::step);
     }
 }
 

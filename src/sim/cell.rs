@@ -46,9 +46,10 @@ const FLAG_FLOWING: u8 = 0b0000_0100;
 const FLAG_MANAGED: u8 = 0b0000_1000;
 
 /// Set on the cell a mover *vacated*, when that move had a horizontal
-/// component — a roll along a slope, or a diagonal fall. Read only by
-/// `update_powder` (`update.rs`), which refuses to let the cell directly
-/// above fall straight down into it for the one frame the flag survives.
+/// component — a roll along a slope, a lateral descent, or a diagonal fall.
+/// Read by `update_powder` and `update_liquid` (`update.rs`), each of which
+/// refuses to let the cell directly above fall straight down into it for
+/// the one frame the flag survives.
 ///
 /// This is the "a slumping column may not outrun the material escaping from
 /// under it" rule. Rows are swept bottom to top so that a column of falling
