@@ -51,6 +51,21 @@ const SOLVER_GAIN: f64 = 0.4;
 /// recommended starting point. **Untuned**, same caveat as `SOLVER_GAIN`.
 const SOLVER_DAMP: f64 = 0.9;
 
+/// A body counts as quiescent — and snaps to its exact analytic equilibrium
+/// and sleeps — once every interface's level difference *and* flux both sit
+/// under this, in `LIQUID_FULL`-scale units (design doc §7d). `30` (3% of
+/// `LIQUID_FULL`) is not a guess: `SOLVER_GAIN`/`SOLVER_DAMP`'s own integer
+/// rounding (`f64::round` each frame) leaves a genuine residual limit
+/// cycle — measured directly (a 40-column body with a single-column
+/// spike settles to a *persistent* oscillation around 11-21 units, never
+/// fully decaying to zero, since a small level difference can round back
+/// up to a nonzero flux every frame) — so a tighter epsilon would simply
+/// never fire and the body would never sleep, not "take a while" to reach
+/// it. 30 clears that measured floor with real margin. **Still flagged as
+/// untuned against real play** like the solver constants above — this is
+/// "confirmed to actually trigger," not "confirmed to look right."
+const SNAP_EPSILON: i64 = 30;
+
 /// One promoted liquid body — design doc §2b/§3a/§7/§9a. A body is always
 /// exactly one material (§3b.1) and always exactly one contiguous run of
 /// x-columns — 4-connectivity guarantees no gaps (`label_body`'s own doc).
@@ -76,6 +91,16 @@ pub struct LiquidBody {
     /// promotion in the steps built so far (only a later step's `try_
     /// extend` would), so this never needs resizing.
     pub flux: Vec<i32>,
+    /// Set once quiescent (design doc §7d/§4a — a *whole-body* measurement,
+    /// never a per-cell test; see `step`'s own doc for why quiescence is
+    /// explicitly not what gates *promotion*, only this). `step` returns
+    /// immediately, doing no work at all, while this is `true` — a sleeping
+    /// body costs nothing per frame, which is the entire point (design doc
+    /// §8c). Cleared by `World::absorb_liquid` crediting more fill in (the
+    /// body has something new to redistribute) — the only wake trigger that
+    /// exists in the steps built so far; a later step's `try_extend` and
+    /// neighbour-column demotion are two more the design doc names.
+    pub asleep: bool,
 }
 
 impl LiquidBody {
@@ -263,12 +288,18 @@ impl LiquidBody {
     }
 
     /// Advance this body by one frame — the persistent-flux pipe solver,
-    /// design doc §7a-§7c. No-op for a single-column body (nothing to level
-    /// against). Three full passes over the interfaces/columns, matching
-    /// the design doc's own pseudocode exactly rather than interleaving
-    /// them, since a later interface's flux update in step 1 must not see
-    /// an already-clamped value from step 2.
+    /// design doc §7a-§7c, plus the quiescence check and terminal snap
+    /// (§7d) that put it to sleep once genuinely converged. Returns
+    /// immediately, doing no work at all, once `asleep` — design doc §8c:
+    /// a sleeping body costs nothing per frame, and `World::absorb_liquid`
+    /// is what wakes it again. No-op for a single-column body too (nothing
+    /// to level against) — not reachable in practice, since `label_body`'s
+    /// own `MIN_BODY_COLUMNS` validation guarantees every promoted body
+    /// starts with at least 32.
     pub(crate) fn step(&mut self, world: &mut World) {
+        if self.asleep {
+            return;
+        }
         let n = self.columns();
         if n < 2 {
             return;
@@ -311,6 +342,17 @@ impl LiquidBody {
             }
         }
 
+        // Quiescence (design doc §4a/§7d): a whole-body measurement over
+        // exactly the values this frame's redistribution is about to
+        // apply, computed here (in O(width), from arrays already in hand)
+        // rather than as any per-cell test. This is *not* a promotion
+        // gate — §4a is explicit that a still-moving body is the whole
+        // point of promoting it in the first place — it only gates this
+        // body's own sleep, checked fresh every frame. A body that has
+        // already converged snaps to its exact equilibrium this same
+        // frame rather than needing one more, redundant, tiny nudge first.
+        let quiescent = (0..n - 1).all(|i| (level[i] - level[i + 1]).abs() < SNAP_EPSILON && (self.flux[i] as i64).abs() < SNAP_EPSILON);
+
         // 3. Apply -- exactly conservative by construction (§7b step 3):
         // every interface debits one column and credits its neighbour by
         // the same integer, so `Σ h` is invariant regardless of what steps
@@ -338,9 +380,68 @@ impl LiquidBody {
             }
         }
 
+        if quiescent {
+            self.terminal_snap(world, ref_bed);
+        } else {
+            for i in 0..n {
+                self.rasterize_column(world, i);
+            }
+        }
+    }
+
+    /// Solve the body's exact analytic equilibrium and snap to it, zero
+    /// the flux array, and mark the body asleep — design doc §7d. Only
+    /// ever called once quiescence already holds (`step`'s own check), so
+    /// the change this makes is sub-cell: surface flatness becomes
+    /// *exact* (§7d's own claim, ≤ 1 fill unit / 0.1% of `LIQUID_FULL`),
+    /// not merely "close enough," and it is not water teleporting.
+    fn terminal_snap(&mut self, world: &mut World, ref_bed: i32) {
+        let n = self.columns();
+        let bed_levels: Vec<i64> = (0..n).map(|i| (ref_bed - self.bed_y[i]) as i64 * material::LIQUID_FULL as i64).collect();
+        let total: i64 = self.h.iter().map(|&h| h as i64).sum();
+
+        // The equilibrium surface elevation `L` is monotone in its own
+        // total contribution (design doc §7d), so binary search finds the
+        // smallest integer `L` whose contribution across every column
+        // reaches `total` in O(n log range).
+        let contribution = |l: i64| -> i64 { bed_levels.iter().map(|&b| (l - b).max(0)).sum() };
+        let mut lo = *bed_levels.iter().min().unwrap();
+        let mut hi = lo + total + 1;
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if contribution(mid) < total {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        let l = lo;
+
+        let mut new_h: Vec<i64> = bed_levels.iter().map(|&b| (l - b).max(0)).collect();
+        let mut overshoot = new_h.iter().sum::<i64>() - total;
+        debug_assert!(overshoot >= 0, "the smallest L with contribution(L) >= total should never undershoot");
+        // Distribute the exact integer remainder deterministically --
+        // lowest column index first (design doc §7d), never by hash or
+        // iteration order (issue #7's standing rule, applied here too).
+        for h in new_h.iter_mut() {
+            if overshoot <= 0 {
+                break;
+            }
+            if *h > 0 {
+                *h -= 1;
+                overshoot -= 1;
+            }
+        }
+        debug_assert_eq!(overshoot, 0, "the equilibrium solve should exactly account for every unit of total fill");
+
+        for (h, &new) in self.h.iter_mut().zip(&new_h) {
+            *h = new as u32;
+        }
+        self.flux.iter_mut().for_each(|f| *f = 0);
         for i in 0..n {
             self.rasterize_column(world, i);
         }
+        self.asleep = true;
     }
 }
 
@@ -1046,5 +1147,61 @@ mod tests {
         }
         let touched = w.take_touched_chunks();
         assert!(touched.is_empty(), "a flat, already-level body should not keep dirtying its chunk every frame: {touched:?}");
+    }
+
+    // --- Step 4 (design doc §11): quiescence, the terminal snap, body sleep.
+
+    #[test]
+    fn a_leveling_body_eventually_snaps_flat_and_sleeps() {
+        let mut w = test_world();
+        build_pool(&mut w);
+        let id = w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+        w.absorb_liquid(POOL_X0 + 5, WATER_Y, 20_000);
+        let total_before = w.body(id).unwrap().total_fill();
+
+        for _ in 0..3000 {
+            w.step_liquid_bodies();
+        }
+
+        let body = w.body(id).expect("body should still be alive");
+        assert!(body.asleep, "a body that has fully leveled should be asleep");
+        assert!(body.flux.iter().all(|&f| f == 0), "flux should be zeroed by the terminal snap");
+        // 10b's own bar: surface flatness within 0.1% of LIQUID_FULL (<= 1
+        // fill unit) between adjacent columns -- the terminal snap should
+        // deliver *exact* (differing only by the deterministic remainder
+        // distribution, at most 1 unit), not merely "close."
+        let max_adjacent_diff = body.h.windows(2).map(|w| (w[0] as i64 - w[1] as i64).abs()).max().unwrap();
+        assert!(max_adjacent_diff <= 1, "the terminal snap should leave adjacent columns within 1 fill unit of each other, got {max_adjacent_diff}");
+        assert_eq!(body.total_fill(), total_before, "the terminal snap must not lose or manufacture mass");
+    }
+
+    #[test]
+    fn a_sleeping_body_lets_its_chunk_reach_zero_active_chunks() {
+        let mut w = test_world();
+        build_pool(&mut w);
+        w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+        w.absorb_liquid(POOL_X0 + 5, WATER_Y, 20_000);
+
+        for _ in 0..3000 {
+            parallel::step(&mut w);
+            w.step_liquid_bodies();
+        }
+
+        assert_eq!(w.active_chunk_count(), 0, "a body that has fully leveled and slept should let its chunks settle -- design doc B-6");
+    }
+
+    #[test]
+    fn absorption_wakes_a_sleeping_body() {
+        let mut w = test_world();
+        build_pool(&mut w);
+        let id = w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
+        for _ in 0..500 {
+            w.step_liquid_bodies();
+        }
+        assert!(w.body(id).unwrap().asleep, "test setup: a flat pool should already be asleep");
+
+        w.absorb_liquid(POOL_X0 + 5, WATER_Y, 500);
+
+        assert!(!w.body(id).unwrap().asleep, "absorbing new mass should wake a sleeping body");
     }
 }

@@ -4355,6 +4355,84 @@ bodies to measure against, and building one is infrastructure work
 orthogonal to the solver's own correctness. Flagged as deferred, not
 skipped silently.
 
-**Not yet built:** the terminal equilibrium snap and body sleep (step 4),
-`try_extend`/edge demotion/cooldowns (step 5), dropping `MIN_LIQUID_
-TRANSFER` (step 6). Automatic promotion still doesn't exist.
+**Not yet built at the time Step 3 shipped:** the terminal equilibrium snap
+and body sleep (step 4), `try_extend`/edge demotion/cooldowns (step 5),
+dropping `MIN_LIQUID_TRANSFER` (step 6). Automatic promotion still doesn't
+exist.
+
+### Step 4 (§11) — quiescence, the terminal snap, and body sleep — implemented
+
+**`LiquidBody` gained `asleep: bool`.** `step` returns immediately — no
+computation, no cell writes — once `asleep` (design doc §8c: a sleeping
+body costs nothing per frame). Set by a new `terminal_snap`; cleared by
+`World::absorb_liquid` (new mass to redistribute has to wake the body).
+
+**Quiescence** (§4a/§7d) is checked inside `step`, from the same `level`/
+`flux` arrays the flux-update and K-clamp passes already computed this
+frame — a whole-body measurement in O(width), never a per-cell test, and
+explicitly *not* a promotion gate (§4a: a still-moving body is the entire
+reason to promote it). If every interface's level difference and flux both
+sit under `SNAP_EPSILON`, `step` calls **`terminal_snap`** instead of its
+usual incremental rasterization: solves for the exact integer equilibrium
+surface elevation via monotone binary search
+(`contribution(L) = Σ max(0, L - bed_level[i])`, smallest `L` with
+`contribution(L) >= total`), assigns each column its exact share, trims the
+resulting overshoot by subtracting 1 from the lowest-indexed wet columns
+(deterministic remainder distribution, never hash/iteration order —
+issue #7's standing rule), zeroes `flux`, rasterizes, and sleeps.
+
+**`SNAP_EPSILON = 30`, not a small value, for a real measured reason, not
+a guess:** the solver's own integer rounding (`f64::round` in the flux
+update) leaves a genuine non-decaying limit cycle — `SOLVER_DAMP = 0.9`
+rounds small flux values back to themselves (`round(0.9 * n) == n` for
+`n` in `1..=5`), so a small residual can only ever cancel via the gain
+term hitting it exactly, which integer rounding of `0.4 * d` doesn't
+reliably do. Measured directly on the test scene this session already
+uses (40 columns, single-column spike): settles to a persistent
+oscillation around 11-21 units, never reaching zero. `30` clears that
+floor with real margin. **Still flagged as untuned against real play** —
+this is "confirmed to actually trigger," not "confirmed to look right."
+
+**Verification:** new tests in `liquid.rs` — a leveling body eventually
+snaps flat (adjacent columns within 1 fill unit — design doc 10b's own
+bar) and sleeps, with mass exact through the snap; a slept body lets
+`active_chunk_count()` reach zero (design doc B-6); absorbing new mass
+wakes a sleeping body. `cargo test --lib` (326 tests) and `cargo clippy
+--all-targets -- -D warnings` both clean (one clippy fix along the way:
+`needless_range_loop` in the snap's own write-back). Cost re-checked on
+the `ascii` stress scene (no bodies exist in that scene, so this again
+confirms zero incidental overhead, not solver/snap cost) — held at
+baseline across three runs. All three sleep-specific tests confirmed to
+fail without the quiescence check (temporarily forced `quiescent = false`).
+
+Independent review (general-purpose agent) hand-traced the binary
+search for off-by-one errors (none — proved the smallest-`L` search is
+correct and the overshoot is always strictly less than the number of wet
+columns, so the trimming loop's `debug_assert_eq!(overshoot, 0, ...)`
+can never fail), verified mass conservation through the trim
+algebraically, confirmed waking a sleeping body is safe (the only path to
+`asleep = true` already zeroes `flux` immediately before, so the
+"sleeping implies zero flux" invariant holds structurally with nothing
+extra needed at wake time), and **independently reproduced the
+`SNAP_EPSILON = 30` measurement in a standalone probe outside the crate**
+(20,000 frames, same math, converged to the same 11-21 residual) rather
+than taking the code comment's claim on faith — confirmed it isn't
+masking a sign error or off-by-one elsewhere. One real, fixed finding:
+`register_body_chunks` was being called unconditionally every frame for
+every body regardless of sleep state, rebuilding a `HashSet` over the
+body's whole footprint — real allocation-bearing work `step`'s own no-op
+didn't cover, undercutting §8c's "costs nothing" claim for as long as a
+body stayed asleep. Fixed by checking `asleep` before calling `step` and
+skipping the registration call for a body that was already asleep coming
+into the frame (still registers once, correctly, on the exact frame a
+body newly falls asleep).
+
+**Not yet built:** `try_extend`/edge demotion/cooldowns (step 5), dropping
+`MIN_LIQUID_TRANSFER` (step 6). Automatic promotion still doesn't exist —
+see the gap noted several sections up. A formal B-8 solver-cost bound
+(≥4 bodies, ≥1,000 columns, body phase under 0.5ms) and the full B-2
+leveling-speed acceptance bar (matching `eeefceb`'s exact three-tall-
+columns scene) both remain deferred — B-2 in particular needs either
+automatic promotion or a hand-built multi-thousand-frame scene to be a
+faithful reproduction, and is the natural thing to verify once automatic
+promotion exists rather than before.

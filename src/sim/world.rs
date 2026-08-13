@@ -286,12 +286,24 @@ impl World {
                 continue;
             }
             let Some(mut body) = slot.state.take() else { continue };
+            // Checked *before* `step` (which is itself already a no-op
+            // once asleep — its own doc) so a long-sleeping body skips
+            // `register_body_chunks` too, not just the solver math. Found
+            // by independent review: registering unconditionally every
+            // frame rebuilds a `HashSet` over the body's whole footprint
+            // regardless of sleep state, which is real allocation-bearing
+            // work `step`'s own no-op doesn't cover — undercutting design
+            // doc §8c's "a sleeping body costs nothing per frame" for as
+            // long as it stays asleep. Still registers once on the frame a
+            // body actually falls asleep (`was_asleep` false, `step` may
+            // have called `terminal_snap`, whose own `rasterize_column`
+            // calls could in principle still cross into an unregistered
+            // chunk on that exact frame).
+            let was_asleep = body.asleep;
             body.step(self);
-            // See `register_body_chunks`'s own doc: the solver's own
-            // redistribution can grow a column across a chunk boundary
-            // exactly like `absorb_liquid`'s growth can, and needs the
-            // identical registration.
-            self.register_body_chunks(id, &body);
+            if !was_asleep {
+                self.register_body_chunks(id, &body);
+            }
             if let Some(slot) = self.bodies.get_mut(id.index as usize) {
                 slot.state = Some(body);
             }
@@ -539,7 +551,21 @@ impl World {
     pub fn promote_liquid_body(&mut self, x: i32, y: i32) -> Option<BodyId> {
         let scan = liquid::label_body(self, x, y)?;
         let flux = vec![0i32; scan.fill.len().saturating_sub(1)];
-        let body = LiquidBody { material: scan.material, x0: scan.x0, top_y: scan.top_y, bed_y: scan.bed_y, h: scan.fill, flux };
+        let body = LiquidBody {
+            material: scan.material,
+            x0: scan.x0,
+            top_y: scan.top_y,
+            bed_y: scan.bed_y,
+            h: scan.fill,
+            flux,
+            // Not quiescent by construction -- a fresh promotion always
+            // gets at least one real solver pass before it could possibly
+            // qualify, rather than assuming a just-promoted body happens
+            // to already be flat (design doc §4a: quiescence is a
+            // structural non-requirement for promotion, so nothing here
+            // guarantees it).
+            asleep: false,
+        };
 
         let managed: Vec<(i32, i32)> = body.managed_positions().collect();
         let container = body.container_positions();
@@ -628,6 +654,10 @@ impl World {
         if i >= 0 && (i as usize) < body.h.len() {
             let i = i as usize;
             body.h[i] += fill;
+            // New mass to redistribute -- a sleeping body (design doc
+            // §7d/§8c) must wake to actually do that, or it would sit
+            // asleep with a pile absorption just dropped on it forever.
+            body.asleep = false;
             body.rasterize_column(self, i);
         }
 
