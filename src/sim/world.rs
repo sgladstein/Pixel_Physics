@@ -1630,6 +1630,41 @@ mod tests {
     }
 
     #[test]
+    fn a_chunk_woken_from_beyond_its_own_reach_counts_as_settled() {
+        // The other half of the test above. Marking that neighbour dirty and
+        // then giving it no sweep region is the *right* answer to "how much
+        // of it should be re-examined" (issue #3) — but it used to be the
+        // wrong answer to "is it awake": the chunk reported active forever
+        // while never actually being swept, so the world could not sleep and
+        // the overlay's awake count was inflated by chunks with provably
+        // nothing to do. Measured at 3 such chunks under the parallel driver
+        // on the seam-cliff scene (`update.rs`'s `seam_cliffs`).
+        //
+        // Fixed by defining `Chunk::is_settled` in terms of `sweep_region`
+        // rather than `dirty` — see its own doc for why clamping the dirty
+        // mark into the chunk's bounds instead was tried and reverted.
+        let mut w = World::new(Rect::new(0, 0, 255, 127));
+        w.end_step();
+        w.end_step();
+        assert_eq!(w.active_chunk_count(), 0);
+
+        w.set(32, 32, Cell::new(material::SAND, 0));
+        w.end_step();
+
+        assert!(w.sweep_region(ChunkCoord::new(1, 0)).is_none());
+        assert!(
+            w.chunk(ChunkCoord::new(1, 0)).unwrap().is_settled(),
+            "a chunk with no sweep region is not awake -- it has provably nothing to do"
+        );
+        // Only the chunk that actually holds the write is active.
+        assert_eq!(w.active_chunk_count(), 1);
+        assert!(
+            w.chunks().all(|c| c.is_settled() || c.sweep_region().is_some()),
+            "a chunk counted awake must have something to sweep"
+        );
+    }
+
+    #[test]
     fn chunks_are_swept_bottom_up() {
         let w = test_world();
         let order = w.chunks_to_sweep();

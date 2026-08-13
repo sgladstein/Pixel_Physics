@@ -307,9 +307,39 @@ impl Chunk {
             .intersection(self.coord.bounds())
     }
 
-    /// True when nothing changed last frame and the chunk can be skipped.
+    /// True when this chunk has nothing to sweep and can be skipped.
+    ///
+    /// Deliberately defined as "`sweep_region` has nothing to give me", not
+    /// the narrower "`dirty` is empty" it used to be. Those differ in one
+    /// real case: `World::touch_neighbours` wakes a neighbour by marking it
+    /// dirty at the position of the *write*, which by construction lies
+    /// outside that neighbour, and `sweep_region` then expands by the
+    /// chunk's own `reach` and clips to its own bounds — so a chunk whose
+    /// reach is too short to drag that point back inside gets an empty
+    /// region. Under the old definition such a chunk counted as awake
+    /// forever while never actually being swept: a chunk that could not
+    /// possibly have anything to do, keeping the world from ever sleeping
+    /// and re-marked by its neighbour's ongoing activity every frame.
+    /// Measured on the seam-cliff scene (`update.rs`'s `seam_cliffs`): 3
+    /// such chunks under the parallel driver at frame 400.
+    ///
+    /// The alternative — clamping `(x, y)` into the chunk's own bounds
+    /// inside `mark_dirty` — was tried and reverted. It works, but it throws
+    /// away the issue #3 optimization that
+    /// `neighbour_waking_stops_at_the_neighbours_own_reach` (`world.rs`)
+    /// documents as deliberate: an empty neighbour chunk should not pay for
+    /// a wide, pointless sweep just because something moved far away next
+    /// door. Answering the question from `sweep_region` keeps that and fixes
+    /// this, because the two questions were the same question all along.
+    ///
+    /// Self-healing rather than merely masked: the stale `dirty` rect that
+    /// produced the empty region is replaced by the next `end_sweep`, so
+    /// nothing accumulates. And a chunk cannot go from settled to awake
+    /// without something writing into it, which grows `reach` and marks it
+    /// dirty in-bounds through `set_world` — so this can never report
+    /// settled for a chunk that genuinely has work.
     pub fn is_settled(&self) -> bool {
-        self.dirty.is_none()
+        self.sweep_region().is_none()
     }
 
     /// Promote writes made during this sweep into the region for the next one.

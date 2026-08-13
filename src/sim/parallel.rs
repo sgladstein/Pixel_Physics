@@ -129,13 +129,21 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
     // what makes `shared: &World`'s reads of "everything else" accurate and
     // race-free rather than merely conventionally agreed not to be touched.
     //
-    // A chunk can come back out of `sweep_region()` as `None` here even
-    // though `chunks_to_sweep` just said it wasn't settled — a dirty point
-    // near its edge, widened by `MAX_REACH`, can in principle fail to
-    // overlap its own bounds. `filter_map`ing that case away would silently
-    // drop the chunk from `world.chunks` forever, since only what ends up in
-    // `owned` gets put back below — so it's put back immediately instead,
-    // skipped for this pass rather than lost.
+    // The `None` arm below is now unreachable from `chunks_to_sweep`:
+    // `Chunk::is_settled` answers from `sweep_region` itself, so a chunk
+    // whose dirty mark cannot expand back into its own bounds reports
+    // settled and never gets here. It used to be very reachable — a
+    // neighbour's out-of-bounds dirty mark plus a short `reach` produced
+    // exactly this, and such chunks then sat awake-but-never-swept forever.
+    //
+    // Kept anyway, deliberately. `sweep_region` returning `Option` is a
+    // total contract this function must honour regardless of which caller
+    // selected the coordinate, and the cost of honouring it is one branch
+    // per active chunk per pass. What must *not* happen is `filter_map`ing
+    // the case away: only what ends up in `owned` gets put back below, so
+    // discarding a chunk here would drop it from `world.chunks` forever.
+    // `a_chunk_touched_only_by_a_neighbours_dirty_mark_is_never_lost`
+    // covers that.
     let mut owned: Vec<(ChunkCoord, Chunk, FieldTile, Rect)> = Vec::with_capacity(coords.len());
     for &coord in coords {
         let Some(chunk) = world.take_chunk(coord) else {
