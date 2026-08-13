@@ -606,11 +606,20 @@ impl LiquidBody {
         if avg <= 0.0 {
             return None;
         }
-        let edge_i = self.edge_with_room(world)?;
-        if (self.h[edge_i] as f64) > avg * EDGE_OVERFLOW_RATIO {
-            return Some(edge_i);
+        for &edge_i in &[0usize, n - 1] {
+            if (self.h[edge_i] as f64) > avg * EDGE_OVERFLOW_RATIO && self.edge_has_room(world, edge_i) {
+                return Some(edge_i);
+            }
         }
         None
+    }
+
+    /// Open space beside edge column `edge_i`, at the middle of its depth.
+    fn edge_has_room(&self, world: &World, edge_i: usize) -> bool {
+        let outside_x = if edge_i == 0 { self.x0 - 1 } else { self.x0 + self.columns() as i32 };
+        let mid_y = (self.top_y[edge_i] + self.bed_y[edge_i]) / 2;
+        let outside = world.get(outside_x, mid_y);
+        outside.material == material::EMPTY || world.materials.kind(outside.material) == MaterialKind::Gas
     }
 
     /// An edge column with open space beside it, at the middle of its own
@@ -644,18 +653,15 @@ impl LiquidBody {
         if n < 2 {
             return None;
         }
-        for &edge_i in &[0usize, n - 1] {
-            if self.h[edge_i] == 0 {
-                continue;
-            }
-            let outside_x = if edge_i == 0 { self.x0 - 1 } else { self.x0 + n as i32 };
-            let mid_y = (self.top_y[edge_i] + self.bed_y[edge_i]) / 2;
-            let outside = world.get(outside_x, mid_y);
-            if outside.material == material::EMPTY || world.materials.kind(outside.material) == MaterialKind::Gas {
-                return Some(edge_i);
-            }
-        }
-        None
+        // Alternated by frame, not scanned left-first. Always testing edge 0
+        // first meant the left edge won every time it had room, so a body
+        // with room on *both* sides was eaten entirely from the left while
+        // its right edge never moved once -- measured on a 100-column block:
+        // `x0` walked 60 -> 110 across 6000 frames while the right edge sat
+        // at 159 throughout. Same directional-bias problem, and the same
+        // answer, as `update::step`'s alternating `rightward` scan.
+        let order = if world.frame.is_multiple_of(2) { [0usize, n - 1] } else { [n - 1, 0usize] };
+        order.into_iter().find(|&edge_i| self.h[edge_i] > 0 && self.edge_has_room(world, edge_i))
     }
 
     /// Demote edge column `edge_i` (0 or `columns() - 1`) back to ordinary
