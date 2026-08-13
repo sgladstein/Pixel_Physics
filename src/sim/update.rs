@@ -2121,3 +2121,328 @@ mod displacement {
         displaced_water_rises_at_most_one_cell_per_frame(true);
     }
 }
+
+
+/// The liquid acceptance criteria from `Reports/liquid-simulation-research-r2.md`
+/// §10, which that report opens by observing the engine had no way to tell
+/// whether a liquid change helped: its water tests all checked qualitative
+/// properties ("levels out", "settles flatter than a powder would"), so a
+/// mass leak or a permanently uneven surface would pass every one of them.
+///
+/// That gap is not hypothetical. Three separate times while fixing the
+/// chunk-seam bugs, an ad-hoc metric said "no problem here" on a scene that
+/// visibly had one — surface height hid a 9x seam effect that column volume
+/// showed plainly, and occupancy hid torn seam rows that were a fill deficit
+/// rather than a hole. And a fix that cleared one artifact while introducing
+/// a larger one shipped and had to be reverted (`e816477`), because the test
+/// guarding it only looked at rows lying exactly on a chunk seam.
+///
+/// **Bars are set from measurement with headroom, not from the report's
+/// aspirations**, except where the two already agree. Where they differ the
+/// report's number is recorded alongside, so the gap stays visible instead of
+/// being quietly redefined away. A test sitting on its own boundary is how
+/// the moss test in `plant.rs` became a coin flip.
+#[cfg(test)]
+mod liquid_acceptance {
+    use super::*;
+    use crate::sim::chunk::Rect;
+    use crate::sim::parallel;
+
+    fn stone_floor(w: &mut World, width: i32, height: i32, thickness: i32) {
+        for x in 0..width {
+            for y in (height - thickness)..height {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+    }
+
+    fn total_volume(w: &World) -> u64 {
+        let b = w.bounds().unwrap();
+        (b.min_y..=b.max_y)
+            .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                let c = w.get(x, y);
+                if c.material == material::WATER {
+                    liquid_fill(c) as u64
+                } else {
+                    0
+                }
+            })
+            .sum()
+    }
+
+    fn column_volume(w: &World, x: i32, floor_y: i32) -> i32 {
+        (0..floor_y)
+            .map(|y| {
+                let c = w.get(x, y);
+                if c.material == material::WATER {
+                    liquid_fill(c) as i32
+                } else {
+                    0
+                }
+            })
+            .sum()
+    }
+
+    /// §10a. Total fill must be conserved across a dam break.
+    ///
+    /// The report's reference point for what a bad implementation looks like
+    /// is the VOF literature's: the standard method gained 2% where the
+    /// height-function version was exact. Bar 0.5%, measured **0.0000%**
+    /// under both drivers — this passes with enormous margin today and is
+    /// landed anyway, because it catches a whole class of bug by
+    /// construction rather than by anyone thinking to look. An independent
+    /// review found exactly that class open in `liquid.rs`:
+    /// `World::absorb_liquid` drops the fill on a bounds miss *after*
+    /// `transfer_liquid_vertical` has already emptied the source. That path
+    /// needs a promoted body, which nothing in production creates yet, so
+    /// this scene cannot reach it — but the moment automatic promotion
+    /// lands, this is the test that fires.
+    fn mass_is_conserved_across_a_dam_break(driver: fn(&mut World)) {
+        let (width, height) = (256, 192);
+        let floor_y = height - 8;
+        let mut w = World::new(Rect::new(0, 0, width - 1, height - 1));
+        stone_floor(&mut w, width, height, 8);
+        for x in 10..80 {
+            for y in 20..floor_y {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+
+        let before = total_volume(&w);
+        assert!(before > 0, "test setup: no water");
+        let mut worst = 0.0f64;
+        for _ in 0..2000 {
+            driver(&mut w);
+            let drift = (total_volume(&w) as f64 - before as f64).abs() / before as f64 * 100.0;
+            worst = worst.max(drift);
+        }
+        assert!(worst <= 0.5, "liquid volume drifted by {worst:.4}% across a dam break (bar 0.5%, measured 0.0000%)");
+    }
+
+    #[test]
+    fn mass_is_conserved_across_a_dam_break_serial() {
+        mass_is_conserved_across_a_dam_break(step);
+    }
+
+    #[test]
+    fn mass_is_conserved_across_a_dam_break_parallel() {
+        mass_is_conserved_across_a_dam_break(parallel::step);
+    }
+
+    /// §10b and §10c together, plus the sleep bar the report does not state
+    /// but which matters more than either: a pool that has visually levelled
+    /// while its chunks stay awake is still costing the whole frame budget,
+    /// and chunk sleeping is this engine's entire cost model.
+    ///
+    /// Measured on a 100-cell basin: flatness 16 against the report's bar of
+    /// 20 (2% of `LIQUID_FULL`), reached at frame 331 against the report's
+    /// 300, fully asleep well inside 6000. The report predicted 10b would
+    /// "fail today by construction" because `MIN_LIQUID_TRANSFER` was 150 —
+    /// it is 16 now, so it passes.
+    ///
+    /// The levelling-time bar is 800, not the report's 300: 331 is the
+    /// measured value and a bar has to sit clear of it. The gap is recorded
+    /// rather than closed, because closing it is a real piece of work
+    /// (levelling is O(width²)) and not something to hide by relabelling.
+    #[test]
+    fn a_hundred_cell_basin_levels_flat_and_then_sleeps() {
+        let (width, height) = (128, 96);
+        let floor_y = height - 8;
+        let mut w = World::new(Rect::new(0, 0, width - 1, height - 1));
+        stone_floor(&mut w, width, height, 8);
+        for x in 0..14 {
+            for y in 0..height {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 114..width {
+            for y in 0..height {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // Heaped on one side, so it has the full basin to level across.
+        for x in 14..54 {
+            for y in 30..floor_y {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+
+        let flatness = |w: &World| {
+            let v: Vec<i32> = (14..114).map(|x| column_volume(w, x, floor_y)).collect();
+            (0..v.len() - 1).map(|i| (v[i + 1] - v[i]).abs()).max().unwrap_or(0)
+        };
+        let bar = material::LIQUID_FULL as i32 * 2 / 100;
+
+        let mut levelled_at = None;
+        for frame in 1..=6000 {
+            parallel::step(&mut w);
+            if levelled_at.is_none() && flatness(&w) <= bar {
+                levelled_at = Some(frame);
+            }
+        }
+
+        let final_flatness = flatness(&w);
+        assert!(
+            final_flatness <= bar,
+            "settled pool is not flat: max adjacent-column difference {final_flatness} \
+             (bar {bar} = 2% of LIQUID_FULL, measured 16)"
+        );
+        let levelled_at = levelled_at.expect("the basin never reached the flatness bar at all");
+        assert!(
+            levelled_at <= 800,
+            "the basin took {levelled_at} frames to level \
+             (bar 800, measured 331; the report asks for 300 and that gap is open)"
+        );
+        assert_eq!(w.active_chunk_count(), 0, "the basin levelled but its chunks never went to sleep");
+    }
+
+    /// §10d. A pool drained through a narrow opening must not leave material
+    /// stranded above the drain.
+    ///
+    /// Bar 90, measured **54**, against the report's aspiration of zero.
+    /// This is the one criterion the engine is clearly short on, and the gap
+    /// is deliberately left visible rather than tuned away. Note the report
+    /// attributes this symptom to VOF flotsam and jetsam — droplets orphaned
+    /// by piecewise-constant interface reconstruction — and that attribution
+    /// is doubtful: this scene strands 54 cells while producing **zero**
+    /// one-cell-tall film cells, and the films seen elsewhere are mostly
+    /// *full* cells thrown sideways by `find_lateral_descent` rather than
+    /// partial-fill remnants. Measure which mechanism is producing the cells
+    /// before adopting the report's three-cell height-function fix.
+    #[test]
+    fn a_drained_basin_does_not_strand_water_above_the_drain() {
+        let (width, height) = (192, 160);
+        let mut w = World::new(Rect::new(0, 0, width - 1, height - 1));
+        for x in 0..width {
+            w.set(x, height - 1, Cell::new(material::STONE, 0));
+        }
+        for x in 40..152 {
+            for dy in 0..3 {
+                w.set(x, 100 + dy, Cell::new(material::STONE, 0));
+            }
+        }
+        // A three-cell hole in the basin floor.
+        for x in 94..97 {
+            for dy in 0..3 {
+                w.set(x, 100 + dy, Cell::EMPTY);
+            }
+        }
+        for y in 0..100 {
+            for dx in 0..3 {
+                w.set(40 + dx, y, Cell::new(material::STONE, 0));
+                w.set(148 + dx, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 43..148 {
+            for y in 60..100 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+
+        for _ in 0..2500 {
+            parallel::step(&mut w);
+        }
+
+        let stranded = (43..148)
+            .flat_map(|x| (60..100).map(move |y| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == material::WATER)
+            .count();
+        assert!(
+            stranded <= 90,
+            "{stranded} cells stranded in a basin that should have drained \
+             (bar 90, measured 54; the report asks for 0)"
+        );
+    }
+
+    /// The bar that did not exist, and whose absence let a regression ship.
+    ///
+    /// `e816477` reverted a fix that cleared torn rows on horizontal chunk
+    /// seams and, in live play, introduced a much larger striped-banding
+    /// artifact. The test guarding that fix only ever looked at rows lying
+    /// exactly on a seam, so it saw nothing. This looks at **every** row.
+    ///
+    /// Measured as a summed fill deficit rather than a count of bad rows: a
+    /// count gave a knife-edge margin (2 against 4), where the sum separates
+    /// cleanly — serial 443, parallel 988, and the reverted fix 2236. The
+    /// serial driver is the control throughout: its chunk order is already
+    /// bottom-up, so whatever banding it shows is inherent to the rules
+    /// rather than to the decomposition, and the parallel driver may not be
+    /// dramatically worse than it.
+    #[test]
+    fn the_parallel_driver_does_not_band_a_falling_body_worse_than_the_serial_one() {
+        const WIDTH: i32 = 512;
+        const HEIGHT: i32 = 320;
+        let floor_y = HEIGHT - 8;
+
+        let scene = || {
+            let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
+            stone_floor(&mut w, WIDTH, HEIGHT, 8);
+            for x in 20..250 {
+                for y in 20..200 {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+            w
+        };
+
+        // Mean fill of the occupied cells in a row, ignoring rows too sparse
+        // to be part of the body at all.
+        let row_fill = |w: &World, y: i32| -> i32 {
+            let occupied: Vec<u32> = (1..WIDTH - 1)
+                .map(|x| {
+                    let c = w.get(x, y);
+                    if c.material == material::WATER {
+                        liquid_fill(c) as u32
+                    } else {
+                        0
+                    }
+                })
+                .filter(|&f| f > 0)
+                .collect();
+            if occupied.len() < 30 {
+                return -1;
+            }
+            (occupied.iter().sum::<u32>() / occupied.len() as u32) as i32
+        };
+        let banding = |w: &World| -> i32 {
+            (2..floor_y - 2)
+                .map(|y| {
+                    let (above, here, below) = (row_fill(w, y - 1), row_fill(w, y), row_fill(w, y + 1));
+                    if above < 0 || here < 0 || below < 0 {
+                        return 0;
+                    }
+                    let neighbours = (above + below) / 2;
+                    if neighbours > 300 && here < neighbours {
+                        neighbours - here
+                    } else {
+                        0
+                    }
+                })
+                .sum()
+        };
+        let worst_banding = |driver: fn(&mut World)| {
+            let mut w = scene();
+            let mut worst = 0;
+            for _ in 0..400 {
+                driver(&mut w);
+                worst = worst.max(banding(&w));
+            }
+            worst
+        };
+
+        let serial = worst_banding(step);
+        let parallel = worst_banding(parallel::step);
+        assert!(
+            parallel <= 1400,
+            "the parallel driver is banding a falling body: summed row fill deficit {parallel} \
+             (bar 1400; measured 988 here and 443 under the serial driver, and 2236 under the \
+             reverted fix this bar exists to have caught)"
+        );
+        assert!(
+            serial <= 700,
+            "the serial driver is banding a falling body: summed row fill deficit {serial} \
+             (bar 700, measured 443)"
+        );
+    }
+}
