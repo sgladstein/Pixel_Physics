@@ -232,36 +232,45 @@ fn roll_along_slope<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: 
 /// switches to compressible-volume fill transfer — see the module doc for
 /// why liquids need a different mechanism from `flow_sideways`/`dispersion`.
 ///
-/// **Horizontal before vertical** (`Reports/liquid-simulation-research.md`
-/// §5): a cell still stacked on top of a falling/settling column would
-/// otherwise always be offered `transfer_liquid_vertical` first, packing
-/// straight down before ever spreading sideways — measured directly (a
-/// diagnostic sweep comparing a tall multi-chunk pour with and without this
-/// reordering, later locked in as `parallel.rs`'s `three_tall_columns_
-/// spanning_chunk_boundaries_flatten_within_900_frames`) to leave a residual
-/// step still unresolved at frame 1800, against full flatness by frame 900
-/// with horizontal tried first.
+/// **Vertical before horizontal, deliberately, after a reordering attempt
+/// was tried and reverted.** `Reports/liquid-simulation-research.md` §5
+/// recommended trying horizontal first, to fix a tall column stalling with
+/// a visible step at chunk boundaries (locked in once as `parallel.rs`'s
+/// `three_tall_columns_spanning_chunk_boundaries_flatten_within_900_
+/// frames` — that test no longer exists, see below). It worked for that
+/// specific symptom, but a live report caught a worse regression it
+/// introduced: a column hitting a floor would visibly balloon out to
+/// nearly 5x its cell count within a couple hundred frames before slowly
+/// re-collapsing, while total fill stayed *exactly* conserved throughout
+/// (measured every single frame, confirmed never to drift). Water is
+/// incompressible; a genuinely buried cell (more of the same liquid,
+/// still full, stacked directly on top of it) has no free surface and no
+/// physical reason to leak fill sideways at all. The vertical-first order
+/// below has a load-bearing side effect that isn't obvious from reading
+/// it alone: a deep, blocked, full cell's vertical attempt only ever has
+/// `LIQUID_MAX_COMPRESS` (1%) of genuine room, but that tiny transfer
+/// still *succeeds* and returns early — which incidentally throttles that
+/// cell out of horizontal transfer almost every frame, keeping a packed
+/// column's interior inert the way real incompressible water would be.
+/// Trying horizontal first for every cell (or even just for cells at the
+/// literal free surface, checking only the cell directly above — also
+/// tried, also insufficient) removes that throttle broadly enough that a
+/// column's whole body starts leaking sideways within the same few frames
+/// its base lands, diluting far below full before it can recollapse.
 ///
-/// Unconditional, not gated on `Cell::flowing()` the way `Reports/liquid-
-/// simulation-research-r2.md` §8 suggested: a packed liquid column rarely
-/// earns `flowing()` under its current move-only definition (most of a
-/// settling column's own movement is fill transfer, not a whole-cell move),
-/// so gating on it would silently mostly undo the fix for the exact cells
-/// it targets — a deliberate departure from §8's specific proposal, not an
-/// application of it.
-///
-/// **This has a real, measured cost, not a free reorder**: git-stash-
-/// compared on the `examples/ascii.rs` sand-and-water stress scene, the
-/// serial worst frame went from ~37.9ms to ~42.6ms (~12%) — most likely
-/// because trying horizontal first means more cells actively transfer
-/// simultaneously during the initial chaotic settling burst, even though
-/// the whole body then reaches true flatness sooner. Within `Reports/
-/// liquid-simulation-research-r2.md` §10g's 15% regression ceiling, but
-/// consuming most of that budget — whoever adds the next liquid mechanism
-/// on top of this (the VOF height function, virtual pipes, or lowering
-/// `MIN_LIQUID_TRANSFER`) needs to re-measure against this new baseline,
-/// not the pre-reordering one, or the ceiling can be blown without any
-/// single change looking responsible for it.
+/// **Net conclusion: reverted, not fixed forward.** The stalling-at-chunk-
+/// boundaries symptom this section's own git history once fixed is a real,
+/// still-open problem (`Reports/liquid-simulation-research-r2.md` §5's
+/// "wide bodies level in O(width²)" is the same root cause), but a correct
+/// fix needs to distinguish "the free surface of a body" from "any cell
+/// that happens to have room nearby" at the level of the whole connected
+/// body, not per-cell — which is exactly what the heightfield/virtual-
+/// pipes redesign (§5 there) is for. A per-cell heuristic could not be
+/// found this session that fixed the stall without reintroducing this
+/// worse, physically-nonsensical ballooning. Don't retry another per-cell
+/// ordering tweak here without a new idea for that distinction; the two
+/// already tried (unconditional, and gated on the immediate cell above)
+/// are both known not to work.
 fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
     // Free-fall into open space, same whole-cell move as a powder. Not
     // routed through fill transfer, which is deliberately rate-limited by
@@ -276,11 +285,11 @@ fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
         return true;
     }
 
-    if transfer_liquid_horizontal(surface, x, y, first, rightward) || transfer_liquid_horizontal(surface, x, y, second, rightward) {
+    if transfer_liquid_vertical(surface, x, y) {
         return true;
     }
 
-    transfer_liquid_vertical(surface, x, y)
+    transfer_liquid_horizontal(surface, x, y, first, rightward) || transfer_liquid_horizontal(surface, x, y, second, rightward)
 }
 
 /// Push fill from `(x, y)` down into `(x, y + 1)`, when that cell is the

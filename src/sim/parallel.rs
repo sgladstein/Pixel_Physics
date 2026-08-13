@@ -812,31 +812,30 @@ mod tests {
         total
     }
 
-    fn column_height(w: &World, x: i32, id: material::MaterialId, floor_y: i32) -> i32 {
-        let mut h = 0;
-        let mut y = floor_y - 1;
-        while w.get(x, y).material == id {
-            h += 1;
-            y -= 1;
-        }
-        h
-    }
-
     #[test]
-    fn three_tall_columns_spanning_chunk_boundaries_flatten_within_900_frames() {
-        // The owner's own live-play report: pour tall water columns spanning
-        // several chunks, watch them level -- and watch the surface stall
-        // with sharp vertical walls landing at chunk boundaries, still
-        // visibly unresolved after ~15 real seconds (900 frames at 60 Hz).
-        // Confirmed directly (not assumed): a `wake_all()`-every-frame
-        // control run produces the *same* stall positions as the normal
-        // run, which rules out the chunk/sleep machinery and points at
-        // `update_liquid`'s own transfer priority -- a cell still stacked on
-        // a settling column always got `transfer_liquid_vertical` offered
-        // first, packing straight down before ever spreading sideways.
-        // Measured before/after: unfixed, a 3-cell step is still present at
-        // frame 900 and needs ~1800 to fully resolve; with horizontal tried
-        // first, frame 900 is already fully flat. This locks that in.
+    fn a_landing_column_does_not_balloon_in_cell_count() {
+        // The regression this session actually needs guarded, after a
+        // reordering fix (horizontal transfer tried before vertical, to
+        // fix a *different*, still-open problem -- tall columns stalling
+        // with a visible step at chunk boundaries, `Reports/liquid-
+        // simulation-research-r2.md` §5's "wide bodies level in O(width²)")
+        // was tried and reverted. Live report: three tall water columns
+        // dropped onto short platforms would balloon out to nearly 5x
+        // their cell count within a couple hundred frames before slowly
+        // re-collapsing, while total fill stayed exactly conserved the
+        // whole time (confirmed every single frame, never drifted) --
+        // water is incompressible, so "same mass, far more cells" is
+        // physically nonsensical even though it isn't a conservation bug.
+        // Root cause: the old vertical-first order has a load-bearing side
+        // effect that isn't obvious from reading it alone -- a deep,
+        // blocked, full cell's vertical attempt only ever has
+        // `LIQUID_MAX_COMPRESS` (1%) of genuine room, but that tiny
+        // transfer still succeeds and returns early, which incidentally
+        // throttles the cell out of horizontal transfer almost every
+        // frame. Trying horizontal first (even only for cells with open
+        // space directly above them, also tried) removes that throttle
+        // broadly enough that a column's whole body leaks sideways within
+        // the same few frames its base lands.
         let stone = material::STONE;
         let floor_y = 300;
         let mut w = World::new(Rect::new(0, 0, 511, floor_y + 10));
@@ -850,25 +849,37 @@ mod tests {
                 }
             }
         }
-
-        for _ in 0..900 {
-            step(&mut w);
+        fn water_cell_count(w: &World) -> usize {
+            let b = w.bounds().unwrap();
+            let mut n = 0;
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    if w.get(x, y).material == material::WATER {
+                        n += 1;
+                    }
+                }
+            }
+            n
         }
 
-        // A real step, not single-cell rendering noise -- same threshold
-        // the live investigation used.
-        let mut steps = Vec::new();
-        for x in 1..512 {
-            let dh = (column_height(&w, x, material::WATER, floor_y) - column_height(&w, x - 1, material::WATER, floor_y)).abs();
-            if dh >= 3 {
-                steps.push((x, dh));
-            }
+        let start_cells = water_cell_count(&w);
+        let start_fill = liquid_volume(&w, material::WATER);
+
+        let mut max_cells = start_cells;
+        for _ in 0..300 {
+            step(&mut w);
+            max_cells = max_cells.max(water_cell_count(&w));
+            assert_eq!(
+                liquid_volume(&w, material::WATER),
+                start_fill,
+                "total fill must stay exactly conserved even mid-collapse"
+            );
         }
         assert!(
-            steps.is_empty(),
-            "surface should be fully flat by frame 900 (the owner's own ~15-second report); found {} step(s): {:?}",
-            steps.len(),
-            steps
+            max_cells < start_cells * 3 / 2,
+            "cell count ballooned to {max_cells} against a start of {start_cells} \
+             (an incompressible liquid shouldn't spread across several times \
+             its own cell count just because a column landed)"
         );
     }
 }

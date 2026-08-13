@@ -3753,6 +3753,55 @@ earns `flowing()` under its move-only definition, so gating it would have
 silently undone the fix for the exact cells it targets. The landed version
 is unconditional.
 
+**Reverted again, for a real reason this time — not a testing gap.** A
+live report caught what the "landed" paragraph above missed: dropping a
+column onto a floor made it visibly balloon out to nearly 5x its own cell
+count within a couple hundred frames before slowly re-collapsing, while
+total fill stayed *exactly* conserved throughout (checked every single
+frame of the reproduction, never drifted by even one unit). Water is
+incompressible — "same mass spread across 5x the cells" is not a
+mass-conservation bug, but it is still physically wrong, and it looked
+exactly as alarming live as an actual leak would have. Root cause: the
+*old* vertical-first order had a load-bearing side effect nobody had
+named until this investigation — a deep, blocked, fully-packed cell's
+vertical attempt only ever has `LIQUID_MAX_COMPRESS` (1%) of genuine
+room, but that tiny transfer still succeeds and returns early, which
+incidentally throttles that cell out of horizontal transfer almost every
+frame. That accidental throttle is what had been keeping a packed
+column's interior inert. The reorder removed it everywhere at once, not
+just at the free surface where the original fix was actually aimed — so
+the instant a column's base landed, its *entire* body started leaking
+sideways in the same few frames. A second attempt scoped the reorder to
+only fire when the cell directly above isn't more of the same liquid at
+full fill (a literal "am I at the free surface" check) — measured, and
+it did not fix the ballooning (still ~4.8x peak cell count): once
+diagonal cascading off a narrow column's edges creates an irregular,
+locally-uneven top profile, *many* cells legitimately read as "at the
+surface" under a purely local check, and they collectively over-dilute
+just the same. **Fully reverted to vertical-first**, confirmed via the
+same reproduction that catches it (temporarily re-broken, watched the
+new test fail with cell count at 102,915 against a start of 23,400,
+restored). The permanent regression test is now `parallel.rs`'s
+`a_landing_column_does_not_balloon_in_cell_count` (replacing the deleted
+`three_tall_columns_spanning_chunk_boundaries_flatten_within_900_frames`,
+which tested for the now-reverted behavior) — it checks exact mass
+conservation every frame *and* that cell count never exceeds 1.5x its
+starting value.
+
+**Net position, stated plainly: the chunk-boundary stalling symptom is
+still real and still unfixed.** Two different per-cell reordering
+heuristics were tried and both either failed to fix it convincingly
+(the false-negative-corrected version) or fixed it while introducing a
+worse, physically-nonsensical regression (both reorder variants). The
+honest read is that a per-cell local heuristic cannot reliably
+distinguish "the free surface of a connected body" from "any cell that
+happens to have nearby room" once the body's shape becomes irregular —
+which is exactly the class of problem the heightfield/virtual-pipes
+redesign (build-order item 4 below) is meant to solve by tracking
+column height at the level of the whole body, not per cell. Don't
+attempt a third per-cell ordering tweak here without a genuinely new
+idea for that distinction; two are now on record as insufficient.
+
 **Acceptance criteria added to this plan's verification bar** (§10 of the
 report): 0.5% mass conservation over a 2000-frame dam-break; a 2%-of-
 `FULL` surface-flatness bar for a 100-cell pool (today's dead band permits
