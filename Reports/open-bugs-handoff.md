@@ -1,100 +1,55 @@
-# Open bugs handoff: sand-into-water displacement
+# Open bugs handoff
 
-Rewritten after the session that landed `15b2e51`, `38a8799`, `0717eec`.
+Rewritten at the end of the session that landed `15b2e51` … `ad1e227`.
 Everything here was measured, not reasoned — where something is a guess it
-says so.
+says so, and where a plausible idea was measured and found wrong it is
+recorded with its numbers so it is not tried twice.
 
-**The chunk-seam bugs that used to be §1 of this document are fixed**, for
-both powders and liquids. What they turned out to be is recorded below,
-because the wrong answer was recorded here confidently for a whole session
-and the method that eventually found the right one is worth reusing.
+Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ---
 
-## 0. Closed: chunk-seam cliffs and terracing (was PRIORITY)
+## Open
 
-### What it was
+### 1. Whiskers on a spreading front (the remaining half of "banding")
 
-Sand dropped as a blob held a sharp vertical face exactly on a vertical
-chunk boundary for ~25 seconds. Water spreading across seams held flat
-plateaus with sharp risers on the gridlines, each riser fringed with
-ragged one-cell-tall horizontal films (reported separately as "banding on
-moving water" — same bug, seen close up).
+One-cell-tall sheets of water with open air above *and* below, drawing as a
+comb of detached horizontal ledges along a spreading front. Reported from
+live play. Distinct from the row banding that was fixed — that was a fill
+deficit *inside* the body; this is the shape of its *edge*.
 
-### The recorded leading hypothesis was wrong
+Barred, not fixed: `update.rs`'s
+`a_spreading_front_does_not_shed_a_comb_of_detached_ledges`, at 400 against
+a measured 290. The bar holds the line; it does not claim a fix.
 
-This document previously said the cause was the two-angle repose model
-never flipping seam-adjacent cells into `flowing`, so they held
-`max_stability_angle`. **Measured: false.** Seam-adjacent cells *do* get
-`flowing()` set — instrumented directly, they carry it while a control
-column two cells away does not. Do not revisit this.
+**Three candidates measured and rejected** (numbers in the test's own doc):
 
-### Actual cause
+| tried | result |
+|---|---|
+| Disable `find_lateral_descent` | −75% whiskers, and water reads as sand again — the original bug |
+| Land the mover at `(tx, y)`, fall next frame | whiskers 2540 → 1635, but enclosed holes 289 → **1040** |
+| Shrink `LIQUID_LATERAL_REACH` | pure trade against levelling, no path to zero: 24/12/6/3 → whiskers 290/175/151/119, levelling 343/557/1017/1661 frames |
 
-Both drivers sweep **chunk by chunk**, so every cell in a chunk is updated
-before any cell in the chunk to its right. A free face landing on a
-boundary became a one-column conveyor: the seam column shed exactly one
-cell per frame off its bottom while the whole column above slumped down
-one to refill it, and the chunk to its left — already swept that frame —
-could not widen the face.
+**What the measurements say about the cause**, which is *not* what it looks
+like: `find_lateral_descent` is not teleporting water. **75% of its moves
+are a single-cell diagonal step and only 3% land with air two cells below**,
+and whiskers survive at reach 3. So they are not primarily long jumps. They
+look instead like the surface monolayer advancing one diagonal step per
+frame with nothing above it to refill the row it vacates — which raises the
+real possibility that the honest fix is not in the movement rule at all, but
+in how a one-cell-thick sheet is *drawn*. See the grain prototype below.
 
-Instrumented in the seam column: **33 straight-down slumps against 0.9
-sideways escapes per frame**, where a single-region sweep of the identical
-state gave 9 escapes.
+Note this is **not** the VOF flotsam-and-jetsam the liquid research reports
+diagnose. Their fix is a three-cell height function for partial-fill
+droplets orphaned by interface reconstruction; measured here, the drained
+basin strands 54 cells while producing **zero** films, and the films
+elsewhere are mostly *full* cells. Do not adopt that fix without first
+measuring which mechanism is producing the cells.
 
-### What found it
+### 2. Sand-into-water displacement
 
-`update::step_monolithic` — sweep the whole world as one region, ignoring
-chunk decomposition. Kept as `#[cfg(test)]` and as a live test
-(`chunking_the_sweep_does_not_change_where_a_pile_settles`). It answers
-the one question three wrong hypotheses had all been guessing at: *is this
-coming from the movement rules, or from how the sweep is cut up?* From
-byte-identical starting state it produced zero seam cliffs, and relaxed an
-already-dammed frame-400 state ~10x faster.
-
-### The fix
-
-`FLAG_UNDERCUT` (`cell.rs`): a hole opened by a move with a horizontal
-component may not be slumped straight down into for the one frame the flag
-survives, so the cell above has to find its own sideways escape — which,
-on a face, is the avalanche that was missing. Straight-down moves
-deliberately do not set it, because a column falling through air *must*
-descend as a unit.
-
-Set and read for `Powder` and `Liquid` only. It is read back from a cell
-its writer does not own, so leaving it ungated let a gas rising past a
-sand pile stall the sand for a frame.
-
-### Also fixed: chunks awake but never swept
-
-`Chunk::is_settled` now answers from `sweep_region` rather than `dirty`, so
-a chunk whose dirty mark cannot expand back into its own bounds counts as
-settled instead of sitting awake forever. 3 such chunks → 0. The
-alternative (clamping `mark_dirty`) stays reverted; it discards issue #3's
-optimization and fails
-`neighbour_waking_stops_at_the_neighbours_own_reach`.
-
----
-
-## 1. Sand-into-water displacement (the only open bug here)
-
-### History
-
-Dropping a dense blob into water made the water appear on top of the blob
-almost immediately and spray sideways out of it. Root cause, measured:
-rows are swept bottom-to-top, so as the sweep works upward each successive
-sand cell displaces the *same* water parcel again, and it crossed the
-whole height of the blob in one frame.
-
-- `c759836`: `move_cell` marked the displaced cell `with_moved(!revisited)`
-  rather than unconditionally `false`. Necessary but not sufficient.
-- `abffff2`: `try_move` gained a `dst.moved()` refusal, so an
-  already-moved cell cannot be displaced again in the same frame.
-
-### The explicit better/worse call this document asked for — decided
-
-Measured on a walled pool with a 22-radius sand blob dropped in, worst
-value over 400 frames under the parallel driver:
+Unchanged from the previous handoff and still the design gap it was.
+`abffff2` is **kept** — the decision was made explicitly with numbers:
 
 | metric | before `abffff2` | now |
 |---|---|---|
@@ -102,88 +57,102 @@ value over 400 frames under the parallel driver:
 | sand/water/sand stripes | 41 | **1379** |
 | sand cells with air beneath | 86 | 115 |
 
-**Decision: keep `abffff2`. Option 3 (revert) is closed.** Water crossing
-29 rows in a single frame is a gross physics violation and was rated
-clearly wrong from live play; one row per frame is correct. The striping
-it traded for is genuinely much worse than this document previously
-described — not "one row sand, one row water" rippling upward, but the
-whole blob dissolving into a persistent checkerboard, still ~1370 stripe
-sites at frame 80.
+Water crossing 29 rows in one frame is a gross physics violation; the
+striping it traded for is ugly. **Option 1 from the old list (sideways-
+preferring displacement) was implemented as a mass-conserving 3-cycle and
+measured: it does nothing** — stripes 1379 → 1370, stall unchanged, and it
+*regressed* water rise to 2 rows/frame. Reverted, not committed. It cannot
+work as specified: inside a pool there is no free-or-lighter cell beside the
+mover, so the sideways path only opens where the blob is already at a free
+surface, which is where striping was never the problem.
 
-### Option 1 was tried and does not work — measured
+The striping follows from two individually-correct premises — displaced
+material moves at most one row per frame, and displacement is a straight
+vertical swap — so no local `try_move` tweak can remove it. Remaining
+options: let an unsupported refused mover fall (fixes the 115 floating cells
+only), move a coherent body *as a body* (`rigid.rs` — the only thing that
+removes the premise), or accept it.
 
-"Sideways-preferring displacement" (place the displaced lighter cell in a
-free-or-lighter cell up-left/up-right in preference to the vacated cell
-directly above), implemented as a proper 3-cycle so mass is conserved:
+### 3. Scheduler under-enforces `max_active_tips` (a tree bug)
 
-| metric | now | with option 1 |
+Review finding, **verified by reading but not reproduced**, and therefore
+deliberately not fixed. `scheduler::step` pops the entire due batch into
+`due_sites` *before* dispatching any of it, so `world.active_sites` does not
+hold the batch while `plant::tick` runs. `organism_active_tip_count` counts
+only the heap, so it cannot see any tip in the current batch — and when a
+tree's tips all come due on the same frame, which is the normal case, the
+count it returns is far too low and `Behavior::Grow`'s cap
+(`max_active_tips`, 14 and 10 in `tree.ron`) is under-enforced.
+
+An attempt to reproduce it grew no tips at all (`plant_tree` on a soil floor
+with no field step), so the scale of the real effect is unknown. A fix wants
+either dispatch-one-at-a-time (changes the cap's meaning, and risks a tip
+producing a due-now tip in the same frame) or making the in-flight batch
+visible to the count. Needs someone with the tree subsystem in context.
+
+### 4. Levelling is O(width²)
+
+Not a bug so much as a known cost, quantified here because the previous
+handoff's numbers were read before convergence and were wrong:
+
+| frame | 1024-wide pool tilt | wall clock |
 |---|---|---|
-| stripes | 1379 | 1370 |
-| sand in air | 115 | 115 |
-| water rise | 1 row/frame | **2 rows/frame** |
+| 8,000 | 29 cells | 2¼ min |
+| 40,000 | 3 cells | 11 min |
+| 70,000 | 1 cell, asleep | 19 min |
 
-No effect on the striping, no effect on the stall, and it *regressed* the
-one metric `abffff2` exists to protect. **Reverted, not committed.**
+It **does** converge flat and **does** sleep — there is no limit cycle, and
+the earlier "residual tilt" figures were mid-convergence readings. A 512
+world (the sandbox's own width) is ~4x faster: near-flat around 2 minutes.
+The real cost is CPU, not appearance: the visible defect is gone early and
+what persists is chunks awake doing invisible fill shuffling.
 
-The reason it cannot work as specified: inside a pool there is no
-free-or-lighter cell beside the mover. The blob's own cells are denser and
-the surrounding water is the same material, so the sideways path only ever
-opens where the blob is already at a free surface — which is exactly where
-striping was never the problem.
+This is what the heightfield bodies exist to fix (O(width) instead), and
+they are blocked on the promotion gap below.
 
-### Why this is harder than the remaining options suggest
+### 5. Automatic promotion is still reverted
 
-The striping is not a bug in the refusal; it follows from two things that
-are each individually correct:
-
-1. Displaced material may move at most one row per frame (`abffff2`).
-2. Displacement is a straight vertical swap, so water under a sinking body
-   has nowhere to go but *through* it.
-
-Given both, a 44-cell-tall blob **must** take ~44 frames to pass a water
-parcel, and the column must alternate while it does. No local tweak to
-`try_move` changes that; the two premises jointly imply the stripe.
-
-So the real options are:
-
-1. **Option 2 from the old list** — let a refused mover fall anyway when
-   it has no support. Contained, and addresses only the floating-sand
-   visual (115 cells), not the striping. Worth doing on its own merits.
-2. **Move a coherent body as a body**, rather than cell-by-cell swaps —
-   the `rigid.rs` direction. This is the only thing that actually removes
-   the premise. Large.
-3. **Accept it and reduce blob density in play.** Loose material stripes
-   far less because it does not present a solid cross-section.
-
-Not attempted. Do not attempt another local `try_move` tweak without a new
-idea about premise 2 — the sideways-preferring one is now measured not to
-work, and is the obvious one.
+`promote_liquid_body` is called **only from tests**. Automatic promotion was
+implemented and reverted (`127e177`) because a promoted flat body cannot
+expand into open floor beside it. So `liquid.rs` — the pipe solver, the
+seam, ~1000 lines — never runs in play, and every bug in it is latent.
 
 ---
 
-## Standing methodology note
+## Closed this session
 
-Still the most valuable thing in this document, and it earned another
-entry this session.
+- **Chunk-seam cliffs** (powders) and **terracing** (liquids), both from the
+  chunk-by-chunk sweep order. `FLAG_UNDERCUT`. The previous handoff's
+  leading hypothesis (seam cells never getting `flowing()`) was **measured
+  false**.
+- **Dark lines on horizontal chunk seams.** Fixed by sweeping chunk rows
+  bottom-first (`pass_key`) rather than by penalising the crossing cell —
+  two attempts at the latter were reverted, because they replace the tear
+  with a *throttle* at the same seam (2236 and 1948 summed row-fill deficit
+  against 988 for correct ordering).
+- **Chunks awake but never swept.** `is_settled` now answers from
+  `sweep_region`.
+- **Four of five review findings**: liquids scanning through a promoted
+  body's cells; explosions spawning debris made of `material::EMPTY`;
+  `try_extend` freezing CA water it did not claim; `absorb_liquid`
+  destroying fill at a body's edge. The fifth is §3 above.
 
-Every fix in this area judged by test output alone has failed to change
-what the owner saw. The ones that worked were driven by a reproduction
-built from the owner's own description of the *initial state*, confirmed
-to reproduce the complained-about quantity **before** any fix was written,
-and verified with a live `cargo run` afterwards (the framebuffer capture
-hook in `main.rs` makes this cheap: set
-`PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start>,<interval>,<count>` and edit the
-scene into `build_terrain`).
+`particle::step`'s landing check was flagged by the same review and
+**deliberately left alone** — the reasoning is recorded in place.
 
-**New this session: the obvious metric was wrong twice, in the same way.**
-For water, measuring the topmost water cell per column showed chunk seams
-at worst 1.7x the interior roughness — which reads as "no seam effect at
-all" — while measuring the same scene by *volume* showed 9.0x and
-climbing. A `Liquid` cell holds a continuous fill, `render.rs` dims it
-toward black by that fill, and the near-empty film cells fringing a riser
-are nearly invisible on screen but count at full height in a
-topmost-cell metric, smoothing over precisely the riser being complained
-about. Three reproductions failed before the metric was changed to volume.
+---
 
-When a reproduction "doesn't reproduce", suspect the metric before
-suspecting the scene.
+## Awaiting a decision
+
+Five `GrainMode` variants are prototyped behind a runtime switch, default
+unchanged, with GIFs generated for comparison (`examples/filmstrip.rs`,
+`grain=`). They address the report that a pool reads as *static* in the
+middle while its edges move — the grain is keyed on world position, so water
+flows through a pattern nailed to the screen.
+
+Worth knowing before choosing: a settled pool changes 431 cells per step
+with **zero occupancy changes**. Its interior genuinely does not move. So
+`Cell` grain makes moving water *read* as moving, which it currently does
+not, but nothing can animate an interior that is standing still — `Muted`
+and `Animated` are the variants aimed at that half, and `Animated` is the
+only one that costs the dirty-rect render skip.
