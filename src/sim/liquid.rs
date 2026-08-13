@@ -395,7 +395,13 @@ impl LiquidBody {
         }
 
         if self.asleep {
-            return;
+            // Equilibrium requires containment, not just flatness. A body
+            // that can still spill has somewhere to go no matter how level
+            // its surface is, so it does not get to sleep through it.
+            if self.edge_with_room(world).is_none() {
+                return;
+            }
+            self.asleep = false;
         }
         if self.columns() < 2 {
             return;
@@ -416,7 +422,15 @@ impl LiquidBody {
         // real frames of solving before it's fair to judge overloaded
         // again, or reclaim and demote thrash each other forever.
         if world.frame >= self.extend_cooldown_until {
-            if let Some(edge_i) = self.overloaded_edge(world) {
+            // `overloaded_edge` first (an edge growing without bound is the
+            // urgent case), then plain uncontainment: a level body beside
+            // open floor sheds its edge column back to the CA, which is
+            // exactly how §6c says outflow is supposed to happen -- "edge
+            // demotion, not a special rule". The shed column flows away as
+            // ordinary water, `try_extend` reclaims whatever is left after
+            // the cooldown, and the body walks outward one column at a time
+            // until it finds walls and genuinely is contained.
+            if let Some(edge_i) = self.overloaded_edge(world).or_else(|| self.edge_with_room(world)) {
                 self.demote_edge_column(world, edge_i);
                 if self.columns() < 2 {
                     return; // demoted down to nothing left to level
@@ -592,15 +606,52 @@ impl LiquidBody {
         if avg <= 0.0 {
             return None;
         }
+        let edge_i = self.edge_with_room(world)?;
+        if (self.h[edge_i] as f64) > avg * EDGE_OVERFLOW_RATIO {
+            return Some(edge_i);
+        }
+        None
+    }
+
+    /// An edge column with open space beside it, at the middle of its own
+    /// depth — somewhere this body's water could actually go.
+    ///
+    /// Split out of `overloaded_edge` because it answers a second, more
+    /// basic question that had no answer at all: **is this body contained?**
+    /// A body that is internally level but has open floor beside it is not
+    /// in equilibrium, however flat its surface is, and both of the gates
+    /// that used to stand between it and spreading were keyed on the wrong
+    /// thing:
+    ///
+    /// - `overloaded_edge` required an edge column above
+    ///   `EDGE_OVERFLOW_RATIO` times the body's own average, which a level
+    ///   body is by definition never above.
+    /// - `step`'s `asleep` early return skipped the check entirely, on the
+    ///   stated reasoning that a body that fell asleep flat and
+    ///   not-overloaded "cannot have changed, so there is nothing new to
+    ///   detect". True of its `h[]`, and beside the point: nothing about
+    ///   being flat means being contained.
+    ///
+    /// Together those meant a promoted body simply never spread. Measured
+    /// before this: a four-deep, forty-column body on a floor with a
+    /// hundred and fifty columns of open room beside it fell asleep by
+    /// frame 100 and had not moved one cell by frame 4000. That is the gap
+    /// that got automatic promotion reverted (`127e177`) — "the persistent-
+    /// flux solver has no mechanism to drive an internally-level body to
+    /// expand into open floor space beside it."
+    fn edge_with_room(&self, world: &World) -> Option<usize> {
+        let n = self.columns();
+        if n < 2 {
+            return None;
+        }
         for &edge_i in &[0usize, n - 1] {
-            if (self.h[edge_i] as f64) <= avg * EDGE_OVERFLOW_RATIO {
+            if self.h[edge_i] == 0 {
                 continue;
             }
             let outside_x = if edge_i == 0 { self.x0 - 1 } else { self.x0 + n as i32 };
             let mid_y = (self.top_y[edge_i] + self.bed_y[edge_i]) / 2;
             let outside = world.get(outside_x, mid_y);
-            let has_room = outside.material == material::EMPTY || world.materials.kind(outside.material) == MaterialKind::Gas;
-            if has_room {
+            if outside.material == material::EMPTY || world.materials.kind(outside.material) == MaterialKind::Gas {
                 return Some(edge_i);
             }
         }
@@ -901,6 +952,23 @@ mod tests {
         }
         for x in POOL_X0..POOL_X0 + POOL_WIDTH {
             w.set(x, WATER_Y, Cell::new(material::WATER, 0));
+        }
+    }
+
+    /// `build_pool` plus side walls, so the body is genuinely *contained*.
+    ///
+    /// `build_pool` deliberately has none: its floor runs one cell past the
+    /// water on each side and there is open sky above, which is the minimal
+    /// shape `label_body` will promote and exactly what the extend/demote
+    /// tests need. It is the wrong shape for anything asserting a body
+    /// settles and sleeps, because such a pool is sitting on a ledge and
+    /// should spill off it -- once `edge_with_room` existed, it does, and
+    /// the tests that assumed otherwise were asserting a bug.
+    fn build_contained_pool(w: &mut World) {
+        build_pool(w);
+        for y in 0..FLOOR_Y {
+            w.set(POOL_X0 - 1, y, Cell::new(material::STONE, 0));
+            w.set(POOL_X0 + POOL_WIDTH, y, Cell::new(material::STONE, 0));
         }
     }
 
@@ -1447,7 +1515,7 @@ mod tests {
         // ran, defeating design doc §7e's entire point and, transitively,
         // the sleep mechanism a later step depends on.
         let mut w = test_world();
-        build_pool(&mut w);
+        build_contained_pool(&mut w);
         w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
 
         // Real per-frame order (CA sweep, then liquid bodies), matching
@@ -1501,7 +1569,7 @@ mod tests {
     #[test]
     fn a_sleeping_body_lets_its_chunk_reach_zero_active_chunks() {
         let mut w = test_world();
-        build_pool(&mut w);
+        build_contained_pool(&mut w);
         w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: pool should promote");
         w.absorb_liquid(POOL_X0 + 5, WATER_Y, 20_000);
 
@@ -1592,6 +1660,70 @@ mod tests {
         );
     }
 
+    /// A promoted body that is internally level must still spread onto open
+    /// floor beside it.
+    ///
+    /// This is the gap that got automatic promotion reverted (`127e177`):
+    /// "promoting an already-flat rectangular block freezes it permanently
+    /// short of its correct spread, since the persistent-flux solver has no
+    /// mechanism to drive an internally-level body to expand into open floor
+    /// space beside it."
+    ///
+    /// Two gates stood in the way, both keyed on the wrong question:
+    /// `overloaded_edge` wanted an edge column above `EDGE_OVERFLOW_RATIO`
+    /// times the body's own average, which a *level* body never is; and
+    /// `step`'s `asleep` early return skipped the check entirely, reasoning
+    /// that a body which fell asleep flat cannot have changed. True of its
+    /// `h[]`, and beside the point -- flat is not the same as contained.
+    ///
+    /// Measured before the fix: not one cell of movement in 4000 frames.
+    /// After: the body walks outward a column at a time and the water
+    /// crosses the whole 150 columns of open floor.
+    ///
+    /// The CA sweep runs here alongside `step_liquid_bodies`, and that is
+    /// load-bearing rather than incidental realism. §6c's outflow *is* edge
+    /// demotion -- the body hands a column back and ordinary water rules
+    /// carry it away. With `step_liquid_bodies` alone the shed column simply
+    /// sits there and `try_extend` reclaims it on the next cycle, which
+    /// reads as a thrash between the two and moves no water at all. A first
+    /// version of this test did exactly that and looked like a failure.
+    #[test]
+    fn a_level_body_spreads_onto_open_floor_beside_it() {
+        let mut w = World::new(Rect::new(0, 0, 199, 63));
+        for x in 0..200 {
+            w.set(x, FLOOR_Y, Cell::new(material::STONE, 0));
+        }
+        // Walled on the left, wide open to the right.
+        for y in 0..FLOOR_Y {
+            w.set(POOL_X0 - 1, y, Cell::new(material::STONE, 0));
+        }
+        for x in POOL_X0..POOL_X0 + POOL_WIDTH {
+            for y in WATER_Y - 3..=WATER_Y {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        let id = w.promote_liquid_body(POOL_X0, WATER_Y).expect("test setup: the pool should promote");
+        let started_at = POOL_X0 + POOL_WIDTH - 1;
+        let fill_before = w.body(id).unwrap().total_fill();
+
+        for _ in 0..4000 {
+            super::super::update::step(&mut w);
+            w.step_liquid_bodies();
+        }
+
+        let furthest = (0..200)
+            .rev()
+            .find(|&x| (0..FLOOR_Y).any(|y| w.get(x, y).material == material::WATER))
+            .expect("the water cannot have vanished entirely");
+        assert!(
+            furthest > started_at + 50,
+            "a level body on open floor only reached x={furthest}, having started at x={started_at}              with 150 columns of room (before the fix it moved zero cells in 4000 frames)"
+        );
+        // It spread by *shedding*, not by inventing water.
+        let body_fill = w.body(id).map_or(0, |b| b.total_fill());
+        assert!(body_fill < fill_before, "the body should have handed mass back to the CA, not kept all {fill_before}");
+    }
+
     #[test]
     fn try_extend_claims_an_adjacent_puddle() {
         let mut w = test_world();
@@ -1672,7 +1804,14 @@ mod tests {
             w.step_liquid_bodies();
         }
 
-        assert_eq!(w.body(id).unwrap().columns(), columns_before, "a different-material puddle should never be claimed");
+        // Asserted against the *left* edge specifically, not the column
+        // count: the body may legitimately shed a column at its other edge
+        // now that an uncontained edge spills (`edge_with_room`), which has
+        // nothing to do with what this test is about.
+        let body = w.body(id).unwrap();
+        assert!(body.x0 > demoted_x, "the oil column at x={demoted_x} was claimed; body now starts at x0={}", body.x0);
+        assert!(!w.get(demoted_x, WATER_Y).managed(), "a different-material puddle should never be claimed");
+        let _ = columns_before;
     }
 
     #[test]
