@@ -76,6 +76,28 @@ pub enum GrainMode {
     Motion,
 }
 
+impl GrainMode {
+    fn next(self) -> Self {
+        match self {
+            GrainMode::Position => GrainMode::Cell,
+            GrainMode::Cell => GrainMode::Muted,
+            GrainMode::Muted => GrainMode::Animated,
+            GrainMode::Animated => GrainMode::Motion,
+            GrainMode::Motion => GrainMode::Position,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GrainMode::Position => "POSITION (current)",
+            GrainMode::Cell => "CELL",
+            GrainMode::Muted => "MUTED",
+            GrainMode::Animated => "ANIMATED",
+            GrainMode::Motion => "MOTION",
+        }
+    }
+}
+
 /// Frames per step of `GrainMode::Animated`, chosen by the same reasoning
 /// `FLAME_FLICKER_PERIOD` records: re-rolling every frame reads as noise.
 const GRAIN_ANIMATION_PERIOD: u64 = 5;
@@ -230,6 +252,14 @@ impl Renderer {
             field_overlay: FieldOverlay::Off,
             last_zoom_state: None,
         }
+    }
+
+    /// `G` — step through the prototype liquid grain modes. Temporary: this
+    /// exists so the variants can be judged on real moving water in the real
+    /// app, which is the only way a "does this look right" question gets
+    /// answered. Delete along with `GrainMode` once one is chosen.
+    pub fn cycle_grain(&mut self) {
+        self.grain = self.grain.next();
     }
 
     pub fn cycle_field_overlay(&mut self) {
@@ -872,6 +902,20 @@ mod tests {
         renderer.draw(&world, &particles, &HashSet::new(), &mut on, (w, h), true);
 
         assert_ne!(off, on, "the pressure overlay should visibly change the render over a real pressure impulse");
+    }
+
+    #[test]
+    fn cycle_grain_visits_every_mode_and_returns_to_the_current_behaviour() {
+        let mut r = Renderer::new();
+        assert_eq!(r.grain, GrainMode::Position, "the default must stay today's behaviour");
+        let mut seen = vec![r.grain];
+        for _ in 0..4 {
+            r.cycle_grain();
+            seen.push(r.grain);
+        }
+        assert_eq!(seen.len(), 5);
+        r.cycle_grain();
+        assert_eq!(r.grain, GrainMode::Position, "cycling should wrap back round");
     }
 
     #[test]

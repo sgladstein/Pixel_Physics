@@ -447,6 +447,8 @@ impl App {
             "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
             "I HOVER INSPECTOR    V FIELD OVERLAY",
             "TAB MATERIAL PALETTE    ? THIS HELP",
+            // Temporary, alongside the `render::GrainMode` prototype.
+            "G WATER GRAIN (PROTOTYPE)",
         ];
         for (i, line) in lines.iter().enumerate() {
             hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 8 + i as i32 * 10, line, WHITE);
@@ -624,13 +626,20 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
             self.world.active_chunk_count(),
             self.world.chunk_count(),
             if self.paused { " — PAUSED" } else { "" },
+            // Only shown once it has been changed, so the ordinary status
+            // line is untouched until someone is actually comparing modes.
+            if self.renderer.grain == render::GrainMode::Position {
+                String::new()
+            } else {
+                format!(" — grain {}", self.renderer.grain.label())
+            },
             match &self.message {
                 Some(m) => format!(" — {m}"),
                 None => String::new(),

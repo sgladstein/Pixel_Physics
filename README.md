@@ -31,6 +31,7 @@ cargo test
 | `W` | Plant a worm under the brush (M18 debug tool) |
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
 | `V` | Cycle the field overlay: off → pressure → temperature → light → moisture → off |
+| `G` | **Prototype.** Cycle how a liquid's brightness grain is generated: position (current) → cell → muted → animated → motion. Exists so the variants can be judged on real moving water rather than argued about; the active one is shown in the title bar. See `render::GrainMode`, and expect this key and the enum to disappear together once one is chosen. |
 | `Tab` | Toggle the material palette (swatch row, current selection outlined) |
 | `/` (shown as `?`) | Toggle the keybind help overlay |
 | `O` | Toggle the live tunables panel (§10 — browse/adjust/save material fields at runtime) |
