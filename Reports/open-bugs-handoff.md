@@ -139,11 +139,54 @@ So the freeze is genuinely gone — the body sheds steadily, 100 columns and
 the water to the CA. Shedding one column per `DEMOTE_COOLDOWN_FRAMES` is
 simply slower than the CA spreading it directly.
 
-That points at the promotion *criteria* rather than at another mechanism:
-a body should probably not be promoted while it is still visibly spreading,
-only once it is contained. §4a already argues quiescence is the wrong gate;
-containment (`edge_with_room` returning `None`) looks like a better one and
-is now cheap to test. Not attempted.
+### 6. The heightfield does not deliver the speed it was built for
+
+**Measured, and it inverts the premise the whole subsystem rests on.**
+Report r2 §5's argument for the heightfield is a *speed* one — "levels a
+pool in **O(width)** rather than the current O(width²)". Levelling time to
+the 2% flatness bar, on a walled basin with water spanning every column
+(the shape most favourable to the body — it never has to spread, only
+redistribute):
+
+| columns | CA | promoted body | ratio |
+|---|---|---|---|
+| 50 | 77 | 204 | 2.6x slower |
+| 100 | 307 | 742 | 2.4x |
+| 200 | 1,323 | 2,421 | 1.8x |
+| 400 | 5,659 | 6,864 | 1.2x |
+
+The CA quadruples per doubling — O(width²), as documented. **So does the
+body** (3.6x, 3.3x, 2.8x per doubling). It is not O(width). The ratio is
+closing, so a crossover presumably exists somewhere past 400 columns, but
+the sandbox's world is 512 wide and the heightfield never wins on speed
+inside it.
+
+The persistent-flux solver was supposed to avoid exactly this — §7a's
+"flux must be persistent state, **or you have rebuilt diffusion**". The
+measurement says diffusion is what it behaves like. Whether the flux is
+not persisting, or a clamp is throttling the wave, is unknown and is the
+thing to look at first.
+
+**What the body does measurably win at is accuracy, not speed**: it
+finishes at a flatness of **1** where the CA leaves **11**, because
+`terminal_snap` solves the exact analytic equilibrium. That is a real
+property and worth something — it is just not the property the subsystem
+was justified by.
+
+Before spending anything more here, settle what the heightfield is *for*.
+If the answer is exactness, it is much cheaper to reach that another way.
+If it is speed, the flux solver needs diagnosing against §7a first, and
+nothing downstream (promotion criteria, the trigger, the deferred B-8/B-2/
+B-6/B-7 bars) is worth building until it delivers.
+
+Two bugs found while measuring this are fixed: a body shed down to one
+column stranded its fill instead of handing it back (`94a0c12`), and
+`edge_with_room` always picked the left edge, so a body spread in one
+direction only (`68371d7`).
+
+The promotion *criteria* question — promote only once contained, since §4a
+already argues quiescence is the wrong gate — is now moot until the above
+is settled.
 
 ---
 
