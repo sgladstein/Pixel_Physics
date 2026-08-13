@@ -45,6 +45,37 @@ const FLAG_FLOWING: u8 = 0b0000_0100;
 /// caught by the identical single-bit test as any other disturbance.
 const FLAG_MANAGED: u8 = 0b0000_1000;
 
+/// Set on the cell a mover *vacated*, when that move had a horizontal
+/// component — a roll along a slope, or a diagonal fall. Read only by
+/// `update_powder` (`update.rs`), which refuses to let the cell directly
+/// above fall straight down into it for the one frame the flag survives.
+///
+/// This is the "a slumping column may not outrun the material escaping from
+/// under it" rule. Rows are swept bottom to top so that a column of falling
+/// material descends as a unit — the cell below moves, and every cell above
+/// it drops into the vacancy in the same sweep. That is right for a column
+/// falling through air, and wrong for a *face*: when a grain escapes
+/// sideways off the edge of a pile, the grain above it should topple
+/// sideways too, not simply drop into the hole and leave the face standing
+/// vertical. Without this, a free face erodes at exactly one grain per
+/// frame no matter how tall it is, because the vacancy left by that one
+/// grain rides the sweep all the way up the face and every cell above takes
+/// the straight-down move in preference to its own sideways escape.
+///
+/// Deliberately *not* set for a straight-down move (`dx == 0`), which is
+/// exactly the case the bottom-to-top sweep exists to serve.
+///
+/// Cleared by `CellSurface::clear_undercut` on the sweep's next visit, which
+/// — since the flagged cell is always *below* the cell it constrains, and
+/// rows are swept bottom to top — is always before that cell is asked to
+/// fall again. So the refusal lasts exactly one frame and cannot go stale;
+/// the same "a flag that is cleared when consumed cannot go stale" argument
+/// `FLAG_MOVED` makes above.
+///
+/// Set generically by `CellSurface::move_cell`, like `FLAG_FLOWING`, rather
+/// than only on the powder path — harmless for the kinds that never read it.
+const FLAG_UNDERCUT: u8 = 0b0001_0000;
+
 /// Default temperature for a newly created cell, in Celsius. Room temperature;
 /// chosen so cells created before the M13 ambient field exists still hold a
 /// believable value instead of 0 or an extreme.
@@ -192,6 +223,18 @@ impl Cell {
     #[inline]
     pub fn with_flowing(mut self, flowing: bool) -> Self {
         self.set_flag(FLAG_FLOWING, flowing);
+        self
+    }
+
+    /// See `FLAG_UNDERCUT`'s own doc. Meaningful only for `Powder` kind.
+    #[inline]
+    pub fn undercut(self) -> bool {
+        self.flags & FLAG_UNDERCUT != 0
+    }
+
+    #[inline]
+    pub fn with_undercut(mut self, undercut: bool) -> Self {
+        self.set_flag(FLAG_UNDERCUT, undercut);
         self
     }
 

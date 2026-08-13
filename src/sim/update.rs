@@ -51,6 +51,23 @@ use super::surface::CellSurface;
 use super::world::World;
 use crate::sim::cell::Cell;
 
+/// Sweep the whole world as a single region, ignoring the chunk
+/// decomposition entirely — the control that identified the chunk-seam cliff
+/// bug (`seam_cliffs` below). Not a driver: it has no dirty-rectangle
+/// skipping, so it costs a full scan of the world every frame, and it is
+/// only ever correct to compare against, never to ship. Kept because the one
+/// question it answers — "is this behaviour coming from the movement rules,
+/// or from how the sweep is cut into chunks?" — took three wrong hypotheses
+/// to reach the first time.
+#[cfg(test)]
+pub(crate) fn step_monolithic(world: &mut World) {
+    world.begin_step();
+    let rightward = world.frame.is_multiple_of(2);
+    let region = world.bounds().expect("an empty world has nothing to sweep");
+    sweep(world, region, rightward);
+    world.end_step();
+}
+
 pub fn step(world: &mut World) {
     world.begin_step();
 
@@ -95,6 +112,19 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
     // is the only thing allowed to change it, via `World::set_owned`.
     if cell.managed() {
         return;
+    }
+
+    // Consumed by this visit, before anything below can act on it: the flag
+    // constrains the cell *above* this one, and rows are swept bottom to
+    // top, so clearing it here is always early enough to have already done
+    // its one frame of work and late enough not to be doing it twice. See
+    // `FLAG_UNDERCUT` (`cell.rs`). Below the `managed` check, not above it,
+    // so this stays inside the rule that nothing but the owning body writes
+    // a managed cell -- quiet write or not. Guarded on the read because the
+    // flag is rare and the write is still a write in the hottest loop in
+    // the engine.
+    if cell.undercut() {
+        surface.clear_undercut(x, y);
     }
 
     // Arrived here during this sweep. Skip it once so it cannot travel twice in
@@ -151,7 +181,19 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
 
 /// Falls straight down, then diagonally, then creeps along the slope.
 fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
-    if try_move(surface, x, y, x, y + 1) {
+    // Straight down, unless the cell below is a hole opened this frame by
+    // something escaping *sideways* out of it. Dropping into that hole is
+    // how a vertical face survives: the vacancy the one escaping grain
+    // leaves rides the bottom-to-top sweep all the way up the face, every
+    // cell above it takes the free straight-down move in preference to its
+    // own sideways escape, and the face conveys downward at one grain per
+    // frame instead of toppling. Refusing here costs this grain one frame
+    // and sends it to the diagonal and roll checks below -- which, on a
+    // face, is exactly the sideways escape it should have taken. See
+    // `FLAG_UNDERCUT` (`cell.rs`).
+    let below = surface.get(x, y + 1);
+    let hole_from_a_sideways_escape = below.is_empty() && below.undercut();
+    if !hole_from_a_sideways_escape && try_move(surface, x, y, x, y + 1) {
         return true;
     }
     let (first, second) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
@@ -1685,6 +1727,199 @@ mod pour_slope {
 
 
 
+
+#[cfg(test)]
+mod seam_cliffs {
+    use super::*;
+    use crate::sim::chunk::{Rect, CHUNK_SIZE};
+    use crate::sim::parallel;
+
+    const WIDTH: i32 = 640;
+    const FLOOR_Y: i32 = 382;
+
+    /// The reported scene: blobs dropped from height onto a floor, wide
+    /// enough to spread across several vertical chunk boundaries.
+    ///
+    /// **Dropped circles, not a contiguous block** — deliberately, and two
+    /// earlier reproductions that got this wrong are recorded here so they
+    /// aren't retried. Measuring the *spreading front* (leftmost/rightmost
+    /// extent) shows nothing at all: the front crosses seams smoothly, and
+    /// the vertical face persists *behind* it. And a single contiguous
+    /// block does produce tall cliffs, but none of them land on seams — the
+    /// falling-blob impact is what puts a free face at a seam in the first
+    /// place.
+    fn dropped_blobs() -> World {
+        let mut w = World::new(Rect::new(0, 0, WIDTH - 1, FLOOR_Y));
+        for x in 0..WIDTH {
+            w.set(x, FLOOR_Y, Cell::new(material::STONE, 0));
+        }
+        w.paint_circle(150, 90, 46, material::SAND);
+        w.paint_circle(300, 90, 46, material::SAND);
+        w.paint_circle(450, 90, 28, material::SAND);
+        w
+    }
+
+    /// Height of the sand surface in each column, 0 where there is none.
+    fn surface_heights(w: &World) -> Vec<i32> {
+        (0..WIDTH)
+            .map(|x| (0..FLOOR_Y).find(|&y| w.get(x, y).material == material::SAND).map_or(0, |y| FLOOR_Y - y))
+            .collect()
+    }
+
+    /// Every adjacent-column height jump of at least `min`, as
+    /// `(left column, signed jump)`. This is the quantity that was actually
+    /// being complained about — a face the player sees, not a slope average
+    /// and not the position of the spreading front.
+    fn cliffs(heights: &[i32], min: i32) -> Vec<(i32, i32)> {
+        (0..heights.len() - 1)
+            .filter_map(|i| {
+                let jump = heights[i + 1] - heights[i];
+                (jump.abs() >= min).then_some((i as i32, jump))
+            })
+            .collect()
+    }
+
+    /// Whether the pair of columns `(x, x + 1)` sits within one cell of a
+    /// vertical chunk boundary.
+    fn touches_a_seam(x: i32) -> bool {
+        (x - 1..=x + 2).any(|c| c.rem_euclid(CHUNK_SIZE) == 0)
+    }
+
+    fn run_to(w: &mut World, frames: usize, driver: fn(&mut World)) {
+        for _ in 0..frames {
+            driver(w);
+        }
+    }
+
+    /// A pile must not hold a vertical face on a chunk boundary.
+    ///
+    /// Reported from live play with the F1 chunk-grid overlay on: sand blobs
+    /// dropped on the ground spread until the front met a vertical chunk
+    /// boundary, then stopped dead there, holding a sharp vertical face that
+    /// lined up exactly with the gridline and took ~25 seconds to relax.
+    ///
+    /// The failure is specifically a *seam* failure, and the frame matters.
+    /// At frame 150 there are ~12 cliffs scattered anywhere — the blobs are
+    /// still landing, and those are real transient faces that relax on their
+    /// own. By frame 400 the only ones left, before the fix, were the
+    /// seam-aligned ones: 3 cliffs, all 3 within a cell of a boundary, at
+    /// x=127/193/255 and 17/38/36 cells tall. So this checks frame 400, when
+    /// everything that relaxes normally already has.
+    ///
+    /// Cause, measured rather than guessed (three hypotheses were wrong
+    /// first, including the recorded leading one — seam cells *do* get
+    /// `flowing()` set): both drivers sweep chunk by chunk, so every cell in
+    /// a chunk is updated before any cell in the chunk to its right. A free
+    /// face landing on a boundary therefore became a one-column conveyor —
+    /// the seam column shed exactly one grain per frame off its bottom while
+    /// the whole column slumped down one to refill, measured at 33
+    /// straight-down slumps against 0.9 sideways escapes per frame, where a
+    /// single-region sweep of the same state gave 9. `FLAG_UNDERCUT`
+    /// (`cell.rs`) is what stops the slump outrunning the escape.
+    ///
+    /// Run under both drivers: the bug appeared identically in each, which
+    /// is what ruled out the parallel checkerboard early.
+    fn a_pile_does_not_hold_a_face_on_a_chunk_boundary(driver: fn(&mut World)) {
+        let mut w = dropped_blobs();
+        run_to(&mut w, 400, driver);
+        let heights = surface_heights(&w);
+
+        let found = cliffs(&heights, 6);
+        let on_seams: Vec<(i32, i32)> = found.iter().copied().filter(|(x, _)| touches_a_seam(*x)).collect();
+        assert!(
+            on_seams.is_empty(),
+            "sand is holding a vertical face on a chunk boundary at frame 400: {on_seams:?} \
+             (chunks are {CHUNK_SIZE} wide; all cliffs found: {found:?})"
+        );
+
+        // And the face must not merely have shuffled a column or two off the
+        // boundary. Measured after the fix: worst adjacent-column jump is 3
+        // (serial) and 4 (parallel) at this frame, against 38 before it, so
+        // this bar has roughly 2x headroom below and 5x above.
+        let worst = (0..heights.len() - 1).map(|i| (heights[i + 1] - heights[i]).abs()).max().unwrap_or(0);
+        assert!(worst <= 8, "sand is still holding a {worst}-cell face somewhere at frame 400");
+    }
+
+    #[test]
+    fn a_pile_does_not_hold_a_face_on_a_chunk_boundary_serial() {
+        a_pile_does_not_hold_a_face_on_a_chunk_boundary(step);
+    }
+
+    #[test]
+    fn a_pile_does_not_hold_a_face_on_a_chunk_boundary_parallel() {
+        a_pile_does_not_hold_a_face_on_a_chunk_boundary(parallel::step);
+    }
+
+    /// A ledge with a drop off its right-hand end, so the grain resting on
+    /// the last floor cell has nowhere to go but sideways.
+    fn ledge_with_a_drop() -> World {
+        let mut w = World::new(Rect::new(0, 0, 19, 11));
+        for x in 0..=5 {
+            w.set(x, 11, Cell::new(material::STONE, 0));
+        }
+        w
+    }
+
+    /// `FLAG_UNDERCUT`'s lifecycle, tested directly rather than only through
+    /// the 400-frame scene above — this is the part that would break
+    /// silently if the flag were ever folded into `FLAG_MOVED`'s clearing
+    /// path, which consumes it only on the visits it *skips*.
+    #[test]
+    fn a_sideways_escape_flags_the_hole_it_leaves_for_exactly_one_frame() {
+        let mut w = ledge_with_a_drop();
+        w.set(5, 10, Cell::new(material::SAND, 0));
+        step(&mut w);
+
+        assert_eq!(w.get(6, 11).material, material::SAND, "the grain should have gone off the end of the ledge");
+        assert!(w.get(5, 10).undercut(), "the hole a sideways escape leaves must be flagged");
+
+        step(&mut w);
+        assert!(!w.get(5, 10).undercut(), "the flag must be consumed by the sweep's next visit, not persist");
+    }
+
+    /// The other half of the same rule, and the reason it cannot simply be
+    /// "any hole a move leaves": a column falling through air descends as a
+    /// unit precisely because every cell above drops into the vacancy below
+    /// it in the same bottom-to-top sweep. Flagging that hole too would make
+    /// a falling column stretch out one cell per frame.
+    #[test]
+    fn a_straight_fall_leaves_a_hole_anything_may_drop_into() {
+        let mut w = ledge_with_a_drop();
+        for y in 6..=9 {
+            w.set(3, y, Cell::new(material::SAND, 0));
+        }
+        step(&mut w);
+
+        assert!(!w.get(3, 6).undercut(), "a straight-down move must not flag the cell it vacated");
+        // The whole column moved down one, not just its bottom grain.
+        assert_eq!((7..=10).filter(|&y| w.get(3, y).material == material::SAND).count(), 4);
+    }
+
+    /// The control that found the cause, kept as a test so it stays true:
+    /// cutting the sweep into chunks must not change the outcome on this
+    /// scene. Before the fix this failed loudly — the chunked drivers held 3
+    /// seam cliffs at frame 400 where `step_monolithic` held none, on
+    /// byte-identical starting state — which is what moved the investigation
+    /// off the movement rules and onto the sweep decomposition.
+    #[test]
+    fn chunking_the_sweep_does_not_change_where_a_pile_settles() {
+        let mut chunked = dropped_blobs();
+        let mut whole = dropped_blobs();
+        run_to(&mut chunked, 400, step);
+        run_to(&mut whole, 400, step_monolithic);
+
+        let worst = |w: &World| {
+            let h = surface_heights(w);
+            (0..h.len() - 1).map(|i| (h[i + 1] - h[i]).abs()).max().unwrap_or(0)
+        };
+        let (a, b) = (worst(&chunked), worst(&whole));
+        assert!(
+            (a - b).abs() <= 6,
+            "the chunked sweep settles differently from a single-region sweep: \
+             worst face {a} chunked vs {b} whole-world"
+        );
+    }
+}
 
 #[cfg(test)]
 mod displacement {

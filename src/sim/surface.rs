@@ -21,7 +21,7 @@
 //! surface both paths present to the rules.
 
 use super::cell::Cell;
-use super::material::MaterialRegistry;
+use super::material::{MaterialKind, MaterialRegistry};
 use super::rng::Rng;
 use super::scheduler::ActiveSite;
 
@@ -33,6 +33,16 @@ pub trait CellSurface {
     /// Clear a cell's moved flag once the sweep has skipped it. Always called
     /// on the position currently being visited.
     fn clear_moved(&mut self, x: i32, y: i32);
+
+    /// Clear a cell's undercut flag once the sweep has visited it. Always
+    /// called on the position currently being visited. Separate from
+    /// `clear_moved` rather than folded into it because the two are consumed
+    /// at different moments: `moved` is consumed by the visit it *skips*,
+    /// while `undercut` has to be dropped on any visit at all, including the
+    /// overwhelmingly common one where the flagged cell is simply empty and
+    /// the sweep does nothing else with it. Both are quiet writes — see
+    /// `Chunk::set_world_quiet` for why neither may dirty its chunk.
+    fn clear_undercut(&mut self, x: i32, y: i32);
 
     fn materials(&self) -> &MaterialRegistry;
 
@@ -109,7 +119,11 @@ pub trait CellSurface {
     /// reader, and only for `Powder` — see `FLAG_FLOWING`'s doc (`cell.rs`).
     #[inline]
     fn move_cell(&mut self, fx: i32, fy: i32, tx: i32, ty: i32, revisited: bool) {
-        let mover = self.get(fx, fy).with_moved(revisited).with_flowing(true);
+        // `with_undercut(false)` on the mover, because the flag describes a
+        // *vacancy* and never a grain: a cell that picked it up by being
+        // displaced into one must not carry it along to wherever it goes
+        // next. Only the two writes below can ever set it.
+        let mover = self.get(fx, fy).with_moved(revisited).with_flowing(true).with_undercut(false);
         // The displaced cell travels the *opposite* direction to the mover,
         // so it needs the opposite `revisited` answer -- not an
         // unconditional `false`.
@@ -126,7 +140,24 @@ pub trait CellSurface {
         // being pushed up one cell at a time and flowing around the sides.
         // Reported from live play; the "one cell per frame" reading of this
         // line was wrong.
-        let displaced = self.get(tx, ty).with_moved(!revisited);
+        //
+        // `undercut` marks the vacancy this move leaves behind as one the
+        // cell above may not simply drop into this frame -- see
+        // `FLAG_UNDERCUT`'s own doc (`cell.rs`) for why a sideways escape and
+        // a straight-down fall have to leave different kinds of hole.
+        //
+        // Gated on the *mover* being a `Powder`, unlike `flowing` above,
+        // because unlike `flowing` this one is read from a cell the writer
+        // does not own: `update_powder` tests the hole beneath a grain, and
+        // that hole may perfectly well have been vacated by a liquid flowing
+        // out from under the grain or a gas rising diagonally past it.
+        // Leaving it ungated made either of those stall the sand above for a
+        // frame -- a real coupling between kinds, not the "harmless for the
+        // kinds that never read it" that holds for `flowing`. A registry
+        // lookup in the hottest path in the engine, but only on the moves
+        // that actually go sideways.
+        let undercut = tx != fx && self.materials().kind(mover.material) == MaterialKind::Powder;
+        let displaced = self.get(tx, ty).with_moved(!revisited).with_undercut(undercut);
         self.set(fx, fy, displaced);
         self.set(tx, ty, mover);
     }

@@ -484,6 +484,14 @@ impl CellSurface for ChunkView<'_> {
         self.chunk.set_world_quiet(x, y, cell);
     }
 
+    fn clear_undercut(&mut self, x: i32, y: i32) {
+        // Same contract as `clear_moved` above: only ever the position being
+        // visited, which is always inside this worker's own chunk.
+        debug_assert!(self.owns(x, y), "clear_undercut called outside the chunk being swept");
+        let cell = self.chunk.get_world(x, y).with_undercut(false);
+        self.chunk.set_world_quiet(x, y, cell);
+    }
+
     fn materials(&self) -> &MaterialRegistry {
         &self.world.materials
     }

@@ -1055,6 +1055,18 @@ impl World {
         }
     }
 
+    /// Clear a cell's undercut flag once the sweep has visited it. Quiet for
+    /// the same reason `clear_moved` above is.
+    pub fn clear_undercut(&mut self, x: i32, y: i32) {
+        if !self.in_bounds(x, y) {
+            return;
+        }
+        if let Some(chunk) = self.chunks.get_mut(&ChunkCoord::containing(x, y)) {
+            let cell = chunk.get_world(x, y).with_undercut(false);
+            chunk.set_world_quiet(x, y, cell);
+        }
+    }
+
     #[inline]
     pub fn is_empty(&self, x: i32, y: i32) -> bool {
         self.get(x, y).is_empty()
@@ -1327,6 +1339,11 @@ impl CellSurface for World {
     #[inline]
     fn clear_moved(&mut self, x: i32, y: i32) {
         World::clear_moved(self, x, y)
+    }
+
+    #[inline]
+    fn clear_undercut(&mut self, x: i32, y: i32) {
+        World::clear_undercut(self, x, y)
     }
 
     #[inline]
