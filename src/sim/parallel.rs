@@ -183,11 +183,32 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
     // something other than exactly half of `CHUNK_SIZE`, this loop must
     // become two-phase (reinsert every outcome, *then* replay every
     // outcome) or this reasoning no longer holds.
+    // Liquid-body disturbance positions accumulated across every outcome
+    // (both a same-chunk write's own `demotions` queue and a remote
+    // write's disturbance, detected below) but deliberately *not* resolved
+    // until every chunk from this pass is back in `world.chunks` — see the
+    // loop's trailing comment.
+    let mut pending_demotions: Vec<(i32, i32)> = Vec::new();
+
     for outcome in outcomes {
         world.put_chunk(outcome.coord, outcome.chunk);
         world.put_field(outcome.coord, outcome.field);
         for ((x, y), cell) in outcome.remote_writes {
-            world.set(x, y, cell);
+            // `world.set_owned`, not `world.set` — `set`'s own built-in
+            // disturbance check (`Reports/liquid-heightfield-design.md`
+            // §5a) would resolve and demote *immediately*, which is unsafe
+            // here: this write's target chunk is safely resident (a
+            // remote write can only ever land in a passive chunk this
+            // pass — `MAX_REACH` bounds it below a full chunk width, so it
+            // can never reach a second same-pass *active* chunk), but the
+            // body that owns the disturbed cell can still have *other*
+            // columns in an active chunk from this same pass that hasn't
+            // been reinserted yet. Detected here instead, deferred to
+            // `pending_demotions` below.
+            if world.get(x, y).managed() {
+                pending_demotions.push((x, y));
+            }
+            world.set_owned(x, y, cell);
         }
         for (coord, x, y) in outcome.dirty_touches {
             world.mark_dirty_at(coord, x, y);
@@ -208,6 +229,19 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
         for site in outcome.pending_active_sites {
             world.schedule_active_site(site);
         }
+        pending_demotions.extend(outcome.demotions);
+    }
+
+    // Liquid-body demotions last, only once every chunk from this pass is
+    // resident again — see `pending_demotions`'s own doc above and `
+    // ChunkView::set`'s comment on the same-chunk case for why resolving
+    // any earlier could silently miss clearing `FLAG_MANAGED` on part of a
+    // body that spans two same-parity active chunks. `demote_body_at` is
+    // safe to call more than once for the same body (a no-op once it's
+    // already gone), so no dedup is needed even though several disturbed
+    // positions commonly share one owner.
+    for (x, y) in pending_demotions {
+        world.demote_body_at(x, y);
     }
 }
 
@@ -223,6 +257,12 @@ struct ChunkOutcome {
     light_writes: Vec<(ChunkCoord, i32, i32, f32)>,
     field_touched: bool,
     pending_active_sites: Vec<ActiveSite>,
+    /// Positions where a same-chunk write overwrote a `FLAG_MANAGED` cell
+    /// (`Reports/liquid-heightfield-design.md` §5a) — see `ChunkView::set`'s
+    /// own comment for why this is a genuinely separate queue from the
+    /// others here, not something `World::set`'s own disturbance check
+    /// already covers.
+    demotions: Vec<(i32, i32)>,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -282,6 +322,8 @@ struct ChunkView<'w> {
     /// so every queued site is handled identically regardless of where it
     /// sits.
     pending_active_sites: Vec<ActiveSite>,
+    /// See `ChunkOutcome::demotions`'s own doc.
+    demotions: Vec<(i32, i32)>,
 }
 
 impl<'w> ChunkView<'w> {
@@ -297,6 +339,7 @@ impl<'w> ChunkView<'w> {
             light_writes: Vec::new(),
             field_touched: false,
             pending_active_sites: Vec::new(),
+            demotions: Vec::new(),
         }
     }
 
@@ -316,6 +359,7 @@ impl<'w> ChunkView<'w> {
             light_writes: self.light_writes,
             field_touched: self.field_touched,
             pending_active_sites: self.pending_active_sites,
+            demotions: self.demotions,
         }
     }
 
@@ -371,13 +415,29 @@ impl CellSurface for ChunkView<'_> {
             return;
         }
         if self.owns(x, y) {
+            // Liquid-body disturbance detection (`Reports/liquid-
+            // heightfield-design.md` §5a): a *remote* write's disturbance
+            // is caught for free when it's replayed through the ordinary
+            // `World::set` after the pass (see `run_pass`), since that
+            // function carries the identical check. A *same-chunk* write
+            // like this one never goes through `World::set` at all — it
+            // writes `self.chunk` directly — so it needs its own check,
+            // queued here and resolved once every outcome from this pass
+            // is back in `world.chunks` (`run_pass`'s own comment on why
+            // that ordering matters: a body can span two same-parity active
+            // chunks, and resolving mid-loop could look up a body whose
+            // other columns live in a chunk not yet reinserted).
+            if self.chunk.get_world(x, y).managed() {
+                self.demotions.push((x, y));
+            }
             let reach = self.world.materials.get(cell.material).sweep_reach();
             self.chunk.set_world(x, y, cell, reach);
         } else {
             // Reach for this chunk's own tracked value is handled when this
             // write is replayed through the ordinary `World::set` after the
             // pass (see `run_pass`) — this worker has no `&mut` to the
-            // remote chunk to update it directly.
+            // remote chunk to update it directly. That replay is also what
+            // catches this write's own disturbance check, above.
             self.remote_writes.insert((x, y), cell);
         }
         self.queue_touch_neighbours(x, y);

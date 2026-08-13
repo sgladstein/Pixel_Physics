@@ -226,6 +226,21 @@ impl App {
         }
         self.step_once = false;
         parallel::step(&mut self.world);
+        // Liquid heightfield bodies (`Reports/liquid-heightfield-design.md`
+        // §8a) after the sweep -- the sweep is what produces this frame's
+        // absorptions once a later step adds them -- and before active
+        // sites, so `plant::Absorb` reading an adjacent liquid cell sees
+        // this frame's settled body state, the same reasoning the comment
+        // below already gives for active sites running after the sweep.
+        // Its own serial phase, not inside `parallel::step`, for the reason
+        // that design doc section states: a body spanning two same-parity
+        // active chunks writing its own columns from both workers would
+        // violate the write-disjointness proof `parallel.rs`'s module doc
+        // rests on. A no-op today -- step 1 of that design's build order
+        // gives every promoted body no solver, so there is nothing yet for
+        // this phase to do; wired in now so later steps land here rather
+        // than needing frame-order surgery.
+        self.world.step_liquid_bodies();
         // M16 active sites after the CA sweep too, for the same reason as
         // particles below: a root deciding whether to drink an adjacent
         // water cell needs this frame's settled position, not last frame's.

@@ -18,6 +18,7 @@ use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
 use super::creature::CreatureState;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
+use super::liquid::{self, LiquidBody};
 use super::material::{self, MaterialId, MaterialRegistry};
 use super::organism::{OrganismState, SpeciesId, SpeciesRegistry};
 use super::rng::Rng;
@@ -62,6 +63,27 @@ struct OrganismSlot {
     state: Option<OrganismState>,
 }
 
+/// Identifies a promoted `liquid::LiquidBody` (`Reports/liquid-heightfield-
+/// design.md` §3c/§9a). Never stored on a `Cell` — unlike `organism_id`,
+/// which has to round-trip through a cell's own bits, a liquid body's cell
+/// has no body-local coordinate to remember (its position *is* its column
+/// index, recoverable from `x` alone), so this only ever lives in
+/// `World::body_index`. Carries a generation for the identical reason
+/// `organism_id` does: a stale id held after its slot is freed and reused
+/// must resolve to `None`, not to a different, unrelated body.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct BodyId {
+    index: u32,
+    generation: u32,
+}
+
+struct BodySlot {
+    generation: u32,
+    /// `None` when this slot is on the free list — same reasoning as
+    /// `OrganismSlot::state`.
+    state: Option<LiquidBody>,
+}
+
 pub struct World {
     chunks: HashMap<ChunkCoord, Chunk>,
     /// One tile per chunk, same lifetime — see the module doc on `field` for
@@ -104,6 +126,26 @@ pub struct World {
     /// re-schedules itself or a neighbour while running is a fresh
     /// request, not a stale one being silently dropped.
     pending_structural_checks: std::collections::HashSet<(i32, i32)>,
+    /// Backing storage for promoted `liquid::LiquidBody` bodies (`Reports/
+    /// liquid-heightfield-design.md` §9a) — the `World::organisms` /
+    /// `OrganismSlot` generational-slot pattern, reused rather than
+    /// reinvented (a `BodyId` is not a `Cell` field, so unlike `organism_id`
+    /// there is no bit budget forcing index/generation packing, but the
+    /// same staleness hazard — a freed slot's id still held somewhere —
+    /// exists identically).
+    bodies: Vec<BodySlot>,
+    free_body_slots: Vec<u32>,
+    /// "Which bodies touch this chunk" (`Reports/liquid-heightfield-
+    /// design.md` §3c) — a body's cells have no back-pointer to their own
+    /// `BodyId`, so resolving a disturbed position to the body that owns it
+    /// goes through here: one hash lookup to the handful of candidates
+    /// touching that chunk, then a linear scan checking each candidate's
+    /// own recorded column range. Bodies are few (tens, not thousands) and
+    /// a chunk overlaps at most a handful, so this stays cheap without
+    /// needing a denser index. A `Vec`, not `SmallVec` — the crate has no
+    /// existing `smallvec` dependency and a body touching more than a
+    /// couple of chunks is rare enough not to justify adding one.
+    body_index: HashMap<ChunkCoord, Vec<BodyId>>,
     /// M18: per-creature state (currently just its energy budget) — see
     /// `creature::CreatureState`. Never shrinks, mirroring `trees` above;
     /// indexed by `u16`, not `u32` like `trees`, because `Cell::aux` (also
@@ -172,6 +214,9 @@ impl World {
             rng: Rng::default(),
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
+            bodies: Vec::new(),
+            free_body_slots: Vec::new(),
+            body_index: HashMap::new(),
             creatures: Vec::new(),
             species: SpeciesRegistry::builtin(),
             organisms: Vec::new(),
@@ -212,6 +257,17 @@ impl World {
     pub fn step_active_sites(&mut self) {
         scheduler::step(self);
     }
+
+    /// Advance every promoted liquid body by one frame — its own serial
+    /// phase, after the CA sweep and before active sites (`app.rs`'s own
+    /// comment on the call site has the frame-order reasoning; design doc
+    /// §8a has why it must be serial rather than inside the parallel
+    /// sweep). A no-op today: step 1 of `Reports/liquid-heightfield-
+    /// design.md`'s build order gives a promoted body no solver, so a
+    /// `LiquidBody` never changes once promoted. Wired in now so later
+    /// steps (absorption, the pipe solver, sleep) land in an already-
+    /// correctly-ordered phase rather than needing frame-order surgery.
+    pub fn step_liquid_bodies(&mut self) {}
 
     /// Queue a site to be checked by the scheduler once it's due. Used by
     /// `plant::plant_moss_seed`/`plant_tree` and by growth itself scheduling
@@ -399,6 +455,128 @@ impl World {
     // tests above, so the one thing actually worth verifying now — that a
     // stale id can never silently alias a reused slot — has real coverage
     // regardless of when `free_organism` itself lands.
+
+    // --- Liquid heightfield bodies (`Reports/liquid-heightfield-
+    // design.md`, step 1 of §11's build order: the ownership substrate and
+    // the promote/demote round trip, no solver yet) -----------------------
+
+    /// Allocate a new promoted body's slot, from `free_body_slots` first
+    /// (bumping the reused slot's generation) before ever growing `bodies`
+    /// — the identical reuse-before-growth ordering `push_organism` above
+    /// already established, for the identical reason.
+    fn push_body(&mut self, body: LiquidBody) -> BodyId {
+        if let Some(index) = self.free_body_slots.pop() {
+            let slot = &mut self.bodies[index as usize];
+            slot.generation = slot.generation.wrapping_add(1);
+            slot.state = Some(body);
+            BodyId { index, generation: slot.generation }
+        } else {
+            self.bodies.push(BodySlot { generation: 0, state: Some(body) });
+            BodyId { index: (self.bodies.len() - 1) as u32, generation: 0 }
+        }
+    }
+
+    /// `None` for a stale id whose slot has since been reused by a
+    /// different body — the generation mismatch this whole scheme exists
+    /// to catch, mirroring `organism`'s own doc above.
+    pub(crate) fn body(&self, id: BodyId) -> Option<&LiquidBody> {
+        let slot = self.bodies.get(id.index as usize)?;
+        if slot.generation != id.generation {
+            return None;
+        }
+        slot.state.as_ref()
+    }
+
+    fn free_body(&mut self, id: BodyId) {
+        if let Some(slot) = self.bodies.get_mut(id.index as usize) {
+            if slot.generation == id.generation && slot.state.is_some() {
+                slot.state = None;
+                self.free_body_slots.push(id.index);
+            }
+        }
+    }
+
+    /// Attempt to promote the liquid body at `(x, y)` — `liquid::
+    /// label_body` plus design doc §3b's validation, both already inside
+    /// that one call. `None` if `(x, y)` isn't `Liquid`, the component
+    /// fails validation, or it exceeds `liquid::MAX_BODY_CELLS`.
+    ///
+    /// Marks every claimed cell `FLAG_MANAGED` — the body's own columns
+    /// (`LiquidBody::managed_positions`) and its bed/walls (`LiquidBody::
+    /// container_positions`) — and moves no mass: `h[]` is read from cells
+    /// that already existed (`liquid::label_body`'s own fill sum), not
+    /// computed by moving anything, which is what makes promotion mass-free
+    /// (design doc §2a/§9a's `promote` contract, §10's conservation table).
+    pub fn promote_liquid_body(&mut self, x: i32, y: i32) -> Option<BodyId> {
+        let scan = liquid::label_body(self, x, y)?;
+        let body = LiquidBody { material: scan.material, x0: scan.x0, top_y: scan.top_y, bed_y: scan.bed_y, h: scan.fill };
+
+        let managed: Vec<(i32, i32)> = body.managed_positions().collect();
+        let container = body.container_positions();
+        let touched_chunks: std::collections::HashSet<ChunkCoord> =
+            managed.iter().chain(container.iter()).map(|&(px, py)| ChunkCoord::containing(px, py)).collect();
+
+        let id = self.push_body(body);
+        for coord in touched_chunks {
+            self.body_index.entry(coord).or_default().push(id);
+        }
+        for (px, py) in managed.into_iter().chain(container) {
+            let cell = self.get(px, py);
+            self.set_owned(px, py, cell.with_managed(true));
+        }
+        Some(id)
+    }
+
+    /// Look up and demote whichever body owns `(x, y)`, if any — the write
+    /// seam's own call (`set`'s doc), and also usable directly (tests,
+    /// M10's chunk-unload path per design doc §8c). A no-op if nothing at
+    /// `(x, y)` is currently managed.
+    pub(crate) fn demote_body_at(&mut self, x: i32, y: i32) {
+        if let Some(id) = self.find_body_at(x, y) {
+            self.demote_body(id);
+        }
+    }
+
+    fn find_body_at(&self, x: i32, y: i32) -> Option<BodyId> {
+        let coord = ChunkCoord::containing(x, y);
+        let candidates = self.body_index.get(&coord)?;
+        candidates.iter().copied().find(|&id| self.body(id).is_some_and(|b| b.owns(x, y)))
+    }
+
+    /// Demote a body: clear `FLAG_MANAGED` on every cell it owns (its own
+    /// columns and its container cells), remove it from `body_index`, and
+    /// free its slot. No mass moves — the cells are already exactly the
+    /// body's own state (design doc §2a/§5b), so demotion is this cheap and
+    /// this exact by construction, not by care taken here.
+    pub(crate) fn demote_body(&mut self, id: BodyId) {
+        let Some(body) = self.body(id) else { return };
+        let positions: Vec<(i32, i32)> = body.managed_positions().chain(body.container_positions()).collect();
+        let touched_chunks: std::collections::HashSet<ChunkCoord> = positions.iter().map(|&(px, py)| ChunkCoord::containing(px, py)).collect();
+
+        for coord in touched_chunks {
+            if let Some(list) = self.body_index.get_mut(&coord) {
+                list.retain(|&candidate| candidate != id);
+                if list.is_empty() {
+                    self.body_index.remove(&coord);
+                }
+            }
+        }
+        self.free_body(id);
+
+        for (px, py) in positions {
+            let cell = self.get(px, py);
+            if cell.managed() {
+                self.set_owned(px, py, cell.with_managed(false));
+            }
+        }
+    }
+
+    /// Total live promoted bodies — for tests and the debug overlay, not
+    /// consulted by any correctness-bearing path.
+    #[cfg(test)]
+    pub(crate) fn body_count(&self) -> usize {
+        self.bodies.iter().filter(|slot| slot.state.is_some()).count()
+    }
 
     /// Field conditions at a world-cell position — any position inside the
     /// same `FIELD_SCALE`-sided block reads the same cell.
@@ -620,16 +798,57 @@ impl World {
     /// Writes outside the world are silently dropped — the caller is usually a
     /// movement rule that already checked, or a brush clipped by the edge.
     pub fn set(&mut self, x: i32, y: i32, cell: Cell) {
+        let old = self.write_cell(x, y, cell);
+        // Disturbance detection at the one write seam every caller already
+        // goes through (`Reports/liquid-heightfield-design.md` §5a): if the
+        // cell just overwritten was `FLAG_MANAGED` — owned by a promoted
+        // liquid body — demote its owner. Catches the brush, the eraser,
+        // `explosion::trigger`, `fire.rs`'s neighbour ignition, and ordinary
+        // CA movement without enumerating any of them by name — the same
+        // "an enumeration that has to stay complete is the failure mode
+        // this project keeps rediscovering" lesson `schedule_active_site`'s
+        // own doc already states for the identical shape of problem.
+        // `set_owned` is the one sanctioned bypass, for the body's own
+        // rasterizer. Checked *after* the write, against `write_cell`'s own
+        // returned old value, rather than a separate `self.get(x, y)`
+        // before it -- reading first would mean two chunk-map lookups per
+        // write instead of one, a real cost in the hottest function in the
+        // engine (measured: ~1.7x the serial stress-scene worst frame
+        // before this was folded into a single lookup).
+        if old.managed() {
+            self.demote_body_at(x, y);
+        }
+    }
+
+    /// The body's own sanctioned rasterizer write — bypasses `set`'s
+    /// disturbance check, since this *is* the body moving its own cell, not
+    /// something disturbing it. No production caller yet: step 1 of
+    /// `Reports/liquid-heightfield-design.md`'s build order gives a
+    /// promoted body no solver, so it never rasterizes anything after
+    /// promotion — this exists now so the seam is already in place (and
+    /// `promote_liquid_body`/`demote_body` already route their own flag
+    /// writes through it) before a later step's solver needs it for real.
+    pub(crate) fn set_owned(&mut self, x: i32, y: i32, cell: Cell) {
+        self.write_cell(x, y, cell);
+    }
+
+    /// Writes the cell and returns whatever was there immediately before —
+    /// `Cell::OUT_OF_BOUNDS` (never itself `managed()`, so `set`'s own check
+    /// is still correct either way) if the write was dropped for being out
+    /// of bounds. One chunk-map lookup total, shared between the write and
+    /// the read `set`'s disturbance check needs — see that method's own
+    /// comment for why this matters.
+    fn write_cell(&mut self, x: i32, y: i32, cell: Cell) -> Cell {
         if !self.in_bounds(x, y) {
-            return;
+            return Cell::OUT_OF_BOUNDS;
         }
         let coord = ChunkCoord::containing(x, y);
         let reach = self.materials.get(cell.material).sweep_reach();
-        self.chunks
-            .entry(coord)
-            .or_insert_with(|| Chunk::new(coord))
-            .set_world(x, y, cell, reach);
+        let chunk = self.chunks.entry(coord).or_insert_with(|| Chunk::new(coord));
+        let old = chunk.get_world(x, y);
+        chunk.set_world(x, y, cell, reach);
         self.touch_neighbours(x, y, coord);
+        old
     }
 
     /// Wake the chunks adjacent to a write near a chunk boundary.

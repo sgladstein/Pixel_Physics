@@ -33,6 +33,18 @@ const FLAG_BURNING: u8 = 0b0000_0010;
 /// harmless for `Liquid`/`Gas`, since nothing else reads this bit.
 const FLAG_FLOWING: u8 = 0b0000_0100;
 
+/// Set on a cell owned by a promoted `liquid::LiquidBody` (`Reports/
+/// liquid-heightfield-design.md` §2a/§3c) — the ownership substrate step 1
+/// of that design builds first, ahead of any solver. Meaning: the CA sweep
+/// must not move this cell, and a write into it from anywhere other than
+/// the body's own rasterizer (`World::set_owned`) demotes the owning body.
+/// Also set on a body's "container" cells (its bed and walls, immediately
+/// outside its own columns) even though those cells hold no fill of the
+/// body's own and are never moved by it — the flag there means only "a
+/// liquid body depends on you," so digging out the floor under a lake is
+/// caught by the identical single-bit test as any other disturbance.
+const FLAG_MANAGED: u8 = 0b0000_1000;
+
 /// Default temperature for a newly created cell, in Celsius. Room temperature;
 /// chosen so cells created before the M13 ambient field exists still hold a
 /// believable value instead of 0 or an extreme.
@@ -162,6 +174,18 @@ impl Cell {
     #[inline]
     pub fn with_flowing(mut self, flowing: bool) -> Self {
         self.set_flag(FLAG_FLOWING, flowing);
+        self
+    }
+
+    /// See `FLAG_MANAGED`'s own doc.
+    #[inline]
+    pub fn managed(self) -> bool {
+        self.flags & FLAG_MANAGED != 0
+    }
+
+    #[inline]
+    pub fn with_managed(mut self, managed: bool) -> Self {
+        self.set_flag(FLAG_MANAGED, managed);
         self
     }
 

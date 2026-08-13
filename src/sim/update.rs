@@ -89,6 +89,14 @@ pub(crate) fn sweep<S: CellSurface>(surface: &mut S, region: Rect, rightward: bo
 fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) {
     let cell = surface.get(x, y);
 
+    // Owned by a promoted liquid body (`Reports/liquid-heightfield-
+    // design.md` §2a/§3c) -- the CA sweep must not move it or run fire/
+    // organism-diffusion on it; the body's own serial phase (`liquid.rs`)
+    // is the only thing allowed to change it, via `World::set_owned`.
+    if cell.managed() {
+        return;
+    }
+
     // Arrived here during this sweep. Skip it once so it cannot travel twice in
     // one frame, and clear the flag so it moves normally from here on.
     //

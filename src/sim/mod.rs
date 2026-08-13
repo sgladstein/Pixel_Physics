@@ -51,6 +51,7 @@ pub mod decay;
 pub mod explosion;
 pub mod field;
 pub mod fire;
+pub mod liquid;
 pub mod material;
 pub mod organism;
 pub mod parallel;

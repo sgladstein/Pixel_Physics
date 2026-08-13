@@ -3975,3 +3975,148 @@ build-only-if-needed), and the formal acceptance-criteria suite (§8 —
 column-collapse scaling, avalanche-distribution-shape, repose-accuracy
 within ~2 degrees). The wedge probe above is a manual spot-check of the
 core mechanism, not a substitute for those.
+
+---
+
+## `Reports/liquid-heightfield-design.md` — landed; Step 1 implemented
+
+A full design for the liquid-leveling rewrite the sections above call for
+(promoting large, connected liquid bodies out of the per-cell CA into a
+1D-per-body heightfield, solved with virtual pipes and rasterized back to
+cells), produced by a background design agent per the owner's "continue"
+while other work was in flight. 1,416 lines / 16 sections. Read in full
+before implementation started. Its own headline claims, load-bearing for
+everything below: **the grid never lies** (a promoted body's cells stay
+correct in ordinary `World` storage at all times; promotion only changes
+*who* may write them); heights are **integer fill units** on the same
+`LIQUID_FULL` scale a `Liquid` cell's `aux` already uses, not floats, so
+conservation is exact by construction; the ballooning failure from the
+reverted reorder (`eeefceb`/`dcb761c`, recorded above) becomes **structurally
+unrepresentable** under this model rather than merely guarded against.
+Two corrections to `Reports/liquid-simulation-research-r2.md` (Report B)
+along the way: promotion must be gated on structure, not quiescence (§4a —
+the whole point is accelerating a body that's still moving); a naive
+per-step relaxation is still O(width²), real O(width) leveling needs the
+flux itself to be persistent state (§7a). Full report has its own §11
+six-step build order, §12 acceptance criteria, and §15 sourcing/
+verification ledger (what was read vs. re-measured vs. taken on the
+brief's word) — not reproduced here.
+
+### Step 1 (§11) — the ownership substrate and the promote/demote round trip — implemented
+
+No solver, no absorption, exactly as scoped: a promoted body (`liquid::
+LiquidBody`) holds per-column heights read from the cells that already
+existed and never changes on its own.
+
+**New `src/sim/liquid.rs`:** `label_body` — a bounded 4-connected flood
+fill over same-material `Liquid` cells, validated against design doc §3b
+(single material; single vertical span per column; a free surface above
+every column; width ≥ `MIN_BODY_COLUMNS` = 32, untuned per the report's own
+flag; cell count ≤ `MAX_BODY_CELLS` = 20,000) before returning a
+`BodyScan`. `LiquidBody::managed_positions`/`container_positions` (the
+bed/walls immediately outside the body, flagged identically but never
+counted as the body's own mass or moved by it) derived from the column
+arrays rather than stored separately.
+
+**`Cell::flags` gained `FLAG_MANAGED`** (`cell.rs`, the fourth of eight
+bits) — a cell owned by a promoted body; the CA sweep must not move it, and
+a write into it from outside the body's own rasterizer demotes the owner.
+`update::update_cell` returns immediately for a managed cell (no movement,
+no `fire::update`, no organism diffusion).
+
+**`World` gained a `BodyId`/`BodySlot` generational allocator**
+(`bodies`/`free_body_slots`), mirroring the existing `organisms`/
+`OrganismSlot` pattern exactly — the third user of that shape, not a new
+one. Unlike `organism_id`, `BodyId` is never stored on a `Cell` (a liquid
+body's cell has no body-local coordinate to remember; its position *is*
+its column index) — it lives only in a new `body_index: HashMap<ChunkCoord,
+Vec<BodyId>>`, "which bodies touch this chunk." `World::promote_liquid_body`/
+`demote_body`/`demote_body_at`/`find_body_at` implement the round trip;
+`World::set_owned` is the sanctioned bypass for a body's own future
+rasterizer (no caller yet — nothing rasterizes until a solver exists).
+
+**Disturbance detection lives at the one write seam every caller already
+goes through** (`World::set`), per design doc §5a's own reasoning against
+enumerating call sites: catches the brush, the eraser, `explosion::
+trigger`, `fire.rs`'s reaction-into-a-neighbour path, and ordinary CA
+movement (density displacement) with no per-caller special-casing.
+`parallel.rs`'s `ChunkView::set` needed a second, genuinely separate check
+for its same-chunk write branch (which writes directly into its own
+`Chunk`, never through `World::set` at all) — queued into a new
+`ChunkOutcome::demotions` field. Both that queue and remote-write
+disturbances (detected via `world.get(x,y).managed()` before replay, then
+written through `world.set_owned` rather than `world.set` to avoid
+resolving early) are deliberately **deferred into one `pending_demotions`
+list, resolved only after every chunk from the parallel pass is back in
+`world.chunks`** — a body can span two same-parity chunks both active in
+the same pass, and resolving a demotion before all of them are resident
+could silently fail to clear `FLAG_MANAGED` on part of the body.
+
+**A real cost regression found and fixed in the same pass:** the first cut
+of `World::set`'s disturbance check read the old cell via a separate
+`self.get(x, y)` before writing — a second `HashMap` lookup in the
+hottest function in the engine. Measured ~1.7x the serial stress-scene
+worst frame (38ms baseline → ~65-69ms). Fixed by having `write_cell`
+itself return the cell it just overwrote (one lookup, shared between the
+write and the check) — confirmed back to baseline (~38ms) across five
+repeated runs after the fix, git-stash-noise having produced a
+misleadingly-consistent-looking 65ms reading twice in a row before that
+(this session's standing lesson, restated: single readings on this
+machine are not to be trusted without repetition — see the earlier
+scheduler-dedup section's identical false alarm).
+
+**A real bug found by independent review, fixed in the same pass:**
+`label_body` didn't check whether cells it was about to claim were already
+`FLAG_MANAGED`. Promoting an already-promoted pool a second time silently
+succeeded, producing two live `BodyId`s over identical cells; demoting the
+first cleared the flag everywhere, orphaning the second permanently (its
+cells could never again read as disturbed once already unmanaged, so
+nothing could ever trigger its own demotion). Not reachable from any
+shipped caller yet (no automatic promotion trigger exists in Step 1 — every
+test calls `promote_liquid_body` directly), but exactly the gap the
+design's own §3e candidate queue (the natural next caller) would have hit.
+Fixed by refusing the scan if the start cell or any visited cell is already
+managed. Regression test (`promoting_an_already_managed_pool_a_second_
+time_fails`) confirmed to fail without the fix, passes with it.
+
+**Verification.** New tests in `liquid.rs`: promotion flags every cell and
+moves no mass (plus the `cell_count == Σ ceil(h[i]/LIQUID_FULL)`
+invariant, design doc's B-1); a promoted body is untouched across 2,000
+frames; promote → 2,000 frames → demote is bit-identical (mass-exact round
+trip); every disturbance §11 step 1's own verify list enumerates —
+painting, erasing, digging out the bed, an explosion, a falling grain of
+sand displacing in by density, and a material reaction (a synthetic
+`spark`+`water` reaction, mirroring `fire.rs`'s own synthetic-reaction test
+pattern, since no shipped material reacts with anything today) — each
+confirmed to demote the body and leave every other cell's content
+unchanged. Every disturbance test (and the double-promotion regression
+test) confirmed to fail without its respective fix, including two
+temporary reverts to isolate `World::set`'s check from `ChunkView::set`'s
+independent same-chunk check specifically (the falling-sand test kept
+passing with only `World::set`'s check disabled, since it exercises the
+parallel same-chunk path — confirmed it *does* fail once both checks are
+disabled). `cargo test --lib` (312 tests) and `cargo clippy --all-targets
+-- -D warnings` both clean. Independent review (general-purpose agent)
+traced the deferred-demotion cross-chunk logic in detail (confirmed a
+remote write can never land in another same-pass-active chunk, since two
+active chunks in one checkerboard pass always share parity and can
+therefore never be adjacent — the scenario it checked for is geometrically
+impossible, and the real analogous case is handled correctly regardless)
+and the dirty-rect/sleep interaction of skipping managed cells entirely in
+`update_cell` (safe — `mark_dirty` still fires on promotion and on
+demotion's own flag-clearing writes, so a chunk wakes once, settles while
+managed, and re-wakes on demotion) — found the double-promotion bug above
+(now fixed) plus three lower-severity notes (validating §3b during the
+flood fill rather than incrementally within it — a fidelity/perf gap
+against the report's own text, not a bug; a forward-looking watch-item on
+`FLAG_MOVED`-clearing ordering once in-frame promotion exists; `container_
+positions()` rebuilding its `HashSet`s on every disturbance resolution
+with no caching, bounded and rare by design but worth measuring later).
+
+**Not yet built:** everything past Step 1 — absorption (§11 step 2), the
+persistent-flux pipe solver (step 3), the terminal equilibrium snap and
+body sleep (step 4), `try_extend`/edge demotion/cooldowns (step 5),
+dropping `MIN_LIQUID_TRANSFER` toward 8 as the verdict on steps 3-4
+(step 6). No automatic promotion trigger exists yet either (design doc
+§3e's candidate queue) — every test and any real use today calls
+`World::promote_liquid_body` directly.
