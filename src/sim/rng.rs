@@ -78,6 +78,23 @@ pub fn jitter(x: i32, y: i32) -> f32 {
     (h >> 8) as f32 / (1u32 << 24) as f32
 }
 
+/// `jitter`'s per-*cell* counterpart: hashes a single byte, so a value that
+/// travels with a cell (`Cell::shade`, which `CellSurface::move_cell` carries
+/// to the destination) produces grain that moves with the material instead of
+/// staying nailed to the screen. See `render::GrainMode::Cell`.
+///
+/// One byte is only 256 distinct grain levels, against `jitter`'s 2^24. That
+/// is ample for a brightness wobble whose whole amplitude is 12%, and it is
+/// the entropy actually available: `Cell::shade` is the only per-cell field
+/// that survives a move and is not already carrying meaning.
+pub fn jitter_u8(v: u8) -> f32 {
+    let mut h = (v as u32).wrapping_mul(0x9E37_79B9).wrapping_add(0x85EB_CA6B);
+    h ^= h >> 15;
+    h = h.wrapping_mul(0x2545_F491);
+    h ^= h >> 13;
+    (h >> 8) as f32 / (1u32 << 24) as f32
+}
+
 /// Same shape as `jitter`, extended to a third input — `render.rs`'s fire
 /// flicker uses this with a position plus a coarse time bucket, so the
 /// result is stable *within* a bucket (no re-randomizing every single

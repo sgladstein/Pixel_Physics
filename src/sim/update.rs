@@ -401,7 +401,23 @@ fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
         return true;
     }
 
-    transfer_liquid_horizontal(surface, x, y, first, rightward) || transfer_liquid_horizontal(surface, x, y, second, rightward)
+    if transfer_liquid_horizontal(surface, x, y, first, rightward) || transfer_liquid_horizontal(surface, x, y, second, rightward) {
+        return true;
+    }
+
+    // Nothing moved: clear `flowing`, the same way `update_powder` does and
+    // for the same reason its guard exists -- read first, so a cell that is
+    // already settled never re-writes itself and never wakes its own chunk
+    // for nothing. Powders have always done this; liquids set the flag on
+    // every move (`CellSurface::move_cell` is generic) and had nothing that
+    // ever cleared it, so a liquid cell that moved once read as "flowing"
+    // forever. Nothing consumed it, so that was harmless -- until
+    // `render::GrainMode::Motion` wanted to tell moving water from still.
+    let cell = surface.get(x, y);
+    if cell.flowing() {
+        surface.set(x, y, cell.with_flowing(false));
+    }
+    false
 }
 
 /// Push fill from `(x, y)` down into `(x, y + 1)`, when that cell is the

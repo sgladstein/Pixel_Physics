@@ -42,16 +42,28 @@
 
 use std::collections::HashSet;
 
-use pixel_physics::render::Renderer;
+use pixel_physics::render::{GrainMode, Renderer};
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::world::World;
+use pixel_physics::sim::rng;
 use pixel_physics::sim::{material, parallel, update};
 
 const WIDTH: i32 = 512;
 const HEIGHT: i32 = 320;
 const FLOOR_THICKNESS: i32 = 8;
+
+/// Water with a varied `shade`, the way the brush lays it down
+/// (`World::paint_capsule` rolls a random shade per cell). The scenes below
+/// would otherwise use `Cell::new(WATER, 0)` and give every cell an
+/// identical shade — which silently flattens `GrainMode::Cell` to no grain
+/// at all, since that mode keys entirely off this byte. Worth knowing as a
+/// real caveat of that mode and not just a harness detail: any water created
+/// without a varied shade renders flat under it.
+fn water_at(x: i32, y: i32) -> Cell {
+    Cell::new(material::WATER, (rng::jitter(x, y) * 255.0) as u8)
+}
 
 fn stone_floor(w: &mut World) {
     for x in 0..WIDTH {
@@ -74,7 +86,7 @@ fn build(scene: &str) -> World {
             stone_floor(&mut w);
             for x in 0..200 {
                 for y in 30..floor_y {
-                    w.set(x, y, Cell::new(material::WATER, 0));
+                    w.set(x, y, water_at(x, y));
                 }
             }
         }
@@ -84,7 +96,7 @@ fn build(scene: &str) -> World {
             stone_floor(&mut w);
             for x in 20..250 {
                 for y in 20..200 {
-                    w.set(x, y, Cell::new(material::WATER, 0));
+                    w.set(x, y, water_at(x, y));
                 }
             }
         }
@@ -97,7 +109,7 @@ fn build(scene: &str) -> World {
             }
             for x in 121..392 {
                 for y in 160..floor_y {
-                    w.set(x, y, Cell::new(material::WATER, 0));
+                    w.set(x, y, water_at(x, y));
                 }
             }
             w.paint_circle(256, 80, 34, material::SAND);
@@ -124,6 +136,11 @@ struct Args {
     crop: Rect,
     parallel_driver: bool,
     out: String,
+    grain: GrainMode,
+    /// Write an animated GIF of every frame in the range instead of a grid.
+    /// The grid is for *me* to read; motion is for a human to watch, and
+    /// some of these artifacts only read correctly in motion.
+    gif: bool,
 }
 
 fn parse() -> Args {
@@ -137,6 +154,8 @@ fn parse() -> Args {
         crop: Rect::new(0, 0, WIDTH - 1, HEIGHT - 1),
         parallel_driver: true,
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
+        grain: GrainMode::Position,
+        gif: false,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -149,6 +168,17 @@ fn parse() -> Args {
             "zoom" => a.zoom = v.parse().expect("zoom"),
             "driver" => a.parallel_driver = v != "serial",
             "out" => a.out = v.into(),
+            "gif" => a.gif = v != "false",
+            "grain" => {
+                a.grain = match v {
+                    "position" => GrainMode::Position,
+                    "cell" => GrainMode::Cell,
+                    "muted" => GrainMode::Muted,
+                    "animated" => GrainMode::Animated,
+                    "motion" => GrainMode::Motion,
+                    other => panic!("unknown grain {other:?}"),
+                }
+            }
             "crop" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
                 assert_eq!(n.len(), 4, "crop=x,y,w,h");
@@ -164,6 +194,7 @@ fn main() {
     let args = parse();
     let mut world = build(&args.scene);
     let mut renderer = Renderer::new();
+    renderer.grain = args.grain;
     let particles = ParticleSystem::new();
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
@@ -178,6 +209,63 @@ fn main() {
     let mut sheet = vec![90u8; (sheet_w * sheet_h * 4) as usize];
     for p in sheet.chunks_exact_mut(4) {
         p[3] = 255;
+    }
+
+    // GIF branch: motion is for a human to watch, and several of these
+    // artifacts (a fringe that regenerates every frame, water that reads as
+    // frozen because its grain is nailed to the screen) simply do not survive
+    // being sampled into stills. Consecutive frames, real playback speed, and
+    // a NETSCAPE loop -- the same reasoning `main.rs`'s capture hook records.
+    if args.gif {
+        let mut frames = Vec::with_capacity(args.count);
+        let mut step_no = 0usize;
+        for i in 0..args.count {
+            let target = args.start + i * args.every;
+            while step_no < target {
+                if args.parallel_driver {
+                    parallel::step(&mut world);
+                } else {
+                    update::step(&mut world);
+                }
+                step_no += 1;
+            }
+            let touched: HashSet<_> = world.take_touched_chunks();
+            renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
+
+            let mut tile = vec![0u8; (tile_w * tile_h * 4) as usize];
+            for y in 0..ch {
+                for x in 0..cw {
+                    let (sx, sy) = (args.crop.min_x + x, args.crop.min_y + y);
+                    if sx < 0 || sy < 0 || sx >= WIDTH || sy >= HEIGHT {
+                        continue;
+                    }
+                    let src = (((sy * WIDTH) + sx) * 4) as usize;
+                    for zy in 0..args.zoom {
+                        for zx in 0..args.zoom {
+                            let (dx, dy) = (x * args.zoom + zx, y * args.zoom + zy);
+                            let dst = (((dy * tile_w) + dx) * 4) as usize;
+                            tile[dst..dst + 4].copy_from_slice(&frame[src..src + 4]);
+                        }
+                    }
+                }
+            }
+            frames.push(tile);
+        }
+
+        // 60 ticks/second is the sandbox's own fixed simulation rate, so
+        // `every` ticks between captures maps directly to elapsed time.
+        let delay_ms = (args.every as u64 * 1000) / 60;
+        let delay = image::Delay::from_saturating_duration(std::time::Duration::from_millis(delay_ms.max(16)));
+        let file = std::fs::File::create(&args.out).expect("creating the gif");
+        let mut encoder = image::codecs::gif::GifEncoder::new(file);
+        encoder.set_repeat(image::codecs::gif::Repeat::Infinite).expect("gif repeat");
+        for tile in frames {
+            let buf = image::RgbaImage::from_raw(tile_w as u32, tile_h as u32, tile).expect("gif frame");
+            encoder.encode_frame(image::Frame::from_parts(buf, 0, 0, delay)).expect("gif frame");
+        }
+        drop(encoder);
+        println!("animated gif ({tile_w}x{tile_h}, {} frames): {}", args.count, args.out);
+        return;
     }
 
     let mut captured = 0usize;

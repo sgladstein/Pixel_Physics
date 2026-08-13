@@ -1190,7 +1190,14 @@ impl World {
                 {
                     continue;
                 }
-                let shade = self.rng.below(shades) as u8;
+                // A full random byte, not `below(shades)`. The low bits
+                // still choose the palette entry exactly as before
+                // (`cell_colour` takes `shade % palette.len()`), and the
+                // high bits are otherwise unused -- which makes them the
+                // one piece of per-cell entropy that survives a move, and
+                // therefore the only thing `render::GrainMode::Cell` can
+                // key grain on so the texture travels with the material.
+                let shade = (self.rng.below(shades) + shades * self.rng.below(256 / shades.max(1))) as u8;
                 self.set(x, y, Cell::new(material, shade));
                 // M17: either side of this write might be a `Solid`/`Plant`
                 // (architecture item 9) that just gained or lost a neighbour

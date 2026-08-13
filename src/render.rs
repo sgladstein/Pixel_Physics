@@ -38,6 +38,52 @@ const CHUNK_BORDER_SETTLED: [u8; 4] = [60, 60, 70, 255];
 /// palette shade already is.
 const JITTER_STRENGTH: f32 = 0.12;
 
+/// Where a `Liquid` cell's brightness grain comes from — a prototype switch
+/// for a reported visual problem, not a settled feature.
+///
+/// Reported from live play: water on a platform reads as *clearly static* in
+/// the middle while the edges move, because the grain above is keyed on world
+/// **position**. That is deliberately right for a settled sand pile (it is
+/// what stops it sparkling) and wrong for water, which flows *through* a
+/// pattern nailed to the screen — so a moving interior looks as frozen as a
+/// still one, and the only visible motion is the silhouette changing at the
+/// edges.
+///
+/// The variants below exist to be compared side by side in motion before one
+/// is chosen; see `examples/filmstrip.rs`'s `grain=` argument.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum GrainMode {
+    /// Today's behaviour: `jitter(x, y)`, fixed in screen space.
+    #[default]
+    Position,
+    /// Keyed on the cell's own `shade` byte, which `move_cell` carries along
+    /// with it — so the texture travels with the water and motion reads
+    /// everywhere, not just at the silhouette. Costs nothing per frame and
+    /// keeps the dirty-rect render skip, because it is still a pure function
+    /// of cell data.
+    Cell,
+    /// Position-keyed as today but at a third the amplitude, so a static
+    /// pattern is simply less conspicuous. The cheapest option and the least
+    /// ambitious: it mutes the symptom rather than addressing it.
+    Muted,
+    /// Position and a coarse time bucket, the same shape `FLAME_FLICKER_
+    /// PERIOD` already uses for fire. Genuinely animated, and the only
+    /// variant that **forces a full redraw every frame** — see `draw`.
+    Animated,
+    /// Position-keyed grain, plus a brightness lift for cells whose
+    /// `FLAG_FLOWING` is set, so moving water is distinguishable from still
+    /// water without animating anything.
+    Motion,
+}
+
+/// Frames per step of `GrainMode::Animated`, chosen by the same reasoning
+/// `FLAME_FLICKER_PERIOD` records: re-rolling every frame reads as noise.
+const GRAIN_ANIMATION_PERIOD: u64 = 5;
+
+/// How much brighter a `FLAG_FLOWING` liquid cell draws under
+/// `GrainMode::Motion`.
+const MOTION_GRAIN_LIFT: f32 = 0.10;
+
 /// How bright a `Liquid` cell holding almost nothing still draws, as a
 /// fraction of its full-fill colour. Floored well above zero on purpose: a
 /// nearly-drained cell is still water and must read as water, not fade into
@@ -131,6 +177,11 @@ const MAX_ZOOM: i32 = 8;
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
 pub struct Renderer {
+    /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
+    /// Prototype switch — see the enum's own doc.
+    pub grain: GrainMode,
+    /// Frame counter, advanced by `draw`, read only by `GrainMode::Animated`.
+    frame: u64,
     /// World coordinate displayed at the top-left pixel. Fixed at the origin
     /// for M2; M10 moves it with the player.
     pub camera_x: i32,
@@ -169,6 +220,8 @@ pub struct Renderer {
 impl Renderer {
     pub fn new() -> Self {
         Self {
+            grain: GrainMode::default(),
+            frame: 0,
             camera_x: 0,
             camera_y: 0,
             show_chunk_overlay: false,
@@ -285,7 +338,13 @@ impl Renderer {
         let scale_changed = self.last_zoom_state != Some(zoom_state);
         self.last_zoom_state = Some(zoom_state);
 
-        let full = force_full || scale_changed || self.field_overlay != FieldOverlay::Off || self.show_chunk_overlay || !particles.is_empty();
+        self.frame = self.frame.wrapping_add(1);
+        // `GrainMode::Animated` is the one variant whose output changes with
+        // nothing in the world changing, so it has to defeat the dirty-rect
+        // skip entirely. That is its whole cost, and the reason it is not the
+        // default candidate despite being the obvious idea.
+        let animating = self.grain == GrainMode::Animated;
+        let full = force_full || scale_changed || animating || self.field_overlay != FieldOverlay::Off || self.show_chunk_overlay || !particles.is_empty();
 
         let recomputed = if full {
             for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
@@ -443,9 +502,27 @@ impl Renderer {
         // redraws the whole screen regardless of what's settled), so it
         // has to earn its cost the same way M14 learned fire's per-cell
         // pass did at CA-sweep scale.
-        let jitter_permille = ((rng::jitter(x, y) - 0.5) * 2000.0 * JITTER_STRENGTH) as i32;
+        //
+        // `GrainMode` only ever diverts the `Liquid` path — every other kind
+        // keeps the position-keyed grain unconditionally, because for a
+        // settled pile that is the correct answer and not a compromise.
+        let is_liquid = world.materials.kind(cell.material) == material::MaterialKind::Liquid;
+        let (grain, strength) = match (is_liquid, self.grain) {
+            (true, GrainMode::Cell) => (rng::jitter_u8(cell.shade), JITTER_STRENGTH),
+            (true, GrainMode::Muted) => (rng::jitter(x, y), JITTER_STRENGTH / 3.0),
+            (true, GrainMode::Animated) => {
+                (rng::jitter3(x, y, (self.frame / GRAIN_ANIMATION_PERIOD) as i32), JITTER_STRENGTH)
+            }
+            _ => (rng::jitter(x, y), JITTER_STRENGTH),
+        };
+        let jitter_permille = ((grain - 0.5) * 2000.0 * strength) as i32;
         for c in &mut rgb {
             *c = (*c as i32 + (*c as i32 * jitter_permille) / 1000).clamp(0, 255) as u8;
+        }
+        if is_liquid && self.grain == GrainMode::Motion && cell.flowing() {
+            for c in &mut rgb {
+                *c = (*c as f32 * (1.0 + MOTION_GRAIN_LIFT)).round().clamp(0.0, 255.0) as u8;
+            }
         }
 
         // Heat glow: continuous with temperature, not just a flat tint for
