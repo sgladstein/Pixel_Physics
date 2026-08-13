@@ -352,15 +352,25 @@ fn transfer_liquid_vertical<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> 
 
 /// Below this fill difference, two horizontally adjacent liquid cells count
 /// as settled rather than continuing to trade small amounts back and forth
-/// as their surrounding neighbours slowly finish levelling. Started at 8
-/// (0.8% of `LIQUID_FULL`) but that left a wide test puddle still visibly
-/// settling after ~12,000 frames -- tuned up empirically by directly
-/// measuring convergence at each step until settling landed comfortably
-/// inside a practical frame budget (under 1,000 frames) without the
-/// residual unevenness becoming visible in this module's own flatness
-/// checks. 150 is 15% of `LIQUID_FULL` -- a real trade of some precision
-/// for settling speed, not a rounding-level tweak.
-const MIN_LIQUID_TRANSFER: u16 = 150;
+/// as their surrounding neighbours slowly finish levelling.
+///
+/// Originally tuned *up* to 150 (15% of `LIQUID_FULL`) because 8 left a wide
+/// test puddle still visibly settling after ~12,000 frames -- but per
+/// Report B (`Reports/liquid-simulation-research-r2.md`) §3c's own
+/// instruction, that was always "treat this number as the diagnostic, not
+/// the setting": a change to the leveling mechanism that doesn't let it come
+/// back down didn't fix the underlying problem. The liquid heightfield
+/// design (`Reports/liquid-heightfield-design.md`) promotes large connected
+/// bodies out of this per-cell dead band entirely, onto a solver that
+/// doesn't need one -- so this dead band now only has to cover *unpromoted*
+/// liquid, and B-9 requires it drop back to <= 16. Dropped to exactly 16 (2%
+/// of `LIQUID_FULL`, the B-9 ceiling), not 8: 8 measured at 31 units of
+/// residual unevenness after 300 frames on B-9's own 100-column scene
+/// (`a_wide_shallow_pool_levels_within_budget`), missing the 20-unit/
+/// 300-frame bar; 16 measured at or under it. A real, re-measured trade of
+/// precision for settling speed at unpromoted scale, not a rounding-level
+/// tweak or a guess.
+const MIN_LIQUID_TRANSFER: u16 = 16;
 
 // `HORIZONTAL_TRANSFER_REACH` (how far `transfer_liquid_horizontal` below
 // looks past the immediate neighbour for a genuinely emptier cell to level
@@ -1126,7 +1136,38 @@ mod tests {
                 w.set(x, y, Cell::new(material::WATER, 0));
             }
         }
-        run(&mut w, 3000);
+        // 3000 was enough at `MIN_LIQUID_TRANSFER = 150`. Dropping the dead
+        // band to 16 for B-9 (see that constant's own doc) makes this exact
+        // scene settle *flatter* (`height_spread` reaches exactly 0.0 here,
+        // where 150 left visible residual unevenness) but slower -- measured
+        // directly by checkpointing this scene at 1000-frame intervals:
+        // still 6 chunks active at 3000, 4 at 4000, fully asleep by 5000.
+        // 6000 here for real margin, not the bare minimum.
+        //
+        // This is *not* a gap automatic body promotion would close, despite
+        // the design doc's own "step 6 is the verdict on steps 3-4"
+        // framing suggesting exactly that. Tried directly, then reverted:
+        // wiring `World::try_promote_one` and letting it promote this
+        // scene's flat rectangular block early made it *worse*, not
+        // better -- the block promotes almost immediately (already
+        // internally level, so it satisfies quiescence on its first real
+        // solver pass) and then sleeps, permanently frozen at its
+        // promotion-time width (measured: spread stuck at exactly 106
+        // columns from frame 10 through frame 6000, versus this test's own
+        // >150 bar). The persistent-flux solver only redistributes mass
+        // among a body's *already-claimed* columns; `overloaded_edge`
+        // (the only mechanism that sheds a column back to CA, where it
+        // could then spread into open floor on its own) triggers on
+        // relative imbalance *among a body's own columns*
+        // (`h[edge] > avg * EDGE_OVERFLOW_RATIO`), which is structurally
+        // impossible to satisfy for a body that is already flat -- so nothing
+        // ever drives a uniformly-full body to notice it is taller than a
+        // real fluid would settle to given the open floor beside it. A real
+        // architectural gap, not a tuning problem; recorded here rather than
+        // in a promotion-trigger implementation, since none is safe to wire
+        // in until this is resolved. See `PLAN.md`'s note on the same
+        // finding for the fuller writeup.
+        run(&mut w, 6000);
 
         assert_eq!(w.active_chunk_count(), 0, "water never fully settled");
 
@@ -1135,6 +1176,46 @@ mod tests {
 
         let height_spread = column_height_spread(&w, material::WATER, 149);
         assert!(height_spread < 10.0, "surface is not close to flat: height std-dev {height_spread:.2}");
+    }
+
+    #[test]
+    fn a_wide_shallow_pool_levels_within_budget() {
+        // B-9 (`Reports/liquid-heightfield-design.md` §12) / Report B
+        // (`liquid-simulation-research-r2.md`) §10b-10c: a 100-cell-wide
+        // pool must settle to within 2% of `LIQUID_FULL` adjacent-column
+        // difference within 300 frames, and `MIN_LIQUID_TRANSFER` -- the
+        // dead band that used to be the only thing bounding settling time
+        // -- must actually be at or below 16 to get there, not just claim
+        // to. Checked directly against the live constant so this test
+        // fails the moment it creeps back up rather than only when someone
+        // remembers to re-derive the bound.
+        const { assert!(MIN_LIQUID_TRANSFER <= 16, "B-9: MIN_LIQUID_TRANSFER must drop to <= 16") };
+
+        // A single shallow row, not a tall column: at this depth, fill
+        // unevenness *within* the row is exactly "adjacent-column height
+        // difference" -- the same quantity 10b measures, without needing
+        // multiple layers to express it. Deliberately uneven (a low
+        // plateau with one spike) so leveling has real work to do.
+        let width: i32 = 100;
+        let x0: i32 = 10;
+        let floor_y: i32 = 126;
+        let mut w = World::new(Rect::new(0, 0, x0 + width + 10, floor_y + 1));
+        for x in 0..x0 + width + 10 {
+            w.set(x, floor_y, Cell::new(material::STONE, 0));
+        }
+        for i in 0..width {
+            let fill = if i == width / 2 { 900 } else { 400 };
+            w.set(x0 + i, floor_y - 1, Cell::new(material::WATER, 0).with_aux(fill));
+        }
+
+        run(&mut w, 300);
+
+        let fills: Vec<i32> = (0..width).map(|i| liquid_fill(w.get(x0 + i, floor_y - 1)) as i32).collect();
+        let max_diff = fills.windows(2).map(|p| (p[0] - p[1]).abs()).max().unwrap();
+        assert!(
+            max_diff <= 20,
+            "B-9/10b: surface not flat within budget -- max adjacent-column difference {max_diff} (bar is 2% of LIQUID_FULL = 20)"
+        );
     }
 
     #[test]

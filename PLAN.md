@@ -4558,3 +4558,176 @@ can only shed mass by growing a third via `try_extend` first.
 **Not yet built:** dropping `MIN_LIQUID_TRANSFER` (step 6). Automatic
 promotion still doesn't exist. The same deferred B-8/B-2 verification bars
 noted in Step 4 remain deferred for the same reason.
+
+### Step 6 (§11) — drop `MIN_LIQUID_TRANSFER` toward 8, confirm settling stays in budget — implemented, landed at 16 not 8
+
+**The design doc's own framing: "this step is the verdict on steps 3-4."**
+Report B §3c set the standard back when the dead band was first tuned *up*
+to 150 to hide slow per-cell convergence: "treat `MIN_LIQUID_TRANSFER` as
+the diagnostic, not the setting — if a change to the leveling mechanism
+doesn't let this number go down, it didn't fix the underlying problem."
+B-9 turns that into a bar: the constant must drop to ≤ 16 (2% of
+`LIQUID_FULL`) with 10b/10c (a 100-column pool flat within 2% inside 300
+frames) still passing.
+
+**New test, `a_wide_shallow_pool_levels_within_budget`** (§12/B-9, 10b/10c):
+a single shallow row, 100 columns wide, deliberately uneven (one spike
+against a flat plateau) — at this depth, fill unevenness *within* the row
+is exactly the "adjacent-column height difference" 10b measures, without
+needing multiple layers to express it. Asserts `MIN_LIQUID_TRANSFER <= 16`
+via `const { assert!(...) }` (a compile-time check, per clippy's own
+`assertions_on_constants` suggestion — stronger than a runtime check, since
+a regression fails the build, not just this one test) and that max adjacent
+fill difference is ≤ 20 after 300 frames.
+
+**Tried 8 first, the design doc's literal target — it didn't clear the
+bar.** Measured directly on this exact scene: 8 leaves 31 units of residual
+difference after 300 frames (bar is 20); 16 clears it. Landed at exactly
+16, the B-9 ceiling, not a rounder or more conservative number — it is the
+tightest value this scene actually measured as sufficient, re-derived
+rather than assumed from the doc's "toward 8" phrasing.
+
+**One real, expected regression, fixed by raising a test's own frame
+budget rather than the constant:** `a_wide_deep_water_column_levels_out_
+instead_of_only_eroding_at_the_edges` (a 100-wide, 49-deep column, Step
+4's own §4 acceptance scene) stopped reaching `active_chunk_count() == 0`
+within its old 3000-frame budget at the tighter dead band. Checkpointed
+directly rather than guessing: still 6 chunks active at 3000 frames, 4 at
+4000, fully asleep by 5000 — and settling *flatter* than before
+(`height_spread` reaches exactly 0.0, where 150 left visible residual
+unevenness). Budget raised to 6000 for real margin. This is exactly the
+cost the design doc's own framing predicts: a column this large is precisely
+what automatic body promotion (still not wired up — next on the list) is
+meant to take off this per-cell path entirely; until then, a scene this
+size pays for the tighter dead band in frames, not in final flatness. Not
+treated as a reason to keep the dead band wide — B-9 exists specifically so
+this kind of regression gets found and characterized instead of hidden
+behind a loose bound.
+
+**Verification:** `cargo test --lib` (332 tests) and `cargo clippy
+--all-targets -- -D warnings` both clean. Cost re-checked on the `ascii`
+stress scene, a full-screen mixed sand-and-water scene that *does* exercise
+ordinary per-cell liquid transfer (unlike the liquid-body steps' cost
+checks, which measured zero incidental overhead on a scene with no
+promoted bodies) — held at baseline (serial ~37-38ms, parallel ~7.5-9ms)
+across 13 runs, with 3 isolated single-run spikes (up to 71ms) that did not
+recur on the very next run and appeared on both serial and parallel at
+different times — read as OS scheduling noise on this dev box, not a
+directional shift, since a real regression from a tighter transfer
+threshold would show as a consistently elevated median, not sporadic
+one-off spikes surrounded by baseline runs.
+
+**Not yet built:** automatic promotion (design doc §3e) — still the one
+gap standing between this design and bodies actually promoting during real
+play. The deferred B-8/B-2/B-6/B-7 verification bars noted in Steps 4-5
+remain deferred for the same reason.
+
+### Automatic promotion (§3e): attempted, reverted — a real architectural gap found, not a tuning problem
+
+**Attempted a full implementation** of design doc §3e/§4c: a per-chunk
+`Chunk::liquid_hint: Option<(i32, i32)>` seed position, set for free at the
+existing write seam (`World::write_cell`, `ChunkView::set`) whenever an
+unmanaged `Liquid`-kind cell is written (naturally excluding a promoted
+body's own `set_owned` rasterizer writes, since those are always already
+`managed`, and naturally *including* `demote_body`'s own `set_owned` call
+that clears the flag — the exact moment a demoted body's cells become
+promotable candidates again); a deterministic round-robin
+`World::try_promote_one`, called once per `end_step` (so it applies
+uniformly to the serial driver, the parallel driver, and every existing
+test harness without touching `app.rs`), collecting every chunk's hint,
+sorting by `ChunkCoord` (never raw `HashMap` order — issue #7's standing
+rule, the same fix `chunks_to_sweep()` already applies) and picking one via
+a persistent cursor for fairness across frames; a per-chunk
+`demote_cooldown` map, populated by `demote_body`, reusing
+`liquid::DEMOTE_COOLDOWN_FRAMES` (a flat cooldown, not §4c's full
+exponential-backoff shape — that constant's own doc already flagged this
+simplification back when it was written for Step 5's edge-demotion
+cooldown, anticipating this exact reuse).
+
+**It compiled clean, and broke five previously-passing tests the moment it
+actually fired** — not just liquid tests: `smoke_rises_through_water`,
+both parallel-driver fire/settling tests, and this section's own
+`a_wide_deep_water_column_levels_out_instead_of_only_eroding_at_the_edges`
+(see that test's own comment for the full writeup, copied in outline
+here). Isolated the cause directly (temporarily stubbed `try_promote_one`
+to a no-op — all five passed again; restored it — all five failed again)
+rather than guessing, then diagnosed the water-column case specifically
+since it has no fire/gas involved, via frame-checkpointed instrumentation:
+
+```
+frame 1:    bodies=1 active_chunks=7 spread=106
+frame 10:   bodies=1 active_chunks=0 spread=106
+frame 6000: bodies=1 active_chunks=0 spread=106
+```
+
+**The body promotes almost immediately (its starting shape — a uniform
+rectangular block — is already internally flat, so it satisfies
+quiescence on its very first real solver pass), snaps, sleeps, and then
+never moves again for the rest of the run.** This is not a bug in any one
+mechanism; it is a structural gap in what the persistent-flux solver (Step
+3) and edge demotion (Step 5) can express *together*. The solver only
+redistributes mass among a body's already-claimed columns. The only
+mechanism that could put a column back onto the open CA grid where it
+could spread freely — `overloaded_edge` — triggers on
+`h[edge] > avg * EDGE_OVERFLOW_RATIO`, a check defined entirely in terms
+of imbalance *among the body's own columns*. A uniformly-full body has
+`h[edge] == avg` by definition, so this can never fire, no matter how much
+open floor sits beside it or how physically wrong the body's current shape
+is (a real fluid poured as a tall block does not stay a tall block once
+promoted to "already flat" — it spreads until it is much shallower and
+wider). Nothing in the design tracks "taller than the open floor beside me
+would let a real fluid settle to" as a driving force at all — that quantity
+lives outside a single body's own column array entirely.
+
+**Why quiescence-based promotion criteria (§4a) didn't already predict
+this.** §4a is correct that quiescence must not *gate* promotion — the
+reasoning there (a body that's still moving is exactly what needs
+accelerating) is sound. But every existing test that exercises the
+solver's leveling behaviour (`the_solver_levels_an_uneven_column_over_many_
+frames` and neighbours) promotes a body that already has real per-column
+*height* variance to level — none of them promote an initially-flat block
+sitting on open floor with room to spread, because no prior step's tests
+had a reason to build that scene: manual `promote_liquid_body` calls in
+`liquid.rs`'s own test suite always target scenes built to exercise a
+specific mechanism, never scenes built to ask "should this have promoted
+at all, given what's beside it." Automatic promotion is the first thing in
+this whole build order that promotes *whatever the CA happens to hand it*,
+which is exactly what exposed the gap — matching the design doc's own
+"step 6 is the verdict on steps 3-4" framing better than step 6 itself did
+in the end: automatic promotion turned out to be the real verdict on the
+whole design, not the dead-band drop.
+
+**Reverted in full** (`src/sim/chunk.rs`, `src/sim/world.rs`,
+`src/sim/parallel.rs`, `src/sim/liquid.rs`'s `DEMOTE_COOLDOWN_FRAMES`
+visibility change — confirmed via `git diff --stat` that only this
+section's PLAN.md entry and the water-column test's updated comment
+survive) rather than landed disabled-by-default: leaving broken,
+unreachable plumbing in the tree is worse than no plumbing, since it would
+need re-auditing for correctness *again* whenever someone eventually wires
+it back in, on top of designing the actual fix. `cargo test --lib` (332)
+and `cargo clippy --all-targets -- -D warnings` both clean after the
+revert, confirming the working tree is back to exactly Step 6's own
+validated state.
+
+**Deferred, per standing instruction, rather than attempted further
+tonight** — this needs real design work, not another implementation
+attempt: candidates sketched here for whoever picks this up, **not
+decided**. (a) Give the solver a pressure term relative to bed depth
+*outside* the body's own column range, so an overfull body facing open
+floor genuinely wants to spread even while internally flat — the largest
+change, closest to what real hydrostatics would do. (b) Refuse promotion
+(§3b) for a component whose shape is "suspiciously uniform" relative to
+its surroundings (e.g., every column at the same height *and* open floor
+adjacent to an edge) until the CA has had a chance to erode it toward its
+natural footprint first — cheaper, but reintroduces exactly the kind of
+per-cell local heuristic §1a(3) already proved insufficient once this
+session, just relocated to a promotion gate instead of a leveling rule.
+(c) Give `try_extend` (or a new sibling mechanism) the ability to claim
+*open floor*, not just existing unmanaged liquid — extending the body's
+own column range into `Empty` space when doing so would lower the body's
+own potential energy, which is closer to (a) in spirit but scoped to the
+existing extend/demote machinery rather than the solver's core math.
+Whichever direction is chosen, the fix needs its own acceptance scene
+(this water-column test, or one like it) run all the way through
+promotion, not just through the solver in isolation the way every existing
+Step 3-5 test does.
