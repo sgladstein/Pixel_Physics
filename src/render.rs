@@ -129,12 +129,6 @@ const GRAIN_SMOOTH_PERIOD: u64 = 20;
 /// `GrainMode::Motion`.
 const MOTION_GRAIN_LIFT: f32 = 0.10;
 
-/// How bright a `Liquid` cell holding almost nothing still draws, as a
-/// fraction of its full-fill colour. Floored well above zero on purpose: a
-/// nearly-drained cell is still water and must read as water, not fade into
-/// the background and look like a hole. See `cell_colour`'s own comment for
-/// why fill is drawn at all.
-const MIN_LIQUID_BRIGHTNESS: f32 = 0.35;
 
 /// How far above ambient a cell needs to be for `HEAT_GLOW_RANGE` to
 /// saturate the warm-tint blend fully. Oil burns at 900C, so this is a
@@ -576,7 +570,13 @@ impl Renderer {
         // than a full one -- depth should not glow.
         if world.materials.kind(cell.material) == material::MaterialKind::Liquid {
             let fill = crate::sim::update::liquid_fill(cell) as f32 / material::LIQUID_FULL as f32;
-            let strength = MIN_LIQUID_BRIGHTNESS + (1.0 - MIN_LIQUID_BRIGHTNESS) * fill.clamp(0.0, 1.0);
+            // Per-material now (`Material::fill_dimming`) rather than the
+            // hardcoded floor this used, because how conspicuous a partial
+            // cell should be is a look judgement -- and it is the one that
+            // decides whether a settled waterline reads as a clean edge or a
+            // mottled band. See that field's own doc for the measurements.
+            let dimming = world.materials.get(cell.material).fill_dimming.clamp(0.0, 1.0);
+            let strength = (1.0 - dimming) + dimming * fill.clamp(0.0, 1.0);
             for c in &mut rgb {
                 *c = (*c as f32 * strength).round() as u8;
             }

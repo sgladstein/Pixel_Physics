@@ -31,6 +31,13 @@
     // visible. Live-tunable with `O` -- sweep it on real water rather than
     // guessing. See `MaterialDef::min_transfer` for the measurements.
     min_transfer: 16,
+    // How much a partially-filled cell dims toward black, 0..1. 0.65 is the
+    // long-standing look. Lower it if the settled waterline reads as a
+    // mottled band rather than a clean edge: only ~1% of a resting body's
+    // cells are partial, but they are all at the surface, and their fill
+    // ranges widely enough to draw anywhere from ~54% to 100% brightness.
+    // Live-tunable with `O`.
+    fill_dimming: 0.65,
     colors: [
         (64, 116, 208),
         (58, 108, 198),

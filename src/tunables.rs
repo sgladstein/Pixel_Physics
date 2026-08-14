@@ -70,6 +70,14 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
         if m.kind == MaterialKind::Liquid {
             out.push(Tunable {
                 category: category.clone(),
+                name: "fill_dimming".into(),
+                value: m.fill_dimming,
+                min: 0.0,
+                max: 1.0,
+                step: 0.05,
+            });
+            out.push(Tunable {
+                category: category.clone(),
                 name: "min_transfer".into(),
                 value: m.min_transfer as f32,
                 min: 0.0,

@@ -211,6 +211,25 @@ pub struct MaterialDef {
     /// swept on real water instead of argued about. The default stays 16.
     #[serde(default = "default_min_transfer")]
     pub min_transfer: u16,
+    /// How strongly a partially-filled cell of this liquid is dimmed toward
+    /// black, 0..1. `0.0` draws every cell at full brightness regardless of
+    /// fill (pure occupancy, the pre-`eb8d427` look); `0.65` is what a
+    /// hardcoded `MIN_LIQUID_BRIGHTNESS` of 0.35 used to give.
+    ///
+    /// Exposed because it turns out to drive two reported visual problems at
+    /// once, and neither is a physics problem. At rest the surface *geometry*
+    /// is flat — measured across 60 columns of a settled pool, the waterline
+    /// sits on three adjacent rows — but the top row's fill ranges from 286
+    /// to 1002, which at 0.65 draws as anywhere from 54% to 100% brightness.
+    /// The waterline reads as a mottled band rather than a clean edge. The
+    /// same thing makes the boundary between moving and still water visible:
+    /// moving water carries ~6.5% partial cells against ~1% at rest, so the
+    /// interface is a brightness discontinuity.
+    ///
+    /// Only ~1% of a settled body's cells are partial at all — but they are
+    /// *entirely* at the surface, which is exactly where the eye looks.
+    #[serde(default = "default_fill_dimming")]
+    pub fill_dimming: f32,
     pub colors: Vec<[u8; 3]>,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
@@ -315,6 +334,12 @@ fn default_min_transfer() -> u16 {
     16
 }
 
+/// 0.65, matching the hardcoded `MIN_LIQUID_BRIGHTNESS` of 0.35 this
+/// replaced, so a `.ron` that says nothing about it looks exactly as before.
+fn default_fill_dimming() -> f32 {
+    0.65
+}
+
 fn default_friction_angle() -> f32 {
     45.0
 }
@@ -397,6 +422,8 @@ pub struct Material {
     pub flow_rate: u16,
     /// See `MaterialDef::min_transfer`.
     pub min_transfer: u16,
+    /// See `MaterialDef::fill_dimming`.
+    pub fill_dimming: f32,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
     pub palette: Vec<[u8; 4]>,
@@ -624,6 +651,7 @@ impl From<MaterialDef> for Material {
             dispersion: def.dispersion,
             flow_rate: def.flow_rate,
             min_transfer: def.min_transfer,
+            fill_dimming: def.fill_dimming,
             palette: def
                 .colors
                 .iter()
@@ -731,6 +759,7 @@ impl MaterialRegistry {
             dispersion: 0,
             flow_rate: 0,
             min_transfer: default_min_transfer(),
+            fill_dimming: default_fill_dimming(),
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
@@ -756,6 +785,7 @@ impl MaterialRegistry {
             dispersion: 0,
             flow_rate: 0,
             min_transfer: default_min_transfer(),
+            fill_dimming: default_fill_dimming(),
             colors: vec![[20, 20, 24]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
