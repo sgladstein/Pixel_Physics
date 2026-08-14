@@ -76,6 +76,43 @@ pub trait CellSurface {
     /// reaching into the shared `World` at all.
     fn field_moisture_at(&self, x: i32, y: i32) -> f32;
 
+    /// Ambient wind (the field's own velocity) at `(x, y)`, as `(vx, vy)`.
+    ///
+    /// `update_gas`'s only caller. Same shape and same justification as
+    /// `field_moisture_at` directly above — a read at the cell currently
+    /// being visited, which is always inside the caller's own chunk, so
+    /// `ChunkView` answers it from its own field tile without touching the
+    /// shared `World`.
+    ///
+    /// **Why it is safe to read the field from inside a CA rule here, when
+    /// `fire::diffuse_heat` had exactly this removed for cost.** Two
+    /// reasons, and the second turned out to matter more than the first.
+    ///
+    /// The obvious one: `diffuse_heat` runs for *every visited cell*, on the
+    /// order of 10⁵ a frame on a full-screen scene, where gas is a naturally
+    /// tiny population (a blast leaves a few hundred smoke cells).
+    ///
+    /// The one that actually does the work: `diffuse_heat` called
+    /// `World::field_at`, a **`HashMap` lookup per call**, which is what
+    /// took its worst frame from ~16 ms to ~64 ms. The production CA sweep
+    /// is `parallel::step`, so the implementation that runs in play is
+    /// `ChunkView`'s — and that answers from the worker's *own* field tile
+    /// by direct array index, with no hashing and no shared-`World` access
+    /// at all. It is a fundamentally cheaper operation, not merely a rarer
+    /// one.
+    ///
+    /// Measured rather than assumed, on a deliberately absurd scene —
+    /// **56,640** gas cells, ~140x what a real blast produces, with a live
+    /// pressure impulse over it so the read cannot be answered from a
+    /// uniformly-zero grid. Mean frame across three runs each: 6.392 /
+    /// 6.142 / 6.179 ms with the read, 6.455 / 6.218 / 6.157 ms without —
+    /// indistinguishable. (A first attempt reported 73 ms against 30 ms and
+    /// was entirely warm-up: the first ~20 frames of any scene here are
+    /// dominated by allocation and first-touch page faults, which is worth
+    /// remembering before believing any single worst-frame number in this
+    /// repo.)
+    fn field_wind_at(&self, x: i32, y: i32) -> (f32, f32);
+
     /// Current frame number — needed by `fire::tick_burn` to compute a
     /// newly-scheduled active site's `next_frame` (architecture §5f, ash
     /// decay). See `World::frame`.

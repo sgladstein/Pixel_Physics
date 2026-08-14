@@ -25,7 +25,7 @@ cargo test
 | `.` | Step one frame while paused |
 | `F` | Force-ignite whatever's under the brush (debug tool) |
 | `P` | Throw a burst of the selected material as free particles (debug tool) |
-| `X` | Trigger an explosion at the brush radius |
+| `X` | Trigger an explosion (its own radius/strength, tunable under `O` -> EXPLOSION, **not** the brush radius) |
 | `T` | Plant a tree seed under the brush (M16 debug tool) |
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `W` | Plant a worm under the brush (M18 debug tool) |
@@ -552,6 +552,18 @@ particles (debug tool, ahead of M15 giving explosions a real reason to call
 `ParticleSystem::spawn`).
 
 ## M15 status
+
+**Rebuilt after a diagnosis pass** — see
+[`Reports/explosion-mechanics-diagnosis.md`](Reports/explosion-mechanics-diagnosis.md)
+for the measurements. A blast now expands over `Tuning::duration` frames
+rather than resolving in one; the fireball writes CA cell temperature (so it
+glows, fades raggedly, and respects `flammability` — the old path reused the
+debug force-ignite tool and set *stone* alight); debris can punch through
+loose material (`particle::Particle::pierce`), which is what makes a buried
+charge throw anything at all; and the crater is backfilled with smoke, giving
+`SMOKE` its first producer anywhere in the simulation. Every number lives on
+`explosion::Tuning`, live-adjustable under `O` and persisted to
+`assets/explosion.ron`.
 
 Explosions, in [`src/sim/explosion.rs`](src/sim/explosion.rs) —
 `explosion::trigger`, built entirely from M13/M14/M7 triggered together, no
@@ -1427,9 +1439,6 @@ Known limitations:
   `heat_conductivity: 0.0` — correct for sand/water/stone/gravel/smoke, which
   have no business catching fire. Lava, steam and richer reactions are
   natural additions once there is a design reason to want them.
-- **Explosions ignite anything nearby regardless of flammability** — see M15
-  status above. Reuses the debug force-ignite tool rather than a
-  flammability-respecting path; stone glows the same as oil would.
 - **Plants don't reseed, and a burned forest doesn't regrow on its own** —
   the plan's M16 verify criterion "a forest burns and regrows" only got the
   "burns" half; there's no mechanic yet for a burned-out patch to spawn a

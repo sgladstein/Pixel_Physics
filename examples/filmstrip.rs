@@ -261,6 +261,7 @@ fn parse() -> Args {
 fn fire_due_explosions(
     world: &mut World,
     particles: &mut ParticleSystem,
+    blasts: &mut explosion::Blasts,
     pending: &mut Vec<(i32, i32, i32, f32, usize)>,
     now: usize,
 ) {
@@ -269,7 +270,7 @@ fn fire_due_explosions(
         if pending[i].4 <= now {
             let (x, y, r, strength, _) = pending.remove(i);
             println!("  boom: ({x}, {y}) r={r} strength={strength} at frame {now}");
-            explosion::trigger(world, particles, x, y, r, strength);
+            blasts.trigger_with(world, particles, x, y, r, strength);
         } else {
             i += 1;
         }
@@ -286,7 +287,7 @@ fn fire_due_explosions(
 /// scenes (nothing promotes a liquid body, nothing schedules an active site,
 /// and no liquid rule reads the field), so they do not move the measurements
 /// already recorded against those.
-fn advance(world: &mut World, particles: &mut ParticleSystem, parallel_driver: bool) {
+fn advance(world: &mut World, particles: &mut ParticleSystem, blasts: &mut explosion::Blasts, parallel_driver: bool) {
     if parallel_driver {
         parallel::step(world);
     } else {
@@ -294,6 +295,7 @@ fn advance(world: &mut World, particles: &mut ParticleSystem, parallel_driver: b
     }
     world.step_liquid_bodies();
     world.step_active_sites();
+    blasts.step(world, particles);
     particles.step(world);
     world.step_fields();
 }
@@ -305,6 +307,7 @@ fn main() {
     renderer.grain = args.grain;
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
+    let mut blasts = explosion::Blasts::new();
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
     let (cw, ch) = (args.crop.width(), args.crop.height());
@@ -331,11 +334,11 @@ fn main() {
         for i in 0..args.count {
             let target = args.start + i * args.every;
             while step_no < target {
-                fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
-                advance(&mut world, &mut particles, args.parallel_driver);
+                fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+                advance(&mut world, &mut particles, &mut blasts, args.parallel_driver);
                 step_no += 1;
             }
-            fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
+            fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
 
@@ -380,11 +383,11 @@ fn main() {
     while captured < args.count {
         let target = args.start + captured * args.every;
         while step_no < target {
-            fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
-            advance(&mut world, &mut particles, args.parallel_driver);
+            fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+            advance(&mut world, &mut particles, &mut blasts, args.parallel_driver);
             step_no += 1;
         }
-        fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
+        fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
         // `force_full`, not the dirty-rect path: this must draw the whole
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.

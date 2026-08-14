@@ -619,6 +619,17 @@ impl CellSurface for ChunkView<'_> {
         self.field.get_local(lx, ly).moisture
     }
 
+    fn field_wind_at(&self, x: i32, y: i32) -> (f32, f32) {
+        let (fx, fy) = field::field_coord_of(x, y);
+        let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+        debug_assert_eq!(
+            tile_coord, self.coord,
+            "field_wind_at called with a position outside this worker's own chunk"
+        );
+        let f = self.field.get_local(lx, ly);
+        (f.vx, f.vy)
+    }
+
     fn frame(&self) -> u64 {
         self.world.frame
     }

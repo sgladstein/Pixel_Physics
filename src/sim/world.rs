@@ -1414,6 +1414,12 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn field_wind_at(&self, x: i32, y: i32) -> (f32, f32) {
+        let f = World::field_at(self, x, y);
+        (f.vx, f.vy)
+    }
+
+    #[inline]
     fn frame(&self) -> u64 {
         self.frame
     }

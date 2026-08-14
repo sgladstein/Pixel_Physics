@@ -817,6 +817,28 @@ pub(crate) fn put(frame: &mut [u8], width: u32, height: u32, x: i32, y: i32, col
     frame[i..i + 4].copy_from_slice(&colour);
 }
 
+/// Blend `colour` over whatever is already in the frame at `(x, y)`, with
+/// `alpha` in 0..=1. The HUD's panels are drawn *after* the world, straight
+/// into the same framebuffer, so this is the whole of the translucency
+/// mechanism — no second buffer, no compositing pass.
+///
+/// Integer math on the way out, but the blend itself is float: these are
+/// panel-sized fills (a few tens of thousands of pixels at most) drawn only
+/// while an overlay is open, not the per-cell hot path `cell_colour` is, so
+/// the readability is worth more here than the cycles.
+pub(crate) fn blend(frame: &mut [u8], width: u32, height: u32, x: i32, y: i32, colour: [u8; 4], alpha: f32) {
+    if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
+        return;
+    }
+    let a = alpha.clamp(0.0, 1.0);
+    let i = (y as usize * width as usize + x as usize) * 4;
+    for c in 0..3 {
+        let dst = frame[i + c] as f32;
+        frame[i + c] = (dst + (colour[c] as f32 - dst) * a).round().clamp(0.0, 255.0) as u8;
+    }
+    frame[i + 3] = 255;
+}
+
 /// Midpoint circle algorithm, eight-way symmetry — the brush outline
 /// preview (§9 of `PLAN.md`'s UI-improvement pass), and reusable for
 /// anything else that ever wants a cheap outline (a future explosion

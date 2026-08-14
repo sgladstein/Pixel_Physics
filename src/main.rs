@@ -240,6 +240,8 @@ impl Handler {
             KeyCode::Escape => {
                 if self.app.show_tunables {
                     self.app.show_tunables = false;
+                } else if self.app.has_pin() {
+                    self.app.clear_pin();
                 } else {
                     event_loop.exit();
                 }
@@ -290,17 +292,28 @@ impl Handler {
             // see `App::toggle_experiment`.
             KeyCode::KeyK => self.app.toggle_experiment(),
             KeyCode::PageUp | KeyCode::PageDown if self.app.show_tunables => self.app.tunables_cycle_group(),
+            KeyCode::KeyS if self.app.show_tunables => self.app.save_tunable(),
             KeyCode::KeyI => self.app.toggle_hover_inspector(),
             KeyCode::Tab => self.app.toggle_palette(),
             KeyCode::Slash => self.app.toggle_help(),
             KeyCode::KeyO => self.app.toggle_tunables(),
-            // Arrow keys and Enter only drive the tunables panel, and only
-            // while it's open -- they have no other binding to steal.
+            // Arrow keys and Enter only drive the tunables panel -- they
+            // have no other binding to steal. Left/right additionally drive
+            // a *pinned* tunable with the panel closed, which is the whole
+            // point of pinning: sweep a value with the world visible rather
+            // than behind a panel covering most of it (`App::pinned`).
             KeyCode::ArrowUp if self.app.show_tunables => self.app.tunables_move(-1),
             KeyCode::ArrowDown if self.app.show_tunables => self.app.tunables_move(1),
             KeyCode::ArrowLeft if self.app.show_tunables => self.app.tunables_adjust(-1),
             KeyCode::ArrowRight if self.app.show_tunables => self.app.tunables_adjust(1),
-            KeyCode::Enter if self.app.show_tunables => self.app.save_tunable(),
+            KeyCode::ArrowLeft => self.app.adjust_pinned(-1),
+            KeyCode::ArrowRight => self.app.adjust_pinned(1),
+            // Enter *pins and closes*, rather than saving -- saving moved to
+            // `S`. Pin is the far more frequent action (every value judged by
+            // eye needs it; saving happens once at the end), and "take this
+            // one with me" is the better meaning for the key that dismisses
+            // a dialog.
+            KeyCode::Enter if self.app.show_tunables => self.app.pin_selected(),
             KeyCode::KeyQ => self.app.cycle_material(-1),
             KeyCode::KeyE => self.app.cycle_material(1),
             KeyCode::Digit1 => self.app.select_material(1),

@@ -7,6 +7,7 @@
 use crate::hud;
 use crate::render::{self, Renderer};
 use crate::sim::chunk::Rect;
+use crate::sim::explosion;
 use crate::sim::material::{self, MaterialId, MaterialKind};
 use crate::sim::organism;
 use crate::sim::parallel;
@@ -28,6 +29,10 @@ const STREAM_DENSITY: f32 = 0.3;
 pub struct App {
     pub world: World,
     pub particles: ParticleSystem,
+    /// Explosions currently expanding, plus their live tuning. A blast is
+    /// no longer a single-frame event (`sim::explosion`'s own module doc has
+    /// the measurements), so it needs somewhere to live between frames.
+    pub blasts: explosion::Blasts,
     pub renderer: Renderer,
     pub brush_radius: i32,
     /// Index into `paintable`, not a `MaterialId`, so cycling wraps cleanly.
@@ -58,6 +63,16 @@ pub struct App {
     tunables_selected: usize,
     /// Which menu the tunables panel is showing. `PageUp`/`PageDown`.
     tunables_group: TunableGroup,
+    /// The tunable currently pinned for live adjustment with the panel
+    /// *closed* — `Enter` in the panel sets it and closes.
+    ///
+    /// The panel covers most of the screen, so anything judged by eye could
+    /// not be judged while it was open: you adjusted blind, closed, looked,
+    /// reopened, scrolled back. Pinning is the fix — a one-line readout in
+    /// the corner and the same left/right keys, with the world fully
+    /// visible. Stored by identity (group/category/name), never by value,
+    /// so it stays correct across a hot-reload that rebuilds the list.
+    pinned: Option<(TunableGroup, String, String)>,
     /// `K` — whether the current A/B experiment is on. See `toggle_experiment`.
     pub experiment: bool,
 }
@@ -105,6 +120,7 @@ impl App {
         Self {
             world,
             particles: ParticleSystem::new(),
+            blasts: explosion::Blasts::with_tuning(explosion::Tuning::load()),
             renderer: Renderer::new(),
             brush_radius: 6,
             selected,
@@ -118,6 +134,7 @@ impl App {
             show_tunables: false,
             tunables_selected: 0,
             tunables_group: TunableGroup::Physics,
+            pinned: None,
             experiment: false,
         }
     }
@@ -150,10 +167,15 @@ impl App {
     /// a persistent list in sync with hot-reload (`F5`) entirely, the same
     /// tradeoff `tunables.rs`'s own module doc explains.
     fn tunables_list(&self) -> Vec<Tunable> {
-        tunables::from_materials(&self.world.materials)
-            .into_iter()
-            .filter(|t| t.group == self.tunables_group)
-            .collect()
+        self.all_tunables().into_iter().filter(|t| t.group == self.tunables_group).collect()
+    }
+
+    /// Every registered tunable from every source, ungrouped — materials
+    /// plus the engine structs that are not materials at all.
+    fn all_tunables(&self) -> Vec<Tunable> {
+        let mut out = tunables::from_materials(&self.world.materials);
+        out.extend(tunables::from_explosion(&self.blasts.tuning));
+        out
     }
 
     /// `PageUp`/`PageDown` — switch which menu the panel shows. Resets the
@@ -205,16 +227,30 @@ impl App {
         let Some(t) = self.tunables_list().into_iter().nth(self.tunables_selected) else {
             return;
         };
+        self.apply_adjust(&t, sign);
+    }
+
+    /// Nudge `t` by one `step` in `sign`'s direction and write it back to
+    /// whichever live store it came from. Split out of `tunables_adjust` so
+    /// the pinned path (`adjust_pinned`) drives exactly the same code rather
+    /// than a parallel copy of it.
+    fn apply_adjust(&mut self, t: &Tunable, sign: i32) {
+        let new_value = (t.value + sign as f32 * t.step).clamp(t.min, t.max);
+        if t.group == TunableGroup::Explosion {
+            tunables::apply_explosion(&mut self.blasts.tuning, &t.name, new_value);
+            self.message = Some(format!("{}.{} = {new_value:.3}", t.category, t.name));
+            return;
+        }
         let Some(id) = self.world.materials.id_of(&t.category) else {
             return;
         };
-        let new_value = (t.value + sign as f32 * t.step).clamp(t.min, t.max);
         let m = self.world.materials.get_mut(id);
         match t.name.as_str() {
             "density" => m.density = new_value,
             "friction_angle" => m.friction_angle = new_value,
             "flammability" => m.flammability = new_value,
-            "min_transfer" => m.min_transfer = new_value.max(0.0) as u16,
+            "min_transfer" => m.min_transfer = new_value.max(0.0).round() as u16,
+            "flow_rate" => m.flow_rate = new_value.max(0.0).round() as u16,
             "fill_dimming" => m.fill_dimming = new_value,
             "heat_conductivity" => m.heat_conductivity = new_value,
             "ignition_temperature" => m.ignition_temperature = new_value,
@@ -227,6 +263,44 @@ impl App {
             // reachable case today.
             _ => {}
         }
+        self.message = Some(format!("{}.{} = {new_value:.3}", t.category, t.name));
+    }
+
+    /// `Enter` in the panel: remember the highlighted entry and close, so it
+    /// can be swept with the world actually visible. See `App::pinned`.
+    pub fn pin_selected(&mut self) {
+        let Some(t) = self.tunables_list().into_iter().nth(self.tunables_selected) else {
+            return;
+        };
+        self.message = Some(format!("pinned {}.{} -- LEFT/RIGHT to adjust, ESC to release", t.category, t.name));
+        self.pinned = Some((t.group, t.category, t.name));
+        self.show_tunables = false;
+    }
+
+    pub fn clear_pin(&mut self) {
+        if self.pinned.take().is_some() {
+            self.message = Some("released".into());
+        }
+    }
+
+    pub fn has_pin(&self) -> bool {
+        self.pinned.is_some()
+    }
+
+    /// The pinned entry, re-read live from whichever registry owns it, so
+    /// the readout and the next adjustment both see the current value rather
+    /// than whatever it was when it was pinned.
+    fn pinned_tunable(&self) -> Option<Tunable> {
+        let (group, category, name) = self.pinned.as_ref()?;
+        self.all_tunables()
+            .into_iter()
+            .find(|t| t.group == *group && &t.category == category && &t.name == name)
+    }
+
+    /// Left/right with the panel closed.
+    pub fn adjust_pinned(&mut self, sign: i32) {
+        let Some(t) = self.pinned_tunable() else { return };
+        self.apply_adjust(&t, sign);
     }
 
     /// Write the selected tunable's current live value back to its
@@ -248,6 +322,17 @@ impl App {
         let Some(t) = self.tunables_list().into_iter().nth(self.tunables_selected) else {
             return;
         };
+        // Engine tunables have no material file to span-edit -- the whole
+        // struct round-trips to its own generated file instead. See
+        // `explosion::Tuning::save` for why a full re-serialization is fine
+        // there and emphatically not fine for materials.
+        if t.group == TunableGroup::Explosion {
+            self.message = Some(match self.blasts.tuning.save() {
+                Ok(()) => format!("saved {}", explosion::Tuning::ASSET_PATH),
+                Err(e) => format!("{}: {e}", explosion::Tuning::ASSET_PATH),
+            });
+            return;
+        }
         let path = tunables::material_file_path(material::ASSET_DIR, &t.category);
         let result = (|| -> Result<(), String> {
             let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
@@ -294,6 +379,12 @@ impl App {
         // currently matter, since particles do not read or write the field,
         // but keeping the CA-derived phases grouped together here is easier
         // to reason about than interleaving them.
+        // Blasts before particles: a blast stage clears cells and spawns
+        // debris, and that debris should get its first `particle::step`
+        // against the cavity this stage just opened rather than waiting a
+        // frame for it -- which is the whole reason staging helps debris
+        // escape at all (`sim::explosion::Tuning::duration`).
+        self.blasts.step(&mut self.world, &mut self.particles);
         self.particles.step(&mut self.world);
         self.world.step_fields();
     }
@@ -317,7 +408,7 @@ impl App {
         // erasing. Forcing a full redraw whenever any of this is showing is
         // the simple, always-correct alternative to tracking that footprint
         // separately; see `Renderer::draw`'s own doc for the full reasoning.
-        let force_full = cursor.is_some() || self.show_palette || self.show_help || self.show_tunables || self.show_hover_inspector;
+        let force_full = cursor.is_some() || self.show_palette || self.show_help || self.show_tunables || self.show_hover_inspector || self.pinned.is_some();
         let touched = self.world.take_touched_chunks();
         self.renderer.draw(&self.world, &self.particles, &touched, frame, (WIDTH, HEIGHT), force_full);
         self.draw_hud(frame, cursor);
@@ -366,6 +457,10 @@ impl App {
 
         if self.show_tunables {
             self.draw_tunables_panel(frame);
+        } else {
+            // Only with the panel closed -- the whole point of pinning is
+            // watching the world, and the panel already shows the value.
+            self.draw_pinned_readout(frame);
         }
     }
 
@@ -377,29 +472,66 @@ impl App {
     /// a second one). Scrolls to keep the selection on screen once the
     /// list is taller than the panel — a fixed window of rows centred
     /// around `tunables_selected` rather than a real scrollbar.
+    /// The live-tunables panel (`O`).
+    ///
+    /// Translucent rather than opaque, by request: the panel covers most of
+    /// the screen, and a solid fill meant nothing being tuned could be seen
+    /// while tuning it. The world still shows through at `PANEL_ALPHA`, the
+    /// selected row gets a brighter bar behind it so it stays readable
+    /// against whatever happens to be underneath, and a value bar shows each
+    /// entry's position within its own min..max range — which is the one
+    /// piece of information a bare number never gave: whether there is any
+    /// headroom left in the direction you are pushing.
     fn draw_tunables_panel(&self, frame: &mut [u8]) {
-        const BG: [u8; 4] = [10, 10, 16, 255];
-        const WHITE: [u8; 4] = [235, 235, 235, 255];
+        const PANEL: [u8; 4] = [10, 10, 16, 255];
+        const PANEL_ALPHA: f32 = 0.78;
+        /// The selected row is *lifted* out of the panel, not pushed further
+        /// into it. Blending the panel colour over itself was the first
+        /// attempt and it darkened the row instead of highlighting it --
+        /// visible immediately in a rendered PNG, invisible in the code.
+        const ROW_LIFT: [u8; 4] = [46, 58, 82, 255];
+        const ROW_ALPHA: f32 = 0.85;
+        const WHITE: [u8; 4] = [225, 228, 235, 255];
+        const DIM: [u8; 4] = [140, 146, 158, 255];
         const SELECTED: [u8; 4] = [255, 220, 100, 255];
+        const ACCENT: [u8; 4] = [90, 170, 240, 255];
+        const BAR: [u8; 4] = [70, 96, 130, 255];
+
         let (left, top, right, bottom) = (20, 20, WIDTH as i32 - 20, HEIGHT as i32 - 20);
         for y in top..bottom {
             for x in left..right {
-                render::put(frame, WIDTH, HEIGHT, x, y, BG);
+                render::blend(frame, WIDTH, HEIGHT, x, y, PANEL, PANEL_ALPHA);
             }
+        }
+        // A one-pixel border, so the panel still reads as a panel now that
+        // its fill no longer fully hides what is behind it.
+        for x in left..right {
+            render::put(frame, WIDTH, HEIGHT, x, top, ACCENT);
+            render::put(frame, WIDTH, HEIGHT, x, bottom - 1, ACCENT);
+        }
+        for y in top..bottom {
+            render::put(frame, WIDTH, HEIGHT, left, y, ACCENT);
+            render::put(frame, WIDTH, HEIGHT, right - 1, y, ACCENT);
         }
 
         let list = self.tunables_list();
-        let header = format!(
-            "TUNABLES [{}]  PGUP/PGDN MENU  UP/DOWN SELECT  LEFT/RIGHT ADJUST  ENTER SAVE",
-            self.tunables_group.label()
+        hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 6, &format!("TUNABLES  [{}]", self.tunables_group.label()), SELECTED);
+        hud::draw_text(
+            frame,
+            WIDTH,
+            HEIGHT,
+            left + 8,
+            top + 16,
+            "PGUP/PGDN MENU   UP/DOWN SELECT   LEFT/RIGHT ADJUST   ENTER PIN+CLOSE   S SAVE",
+            DIM,
         );
-        hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 6, &header, WHITE);
         if list.is_empty() {
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 20, "NOTHING REGISTERED", WHITE);
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 30, "NOTHING REGISTERED", WHITE);
             return;
         }
 
         const ROW_HEIGHT: i32 = 10;
+        const HEADER_HEIGHT: i32 = 30;
         // Reserved unconditionally, not only when `self.message` is
         // currently `Some` -- a live PNG check caught the list running
         // rows straight through this space when the reservation was
@@ -408,23 +540,89 @@ impl App {
         // footer must stay put whether or not there's a message to put in
         // it, so the two can never collide.
         const FOOTER_HEIGHT: i32 = 16;
+        let rows_top = top + HEADER_HEIGHT;
         let rows_bottom = bottom - FOOTER_HEIGHT;
-        let visible_rows = ((rows_bottom - (top + 20)) / ROW_HEIGHT).max(1) as usize;
+        let visible_rows = ((rows_bottom - rows_top) / ROW_HEIGHT).max(1) as usize;
         // Centre the window on the selection, clamped so it never scrolls
         // past either end of the list.
         let half = visible_rows / 2;
         let first = self.tunables_selected.saturating_sub(half).min(list.len().saturating_sub(visible_rows));
 
+        // Where the value bar lives, right-aligned inside the panel.
+        let bar_w = 60;
+        let bar_x = right - 8 - bar_w;
+
         for (row, (i, t)) in list.iter().enumerate().skip(first).take(visible_rows).enumerate() {
             let selected = i == self.tunables_selected;
+            let y = rows_top + row as i32 * ROW_HEIGHT;
+            if selected {
+                for by in y - 1..y + ROW_HEIGHT - 1 {
+                    for bx in left + 1..right - 1 {
+                        render::blend(frame, WIDTH, HEIGHT, bx, by, ROW_LIFT, ROW_ALPHA);
+                    }
+                }
+            }
             let colour = if selected { SELECTED } else { WHITE };
             let marker = if selected { ">" } else { " " };
-            let line = format!("{marker} {}.{} = {:.3}", t.category, t.name, t.value);
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 20 + row as i32 * ROW_HEIGHT, &line, colour);
+            let line = format!("{marker} {}.{}", t.category, t.name);
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, y, &line, colour);
+            hud::draw_text(frame, WIDTH, HEIGHT, bar_x - 52, y, &format!("{:>8.3}", t.value), colour);
+
+            // Fill fraction within min..max. Guards a degenerate range
+            // rather than dividing by zero -- nothing registers one today,
+            // but a future entry with min == max would otherwise produce NaN
+            // and a bar of unpredictable width.
+            let span = t.max - t.min;
+            let frac = if span > 0.0 { ((t.value - t.min) / span).clamp(0.0, 1.0) } else { 0.0 };
+            let filled = (bar_w as f32 * frac).round() as i32;
+            for bx in 0..bar_w {
+                let c = if bx < filled {
+                    if selected { SELECTED } else { ACCENT }
+                } else {
+                    BAR
+                };
+                // Three rows tall: a one-pixel bar was drawn first and read
+                // as a dashed hairline at this resolution rather than as a
+                // gauge -- caught by looking at the rendered panel.
+                for by in 2..5 {
+                    render::put(frame, WIDTH, HEIGHT, bar_x + bx, y + by, c);
+                }
+            }
         }
 
         if let Some(message) = &self.message {
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, bottom - 12, message, WHITE);
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, bottom - 12, message, DIM);
+        }
+    }
+
+    /// The pinned-tunable readout — one line, bottom-left, drawn only while
+    /// something is pinned and the panel is closed. See `App::pinned`.
+    fn draw_pinned_readout(&self, frame: &mut [u8]) {
+        const BG: [u8; 4] = [10, 10, 16, 255];
+        const SELECTED: [u8; 4] = [255, 220, 100, 255];
+        let Some(t) = self.pinned_tunable() else { return };
+
+        let line = format!("<{}.{}={:.3}>", t.category, t.name, t.value);
+        let w = (line.chars().count() as i32) * 6 + 10;
+        let (x, y) = (4, HEIGHT as i32 - 40);
+        for by in y - 3..y + 11 {
+            for bx in x - 3..x + w {
+                render::blend(frame, WIDTH, HEIGHT, bx, by, BG, 0.72);
+            }
+        }
+        hud::draw_text(frame, WIDTH, HEIGHT, x + 2, y, &line, SELECTED);
+
+        // The same min..max bar the panel draws, so the readout carries the
+        // one thing the number alone cannot: how much room is left.
+        let span = t.max - t.min;
+        let frac = if span > 0.0 { ((t.value - t.min) / span).clamp(0.0, 1.0) } else { 0.0 };
+        let bar_w = w - 8;
+        let filled = (bar_w as f32 * frac).round() as i32;
+        for bx in 0..bar_w {
+            let c = if bx < filled { SELECTED } else { [70, 96, 130, 255] };
+            for by in 8..10 {
+                render::put(frame, WIDTH, HEIGHT, x + 2 + bx, y + by, c);
+            }
         }
     }
 
@@ -482,12 +680,22 @@ impl App {
     /// actually looks for).
     fn draw_help(&self, frame: &mut [u8]) {
         const BG: [u8; 4] = [10, 10, 16, 255];
-        const WHITE: [u8; 4] = [235, 235, 235, 255];
+        const WHITE: [u8; 4] = [225, 228, 235, 255];
+        const ACCENT: [u8; 4] = [90, 170, 240, 255];
         let (left, top, right, bottom) = (20, 20, WIDTH as i32 - 20, HEIGHT as i32 - 20);
+        // Translucent, matching the tunables panel -- see its own doc.
         for y in top..bottom {
             for x in left..right {
-                render::put(frame, WIDTH, HEIGHT, x, y, BG);
+                render::blend(frame, WIDTH, HEIGHT, x, y, BG, 0.88);
             }
+        }
+        for x in left..right {
+            render::put(frame, WIDTH, HEIGHT, x, top, ACCENT);
+            render::put(frame, WIDTH, HEIGHT, x, bottom - 1, ACCENT);
+        }
+        for y in top..bottom {
+            render::put(frame, WIDTH, HEIGHT, left, y, ACCENT);
+            render::put(frame, WIDTH, HEIGHT, right - 1, y, ACCENT);
         }
         let lines = [
             "LEFT CLICK PAINT    RIGHT CLICK ERASE",
@@ -500,8 +708,9 @@ impl App {
             "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
             "F1 CHUNK OVERLAY    G WATER GRAIN",
             "",
-            "O TUNABLES  (PGUP PGDN SWITCH MENU,",
-            "             ARROWS SELECT/ADJUST, ENTER SAVE)",
+            "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
+            "             ENTER PIN AND CLOSE, S SAVE)",
+            "  PINNED: LEFT/RIGHT ADJUST LIVE, ESC RELEASE",
             "K A/B EXPERIMENT    F5 RELOAD ASSETS",
             "",
             "? THIS HELP    ESC CLOSE",
@@ -627,8 +836,7 @@ impl App {
     /// radius of cells converted to thrown debris or vacuum.
     pub fn explode(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
-        const STRENGTH: f32 = 180.0;
-        crate::sim::explosion::trigger(&mut self.world, &mut self.particles, x, y, self.brush_radius, STRENGTH);
+        self.blasts.trigger(&mut self.world, &mut self.particles, x, y);
     }
 
     /// Plant a tree seed at a screen position — M16 debug tool. See
