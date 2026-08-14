@@ -76,23 +76,33 @@
 //! this "bounded by the size of the affected structure" the way the plan
 //! asks for, not a cost proportional to world size.
 //!
-//! # Why checks are scheduled reactively, never at world-gen time
+//! # How terrain is checked, and why it used to be exempt
 //!
-//! If every `Solid` cell were checked from frame one, the sandbox's own
-//! starting terrain would immediately fail: the floor is 8 cells thick
-//! (deeper than stone's span of 3) and the decorative ledges float with no
-//! path to an anchor at all. Under a literal reading of the mechanic both
-//! would start crumbling the instant this milestone shipped — not a
-//! demonstration of anything, just a surprise regression in what M1-M15
-//! already established looked right. `structural_tick` is only ever
-//! scheduled by something that actually disturbs a structure — painting
-//! new `Solid` material, erasing it, an explosion clearing a radius (see
-//! `World::paint_capsule` and `explosion::trigger`) — never by world
-//! generation. Pre-placed terrain's `aux` simply stays at its default (0)
-//! forever unless something reaches over and disturbs it, which is
-//! indistinguishable from "anchored" for any cell nothing ever asks about.
-//! Once a player builds and then breaks something, the mechanic is exactly
-//! as real as the plan describes.
+//! Terrain distances are computed **at generation**, once, by
+//! `compute_world_distances`; `tick` then handles everything that disturbs
+//! a structure afterwards (painting, erasing, an explosion — see
+//! `World::paint_capsule` and `explosion::trigger`).
+//!
+//! It was not always this way, and the reason is worth keeping because it
+//! is the same reason the model above had to change. Originally *nothing*
+//! checked terrain: if every `Solid` cell were checked from frame one, the
+//! sandbox's own starting terrain would immediately fail — the floor is 8
+//! cells thick against a span of 3, and the decorative ledges float with no
+//! path to an anchor at all — so both would have started crumbling the
+//! instant M17 shipped. Pre-placed terrain's `aux` was simply left at its
+//! default of 0, "which is indistinguishable from anchored for any cell
+//! nothing ever asks about."
+//!
+//! That exemption worked for hand-placed terrain and is a landmine at
+//! worldgen scale, which `Reports/worldgen-design.md` §6b says outright:
+//! "the entire world becomes structurally invalid but reading as anchored,
+//! and any change to when checks are scheduled causes global collapse."
+//! Confinement is what makes the exemption unnecessary rather than merely
+//! deferred — bulk terrain now passes a check it genuinely satisfies
+//! instead of one it was never asked to sit. An 8-cell floor is thicker
+//! than stone's confinement diameter, so it anchors itself; so do the
+//! ledges, which is why they still stand with no support pillars underneath
+//! them.
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -582,6 +592,14 @@ mod tests {
         World::new(Rect::new(0, 0, 63, 63))
     }
 
+    /// Whatever stone currently breaks into, read from the registry rather
+    /// than named directly — retargeting `stone.ron`'s `breaks_into` should
+    /// not silently turn these into assertions about a material the engine
+    /// no longer produces.
+    fn stone_debris(w: &World) -> MaterialId {
+        w.materials.get(material::STONE).breaks_into.expect("stone must define a breaks_into")
+    }
+
     fn run(w: &mut World, frames: usize) {
         for _ in 0..frames {
             w.begin_step();
@@ -631,7 +649,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stone_cantilever_exceeding_its_tolerance_breaks_into_gravel() {
+    fn a_stone_cantilever_exceeding_its_tolerance_breaks_free() {
         // Was a 6-tall vertical stack, back when every step cost a flat 1
         // and stone's span was 3. That scenario no longer breaks anything
         // and *should* not: `support_cost_below: 0` means standing on rock
@@ -650,8 +668,8 @@ mod tests {
         w.schedule_structural_check(tip, 30);
         run(&mut w, 400);
 
-        let gravel = w.materials.id_of("gravel").unwrap();
-        assert_eq!(w.get(tip, 30).material, gravel, "a cantilever cell past stone's span should have broken into gravel");
+        let debris = stone_debris(&w);
+        assert_eq!(w.get(tip, 30).material, debris, "a cantilever cell past stone's span should have broken into stone's debris material");
         assert_eq!(w.get(0, 30).material, material::STONE, "the anchored root of the cantilever should still be standing");
     }
 
@@ -782,7 +800,7 @@ mod tests {
         // written until read, no timing sensitivity to worry about.
         let mut w = test_world();
         // A cantilever, not the vertical stack this used to use -- see
-        // `a_stone_cantilever_exceeding_its_tolerance_breaks_into_gravel`
+        // `a_stone_cantilever_exceeding_its_tolerance_breaks_free`
         // for why a stack no longer breaks at all.
         let span = w.materials.get(material::STONE).max_unsupported_span as i32;
         for x in 0..=(span + 6) {
@@ -794,8 +812,8 @@ mod tests {
         w.schedule_structural_check(tx, ty);
         run(&mut w, 200);
 
-        let gravel = w.materials.id_of("gravel").unwrap();
-        assert_eq!(w.get(tx, ty).material, gravel, "test setup should have broken the topmost cell");
+        let debris = stone_debris(&w);
+        assert_eq!(w.get(tx, ty).material, debris, "test setup should have broken the topmost cell");
         assert!(
             w.field_at(tx, ty).pressure.abs() > 0.5,
             "a structural break should have written a pressure impulse into the field, found {}",
@@ -814,7 +832,7 @@ mod tests {
         }
         w.schedule_structural_check(3, 30);
         run(&mut w, 200);
-        let gravel = w.materials.id_of("gravel").unwrap();
+        let debris = stone_debris(&w);
         assert_eq!(w.get(3, 30).material, material::STONE, "the intact bridge should not have collapsed yet");
 
         // Cut the support at the anchored end -- the rest of the bridge is
@@ -823,7 +841,7 @@ mod tests {
         w.schedule_structural_check_around(0, 30);
         run(&mut w, 200);
 
-        assert_eq!(w.get(3, 30).material, gravel, "the far end of the bridge never collapsed after its support was cut");
+        assert_eq!(w.get(3, 30).material, debris, "the far end of the bridge never collapsed after its support was cut");
     }
 
     #[test]
@@ -896,7 +914,7 @@ mod tests {
     fn editing_max_unsupported_span_while_running_changes_what_stands() {
         let mut w = test_world();
         // A cantilever, matching the shape
-        // `a_stone_cantilever_exceeding_its_tolerance_breaks_into_gravel`
+        // `a_stone_cantilever_exceeding_its_tolerance_breaks_free`
         // now uses -- a vertical stack no longer breaks at any height, so
         // it can no longer show a span change doing anything.
         const LENGTH: i32 = 24;
@@ -982,10 +1000,10 @@ mod tests {
         w = ceiling_world(thin);
         run(&mut w, 600);
 
-        let gravel = w.materials.id_of("gravel").unwrap();
+        let debris = stone_debris(&w);
         assert_eq!(
             w.get(32, 30 + thin / 2).material,
-            gravel,
+            debris,
             "a slab one cell under the confinement thickness has no confined row anywhere in it, so its midpoint is 32 lateral steps from the nearest edge anchor and should have come down"
         );
     }
@@ -1037,9 +1055,9 @@ mod tests {
         run(&mut w, 600);
 
         assert_eq!(w.get(32, 32).material, material::STONE, "a brushed stone blob crumbled in mid-air");
-        let gravel = w.materials.id_of("gravel").unwrap();
-        let crumbled = (0..64).any(|x| (0..64).any(|y| w.get(x, y).material == gravel));
-        assert!(!crumbled, "no part of a brushed stone blob should have broken into gravel");
+        let debris = stone_debris(&w);
+        let crumbled = (0..64).any(|x| (0..64).any(|y| w.get(x, y).material == debris));
+        assert!(!crumbled, "no part of a brushed stone blob should have broken free");
     }
 
     // --- Organism-owned cells: the real `organism_structural_tick` -------

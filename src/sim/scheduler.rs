@@ -57,9 +57,13 @@ pub enum ActiveKind {
     /// whole design exists to avoid).
     Organism { organism: u16, stale_ticks: u8 },
     /// M17: a `Solid` cell whose distance-to-anchor may need recomputing —
-    /// scheduled reactively (painting, erasing, an explosion), never at
-    /// world-gen time, so pre-placed terrain is never retroactively
-    /// checked. See `structural.rs`.
+    /// scheduled by whatever disturbs a structure (painting, erasing, an
+    /// explosion). Generated terrain's distances are *not* built up through
+    /// this queue: `structural::compute_world_distances` computes them in
+    /// one converged pass at generation instead, deliberately, because
+    /// `MAX_SITES_PER_FRAME` would spread a world's worth of terrain over
+    /// many frames and cells can break spuriously mid-convergence. See
+    /// `structural.rs`.
     StructuralCheck,
     /// M18: a creature due to make its next movement decision. `creature`
     /// indexes into `World`'s creature-state storage (too large to fit in

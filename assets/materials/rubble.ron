@@ -1,0 +1,40 @@
+// What stone becomes when a structure fails (`stone.ron`'s `breaks_into`).
+//
+// Distinct from `gravel` on purpose, and the difference is the point rather
+// than decoration: gravel is a *loose aggregate* a player paints, while this
+// is *broken rock* — the same material that was holding a ceiling up a
+// moment ago, so it keeps stone's own greys rather than gravel's browner
+// river-worn tones. Seeing a collapsed span land in the colour it fell in is
+// what makes a collapse read as breakage instead of as a material swap.
+//
+// The colour is the load-bearing difference; the angles are close to
+// cosmetic, and that is worth stating plainly because it is easy to assume
+// otherwise. Measured against gravel in `examples/ascii.rs`'s repose scene,
+// a rubble pile comes out at rows 1/5/7/11/15/17 against gravel's
+// 1/5/8/11/14/17 — very slightly steeper, not visibly blockier. The reason
+// is that reach is quantised: past 45 degrees `roll_reach_base` drops below
+// 1 and the fractional part is spent as a per-grain *chance* (see
+// `Material::reach_from_base`), so at 55 degrees a grain still steps
+// sideways about 70% of the time. Reaching a genuinely blocky heap this way
+// would need an angle no crushed rock actually has (~40-45 degrees in
+// reality), which is not a trade worth making for a difference the colour
+// already carries.
+//
+// So: do not expect this material to be what makes a collapse read as
+// *chunks*. That is a coherent multi-cell body's job, and this is the
+// fallback for failures too small or too large to be worth promoting to one.
+(
+    name: "rubble",
+    display: "Rubble",
+    kind: Powder,
+    density: 2.0,
+    friction_angle: 55.0,
+    max_stability_angle: 65.0,
+    colors: [
+        (124, 124, 128),
+        (106, 106, 112),
+        (140, 138, 142),
+        (92, 94, 100),
+        (132, 130, 134),
+    ],
+)

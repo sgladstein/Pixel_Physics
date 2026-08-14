@@ -23,10 +23,21 @@ fn main() {
     });
 
     // The same amount of each powder, dropped from the same height. Their
-    // friction angles are 45, 34 and 22 degrees, so gravel should hold a sharp
-    // peak, sand a moderate one, and ash should slump almost flat.
-    scene("angle of repose: gravel, sand, ash", 120, 34, 1500, |w| {
-        for (x, m) in [(20, material::GRAVEL), (60, material::SAND), (100, material::ASH)] {
+    // friction angles are 55, 45, 34 and 22 degrees, so rubble should hold the
+    // sharpest peak of all, gravel a sharp one, sand a moderate one, and ash
+    // should slump almost flat.
+    //
+    // Rubble is here to keep an honest record of how little its steeper angle
+    // actually buys: it lands at rows 1/5/7/11/15/17 against gravel's
+    // 1/5/8/11/14/17 -- marginally steeper, not visibly blockier, because
+    // reach is quantised and 55 degrees only shifts the per-grain chance of
+    // stepping sideways. `rubble.ron`'s header explains why chasing a bigger
+    // difference here is the wrong lever. Kept in the scene so the comparison
+    // stays visible rather than being an assertion in a comment nobody
+    // re-checks.
+    scene("angle of repose: rubble, gravel, sand, ash", 160, 34, 1500, |w| {
+        let rubble = w.materials.id_of("rubble").expect("rubble is a compiled-in material");
+        for (x, m) in [(20, rubble), (60, material::GRAVEL), (100, material::SAND), (140, material::ASH)] {
             for y in 2..10 {
                 for dx in -3..=3 {
                     w.set(x + dx, y, Cell::new(m, 0));
@@ -684,6 +695,12 @@ fn glyph(id: MaterialId) -> char {
     match id {
         material::SAND => 'o',
         material::GRAVEL => 'O',
+        // Distinct from gravel's 'O' on purpose: the M17 scenes below are
+        // read to tell collapsed stone from material that was already loose,
+        // and without its own glyph rubble fell through to ' ' -- a collapsed
+        // span printed as empty space, which reads as "vanished" rather than
+        // "came down".
+        material::RUBBLE => '@',
         material::ASH => '.',
         material::WATER => '~',
         material::OIL => ':',

@@ -117,6 +117,10 @@ pub const ASH: MaterialId = MaterialId(5);
 pub const WATER: MaterialId = MaterialId(6);
 pub const OIL: MaterialId = MaterialId(7);
 pub const SMOKE: MaterialId = MaterialId(8);
+/// What stone breaks into (`stone.ron`'s `breaks_into`). Numbered from its
+/// position at the *end* of `EMBEDDED`, which is the only place a new
+/// material may be added — see that array's own comment.
+pub const RUBBLE: MaterialId = MaterialId(15);
 
 /// Determines which movement rule a cell obeys. Everything else is parameters.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
@@ -340,11 +344,12 @@ pub struct MaterialDef {
     /// floor thicker than a small span, floating decorative ledges with no
     /// path to an anchor at all) would otherwise start crumbling the
     /// moment this milestone shipped, surprising rather than demonstrating
-    /// anything. `structural.rs` only ever schedules a check in reaction to
-    /// something disturbing a structure (painting, erasing, an explosion),
-    /// never at world-gen time, so pre-placed terrain stays inert as well
-    /// regardless of this value — but an explicit, small value is still
-    /// what makes a material's structures interesting to build and break.
+    /// anything. Terrain *is* checked now — `structural::
+    /// compute_world_distances` relaxes it at generation — so this value is
+    /// live against generated terrain rather than only against what a
+    /// player builds. It no longer has to carry the whole model on its own,
+    /// though: `confinement_radius` handles bulk material, leaving this to
+    /// mean specifically "how far an unconfined cantilever reaches."
     #[serde(default = "default_never_u16")]
     pub max_unsupported_span: u16,
     /// What an unsupported cell becomes once it breaks free, or empty to
@@ -808,6 +813,7 @@ const EMBEDDED: &[&str] = &[
     // runtime, not just in a test.
     include_str!("../../assets/materials/soil.ron"),
     include_str!("../../assets/materials/deadwood.ron"),
+    include_str!("../../assets/materials/rubble.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -1141,6 +1147,7 @@ mod tests {
             ("water", WATER),
             ("oil", OIL),
             ("smoke", SMOKE),
+            ("rubble", RUBBLE),
         ];
         for (name, id) in expected {
             assert_eq!(reg.id_of(name), Some(id), "{name} has the wrong id");

@@ -1149,9 +1149,12 @@ mod tests {
         for &(x, y) in &[(130, 202), (370, 152), (250, 262)] {
             assert_eq!(app.world.get(x, y).material, stone, "a floating ledge crumbled at ({x}, {y})");
         }
-        let gravel = id(&app, "gravel");
-        let crumbled = (0..WIDTH as i32).any(|x| (0..h).any(|y| app.world.get(x, y).material == gravel));
-        assert!(!crumbled, "some terrain broke into gravel despite nothing disturbing it");
+        // Read from the registry rather than named, so retargeting stone's
+        // `breaks_into` cannot quietly turn this into a check for a material
+        // the engine no longer produces.
+        let debris = app.world.materials.get(stone).breaks_into.expect("stone must define a breaks_into");
+        let crumbled = (0..WIDTH as i32).any(|x| (0..h).any(|y| app.world.get(x, y).material == debris));
+        assert!(!crumbled, "some terrain broke free despite nothing disturbing it");
     }
 
     #[test]
