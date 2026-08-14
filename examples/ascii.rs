@@ -201,6 +201,8 @@ fn main() {
     // again.
     structural_scene("M17: cutting a bridge's far support collapses the far span", 30, 15);
 
+    terrain_generation_cost();
+
     // M18: a worm burrows through a sand field (should visibly relocate from
     // its seed position over the run), then a fire is lit nearby partway
     // through -- it should flee rather than burrow toward it. Prints twice:
@@ -472,6 +474,45 @@ fn render_stress_scene(title: &str, w: i32, h: i32, setup: impl FnOnce(&mut Worl
 /// calls (as `scene`/`scene_with` use for their pre-placed floors) leave
 /// `structural.rs` untouched by design, matching how the sandbox's own
 /// world-gen terrain is exempt.
+/// What computing structural distances for a whole freshly-generated world
+/// actually costs, on the sandbox's real 512x320 terrain.
+///
+/// Reported because the claim this rests on has to be measured, not argued.
+/// Confinement is what makes the *search* cheap -- cells inside bulk rock
+/// are anchors by local test alone and never relax, so it runs along free
+/// surfaces rather than through volumes. But the measurement says the
+/// seeding scan dominates (one hashed `World::get` per cell across the whole
+/// world, issue #5's pattern in a new place), so the function as written
+/// still scales with world volume even though its search does not. Watch
+/// this number if terrain gets thicker or the world gets bigger; under M10
+/// streaming it becomes a per-chunk pass and stops being world-sized at all
+/// (`Reports/worldgen-design.md` §6b).
+///
+/// One-off generation cost, not a frame cost -- nothing here runs per frame.
+fn terrain_generation_cost() {
+    println!("\n=== M17: structural distances for a freshly generated world ===");
+    let mut world = World::new(Rect::new(0, 0, 511, 319));
+    let start = std::time::Instant::now();
+    pixel_physics::app::build_terrain(&mut world);
+    let with_pass = start.elapsed();
+
+    // The same terrain again, timed without the structural pass, so the
+    // figure above is attributed rather than just stated.
+    let mut bare = World::new(Rect::new(0, 0, 511, 319));
+    let start = std::time::Instant::now();
+    pixel_physics::app::build_terrain_only(&mut bare);
+    let without_pass = start.elapsed();
+
+    let solid = (0..512).map(|x| (0..320).filter(|&y| world.get(x, y).material != material::EMPTY).count()).sum::<usize>();
+    println!(
+        "512x320 terrain, {solid} solid cells: {:.2} ms to build and relax, {:.2} ms to build alone \
+         -- the structural pass itself is {:.2} ms, paid once at generation",
+        with_pass.as_secs_f64() * 1000.0,
+        without_pass.as_secs_f64() * 1000.0,
+        (with_pass.saturating_sub(without_pass)).as_secs_f64() * 1000.0,
+    );
+}
+
 fn structural_scene(title: &str, w: i32, h: i32) {
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));

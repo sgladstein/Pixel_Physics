@@ -94,6 +94,9 @@
 //! Once a player builds and then breaks something, the mechanic is exactly
 //! as real as the plan describes.
 
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+
 use super::cell::Cell;
 use super::material::{self, MaterialId, MaterialKind};
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -369,6 +372,132 @@ fn schedule_solid_neighbours(world: &World, x: i32, y: i32) -> Vec<ActiveSite> {
             }
         })
         .collect()
+}
+
+/// Compute every eligible cell's distance to an anchor across the whole
+/// world in one converged pass, writing each into `Cell::aux`.
+///
+/// This is what makes generated terrain *genuinely* structurally valid
+/// rather than merely exempt from checking — `Reports/worldgen-design.md`
+/// §6b ("the structural-integrity landmine"): before this, untouched
+/// terrain kept `aux = 0`, "which is indistinguishable from 'anchored'…
+/// at worldgen scale it is a landmine: the entire world becomes
+/// structurally invalid but reading as anchored." Cells that genuinely
+/// cannot reach an anchor come out of here at `u16::MAX`, which is honest,
+/// instead of at 0, which was a lie that happened to look right.
+///
+/// # Why this is a direct pass and must not go through the scheduler
+///
+/// The obvious implementation — schedule a `StructuralCheck` on every
+/// terrain cell and let the existing reactive relaxation converge — is
+/// wrong twice over, and the second way is a visible bug rather than a
+/// slowdown. `scheduler::step` processes at most `MAX_SITES_PER_FRAME`
+/// (2000) sites per frame, so a world's worth of terrain spreads across
+/// many frames; and during that partial convergence the count-to-infinity
+/// dynamic described in the module doc is live. A cell whose true distance
+/// is small can climb past its own span *before* the real anchor value
+/// reaches it, break, and take its neighbours with it — terrain visibly
+/// crumbling on the first frames of a fresh world, which is precisely the
+/// "global collapse" §6b predicts. Converging first and writing once has
+/// no transient state for that to happen in.
+///
+/// # Cost, as measured rather than as hoped
+///
+/// **9.1 ms for the sandbox's 512x320 terrain (6,616 solid cells), paid
+/// once at generation and never per frame** — reported by
+/// `examples/ascii.rs`, which times it against the same terrain built
+/// without this pass so the figure is attributed rather than asserted.
+///
+/// The relaxation itself is the cheap half, and confinement is why: cells
+/// inside bulk rock are anchors by local test alone and never relax, so the
+/// search runs along free *surfaces* rather than through volumes. What
+/// dominates is the **seeding scan** — one `World::get` per cell across the
+/// whole world, hashed per lookup, which is issue #5's exact pattern
+/// ("~164k hashed `World::get` calls… index the chunk directly instead")
+/// showing up in a new place. So the honest claim is that the *search*
+/// scales with surface area while this function as written still scales
+/// with world volume.
+///
+/// That is acceptable precisely because it is one-off, and it stops being
+/// world-sized at all under M10 streaming, where this becomes a per-chunk
+/// pass (§6b: "a cheap BFS from bedrock, once per chunk", with anchor
+/// distance living on the coarse layer) and the scan is bounded by a chunk.
+/// If it ever needs to be faster before then, iterating chunks directly is
+/// the fix, not a cleverer search. It no-ops on an unbounded world rather
+/// than pretending to handle that case here.
+pub fn compute_world_distances(world: &mut World) {
+    let Some(bounds) = world.bounds() else {
+        return; // unbounded (M10) -- see the doc above
+    };
+
+    // Seed: anchors at 0, everything else at "unreachable" so a cell the
+    // search never reaches ends up honestly unsupported rather than
+    // accidentally reading as anchored.
+    let mut heap: BinaryHeap<Reverse<(u16, i32, i32)>> = BinaryHeap::new();
+    for y in bounds.min_y..=bounds.max_y {
+        for x in bounds.min_x..=bounds.max_x {
+            let cell = world.get(x, y);
+            if !is_relaxable(world, cell) {
+                continue;
+            }
+            let radius = world.materials.get(cell.material).confinement_radius;
+            let anchored = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK)
+                || is_confined(world, x, y, radius);
+            let distance = if anchored { 0 } else { u16::MAX };
+            world.set(x, y, cell.with_aux(distance));
+            if anchored {
+                heap.push(Reverse((0, x, y)));
+            }
+        }
+    }
+
+    // Relax. `Reverse` makes this a min-heap ordered on (distance, x, y) --
+    // the position tiebreak is what keeps the result identical run to run,
+    // the same reason `ActiveSite`'s own `Ord` spells its tiebreak out
+    // (issue #7 / determinism §8b).
+    while let Some(Reverse((distance, x, y))) = heap.pop() {
+        if world.get(x, y).aux() != distance {
+            continue; // superseded by a shorter path already processed
+        }
+        for (dx, dy) in NEIGHBOURS_4 {
+            let (nx, ny) = (x + dx, y + dy);
+            let neighbour = world.get(nx, ny);
+            if !is_relaxable(world, neighbour) {
+                continue;
+            }
+            // The cost is paid by the cell being *supported* -- so it reads
+            // the neighbour's own material, and the direction is from the
+            // neighbour back to (x, y), which is the negation of the offset
+            // used to reach it. `dy == -1` means (x, y) sits below the
+            // neighbour, i.e. the neighbour is standing on it. Getting this
+            // backwards would silently price towers as cantilevers.
+            let step = {
+                let m = world.materials.get(neighbour.material);
+                match dy {
+                    -1 => m.support_cost_below,
+                    1 => m.support_cost_above,
+                    _ => m.support_cost_beside,
+                }
+            };
+            let candidate = distance.saturating_add(step);
+            if candidate < neighbour.aux() {
+                world.set(nx, ny, neighbour.with_aux(candidate));
+                heap.push(Reverse((candidate, nx, ny)));
+            }
+        }
+    }
+}
+
+/// Whether this cell's `aux` is a structural distance that
+/// `compute_world_distances` may read and write.
+///
+/// Organism-owned cells are excluded outright: once `organism_id != 0`,
+/// `aux` holds a cell-type tag and a resource scalar
+/// (`Reports/organism-substrate-design.md` §2), and writing a distance over
+/// it would silently corrupt that encoding — the same reason `tick` routes
+/// them to `organism_structural_tick` instead of relaxing them in place.
+fn is_relaxable(world: &World, cell: Cell) -> bool {
+    is_body_material(world, cell.material) && cell.organism_id() == 0
 }
 
 /// Whether `(x, y)` is confined enough by surrounding `Solid` material to

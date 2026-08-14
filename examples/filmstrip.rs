@@ -173,8 +173,36 @@ fn build(scene: &str) -> World {
                 }
             }
         }
+        // The sandbox's *real* starting terrain, built by the same
+        // `app::build_terrain` the running game calls -- not a replica, so
+        // what this renders is what a player actually sees. Exists to answer
+        // one question by eye: with structural checks computed at generation
+        // rather than skipped, does any of it move? The three ledges float
+        // with no in-plane path to bedrock and stand only because 6 cells is
+        // thicker than stone's confinement diameter, which is exactly the
+        // claim `Reports/worldgen-design.md` §6b says would collapse the
+        // world if it were wrong.
+        "terrain" => {
+            pixel_physics::app::build_terrain(&mut w);
+        }
+        // The payoff mechanic, and the one M17 "was built for and has never
+        // had a real test case" (`Reports/worldgen-design.md` §7): mine
+        // upward into a ledge until the roof left above the excavation is
+        // thinner than stone can hold, and watch it come down. The bite is
+        // taken out of the ledge's underside through the ordinary eraser
+        // brush, so this goes through the same reactive path a player does.
+        "mine" => {
+            pixel_physics::app::build_terrain(&mut w);
+            // The 60..200 ledge spans y=200..206. Erase its lower rows
+            // across most of its length, leaving a roof too thin to stand.
+            for x in 70..190 {
+                for y in 202..206 {
+                    w.paint_capsule((x, y), (x, y), 0, material::EMPTY, 1.0);
+                }
+            }
+        }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine"
         ),
     }
     w

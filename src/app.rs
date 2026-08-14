@@ -12,6 +12,7 @@ use crate::sim::material::{self, MaterialId, MaterialKind};
 use crate::sim::organism;
 use crate::sim::parallel;
 use crate::sim::particle::ParticleSystem;
+use crate::sim::structural;
 use crate::sim::world::World;
 use crate::sim::Cell;
 use crate::tunables::{self, Tunable, TunableGroup};
@@ -920,7 +921,23 @@ impl Default for App {
 
 /// A floor and a couple of ledges, so there is something for material to
 /// interact with on startup instead of an empty box.
-fn build_terrain(world: &mut World) {
+///
+/// Public so headless tools can render and probe *this* terrain rather than
+/// a hand-rolled approximation of it — `examples/filmstrip.rs` builds the
+/// real thing to check that structural integrity leaves it standing, which
+/// is a claim about the terrain players actually see, not about a replica.
+pub fn build_terrain(world: &mut World) {
+    build_terrain_only(world);
+    // Terrain is structurally real from frame one, not exempt from checking
+    // until something disturbs it -- see `compute_world_distances` for why
+    // this is a direct converged pass rather than a scheduled one.
+    structural::compute_world_distances(world);
+}
+
+/// Just the material placement, without the structural pass `build_terrain`
+/// runs after it. Split out so `examples/ascii.rs` can time the two halves
+/// separately and attribute the generation cost rather than just stating it.
+pub fn build_terrain_only(world: &mut World) {
     let w = WIDTH as i32;
     let h = HEIGHT as i32;
     // Always present: `reload` only ever adds or updates, so the compiled-in
@@ -930,12 +947,29 @@ fn build_terrain(world: &mut World) {
         .id_of("stone")
         .expect("stone is a compiled-in material");
 
+    // The bottom two rows are literal bedrock, the world's structural
+    // anchor (`structural.rs`) and the deepest of the six vertical zones
+    // `Reports/worldgen-design.md` §2 defines. Nothing placed bedrock
+    // anywhere before this, which meant the only anchor in the entire world
+    // was the floor's bottom row happening to touch the out-of-bounds
+    // sentinel -- true, but by accident rather than by construction, and
+    // not something generated terrain could rely on.
     for x in 0..w {
-        for y in (h - 8)..h {
+        for y in (h - 2)..h {
+            world.set(x, y, Cell::new(material::BEDROCK, 0));
+        }
+    }
+    for x in 0..w {
+        for y in (h - 8)..(h - 2) {
             world.set(x, y, Cell::new(stone, (x % 4) as u8));
         }
     }
 
+    // 6 cells deep, which is deliberately more than stone's confinement
+    // diameter (5): each ledge contains genuinely confined rock and so holds
+    // itself up, with no support pillar and no exemption from checking. Thin
+    // these below 5 and they will come down, which is the mechanic working
+    // rather than a regression.
     let mut ledge = |x0: i32, x1: i32, y: i32| {
         for x in x0..x1 {
             for dy in 0..6 {
@@ -1071,6 +1105,56 @@ mod tests {
     }
 
     #[test]
+    fn generated_terrain_is_structurally_real_and_still_stands() {
+        // `Reports/worldgen-design.md` §6b, "the structural-integrity
+        // landmine": terrain used to be exempt from structural checking
+        // entirely, keeping `aux = 0` -- "indistinguishable from
+        // 'anchored'" -- so the whole world was structurally invalid while
+        // reading as fine, and turning checks on would collapse it.
+        // `build_terrain` now computes real distances at generation, so
+        // this asserts both halves: the distances are genuinely computed
+        // (not left at a default that merely looks anchored), and the
+        // terrain nonetheless stands.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        let h = HEIGHT as i32;
+
+        // The ledges are the interesting case -- they float, with no
+        // in-plane path to bedrock at all, and stand only because 6 cells
+        // is thicker than stone's confinement diameter of 5.
+        let ledge_probe = (130, 202);
+        assert_eq!(app.world.get(ledge_probe.0, ledge_probe.1).material, stone, "test setup: expected a ledge here");
+        assert_eq!(
+            app.world.get(ledge_probe.0, ledge_probe.1).aux(),
+            0,
+            "a confined ledge cell should have resolved to an anchor, not merely defaulted to 0"
+        );
+        // A cell at the ledge's underside is *not* confined (open air below
+        // it), so it must carry a real, non-zero relaxed distance -- this is
+        // what proves the pass actually ran rather than leaving defaults.
+        let underside = app.world.get(130, 205);
+        assert_eq!(underside.material, stone, "test setup: expected the ledge's bottom row here");
+        assert!(underside.aux() > 0, "an unconfined ledge cell should carry a real distance, not 0");
+
+        for _ in 0..400 {
+            app.update();
+        }
+
+        for y in (h - 8)..(h - 2) {
+            assert_eq!(app.world.get(256, y).material, stone, "the stone floor crumbled at y={y}");
+        }
+        for y in (h - 2)..h {
+            assert_eq!(app.world.get(256, y).material, material::BEDROCK, "the bedrock floor was disturbed at y={y}");
+        }
+        for &(x, y) in &[(130, 202), (370, 152), (250, 262)] {
+            assert_eq!(app.world.get(x, y).material, stone, "a floating ledge crumbled at ({x}, {y})");
+        }
+        let gravel = id(&app, "gravel");
+        let crumbled = (0..WIDTH as i32).any(|x| (0..h).any(|y| app.world.get(x, y).material == gravel));
+        assert!(!crumbled, "some terrain broke into gravel despite nothing disturbing it");
+    }
+
+    #[test]
     fn painting_adds_material_and_erasing_removes_it() {
         let mut app = App::new();
         let sand = id(&app, "sand");
@@ -1167,10 +1251,18 @@ mod tests {
             0,
             "reset left painted material behind"
         );
+        // Both layers of the floor, since it is no longer stone all the way
+        // down -- the bottom two rows are literal bedrock, the anchor
+        // `structural.rs` keys on.
         assert_eq!(
             app.world.get(10, HEIGHT as i32 - 1).material,
+            material::BEDROCK,
+            "reset lost the bedrock floor"
+        );
+        assert_eq!(
+            app.world.get(10, HEIGHT as i32 - 3).material,
             stone,
-            "reset lost the floor"
+            "reset lost the stone floor"
         );
         // Reset must not throw away materials loaded from disk.
         assert!(app.world.materials.id_of("gravel").is_some());
