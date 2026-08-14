@@ -13,7 +13,7 @@ use crate::sim::parallel;
 use crate::sim::particle::ParticleSystem;
 use crate::sim::world::World;
 use crate::sim::Cell;
-use crate::tunables::{self, Tunable};
+use crate::tunables::{self, Tunable, TunableGroup};
 
 /// Simulation resolution, in cells. The window is larger; `pixels` scales the
 /// framebuffer up, which is what gives the chunky pixel look.
@@ -56,6 +56,10 @@ pub struct App {
     /// persistent `Vec<Tunable>` on `App` to keep in sync with material
     /// hot-reload, deliberately; see `tunables_list`'s own doc.
     tunables_selected: usize,
+    /// Which menu the tunables panel is showing. `PageUp`/`PageDown`.
+    tunables_group: TunableGroup,
+    /// `K` — whether the current A/B experiment is on. See `toggle_experiment`.
+    pub experiment: bool,
 }
 
 /// Re-read both the material and species directories over the current
@@ -113,6 +117,8 @@ impl App {
             show_help: false,
             show_tunables: false,
             tunables_selected: 0,
+            tunables_group: TunableGroup::Physics,
+            experiment: false,
         }
     }
 
@@ -145,6 +151,40 @@ impl App {
     /// tradeoff `tunables.rs`'s own module doc explains.
     fn tunables_list(&self) -> Vec<Tunable> {
         tunables::from_materials(&self.world.materials)
+            .into_iter()
+            .filter(|t| t.group == self.tunables_group)
+            .collect()
+    }
+
+    /// `PageUp`/`PageDown` — switch which menu the panel shows. Resets the
+    /// selection, since an index into one group means nothing in another.
+    pub fn tunables_cycle_group(&mut self) {
+        self.tunables_group = self.tunables_group.next();
+        self.tunables_selected = 0;
+    }
+
+    /// `K` — flip whatever is being evaluated right now between its baseline
+    /// and its candidate value, so an A/B comparison is one keypress instead
+    /// of a scroll through a panel.
+    ///
+    /// **Deliberately rewritten whenever the question changes**, and the
+    /// previous experiment deleted rather than accumulated — the whole point
+    /// is that this one key always means "the thing I am looking at today".
+    /// An experiment that turns out to matter graduates into a real tunable
+    /// or a chosen default; one that does not is simply overwritten.
+    ///
+    /// Current experiment: **water's `fill_dimming`**, the long-standing
+    /// 0.65 against 0.20. Motivation and measurements are in that field's
+    /// own doc — a settled waterline's top row spans fill 286..1002, which
+    /// at 0.65 draws across 54%..100% brightness and reads as a mottled band
+    /// rather than a clean edge.
+    pub fn toggle_experiment(&mut self) {
+        self.experiment = !self.experiment;
+        let value = if self.experiment { 0.20 } else { 0.65 };
+        if let Some(id) = self.world.materials.id_of("water") {
+            self.world.materials.get_mut(id).fill_dimming = value;
+        }
+        self.message = Some(format!("water fill_dimming {value:.2}"));
     }
 
     pub fn tunables_move(&mut self, delta: i32) {
@@ -343,7 +383,11 @@ impl App {
         }
 
         let list = self.tunables_list();
-        hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 6, "TUNABLES  UP DOWN SELECT  LEFT RIGHT ADJUST  ENTER SAVE  ESC CLOSE", WHITE);
+        let header = format!(
+            "TUNABLES [{}]  PGUP/PGDN MENU  UP/DOWN SELECT  LEFT/RIGHT ADJUST  ENTER SAVE",
+            self.tunables_group.label()
+        );
+        hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 6, &header, WHITE);
         if list.is_empty() {
             hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 20, "NOTHING REGISTERED", WHITE);
             return;
@@ -449,7 +493,7 @@ impl App {
             "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
             "I HOVER INSPECTOR    V FIELD OVERLAY",
             "TAB MATERIAL PALETTE    ? THIS HELP",
-            "G WATER GRAIN",
+            "G WATER GRAIN    K A/B EXPERIMENT",
         ];
         for (i, line) in lines.iter().enumerate() {
             hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 8 + i as i32 * 10, line, WHITE);

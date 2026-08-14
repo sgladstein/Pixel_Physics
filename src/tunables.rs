@@ -23,6 +23,40 @@
 
 use crate::sim::material::{MaterialKind, MaterialRegistry};
 
+/// Which menu the tunables panel shows an entry in.
+///
+/// The panel lists one group at a time. With a dozen-odd materials and ten
+/// fields each it was a single scroll of well over a hundred rows, and the
+/// two or three entries anyone is actually iterating on were buried in it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TunableGroup {
+    /// How the material behaves — density, friction, combustion, flow.
+    Physics,
+    /// How it is drawn. Changes nothing in the simulation, which is the
+    /// property that makes the split worth having and is asserted in tests.
+    Visual,
+}
+
+impl TunableGroup {
+    pub fn label(self) -> &'static str {
+        match self {
+            TunableGroup::Physics => "PHYSICS",
+            TunableGroup::Visual => "VISUAL",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            TunableGroup::Physics => TunableGroup::Visual,
+            TunableGroup::Visual => TunableGroup::Physics,
+        }
+    }
+
+    pub fn all() -> [TunableGroup; 2] {
+        [TunableGroup::Physics, TunableGroup::Visual]
+    }
+}
+
 /// One live-adjustable value. `value` is a live snapshot at the moment
 /// the registry was built, not a handle back into the registry it came
 /// from — `App` re-derives the list fresh whenever the panel is open
@@ -30,6 +64,7 @@ use crate::sim::material::{MaterialKind, MaterialRegistry};
 /// no separate synchronization path to keep a stale snapshot updated.
 #[derive(Clone)]
 pub struct Tunable {
+    pub group: TunableGroup,
     /// Which material this belongs to — also the `.ron` file's own base
     /// name, by the convention every shipped material file already
     /// follows (`sand.ron` defines `name: "sand"`).
@@ -55,8 +90,9 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
     for id in materials.paintable() {
         let m = materials.get(id);
         let category = m.name.clone();
-        out.push(Tunable { category: category.clone(), name: "density".into(), value: m.density, min: 0.0, max: 5.0, step: 0.1 });
+        out.push(Tunable { group: TunableGroup::Physics, category: category.clone(), name: "density".into(), value: m.density, min: 0.0, max: 5.0, step: 0.1 });
         out.push(Tunable {
+            group: TunableGroup::Physics,
             category: category.clone(),
             name: "friction_angle".into(),
             value: m.friction_angle,
@@ -64,11 +100,12 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
             max: 89.0,
             step: 1.0,
         });
-        out.push(Tunable { category: category.clone(), name: "flammability".into(), value: m.flammability, min: 0.0, max: 1.0, step: 0.05 });
+        out.push(Tunable { group: TunableGroup::Physics, category: category.clone(), name: "flammability".into(), value: m.flammability, min: 0.0, max: 1.0, step: 0.05 });
         // Liquids only -- a dead band means nothing to a powder or a gas, and
         // an entry per material that ignores it is just noise in the panel.
         if m.kind == MaterialKind::Liquid {
             out.push(Tunable {
+                group: TunableGroup::Visual,
                 category: category.clone(),
                 name: "fill_dimming".into(),
                 value: m.fill_dimming,
@@ -77,6 +114,7 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
                 step: 0.05,
             });
             out.push(Tunable {
+                group: TunableGroup::Physics,
                 category: category.clone(),
                 name: "min_transfer".into(),
                 value: m.min_transfer as f32,
@@ -86,6 +124,7 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
             });
         }
         out.push(Tunable {
+            group: TunableGroup::Physics,
             category: category.clone(),
             name: "heat_conductivity".into(),
             value: m.heat_conductivity,
@@ -100,7 +139,7 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
             ("boiling_point", m.boiling_point),
         ] {
             if value.is_finite() {
-                out.push(Tunable { category: category.clone(), name: field.into(), value, min: 0.0, max: 2000.0, step: 10.0 });
+                out.push(Tunable { group: TunableGroup::Physics, category: category.clone(), name: field.into(), value, min: 0.0, max: 2000.0, step: 10.0 });
             }
         }
     }
@@ -255,6 +294,25 @@ fn format_value(v: f32) -> String {
 mod tests {
     use super::*;
     use crate::sim::material;
+
+    #[test]
+    fn every_group_is_reachable_and_visual_changes_nothing_in_the_simulation() {
+        let registry = MaterialRegistry::builtin();
+        let all = from_materials(&registry);
+        for group in TunableGroup::all() {
+            assert!(
+                all.iter().any(|t| t.group == group),
+                "the {} menu is empty, so nothing would ever show in it",
+                group.label()
+            );
+        }
+        // The split is only worth having if `Visual` really is inert, so
+        // that is asserted rather than left as an intention: adding a field
+        // here forces a decision about which side it belongs on.
+        for t in all.iter().filter(|t| t.group == TunableGroup::Visual) {
+            assert_eq!(t.name, "fill_dimming", "unexpected entry {} in the VISUAL menu", t.name);
+        }
+    }
 
     #[test]
     fn from_materials_registers_finite_fields_and_skips_never_sentinels() {

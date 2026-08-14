@@ -286,6 +286,10 @@ impl Handler {
             KeyCode::Minus => self.app.renderer.adjust_zoom(-1),
             KeyCode::KeyV => self.app.renderer.cycle_field_overlay(),
             KeyCode::KeyG => self.app.renderer.cycle_grain(),
+            // The A/B key. Deliberately reassigned as the question changes --
+            // see `App::toggle_experiment`.
+            KeyCode::KeyK => self.app.toggle_experiment(),
+            KeyCode::PageUp | KeyCode::PageDown if self.app.show_tunables => self.app.tunables_cycle_group(),
             KeyCode::KeyI => self.app.toggle_hover_inspector(),
             KeyCode::Tab => self.app.toggle_palette(),
             KeyCode::Slash => self.app.toggle_help(),

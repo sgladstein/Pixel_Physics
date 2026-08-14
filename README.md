@@ -32,9 +32,11 @@ cargo test
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
 | `V` | Cycle the field overlay: off → pressure → temperature → light → moisture → off |
 | `G` | Cycle how a liquid's brightness grain is generated: position (default) → cell → muted → animated → motion → animated-muted → animated-smooth. Kept as a live selector so the look can keep being iterated on. The animated variants have to redraw liquid chunks the sweep never touched, so they are the only ones that cost anything: measured on a fully settled world with water across 92% of the width, animated-muted costs 1.45 ms and animated-smooth 7.5 ms, against 0.000 ms for every other mode and for any of them with no water on screen. Exists so the variants can be judged on real moving water rather than argued about; the active one is shown in the title bar. See `render::GrainMode`, and expect this key and the enum to disappear together once one is chosen. |
+| `K` | **A/B key.** Flips whatever is being evaluated right now between its baseline and candidate value, so a comparison is one keypress rather than a scroll through a panel. Deliberately reassigned whenever the question changes, with the previous experiment deleted rather than accumulated — see `App::toggle_experiment` for what it currently does. |
 | `Tab` | Toggle the material palette (swatch row, current selection outlined) |
 | `/` (shown as `?`) | Toggle the keybind help overlay |
 | `O` | Toggle the live tunables panel (§10 — browse/adjust/save material fields at runtime) |
+| `PageUp` / `PageDown` | Switch which tunables menu is shown (PHYSICS / VISUAL), while the panel is open. Split because a dozen materials times ten fields is one scroll of well over a hundred rows. |
 | `↑` / `↓` | Move the tunables selection (only while the panel is open) |
 | `←` / `→` | Adjust the selected tunable's live value by its own step (only while the panel is open) |
 | `Enter` | Save the selected tunable back to its `.ron` file, preserving comments (only while the panel is open) |
