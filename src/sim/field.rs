@@ -218,7 +218,17 @@ pub struct FieldTile {
     /// wherever it's still true, the same "recompute the source condition
     /// fresh every active frame, don't try to track it incrementally"
     /// approach `blocked` itself already uses.
-    moisture_source: Box<[bool]>,
+    /// **A level, 0..1, not a flag.** Standing liquid sources at 1.0 as it
+    /// always did; damp *soil* sources in proportion to how damp it is.
+    ///
+    /// Without this, per-cell soil moisture was invisible to everything but
+    /// the roots drinking it: `is_damp` (moss) and `moisture_pull` (root
+    /// hydrotropism) both read this field, and this field only knew about
+    /// standing water. Roots steered toward puddles and ignored moist
+    /// ground, and moss would not grow on damp earth. Grading the source is
+    /// what closes the loop `Reports/plant-substrate-v2-design.md` §4d
+    /// describes — infiltrate, hold, drink, deplete, *and be noticed*.
+    moisture_source: Box<[f32]>,
 }
 
 impl FieldTile {
@@ -228,7 +238,7 @@ impl FieldTile {
         Self {
             cells: vec![FieldCell::AMBIENT; FIELD_TILE_AREA].into_boxed_slice(),
             blocked: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
-            moisture_source: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
+            moisture_source: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
         }
     }
 
@@ -258,12 +268,12 @@ impl FieldTile {
     }
 
     #[inline]
-    fn is_moisture_source_local(&self, lx: i32, ly: i32) -> bool {
+    fn moisture_source_local(&self, lx: i32, ly: i32) -> f32 {
         self.moisture_source[Self::local_index(lx, ly)]
     }
 
     #[inline]
-    fn set_moisture_source_local(&mut self, lx: i32, ly: i32, source: bool) {
+    fn set_moisture_source_local(&mut self, lx: i32, ly: i32, source: f32) {
         self.moisture_source[Self::local_index(lx, ly)] = source;
     }
 }
@@ -646,9 +656,16 @@ fn apply_moisture_sources(coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, 
         let tile = next.get_mut(&coord).expect("next was pre-populated with every coord in coords");
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
-                if tile.is_moisture_source_local(lx, ly) {
+                let level = tile.moisture_source_local(lx, ly);
+                if level > 0.0 {
                     let mut cell = tile.get_local(lx, ly);
-                    cell.moisture = MAX_MOISTURE;
+                    // `max`, not assignment: a source raises humidity to at
+                    // least its own level and never pulls it back down.
+                    // Standing liquid still pins the block to MAX_MOISTURE
+                    // exactly as before (level 1.0); damp soil lifts it part
+                    // way without capping air that is humid for some other
+                    // reason.
+                    cell.moisture = cell.moisture.max(MAX_MOISTURE * level);
                     tile.set_local(lx, ly, cell);
                 }
             }
@@ -719,7 +736,8 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                 // uses `FIELD_SCALE`-aligned dimensions -- but nothing
                 // enforces that, so it stays fixed rather than relying on
                 // that holding forever.
-                let mut has_liquid = false;
+                // Strongest moisture source anywhere in this block.
+                let mut moisture_level = 0.0f32;
                 for dy in 0..FIELD_SCALE {
                     for dx in 0..FIELD_SCALE {
                         // `World::new` eagerly creates every chunk
@@ -766,12 +784,23 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                             blocked = true;
                         }
                         if kind == super::material::MaterialKind::Liquid {
-                            has_liquid = true;
+                            moisture_level = 1.0;
+                        } else {
+                            // Damp soil is a weaker source than standing
+                            // water, in proportion to how much water it
+                            // actually holds. `water_capacity == 0` (sand,
+                            // gravel, anything that does not opt in) gives
+                            // 0 and costs a single compare.
+                            let capacity = world.materials.get(cell.material).water_capacity;
+                            if capacity > 0 {
+                                let held = super::update::soil_moisture(cell) as f32 / capacity as f32;
+                                moisture_level = moisture_level.max(held);
+                            }
                         }
                     }
                 }
                 tile.set_blocked_local(lx, ly, blocked);
-                tile.set_moisture_source_local(lx, ly, has_liquid);
+                tile.set_moisture_source_local(lx, ly, moisture_level);
             }
         }
     }

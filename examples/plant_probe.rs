@@ -41,9 +41,13 @@ fn main() {
         .unwrap_or(400);
 
     let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
+    let soil = w.materials.id_of("soil").expect("soil is compiled in");
     for x in 0..WIDTH {
-        for y in ground_y()..(ground_y() + 6) {
+        for y in (ground_y() + 30)..(ground_y() + 36) {
             w.set(x, y, Cell::new(material::STONE, 0));
+        }
+        for y in ground_y()..(ground_y() + 30) {
+            w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
         }
     }
     // `trees=N` plants N well-separated trees in one world and reports the
@@ -98,6 +102,28 @@ fn main() {
     }
 
     println!("after {frames} frames: {} active sites, {} awake chunks", w.active_site_count(), w.active_chunk_count());
+    // Soil water profile: what a growing stand actually does to the ground.
+    {
+        let mut held: Vec<u16> = Vec::new();
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let c = w.get(x, y);
+                if w.materials.get(c.material).water_capacity > 0 {
+                    held.push(pixel_physics::sim::update::soil_moisture(c));
+                }
+            }
+        }
+        if !held.is_empty() {
+            held.sort_unstable();
+            let sum: u64 = held.iter().map(|&v| v as u64).sum();
+            let dry = held.iter().filter(|&&v| v <= 180).count();
+            println!(
+                "soil: {} cells, min {} median {} max {}, mean {:.0}; {} cells at or below wilting point ({:.0}%)",
+                held.len(), held[0], held[held.len() / 2], held[held.len() - 1],
+                sum as f64 / held.len() as f64, dry, 100.0 * dry as f64 / held.len() as f64
+            );
+        }
+    }
     println!(
         "chunks were awake on {awake_frames}/{frames} frames ({:.1}%) -- this is how often `diffuse_resource` ran at all, \
 since it is dispatched from the CA sweep and the sweep skips settled chunks",

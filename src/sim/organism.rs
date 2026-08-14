@@ -231,6 +231,21 @@ pub enum Behavior {
     /// actual local reading the same way every other field-driven rate in
     /// this codebase is.
     Photosynthesize { rate: f32 },
+    /// Pulls water out of adjacent soil and loses it to the air — the
+    /// transpiration stream — crediting no resource at all.
+    ///
+    /// `rate` is a multiplier on `plant.rs`'s `TRANSPIRATION_PER_ROOT_CELL`,
+    /// so `1.0` is an ordinary tree and `0.0` disables it. Per species
+    /// because transpiration rate is one of the largest real differences
+    /// between plants: a succulent's whole strategy is closing its stomata
+    /// by day, and it should not dry the ground the way a broadleaf does.
+    ///
+    /// Attach it to whichever cell types touch soil. A canopy cell carrying
+    /// it costs nothing — it simply never has a soil neighbour to draw
+    /// from — so `tree.ron` puts it on `MatureBody` (which is what a
+    /// retired root cell becomes) without needing a separate root body
+    /// type.
+    Transpire { rate: f32 },
     /// Drains every adjacent `Liquid`-kind cell, crediting resource and
     /// depleting local moisture — `plant.rs`'s old `ROOT_WATER_ENERGY`/
     /// `ROOT_MOISTURE_DEPLETION` mechanism, relocated onto generic species

@@ -227,6 +227,38 @@ const ROOT_MOISTURE_DEPLETION: f32 = 1.0;
 /// reasoning, and a first-class target for the economy pass.
 const SOIL_UPTAKE_PER_TICK: u16 = 60;
 
+/// Water drawn out of adjacent soil by **transpiration**, per root cell per
+/// organism tick, on `material::SOIL_SATURATED`'s scale — and credited to
+/// nothing.
+///
+/// **This is the physically dominant term, and it was missing entirely.**
+/// Of all the water a plant takes up, only on the order of 1-3% is retained
+/// for growth and photosynthesis; the other ~97-99% is transpired, moving
+/// up the xylem and out through the stomata into the air. `Absorb` models
+/// only the small retained fraction, because that is the part that becomes
+/// `resource` — so a tree could stand in soil indefinitely and barely dry
+/// it, which is not what a real tree does to the ground beneath it.
+///
+/// Deliberately *not* credited as resource. Transpired water is lost, not
+/// eaten. Crediting it would inflate the energy economy this phase is
+/// explicitly not re-tuning, and would also be wrong: the plant gets no
+/// food from the 98%.
+///
+/// **Where the scaling comes from, and its honest limitation.** Real
+/// transpiration is driven by *leaf* area and evaporative demand, not by
+/// root count — the canopy is the pump. This draws per root cell instead,
+/// which gets the right behaviour for the right *structural* reason: root
+/// and shoot mass stay roughly proportional as a plant grows (a conserved
+/// root:shoot ratio), so a bigger canopy sits on a bigger root system and
+/// draws more. The scaling with tree size is faithful; the driver is a
+/// stand-in. Driving it from a real leaf count needs the whole-organism
+/// totals Decision 2's sidecar introduces, and `Reports/plant-substrate-v2-
+/// design.md` §6 already sanctions holding such totals there.
+///
+/// Small per cell on purpose: a mature root system is many cells, so the
+/// *organism's* draw is the sum and grows with it.
+const TRANSPIRATION_PER_ROOT_CELL: u16 = 12;
+
 /// How much canopy density `Behavior::Grow` deposits into a newly-created
 /// cell, once, at creation — `organism::diffuse_resource` (and its own
 /// `CANOPY_DENSITY_DECAY` doc) handles spreading and fading it from there.
@@ -832,6 +864,31 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     }
                 }
                 world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
+            }
+            Behavior::Transpire { rate } => {
+                // Draw water from adjacent soil and lose it. No resource is
+                // credited: transpired water is lost to the air, not eaten
+                // -- see TRANSPIRATION_PER_ROOT_CELL for why this is the
+                // dominant term physically and why it is uncredited.
+                let draw = (TRANSPIRATION_PER_ROOT_CELL as f32 * rate) as u16;
+                if draw > 0 {
+                    for (dx, dy) in NEIGHBOURS_4 {
+                        let (nx, ny) = (x + dx, y + dy);
+                        let n = world.get(nx, ny);
+                        if world.materials.get(n.material).water_capacity == 0 {
+                            continue;
+                        }
+                        let held = update::soil_moisture(n);
+                        if held == 0 {
+                            continue;
+                        }
+                        world.set(nx, ny, n.with_aux(held.saturating_sub(draw)));
+                        // Lost upward, not consumed: the moisture field is
+                        // where the air's humidity lives, so a stand of
+                        // trees genuinely humidifies the air above it.
+                        world.deplete_moisture(nx, ny, 1, -ROOT_MOISTURE_DEPLETION);
+                    }
+                }
             }
             Behavior::SecondaryThicken { pipe_ratio } => {
                 thicken(world, x, y, organism_id, pipe_ratio, &mut rng);

@@ -187,6 +187,15 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
 /// than an instant teleport, which is the behaviour worth having.
 const SOIL_DRAINAGE_RATE: f32 = 0.25;
 
+/// Share of a moisture *difference* that capillary action moves per visit,
+/// before the wetness scaling in `update_soil_water` is applied.
+///
+/// Well under drainage's rate on purpose: unsaturated flow is genuinely much
+/// slower than gravity drainage, and this is what keeps a wetting front
+/// reading as a front descending through soil rather than a blob that
+/// instantly averages itself out.
+const SOIL_CAPILLARY_RATE: f32 = 0.06;
+
 /// Is this grain held in place by a root threading through it?
 ///
 /// Four-neighbour, not eight: a root crossing a shear plane reinforces the
@@ -286,6 +295,57 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
             surface.set(x + dx, y + dy, n.with_aux(fill - taken));
         }
         break; // one neighbour per visit -- infiltration is not instant
+    }
+
+    // **Capillary redistribution: wet soil feeds dry soil, in any
+    // direction.** Distinct from the gravity drainage below, and both are
+    // real:
+    //
+    // - *Saturated* flow is gravity-driven, downward only, and only above
+    //   field capacity. That is the drainage rule below (Darcy).
+    // - *Unsaturated* flow follows gradients of **matric potential** — the
+    //   suction dry soil exerts — and moves water sideways and even upward,
+    //   from wetter soil toward drier. This is Richards' equation's other
+    //   half, and it is why a wetting front spreads laterally as well as
+    //   descending, and why a soil profile evens out between rain events.
+    //   Without it a plume stays a plume forever and a root drinking a cell
+    //   dry gets no resupply from the damp soil beside it.
+    //
+    // **The rate falls steeply as soil dries, and that is the load-bearing
+    // detail rather than a refinement.** Unsaturated hydraulic conductivity
+    // drops by orders of magnitude between saturation and the wilting
+    // point: wet soil redistributes readily, dry soil barely at all. Scaling
+    // the exchange by the wetter cell's own saturation captures the
+    // direction of that dependence. Named honestly as a linear stand-in for
+    // a relationship that is really closer to a power law — the ordering is
+    // faithful, the curve is not.
+    //
+    // Only the `+x` and `+y` faces are visited, so each shared face is
+    // handled exactly once and the exchange conserves rather than depending
+    // on sweep order.
+    for (dx, dy) in [(1, 0), (0, 1)] {
+        let n = surface.get(x + dx, y + dy);
+        let n_capacity = surface.materials().get(n.material).water_capacity;
+        if n_capacity == 0 {
+            continue;
+        }
+        let there = soil_moisture(n);
+        if moisture == there {
+            continue;
+        }
+        let (wetter, drier) = if moisture > there { (moisture, there) } else { (there, moisture) };
+        let wetness = wetter as f32 / capacity.max(1) as f32;
+        let moved = (((wetter - drier) as f32) * SOIL_CAPILLARY_RATE * wetness) as u16;
+        if moved == 0 {
+            continue;
+        }
+        if moisture > there {
+            moisture -= moved;
+            surface.set(x + dx, y + dy, n.with_aux(there + moved));
+        } else {
+            moisture += moved;
+            surface.set(x + dx, y + dy, n.with_aux(there - moved));
+        }
     }
 
     if moisture > material::SOIL_FIELD_CAPACITY {
@@ -831,7 +891,7 @@ fn write_liquid_transfer<S: CellSurface>(
 ///
 /// No managed-cell subtlety to worry about: only `Powder` uses `aux` this
 /// way, and a `Powder` is never a liquid body's container cell.
-pub(crate) fn soil_moisture(cell: Cell) -> u16 {
+pub fn soil_moisture(cell: Cell) -> u16 {
     cell.aux().min(material::SOIL_SATURATED)
 }
 

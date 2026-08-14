@@ -77,6 +77,7 @@
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
+            Transpire(rate: 1.0),
             Grow(
                 cost: 0.25,
                 branch_chance: 0.04,
@@ -101,6 +102,10 @@
         (MatureBody, [
             SecondaryThicken(pipe_ratio: 10.0),
             StructuralAnchor,
+            // Mature root tissue transpires. Harmless on canopy MatureBody
+            // cells, which never have a soil neighbour to draw from -- see
+            // Behavior::Transpire.
+            Transpire(rate: 1.0),
         ]),
         (Leaf, [
             Photosynthesize(rate: 0.35),

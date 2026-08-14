@@ -58,6 +58,7 @@ fn variant_ron(v: &Variant) -> String {
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
+            Transpire(rate: 1.0),
             Grow(
                 cost: 0.25,
                 branch_chance: 0.04,
@@ -72,6 +73,7 @@ fn variant_ron(v: &Variant) -> String {
             ),
         ]),
         (MatureBody, [
+            Transpire(rate: 1.0),
             SecondaryThicken(pipe_ratio: 2.5),
             StructuralAnchor,
         ]),
