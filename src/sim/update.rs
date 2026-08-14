@@ -46,7 +46,6 @@
 use super::chunk::{Rect, MAX_REACH};
 use super::fire;
 use super::material::{self, MaterialKind, HORIZONTAL_TRANSFER_REACH};
-use super::organism;
 use super::surface::CellSurface;
 use super::world::World;
 use crate::sim::cell::Cell;
@@ -152,24 +151,19 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
     fire::update(surface, x, y);
     let cell = surface.get(x, y);
 
-    // Organism resource/canopy-density diffusion (`Reports/tree-rewrite-
-    // design.md` §3, §2b) runs from here, not the M16 active-site
-    // schedule, for the same reason `fire::update` above does: a
-    // `MatureBody` trunk cell needs to keep relaying resource even though
-    // it is deliberately off the active-site schedule
-    // (`design-philosophy.md` §3's "mature cells go fully inert"), and the
-    // CA sweep is the one pass that already visits every cell in an awake
-    // chunk regardless of scheduling. Costs nothing once a tree's chunk
-    // actually goes to sleep, since nothing gets visited at all then --
-    // consistent with "inert" in the sense that matters (CPU cost), even
-    // though the cell type itself doesn't leave the active-site schedule
-    // question. A no-op for `organism_id() == 0` (inert material),
-    // checked first so this never runs for the overwhelming majority of
-    // `Plant`-kind cells (hand-painted wood) that aren't organism tissue
-    // at all.
-    if cell.organism_id() != 0 {
-        organism::diffuse_resource(surface, x, y);
-    }
+    // Organism resource/canopy-density transport used to run from here, on
+    // the CA sweep. It now runs as one pass per organism from
+    // `plant::step_organisms` -- `Reports/plant-substrate-v2-design.md`
+    // §3d, forced by the scalars moving to `OrganismState` where a
+    // `CellSurface` cannot reach them, and wanted independently because
+    // dispatching from the sweep tied transport to chunk wakefulness.
+    //
+    // The requirement that put it here in the first place is unchanged and
+    // still met: a `MatureBody` trunk cell keeps relaying resource while
+    // staying off the active-site schedule (`design-philosophy.md` §3).
+    // Iterating the organism's own cell list satisfies that directly,
+    // rather than by leaning on the sweep to visit every cell of an awake
+    // chunk. Do not reintroduce a per-cell call here.
 
     match surface.materials().kind(cell.material) {
         MaterialKind::Powder => update_powder(surface, x, y, cell, rightward),

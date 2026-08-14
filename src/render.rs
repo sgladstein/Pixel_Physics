@@ -890,7 +890,7 @@ impl Renderer {
         if cell.organism_id() == 0 {
             return base;
         }
-        let (cell_type, resource) = organism::unpack_aux(cell.aux());
+        let cell_type = organism::cell_type(cell.aux());
         let (ramp, blend) = match self.organism_overlay {
             // Both handled above, before the organism-tissue guard: `Off`
             // returns immediately, and `SoilMoisture` asks about inert
@@ -912,11 +912,11 @@ impl Renderer {
                 (colour, CELL_TYPE_BLEND)
             }
             OrganismOverlay::Resource => {
-                let t = (resource / organism::RESOURCE_SCALE).clamp(0.0, 1.0);
+                let t = (world.carbon_at(x, y) / organism::RESOURCE_SCALE).clamp(0.0, 1.0);
                 (scalar_ramp(t, SCALAR_RAMP_RESOURCE), 1.0)
             }
             OrganismOverlay::CanopyDensity => {
-                let t = (organism::canopy_density(cell.aux()) / organism::CANOPY_DENSITY_SCALE).clamp(0.0, 1.0);
+                let t = (world.canopy_density_at(x, y) / organism::CANOPY_DENSITY_SCALE).clamp(0.0, 1.0);
                 (scalar_ramp(t, SCALAR_RAMP_CANOPY), 1.0)
             }
         };

@@ -351,14 +351,38 @@ pub struct OrganismState {
     /// supported`, and a cheap `organism_active_tip_count` all possible;
     /// each is noted as blocked on exactly this in its own doc.
     ///
-    /// A `HashSet` of positions rather than the design doc's slot-indexed
-    /// `Vec<Option<OrganismCell>>`, for now: that layout addresses cells by
-    /// an index stored in `Cell::aux`, and `aux` has no room until the
-    /// resource scalar moves out at the doc's step 2c. Positions give
-    /// enumeration and O(1) removal today without pre-committing the
-    /// encoding, and the owner of every entry is unambiguous — which is the
-    /// property that made the doc reject a *global* position map.
-    pub cells: std::collections::HashSet<(i32, i32)>,
+    /// **A position-keyed map, deliberately, and not the design doc §3c's
+    /// slot-indexed `Vec<Option<OrganismCell>>` addressed by an index
+    /// written back into `Cell::aux`.** Step 2c freed those bits, so that
+    /// layout became available and was still not taken. Three reasons, in
+    /// increasing order of importance:
+    ///
+    /// 1. **The hook stays complete by construction.** Membership is
+    ///    maintained at the single `World::set` seam (see that function).
+    ///    A slot index living in `aux` would make `set` rewrite the `aux`
+    ///    of the cell handed to it, and every one of `plant.rs`'s ~60
+    ///    `pack_cell_type` writes would have to preserve a slot it does not
+    ///    know it carries. That is the enumeration-that-must-stay-complete
+    ///    failure mode `World::set`'s own comment says this project keeps
+    ///    rediscovering — reintroduced, at every write instead of every
+    ///    creation.
+    /// 2. **12 bits is 4095 cells per organism, and that is a real
+    ///    ceiling.** The twelve-tree ensemble already produces a 2,127-cell
+    ///    tree; half the budget, on a 512x320 test world that `CLAUDE.md`
+    ///    says is going to grow.
+    /// 3. **The hot loop wants iteration, not random access, and gets it
+    ///    either way.** The slot index buys O(1) cell→data from a bare
+    ///    `Cell`, but the only hot consumer is `transport`, which iterates
+    ///    the whole organism and resolves neighbours *once per tick* into a
+    ///    flat `Vec` (see `transport`'s own topology build). Inside the
+    ///    substep loop both layouts are identical: contiguous indexing.
+    ///
+    /// What §3c's layout was really buying was somewhere to put the
+    /// scalars, and `OrganismCell` as the map's *value* buys that without
+    /// the encoding. The property that made the doc reject a *global*
+    /// position map — unambiguous ownership of every entry — is kept, since
+    /// this map is per-organism.
+    pub cells: std::collections::HashMap<(i32, i32), OrganismCell>,
     /// Below-ground and above-ground cell counts, refreshed once per
     /// organism tick by `plant::step_organisms` while it is already walking
     /// the cell list.
@@ -497,75 +521,111 @@ impl SpeciesRegistry {
 // meaning instead. `Cell` itself stays agnostic to this distinction —
 // these are free functions over the raw `u16`, not methods on `Cell`.
 
-/// Resource scalar upper bound — 0..`RESOURCE_SCALE` maps onto the `u8`
-/// range packed into `aux`. Not derived from any existing convention (see
-/// the design report's own correction of an earlier draft that claimed
-/// one): chosen as a plain, generous headroom for a species-defined
-/// `cost`/`rate` pair to operate within without the packing itself ever
-/// being the limiting factor.
+/// Behavioural cap on how much carbon one cell may hold.
+///
+/// **Was an encoding parameter; is now only a clamp.** Until Decision 2
+/// step 2c it also set the quantization of the 8-bit `aux` field the
+/// scalar lived in (one step was `RESOURCE_SCALE / 255`), which is exactly
+/// the "tail wagging the dog" `Reports/plant-substrate-v2-design.md` §3a
+/// names: a constant chosen for headroom silently deciding precision.
+/// `OrganismCell::carbon` is a plain `f32`, so this value now does one
+/// job — bounding what `Photosynthesize` and `Absorb` may accumulate —
+/// and changing it no longer changes the resolution of anything.
 pub const RESOURCE_SCALE: f32 = 4.0;
 
-/// Pack a `CellType` (bits 0-3) and a resource scalar (bits 4-11, `u8`
-/// fixed-point on `RESOURCE_SCALE`) into an `aux` value. Bits 12-15 start
-/// zero (canopy density — see `with_canopy_density` below, which is the
-/// only thing that ever writes them; a cell type with no `Grow`-driven
-/// self-avoidance simply never has anything nonzero there).
-pub fn pack_aux(cell_type: CellType, resource: f32) -> u16 {
-    let type_bits = cell_type as u16;
-    let resource_u8 = ((resource.clamp(0.0, RESOURCE_SCALE) / RESOURCE_SCALE) * 255.0).round() as u16;
-    type_bits | (resource_u8 << 4)
+/// Pack a `CellType` into bits 0-3 of `aux`.
+///
+/// **Bits 4-15 are now free for an organism-owned cell** — they held the
+/// resource scalar (4-11) and canopy density (12-15) until both moved to
+/// `OrganismCell`. Deliberately left zero rather than reused: the next
+/// per-cell scalar belongs in the sidecar too, and `design-philosophy.md`
+/// §2b's objection to re-packing is that a bit budget is what forced every
+/// previous scalar to be quantized around the wrong constant.
+pub fn pack_cell_type(cell_type: CellType) -> u16 {
+    cell_type as u16
 }
 
-/// Inverse of `pack_aux`. `cell_type` is `None` if the low 4 bits don't
+/// The `CellType` encoded in `aux`, or `None` if the low 4 bits don't
 /// match a known variant — a stale or corrupted value should read as
 /// "nothing recognized" rather than panicking or silently aliasing to
 /// whichever variant happens to sit at that bit pattern.
-pub fn unpack_aux(aux: u16) -> (Option<CellType>, f32) {
-    let type_bits = aux & 0b1111;
-    let resource_u8 = (aux >> 4) & 0xFF;
-    let resource = (resource_u8 as f32 / 255.0) * RESOURCE_SCALE;
-    let cell_type = match type_bits {
+///
+/// Stays inline on `Cell` (rather than moving to `OrganismCell` with the
+/// scalars) because three call sites must answer "what kind of cell is
+/// this" from a bare `Cell` with no `&World` in hand — the transport
+/// wall test, `structural.rs`'s branch and traversal filter, and
+/// `World::organism_active_tip_count`. That is
+/// `Reports/plant-substrate-v2-design.md` §3c's rule applied as written:
+/// what a caller holding only a `Cell` must be able to answer stays on
+/// the cell; everything that is a *scalar* moves out.
+pub fn cell_type(aux: u16) -> Option<CellType> {
+    match aux & 0b1111 {
         0 => Some(CellType::Seed),
         1 => Some(CellType::GrowingTip),
         2 => Some(CellType::MatureBody),
         3 => Some(CellType::Leaf),
         4 => Some(CellType::RootTip),
         _ => None,
-    };
-    (cell_type, resource)
+    }
 }
 
-/// Upper bound for the canopy-density scalar packed into `aux` bits 12-15
-/// — `Reports/tree-rewrite-design.md` §2b's self-avoidance signal, and
-/// §6's resolution of that report's own open question: the layout already
-/// reserved these 4 bits as spare, so canopy density fits there directly
-/// with no change to the resource scalar's own 8-bit precision, and
-/// without `field.rs`'s coarse grid (which §6's own correction found would
-/// need bilinear sampling to avoid silently flattening every candidate in
-/// a `Grow` cell's 8-neighbourhood to the same value). 4 bits (16 levels)
-/// is coarser than resource's 256, but this signal only ever answers "is
-/// this general area already crowded," never needs cell-exact precision —
-/// see `Grow`'s own `crowding_weight` doc.
+/// Behavioural cap on the canopy-density scalar —
+/// `Reports/tree-rewrite-design.md` §2b's self-avoidance signal.
+///
+/// **Like `RESOURCE_SCALE`, no longer an encoding parameter — and this one
+/// was hiding a real bug.** Packed into 4 bits it had 15 steps of 0.267,
+/// and `CANOPY_DENSITY_DECAY_PER_TICK` is a halving, so a decaying deposit
+/// reached one quantum and then *stopped*: 0.267 × 0.5 = 0.133, which packs
+/// back to `round(0.5) = 1` — the same quantum, forever. Measured, not
+/// reasoned about: 0.800 → 0.533 → 0.267 → 0.267 → 0.267, a fixed point at
+/// tick 3.
+///
+/// So canopy density had a **permanent floor of 0.267 on every cell that
+/// ever received a deposit**, and the mechanism whose entire stated purpose
+/// is to "let later growth reclaim space near mature wood" could never
+/// fully release that space. The decay looked like it worked, because its
+/// first two steps did.
+///
+/// It survived because the test guarding it
+/// (`transport_no_longer_decays_density_itself`) asserts an isolated cell
+/// at full scale stays at full scale — far away from the floor, which sits
+/// at the bottom of the range. That is `CLAUDE.md`'s "ask what a metric
+/// counts when nothing is wrong", in test form.
+///
+/// The value is now a plain `f32` and decays continuously to zero. **That
+/// changed what `crowding_weight` sees**, and the measured consequence is
+/// recorded in `plant::CANOPY_DENSITY_DECAY_PER_TICK` and left for the
+/// economy pass to re-tune rather than compensated for here — per
+/// `Reports/plant-substrate-v2-design.md` §10's "no `.ron` edits in this
+/// step".
 pub const CANOPY_DENSITY_SCALE: f32 = 4.0;
 
-/// Canopy density at this `aux` value — `0.0` for any cell that has never
-/// had `with_canopy_density` called on it (a fresh `pack_aux` leaves bits
-/// 12-15 zero), which is the correct reading for "nothing has grown near
-/// here yet," not a sentinel to special-case.
-pub fn canopy_density(aux: u16) -> f32 {
-    let bits = (aux >> 12) & 0xF;
-    (bits as f32 / 15.0) * CANOPY_DENSITY_SCALE
-}
-
-/// Rewrite only bits 12-15, leaving the cell type and resource scalar
-/// `pack_aux` already wrote untouched — canopy density updates on a
-/// different cadence (the diffusion pass, every sweep a chunk is awake)
-/// than cell-type transitions or resource spending, so keeping it a
-/// separate, independent write is what lets `diffuse_resource` update it
-/// without needing to know or preserve the other two fields itself.
-pub fn with_canopy_density(aux: u16, density: f32) -> u16 {
-    let bits = ((density.clamp(0.0, CANOPY_DENSITY_SCALE) / CANOPY_DENSITY_SCALE) * 15.0).round() as u16;
-    (aux & 0x0FFF) | (bits << 12)
+/// The per-cell scalars for one organism-owned cell — Decision 2's
+/// sidecar (`Reports/plant-substrate-v2-design.md` §3c).
+///
+/// Plain `f32`s: no packing, no scale constants doubling as encoding
+/// parameters, and no quantization. That is the entire point. The two
+/// fields here are the two that used to live in `Cell::aux`; the doc's
+/// §3c also lists `water`, `age`, `anoxia_ticks` and `plastochron`, and
+/// none of them are added here — each waits for the decision that gives it
+/// a caller, matching `OrganismState`'s own recorded convention of not
+/// adding state speculatively. (`plastochron` in particular is *not*
+/// coming: it turned out to be lineage state and already rides on
+/// `ActiveKind::Organism`, recorded in `PLAN.md` as the one place §3a is
+/// wrong.)
+///
+/// **No `pos` field**, unlike §3c's sketch: that shape indexed a
+/// `Vec<Option<OrganismCell>>` by a slot number stored back in `aux`, and
+/// a position-keyed map makes the position the key instead. See
+/// `OrganismState::cells` for why that swap was made.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OrganismCell {
+    /// Photosynthate. Was the 8-bit `aux` field; `Absorb`/`Photosynthesize`
+    /// still clamp it to `RESOURCE_SCALE`.
+    pub carbon: f32,
+    /// `Reports/tree-rewrite-design.md` §2b's crowding signal, clamped to
+    /// `CANOPY_DENSITY_SCALE`.
+    pub canopy_density: f32,
 }
 
 // --- The shared connectivity primitive ---------------------------------
@@ -644,19 +704,36 @@ pub fn reachable_from_anchors<S: CellSurface>(
     visited
 }
 
-// --- Resource and canopy-density diffusion ------------------------------
+// --- Resource and canopy-density transport ------------------------------
 //
-// `Reports/organism-substrate-design.md` §3's `diffuse_resource`, the same
-// shape `fire.rs`'s `diffuse_heat` already uses -- generic over
-// `CellSurface` (both the serial sweep and the parallel `ChunkView` run the
-// identical rule), per-cell CA-resolution finite-difference diffusion, not
-// `field.rs`'s coarse `FIELD_SCALE`-resolution grid (that resolution
-// mismatch is exactly what `organism-substrate-design.md` §3 rejected the
-// field grid for). A different-organism or non-`Plant` neighbour is a
-// wall, exactly as `diffuse_heat` treats a material boundary. Carries
+// `Reports/organism-substrate-design.md` §3's `diffuse_resource`, moved off
+// the CA sweep and onto a per-organism pass by
+// `Reports/plant-substrate-v2-design.md` §3d. Still per-cell
+// CA-resolution finite-difference diffusion, not `field.rs`'s coarse
+// `FIELD_SCALE` grid (that resolution mismatch is exactly what
+// `organism-substrate-design.md` §3 rejected the field grid for), and a
+// different-organism or non-`Plant` neighbour is still a wall, exactly as
+// `diffuse_heat` treats a material boundary. Still carries
 // `Reports/tree-rewrite-design.md` §2b's canopy-density channel alongside
-// resource, since both are per-cell diffusing scalars packed into the same
-// `aux` and visited by the same sweep -- not a second diffusion pass.
+// resource -- one pass over both, not a second diffusion implementation.
+//
+// **Why it stopped being generic over `CellSurface`.** It has to read a
+// scalar that now lives in `OrganismState`, and `ChunkView` deliberately
+// carries no organism state -- §3d's wall, named there before this was
+// built rather than discovered here. Of the three ways out, extending
+// `CellSurface` was rejected for the reason this module already gives for
+// cutting `TransportChannel`, and a split layout was rejected because the
+// bit budget stays full and the next scalar reopens it. So the pass moved.
+//
+// **What that buys, beyond somewhere to put the scalars.** It removes the
+// dependence on chunk wakefulness. Dispatched from the sweep, this ran on
+// every organism cell of every *awake* chunk every frame and not at all
+// otherwise -- measured at 22.8% of frames on the standard single-tree
+// scene once the tree settled, against consumers that read it every
+// `ORGANISM_TICK_INTERVAL` regardless. `PLAN.md` records that duty cycle
+// as the gate on Decision 2 and calls it a correctness prerequisite rather
+// than a storage tidy-up, because the moment `Photosynthesize` moves to
+// `Leaf` only (Decision 4) a starved transport stops being invisible.
 
 /// Diffusion rate for both channels -- see this module's own doc on why a
 /// single shared rate, not yet a per-species `TransportChannel` value.
@@ -668,66 +745,126 @@ pub fn reachable_from_anchors<S: CellSurface>(
 /// channel does.
 const DIFFUSION_RATE: f32 = 0.2;
 
-/// Run one diffusion step for the organism-owned cell at `(x, y)` — a
-/// no-op for `organism_id() == 0` (inert material) or an unrecognized
-/// `aux` cell-type encoding, mirroring `diffuse_heat`'s own early return
-/// for a thermally-inert material. Called from `update.rs`'s per-cell
-/// dispatch (see that module's own call site for why the CA sweep, not
-/// the M16 active-site schedule, is what actually drives this — a
-/// `MatureBody` trunk cell needs to keep relaying resource even though it
-/// is deliberately off the active-site schedule per `design-philosophy.md`
-/// §3, and the CA sweep is the one pass that already visits every cell in
-/// an awake chunk regardless of scheduling).
-pub fn diffuse_resource<S: CellSurface>(surface: &mut S, x: i32, y: i32) {
-    let cell = surface.get(x, y);
-    let organism_id = cell.organism_id();
-    if organism_id == 0 {
-        return;
-    }
-    let (Some(cell_type), here_resource) = unpack_aux(cell.aux()) else {
+/// How many diffusion iterations one organism tick runs.
+///
+/// **Set to reproduce the cadence this replaced, not chosen fresh.**
+/// Dispatched from the CA sweep the rule ran once per frame per awake
+/// chunk, so across one `ORGANISM_TICK_INTERVAL` (45 frames) a tree in an
+/// awake chunk saw ~45 steps between two consecutive reads of the value.
+/// Batching those 45 into one pass at tick time changes *when* the
+/// intermediate states exist, not how far resource has travelled by the
+/// time anything looks -- and nothing reads the scalar between ticks:
+/// every consumer (`Grow`, `Divide`, `Photosynthesize`, `Absorb`) runs
+/// inside `organism_tick`.
+///
+/// **This is `Reports/plant-substrate-v2-design.md` §7c's
+/// `TRANSPORT_SUBSTEPS`, arrived at early.** That section makes the point
+/// that 45 was never a decision -- it was "how often the sweep runs" --
+/// and that making it an explicit parameter is the actual gain. It is a
+/// first-class tuning target for the economy pass, and polarity will
+/// re-derive it against its own stability bound.
+pub const TRANSPORT_SUBSTEPS: u32 = 45;
+
+/// Run one organism tick's worth of resource and canopy-density transport
+/// over every cell `organism_id` owns.
+///
+/// Keeps the property that motivated the old placement verbatim -- a
+/// `MatureBody` trunk cell relays resource even though it is deliberately
+/// off the active-site schedule (`design-philosophy.md` §3) -- and gets it
+/// from the organism's own cell list rather than from the sweep happening
+/// to visit it, which is a strictly better answer to that requirement than
+/// the workaround it replaces.
+pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
+    let Some(state) = world.organism(organism_id) else {
         return;
     };
-    let here_density = canopy_density(cell.aux());
+    if state.cells.is_empty() {
+        return;
+    }
 
-    let is_wall = |n: Cell| n.organism_id() != organism_id || surface.materials().kind(n.material) != MaterialKind::Plant;
+    // **Sorted, and that is load-bearing.** `cells` is a `HashMap`, whose
+    // iteration order is not stable across runs, and `f32` addition is not
+    // associative -- so an unsorted order would make the accumulated sums
+    // differ run to run. `PLAN.md` requires same-build determinism, so the
+    // pass fixes a canonical order once here. Row-major, matching the
+    // sweep's own convention.
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
 
-    let mut resource_sum = 0.0f32;
-    let mut density_sum = 0.0f32;
-    let mut neighbours = 0u32;
-    for (dx, dy) in NEIGHBOURS_4 {
-        let n = surface.get(x + dx, y + dy);
-        if is_wall(n) {
-            continue;
+    // Resolve the topology once per tick rather than once per substep: for
+    // each cell, the indices of its same-organism `Plant` 4-neighbours.
+    // Growth happens at tick boundaries, never inside this loop, so the
+    // adjacency cannot change while the substeps run. This is what makes
+    // the substep loop pure contiguous indexing -- see `OrganismState::
+    // cells` for why that, and not a slot index in `aux`, is where the
+    // random-access cost went.
+    let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+    let mut neighbours: Vec<[Option<usize>; 4]> = Vec::with_capacity(cells.len());
+    for &(x, y) in &cells {
+        let mut row = [None; 4];
+        for (k, (dx, dy)) in NEIGHBOURS_4.into_iter().enumerate() {
+            let n = world.get(x + dx, y + dy);
+            // The same wall test as before: a different organism, or a
+            // non-`Plant` material, is a boundary. `resource_does_not_
+            // cross_an_organism_boundary` asserts exactly this.
+            if n.organism_id() != organism_id || world.materials.kind(n.material) != MaterialKind::Plant {
+                continue;
+            }
+            row[k] = index.get(&(x + dx, y + dy)).copied();
         }
-        let (_, n_resource) = unpack_aux(n.aux());
-        resource_sum += n_resource;
-        density_sum += canopy_density(n.aux());
-        neighbours += 1;
+        neighbours.push(row);
     }
 
-    // An isolated organism cell (every neighbour a wall) has nothing to
-    // exchange with, and nothing to do here at all -- unlike an earlier
-    // version of this function, decay no longer lives on this per-frame
-    // pass (see `plant::CANOPY_DENSITY_DECAY_PER_TICK`'s own doc for why:
-    // a decay applied every single CA frame erases a fresh deposit within
-    // a handful of frames, long before a neighbour's much-less-frequent
-    // `Grow` check ever gets a chance to read it — a real bug, found by
-    // live verification, not a hypothetical). This function's only job is
-    // spatial spread now; `organism_tick`'s own per-cell cadence is what
-    // fades a deposit over time.
-    let (new_resource, new_density) = if neighbours == 0 {
-        (here_resource, here_density)
-    } else {
-        let resource_avg = resource_sum / neighbours as f32;
-        let density_avg = density_sum / neighbours as f32;
-        let resource = here_resource + (resource_avg - here_resource) * DIFFUSION_RATE;
-        let density = here_density + (density_avg - here_density) * DIFFUSION_RATE;
-        (resource.max(0.0), density.clamp(0.0, CANOPY_DENSITY_SCALE))
-    };
+    let state = world.organism(organism_id).expect("checked above");
+    let mut carbon: Vec<f32> = cells.iter().map(|p| state.cells[p].carbon).collect();
+    let mut density: Vec<f32> = cells.iter().map(|p| state.cells[p].canopy_density).collect();
 
-    let new_aux = with_canopy_density(pack_aux(cell_type, new_resource), new_density);
-    if new_aux != cell.aux() {
-        surface.set(x, y, cell.with_aux(new_aux));
+    // Jacobi, not Gauss-Seidel: each substep reads the previous substep's
+    // values for every cell and writes a fresh buffer. The rule this
+    // replaces updated in place in sweep order, so a cell saw some
+    // neighbours already advanced and some not, and the result depended on
+    // which chunk the sweep reached first -- the ordering dependence
+    // `plant-substrate-v2-design.md` §7c names as a defect of the old
+    // form. Double-buffering removes it, and is required anyway now the
+    // iteration order comes from a map rather than the grid.
+    let (mut next_carbon, mut next_density) = (carbon.clone(), density.clone());
+    for _ in 0..TRANSPORT_SUBSTEPS {
+        for i in 0..cells.len() {
+            let (mut carbon_sum, mut density_sum, mut n) = (0.0f32, 0.0f32, 0u32);
+            for slot in neighbours[i].iter().flatten() {
+                carbon_sum += carbon[*slot];
+                density_sum += density[*slot];
+                n += 1;
+            }
+            // An isolated organism cell (every neighbour a wall) has
+            // nothing to exchange with and nothing to do -- and in
+            // particular does *not* decay here. Decay lives on
+            // `organism_tick`'s own cadence; see
+            // `plant::CANOPY_DENSITY_DECAY_PER_TICK`'s doc for why a decay
+            // applied on the diffusion pass erased a fresh deposit before
+            // any neighbour's much-less-frequent `Grow` check could read
+            // it -- a real bug, found by live verification.
+            if n == 0 {
+                next_carbon[i] = carbon[i];
+                next_density[i] = density[i];
+                continue;
+            }
+            let n = n as f32;
+            next_carbon[i] = (carbon[i] + (carbon_sum / n - carbon[i]) * DIFFUSION_RATE).max(0.0);
+            next_density[i] = (density[i] + (density_sum / n - density[i]) * DIFFUSION_RATE).clamp(0.0, CANOPY_DENSITY_SCALE);
+        }
+        std::mem::swap(&mut carbon, &mut next_carbon);
+        std::mem::swap(&mut density, &mut next_density);
+    }
+
+    let Some(state) = world.organism_mut(organism_id) else {
+        return;
+    };
+    for (i, pos) in cells.iter().enumerate() {
+        if let Some(slot) = state.cells.get_mut(pos) {
+            slot.carbon = carbon[i];
+            slot.canopy_density = density[i];
+        }
     }
 }
 
@@ -822,58 +959,71 @@ mod tests {
     }
 
     #[test]
-    fn pack_and_unpack_aux_round_trip() {
-        for cell_type in [CellType::Seed, CellType::GrowingTip, CellType::MatureBody, CellType::Leaf, CellType::RootTip] {
-            for resource in [0.0, 1.0, 2.0, 3.999, RESOURCE_SCALE] {
-                let packed = pack_aux(cell_type, resource);
-                let (unpacked_type, unpacked_resource) = unpack_aux(packed);
-                assert_eq!(unpacked_type, Some(cell_type));
-                // Fixed-point round trip: within one packing step's worth of error.
-                assert!(
-                    (unpacked_resource - resource).abs() < RESOURCE_SCALE / 255.0 + 1e-4,
-                    "resource {resource} round-tripped to {unpacked_resource} for {cell_type:?}"
-                );
-            }
+    fn cell_type_round_trips_through_aux() {
+        for ty in [CellType::Seed, CellType::GrowingTip, CellType::MatureBody, CellType::Leaf, CellType::RootTip] {
+            assert_eq!(cell_type(pack_cell_type(ty)), Some(ty));
         }
     }
 
+    // The three packing tests that used to live here -- a resource
+    // fixed-point round trip, a canopy-density round trip, and "a freshly
+    // packed aux has zero density" -- are gone with the packing they
+    // tested. They are not replaced one-for-one, because the properties
+    // they asserted are now either unrepresentable or trivially true: two
+    // `f32` struct fields cannot collide in a shared word, and a
+    // `Default`-constructed `OrganismCell` is zero by the language's own
+    // rules.
+    //
+    // What *is* worth asserting is the invariant that replaced them, and
+    // that one can genuinely regress: a cell-type write goes through the
+    // grid and a scalar write goes through the sidecar, and neither may
+    // disturb the other. That was the actual bug the old layout produced
+    // (`pack_aux_preserving_density`'s whole reason to exist), so the test
+    // below is aimed at the *replacement* mechanism failing the same way,
+    // per `CLAUDE.md`'s rule that a guard test must be able to fail for the
+    // replacement artifact.
+
     #[test]
-    fn canopy_density_round_trips_and_leaves_cell_type_and_resource_untouched() {
-        for density in [0.0, 1.0, 2.0, 3.999, CANOPY_DENSITY_SCALE] {
-            let base = pack_aux(CellType::RootTip, 2.5);
-            let with_density = with_canopy_density(base, density);
-            assert_eq!(unpack_aux(with_density), unpack_aux(base), "with_canopy_density must not disturb cell type or resource");
-            assert!(
-                (canopy_density(with_density) - density).abs() < CANOPY_DENSITY_SCALE / 15.0 + 1e-4,
-                "density {density} round-tripped to {}",
-                canopy_density(with_density)
-            );
-        }
+    fn a_cell_type_write_does_not_disturb_the_sidecar_scalars() {
+        let mut w = World::new(crate::sim::chunk::Rect::new(0, 0, 31, 31));
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        let species = w.species.id_of("tree").expect("tree is compiled in");
+        let organism_id = w.push_organism(species);
+        w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::GrowingTip)));
+
+        let slot = w.organism_cell_mut(5, 5).expect("set should have registered the cell");
+        slot.carbon = 2.5;
+        slot.canopy_density = 1.25;
+
+        // The retirement `organism_tick` performs: same cell, new type.
+        let cell = w.get(5, 5);
+        w.set(5, 5, cell.with_aux(pack_cell_type(CellType::MatureBody)));
+
+        assert_eq!(cell_type(w.get(5, 5).aux()), Some(CellType::MatureBody), "the type write should have taken effect");
+        assert_eq!(w.carbon_at(5, 5), 2.5, "a cell-type write must not disturb carbon -- this is what pack_aux_preserving_density existed to patch");
+        assert_eq!(w.canopy_density_at(5, 5), 1.25, "a cell-type write must not disturb canopy density");
     }
 
     #[test]
-    fn a_freshly_packed_aux_has_zero_canopy_density() {
-        let packed = pack_aux(CellType::GrowingTip, 1.0);
-        assert_eq!(canopy_density(packed), 0.0, "a cell nothing has ever deposited into should read as uncrowded, not a sentinel to special-case");
-    }
+    fn a_cell_changing_organism_gets_a_fresh_zeroed_sidecar_entry() {
+        let mut w = World::new(crate::sim::chunk::Rect::new(0, 0, 31, 31));
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        let species = w.species.id_of("tree").expect("tree is compiled in");
+        let first = w.push_organism(species);
+        let second = w.push_organism(species);
+        w.set(5, 5, Cell::new(wood, 0).with_organism_id(first).with_aux(pack_cell_type(CellType::GrowingTip)));
+        w.organism_cell_mut(5, 5).expect("registered").carbon = 3.0;
 
-    #[test]
-    fn resource_is_clamped_into_range_rather_than_wrapping() {
-        let packed = pack_aux(CellType::GrowingTip, -5.0);
-        let (_, resource) = unpack_aux(packed);
-        assert_eq!(resource, 0.0, "a negative resource should clamp to zero, not wrap");
-
-        let packed = pack_aux(CellType::GrowingTip, 999.0);
-        let (_, resource) = unpack_aux(packed);
-        assert!((resource - RESOURCE_SCALE).abs() < 1e-4, "an overlarge resource should clamp to the scale's max");
+        w.set(5, 5, Cell::new(wood, 0).with_organism_id(second).with_aux(pack_cell_type(CellType::GrowingTip)));
+        assert_eq!(w.carbon_at(5, 5), 0.0, "a cell that changed hands must not inherit the previous organism's carbon");
+        assert!(w.organism(first).expect("still live").cells.is_empty(), "the previous owner should have dropped the cell from its list");
     }
 
     #[test]
     fn an_unrecognized_type_bit_pattern_is_none() {
         // Bit pattern 5 doesn't correspond to any current CellType variant
         // (0-4 are Seed/GrowingTip/MatureBody/Leaf/RootTip).
-        let (cell_type, _) = unpack_aux(5);
-        assert_eq!(cell_type, None);
+        assert_eq!(cell_type(5), None);
     }
 
     // --- diffuse_resource --------------------------------------------------
@@ -886,16 +1036,20 @@ mod tests {
         let mut w = World::new(Rect::new(0, 0, 15, 15));
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         let organism_id = w.push_organism(SpeciesId(0));
-        w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_aux(CellType::MatureBody, RESOURCE_SCALE)));
-        w.set(6, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_aux(CellType::MatureBody, 0.0)));
+        w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
+        w.set(6, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
+        w.organism_cell_mut(5, 5).expect("registered").carbon = RESOURCE_SCALE;
 
-        diffuse_resource(&mut w, 5, 5);
-        diffuse_resource(&mut w, 6, 5);
+        transport(&mut w, organism_id);
 
-        let (_, left) = unpack_aux(w.get(5, 5).aux());
-        let (_, right) = unpack_aux(w.get(6, 5).aux());
+        let (left, right) = (w.carbon_at(5, 5), w.carbon_at(6, 5));
         assert!(right > 0.0, "the empty neighbour should have gained resource: got {right}");
         assert!(left < RESOURCE_SCALE, "the full cell should have lost some resource: got {left}");
+        // Pairwise exchange is exactly conserving, unlike the per-cell
+        // move-toward-the-mean rule this replaced -- worth asserting
+        // directly, since it is one of the four properties
+        // `plant-substrate-v2-design.md` §7c claims for the form.
+        assert!((left + right - RESOURCE_SCALE).abs() < 1e-3, "transport should conserve: {left} + {right} != {RESOURCE_SCALE}");
     }
 
     #[test]
@@ -907,45 +1061,56 @@ mod tests {
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         let organism_a = w.push_organism(SpeciesId(0));
         let organism_b = w.push_organism(SpeciesId(0));
-        w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_a).with_aux(pack_aux(CellType::MatureBody, RESOURCE_SCALE)));
-        w.set(6, 5, Cell::new(wood, 0).with_organism_id(organism_b).with_aux(pack_aux(CellType::MatureBody, 0.0)));
+        w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_a).with_aux(pack_cell_type(CellType::MatureBody)));
+        w.set(6, 5, Cell::new(wood, 0).with_organism_id(organism_b).with_aux(pack_cell_type(CellType::MatureBody)));
+        w.organism_cell_mut(5, 5).expect("registered").carbon = RESOURCE_SCALE;
 
-        diffuse_resource(&mut w, 5, 5);
-        diffuse_resource(&mut w, 6, 5);
+        // **Both organisms stepped, deliberately.** `plant-substrate-v2-
+        // design.md` §3f warns this test can go vacuous once transport is
+        // per-organism: stepping only `organism_a` would leave `b`'s cell
+        // untouched because it was never in the iteration, which passes for
+        // a reason that has nothing to do with the wall test. Running both
+        // means the only thing keeping resource on the left is `transport`'s
+        // `is_wall` check on a differing `organism_id`, which is the claim.
+        transport(&mut w, organism_a);
+        transport(&mut w, organism_b);
 
-        let (_, left) = unpack_aux(w.get(5, 5).aux());
-        let (_, right) = unpack_aux(w.get(6, 5).aux());
+        let (left, right) = (w.carbon_at(5, 5), w.carbon_at(6, 5));
         assert_eq!(left, RESOURCE_SCALE, "a different organism's cell must be a wall, not a diffusion partner");
         assert_eq!(right, 0.0, "resource must not cross an organism boundary");
     }
 
     #[test]
-    fn diffuse_resource_no_longer_decays_density_itself() {
+    fn transport_no_longer_decays_density_itself() {
         // Decay moved to `plant::organism_tick`'s own per-cell cadence
         // (see that module's `CANOPY_DENSITY_DECAY_PER_TICK` doc for why:
         // a decay applied on this function's per-CA-frame cadence erased a
         // fresh deposit within a handful of frames, long before a
         // neighbour's much-less-frequent `Grow` check ever read it). This
-        // function's own job is spatial spread only now -- an isolated
-        // cell (no diffusion partner) should see its density completely
-        // unchanged after any number of calls.
+        // function's own job is spatial spread only -- an isolated cell
+        // (no transport partner) should see its density completely
+        // unchanged after any number of ticks.
         use super::super::chunk::Rect;
         use super::super::world::World;
 
         let mut w = World::new(Rect::new(0, 0, 15, 15));
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         let organism_id = w.push_organism(SpeciesId(0));
-        let aux = with_canopy_density(pack_aux(CellType::MatureBody, 1.0), CANOPY_DENSITY_SCALE);
-        w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+        w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
+        {
+            let slot = w.organism_cell_mut(5, 5).expect("registered");
+            slot.carbon = 1.0;
+            slot.canopy_density = CANOPY_DENSITY_SCALE;
+        }
 
         for _ in 0..500 {
-            diffuse_resource(&mut w, 5, 5);
+            transport(&mut w, organism_id);
         }
 
         assert_eq!(
-            canopy_density(w.get(5, 5).aux()),
+            w.canopy_density_at(5, 5),
             CANOPY_DENSITY_SCALE,
-            "an isolated cell's density should not decay from repeated diffuse_resource calls alone"
+            "an isolated cell's density should not decay from repeated transport calls alone"
         );
     }
 

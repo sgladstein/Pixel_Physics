@@ -287,6 +287,9 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
         for site in outcome.pending_active_sites {
             world.schedule_active_site(site);
         }
+        for (x, y, was, now) in outcome.organism_moves {
+            world.reindex_organism_cell(x, y, was, now);
+        }
         pending_demotions.extend(outcome.demotions);
         pending_absorptions.extend(outcome.absorptions);
     }
@@ -341,6 +344,17 @@ struct ChunkOutcome {
     /// again, since `World::absorb_liquid`'s own rasterization can write
     /// into a chunk the growing column just crossed into.
     absorptions: Vec<(i32, i32, u32)>,
+    /// Organism cell-list membership changes from *same-chunk* writes —
+    /// `(x, y, was_organism_id, now_organism_id)`.
+    ///
+    /// `World::set` maintains `OrganismState::cells` itself, and a remote
+    /// write is replayed through it, so neither needs anything here. A
+    /// same-chunk write never reaches `World::set` at all, so without this
+    /// queue an organism cell that moves inside one chunk — in practice a
+    /// falling seed, the only mobile organism cell — silently drops out of
+    /// its own organism's cell list while staying in the grid. See
+    /// `World::reindex_organism_cell` for what that cost.
+    organism_moves: Vec<(i32, i32, u16, u16)>,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -404,6 +418,8 @@ struct ChunkView<'w> {
     demotions: Vec<(i32, i32)>,
     /// See `ChunkOutcome::absorptions`'s own doc.
     absorptions: Vec<(i32, i32, u32)>,
+    /// See `ChunkOutcome::organism_moves`'s own doc.
+    organism_moves: Vec<(i32, i32, u16, u16)>,
 }
 
 impl<'w> ChunkView<'w> {
@@ -421,6 +437,7 @@ impl<'w> ChunkView<'w> {
             pending_active_sites: Vec::new(),
             demotions: Vec::new(),
             absorptions: Vec::new(),
+            organism_moves: Vec::new(),
         }
     }
 
@@ -442,6 +459,7 @@ impl<'w> ChunkView<'w> {
             pending_active_sites: self.pending_active_sites,
             demotions: self.demotions,
             absorptions: self.absorptions,
+            organism_moves: self.organism_moves,
         }
     }
 
@@ -509,8 +527,15 @@ impl CellSurface for ChunkView<'_> {
             // that ordering matters: a body can span two same-parity active
             // chunks, and resolving mid-loop could look up a body whose
             // other columns live in a chunk not yet reinserted).
-            if self.chunk.get_world(x, y).managed() {
+            let old = self.chunk.get_world(x, y);
+            if old.managed() {
                 self.demotions.push((x, y));
+            }
+            // Same reason the disturbance check above is queued here: this
+            // write never passes through `World::set`, so the organism
+            // cell-list bookkeeping that lives there has to be replayed.
+            if old.organism_id() != cell.organism_id() {
+                self.organism_moves.push((x, y, old.organism_id(), cell.organism_id()));
             }
             let reach = self.world.materials.get(cell.material).sweep_reach();
             let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;

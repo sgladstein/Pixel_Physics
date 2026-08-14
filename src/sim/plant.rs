@@ -101,7 +101,7 @@ fn candidate_crowding(world: &World, x: i32, y: i32, organism_id: u16) -> f32 {
     for (dx, dy) in NEIGHBOURS_8 {
         let n = world.get(x + dx, y + dy);
         if n.organism_id() == organism_id {
-            sum += organism::canopy_density(n.aux());
+            sum += world.canopy_density_at(x + dx, y + dy);
             count += 1;
         }
     }
@@ -128,36 +128,103 @@ fn candidate_crowding(world: &World, x: i32, y: i32, organism_id: u16) -> f32 {
 /// preserving, just more slowly.
 ///
 /// A multiplicative retain fraction, not a flat subtraction: applied once
-/// every `ORGANISM_TICK_INTERVAL`, 0.5 halves a fresh deposit each cycle
-/// a cell's own tick fires, which comfortably clears `with_canopy_density`'s
-/// quantization half-step (`CANOPY_DENSITY_SCALE / 15.0 / 2 ≈ 0.133`) on
-/// every single application regardless of the density's current value —
-/// unlike the old per-frame placement, this decay never needs to be tuned
-/// small to survive many consecutive calls before the next real read, so
-/// it doesn't reopen the quantization-lock bug class `organism.rs`'s own
-/// `CANOPY_DENSITY_DECAY` history already found once (see that module's
-/// diff for the original fix). Still fades a deposit toward zero over a
-/// handful of cycles once nothing nearby keeps refreshing it — the same
-/// "let later growth reclaim space near mature wood" intent the original
-/// mechanism described, now actually reachable by the checks that matter.
+/// every `ORGANISM_TICK_INTERVAL`, 0.5 halves a fresh deposit each cycle a
+/// cell's own tick fires. Unlike the old per-frame placement, this decay
+/// never needs to be tuned small to survive many consecutive calls before
+/// the next real read. Still fades a deposit toward zero over a handful of
+/// cycles once nothing nearby keeps refreshing it — the same "let later
+/// growth reclaim space near mature wood" intent the original mechanism
+/// described, now actually reachable by the checks that matter.
+///
+/// **Re-examined when the scalar left `aux` (Decision 2 step 2c) and kept
+/// at 0.5 — but what it does changed, and the change is not cosmetic.**
+/// The old doc justified the value partly by its clearing the 4-bit
+/// quantization half-step on every application. It did not: a halving
+/// applied to a 4-bit field *cannot get below one quantum*, because
+/// 0.267 × 0.5 = 0.133 rounds straight back to 0.267. Density therefore
+/// had a permanent floor and this decay silently stopped after two steps
+/// — see `organism::CANOPY_DENSITY_SCALE` for the measured trace.
+///
+/// The rate is unchanged because a halving is right on its own terms
+/// (scale-free, negligible within a handful of ticks). What changed is
+/// that the decay now actually reaches zero.
+///
+/// **Measured consequence, recorded rather than compensated for.** Paired
+/// 24-tree ensembles across the migration, same scene and frame count
+/// (`plant_probe -- trees=24 frames=8000`):
+///
+/// | | floor at 0.267 | decays to 0 |
+/// |---|---|---|
+/// | total organism cells | 5872–5881 | 5806 |
+/// | cells per tree, mean | 248.2 | 241.9 |
+/// | cells per tree, median | 114 | 85 |
+/// | height, median | 40 | 30 |
+/// | leaves, median | 15 | 11 |
+/// | rows >1 cell wide, mean | 42% | 35% |
+///
+/// The left column is a *range over three runs of one binary*, because the
+/// old code was not reproducible run to run — see this pass's own note on
+/// sorting the cell list, which is what made the right column a single
+/// number.
+///
+/// Total biomass is flat (−1%, barely above that noise floor); the medians
+/// drop by about a quarter while the means hold, and trees get thinner
+/// (42% → 35% of rows wider than one cell). Same mass, in clumpier and
+/// shorter trees. That is what weaker self-avoidance should do: the floor
+/// was acting as a permanent baseline crowding signal pushing growth
+/// outward and upward, and `GROW_CANOPY_DEPOSIT` and `tree.ron`'s
+/// `crowding_weight` were both tuned with it in place.
+///
+/// **This is `CLAUDE.md`'s "fixing a bug often exposes a constant that was
+/// compensating for it", and the constants are deliberately not re-tuned
+/// here** — `Reports/plant-substrate-v2-design.md` §10 forbids `.ron`
+/// edits at this step precisely so the economy pass tunes once, against
+/// the final transport mechanism, rather than twice.
 const CANOPY_DENSITY_DECAY_PER_TICK: f32 = 0.5;
 
-/// `organism::pack_aux` alone always resets canopy density to zero (its
-/// own doc: "Bits 12-15 start zero") -- every ordinary resource/type
-/// update in this dispatch that isn't a brand-new `Grow`/`Divide` child
-/// (which correctly gets a fresh deposit via `with_canopy_density`) needs
-/// to carry the *existing* cell's density forward instead, or a candidate
-/// tip's own deposited signal gets silently erased by the very next
-/// `Photosynthesize`/`Absorb`/`Divide` write to that same cell -- typically
-/// within the same or the next `organism_tick` cycle, well before decay or
-/// diffusion ever get a chance to fade it on their own. `existing_aux`
-/// should be the cell's aux from *before* this tick's writes (`organism_
-/// tick`'s own `cell.aux()`, read once at the top) -- nothing in this
-/// dispatch modifies density mid-tick, so that single read stays valid for
-/// every self-update this tick makes.
-fn pack_aux_preserving_density(existing_aux: u16, cell_type: CellType, resource: f32) -> u16 {
-    organism::with_canopy_density(organism::pack_aux(cell_type, resource), organism::canopy_density(existing_aux))
+/// Write a cell's carbon back to the sidecar.
+///
+/// Replaces the `world.set(x, y, cell.with_aux(pack_aux_preserving_density(
+/// ...)))` that every resource update in `organism_tick` used to be, and is
+/// a different kind of write in one way worth knowing: **it does not touch
+/// the grid, so it does not dirty a chunk.** Spending or gaining resource
+/// no longer wakes the CA sweep. A cell-*type* transition still goes
+/// through `World::set`, because that really is a change to the grid.
+fn write_carbon(world: &mut World, x: i32, y: i32, carbon: f32) {
+    if let Some(slot) = world.organism_cell_mut(x, y) {
+        slot.carbon = carbon;
+    }
 }
+
+/// Stamp a freshly created cell's canopy-density deposit.
+///
+/// Must be called *after* the `World::set` that creates the cell: `set` is
+/// what registers the `OrganismCell` this writes into, so calling it first
+/// is a silent no-op. Clamped on write rather than trusting the caller,
+/// since `CANOPY_DENSITY_SCALE` is now a behavioural bound with nothing in
+/// the storage enforcing it.
+fn deposit_canopy(world: &mut World, x: i32, y: i32, density: f32) {
+    if let Some(slot) = world.organism_cell_mut(x, y) {
+        slot.canopy_density = density.clamp(0.0, organism::CANOPY_DENSITY_SCALE);
+    }
+}
+
+// `pack_aux_preserving_density` lived here, and is deliberately gone.
+//
+// It existed because `pack_aux` rewrote the whole `aux` word, so every
+// ordinary resource/type write in this dispatch silently zeroed the canopy
+// density packed into the same word -- a real bug, found by live
+// verification, and patched by threading the pre-tick `aux` through every
+// write site so each could put the density back.
+//
+// With the scalars in `OrganismCell` the two fields are no longer
+// co-located, so a cell-type write cannot clobber a density and there is
+// nothing to preserve. This is one of the four mechanisms
+// `Reports/plant-substrate-v2-design.md` §3e predicted the migration would
+// fix for free, and the only interesting thing about it now is that the
+// bug class is unrepresentable rather than fixed: `with_aux` writes a cell
+// type, `world.organism_cell_mut` writes a scalar, and neither can reach
+// the other's storage.
 
 // --- Organism-owned cells (`Reports/organism-substrate-design.md`) ------
 //
@@ -368,7 +435,7 @@ fn relocated_seed(world: &World, x: i32, y: i32, organism_id: u16) -> Option<(i3
         for dx in [0, -1, 1] {
             let (nx, ny) = (x + dx * dy.min(2), y + dy);
             let c = world.get(nx, ny);
-            if c.organism_id() == organism_id && organism::unpack_aux(c.aux()).0 == Some(CellType::Seed) {
+            if c.organism_id() == organism_id && organism::cell_type(c.aux()) == Some(CellType::Seed) {
                 return Some((nx, ny));
             }
         }
@@ -397,9 +464,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         return Vec::new();
     };
     let species_id = state.species;
-    let (Some(mut cell_type), mut resource) = organism::unpack_aux(cell.aux()) else {
+    let Some(mut cell_type) = organism::cell_type(cell.aux()) else {
         return Vec::new(); // unrecognized cell-type bits -- nothing this dispatch knows how to run
     };
+    // The resource scalar now comes from the sidecar rather than out of
+    // `aux` alongside the cell type. Read once into a local and written
+    // back through `world.organism_cell_mut` at each point the old code
+    // re-packed it, so the shape of this dispatch is unchanged.
+    let mut resource = world.carbon_at(x, y);
     // Copied out of the registry rather than held as a borrow: the behavior
     // loop below needs `&mut World` (to paint a new cell, roll the RNG),
     // which a live borrow of `world.species` would conflict with.
@@ -427,26 +499,19 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
 
     // Canopy density decays once per call, on this function's own
     // schedule -- see `CANOPY_DENSITY_DECAY_PER_TICK`'s own doc for why
-    // this replaced an earlier per-CA-frame placement. Written and rebound
-    // into `cell` immediately, before any behavior below reads or
-    // preserves density via `pack_aux_preserving_density`, so every write
-    // this tick carries the already-decayed value forward, not the
-    // pre-decay one.
+    // this replaced an earlier per-CA-frame placement.
     //
-    // **Written only when it actually changes.** This used to `set`
-    // unconditionally every tick, which dirties the cell's chunk every
-    // time — so an organism kept the CA sweep awake forever merely by
-    // existing. Invisible while a tree was ~18 cells and its handful of
-    // ticks were 45 frames apart; once trees reached 70+ cells, enough of
-    // them came due each frame that the chunk never settled, and
+    // **The guard this used to need is gone, and so is the problem it
+    // solved.** While density lived in `aux`, decaying it was a `World::set`
+    // and therefore dirtied the cell's chunk, so an organism kept the CA
+    // sweep awake merely by existing -- which is what made
     // `a_settled_world_with_a_growing_tree_still_sleeps_between_growth_
-    // ticks` started failing. Same guard, and the same reasoning, as
-    // `update_powder`'s own `flowing` clear.
-    let decayed_density = organism::canopy_density(cell.aux()) * CANOPY_DENSITY_DECAY_PER_TICK;
-    let decayed_aux = organism::with_canopy_density(cell.aux(), decayed_density);
-    let cell = cell.with_aux(decayed_aux);
-    if decayed_aux != world.get(x, y).aux() {
-        world.set(x, y, cell);
+    // ticks` start failing once trees reached 70+ cells, and forced a
+    // write-only-if-changed guard to work around it. A sidecar write
+    // touches no chunk, so the decay cannot wake anything and the guard has
+    // nothing left to guard. Keeping it would only skip a float multiply.
+    if let Some(slot) = world.organism_cell_mut(x, y) {
+        slot.canopy_density *= CANOPY_DENSITY_DECAY_PER_TICK;
     }
 
     // One stream per (organism, cell, tick), seeded from exactly those --
@@ -494,12 +559,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     // too manufactures `resource - cost` worth of resource
                     // out of nothing on every division. `cost` is what the
                     // division consumes, not what it transfers.
-                    let new_cell = Cell::new(cell.material, shade)
-                        .with_organism_id(organism_id)
-                        .with_aux(organism::pack_aux(cell_type, 0.0));
+                    let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(cell_type));
+                    // `set` registers the child with a zeroed `OrganismCell`,
+                    // which is exactly the "starts at 0 resource, not
+                    // inheriting any" the old explicit `pack_aux(_, 0.0)`
+                    // spelled out.
                     world.set(tx, ty, new_cell);
                     resource -= cost;
-                    world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
+                    write_carbon(world, x, y, resource);
                     next.push(reschedule_organism(tx, ty, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
                 }
             }
@@ -741,9 +808,12 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // per-tick re-deposit: it lets decay actually fade the
                 // signal over time instead of fighting a refill every
                 // single sweep visit.
-                let new_aux = organism::with_canopy_density(organism::pack_aux(cell_type, 0.0), GROW_CANOPY_DEPOSIT);
-                let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(new_aux);
+                let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(cell_type));
                 world.set(tx, ty, new_cell);
+                // The deposit has to follow `set`, not ride along with it:
+                // `set` is what registers the cell's `OrganismCell`, so
+                // there is nothing to write into until it has run.
+                deposit_canopy(world, tx, ty, GROW_CANOPY_DEPOSIT);
                 // Deliberately no `schedule_structural_check_around` here --
                 // growth only ever adds material, never removes support, so
                 // it is not a disturbance to the structural system the way
@@ -760,7 +830,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // tree test immediately started failing -- the call had been
                 // a silent no-op since this behavior shipped.
                 resource -= cost;
-                world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), self_type_after_grow, resource)));
+                world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
+                write_carbon(world, x, y, resource);
                 next.push(reschedule_organism(tx, ty, organism_id, 0, lineage_step, world.frame + ORGANISM_TICK_INTERVAL));
 
                 // §3's branching: a second successful `Grow`, in a
@@ -785,13 +856,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         let (bx, by, _) = alt[rng.below(alt.len() as u32) as usize];
                         if growable(world, bx, by, penetration_force) {
                             let branch_shade = rng.below(shades) as u8;
-                            let branch_aux = organism::with_canopy_density(organism::pack_aux(cell_type, 0.0), GROW_CANOPY_DEPOSIT);
-                            let branch_cell = Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(branch_aux);
+                            let branch_cell =
+                                Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(cell_type));
                             world.set(bx, by, branch_cell);
+                            deposit_canopy(world, bx, by, GROW_CANOPY_DEPOSIT);
                             // No structural check here either -- see the
                             // primary child's identical case above.
                             resource -= cost;
-                            world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), self_type_after_grow, resource)));
+                            world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
+                            write_carbon(world, x, y, resource);
                             next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
                         }
                     }
@@ -834,9 +907,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         let leaf_material = world.materials.id_of("leaf").unwrap_or(cell.material);
                         let leaf_shades = world.materials.get(leaf_material).palette.len().max(1) as u32;
                         let leaf_shade = rng.below(leaf_shades) as u8;
-                        let leaf_aux = organism::with_canopy_density(organism::pack_aux(CellType::Leaf, 0.0), GROW_CANOPY_DEPOSIT);
-                        let leaf_cell = Cell::new(leaf_material, leaf_shade).with_organism_id(organism_id).with_aux(leaf_aux);
+                        let leaf_cell =
+                            Cell::new(leaf_material, leaf_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::Leaf));
                         world.set(lx, ly, leaf_cell);
+                        deposit_canopy(world, lx, ly, GROW_CANOPY_DEPOSIT);
                         next.push(reschedule_organism(lx, ly, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
                     }
                 }
@@ -852,7 +926,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             Behavior::Photosynthesize { rate } => {
                 let light = ambient_light_above(world, x, y);
                 resource = (resource + rate * light).min(organism::RESOURCE_SCALE);
-                world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
+                write_carbon(world, x, y, resource);
             }
             Behavior::Absorb { rate } => {
                 // `Reports/tree-rewrite-design.md` §5: only the passive,
@@ -919,7 +993,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         _ => {}
                     }
                 }
-                world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
+                write_carbon(world, x, y, resource);
             }
             Behavior::Transpire { rate } => transpire(world, x, y, rate),
             Behavior::SecondaryThicken { pipe_ratio } => {
@@ -1002,8 +1076,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         // `StructuralAnchor`/`SecondaryThicken` (both gated on `MatureBody`
         // in `tree.ron`) never firing on anything, since nothing would
         // ever actually carry that cell type. Carries the tip's own
-        // current `resource` forward rather than resetting it.
-        world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), CellType::MatureBody, resource)));
+        // current `resource` forward rather than resetting it -- which is
+        // now automatic: the retirement is a cell-type write, and the
+        // sidecar entry it does not touch is where the resource lives.
+        world.set(x, y, cell.with_aux(organism::pack_cell_type(CellType::MatureBody)));
+        write_carbon(world, x, y, resource);
         // `MatureBody` still needs its own periodic upkeep if the species
         // gave it any behavior (`SecondaryThicken`) -- one more check now,
         // at the standard interval, so it doesn't just go permanently
@@ -1053,6 +1130,13 @@ pub fn step_organisms(world: &mut World) {
         if !(world.frame + organism_id as u64).is_multiple_of(ORGANISM_TICK_INTERVAL) {
             continue;
         }
+        // Transport first, then upkeep. The order matters and is the same
+        // order the two had before this pass existed: transport ran on the
+        // CA sweep across the 45 frames *leading up to* this tick, so
+        // upkeep has always read an already-diffused value. Running it
+        // after would hand `Photosynthesize`/`Absorb`/decay the previous
+        // tick's distribution.
+        organism::transport(world, organism_id);
         organism_upkeep(world, organism_id);
     }
 }
@@ -1065,7 +1149,19 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     if state.cells.is_empty() {
         return;
     }
-    let cells: Vec<(i32, i32)> = state.cells.iter().copied().collect();
+    // Sorted for the same reason `organism::transport` sorts: `cells` is a
+    // `HashMap` with no stable iteration order, and this loop rolls a
+    // per-cell RNG stream and can write cells (`thicken`), so an unstable
+    // order makes a run non-reproducible. Row-major, matching the sweep.
+    //
+    // **This was a live determinism bug, not a precaution.** The previous
+    // version iterated the `HashSet` directly, and Rust's default hasher is
+    // seeded per *process*, so the same binary on the same scene gave 5877,
+    // 5872 and 5881 organism cells on three consecutive runs. With the sort
+    // it gives 5806 three times. `PLAN.md` requires same-build determinism;
+    // it was not being met here.
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
 
     // Leaves per row, then a running total downward, so every cell can read
     // "how much foliage do I carry" without a traversal of its own.
@@ -1080,7 +1176,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         if c.organism_id() != organism_id {
             continue;
         }
-        let ty = organism::unpack_aux(c.aux()).0;
+        let ty = organism::cell_type(c.aux());
         if matches!(ty, Some(CellType::Leaf) | Some(CellType::GrowingTip)) {
             *leaves_in_row.entry(cy).or_insert(0) += 1;
         }
@@ -1109,9 +1205,10 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         if cell.organism_id() != organism_id {
             continue; // burned, erased, or overwritten since the list was taken
         }
-        let (Some(cell_type), mut resource) = organism::unpack_aux(cell.aux()) else {
+        let Some(cell_type) = organism::cell_type(cell.aux()) else {
             continue;
         };
+        let mut resource = world.carbon_at(cx, cy);
         if is_frontier(cell_type) {
             continue; // still on the active-site schedule, handled there
         }
@@ -1134,20 +1231,20 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // wood -- the exact property `CANOPY_DENSITY_DECAY_PER_TICK`'s own
         // doc says the mechanism is for.
         //
-        // Guarded on change, so a cell whose density has already reached
-        // zero stops writing and stops waking its chunk.
-        let decayed = organism::canopy_density(cell.aux()) * CANOPY_DENSITY_DECAY_PER_TICK;
-        let decayed_aux = organism::with_canopy_density(cell.aux(), decayed);
-        let mut changed = decayed_aux != cell.aux();
+        // **The `changed` flag that used to wrap this whole block is
+        // gone.** It existed because both scalars lived in `aux`, so
+        // updating either meant a `World::set` and a dirtied chunk, and a
+        // mature cell decaying its density every tick kept the sweep awake
+        // forever. Neither scalar is on the grid now, so neither write can
+        // wake anything, and the guard has nothing left to protect.
+        if let Some(slot) = world.organism_cell_mut(cx, cy) {
+            slot.canopy_density *= CANOPY_DENSITY_DECAY_PER_TICK;
+        }
         for behavior in behavior_buf.into_iter().take(behavior_count).flatten() {
             match behavior {
                 Behavior::Photosynthesize { rate } => {
                     let light = ambient_light_above(world, cx, cy);
-                    let gained = (resource + rate * light).min(organism::RESOURCE_SCALE);
-                    if gained != resource {
-                        resource = gained;
-                        changed = true;
-                    }
+                    resource = (resource + rate * light).min(organism::RESOURCE_SCALE);
                 }
                 Behavior::Transpire { rate } => {
                     transpire(world, cx, cy, rate);
@@ -1170,18 +1267,11 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 | Behavior::StructuralAnchor => {}
             }
         }
-        if changed {
-            // Re-read: a behaviour above may have written this cell (or
-            // something else may have destroyed it) since it was sampled.
-            let now = world.get(cx, cy);
-            if now.organism_id() == organism_id {
-                // The decayed density is written explicitly rather than
-                // preserved from the world -- preserving would read back the
-                // *un*-decayed value this pass just computed and silently
-                // throw the decay away.
-                let aux = organism::with_canopy_density(organism::pack_aux(cell_type, resource), decayed);
-                world.set(cx, cy, now.with_aux(aux));
-            }
+        // Re-checked: a behaviour above may have destroyed this cell (fire,
+        // a collapse) since it was sampled, and writing carbon into a slot
+        // that has since changed hands would credit the wrong organism.
+        if world.get(cx, cy).organism_id() == organism_id {
+            write_carbon(world, cx, cy, resource);
         }
     }
 }
@@ -1245,7 +1335,7 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     world.set(
         x,
         y,
-        Cell::new(wood, shoot_shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::GrowingTip, 0.0)),
+        Cell::new(wood, shoot_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::GrowingTip)),
     );
     let mut next = vec![reschedule_organism(x, y, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL)];
     // The companion root starts wherever this species' own `RootTip` could
@@ -1281,7 +1371,7 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
         let root_material = world.materials.id_of("rootwood").unwrap_or(cell.material);
         let shades = world.materials.get(root_material).palette.len().max(1) as u32;
         let shade = rng.below(shades) as u8;
-        let root_cell = Cell::new(root_material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::RootTip, 0.0));
+        let root_cell = Cell::new(root_material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::RootTip));
         world.set(x, y + 1, root_cell);
         next.push(reschedule_organism(x, y + 1, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
     }
@@ -1322,7 +1412,7 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     let can_widen = [(-1, 0), (1, 0)].iter().any(|&(dx, dy)| {
         let n = world.get(x + dx, y + dy);
         n.material == material::EMPTY
-            || (n.organism_id() == organism_id && organism::unpack_aux(n.aux()).0 == Some(CellType::Leaf))
+            || (n.organism_id() == organism_id && organism::cell_type(n.aux()) == Some(CellType::Leaf))
     });
     if !can_widen {
         return;
@@ -1402,13 +1492,13 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
         // rather than dressed up.
         let own_leaf = {
             let n = world.get(nx, ny);
-            n.organism_id() == organism_id && organism::unpack_aux(n.aux()).0 == Some(CellType::Leaf)
+            n.organism_id() == organism_id && organism::cell_type(n.aux()) == Some(CellType::Leaf)
         };
         if world.is_empty(nx, ny) || own_leaf {
             let cell = world.get(x, y);
             let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
             let shade = rng.below(shades) as u8;
-            let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::MatureBody, 0.0));
+            let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::MatureBody));
             world.set(nx, ny, new_cell);
             // No structural check here either -- same reasoning as `Grow`'s
             // own child creation: thickening only adds material sideways
@@ -1451,7 +1541,7 @@ impl World {
         let shades = self.materials.get(moss_material).palette.len().max(1) as u32;
         let shade = self.rng.below(shades) as u8;
         let organism_id = self.push_organism(moss_species);
-        let aux = organism::pack_aux(CellType::GrowingTip, 0.0);
+        let aux = organism::pack_cell_type(CellType::GrowingTip);
         self.set(x, y, Cell::new(moss_material, shade).with_organism_id(organism_id).with_aux(aux));
         let site = reschedule_organism(x, y, organism_id, 0, 0, self.frame + ORGANISM_TICK_INTERVAL);
         self.schedule_active_site(site);
@@ -1493,7 +1583,7 @@ impl World {
         let shades = self.materials.get(seed_material).palette.len().max(1) as u32;
         let shade = self.rng.below(shades) as u8;
         let organism_id = self.push_organism(tree_species);
-        let aux = organism::pack_aux(CellType::Seed, 0.0);
+        let aux = organism::pack_cell_type(CellType::Seed);
         self.set(x, y, Cell::new(seed_material, shade).with_organism_id(organism_id).with_aux(aux));
         // Checked often while it is still falling -- see SEED_TICK_INTERVAL.
         let site = reschedule_organism(x, y, organism_id, 0, 0, self.frame + SEED_TICK_INTERVAL);
@@ -1512,6 +1602,20 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 199, 199))
+    }
+
+    /// Place an organism-owned cell and set its sidecar scalars.
+    ///
+    /// Replaces the `with_aux(pack_aux(ty, carbon))` one-liner these tests
+    /// used before Decision 2 step 2c. Two steps rather than one now, and
+    /// the order is not optional: `World::set` is what registers the
+    /// `OrganismCell`, so the scalars can only be written after it.
+    fn place(w: &mut World, (x, y): (i32, i32), m: material::MaterialId, organism_id: u16, ty: CellType, (carbon, density): (f32, f32)) {
+        w.set(x, y, Cell::new(m, 0).with_organism_id(organism_id).with_aux(organism::pack_cell_type(ty)));
+        if let Some(slot) = w.organism_cell_mut(x, y) {
+            slot.carbon = carbon;
+            slot.canopy_density = density;
+        }
     }
 
     /// Plant a seed **on ground**, which every tree test now needs.
@@ -1688,20 +1792,18 @@ mod tests {
 
         let organism_id = w.push_organism(species);
         let start_resource = 3.0;
-        let seed = Cell::new(material, 0).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::GrowingTip, start_resource));
-        w.set(50, 50, seed);
+        place(&mut w, (50, 50), material, organism_id, CellType::GrowingTip, (start_resource, 0.0));
 
         organism_tick(&mut w, 50, 50, organism_id, 0, 0);
 
-        let (_, parent_resource) = organism::unpack_aux(w.get(50, 50).aux());
+        let parent_resource = w.carbon_at(50, 50);
         // `damp_chance`/`dry_chance` are both 1.0, so exactly one of the
         // four open neighbours divides successfully -- the RNG only picks
         // *which* one.
         let total_child_resource: f32 = NEIGHBOURS_4
             .iter()
-            .map(|&(dx, dy)| w.get(50 + dx, 50 + dy))
-            .filter(|c| c.organism_id() == organism_id)
-            .map(|c| organism::unpack_aux(c.aux()).1)
+            .filter(|&&(dx, dy)| w.get(50 + dx, 50 + dy).organism_id() == organism_id)
+            .map(|&(dx, dy)| w.carbon_at(50 + dx, 50 + dy))
             .sum();
 
         assert!(
@@ -2014,8 +2116,7 @@ mod tests {
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
         let organism_id = w.push_organism(tree_species);
-        let aux = organism::pack_aux(CellType::GrowingTip, 2.0);
-        w.set(50, 50, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+        place(&mut w, (50, 50), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
 
         // Erase the tip out from under itself -- standing in for either
         // fire consuming it or the brush erasing it; the effect is
@@ -2043,8 +2144,7 @@ mod tests {
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
         let organism_id = w.push_organism(tree_species);
-        let aux = organism::pack_aux(CellType::RootTip, 2.0);
-        w.set(50, 50, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+        place(&mut w, (50, 50), wood, organism_id, CellType::RootTip, (2.0, 0.0));
 
         w.set(50, 50, Cell::EMPTY);
         let produced = organism_tick(&mut w, 50, 50, organism_id, 0, 0);
@@ -2094,7 +2194,7 @@ mod tests {
         plant_tree_on_ground(&mut w, 100, 20);
         run_with_fields(&mut w, 400); // several germination checks (ORGANISM_TICK_INTERVAL apart)
 
-        let (cell_type, _) = organism::unpack_aux(w.get(100, 20).aux());
+        let cell_type = organism::cell_type(w.get(100, 20).aux());
         assert_ne!(cell_type, Some(CellType::Seed), "a seed in open sky should have germinated, not stayed a Seed forever");
     }
 
@@ -2104,14 +2204,14 @@ mod tests {
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
         let organism_id = w.push_organism(tree_species);
-        let aux = organism::pack_aux(CellType::GrowingTip, 0.0);
+        let aux = organism::pack_cell_type(CellType::GrowingTip);
         w.set(100, 20, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
         let site = reschedule_organism(100, 20, organism_id, 0, 0, w.frame + ORGANISM_TICK_INTERVAL);
         w.schedule_active_site(site);
 
         run_with_fields(&mut w, (ORGANISM_TICK_INTERVAL as usize) * 3);
 
-        let (_, resource) = organism::unpack_aux(w.get(100, 20).aux());
+        let resource = w.carbon_at(100, 20);
         assert!(resource > 0.0, "Photosynthesize should have accumulated resource from real sky light, got {resource}");
     }
 
@@ -2138,8 +2238,7 @@ mod tests {
         let organism_id = w.push_organism(tree_species);
         // A same-organism neighbour immediately left of the candidate,
         // carrying a real deposited canopy density.
-        let neighbour_aux = organism::with_canopy_density(organism::pack_aux(CellType::GrowingTip, 0.0), 2.0);
-        w.set(49, 50, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(neighbour_aux));
+        place(&mut w, (49, 50), wood, organism_id, CellType::GrowingTip, (0.0, 2.0));
         // The candidate itself is empty -- reading its own aux directly
         // (the bug this guards against) would always read exactly 0.0.
         assert!(w.is_empty(50, 50));
@@ -2155,8 +2254,7 @@ mod tests {
         let wood = w.materials.id_of("wood").unwrap();
         let this_organism = w.push_organism(tree_species);
         let other_organism = w.push_organism(tree_species);
-        let neighbour_aux = organism::with_canopy_density(organism::pack_aux(CellType::GrowingTip, 0.0), 3.0);
-        w.set(49, 50, Cell::new(wood, 0).with_organism_id(other_organism).with_aux(neighbour_aux));
+        place(&mut w, (49, 50), wood, other_organism, CellType::GrowingTip, (0.0, 3.0));
 
         let density = candidate_crowding(&w, 50, 50, this_organism);
         assert_eq!(density, 0.0, "a different organism's canopy density should not count as this organism's own crowding");
@@ -2176,14 +2274,13 @@ mod tests {
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
         let organism_id = w.push_organism(tree_species);
-        let aux = organism::with_canopy_density(organism::pack_aux(CellType::MatureBody, 1.0), GROW_CANOPY_DEPOSIT);
-        w.set(100, 20, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+        place(&mut w, (100, 20), wood, organism_id, CellType::MatureBody, (1.0, GROW_CANOPY_DEPOSIT));
 
         // One full organism_tick cycle on this cell itself -- the same
         // cadence a neighbour's own Grow check would be running on.
         let _ = organism_tick(&mut w, 100, 20, organism_id, 0, 0);
 
-        let density = organism::canopy_density(w.get(100, 20).aux());
+        let density = w.canopy_density_at(100, 20);
         assert!(density > 0.0, "a fresh deposit should still be visible to a neighbour after one organism_tick cycle, got {density}");
     }
 
@@ -2198,14 +2295,13 @@ mod tests {
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
         let organism_id = w.push_organism(tree_species);
-        let aux = organism::with_canopy_density(organism::pack_aux(CellType::MatureBody, 1.0), organism::CANOPY_DENSITY_SCALE);
-        w.set(100, 20, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+        place(&mut w, (100, 20), wood, organism_id, CellType::MatureBody, (1.0, organism::CANOPY_DENSITY_SCALE));
 
         for _ in 0..20 {
             let _ = organism_tick(&mut w, 100, 20, organism_id, 0, 0);
         }
 
-        let density = organism::canopy_density(w.get(100, 20).aux());
+        let density = w.canopy_density_at(100, 20);
         assert!(
             density < organism::CANOPY_DENSITY_SCALE,
             "density should decay across repeated organism_tick calls, not stay stuck at the packed maximum, got {density}"
@@ -2233,12 +2329,11 @@ mod tests {
         // Comfortably above tree.ron's GrowingTip `Grow` cost (0.2), in
         // open space on every side, so this call is guaranteed to find a
         // positive-scoring candidate and actually grow.
-        let aux = organism::pack_aux(CellType::GrowingTip, 2.0);
-        w.set(100, 100, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+        place(&mut w, (100, 100), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
 
         let next = organism_tick(&mut w, 100, 100, organism_id, 0, 0);
 
-        let (self_type, _) = organism::unpack_aux(w.get(100, 100).aux());
+        let self_type = organism::cell_type(w.get(100, 100).aux());
         assert_eq!(self_type, Some(CellType::MatureBody), "a GrowingTip that just grew should retire to MatureBody, not stay an equally-eligible growth candidate");
 
         // Exactly one newly created cell nearby should carry the frontier
@@ -2246,7 +2341,7 @@ mod tests {
         let new_tips: Vec<(i32, i32)> = NEIGHBOURS_8
             .iter()
             .map(|&(dx, dy)| (100 + dx, 100 + dy))
-            .filter(|&(nx, ny)| organism::unpack_aux(w.get(nx, ny).aux()).0 == Some(CellType::GrowingTip))
+            .filter(|&(nx, ny)| organism::cell_type(w.get(nx, ny).aux()) == Some(CellType::GrowingTip))
             .collect();
         assert_eq!(new_tips.len(), 1, "expected exactly one new GrowingTip child, got {new_tips:?}");
         assert!(!next.is_empty(), "the new child should be scheduled");
@@ -2287,12 +2382,13 @@ mod tests {
             }
             for (&id, cells) in &scanned {
                 let state = w.organism(id).unwrap_or_else(|| panic!("{when}: organism {id} owns cells but has no state"));
-                assert_eq!(&state.cells, cells, "{when}: organism {id}'s cell list disagrees with the grid");
+                let listed: std::collections::HashSet<(i32, i32)> = state.cells.keys().copied().collect();
+                assert_eq!(&listed, cells, "{when}: organism {id}'s cell list disagrees with the grid");
             }
             // And nothing recorded that is no longer really there.
             for id in scanned.keys() {
                 if let Some(state) = w.organism(*id) {
-                    for &(cx, cy) in &state.cells {
+                    for &(cx, cy) in state.cells.keys() {
                         assert_eq!(w.get(cx, cy).organism_id(), *id, "{when}: {id} lists ({cx},{cy}) which it does not own");
                     }
                 }
@@ -2308,6 +2404,79 @@ mod tests {
         w.ignite_circle(120, 36, 5);
         run_with_fields(&mut w, 3000);
         check(&w, "after fire");
+    }
+
+    /// The same agreement, under the **parallel** driver, with a seed that
+    /// actually moves — and then a check that the seedling grows.
+    ///
+    /// **This is the test whose absence cost a whole debugging session.**
+    /// `every_organism_cell_list_agrees_with_the_grid` above runs
+    /// `update::step`, the serial driver, so it never constructs a
+    /// `ChunkView` and cannot observe the one write seam that bypasses
+    /// `World::set` (`parallel::ChunkView::set`'s same-chunk branch).
+    /// `CLAUDE.md`'s "two drivers, and the app runs the parallel one —
+    /// test both" is exactly this, and the cost of ignoring it was a
+    /// falling seed dropping out of its own organism's cell list while
+    /// remaining in the grid.
+    ///
+    /// **A seed dropped from a height, not planted on the ground**, because
+    /// a seed is the only organism cell that moves and the desync only
+    /// happens on a move. Planted at rest, this passes against the broken
+    /// code — which is what made the bug look like tree-shape variance
+    /// rather than corruption.
+    ///
+    /// It asserts growth as well as bookkeeping, deliberately. A list that
+    /// merely *agrees* is not the property that matters; the property is
+    /// that a cell missing from the list becomes unreachable to everything
+    /// keyed on it — `carbon_at` reads 0, `write_carbon` is a silent no-op
+    /// and `transport` never visits it — so the seedling germinates and
+    /// then never grows again. Asserting agreement alone would pass on a
+    /// future variant that keeps the list honest but loses the scalars.
+    #[test]
+    fn a_falling_seed_stays_in_its_organisms_cell_list_under_the_parallel_driver() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+        for x in 40..160 {
+            for y in 100..106 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+            for y in 60..100 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        // 25 cells of fall, matching `filmstrip`'s `forest` scene, which is
+        // where this was found.
+        w.plant_tree(100, 35);
+
+        for _ in 0..4000 {
+            super::super::parallel::step(&mut w);
+            w.step_active_sites();
+            field::step(&mut w);
+        }
+
+        let b = w.bounds().unwrap();
+        let mut scanned: std::collections::HashMap<u16, std::collections::HashSet<(i32, i32)>> = Default::default();
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let id = w.get(x, y).organism_id();
+                if id != 0 {
+                    scanned.entry(id).or_default().insert((x, y));
+                }
+            }
+        }
+        assert!(!scanned.is_empty(), "the seed should have landed and germinated at all");
+        for (&id, cells) in &scanned {
+            let state = w.organism(id).unwrap_or_else(|| panic!("organism {id} owns cells but has no state"));
+            let listed: std::collections::HashSet<(i32, i32)> = state.cells.keys().copied().collect();
+            assert_eq!(&listed, cells, "organism {id}'s cell list disagrees with the grid after a fall under the parallel driver");
+        }
+
+        let grown: usize = scanned.values().map(|c| c.len()).sum();
+        assert!(
+            grown > 20,
+            "a seedling from a dropped seed should have grown into a tree, got {grown} cells -- \
+             a shoot missing from the cell list reads 0 carbon forever and stalls at germination"
+        );
     }
 
     /// Decision 1(ii): a root grows *into* penetrable soil, a shoot does
@@ -2371,7 +2540,7 @@ mod tests {
             .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
             .filter(|&(x, y)| {
                 let c = w.get(x, y);
-                c.organism_id() == organism_id && organism::unpack_aux(c.aux()).0 == Some(CellType::Leaf)
+                c.organism_id() == organism_id && organism::cell_type(c.aux()) == Some(CellType::Leaf)
             })
             .collect();
         assert!(!leaves.is_empty(), "test setup: the tree should have grown leaves to shed");
@@ -2479,8 +2648,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             let mut w = test_world();
             let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
             let organism_id = w.push_organism(tree);
-            let aux = organism::pack_aux(CellType::GrowingTip, 2.0);
-            w.set(100, 100, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+            place(&mut w, (100, 100), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
 
             organism_tick(&mut w, 100, 100, organism_id, 0, entering);
 
@@ -2488,7 +2656,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             // leaf itself, which built the stem out of alternating wood and
             // foliage -- see `self_type_after_grow`'s own comment for the
             // three things that broke.
-            let (self_type, _) = organism::unpack_aux(w.get(100, 100).aux());
+            let self_type = organism::cell_type(w.get(100, 100).aux());
             assert_eq!(
                 self_type,
                 Some(CellType::MatureBody),
@@ -2500,7 +2668,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
                 .map(|&(dx, dy)| (100 + dx, 100 + dy))
                 .filter(|&(nx, ny)| {
                     let c = w.get(nx, ny);
-                    c.organism_id() == organism_id && organism::unpack_aux(c.aux()).0 == Some(CellType::Leaf)
+                    c.organism_id() == organism_id && organism::cell_type(c.aux()) == Some(CellType::Leaf)
                 })
                 .count();
             assert_eq!(
@@ -2552,7 +2720,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         let mut leaves = 0;
         for y in b.min_y..=b.max_y {
             for x in b.min_x..=b.max_x {
-                if organism::unpack_aux(w.get(x, y).aux()).0 == Some(CellType::Leaf) && w.get(x, y).organism_id() != 0 {
+                if organism::cell_type(w.get(x, y).aux()) == Some(CellType::Leaf) && w.get(x, y).organism_id() != 0 {
                     leaves += 1;
                 }
             }

@@ -142,7 +142,8 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
             if c.organism_id() == 0 {
                 continue;
             }
-            let (ty, resource) = organism::unpack_aux(c.aux());
+            let ty = organism::cell_type(c.aux());
+            let resource = w.carbon_at(x, y);
             let entry = per_organism.entry(c.organism_id()).or_insert((0, 0, i32::MAX, i32::MIN));
             entry.0 += 1;
             if ty == Some(organism::CellType::Leaf) {
@@ -150,7 +151,7 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
             }
             entry.2 = entry.2.min(y);
             entry.3 = entry.3.max(y);
-            cells.push((x, y, ty, resource, organism::canopy_density(c.aux())));
+            cells.push((x, y, ty, resource, w.canopy_density_at(x, y)));
         }
     }
 
@@ -182,7 +183,7 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
             // question about the woody stem, so `Leaf` is excluded.
             let id = if x < WIDTH {
                 let c = w.get(x, y);
-                if organism::unpack_aux(c.aux()).0 == Some(organism::CellType::Leaf) { 0 } else { c.organism_id() }
+                if organism::cell_type(c.aux()) == Some(organism::CellType::Leaf) { 0 } else { c.organism_id() }
             } else {
                 0
             };

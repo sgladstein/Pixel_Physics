@@ -729,7 +729,7 @@ mod tests {
 
     fn organism_wood_cell(w: &mut World, organism_id: u16) -> Cell {
         let wood = w.materials.id_of("wood").unwrap();
-        Cell::new(wood, 0).with_organism_id(organism_id).with_aux(organism::pack_aux(organism::CellType::MatureBody, 0.0))
+        Cell::new(wood, 0).with_organism_id(organism_id).with_aux(organism::pack_cell_type(organism::CellType::MatureBody))
     }
 
     #[test]
@@ -831,7 +831,7 @@ mod tests {
             // is what the first version of this test measured (8 cells kept
             // in both runs) and why it proved nothing.
             for x in 11..=19 {
-                w.set(x, 30, Cell::new(wood, 0).with_organism_id(organism).with_aux(organism::pack_aux(organism::CellType::MatureBody, 0.0)));
+                w.set(x, 30, Cell::new(wood, 0).with_organism_id(organism).with_aux(organism::pack_cell_type(organism::CellType::MatureBody)));
             }
             if loaded {
                 // Sand piled directly on the branch.

@@ -3792,8 +3792,77 @@ overlay enum beside the existing one, a key binding, a new scene). Re-run
 the full suite *and* `examples/ascii` afterwards before starting anything:
 a rebase that compiles is not evidence the sweep still behaves.
 
+**Step 0 done, with one correction to the entry above.** The rebase landed on
+`abe9c2f`, not `5cb856e`: **`master`'s tip does not compile.** `5cb856e`
+("Give sand drag when it sinks into a liquid") calls
+`surface.field_wind_at(x, y)`, and that method exists in no commit — it is
+declared on `CellSurface` and implemented in `parallel.rs`/`world.rs` only in
+the *uncommitted* explosion work still live in the main working tree. So the
+explosion work has **not** landed, contrary to what this entry said, and the
+`parallel.rs`/`surface.rs` conflict it was written to get ahead of is still
+ahead of us. Rebasing onto `abe9c2f` picks up everything that builds; redo the
+last step once the explosion work is committed. Only `CLAUDE.md` conflicted
+(both sides appended method entries; both kept).
+
+**Decision 2 step 2c landed — and it was a prerequisite for polarity, not a
+tidy-up.** The handoff said the per-organism transport pass already existed.
+It did not: `step_organisms` did *upkeep*, transport was still the per-cell
+`CellSurface` rule on the CA sweep, `OrganismCell` did not exist, and the
+resource scalar was still 8-bit fixed point in `aux`. Polarity cannot be built
+on that, and the reason is arithmetic rather than taste: at §7e's constants the
+§7h Y-junction gate — which §10 calls "the real gate" — turns on a share
+difference of 0.0048, and one quantum of the packed representation is 0.0157.
+**The gate resolves 0.31 of a step.** Per-substep rounding also exceeds the
+per-substep signal at `c_min` in both directions, so §7c's exact conservation
+is unreachable. Worth noting the trap: the *chain* canalization test passes
+under packing either way (flux saturates Φ), so only the discriminating gate
+dies — a guard suite that looks green while the mechanism is unmeasurable.
+
 **Still to do after that:** polarity (Decision 6), the one economy pass
 (Decision 4's remainder), and bud break — in that order, unchanged.
+
+**Two bugs step 2c exposed, both older than it, both recorded where they
+bite:**
+
+- **The organism cell-list hook was incomplete, and its guard test could not
+  see it.** `World::set` maintains `OrganismState::cells`, and step 2a
+  recorded that hooking that one seam was "complete by construction". It is
+  complete over every *caller* — but `parallel::ChunkView::set` writes a
+  same-chunk cell straight into its own `Chunk` and never calls `World::set`.
+  A falling seed therefore dropped out of its own organism's cell list while
+  staying in the grid. Latent while the list was behaviour-free; **fatal the
+  moment carbon moved into it** — the shoot read 0 carbon forever, `write_
+  carbon` was a silent no-op, and every seed that fell germinated and then
+  never grew. `filmstrip scene=forest`: 253 → 5468 organism cells before,
+  **8 → 8** after, i.e. four germinated seedlings and nothing else, for 8,000
+  frames. Fixed by queueing the membership change in `ChunkView` and replaying
+  it after the pass, exactly the shape its `demotions` queue already had.
+  `every_organism_cell_list_agrees_with_the_grid` runs `update::step` — the
+  *serial* driver — so it never built a `ChunkView` and could not fail. This
+  is `CLAUDE.md`'s "test both drivers" costing a session.
+- **`organism_upkeep` was non-deterministic.** It iterated the cell `HashSet`
+  directly, and Rust seeds its hasher per process, so the same binary on the
+  same scene gave 5877 / 5872 / 5881 organism cells on three consecutive runs.
+  Sorting row-major gives 5806 three times. `PLAN.md` requires same-build
+  determinism and it was not being met.
+
+**And one constant the migration invalidated, deliberately left for the economy
+pass.** Canopy density was 4 bits, `CANOPY_DENSITY_DECAY_PER_TICK` is a
+halving, and 0.267 × 0.5 = 0.133 rounds straight back to 0.267 — so density had
+a **permanent floor of one quantum on every cell that ever received a
+deposit**, and the mechanism whose whole purpose is letting later growth
+reclaim space near mature wood could never release it. As `f32` it now reaches
+zero. Paired 24-tree ensembles: biomass flat (5872–5881 → 5806), but trees get
+thinner (rows wider than one cell, 42% → 35%) and shorter (median height 40 →
+30). That is weaker self-avoidance, and `GROW_CANOPY_DEPOSIT` and `tree.ron`'s
+`crowding_weight` were both tuned with the floor in place. **Not re-tuned here**
+— §10 forbids `.ron` edits at this step so the economy pass tunes once.
+
+**A metric caveat worth carrying into that pass:** `plant_probe` plants its
+seeds *on the ground*, so its trees never fall. It therefore reported a healthy
+−1% biomass change while `filmstrip`'s `forest` scene — which drops seeds 25
+cells, like real play — was totally dead. The ensemble is the right tool for
+tuning and was structurally blind to a total growth failure. Shoot a picture.
 
 **The economy pass now has concrete, visible targets** — all consequences of
 the same removed throttle, and all shape/tuning rather than missing
