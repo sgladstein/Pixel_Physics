@@ -174,6 +174,12 @@ fn pack_aux_preserving_density(existing_aux: u16, cell_type: CellType, resource:
 /// actual trigger to make this data instead of a constant.
 const ORGANISM_TICK_INTERVAL: u64 = 45;
 
+/// Upper bound on how many behaviors one cell type may carry, sized so the
+/// dispatch buffer above never allocates. Raise it if a species file needs
+/// more -- a `debug_assert` catches overflow rather than silently dropping
+/// behaviors.
+const MAX_BEHAVIORS_PER_CELL_TYPE: usize = 8;
+
 /// How often an **ungerminated seed** is checked, while it may still be
 /// falling.
 ///
@@ -373,12 +379,30 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     let (Some(mut cell_type), mut resource) = organism::unpack_aux(cell.aux()) else {
         return Vec::new(); // unrecognized cell-type bits -- nothing this dispatch knows how to run
     };
-    // Cloned out of the registry rather than held as a borrow: the behavior
+    // Copied out of the registry rather than held as a borrow: the behavior
     // loop below needs `&mut World` (to paint a new cell, roll the RNG),
-    // which a live borrow of `world.species` would conflict with. Species
-    // data is small (a handful of behaviors per cell type), so this is
-    // cheap relative to the field reads a single `Divide` already does.
-    let behaviors: Vec<Behavior> = world.species.get(species_id).behaviors(cell_type).to_vec();
+    // which a live borrow of `world.species` would conflict with.
+    //
+    // **Into a stack buffer, not a `Vec`.** This used to `.to_vec()`, on the
+    // reasoning that species data is small -- true, and it still allocated
+    // on the heap once per organism cell per tick. That was invisible while
+    // a tree was ~18 cells; a six-tree stand reaching 3,000 cells makes it
+    // roughly 350,000 allocations over a 6,000-frame run. `Behavior` is
+    // `Copy` and no cell type carries more than a handful, so a fixed array
+    // costs nothing and allocates never.
+    let mut behavior_buf = [None::<Behavior>; MAX_BEHAVIORS_PER_CELL_TYPE];
+    let behavior_count = {
+        let defined = world.species.get(species_id).behaviors(cell_type);
+        debug_assert!(
+            defined.len() <= MAX_BEHAVIORS_PER_CELL_TYPE,
+            "a cell type defines more behaviors than the dispatch buffer holds -- raise MAX_BEHAVIORS_PER_CELL_TYPE"
+        );
+        let n = defined.len().min(MAX_BEHAVIORS_PER_CELL_TYPE);
+        for (slot, behavior) in behavior_buf.iter_mut().zip(&defined[..n]) {
+            *slot = Some(*behavior);
+        }
+        n
+    };
 
     // Canopy density decays once per call, on this function's own
     // schedule -- see `CANOPY_DENSITY_DECAY_PER_TICK`'s own doc for why
@@ -416,7 +440,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
 
     let mut next = Vec::new();
     let mut found_candidate = false;
-    for behavior in behaviors {
+    for behavior in behavior_buf.into_iter().take(behavior_count).flatten() {
         match behavior {
             Behavior::Divide { cost, damp_chance, dry_chance, shade_sensitive } => {
                 if resource < cost {
@@ -1055,6 +1079,30 @@ const MAX_THICKEN_SCAN_CELLS: usize = 2000;
 /// perpendicular-to-growth-axis geometry this engine doesn't track per
 /// cell — an honest simplification, not a hidden one.
 fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, rng: &mut Rng) {
+    // **Cheapest possible rejection first.** The flood fill below is
+    // O(organism size), and it ran for *every* `MatureBody` cell every tick
+    // -- so the cost of thickening was quadratic in tree size, and measured
+    // at roughly half of all simulation time for a six-tree stand (41s to
+    // 20s with thickening disabled over 6,000 frames).
+    //
+    // A cell with no free side cannot thicken no matter what the count says,
+    // and in a solid trunk that is almost every cell. Two `get`s instead of
+    // a two-thousand-cell flood fill.
+    //
+    // Deliberately does *not* stop the cell rescheduling: a side can open
+    // later (a neighbour burns, is dug out, or the tree grows past it), and
+    // its downstream leaf count rises as the canopy grows, so going inert
+    // here would permanently freeze a trunk that should still be thickening.
+    // The saving is in the work per tick, not in the number of ticks.
+    let can_widen = [(-1, 0), (1, 0)].iter().any(|&(dx, dy)| {
+        let n = world.get(x + dx, y + dy);
+        n.material == material::EMPTY
+            || (n.organism_id() == organism_id && organism::unpack_aux(n.aux()).0 == Some(CellType::Leaf))
+    });
+    if !can_widen {
+        return;
+    }
+
     let is_plant = |c: Cell| c.organism_id() == organism_id && world.materials.kind(c.material) == MaterialKind::Plant;
     let reached = organism::reachable_from_anchors(world, [(x, y)], is_plant, MAX_THICKEN_SCAN_CELLS);
     // Counts `Leaf` *and* `GrowingTip` cells as "downstream photosynthetic
