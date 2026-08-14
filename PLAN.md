@@ -3709,12 +3709,59 @@ what give it a real signal.
   decay constant was already tuned around the quantization half-step. That is the
   measured version of §3a's "tail wagging the dog."
 
-**Still to do, in order:** Phase 2 (soil moisture, `leaf`/`rootwood` materials,
-root displacement into soil, `Absorb` from soil — pulled *ahead* of the tuning
-pass, because the design doc's §10 sequences its "single tuning pass" before step
-8 adds `RootTip` an entirely new income source, which would guarantee the double
-tuning §8a exists to prevent); then the sidecar, polarity, the one economy pass,
-and bud break.
+**Phase 2 landed** (`5a842ba`, `31ddcb4`, `e8b91a9`, `00a84c5`) — pulled *ahead*
+of the tuning pass, because the design doc's §10 sequences its "single tuning
+pass" before step 8 gives `RootTip` an entirely new income source, which would
+guarantee the double tuning §8a exists to prevent.
+
+- **Roots grow into soil.** `Material::penetration_resistance` (MPa) against a
+  per-species `Grow.penetration_force`, calibrated to the 2–3 MPa bound where
+  real root elongation stops (Da Silva/Kay/Perfect 1994). soil 0.8, sand 1.4,
+  gravel 3.5, tree roots 1.2 — so a tree roots through soil, is refused by
+  gravel, and never touches stone. Chose a real field over the doc's cheaper
+  "use `density`": conflating them breaks wet sand and pumice.
+- **Soil holds water and roots drink it.** Per-cell moisture in a `Powder`'s
+  `aux` — **`0` means dry, the inverse of a liquid's fill**. Field capacity and
+  wilting point from the same LLWR framework, so `Absorb` credits exactly zero
+  below the wilting point and drought is terminal. Closes PLAN.md's recorded
+  `RootTip` stall, which was a missing mechanism no tuning could have fixed.
+- **`leaf` and `rootwood` are real materials**, on differing physics. `rootwood`
+  exists mainly so `update_powder` can ask "is this a root" from a bare `Cell`.
+- **Roots hold soil, weight breaks branches** — Wu–Waldron apparent cohesion,
+  and `effective_span = max_span − load / LOAD_PER_SPAN_UNIT`.
+
+**Three bugs the work exposed rather than caused**, all older than it:
+
+- `reachable_from_anchors` traversed **4** neighbours while `Grow` places
+  children at **8**, so any diagonally-grown tree read back as disconnected
+  fragments — and `thicken()`, its only production caller, had been counting a
+  fragment of the canopy rather than the canopy. Found by a test written for a
+  different bug.
+- `thicken()`'s "downstream" was never downstream: the flood spreads across
+  every connected cell with no direction. 4-connectivity had masked it. Now
+  filtered to cells above, which is what the pipe model specifies, and
+  `pipe_ratio` recalibrated 2.5 → 10.0 because its input changed by an order of
+  magnitude.
+- `RootTip` never retired, so once roots could grow, every root cell stayed an
+  eligible tip and the frontier multiplied into mats spanning the soil bed.
+
+**Still to do:** the sidecar (Decision 2), polarity (Decision 6), the one economy
+pass (Decision 4's remainder), and bud break — in that order, unchanged.
+
+**Known-open, carried forward:**
+
+- **Trees still read as whips.** ~75% of a tree's rows are one cell wide.
+  `thicken()`'s `width` term counts same-organism cells immediately left/right on
+  one row, which on a diagonal stem is 1 almost everywhere — fix it when
+  `thicken()` is next touched (Decision 2 §3e already bounds its scan).
+- **Tree-to-tree variance is 5x** (31–153 cells from one genome, `plant_probe --
+  trees=12`). `examples/debug_tree_variants.rs` still compares six variants at
+  n=1 each and must become an ensemble before the economy pass.
+- **`water_capacity` is opt-in per material** (soil only). Real sand holds water;
+  widening it means teaching the engine's liquid-conservation tallies about held
+  water first.
+- Anoxia necrosis deferred to the economy pass — it needs the sidecar's
+  `anoxia_ticks`.
 
 **`germinate()`'s root gate is deferred to Phase 2 deliberately.** Refusing a root
 on bare stone is *correct* — trees should not root in rock. It refuses on soil
