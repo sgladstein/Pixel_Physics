@@ -711,7 +711,26 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     if (leaf_count as f32 / width as f32) <= pipe_ratio {
         return;
     }
-    for (dx, dy) in [(-1, 0), (1, 0)] {
+    // Which side to try first is a coin flip, not always left.
+    //
+    // This used to be a flat `[(-1, 0), (1, 0)]` with a `break`, so a cell
+    // with open space on *both* sides always thickened leftward -- and
+    // since every thickening cell made the same choice, a trunk fattened
+    // entirely to one side instead of around itself. Reported from live
+    // play as thickening looking "kind of weird", which it did: the shape
+    // was one-sided by construction.
+    //
+    // Exactly the bug this repo already fixed once for liquids -- see
+    // `68371d7`, "Alternate which edge a body sheds, instead of always the
+    // left", where a promoted body spread in one direction only for the
+    // same reason. Worth naming as a class: a two-option loop with a
+    // `break` is a directional bias unless something breaks the tie.
+    //
+    // Drawn from the organism's own stream (`rng::stream`), so it stays
+    // deterministic and stays independent of what every other organism is
+    // doing.
+    let sides = if rng.flip() { [(-1, 0), (1, 0)] } else { [(1, 0), (-1, 0)] };
+    for (dx, dy) in sides {
         let (nx, ny) = (x + dx, y + dy);
         if world.is_empty(nx, ny) {
             let cell = world.get(x, y);
