@@ -42,7 +42,7 @@
 
 use std::collections::HashSet;
 
-use pixel_physics::render::{GrainMode, Renderer};
+use pixel_physics::render::{FieldOverlay, GrainMode, OrganismOverlay, Renderer};
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::particle::ParticleSystem;
@@ -53,6 +53,19 @@ use pixel_physics::sim::{explosion, material, parallel, update};
 const WIDTH: i32 = 512;
 const HEIGHT: i32 = 320;
 const FLOOR_THICKNESS: i32 = 8;
+
+/// Ground level for the plant scenes, in world rows from the top.
+///
+/// Chosen against `field.rs`'s measured light profile, not by eye: at the
+/// current `LIGHT_DECAY` the reading crosses `Germinate`'s `0.1` threshold
+/// roughly **75** cells below open sky, and `ambient_light_above` samples a
+/// further `FIELD_SCALE` (8) rows *above* the cell it is asked about. `40`
+/// leaves most of that band as headroom, so a seed here germinates on
+/// light margin rather than on the edge of it -- and so a canopy growing
+/// upward from here has somewhere lit to grow into. Do not deepen this
+/// without re-reading `LIGHT_DECAY`'s own doc; a scene where nothing
+/// germinates looks identical to a scene where growth is broken.
+const TREE_GROUND_Y: i32 = 40;
 
 /// Water with a varied `shade`, the way the brush lays it down
 /// (`World::paint_capsule` rolls a random shade per cell). The scenes below
@@ -173,8 +186,65 @@ fn build(scene: &str) -> World {
                 }
             }
         }
+        // M16 plants. A single seed on a stone shelf with a puddle beside
+        // it -- deliberately the same geometry as the committed live
+        // verification shots (`docs/screenshots/tree-rewrite-live-
+        // verification/`), so a sheet from this scene can be compared
+        // directly against the artifact the owner's "still a tiny tree, one
+        // cell thick, ~18 cells, no leaves, no roots" report was made about
+        // rather than against a fresh scene nobody has a prior on.
+        //
+        // **The shelf height is load-bearing, not cosmetic.** `Germinate`'s
+        // light gate reads `field_at(x, y - FIELD_SCALE).light`, and
+        // `field.rs`'s `LIGHT_DECAY` puts the `0.1` crossing roughly 75
+        // world cells below open sky. The ordinary `stone_floor` at
+        // `HEIGHT - 8` is 300+ cells down and a seed there never germinates
+        // at all -- which is exactly how the ported tree tests started
+        // failing when they kept the old system's y=100-150 planting depth
+        // (see `PLAN.md`'s tree-rewrite step 7 entry). `TREE_GROUND_Y` sits
+        // comfortably inside the lit band with headroom, per this repo's
+        // "set bars from measurement with headroom" convention.
+        "tree" => {
+            for x in 0..WIDTH {
+                for y in TREE_GROUND_Y..(TREE_GROUND_Y + 6) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            w.plant_tree(200, TREE_GROUND_Y - 1);
+            w.paint_circle(150, TREE_GROUND_Y - 4, 7, material::WATER);
+        }
+        // The same shelf, but a soil bed over a water table and several
+        // seeds spaced across it. This is the scene the later phases are
+        // aimed at -- roots growing into soil, soil moisture being drunk
+        // down, canopies competing for light -- and today it should show
+        // *none* of that, which is the point of shooting it now: it is the
+        // before-picture for work that has not started.
+        "forest" => {
+            // `soil` has no `material::` constant of its own -- it was
+            // appended to `EMBEDDED` deliberately (see that array's own
+            // comment on why inserting rather than appending would
+            // renumber the well-known ids), so it is looked up by name
+            // like `wood` and `moss` already are elsewhere.
+            let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+            for x in 0..WIDTH {
+                for y in (TREE_GROUND_Y + 40)..(TREE_GROUND_Y + 46) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+                // Soil bed, with the bottom rows wet -- a crude standing
+                // water table until Decision 3 makes soil moisture real.
+                for y in TREE_GROUND_Y..(TREE_GROUND_Y + 34) {
+                    w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8));
+                }
+                for y in (TREE_GROUND_Y + 34)..(TREE_GROUND_Y + 40) {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            for x in [80, 200, 320, 440] {
+                w.plant_tree(x, TREE_GROUND_Y - 1);
+            }
+        }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest"
         ),
     }
     w
@@ -191,6 +261,16 @@ struct Args {
     parallel_driver: bool,
     out: String,
     grain: GrainMode,
+    /// `channel=` -- render the sheet through one of `render.rs`'s debug
+    /// overlays instead of ordinary material colour. The whole reason the
+    /// plant work needs this harness: resource, canopy density and (later)
+    /// vein conductance are per-cell scalars that decide plant shape and
+    /// have **never been drawn**, which is how `tree-rewrite-design.md`
+    /// §2b's self-avoidance mechanism shipped inert past two design
+    /// reviews. A contact sheet in a channel shows both what the value is
+    /// and how it evolves across the tiles, which is the question.
+    organism_overlay: OrganismOverlay,
+    field_overlay: FieldOverlay,
     /// Write an animated GIF of every frame in the range instead of a grid.
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
@@ -212,6 +292,8 @@ fn parse() -> Args {
         parallel_driver: true,
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
         grain: GrainMode::Position,
+        organism_overlay: OrganismOverlay::Off,
+        field_overlay: FieldOverlay::Off,
         gif: false,
         explosions: Vec::new(),
     };
@@ -237,6 +319,23 @@ fn parse() -> Args {
                     other => panic!("unknown grain {other:?}"),
                 }
             }
+            // One flag for both overlay families, resolved by name: they are
+            // one question ("which channel am I looking at") from the
+            // caller's side, and keeping them as two arguments would invite
+            // setting both and getting a sheet that is hard to attribute.
+            "channel" => match v {
+                "off" => {}
+                "celltype" => a.organism_overlay = OrganismOverlay::CellType,
+                "resource" => a.organism_overlay = OrganismOverlay::Resource,
+                "canopy" => a.organism_overlay = OrganismOverlay::CanopyDensity,
+                "light" => a.field_overlay = FieldOverlay::Light,
+                "moisture" => a.field_overlay = FieldOverlay::Moisture,
+                "temperature" => a.field_overlay = FieldOverlay::Temperature,
+                "pressure" => a.field_overlay = FieldOverlay::Pressure,
+                other => panic!(
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, light, moisture, temperature, pressure"
+                ),
+            },
             "explode" => {
                 let n: Vec<f32> = v.split(',').map(|s| s.parse().expect("explode")).collect();
                 assert_eq!(n.len(), 5, "explode=x,y,radius,strength,frame");
@@ -303,6 +402,8 @@ fn main() {
     let mut world = build(&args.scene);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
+    renderer.organism_overlay = args.organism_overlay;
+    renderer.field_overlay = args.field_overlay;
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];

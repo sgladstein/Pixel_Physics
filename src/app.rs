@@ -499,6 +499,7 @@ impl App {
             "",
             "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
             "F1 CHUNK OVERLAY    G WATER GRAIN",
+            "B ORGANISM OVERLAY  (CELL TYPE/RESOURCE/CANOPY)",
             "",
             "O TUNABLES  (PGUP PGDN SWITCH MENU,",
             "             ARROWS SELECT/ADJUST, ENTER SAVE)",
@@ -682,7 +683,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -695,6 +696,15 @@ impl App {
                 String::new()
             } else {
                 format!(" — grain {}", self.renderer.grain.label())
+            },
+            // Same "only once turned on" rule. Worth showing at all because
+            // the tint is subtle on a sparse tree and "is this channel on,
+            // or is it on and reading zero everywhere?" is exactly the
+            // question the overlay exists to answer unambiguously.
+            if self.renderer.organism_overlay == render::OrganismOverlay::Off {
+                String::new()
+            } else {
+                format!(" — organism {}", self.renderer.organism_overlay.label())
             },
             match &self.message {
                 Some(m) => format!(" — {m}"),

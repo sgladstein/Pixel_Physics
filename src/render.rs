@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use crate::sim::cell::AMBIENT_TEMPERATURE;
 use crate::sim::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
 use crate::sim::material;
+use crate::sim::organism;
 use crate::sim::particle::ParticleSystem;
 use crate::sim::rng;
 use crate::sim::world::World;
@@ -191,6 +192,100 @@ impl FieldOverlay {
     }
 }
 
+/// Which organism-owned per-cell channel `Renderer::organism_overlay` tints
+/// by, cycled by `B` — the same shape as `FieldOverlay` above, pointed at
+/// `organism.rs`'s per-cell scalars instead of `field.rs`'s coarse grid.
+///
+/// **Why this exists at all.** Every channel here is currently invisible,
+/// and that has already cost real time: `Reports/tree-rewrite-design.md`
+/// §2b's canopy-density self-avoidance mechanism shipped inert, and *two*
+/// independent design reviews signed it off without catching that the
+/// "follow" step read the empty side of the occupied/empty boundary and
+/// therefore always saw `0.0`. Live verification caught it, because a
+/// picture shows a round clump and a passing test does not. The channels
+/// that decide plant shape need to be lookable-at before more of them get
+/// added on top (`Reports/plant-substrate-v2-design.md`'s Decisions 2, 3
+/// and 6 each add one), not after.
+///
+/// `CellType` is categorical and the rest are magnitudes — see
+/// `apply_organism_overlay` for why that difference is in the blend rather
+/// than in two separate overlays.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum OrganismOverlay {
+    #[default]
+    Off,
+    /// `Seed`/`GrowingTip`/`MatureBody`/`Leaf`/`RootTip`, one flat colour
+    /// each. The only way to tell a retired `MatureBody` from a live
+    /// `GrowingTip` on screen — both currently paint as plain `wood`.
+    CellType,
+    /// The `Grow`/`Divide` energy budget, `0..RESOURCE_SCALE`.
+    Resource,
+    /// The crowding signal `Grow`'s `crowding_weight` scores against,
+    /// `0..CANOPY_DENSITY_SCALE`.
+    CanopyDensity,
+}
+
+impl OrganismOverlay {
+    fn next(self) -> Self {
+        match self {
+            OrganismOverlay::Off => OrganismOverlay::CellType,
+            OrganismOverlay::CellType => OrganismOverlay::Resource,
+            OrganismOverlay::Resource => OrganismOverlay::CanopyDensity,
+            OrganismOverlay::CanopyDensity => OrganismOverlay::Off,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            OrganismOverlay::Off => "OFF",
+            OrganismOverlay::CellType => "CELL TYPE",
+            OrganismOverlay::Resource => "RESOURCE",
+            OrganismOverlay::CanopyDensity => "CANOPY DENSITY",
+        }
+    }
+}
+
+/// Per-`CellType` colours for `OrganismOverlay::CellType`. Deliberately
+/// high-contrast and *not* botanically suggestive — this is a debug
+/// readout, and a leaf drawn green here would be indistinguishable from
+/// the `leaf` material the plant work is about to add
+/// (`Reports/plant-substrate-v2-design.md` §6a), which is exactly the
+/// confusion a debug view must not create.
+const CELL_TYPE_SEED: [f32; 3] = [255.0, 230.0, 90.0];
+const CELL_TYPE_GROWING_TIP: [f32; 3] = [90.0, 255.0, 120.0];
+const CELL_TYPE_MATURE_BODY: [f32; 3] = [150.0, 110.0, 255.0];
+const CELL_TYPE_LEAF: [f32; 3] = [255.0, 120.0, 220.0];
+const CELL_TYPE_ROOT_TIP: [f32; 3] = [255.0, 150.0, 60.0];
+
+/// Flat blend for `OrganismOverlay::CellType`. High, but short of 1.0 on
+/// purpose: keeping a little of the underlying material colour through
+/// means a burning or partially-dimmed cell still reads as such under the
+/// overlay, so a fire moving through a canopy stays legible while the type
+/// readout is on.
+const CELL_TYPE_BLEND: f32 = 0.85;
+/// Full-scale colours for the scalar organism channels. A reading of zero
+/// draws at `SCALAR_RAMP_FLOOR` of these, not at black, so a cell holding
+/// exactly nothing is still visible *as a cell* — otherwise an organism
+/// with an empty channel disappears into the background and "the value is
+/// zero" becomes indistinguishable from "there is nothing here", which are
+/// very different bugs.
+const SCALAR_RAMP_RESOURCE: [f32; 3] = [120.0, 255.0, 160.0];
+const SCALAR_RAMP_CANOPY: [f32; 3] = [255.0, 80.0, 80.0];
+
+/// How bright a zero reading draws, as a fraction of the channel's
+/// full-scale colour. Low enough that zero and full are unmistakable at a
+/// glance, high enough that a zero cell still has a visible silhouette.
+const SCALAR_RAMP_FLOOR: f32 = 0.18;
+
+/// Maps a normalized `0..1` reading onto a channel's ramp. Deliberately
+/// linear: this is a readout, and a perceptual or log curve would make
+/// "how much" harder to judge between two tiles of a contact sheet, which
+/// is the comparison these sheets exist to support.
+fn scalar_ramp(t: f32, full: [f32; 3]) -> [f32; 3] {
+    let scale = SCALAR_RAMP_FLOOR + (1.0 - SCALAR_RAMP_FLOOR) * t.clamp(0.0, 1.0);
+    [full[0] * scale, full[1] * scale, full[2] * scale]
+}
+
 /// Display-only normalization ranges for the field overlay — not the
 /// field's own internal clamp bounds (`field.rs`'s `MAX_TEMPERATURE`/
 /// `MAX_LIGHT`/`MAX_MOISTURE` are private to that module, the same
@@ -246,6 +341,28 @@ pub struct Renderer {
     /// opts in, the same "toggled debug overlay, zero cost when off" shape
     /// `show_chunk_overlay` already uses.
     pub field_overlay: FieldOverlay,
+    /// Tints organism-owned cells by one of `organism.rs`'s per-cell
+    /// channels — `B` cycles it. `Off` by default and costs nothing then,
+    /// same shape as `field_overlay` above.
+    ///
+    /// **Unlike `field_overlay`, this does not defeat the dirty-rect
+    /// skip**, and the difference is real rather than an oversight. A field
+    /// reading changes when `field::step` diffuses it, which happens
+    /// independently of any cell being written, so an untouched chunk's
+    /// tint genuinely can change. Every channel *this* overlay draws is
+    /// stored in `Cell::aux` and can only change via a `set` — `organism::
+    /// diffuse_resource` writes only `if new_aux != cell.aux()`, and
+    /// `plant::organism_tick` writes through `World::set` — so a changed
+    /// organism channel always comes with a dirtied chunk, and the skip
+    /// stays correct. Only *switching* channels needs a full redraw, which
+    /// `last_organism_overlay` below is what catches.
+    pub organism_overlay: OrganismOverlay,
+    /// `organism_overlay` as of the last `draw` call. A change means every
+    /// existing pixel in the buffer was tinted for a different channel, so
+    /// one full redraw has to re-establish it — the same reason
+    /// `last_zoom_state` exists, and the reason this overlay can otherwise
+    /// leave the dirty-rect skip alone.
+    last_organism_overlay: OrganismOverlay,
     /// `(zoom, zoom_out_stride)` as of the last `draw` call — a change since
     /// then means the whole frame buffer's existing bytes were computed at
     /// the wrong scale, forcing one full redraw to re-establish it before
@@ -267,6 +384,8 @@ impl Renderer {
             zoom: 1,
             zoom_out_stride: 1,
             field_overlay: FieldOverlay::Off,
+            organism_overlay: OrganismOverlay::Off,
+            last_organism_overlay: OrganismOverlay::Off,
             last_zoom_state: None,
         }
     }
@@ -282,6 +401,14 @@ impl Renderer {
 
     pub fn cycle_field_overlay(&mut self) {
         self.field_overlay = self.field_overlay.next();
+    }
+
+    /// `B` — step through the organism channels. Same reasoning as
+    /// `cycle_grain`: these are questions ("is canopy density actually
+    /// non-zero where a tip is about to grow?") that only a picture of the
+    /// real running plant answers.
+    pub fn cycle_organism_overlay(&mut self) {
+        self.organism_overlay = self.organism_overlay.next();
     }
 
     /// `delta > 0` zooms in a step, `delta < 0` zooms out a step — `=`/`-`
@@ -386,6 +513,12 @@ impl Renderer {
         let scale_changed = self.last_zoom_state != Some(zoom_state);
         self.last_zoom_state = Some(zoom_state);
 
+        // One full redraw when the organism channel changes, and none after
+        // — see `organism_overlay`'s own doc for why this overlay can keep
+        // the dirty-rect skip where `field_overlay` cannot.
+        let organism_overlay_changed = self.last_organism_overlay != self.organism_overlay;
+        self.last_organism_overlay = self.organism_overlay;
+
         self.frame = self.frame.wrapping_add(1);
         // The animated variants are the ones whose output changes with
         // nothing in the world changing, so they have to defeat the
@@ -407,7 +540,12 @@ impl Renderer {
             GrainMode::AnimatedSmooth => true,
             _ => false,
         };
-        let full = force_full || scale_changed || self.field_overlay != FieldOverlay::Off || self.show_chunk_overlay || !particles.is_empty();
+        let full = force_full
+            || scale_changed
+            || organism_overlay_changed
+            || self.field_overlay != FieldOverlay::Off
+            || self.show_chunk_overlay
+            || !particles.is_empty();
 
         let recomputed = if full {
             for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
@@ -676,7 +814,94 @@ impl Renderer {
         // lesson M5's `ChunkView` already applied to the sweep) before it's
         // safe to turn back on.
 
-        self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255])
+        let tinted = self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255]);
+        // Applied *after* the field overlay, deliberately: the two can be on
+        // at once (light and canopy density together is the pairing that
+        // actually explains where a tip chose to grow), and when they are,
+        // the per-cell channel is the more specific statement and should win
+        // on the handful of cells it covers rather than being washed out by
+        // a field tint covering the whole screen.
+        self.apply_organism_overlay(world, x, y, tinted)
+    }
+
+    /// Blends `base` toward a ramp keyed on the selected organism channel,
+    /// for organism-owned cells only — a no-op returning `base` unchanged
+    /// when the overlay is off or the cell isn't organism tissue, so
+    /// `cell_colour` can route through it unconditionally.
+    ///
+    /// **A raw `organism_id() != 0` test is what identifies organism
+    /// tissue**, not `Cell::is_empty()` and not a `Plant`-kind check.
+    /// `organism_id` is the tag `organism.rs` itself uses everywhere
+    /// (`diffuse_resource`'s `is_wall`, `organism_tick`'s own guard), and a
+    /// hand-painted `wood` cell is `Plant`-kind but owns no organism state
+    /// — tinting it would draw a resource value that does not exist.
+    ///
+    /// **Scalar channels *replace* the cell colour rather than blending
+    /// into it, and that is a correction to how this first shipped.** The
+    /// first version copied `apply_field_overlay`'s magnitude-scaled blend
+    /// exactly. On a tree that produced a canopy-density sheet which was
+    /// blank to the eye, and the obvious reading — "the deposit isn't
+    /// there" — was wrong. Wood's own base colour is brown, the ramp was
+    /// red, and a mid-range reading moved the red byte from 139 to 155 and
+    /// changed nothing else; the value was present and simply not visible
+    /// against the material it was drawn over. The resource channel looked
+    /// fine only because green happens to sit far from brown.
+    ///
+    /// That is the exact failure mode this whole overlay exists to prevent,
+    /// reproduced inside the tool built to prevent it, so it is written
+    /// down rather than quietly fixed: **a debug readout must not be a
+    /// function of the thing it is debugging.** A full replace on a fixed
+    /// dark→bright ramp reads the same over wood, leaf, soil or anything
+    /// added later, and zero is unambiguously distinguishable from
+    /// "present but low."
+    ///
+    /// `apply_field_overlay`'s blend stays correct for *its* job — it
+    /// covers every pixel including empty space, where replacing would
+    /// repaint the whole screen and hide the world entirely.
+    ///
+    /// `CellType` is categorical (there is no "less of a `RootTip`") and
+    /// keeps a high flat blend, so a burning or dimmed cell still reads as
+    /// such underneath the type colour.
+    fn apply_organism_overlay(&self, world: &World, x: i32, y: i32, base: [u8; 4]) -> [u8; 4] {
+        if self.organism_overlay == OrganismOverlay::Off {
+            return base;
+        }
+        let cell = world.get(x, y);
+        if cell.organism_id() == 0 {
+            return base;
+        }
+        let (cell_type, resource) = organism::unpack_aux(cell.aux());
+        let (ramp, blend) = match self.organism_overlay {
+            OrganismOverlay::Off => return base,
+            OrganismOverlay::CellType => {
+                // An unrecognized type bit pattern is a real possibility
+                // (`organism.rs`'s own `an_unrecognized_type_bit_pattern_
+                // is_none` test), and it should be *visible* as wrong
+                // rather than silently drawn as ordinary wood.
+                let colour = match cell_type {
+                    Some(organism::CellType::Seed) => CELL_TYPE_SEED,
+                    Some(organism::CellType::GrowingTip) => CELL_TYPE_GROWING_TIP,
+                    Some(organism::CellType::MatureBody) => CELL_TYPE_MATURE_BODY,
+                    Some(organism::CellType::Leaf) => CELL_TYPE_LEAF,
+                    Some(organism::CellType::RootTip) => CELL_TYPE_ROOT_TIP,
+                    None => [255.0, 0.0, 0.0],
+                };
+                (colour, CELL_TYPE_BLEND)
+            }
+            OrganismOverlay::Resource => {
+                let t = (resource / organism::RESOURCE_SCALE).clamp(0.0, 1.0);
+                (scalar_ramp(t, SCALAR_RAMP_RESOURCE), 1.0)
+            }
+            OrganismOverlay::CanopyDensity => {
+                let t = (organism::canopy_density(cell.aux()) / organism::CANOPY_DENSITY_SCALE).clamp(0.0, 1.0);
+                (scalar_ramp(t, SCALAR_RAMP_CANOPY), 1.0)
+            }
+        };
+        let mut out = base;
+        for (c, r) in out.iter_mut().take(3).zip(ramp) {
+            *c = (*c as f32 + (r - *c as f32) * blend).round().clamp(0.0, 255.0) as u8;
+        }
+        out
     }
 
     /// Blends `base` toward a colour ramp keyed on the currently-selected
