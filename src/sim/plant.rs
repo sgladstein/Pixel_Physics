@@ -1537,6 +1537,72 @@ mod tests {
         assert!(!next.is_empty(), "the new child should be scheduled");
     }
 
+    /// `Reports/open-bugs-handoff.md` §3, reproduced. That entry records the
+    /// bug as "verified by reading but not reproduced, and therefore
+    /// deliberately not fixed", and notes that the attempt to reproduce it
+    /// "grew no tips at all (`plant_tree` on a soil floor with no field
+    /// step)" — germination is light-gated, so a run that never steps the
+    /// field never germinates anything and can only ever report zero tips.
+    /// This uses `run_with_fields`, which is the difference.
+    ///
+    /// The bug: `scheduler::step` pops the whole due batch into `due_sites`
+    /// *before* dispatching any of it, so `world.active_sites` does not
+    /// contain the batch while `plant::tick` runs.
+    /// `World::organism_active_tip_count` counts the heap, so it cannot see
+    /// any tip in the batch currently being dispatched — and a tree's tips
+    /// all come due on the same frame as a matter of course, since they are
+    /// created together and rescheduled on a fixed interval. `Grow`'s cap
+    /// therefore compares against a count that is far too low.
+    ///
+    /// Measured *between* frames, where the heap does hold everything, so
+    /// the count is the true one rather than the one the cap sees.
+    ///
+    /// **Result: it does not reproduce, and the reason reframes the bug.**
+    /// The measured peak is **1**. Not "under the cap" — one. Tip
+    /// retirement (see `self_type_after_grow` above) means a `GrowingTip`
+    /// becomes `MatureBody` in the same tick it grows, with the child
+    /// carrying the frontier forward, so a lineage holds exactly one live
+    /// tip at a time and branching only briefly makes it two.
+    /// `max_active_tips: 14` was sized for the pre-retirement system where
+    /// tips persisted; against the current one it has no work to do.
+    ///
+    /// So the under-enforcement is real as read *and* unreachable as built:
+    /// a cap that is never approached cannot be exceeded, however badly it
+    /// is checked. This test is therefore a **tripwire, not a live check**,
+    /// and it is worth keeping as one — `Reports/plant-substrate-v2-
+    /// design.md`'s bud break (retrofit step 9) exists specifically to let
+    /// a mature tree open new frontiers, which is the first thing that
+    /// would push simultaneous tips toward the cap and make the miscount
+    /// bite. It should start doing real work exactly then.
+    ///
+    /// Recorded in `Reports/open-bugs-handoff.md` §3 as measured rather
+    /// than left as "verified by reading."
+    #[test]
+    fn a_trees_simultaneous_tip_count_stays_within_its_species_cap() {
+        // `tree.ron`'s own `max_active_tips` for `GrowingTip`.
+        const CAP: usize = 14;
+
+        let mut w = test_world();
+        w.plant_tree(100, 20);
+        let organism_id = w.get(100, 20).organism_id();
+        assert_ne!(organism_id, 0, "test setup: planting should have stamped an organism id");
+
+        let mut peak = 0;
+        for _ in 0..8000 {
+            update::step(&mut w);
+            w.step_active_sites();
+            field::step(&mut w);
+            peak = peak.max(w.organism_active_tip_count(organism_id, CellType::GrowingTip));
+        }
+
+        assert!(
+            peak <= CAP,
+            "a tree held {peak} simultaneous GrowingTip sites against tree.ron's max_active_tips of {CAP} \
+-- Grow's cap reads World::organism_active_tip_count, which cannot see tips inside the batch \
+scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
+        );
+    }
+
     /// The plastochron's own unit: a tip whose lineage step is about to hit
     /// the interval retires to `Leaf`, and one that isn't retires to
     /// `MatureBody`. Driven through `organism_tick`'s real dispatch rather

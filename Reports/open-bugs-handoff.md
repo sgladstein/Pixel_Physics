@@ -73,22 +73,45 @@ options: let an unsupported refused mover fall (fixes the 115 floating cells
 only), move a coherent body *as a body* (`rigid.rs` — the only thing that
 removes the premise), or accept it.
 
-### 3. Scheduler under-enforces `max_active_tips` (a tree bug)
+### 3. Scheduler under-enforces `max_active_tips` (a tree bug) — measured, and it cannot bite yet
 
-Review finding, **verified by reading but not reproduced**, and therefore
-deliberately not fixed. `scheduler::step` pops the entire due batch into
-`due_sites` *before* dispatching any of it, so `world.active_sites` does not
-hold the batch while `plant::tick` runs. `organism_active_tip_count` counts
-only the heap, so it cannot see any tip in the current batch — and when a
-tree's tips all come due on the same frame, which is the normal case, the
-count it returns is far too low and `Behavior::Grow`'s cap
-(`max_active_tips`, 14 and 10 in `tree.ron`) is under-enforced.
+Review finding. `scheduler::step` pops the entire due batch into `due_sites`
+*before* dispatching any of it, so `world.active_sites` does not hold the
+batch while `plant::tick` runs. `organism_active_tip_count` counts only the
+heap, so it cannot see any tip in the current batch — and when a tree's tips
+all come due on the same frame, which is the normal case, the count it
+returns is far too low and `Behavior::Grow`'s cap (`max_active_tips`, 14 and
+10 in `tree.ron`) is under-enforced. **The reading is correct.**
 
-An attempt to reproduce it grew no tips at all (`plant_tree` on a soil floor
-with no field step), so the scale of the real effect is unknown. A fix wants
-either dispatch-one-at-a-time (changes the cap's meaning, and risks a tip
-producing a due-now tip in the same frame) or making the in-flight batch
-visible to the count. Needs someone with the tree subsystem in context.
+**Now reproduced properly, and the answer is that the cap is unreachable.**
+The previous attempt "grew no tips at all (`plant_tree` on a soil floor with
+no field step)" — germination is light-gated, so a run that never steps the
+field never germinates and can only ever report zero. With fields stepped
+(`plant.rs`'s `a_trees_simultaneous_tip_count_stays_within_its_species_cap`,
+8,000 frames), the **peak simultaneous `GrowingTip` count for one tree is
+1**.
+
+Not "under the cap" — one. Tip retirement converts a `GrowingTip` to
+`MatureBody` in the same tick it grows, with the child carrying the frontier
+forward, so a lineage holds exactly one live tip and branching only briefly
+makes it two. `max_active_tips: 14` was sized for the pre-retirement system
+where tips persisted; against the current one it has nothing to do.
+
+So the bug is **real as read and unreachable as built**: a cap that is never
+approached cannot be exceeded, however badly it is checked. Deliberately
+*not* fixed on that basis — the fix (dispatch-one-at-a-time, which changes
+the cap's meaning and risks a tip producing a due-now tip in the same frame;
+or making the in-flight batch visible to the count) costs more than the
+defect currently does.
+
+**What changes that:** `Reports/plant-substrate-v2-design.md`'s bud break
+(retrofit step 9) exists specifically to let a mature tree open new
+frontiers, and is the first thing that would push simultaneous tips toward
+the cap. The reproduction above is kept as a tripwire and should start doing
+real work exactly then. Decision 2's sidecar also fixes it structurally for
+free — `organism_active_tip_count` becomes a count over the organism's own
+cell list rather than a scan of the schedule (design doc §3e), which has no
+in-flight-batch blind spot at all.
 
 ### 4. Levelling is O(width²)
 
