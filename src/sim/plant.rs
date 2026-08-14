@@ -460,15 +460,39 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // Shinozaki's pipe model actually specifies.
                 let lineage_step = plastochron.saturating_add(1);
                 let leaf_due = plastochron_interval > 0 && lineage_step.is_multiple_of(plastochron_interval);
-                let self_type_after_grow = if cell_type == CellType::GrowingTip {
-                    if leaf_due {
-                        CellType::Leaf
-                    } else {
-                        CellType::MatureBody
-                    }
-                } else {
-                    cell_type
-                };
+                // **The retiring parent always becomes `MatureBody`; a leaf
+                // is spawned *beside* the stem instead** (below, once the
+                // child and any branch child exist so their cells can be
+                // excluded).
+                //
+                // This corrects `Reports/plant-substrate-v2-design.md` §5a,
+                // which converts the retiring parent itself into a `Leaf`
+                // and counts "requires no new cell creation whatsoever" as
+                // a virtue. That virtue is what made the trunk read as
+                // wood-wood-leaf-wood-wood-leaf -- the stem was built
+                // *through* its own foliage. Reported from live play as
+                // the pink and purple looking "layered, which is not how I
+                // would expect it to be", which is exactly right: real
+                // leaves attach laterally at nodes, they are not segments
+                // of the stem.
+                //
+                // Three things were wrong with it, in increasing severity:
+                //
+                // 1. `thicken()` is `MatureBody`-only, so a stem could not
+                //    thicken at every plastochron-th cell -- the patchy
+                //    thickening reported alongside it.
+                // 2. `structural.rs`'s `organism_is_supported` filters on
+                //    `organism_id` and `Plant` kind and never looks at cell
+                //    type, so a leaf in the stem *carried structural load* --
+                //    which the design doc's own §6a explicitly forbids
+                //    ("treating it as a load path would let a canopy hold up
+                //    a trunk").
+                // 3. Decision 4 gives leaves a lifespan and abscission. With
+                //    leaves as stem segments, shedding them would cut the
+                //    trunk into disconnected pieces every plastochron. That
+                //    would have landed two phases later as a mystifying
+                //    "trees fall apart" bug.
+                let self_type_after_grow = if cell_type == CellType::GrowingTip { CellType::MatureBody } else { cell_type };
 
                 let total: f32 = candidates.iter().map(|&(_, _, s)| s).sum();
                 let mut pick = (rng.below(10_000) as f32 / 10_000.0) * total;
@@ -543,6 +567,41 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), self_type_after_grow, resource)));
                             next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
                         }
+                    }
+                }
+
+                // The plastochron's leaf, placed *laterally* off the node
+                // that just retired -- see `self_type_after_grow` above for
+                // why it is no longer the retiring cell itself.
+                //
+                // Any still-empty 8-neighbour will do, and it is picked at
+                // random rather than at a fixed offset: a fixed side would
+                // be the same one-sided-by-construction mistake `thicken()`
+                // just had fixed (always growing left), and phyllotaxis --
+                // the real rule placing leaves around a shoot -- is a
+                // mechanism this engine does not model and should not fake
+                // with an authored pattern (`design-philosophy.md` §2b
+                // forbids the authored *outcome*, not the simple rule).
+                //
+                // Costs no resource, deliberately, matching what the
+                // previous type-flip cost. A real leaf is built from
+                // carbon and should charge for it; adding that price now
+                // would change the economy this phase is explicitly not
+                // tuning (§10 step 3 is the single pass that sets it, after
+                // polarity). Flagged there rather than silently free.
+                if leaf_due && cell_type == CellType::GrowingTip {
+                    let spots: Vec<(i32, i32)> = NEIGHBOURS_8
+                        .iter()
+                        .map(|&(dx, dy)| (x + dx, y + dy))
+                        .filter(|&(nx, ny)| world.is_empty(nx, ny))
+                        .collect();
+                    if !spots.is_empty() {
+                        let (lx, ly) = spots[rng.below(spots.len() as u32) as usize];
+                        let leaf_shade = rng.below(shades) as u8;
+                        let leaf_aux = organism::with_canopy_density(organism::pack_aux(CellType::Leaf, 0.0), GROW_CANOPY_DEPOSIT);
+                        let leaf_cell = Cell::new(cell.material, leaf_shade).with_organism_id(organism_id).with_aux(leaf_aux);
+                        world.set(lx, ly, leaf_cell);
+                        next.push(reschedule_organism(lx, ly, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
                     }
                 }
 
@@ -700,9 +759,35 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     // distinct `Leaf` type would still be counted correctly here; this
     // isn't `GrowingTip`-specific, it's "every cell type this organism
     // actually uses to catch light."
+    // Only the foliage this cell actually *carries* — cells above it.
+    //
+    // Shinozaki's pipe model says a stem cross-section is proportional to
+    // the leaf area it supplies, and "supplies" is directional: a trunk
+    // carries the whole canopy, a twig near the top carries almost nothing.
+    // The flood fill has no direction in it at all — it spreads from `(x,
+    // y)` across every connected same-organism cell — so without this
+    // filter every cell counts the *entire* organism's leaves and they all
+    // thicken equally. That is a slab, not a trunk, and it is what the
+    // measurement showed the moment the traversal was fixed to eight
+    // neighbours: 100% of rows thickened, uniformly, with no taper.
+    //
+    // Worth being precise about what was wrong before, since the constant
+    // was tuned against it: while the traversal was four-connected it
+    // reached only a local fragment of a diagonally-grown tree, which acted
+    // as an accidental stand-in for "nearby, therefore roughly downstream."
+    // `pipe_ratio: 2.5` was calibrated against that broken quantity.
+    //
+    // `ry < y` is screen-space up (y decreases upward). Honest limitation:
+    // this filters the *count*, not the traversal, so a flood can still
+    // route down through the trunk and back up a neighbouring branch and
+    // count its leaves. For a tree that is rare and the effect is small; a
+    // real fix restricts the traversal itself, which needs
+    // `reachable_from_anchors` to pass positions to its predicate. Left as
+    // the cheaper correct-direction version rather than pretending the
+    // limitation is not there.
     let leaf_count = reached
         .iter()
-        .filter(|&&(rx, ry)| matches!(organism::unpack_aux(world.get(rx, ry).aux()).0, Some(CellType::Leaf) | Some(CellType::GrowingTip)))
+        .filter(|&&(rx, ry)| ry < y && matches!(organism::unpack_aux(world.get(rx, ry).aux()).0, Some(CellType::Leaf) | Some(CellType::GrowingTip)))
         .count();
     let width = 1 + NEIGHBOURS_4
         .iter()
@@ -732,7 +817,37 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     let sides = if rng.flip() { [(-1, 0), (1, 0)] } else { [(1, 0), (-1, 0)] };
     for (dx, dy) in sides {
         let (nx, ny) = (x + dx, y + dy);
-        if world.is_empty(nx, ny) {
+        // A thickening stem may grow *through* its own leaves, not only
+        // into open air.
+        //
+        // This is what keeps foliage on twigs rather than on the trunk,
+        // and it is emergent rather than authored — there is no rule here
+        // about height, or about "trunk" versus "branch", neither of which
+        // a cell can locally know. `thicken()` fires where the downstream
+        // leaf count is high relative to local width, which is near the
+        // base; those cells then consume the leaves beside them, while
+        // distal twigs carry too small a downstream count to thicken and
+        // keep theirs. A trunk ends up bare and the outer canopy leafy as
+        // a *side effect* of the pipe model, which is the shape
+        // `design-philosophy.md` §2b asks for.
+        //
+        // Grounded: secondary growth really does sever leaf traces. A
+        // thickening stem cuts off the vascular connection to leaves borne
+        // on it, and they are shed — which is why mature trunks are bare
+        // and why the exceptions (epicormic shoots on trunks) are exactly
+        // the case that needs a *separate* mechanism, per
+        // `research/m16-plant-biology.md` §5's fire-resprouting note.
+        //
+        // The leaf is consumed outright rather than becoming falling
+        // detritus. Decision 4's abscission is what makes shed foliage a
+        // real object with a lifespan; until it lands, a leaf overwritten
+        // by wood is the honest minimum and is noted as a simplification
+        // rather than dressed up.
+        let own_leaf = {
+            let n = world.get(nx, ny);
+            n.organism_id() == organism_id && organism::unpack_aux(n.aux()).0 == Some(CellType::Leaf)
+        };
+        if world.is_empty(nx, ny) || own_leaf {
             let cell = world.get(x, y);
             let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
             let shade = rng.below(shades) as u8;
@@ -1556,6 +1671,67 @@ mod tests {
         assert!(!next.is_empty(), "the new child should be scheduled");
     }
 
+    /// Leaves hang *off* the stem, never form part of it — asserted the way
+    /// the bug would actually have surfaced rather than by inspecting
+    /// adjacency.
+    ///
+    /// Decision 4 gives leaves a lifespan and abscission. While the
+    /// plastochron converted a retiring stem cell *into* a `Leaf` (the
+    /// design doc's §5a as written), shedding foliage would have cut the
+    /// trunk into disconnected pieces every plastochron — a "trees fall
+    /// apart" bug landing two phases after the change that caused it. This
+    /// deletes every `Leaf` and asserts the woody skeleton is still one
+    /// connected piece, which is precisely what abscission will do.
+    ///
+    /// It also covers the structural half: `organism_is_supported` filters
+    /// on `organism_id` and `Plant` kind without ever checking cell type,
+    /// so a leaf embedded in a stem silently carried load, which the design
+    /// doc's own §6a forbids.
+    #[test]
+    fn shedding_every_leaf_does_not_disconnect_the_stem() {
+        let mut w = test_world();
+        w.plant_tree(100, 20);
+        run_with_fields(&mut w, 8000);
+
+        let b = w.bounds().unwrap();
+        let organism_id = (b.min_y..=b.max_y)
+            .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+            .map(|(x, y)| w.get(x, y).organism_id())
+            .find(|&id| id != 0)
+            .expect("test setup: the tree should own at least one cell");
+
+        // Abscise everything, the way a lifespan eventually will.
+        let leaves: Vec<(i32, i32)> = (b.min_y..=b.max_y)
+            .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let c = w.get(x, y);
+                c.organism_id() == organism_id && organism::unpack_aux(c.aux()).0 == Some(CellType::Leaf)
+            })
+            .collect();
+        assert!(!leaves.is_empty(), "test setup: the tree should have grown leaves to shed");
+        for &(x, y) in &leaves {
+            w.set(x, y, Cell::EMPTY);
+        }
+
+        let wood: Vec<(i32, i32)> = (b.min_y..=b.max_y)
+            .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).organism_id() == organism_id)
+            .collect();
+        assert!(!wood.is_empty(), "test setup: shedding leaves should not have removed the whole tree");
+
+        // One flood fill from any surviving cell must reach all of them.
+        let is_plant = |c: Cell| c.organism_id() == organism_id && w.materials.kind(c.material) == MaterialKind::Plant;
+        let reached = organism::reachable_from_anchors(&w, [wood[0]], is_plant, 100_000);
+        assert_eq!(
+            reached.len(),
+            wood.len(),
+            "shedding every leaf left the stem in more than one piece: {} of {} cells reachable from the base. \
+Leaves must hang off the stem, not be segments of it",
+            reached.len(),
+            wood.len()
+        );
+    }
+
     /// `Reports/open-bugs-handoff.md` §3, reproduced. That entry records the
     /// bug as "verified by reading but not reproduced, and therefore
     /// deliberately not fixed", and notes that the attempt to reproduce it
@@ -1633,7 +1809,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         // `tree.ron` ships `plastochron: 3`, so lineage steps 3, 6, 9 ...
         // leaf and the rest mature. Entering a tick with `plastochron = 2`
         // makes this the third step.
-        for (entering, expected) in [(2u8, CellType::Leaf), (0u8, CellType::MatureBody), (1u8, CellType::MatureBody)] {
+        for (entering, expect_leaf) in [(2u8, true), (0u8, false), (1u8, false)] {
             let mut w = test_world();
             let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
             let organism_id = w.push_organism(tree);
@@ -1642,11 +1818,30 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
 
             organism_tick(&mut w, 100, 100, organism_id, 0, entering);
 
+            // The retiring cell is *always* wood now. It used to become the
+            // leaf itself, which built the stem out of alternating wood and
+            // foliage -- see `self_type_after_grow`'s own comment for the
+            // three things that broke.
             let (self_type, _) = organism::unpack_aux(w.get(100, 100).aux());
             assert_eq!(
                 self_type,
-                Some(expected),
-                "entering a growth step with plastochron={entering} against tree.ron's interval of 3 should retire to {expected:?}"
+                Some(CellType::MatureBody),
+                "a retiring tip must always become wood, never a leaf, whatever the plastochron says"
+            );
+
+            let leaves = NEIGHBOURS_8
+                .iter()
+                .map(|&(dx, dy)| (100 + dx, 100 + dy))
+                .filter(|&(nx, ny)| {
+                    let c = w.get(nx, ny);
+                    c.organism_id() == organism_id && organism::unpack_aux(c.aux()).0 == Some(CellType::Leaf)
+                })
+                .count();
+            assert_eq!(
+                leaves,
+                usize::from(expect_leaf),
+                "entering a growth step with plastochron={entering} against tree.ron's interval of 3 should have produced {} lateral leaf, got {leaves}",
+                usize::from(expect_leaf)
             );
         }
     }

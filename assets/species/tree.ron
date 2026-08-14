@@ -91,7 +91,7 @@
             ),
         ]),
         (MatureBody, [
-            SecondaryThicken(pipe_ratio: 2.5),
+            SecondaryThicken(pipe_ratio: 10.0),
             StructuralAnchor,
         ]),
         (Leaf, [

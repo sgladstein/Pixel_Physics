@@ -148,7 +148,18 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
     for y in 0..HEIGHT {
         let (mut run, mut owner) = (0usize, 0u16);
         for x in 0..=WIDTH {
-            let id = if x < WIDTH { w.get(x, y).organism_id() } else { 0 };
+            // Woody cells only. A leaf now sits *beside* the stem it
+            // grew from, so counting every organism cell makes a bare
+            // stem-plus-leaf pair read as a two-cell-thick trunk -- which
+            // took the "rows wider than one cell" figure from 25% to 88%
+            // on a change that added no wood at all. Thickness is a
+            // question about the woody stem, so `Leaf` is excluded.
+            let id = if x < WIDTH {
+                let c = w.get(x, y);
+                if organism::unpack_aux(c.aux()).0 == Some(organism::CellType::Leaf) { 0 } else { c.organism_id() }
+            } else {
+                0
+            };
             if id != 0 && id == owner {
                 run += 1;
             } else {

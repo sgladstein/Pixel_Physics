@@ -45,6 +45,16 @@ use super::surface::CellSurface;
 use super::world::World;
 
 const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+/// `Grow` places children at all eight neighbours, so anything reading a
+/// grown organism *back* has to traverse all eight too — see
+/// `reachable_from_anchors` for what happened while it did not.
+///
+/// Transport (`diffuse_resource`) deliberately stays on `NEIGHBOURS_4`: an
+/// exchange happens across a shared face, and diagonal cells share only a
+/// corner. Growth is a *placement* decision with eight options; transport is
+/// a flux across a boundary with four. Both are correct as they stand, and
+/// `Reports/plant-substrate-v2-design.md` §7b makes the same distinction.
+const NEIGHBOURS_8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
 /// Shared vocabulary for what an organism-owned cell currently *is*, packed
 /// into `Cell::aux`'s low 4 bits (`pack_aux`/`unpack_aux` below) — one
@@ -514,7 +524,30 @@ pub fn reachable_from_anchors<S: CellSurface>(
         if visited.len() >= cap {
             break;
         }
-        for (dx, dy) in NEIGHBOURS_4 {
+        // **Eight-connected, and it has to be: `Grow` places children at
+        // eight neighbours, diagonals included.** This traversal was
+        // four-connected, so a tree that had taken any diagonal step — which
+        // is most of them, since `Grow` scores all eight directions and a
+        // straight vertical stem is the rare case — read back as a set of
+        // disconnected fragments.
+        //
+        // Found by `plant.rs`'s `shedding_every_leaf_does_not_disconnect_
+        // the_stem`, which reported 4 of 30 cells reachable from the base of
+        // an intact tree. It was written to catch a different bug and caught
+        // this one instead, which is the argument for asserting the property
+        // rather than the mechanism.
+        //
+        // The consequence was not cosmetic. `thicken()` — the only
+        // production caller — counts downstream `Leaf`/`GrowingTip` cells
+        // through this to decide whether Shinozaki's pipe ratio is cleared,
+        // so it has been counting a small fragment of the canopy rather than
+        // the canopy. Thickening firing rarely and patchily, reported from
+        // live play, is downstream of this.
+        //
+        // Diagonal adjacency really is connection here: the cell was placed
+        // there *by* growth from this one, so treating it as a join is
+        // describing what happened rather than a modelling liberty.
+        for (dx, dy) in NEIGHBOURS_8 {
             let next = (x + dx, y + dy);
             if visited.contains(&next) {
                 continue;
