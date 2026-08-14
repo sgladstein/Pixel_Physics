@@ -359,6 +359,25 @@ pub struct OrganismState {
     /// encoding, and the owner of every entry is unambiguous — which is the
     /// property that made the doc reject a *global* position map.
     pub cells: std::collections::HashSet<(i32, i32)>,
+    /// Below-ground and above-ground cell counts, refreshed once per
+    /// organism tick by `plant::step_organisms` while it is already walking
+    /// the cell list.
+    ///
+    /// **This is what bounds root growth.** Real plants hold a roughly
+    /// conserved root:shoot ratio — roots are a minority of biomass, and a
+    /// tree cannot grow an unbounded root system off a small canopy,
+    /// because roots are built from carbon the canopy fixes. Nothing in the
+    /// engine expressed that, and once soil gave roots income everywhere
+    /// they proliferated until they had converted an entire soil bed to
+    /// root tissue.
+    ///
+    /// A whole-organism total, which `Reports/plant-substrate-v2-design.md`
+    /// §6 explicitly sanctions holding here: allometry is a genuine
+    /// whole-plant property, and no local rule can compute "am I mostly
+    /// root". Kept as counts rather than a ratio so a caller can apply its
+    /// own threshold.
+    pub root_cells: u32,
+    pub shoot_cells: u32,
 }
 
 pub struct SpeciesRegistry {

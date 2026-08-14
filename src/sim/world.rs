@@ -256,6 +256,23 @@ impl World {
     /// parallel-sweep machinery.
     pub fn step_active_sites(&mut self) {
         scheduler::step(self);
+        // Mature organism cells are no longer on that schedule at all --
+        // their upkeep runs here, once per organism. See
+        // `plant::step_organisms`.
+        super::plant::step_organisms(self);
+    }
+
+    /// Every live organism's encoded id.
+    ///
+    /// Collected rather than iterated in place because the caller needs
+    /// `&mut World` to run each organism's pass.
+    pub(crate) fn live_organism_ids(&self) -> Vec<u16> {
+        self.organisms
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.state.is_some())
+            .map(|(i, slot)| encode_organism_id((i + 1) as u16, slot.generation))
+            .collect()
     }
 
     /// Advance every promoted liquid body by one frame — its own serial
@@ -467,7 +484,7 @@ impl World {
     /// moment a future caller needs it. Returns the encoded `organism_id`
     /// to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
-        let state = OrganismState { species, cells: std::collections::HashSet::new() };
+        let state = OrganismState { species, cells: std::collections::HashSet::new(), root_cells: 0, shoot_cells: 0 };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];
             // Wraps at 16 generations (4 bits) rather than growing further

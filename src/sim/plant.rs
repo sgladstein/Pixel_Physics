@@ -265,6 +265,27 @@ const SOIL_UPTAKE_PER_TICK: u16 = 60;
 /// *organism's* draw is the sum and grows with it.
 const TRANSPIRATION_PER_ROOT_CELL: u16 = 12;
 
+/// Most of an organism's cells that may be root before root growth stops.
+///
+/// Real plants hold a roughly conserved **root:shoot ratio** — for trees,
+/// roots are typically on the order of 20-50% of total biomass, because
+/// roots are built from carbon the canopy fixes and a large root system
+/// cannot be funded by a small crown. Nothing expressed that here, and the
+/// consequence was not subtle: once soil moisture gave roots income
+/// everywhere, a stand converted essentially an entire soil bed to root
+/// tissue.
+///
+/// It went unnoticed for a while because the active-site scheduler was
+/// accidentally throttling it — `MAX_SITES_PER_FRAME` capped the due
+/// backlog, so growth was rate-limited by a *budget* rather than by
+/// biology. Moving mature cells off the schedule removed that accident and
+/// exposed the missing bound underneath, which is worth recording: a
+/// performance limit standing in for a design one hides the design one.
+///
+/// `0.5` is the generous end of the real range, chosen so the rule bites
+/// only on runaway growth rather than shaping ordinary root systems.
+const MAX_ROOT_FRACTION: f32 = 0.5;
+
 /// How much canopy density `Behavior::Grow` deposits into a newly-created
 /// cell, once, at creation — `organism::diffuse_resource` (and its own
 /// `CANOPY_DENSITY_DECAY` doc) handles spreading and fading it from there.
@@ -501,6 +522,17 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             } => {
                 if resource < cost {
                     continue;
+                }
+                // Allometry: a root system is bounded by the canopy that
+                // funds it. Reads the counts `step_organisms` refreshed --
+                // no traversal here.
+                if cell_type == CellType::RootTip {
+                    if let Some(state) = world.organism(organism_id) {
+                        let total = state.root_cells + state.shoot_cells;
+                        if total > 0 && (state.root_cells as f32 / total as f32) >= MAX_ROOT_FRACTION {
+                            continue;
+                        }
+                    }
                 }
                 if world.organism_active_tip_count(organism_id, cell_type) >= max_active_tips as usize {
                     // At the species' own cap -- try again later, the same
@@ -889,33 +921,12 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 }
                 world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
             }
-            Behavior::Transpire { rate } => {
-                // Draw water from adjacent soil and lose it. No resource is
-                // credited: transpired water is lost to the air, not eaten
-                // -- see TRANSPIRATION_PER_ROOT_CELL for why this is the
-                // dominant term physically and why it is uncredited.
-                let draw = (TRANSPIRATION_PER_ROOT_CELL as f32 * rate) as u16;
-                if draw > 0 {
-                    for (dx, dy) in NEIGHBOURS_4 {
-                        let (nx, ny) = (x + dx, y + dy);
-                        let n = world.get(nx, ny);
-                        if world.materials.get(n.material).water_capacity == 0 {
-                            continue;
-                        }
-                        let held = update::soil_moisture(n);
-                        if held == 0 {
-                            continue;
-                        }
-                        world.set(nx, ny, n.with_aux(held.saturating_sub(draw)));
-                        // Lost upward, not consumed: the moisture field is
-                        // where the air's humidity lives, so a stand of
-                        // trees genuinely humidifies the air above it.
-                        world.deplete_moisture(nx, ny, 1, -ROOT_MOISTURE_DEPLETION);
-                    }
-                }
-            }
+            Behavior::Transpire { rate } => transpire(world, x, y, rate),
             Behavior::SecondaryThicken { pipe_ratio } => {
-                thicken(world, x, y, organism_id, pipe_ratio, &mut rng);
+                let _ = pipe_ratio;
+                // Thickening runs from `step_organisms`, not from an active
+                // site. Leaving it here would put every mature cell back on
+                // the schedule, which is the cost this change removes.
                 // A `MatureBody` cell's own periodic upkeep, distinct from
                 // `Divide`/`Grow`'s "found a growth candidate" signal --
                 // it has no candidate to find, but still needs to keep
@@ -965,6 +976,16 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     // An ungerminated seed keeps the fast cadence -- it may still be
     // falling, and `relocated_seed`'s search bound assumes it.
     let interval = if cell_type == CellType::Seed { SEED_TICK_INTERVAL } else { ORGANISM_TICK_INTERVAL };
+    // **A cell that is no longer a frontier leaves the schedule.** Its
+    // upkeep runs from `step_organisms` over the organism's own cell list.
+    // This is what makes the active-site heap track the number of *growing*
+    // things rather than an organism's total size -- M16's own stated
+    // principle ("plants only change at their tips -- a trunk is inert"),
+    // which the implementation inverted for as long as `SecondaryThicken`
+    // reported work on every mature cell forever.
+    if !is_frontier(cell_type) && next.is_empty() {
+        return next;
+    }
     if found_candidate || !next.is_empty() {
         // A candidate existed this tick (whether or not any behavior's own
         // roll succeeded) -- reset the staleness counter, mirroring
@@ -993,6 +1014,212 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     // `RootTip`): permanently enclosed -- stop checking, matching the old
     // per-tip/per-root "alive: false" outcome.
     next
+}
+
+/// Upkeep for every organism's **mature** cells — one pass per organism,
+/// instead of one active site per cell.
+///
+/// **This is the structural half of the plant subsystem's cost problem.**
+/// M16's own design states the principle plainly: "plants only change at
+/// their tips — a trunk is inert", and only growing cells should stay
+/// scheduled. The implementation inverted it. A `MatureBody` cell
+/// rescheduled itself forever, because `SecondaryThicken` always reported
+/// work to do, so the active-site heap grew with an organism's *total size*
+/// rather than with its frontier — measured at 2,698 sites for six trees,
+/// and 6s to 41s across a 3x frame increase.
+///
+/// Mature cells now leave the schedule entirely (`organism_tick` stops
+/// rescheduling them) and are visited here through the organism's own cell
+/// list, which is what `OrganismState::cells` was built for.
+///
+/// Two costs collapse at once:
+///
+/// - **The scheduler stops carrying them.** Sites fall to roughly the number
+///   of live tips, which is what the heap was designed to hold.
+/// - **`thicken()`'s flood fill is replaced by one row histogram.** Its leaf
+///   count is "foliage above this row", and it was re-deriving that with a
+///   whole-organism traversal per cell — quadratic in tree size. Counting
+///   leaves per row once, then scanning downward, gives every cell the same
+///   number in O(cells + rows). This is *exactly* the quantity the flood
+///   fill produced: `thicken` already filtered its result to cells above,
+///   and for one connected organism "reachable and above" and "above" are
+///   the same set.
+///
+/// Organisms are staggered by id so they do not all fall due on one frame.
+pub fn step_organisms(world: &mut World) {
+    for organism_id in world.live_organism_ids() {
+        // Spread the load: each organism keeps the same cadence as the
+        // active-site schedule, on its own offset.
+        if !(world.frame + organism_id as u64).is_multiple_of(ORGANISM_TICK_INTERVAL) {
+            continue;
+        }
+        organism_upkeep(world, organism_id);
+    }
+}
+
+fn organism_upkeep(world: &mut World, organism_id: u16) {
+    let Some(state) = world.organism(organism_id) else {
+        return;
+    };
+    let species_id = state.species;
+    if state.cells.is_empty() {
+        return;
+    }
+    let cells: Vec<(i32, i32)> = state.cells.iter().copied().collect();
+
+    // Leaves per row, then a running total downward, so every cell can read
+    // "how much foliage do I carry" without a traversal of its own.
+    let mut leaves_in_row: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
+    let (mut root_cells, mut shoot_cells) = (0u32, 0u32);
+    let mut min_y = i32::MAX;
+    let mut max_y = i32::MIN;
+    for &(cx, cy) in &cells {
+        min_y = min_y.min(cy);
+        max_y = max_y.max(cy);
+        let c = world.get(cx, cy);
+        if c.organism_id() != organism_id {
+            continue;
+        }
+        let ty = organism::unpack_aux(c.aux()).0;
+        if matches!(ty, Some(CellType::Leaf) | Some(CellType::GrowingTip)) {
+            *leaves_in_row.entry(cy).or_insert(0) += 1;
+        }
+        // Root or shoot, tallied in the walk that is already happening.
+        // `rootwood` is the discriminator rather than cell type, because a
+        // retired root and a retired branch are both `MatureBody`.
+        if world.materials.get(c.material).reinforces_powder || ty == Some(CellType::RootTip) {
+            root_cells += 1;
+        } else {
+            shoot_cells += 1;
+        }
+    }
+    if let Some(state) = world.organism_mut(organism_id) {
+        state.root_cells = root_cells;
+        state.shoot_cells = shoot_cells;
+    }
+    let mut leaves_above: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
+    let mut running = 0u32;
+    for y in min_y..=max_y {
+        leaves_above.insert(y, running);
+        running += leaves_in_row.get(&y).copied().unwrap_or(0);
+    }
+
+    for (cx, cy) in cells {
+        let cell = world.get(cx, cy);
+        if cell.organism_id() != organism_id {
+            continue; // burned, erased, or overwritten since the list was taken
+        }
+        let (Some(cell_type), mut resource) = organism::unpack_aux(cell.aux()) else {
+            continue;
+        };
+        if is_frontier(cell_type) {
+            continue; // still on the active-site schedule, handled there
+        }
+
+        let mut rng = rng::stream(organism_id as u64, cx as u64, cy as u64, world.frame);
+        let mut behavior_buf = [None::<Behavior>; MAX_BEHAVIORS_PER_CELL_TYPE];
+        let behavior_count = {
+            let defined = world.species.get(species_id).behaviors(cell_type);
+            let n = defined.len().min(MAX_BEHAVIORS_PER_CELL_TYPE);
+            for (slot, behavior) in behavior_buf.iter_mut().zip(&defined[..n]) {
+                *slot = Some(*behavior);
+            }
+            n
+        };
+        // Canopy density decays here too, or it never decays on mature
+        // tissue at all. It used to fall out of `organism_tick` running on
+        // every cell; taking mature cells off the schedule took their decay
+        // with it, which would freeze old growth's crowding signal forever
+        // and permanently bar new growth from reclaiming space near mature
+        // wood -- the exact property `CANOPY_DENSITY_DECAY_PER_TICK`'s own
+        // doc says the mechanism is for.
+        //
+        // Guarded on change, so a cell whose density has already reached
+        // zero stops writing and stops waking its chunk.
+        let decayed = organism::canopy_density(cell.aux()) * CANOPY_DENSITY_DECAY_PER_TICK;
+        let decayed_aux = organism::with_canopy_density(cell.aux(), decayed);
+        let mut changed = decayed_aux != cell.aux();
+        for behavior in behavior_buf.into_iter().take(behavior_count).flatten() {
+            match behavior {
+                Behavior::Photosynthesize { rate } => {
+                    let light = ambient_light_above(world, cx, cy);
+                    let gained = (resource + rate * light).min(organism::RESOURCE_SCALE);
+                    if gained != resource {
+                        resource = gained;
+                        changed = true;
+                    }
+                }
+                Behavior::Transpire { rate } => {
+                    transpire(world, cx, cy, rate);
+                }
+                Behavior::SecondaryThicken { pipe_ratio } => {
+                    let carried = leaves_above.get(&cy).copied().unwrap_or(0);
+                    thicken(world, cx, cy, organism_id, pipe_ratio, carried as usize, &mut rng);
+                }
+                // Frontier behaviours never run here -- a mature cell has
+                // no growth to do, and `Germinate` belongs to a `Seed`.
+                // Frontier behaviours never run here -- a mature cell has
+                // no growth to do, `Germinate` belongs to a `Seed`, and
+                // `Absorb` is a `RootTip`'s live water uptake (mature root
+                // tissue is suberised and takes up little, which is why
+                // `Transpire` above is what mature roots do instead).
+                Behavior::Grow { .. }
+                | Behavior::Divide { .. }
+                | Behavior::Germinate { .. }
+                | Behavior::Absorb { .. }
+                | Behavior::StructuralAnchor => {}
+            }
+        }
+        if changed {
+            // Re-read: a behaviour above may have written this cell (or
+            // something else may have destroyed it) since it was sampled.
+            let now = world.get(cx, cy);
+            if now.organism_id() == organism_id {
+                // The decayed density is written explicitly rather than
+                // preserved from the world -- preserving would read back the
+                // *un*-decayed value this pass just computed and silently
+                // throw the decay away.
+                let aux = organism::with_canopy_density(organism::pack_aux(cell_type, resource), decayed);
+                world.set(cx, cy, now.with_aux(aux));
+            }
+        }
+    }
+}
+
+/// Cell types that still carry their own active site: the ones that grow.
+/// Everything else is upkeep, and runs from `step_organisms`.
+fn is_frontier(cell_type: CellType) -> bool {
+    matches!(cell_type, CellType::Seed | CellType::GrowingTip | CellType::RootTip)
+}
+
+/// Draw water from adjacent soil and lose it to the air.
+///
+/// No resource is credited: transpired water is lost, not eaten -- see
+/// `TRANSPIRATION_PER_ROOT_CELL` for why this is the physically dominant
+/// term and why crediting it would be wrong. Shared by the active-site
+/// dispatch (a `RootTip`) and the per-organism upkeep pass (mature root
+/// tissue), which are the two places root cells are visited from.
+fn transpire(world: &mut World, x: i32, y: i32, rate: f32) {
+    let draw = (TRANSPIRATION_PER_ROOT_CELL as f32 * rate) as u16;
+    if draw == 0 {
+        return;
+    }
+    for (dx, dy) in NEIGHBOURS_4 {
+        let (nx, ny) = (x + dx, y + dy);
+        let n = world.get(nx, ny);
+        if world.materials.get(n.material).water_capacity == 0 {
+            continue;
+        }
+        let held = update::soil_moisture(n);
+        if held == 0 {
+            continue;
+        }
+        world.set(nx, ny, n.with_aux(held.saturating_sub(draw)));
+        // Vented upward rather than consumed: the moisture field is where
+        // the air's humidity lives, so a stand of trees humidifies the air
+        // above it.
+        world.deplete_moisture(nx, ny, 1, -ROOT_MOISTURE_DEPLETION);
+    }
 }
 
 fn reschedule_organism(x: i32, y: i32, organism: u16, stale_ticks: u8, plastochron: u8, next_frame: u64) -> ActiveSite {
@@ -1061,11 +1288,9 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     next
 }
 
-/// Bound on `SecondaryThicken`'s own downstream-leaf-count flood fill —
-/// `Reports/organism-substrate-design.md` §4's own cited cap, "the same
-/// order-of-magnitude cap `structural.rs`'s own worst-case neighbourhood
-/// traversal already implies is safe per reactive check."
-const MAX_THICKEN_SCAN_CELLS: usize = 2000;
+// `MAX_THICKEN_SCAN_CELLS` is gone along with the flood fill it bounded --
+// `step_organisms` computes the same leaf count once per organism, so there
+// is no per-cell traversal left to cap.
 
 /// `SecondaryThicken`, on a `MatureBody` cell: count downstream `Leaf`
 /// cells of the same organism through connected `Plant` neighbours
@@ -1078,7 +1303,7 @@ const MAX_THICKEN_SCAN_CELLS: usize = 2000;
 /// for a real cross-sectional measurement, which would need actual
 /// perpendicular-to-growth-axis geometry this engine doesn't track per
 /// cell — an honest simplification, not a hidden one.
-fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, rng: &mut Rng) {
+fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, leaf_count: usize, rng: &mut Rng) {
     // **Cheapest possible rejection first.** The flood fill below is
     // O(organism size), and it ran for *every* `MatureBody` cell every tick
     // -- so the cost of thickening was quadratic in tree size, and measured
@@ -1103,46 +1328,24 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
         return;
     }
 
-    let is_plant = |c: Cell| c.organism_id() == organism_id && world.materials.kind(c.material) == MaterialKind::Plant;
-    let reached = organism::reachable_from_anchors(world, [(x, y)], is_plant, MAX_THICKEN_SCAN_CELLS);
-    // Counts `Leaf` *and* `GrowingTip` cells as "downstream photosynthetic
-    // load" -- `tree.ron` gives `GrowingTip` its own `Photosynthesize`
-    // alongside `Grow` rather than spawning a separate `Leaf` cell type
-    // this pass's `Grow` has no mechanism to create (it only ever makes
-    // more of its own parent's cell type). A species that *does* grow a
-    // distinct `Leaf` type would still be counted correctly here; this
-    // isn't `GrowingTip`-specific, it's "every cell type this organism
-    // actually uses to catch light."
-    // Only the foliage this cell actually *carries* — cells above it.
+    // `leaf_count` is the foliage this cell carries -- every `Leaf` or
+    // `GrowingTip` above it -- and it arrives precomputed from
+    // `step_organisms`.
     //
-    // Shinozaki's pipe model says a stem cross-section is proportional to
-    // the leaf area it supplies, and "supplies" is directional: a trunk
-    // carries the whole canopy, a twig near the top carries almost nothing.
-    // The flood fill has no direction in it at all — it spreads from `(x,
-    // y)` across every connected same-organism cell — so without this
-    // filter every cell counts the *entire* organism's leaves and they all
-    // thicken equally. That is a slab, not a trunk, and it is what the
-    // measurement showed the moment the traversal was fixed to eight
-    // neighbours: 100% of rows thickened, uniformly, with no taper.
+    // It used to be derived here, by flood filling the whole organism from
+    // this cell and then filtering the result to cells above. That is the
+    // same set for a connected organism, and it cost a traversal *per cell
+    // per tick*, which made thickening quadratic in tree size and about
+    // half of all simulation time. Counting leaves per row once for the
+    // whole organism and scanning downward produces the identical number in
+    // O(cells + rows).
     //
-    // Worth being precise about what was wrong before, since the constant
-    // was tuned against it: while the traversal was four-connected it
-    // reached only a local fragment of a diagonally-grown tree, which acted
-    // as an accidental stand-in for "nearby, therefore roughly downstream."
-    // `pipe_ratio: 2.5` was calibrated against that broken quantity.
-    //
-    // `ry < y` is screen-space up (y decreases upward). Honest limitation:
-    // this filters the *count*, not the traversal, so a flood can still
-    // route down through the trunk and back up a neighbouring branch and
-    // count its leaves. For a tree that is rare and the effect is small; a
-    // real fix restricts the traversal itself, which needs
-    // `reachable_from_anchors` to pass positions to its predicate. Left as
-    // the cheaper correct-direction version rather than pretending the
-    // limitation is not there.
-    let leaf_count = reached
-        .iter()
-        .filter(|&&(rx, ry)| ry < y && matches!(organism::unpack_aux(world.get(rx, ry).aux()).0, Some(CellType::Leaf) | Some(CellType::GrowingTip)))
-        .count();
+    // Shinozaki's pipe model is what makes "above" the right filter: a stem
+    // cross-section is proportional to the leaf area it supplies, and
+    // supply is directional -- a trunk carries the whole canopy, a twig
+    // near the top carries almost nothing. Counting the entire organism
+    // instead (which the undirected flood fill did before that filter was
+    // added) thickens every cell equally and produces a slab.
     let width = 1 + NEIGHBOURS_4
         .iter()
         .filter(|&&(dx, dy)| dy == 0 && world.get(x + dx, y).organism_id() == organism_id)
