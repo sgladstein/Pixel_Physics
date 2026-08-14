@@ -387,7 +387,32 @@ fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
 
     for dir in [first, second] {
         if let Some(tx) = find_lateral_descent(surface, x, y, dir) {
-            if try_move(surface, x, y, tx, y + 1) {
+            // Land where the cell comes to *rest*, not one row down.
+            //
+            // `find_lateral_descent` picks `tx` precisely because it is a
+            // column the cell can fall down, so the destination is open by
+            // construction: moving to `(tx, y + 1)` always produced a cell
+            // with air above it (the open column) and air below it (the very
+            // reason it was chosen). One such cell is a droplet. A whole
+            // surface row doing it in the same frame is a *sheet* -- and
+            // that is the reported "horizontal banding": a comb of detached
+            // one-cell ledges along a spreading front, air above and below
+            // each one.
+            //
+            // Continuing down to where it would settle costs at most
+            // `LIQUID_SETTLE_DROP` extra rows and removes the artifact
+            // outright, because the cell lands supported instead of hanging.
+            // Measured on a falling, spreading body, as cells belonging to a
+            // horizontal run of six or more such films: **277 -> 0**, and of
+            // twelve or more, **188 -> 0**. Fully-enclosed holes 12 -> 0.
+            // Levelling time 311 -> 291 frames, so it is slightly *faster*,
+            // and the stress-scene worst frame is unchanged.
+            let mut ty = y + 1;
+            let limit = y + 1 + LIQUID_SETTLE_DROP;
+            while ty < limit && surface.in_bounds(tx, ty + 1) && surface.is_empty(tx, ty + 1) {
+                ty += 1;
+            }
+            if try_move(surface, x, y, tx, ty) {
                 return true;
             }
         }
@@ -611,6 +636,18 @@ pub(crate) fn liquid_fill(cell: Cell) -> u16 {
         aux
     }
 }
+
+/// How much further than one row a `find_lateral_descent` move may continue
+/// down, to land supported rather than hanging in mid-air.
+///
+/// Two, and the value genuinely matters less than it looks: 2, 4, 8 and 16
+/// all take the whisker count to exactly zero, because the cell only has to
+/// reach the local surface, not fall to the floor. Unbounded (`MAX_REACH`)
+/// works too and costs a great deal -- the stress scene's worst frame went
+/// from ~9.3 ms to 31 ms, since the scan runs on every one of well over a
+/// million lateral descents. Two is the smallest value that does the whole
+/// job, so it is the one that pays least for it.
+const LIQUID_SETTLE_DROP: i32 = 2;
 
 /// Rises, then spreads. Gases are the mirror of liquids under gravity.
 fn update_gas<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
@@ -2420,40 +2457,33 @@ mod liquid_acceptance {
         );
     }
 
-    /// The whisker bar: one-cell-tall sheets of water with open air both
-    /// above and below, which draw as a comb of detached horizontal ledges
-    /// along a spreading front. Reported from live play as "horizontal
-    /// banding", and distinct from the row banding below — that one is a
-    /// fill deficit inside the body, this one is the shape of its edge.
+    /// The whisker bar: detached one-cell-tall ledges of water along a
+    /// spreading front, reported from live play as "horizontal banding" and
+    /// distinct from the row banding below — that one is a fill deficit
+    /// *inside* the body, this is the shape of its *edge*.
     ///
-    /// Bar 400, measured **290** on a falling, spreading body. Open, and
-    /// deliberately barred at roughly today's value rather than at zero:
-    /// three candidate fixes have been measured and all three rejected, so
-    /// this exists to stop it getting *worse* while the real fix is found,
-    /// not to claim it is solved.
+    /// **Counts cells in a horizontal run of six or more**, not film cells
+    /// outright. That distinction is the whole reason this bug took so long:
+    /// a cell in free fall has air above and below it too, because that is
+    /// what falling looks like, so counting film cells counts every falling
+    /// droplet in the world. Attributing film *creation* under the loose
+    /// definition blamed the plain straight-down fall for 76% of them, which
+    /// is true and useless. With runs, the cause is unambiguous —
+    /// `find_lateral_descent` on: 277 in runs of 6+, 188 in runs of 12+;
+    /// off: 13 and 0.
     ///
-    /// What has been tried, so it is not tried again:
+    /// Bar 40, measured **0**. Fixed by landing a lateral descent where the
+    /// cell comes to rest rather than one row down — see
+    /// `LIQUID_SETTLE_DROP`. Three other candidates were measured and
+    /// rejected first, and are recorded so they are not retried:
     ///
-    /// - **Disable `find_lateral_descent`.** Removes 75% of them (2540 to
-    ///   621 on a larger scene) and destroys the property that rule exists
-    ///   for — without it water reads as sand, which is the original bug.
-    /// - **Land the mover at `(tx, y)` and let it fall next frame** instead
-    ///   of at `(tx, y + 1)`. Whiskers 2540 to 1635, but fully-enclosed
-    ///   holes inside the body went 289 to 1040. Net worse.
+    /// - **Disable `find_lateral_descent`.** Takes runs of 12+ to zero and
+    ///   destroys the property that rule exists for: water reads as sand.
+    /// - **Land at `(tx, y)` and fall next frame.** Runs of 6+ 277 -> 55,
+    ///   but fully-enclosed holes 12 -> 215 and levelling 311 -> 1265
+    ///   frames. Rejected on both.
     /// - **Shrink `LIQUID_LATERAL_REACH`.** A pure trade against levelling
-    ///   speed, with diminishing returns and no path to zero: reach 24/12/6/3
-    ///   gives whiskers 290/175/151/119 against levelling times of
-    ///   343/557/1017/1661 frames. Halving reach costs 62% of the levelling
-    ///   speed for 40% of the whiskers.
-    ///
-    /// What the measurements say about the cause, for whoever picks this up:
-    /// `find_lateral_descent` is **not** teleporting water. 75% of its moves
-    /// are a single-cell diagonal step and only 3% land with air two cells
-    /// below. Whiskers survive at reach 3, so they are not primarily long
-    /// jumps. They look instead like the surface monolayer advancing one
-    /// diagonal step per frame with nothing above to refill the row it
-    /// vacates — which may mean the honest fix is not in the movement rule
-    /// at all, but in how a one-cell-thick sheet is drawn.
+    ///   speed with no path to zero.
     #[test]
     fn a_spreading_front_does_not_shed_a_comb_of_detached_ledges() {
         const WIDTH: i32 = 512;
@@ -2466,25 +2496,35 @@ mod liquid_acceptance {
             }
         }
 
-        let films = |w: &World| {
-            (1..WIDTH - 1)
-                .flat_map(|x| (1..HEIGHT - 1).map(move |y| (x, y)))
-                .filter(|&(x, y)| {
-                    w.get(x, y).material == material::WATER
-                        && w.get(x, y - 1).is_empty()
-                        && w.get(x, y + 1).is_empty()
-                })
-                .count()
+        let is_film = |w: &World, x: i32, y: i32| {
+            w.get(x, y).material == material::WATER && w.get(x, y - 1).is_empty() && w.get(x, y + 1).is_empty()
+        };
+        let whiskers = |w: &World| {
+            let mut total = 0usize;
+            for y in 1..HEIGHT - 1 {
+                let mut run = 0usize;
+                for x in 1..WIDTH {
+                    if x < WIDTH - 1 && is_film(w, x, y) {
+                        run += 1;
+                    } else {
+                        if run >= 6 {
+                            total += run;
+                        }
+                        run = 0;
+                    }
+                }
+            }
+            total
         };
 
         let mut worst = 0;
         for _ in 0..400 {
             parallel::step(&mut w);
-            worst = worst.max(films(&w));
+            worst = worst.max(whiskers(&w));
         }
         assert!(
-            worst <= 400,
-            "a spreading front is shedding {worst} one-cell-tall detached ledges              (bar 400, measured 290; this bar holds the line, it does not claim the bug is fixed)"
+            worst <= 40,
+            "a spreading front is shedding {worst} cells' worth of detached one-cell ledges              (bar 40, measured 0; before the fix 277)"
         );
     }
 
