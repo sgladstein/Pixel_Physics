@@ -12,6 +12,11 @@
     // real root elongation stops (Da Silva/Kay/Perfect 1994), so roots grow
     // through it freely. See Material::penetration_resistance.
     penetration_resistance: 0.8,
+    // Holds water in its pore space -- the only shipped material that does.
+    // See Material::water_capacity for why this is opt-in rather than
+    // universal, and material::SOIL_SATURATED for the scale (0 means dry,
+    // the opposite of a Liquid's fill).
+    water_capacity: 1000,
     colors: [
         (64, 46, 34),
         (74, 54, 40),

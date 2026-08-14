@@ -17,6 +17,7 @@ use super::material::{self, MaterialKind};
 use super::organism::{self, Behavior, CellType};
 use super::rng::{self, Rng};
 use super::scheduler::{ActiveKind, ActiveSite};
+use super::update;
 use super::world::World;
 
 const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
@@ -197,6 +198,17 @@ const MIZ_THRESHOLD: f32 = 0.05;
 /// resource vs. this channel's own 0..4-ish scale) — a separate, freely
 /// tunable amount.
 const ROOT_MOISTURE_DEPLETION: f32 = 1.0;
+
+/// How much held water a root takes from one soil cell in a tick at full
+/// uptake, on `material::SOIL_SATURATED`'s scale.
+///
+/// Sized so a root draws a soil cell from field capacity down toward the
+/// wilting point over a handful of its own ticks rather than instantly:
+/// the interesting behaviour is a root system *competing* with itself and
+/// its neighbours for a finite local store, and an instant drain would
+/// make every root independent of every other. Untuned beyond that
+/// reasoning, and a first-class target for the economy pass.
+const SOIL_UPTAKE_PER_TICK: u16 = 60;
 
 /// How much canopy density `Behavior::Grow` deposits into a newly-created
 /// cell, once, at creation — `organism::diffuse_resource` (and its own
@@ -533,7 +545,31 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 //    trunk into disconnected pieces every plastochron. That
                 //    would have landed two phases later as a mystifying
                 //    "trees fall apart" bug.
-                let self_type_after_grow = if cell_type == CellType::GrowingTip { CellType::MatureBody } else { cell_type };
+                // **A `RootTip` retires too, and it must.** This used to
+                // keep `RootTip` as `RootTip`, with the honest note that
+                // roots "have no `MatureBody`-equivalent 'settled root'
+                // type to retire into yet". That was harmless only because
+                // roots could not grow at all: `Grow` required an empty
+                // neighbour and a root sitting in soil never had one.
+                //
+                // The moment Decision 1(ii) let roots enter soil and
+                // Decision 3 gave them something to eat, every root cell
+                // stayed an eligible growing tip forever and the frontier
+                // multiplied instead of advancing — sprawling horizontal
+                // mats spanning the whole soil bed within 20,000 frames,
+                // which is the identical failure the canopy's own
+                // tip-retirement fix was written for (78% of Grow-evaluated
+                // positions revisited 3+ times, radiating from static hubs).
+                //
+                // `MatureBody` is the right home rather than a new type:
+                // settled root tissue genuinely does thicken and anchor,
+                // which is exactly the behaviour set `tree.ron` already
+                // attaches to it.
+                let self_type_after_grow = if matches!(cell_type, CellType::GrowingTip | CellType::RootTip) {
+                    CellType::MatureBody
+                } else {
+                    cell_type
+                };
 
                 let total: f32 = candidates.iter().map(|&(_, _, s)| s).sum();
                 let mut pick = (rng.below(10_000) as f32 / 10_000.0) * total;
@@ -672,10 +708,56 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // place path alone for water uptake until that's added.
                 for (dx, dy) in NEIGHBOURS_4 {
                     let (nx, ny) = (x + dx, y + dy);
-                    if world.materials.kind(world.get(nx, ny).material) == MaterialKind::Liquid {
-                        world.set(nx, ny, Cell::EMPTY);
-                        resource = (resource + rate).min(organism::RESOURCE_SCALE);
-                        world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
+                    let n = world.get(nx, ny);
+                    match world.materials.kind(n.material) {
+                        MaterialKind::Liquid => {
+                            world.set(nx, ny, Cell::EMPTY);
+                            resource = (resource + rate).min(organism::RESOURCE_SCALE);
+                            world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
+                        }
+                        // **Drink from damp soil** -- Decision 3's §4d path
+                        // 2, and the fix for a gap `PLAN.md` recorded and
+                        // could not close: "`RootTip` has no income source
+                        // of its own besides `Absorb` (which only pays off
+                        // once already touching water) -- a root with no
+                        // adjacent water lives entirely off resource slowly
+                        // diffusing over from the trunk, and can permanently
+                        // go dormant... well before ever reaching a water
+                        // pocket even a few cells away." Confirmed there at
+                        // both 1,500 and 6,000 ticks as a permanent stall,
+                        // not a timing issue.
+                        //
+                        // That is a *missing mechanism*, not a mis-tuned
+                        // one, which is why the cost/rate tuning pass
+                        // PLAN.md proposed as the remedy could never have
+                        // fixed it: tuning cannot adjust an income source
+                        // that does not exist. A root embedded in ordinary
+                        // damp soil now has continuous income proportional
+                        // to how damp that soil is.
+                        //
+                        // Credited on plant *available* water, so it is
+                        // exactly zero at or below the wilting point. Soil
+                        // drier than that gives a root nothing at all,
+                        // which is what makes drought terminal rather than
+                        // merely slow.
+                        MaterialKind::Powder => {
+                            let available = update::plant_available_fraction(n);
+                            if available > 0.0 {
+                                let drawn = (rate * available).min(organism::RESOURCE_SCALE - resource);
+                                if drawn > 0.0 {
+                                    resource += drawn;
+                                    // Take the water actually drunk out of
+                                    // the soil, so the loop closes: a root
+                                    // dries the ground around itself, and
+                                    // the moisture field notices.
+                                    let taken = (drawn / rate.max(f32::EPSILON) * SOIL_UPTAKE_PER_TICK as f32) as u16;
+                                    let left = update::soil_moisture(n).saturating_sub(taken);
+                                    world.set(nx, ny, n.with_aux(left));
+                                    world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));

@@ -35,6 +35,37 @@ pub const BEDROCK: MaterialId = MaterialId(1);
 /// instead — so `aux == 0` on a `Liquid` cell is unambiguous: it always
 /// means "untouched since creation," never "empty."
 pub const LIQUID_FULL: u16 = 1000;
+/// A `Powder` cell's held water, fixed-point on this scale in its `aux`.
+///
+/// **The convention is inverted relative to `LIQUID_FULL` above, and that
+/// is the single easiest thing here to get backwards.** For a `Liquid`,
+/// `aux == 0` means *full* (see that constant's own doc for why). For a
+/// `Powder`, **`aux == 0` means dry** — which is what worldgen, the brush
+/// and every existing test already produce for free, so soil starts dry
+/// rather than every soil-creating call site having to say so.
+///
+/// `Reports/plant-substrate-v2-design.md` §4a calls this out specifically
+/// as the bug to avoid, since `LIQUID_FULL`'s own doc exists because the
+/// same confusion already bit once on the liquid side.
+pub const SOIL_SATURATED: u16 = 1000;
+
+/// Water held against gravity after free drainage — **field capacity**,
+/// conventionally the content at a matric potential of −33 kPa. Soil above
+/// this drains downward; soil at or below it holds what it has.
+pub const SOIL_FIELD_CAPACITY: u16 = 620;
+
+/// **Permanent wilting point**, −1500 kPa: the content below which most
+/// plants can no longer extract water at all. `Absorb` credits nothing here,
+/// which is what makes drought a real terminal failure rather than a slow
+/// one.
+///
+/// Field capacity minus this is **plant available water**, the only band a
+/// plant actually drinks from. Both breakpoints, and the framework tying
+/// them to the penetration bound in `penetration_resistance`, are the least
+/// limiting water range: Da Silva, Kay & Perfect (1994), SSSAJ
+/// 58:1775-1781, refining Letey (1985).
+pub const SOIL_WILTING_POINT: u16 = 180;
+
 /// How much a `Liquid` cell may hold above `LIQUID_FULL` when the cell below
 /// it is also full — the pressure signal that lets a compressed column push
 /// sideways into a shorter neighbour even once every cell in it individually
@@ -288,6 +319,28 @@ pub struct MaterialDef {
     /// eat through it would be discovered as roots growing through a floor.
     #[serde(default = "default_penetration_resistance")]
     pub penetration_resistance: f32,
+    /// Most water this `Powder` can hold in its own pore space, on
+    /// `SOIL_SATURATED`'s scale. **`0` — the default — means it holds none
+    /// at all**, and a material that holds none never absorbs an adjacent
+    /// `Liquid`.
+    ///
+    /// Opt-in rather than universal, and that is a deliberate scope
+    /// decision rather than a modelling claim. Real sand genuinely does
+    /// hold water, and turning that on here is a one-line data change. But
+    /// making *every* `Powder` absorb liquid silently changed what the
+    /// engine's own conservation tests measure — `nothing_escapes_the_
+    /// world` and `a_full_multi_chunk_world_of_sand_and_water_settles_
+    /// under_the_parallel_sweep` both failed, correctly, because water
+    /// entering sand left the liquid tally without anything accounting for
+    /// where it went. Water inside soil is *stored*, not destroyed, but
+    /// nothing outside this field knows that yet, so the honest move is to
+    /// scope the mechanic to the material the plant work actually needs
+    /// and leave the rest of the engine's mass bookkeeping untouched.
+    ///
+    /// Widening it later means teaching those tallies about held water
+    /// first. Flagged rather than done.
+    #[serde(default)]
+    pub water_capacity: u16,
     pub colors: Vec<[u8; 3]>,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
@@ -491,6 +544,8 @@ pub struct Material {
     pub fill_dimming: f32,
     /// See `MaterialDef::penetration_resistance`.
     pub penetration_resistance: f32,
+    /// See `MaterialDef::water_capacity`.
+    pub water_capacity: u16,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
     pub palette: Vec<[u8; 4]>,
@@ -720,6 +775,7 @@ impl From<MaterialDef> for Material {
             min_transfer: def.min_transfer,
             fill_dimming: def.fill_dimming,
             penetration_resistance: def.penetration_resistance,
+            water_capacity: def.water_capacity,
             palette: def
                 .colors
                 .iter()
@@ -829,6 +885,7 @@ impl MaterialRegistry {
             min_transfer: default_min_transfer(),
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
+            water_capacity: 0,
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
@@ -856,6 +913,7 @@ impl MaterialRegistry {
             min_transfer: default_min_transfer(),
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
+            water_capacity: 0,
             colors: vec![[20, 20, 24]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,

@@ -247,8 +247,15 @@ fn build(scene: &str) -> World {
                 // `Powder`'s own `aux`). Until that lands the honest scene
                 // is dry soil, and the puddle below is on the surface where
                 // it will stay put.
+                // Starts at field capacity -- damp, the way real ground
+                // between rain events is, and the state a root system
+                // actually lives in. `Powder` aux is moisture now
+                // (`material::SOIL_SATURATED`, where 0 means *dry*, the
+                // opposite of a liquid's fill), and a scene of bone-dry
+                // soil would sit below the wilting point where `Absorb`
+                // correctly credits nothing at all.
                 for y in TREE_GROUND_Y..(TREE_GROUND_Y + 40) {
-                    w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8));
+                    w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8).with_aux(material::SOIL_FIELD_CAPACITY));
                 }
             }
             w.paint_circle(260, TREE_GROUND_Y - 3, 6, material::WATER);
@@ -341,12 +348,13 @@ fn parse() -> Args {
                 "celltype" => a.organism_overlay = OrganismOverlay::CellType,
                 "resource" => a.organism_overlay = OrganismOverlay::Resource,
                 "canopy" => a.organism_overlay = OrganismOverlay::CanopyDensity,
+                "soil" => a.organism_overlay = OrganismOverlay::SoilMoisture,
                 "light" => a.field_overlay = FieldOverlay::Light,
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
                 "pressure" => a.field_overlay = FieldOverlay::Pressure,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, light, moisture, temperature, pressure"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, soil, light, moisture, temperature, pressure"
                 ),
             },
             "explode" => {

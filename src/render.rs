@@ -223,6 +223,11 @@ pub enum OrganismOverlay {
     /// The crowding signal `Grow`'s `crowding_weight` scores against,
     /// `0..CANOPY_DENSITY_SCALE`.
     CanopyDensity,
+    /// Water held in a `Powder` cell — not organism data, but the same
+    /// question ("what is in this cell that I cannot see") and the channel
+    /// the root work has to be able to look at. Without it, a wetting
+    /// front descending through soil is completely invisible.
+    SoilMoisture,
 }
 
 impl OrganismOverlay {
@@ -231,7 +236,8 @@ impl OrganismOverlay {
             OrganismOverlay::Off => OrganismOverlay::CellType,
             OrganismOverlay::CellType => OrganismOverlay::Resource,
             OrganismOverlay::Resource => OrganismOverlay::CanopyDensity,
-            OrganismOverlay::CanopyDensity => OrganismOverlay::Off,
+            OrganismOverlay::CanopyDensity => OrganismOverlay::SoilMoisture,
+            OrganismOverlay::SoilMoisture => OrganismOverlay::Off,
         }
     }
 
@@ -241,6 +247,7 @@ impl OrganismOverlay {
             OrganismOverlay::CellType => "CELL TYPE",
             OrganismOverlay::Resource => "RESOURCE",
             OrganismOverlay::CanopyDensity => "CANOPY DENSITY",
+            OrganismOverlay::SoilMoisture => "SOIL MOISTURE",
         }
     }
 }
@@ -271,6 +278,7 @@ const CELL_TYPE_BLEND: f32 = 0.85;
 /// very different bugs.
 const SCALAR_RAMP_RESOURCE: [f32; 3] = [120.0, 255.0, 160.0];
 const SCALAR_RAMP_CANOPY: [f32; 3] = [255.0, 80.0, 80.0];
+const SCALAR_RAMP_MOISTURE: [f32; 3] = [80.0, 170.0, 255.0];
 
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
@@ -867,12 +875,27 @@ impl Renderer {
             return base;
         }
         let cell = world.get(x, y);
+        if self.organism_overlay == OrganismOverlay::SoilMoisture {
+            if world.materials.kind(cell.material) != material::MaterialKind::Powder {
+                return base;
+            }
+            let t = crate::sim::update::soil_moisture(cell) as f32 / material::SOIL_SATURATED as f32;
+            let ramp = scalar_ramp(t.clamp(0.0, 1.0), SCALAR_RAMP_MOISTURE);
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
         if cell.organism_id() == 0 {
             return base;
         }
         let (cell_type, resource) = organism::unpack_aux(cell.aux());
         let (ramp, blend) = match self.organism_overlay {
-            OrganismOverlay::Off => return base,
+            // Both handled above, before the organism-tissue guard: `Off`
+            // returns immediately, and `SoilMoisture` asks about inert
+            // `Powder` rather than organism cells.
+            OrganismOverlay::Off | OrganismOverlay::SoilMoisture => return base,
             OrganismOverlay::CellType => {
                 // An unrecognized type bit pattern is a real possibility
                 // (`organism.rs`'s own `an_unrecognized_type_bit_pattern_
