@@ -249,15 +249,40 @@ mod tests {
             n
         };
 
-        run(&mut w, 20_000);
+        run(&mut w, 5_000);
         let after_reseed = count_moss_and_wood(&w);
-        assert!(after_reseed > 0, "test setup: nothing reseeded at all in twenty thousand frames");
+        assert!(after_reseed > 0, "test setup: nothing reseeded at all in five thousand frames");
 
         // Long enough for moss's own near-zero Divide cost (or a tree's
         // Germinate/Grow cadence) to have produced several more cells if
         // -- and only if -- the reseeded organism's own scheduling
         // actually reached the heap.
-        run(&mut w, 20_000);
+        //
+        // **The window used to be 20,000 then 20,000, and it had to move.**
+        // Measured over this exact scene, the reseeded population grows
+        // 71 -> 176 -> 225 cells at frames 5k/10k/15k and then stops dead:
+        // 225 at every sample from 15k to 40k, with zero moss cells left
+        // holding an empty growable neighbour. The old second window was
+        // therefore entirely inside the saturated regime and asserted that
+        // growth continued where, correctly, none could.
+        //
+        // It passed anyway until this session, for a reason worth writing
+        // down: the plastochron change gave shoots persistent `Leaf` cells
+        // and so more standing income, trees now reach their frontier
+        // ceiling (every lineage retired to `MatureBody`, nothing able to
+        // open a new one) sooner, and saturation crossed below the 20,000
+        // mark. The per-organism RNG then shifted it just far enough to
+        // fail. Neither change broke the property this test exists for --
+        // they moved the point where the *proxy* for it stops being
+        // measurable.
+        //
+        // 5k/5k sits well inside the growing regime at both ends (71 then
+        // 176, against saturation at ~15k), per this repo's "set bars from
+        // measurement with headroom" convention. The assertion itself is
+        // unchanged and still fails outright if a reseeded organism never
+        // advances past its first cell, which is the scheduler regression
+        // (code-review item #2's bug #2) it was written to catch.
+        run(&mut w, 5_000);
         let after_more_growth = count_moss_and_wood(&w);
         assert!(
             after_more_growth > after_reseed,
@@ -292,4 +317,6 @@ mod tests {
         assert_eq!(w.get(30, 30).material, material::ASH, "test setup should have burned out to ash");
         assert!(w.active_site_count() > 0, "burning out to ash should have scheduled a decay check");
     }
+
+
 }

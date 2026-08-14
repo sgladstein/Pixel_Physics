@@ -15,6 +15,7 @@ use super::cell::Cell;
 use super::field::FIELD_SCALE;
 use super::material::MaterialKind;
 use super::organism::{self, Behavior, CellType};
+use super::rng::{self, Rng};
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
@@ -257,6 +258,16 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     let cell = cell.with_aux(organism::with_canopy_density(cell.aux(), decayed_density));
     world.set(x, y, cell);
 
+    // One stream per (organism, cell, tick), seeded from exactly those --
+    // never `world.rng`, whose sequence depends on how many draws every
+    // *other* organism made first. See `rng::stream` for why that coupling
+    // makes `examples/debug_tree_variants.rs`'s side-by-side comparison
+    // unsound, and why both research reports blame the wrong generator for
+    // it. `world.frame` is in the seed so a cell that ticks repeatedly does
+    // not redraw the same numbers; `(x, y)` so two cells of one organism
+    // ticking on the same frame diverge.
+    let mut rng = rng::stream(organism_id as u64, x as u64, y as u64, world.frame);
+
     let mut next = Vec::new();
     let mut found_candidate = false;
     for behavior in behaviors {
@@ -276,14 +287,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     continue;
                 }
                 found_candidate = true;
-                let (tx, ty) = candidates[world.rng.below(candidates.len() as u32) as usize];
+                let (tx, ty) = candidates[rng.below(candidates.len() as u32) as usize];
                 let mut chance = if is_damp(world, tx, ty) { damp_chance } else { dry_chance };
                 if shade_sensitive {
                     chance *= shade_factor(world, tx, ty);
                 }
-                if world.rng.chance(chance) {
+                if rng.chance(chance) {
                     let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
-                    let shade = world.rng.below(shades) as u8;
+                    let shade = rng.below(shades) as u8;
                     // The new cell starts at 0, not at the parent's own
                     // post-cost level -- giving it `resource - cost` (an
                     // earlier version's bug, caught by independent review)
@@ -460,7 +471,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 };
 
                 let total: f32 = candidates.iter().map(|&(_, _, s)| s).sum();
-                let mut pick = (world.rng.below(10_000) as f32 / 10_000.0) * total;
+                let mut pick = (rng.below(10_000) as f32 / 10_000.0) * total;
                 let mut chosen = candidates[0];
                 for &c in &candidates {
                     if pick < c.2 {
@@ -472,7 +483,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 let (tx, ty, _) = chosen;
 
                 let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
-                let shade = world.rng.below(shades) as u8;
+                let shade = rng.below(shades) as u8;
                 // Canopy density deposited once, here, at creation --
                 // `organism::diffuse_resource`'s own doc explains why this
                 // lives at the moment of growth rather than a continuous
@@ -515,14 +526,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // single tick's branch roll overshoot it by one right at
                 // the cap.
                 if resource >= cost
-                    && world.rng.chance(branch_chance)
+                    && rng.chance(branch_chance)
                     && world.organism_active_tip_count(organism_id, cell_type) + 1 < max_active_tips as usize
                 {
                     let alt: Vec<(i32, i32, f32)> = candidates.into_iter().filter(|&(nx, ny, _)| (nx, ny) != (tx, ty)).collect();
                     if !alt.is_empty() {
-                        let (bx, by, _) = alt[world.rng.below(alt.len() as u32) as usize];
+                        let (bx, by, _) = alt[rng.below(alt.len() as u32) as usize];
                         if world.is_empty(bx, by) {
-                            let branch_shade = world.rng.below(shades) as u8;
+                            let branch_shade = rng.below(shades) as u8;
                             let branch_aux = organism::with_canopy_density(organism::pack_aux(cell_type, 0.0), GROW_CANOPY_DEPOSIT);
                             let branch_cell = Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(branch_aux);
                             world.set(bx, by, branch_cell);
@@ -570,7 +581,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
             }
             Behavior::SecondaryThicken { pipe_ratio } => {
-                thicken(world, x, y, organism_id, pipe_ratio);
+                thicken(world, x, y, organism_id, pipe_ratio, &mut rng);
                 // A `MatureBody` cell's own periodic upkeep, distinct from
                 // `Divide`/`Grow`'s "found a growth candidate" signal --
                 // it has no candidate to find, but still needs to keep
@@ -588,7 +599,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     light >= light_threshold && moisture >= moisture_threshold
                 };
                 if ready {
-                    return germinate(world, x, y, organism_id, cell);
+                    return germinate(world, x, y, organism_id, cell, &mut rng);
                 }
                 // Not ready yet: waiting on a condition that hasn't
                 // arrived, not a dead end -- the same "temporary
@@ -643,7 +654,7 @@ fn reschedule_organism(x: i32, y: i32, organism: u16, stale_ticks: u8, plastochr
 /// starts one cell down, mirroring the old `plant_tree_seed`'s symmetric
 /// "one tip up, one root down, both starting at the seed's own position"
 /// shape.
-fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell) -> Vec<ActiveSite> {
+fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rng: &mut Rng) -> Vec<ActiveSite> {
     // No `schedule_structural_check_around` on either the new tip or the
     // root -- see the identical reasoning on `Behavior::Grow`'s own child
     // creation above. A freshly germinated seed is not yet connected to any
@@ -653,7 +664,7 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell) ->
     let mut next = vec![reschedule_organism(x, y, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL)];
     if world.is_empty(x, y + 1) {
         let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
-        let shade = world.rng.below(shades) as u8;
+        let shade = rng.below(shades) as u8;
         let root_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::RootTip, 0.0));
         world.set(x, y + 1, root_cell);
         next.push(reschedule_organism(x, y + 1, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
@@ -678,7 +689,7 @@ const MAX_THICKEN_SCAN_CELLS: usize = 2000;
 /// for a real cross-sectional measurement, which would need actual
 /// perpendicular-to-growth-axis geometry this engine doesn't track per
 /// cell — an honest simplification, not a hidden one.
-fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32) {
+fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, rng: &mut Rng) {
     let is_plant = |c: Cell| c.organism_id() == organism_id && world.materials.kind(c.material) == MaterialKind::Plant;
     let reached = organism::reachable_from_anchors(world, [(x, y)], is_plant, MAX_THICKEN_SCAN_CELLS);
     // Counts `Leaf` *and* `GrowingTip` cells as "downstream photosynthetic
@@ -705,7 +716,7 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32)
         if world.is_empty(nx, ny) {
             let cell = world.get(x, y);
             let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
-            let shade = world.rng.below(shades) as u8;
+            let shade = rng.below(shades) as u8;
             let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::MatureBody, 0.0));
             world.set(nx, ny, new_cell);
             // No structural check here either -- same reasoning as `Grow`'s
@@ -1564,15 +1575,31 @@ mod tests {
     ///
     /// Both halves are measured against the committed baseline in
     /// `docs/screenshots/plant-v2-baseline/`, where the same scene gives 0
-    /// leaves and a thickest contiguous run of 1. Bars sit well under what
-    /// was measured after the change (18 leaves, run of 4), per this repo's
-    /// "set bars from measurement with headroom" convention — they exist to
-    /// catch the mechanism going inert again, not to pin the exact shape,
-    /// which is expected to keep moving as later phases land.
+    /// leaves and a thickest contiguous run of 1.
+    ///
+    /// **Deliberately an ensemble, not one tree, and the reason is
+    /// measured.** Twelve identical trees in one scene
+    /// (`examples/plant_probe.rs -- trees=12`) span 31 to 153 cells and 10
+    /// to 33 leaves — a five-fold spread from the same species file, same
+    /// scene and same frame count, with only position separating them. A
+    /// single tree is therefore a sample from a very wide distribution, and
+    /// a bar set against one run would be flaky in whichever direction that
+    /// run happened to land. This was found the hard way: the first version
+    /// of this test asserted `>= 5` leaves off a single measured 18, and
+    /// swapping to a per-organism RNG — which changes *which* numbers a
+    /// tree draws, not how many or their distribution — dropped the same
+    /// scene to 4 and failed it.
+    ///
+    /// Bars are set under the ensemble minimum with headroom, per this
+    /// repo's own convention. They exist to catch the mechanism going inert
+    /// again (baseline: exactly 0 leaves, run of 1), not to pin a shape
+    /// that is expected to keep moving as later phases land.
     #[test]
-    fn a_grown_tree_produces_leaves_and_a_trunk_thicker_than_one_cell() {
+    fn grown_trees_produce_leaves_and_a_trunk_thicker_than_one_cell() {
         let mut w = test_world();
-        w.plant_tree(100, 20);
+        for x in [40, 90, 140] {
+            w.plant_tree(x, 20);
+        }
         run_with_fields(&mut w, 8000);
 
         let b = w.bounds().unwrap();
@@ -1584,7 +1611,7 @@ mod tests {
                 }
             }
         }
-        assert!(leaves >= 5, "a grown tree should carry real Leaf cells; got {leaves} (baseline before the plastochron: 0)");
+        assert!(leaves >= 6, "three grown trees should carry real Leaf cells; got {leaves} across all three (baseline before the plastochron: 0)");
 
         let thickest = (b.min_y..=b.max_y)
             .map(|y| {

@@ -49,8 +49,30 @@ fn main() {
     // reading any thickness number off this probe, and worth fixing when
     // `thicken()` is next touched: growing sideways along one open row is
     // a pancake, not a trunk.
-    w.plant_tree(200, GROUND_Y - 1);
-    w.paint_circle(150, GROUND_Y - 4, 7, material::WATER);
+    // `trees=N` plants N well-separated trees in one world and reports the
+    // spread of outcomes rather than one number.
+    //
+    // **This is not a nicety.** Swapping `plant.rs` from the shared
+    // `World::rng` to a per-organism stream -- a change that alters *which*
+    // numbers a tree draws, not how many or how they are distributed --
+    // moved this scene from 69 cells and 18 leaves to 19 and 6. Same
+    // species file, same scene, same frame count. A single run therefore
+    // cannot tell "this parameter is better" from "this run drew luckier
+    // numbers", which is exactly what `examples/debug_tree_variants.rs`
+    // does today with n=1 per variant, and exactly what
+    // `Reports/population-dynamics-research.md` §8 argues about ecologies
+    // ("single runs prove nothing... acceptance must be over an ensemble").
+    // The plant work needs it first, so it grows here.
+    let trees: usize = std::env::args()
+        .find_map(|a| a.strip_prefix("trees=").map(|v| v.parse().expect("trees")))
+        .unwrap_or(1);
+    let spacing = WIDTH / (trees as i32 + 1);
+    for i in 0..trees as i32 {
+        w.plant_tree(spacing * (i + 1), GROUND_Y - 1);
+    }
+    if trees == 1 {
+        w.paint_circle(150, GROUND_Y - 4, 7, material::WATER);
+    }
 
     let mut awake_frames = 0u64;
     for _ in 0..frames {
@@ -70,6 +92,7 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
     );
 
     let mut cells = Vec::new();
+    let mut per_organism: std::collections::BTreeMap<u16, (usize, usize)> = std::collections::BTreeMap::new();
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
             let c = w.get(x, y);
@@ -77,8 +100,31 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
                 continue;
             }
             let (ty, resource) = organism::unpack_aux(c.aux());
+            let entry = per_organism.entry(c.organism_id()).or_insert((0, 0));
+            entry.0 += 1;
+            if ty == Some(organism::CellType::Leaf) {
+                entry.1 += 1;
+            }
             cells.push((x, y, ty, resource, organism::canopy_density(c.aux())));
         }
+    }
+
+    if trees > 1 {
+        let sizes: Vec<usize> = per_organism.values().map(|v| v.0).collect();
+        let leaves: Vec<usize> = per_organism.values().map(|v| v.1).collect();
+        let stat = |v: &[usize]| {
+            let mut s = v.to_vec();
+            s.sort_unstable();
+            let sum: usize = s.iter().sum();
+            (s.first().copied().unwrap_or(0), s[s.len() / 2], s.last().copied().unwrap_or(0), sum as f32 / s.len().max(1) as f32)
+        };
+        let (smin, smed, smax, smean) = stat(&sizes);
+        let (lmin, lmed, lmax, lmean) = stat(&leaves);
+        println!("\nensemble of {} trees, identical species and scene:", per_organism.len());
+        println!("  cells  min {smin:>4}  median {smed:>4}  max {smax:>4}  mean {smean:>7.1}");
+        println!("  leaves min {lmin:>4}  median {lmed:>4}  max {lmax:>4}  mean {lmean:>7.1}");
+        println!("  per-tree sizes  {sizes:?}");
+        println!("  per-tree leaves {leaves:?}");
     }
 
     println!("\n{} organism cells", cells.len());
