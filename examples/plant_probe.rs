@@ -22,7 +22,17 @@ const WIDTH: i32 = 512;
 const HEIGHT: i32 = 320;
 /// Matches `filmstrip`'s `TREE_GROUND_Y` — see that constant's doc for why
 /// the depth is pinned to `field.rs`'s light profile rather than chosen.
-const GROUND_Y: i32 = 40;
+/// Overridable with `ground=N`, because the default is low enough to cap
+/// the answer: at `ground=40` there are only 40 rows of sky, and trees
+/// median 35 of them — so a height reading there measures the *scene*, not
+/// the plant. `field.rs`'s `LIGHT_DECAY` puts `Germinate`'s `0.1` crossing
+/// around 75 cells below open sky, so ~70 is the deepest ground that still
+/// germinates, and the widest window this question can be asked in.
+fn ground_y() -> i32 {
+    std::env::args()
+        .find_map(|a| a.strip_prefix("ground=").map(|v| v.parse().expect("ground")))
+        .unwrap_or(40)
+}
 
 fn main() {
     let frames: u64 = std::env::args()
@@ -32,23 +42,10 @@ fn main() {
 
     let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
     for x in 0..WIDTH {
-        for y in GROUND_Y..(GROUND_Y + 6) {
+        for y in ground_y()..(ground_y() + 6) {
             w.set(x, y, Cell::new(material::STONE, 0));
         }
     }
-    // Must stay identical to `filmstrip`'s own `tree` scene, including the
-    // puddle, and that is not a cosmetic detail. Without it, row `GROUND_Y
-    // - 1` is open air for the tree's whole life and `thicken()` -- which
-    // only ever grows left/right into an *empty* neighbour -- spreads along
-    // it unopposed, reporting a 19-cell contiguous run at the base. With
-    // the puddle, water occupies that row, `world.is_empty` refuses, and
-    // the same tree bases out at 2-3 cells.
-    //
-    // So `SecondaryThicken`'s ground-level behaviour is decided by whatever
-    // happens to be lying on the row beside the trunk. Worth knowing before
-    // reading any thickness number off this probe, and worth fixing when
-    // `thicken()` is next touched: growing sideways along one open row is
-    // a pancake, not a trunk.
     // `trees=N` plants N well-separated trees in one world and reports the
     // spread of outcomes rather than one number.
     //
@@ -68,10 +65,26 @@ fn main() {
         .unwrap_or(1);
     let spacing = WIDTH / (trees as i32 + 1);
     for i in 0..trees as i32 {
-        w.plant_tree(spacing * (i + 1), GROUND_Y - 1);
+        w.plant_tree(spacing * (i + 1), ground_y() - 1);
     }
     if trees == 1 {
-        w.paint_circle(150, GROUND_Y - 4, 7, material::WATER);
+        // The single-tree case must stay identical to `filmstrip`'s own
+        // `tree` scene, puddle included, and that is not a cosmetic detail.
+        // Without it, row `ground_y() - 1` is open air for the tree's whole
+        // life and `thicken()` -- which only ever grows left/right into an
+        // *empty* neighbour -- spreads along it unopposed, reporting a
+        // 19-cell contiguous run at the base. With the puddle, water
+        // occupies that row, `world.is_empty` refuses, and the same tree
+        // bases out at 2-3 cells.
+        //
+        // So `SecondaryThicken`'s ground-level behaviour is decided by
+        // whatever happens to be lying on the row beside the trunk. Worth
+        // knowing before reading any thickness number off this probe, and
+        // worth fixing when `thicken()` is next touched: growing sideways
+        // along one open row is a pancake, not a trunk. The ensemble runs
+        // without a puddle, so its thickness figures are the *unopposed*
+        // case and should be read as an upper bound.
+        w.paint_circle(150, ground_y() - 4, 7, material::WATER);
     }
 
     let mut awake_frames = 0u64;
@@ -92,7 +105,11 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
     );
 
     let mut cells = Vec::new();
-    let mut per_organism: std::collections::BTreeMap<u16, (usize, usize)> = std::collections::BTreeMap::new();
+    // Per organism: cells, leaves, min y, max y — height and thickness are
+    // the two numbers the owner's original complaint was actually about
+    // ("one cell thick", "still a tiny tree"), so they get reported per
+    // tree across the ensemble rather than as one run's figure.
+    let mut per_organism: std::collections::BTreeMap<u16, (usize, usize, i32, i32)> = std::collections::BTreeMap::new();
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
             let c = w.get(x, y);
@@ -100,18 +117,65 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
                 continue;
             }
             let (ty, resource) = organism::unpack_aux(c.aux());
-            let entry = per_organism.entry(c.organism_id()).or_insert((0, 0));
+            let entry = per_organism.entry(c.organism_id()).or_insert((0, 0, i32::MAX, i32::MIN));
             entry.0 += 1;
             if ty == Some(organism::CellType::Leaf) {
                 entry.1 += 1;
             }
+            entry.2 = entry.2.min(y);
+            entry.3 = entry.3.max(y);
             cells.push((x, y, ty, resource, organism::canopy_density(c.aux())));
+        }
+    }
+
+    // Thickest contiguous run per organism, so a wide row is only counted
+    // when it belongs to one tree -- the same distinction the whole-world
+    // measure got wrong once already (see `thickest` below).
+    let mut thickest_per_organism: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+    // Same measure, but ignoring the three rows sitting on the ground. The
+    // whole-tree figure is dominated by `thicken()` spreading sideways
+    // along the open row at the trunk's foot, which is a pancake rather
+    // than a trunk; this one answers "how thick is the stem *above* its
+    // base", which is what "one cell thick" was ever about.
+    let mut thickest_above_base: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+    // "Thickest" is a *max over rows*: a tree with one 5-wide row and sixty
+    // 1-wide rows scores 5, which reads as "5 cells thick" and is not what
+    // anyone means by it. This counts what share of a tree's occupied rows
+    // are wider than one cell -- the difference between a tapered trunk and
+    // a whip with a lump on it.
+    let mut rows_total: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+    let mut rows_wide: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+    for y in 0..HEIGHT {
+        let (mut run, mut owner) = (0usize, 0u16);
+        for x in 0..=WIDTH {
+            let id = if x < WIDTH { w.get(x, y).organism_id() } else { 0 };
+            if id != 0 && id == owner {
+                run += 1;
+            } else {
+                if owner != 0 {
+                    let e = thickest_per_organism.entry(owner).or_insert(0);
+                    *e = (*e).max(run);
+                    if y < ground_y() - 3 {
+                        let e = thickest_above_base.entry(owner).or_insert(0);
+                        *e = (*e).max(run);
+                    }
+                    *rows_total.entry(owner).or_insert(0) += 1;
+                    if run > 1 {
+                        *rows_wide.entry(owner).or_insert(0) += 1;
+                    }
+                }
+                owner = id;
+                run = 1;
+            }
         }
     }
 
     if trees > 1 {
         let sizes: Vec<usize> = per_organism.values().map(|v| v.0).collect();
         let leaves: Vec<usize> = per_organism.values().map(|v| v.1).collect();
+        let heights: Vec<usize> = per_organism.values().map(|v| (v.3 - v.2 + 1) as usize).collect();
+        let thicks: Vec<usize> = per_organism.keys().map(|k| thickest_per_organism.get(k).copied().unwrap_or(0)).collect();
+        let thicks_up: Vec<usize> = per_organism.keys().map(|k| thickest_above_base.get(k).copied().unwrap_or(0)).collect();
         let stat = |v: &[usize]| {
             let mut s = v.to_vec();
             s.sort_unstable();
@@ -121,10 +185,26 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         let (smin, smed, smax, smean) = stat(&sizes);
         let (lmin, lmed, lmax, lmean) = stat(&leaves);
         println!("\nensemble of {} trees, identical species and scene:", per_organism.len());
-        println!("  cells  min {smin:>4}  median {smed:>4}  max {smax:>4}  mean {smean:>7.1}");
-        println!("  leaves min {lmin:>4}  median {lmed:>4}  max {lmax:>4}  mean {lmean:>7.1}");
-        println!("  per-tree sizes  {sizes:?}");
-        println!("  per-tree leaves {leaves:?}");
+        let (hmin, hmed, hmax, hmean) = stat(&heights);
+        let (tmin, tmed, tmax, tmean) = stat(&thicks);
+        println!("  cells     min {smin:>4}  median {smed:>4}  max {smax:>4}  mean {smean:>7.1}");
+        println!("  leaves    min {lmin:>4}  median {lmed:>4}  max {lmax:>4}  mean {lmean:>7.1}");
+        println!("  height    min {hmin:>4}  median {hmed:>4}  max {hmax:>4}  mean {hmean:>7.1}   (scene ceiling: {} rows of sky)", ground_y());
+        let wide_pct: Vec<usize> = per_organism
+            .keys()
+            .map(|k| {
+                let t = rows_total.get(k).copied().unwrap_or(1).max(1);
+                100 * rows_wide.get(k).copied().unwrap_or(0) / t
+            })
+            .collect();
+        let (wmin, wmed, wmax, wmean) = stat(&wide_pct);
+        let (umin, umed, umax, umean) = stat(&thicks_up);
+        println!("  thickness min {tmin:>4}  median {tmed:>4}  max {tmax:>4}  mean {tmean:>7.1}   (whole tree, incl. ground-level spread)");
+        println!("  stem thick min {umin:>3}  median {umed:>4}  max {umax:>4}  mean {umean:>7.1}   (above the base -- the real trunk)");
+        println!("  rows >1 cell wide, as % of each tree's occupied rows: min {wmin}  median {wmed}  max {wmax}  mean {wmean:.0}");
+        println!("  per-tree sizes     {sizes:?}");
+        println!("  per-tree heights   {heights:?}");
+        println!("  per-tree thickness {thicks:?}");
     }
 
     println!("\n{} organism cells", cells.len());
