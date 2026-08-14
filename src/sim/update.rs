@@ -187,12 +187,6 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
 /// than an instant teleport, which is the behaviour worth having.
 const SOIL_DRAINAGE_RATE: f32 = 0.25;
 
-/// Absorb a whole `Liquid` neighbour only when the receiving cell has at
-/// least this much room, so infiltration cannot destroy most of a water
-/// cell to gain a sliver of moisture. One `water` cell is one unit of
-/// `SOIL_SATURATED`, so the exchange is mass-conserving at the boundary.
-const SOIL_INFILTRATION_MIN_ROOM: u16 = material::SOIL_SATURATED / 2;
-
 /// Is this grain held in place by a root threading through it?
 ///
 /// Four-neighbour, not eight: a root crossing a shear plane reinforces the
@@ -245,20 +239,53 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     let here = soil_moisture(cell);
     let mut moisture = here;
 
-    if moisture + SOIL_INFILTRATION_MIN_ROOM <= capacity {
-        for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
-            let n = surface.get(x + dx, y + dy);
-            if surface.materials().kind(n.material) != MaterialKind::Liquid {
-                continue;
-            }
-            let taken = liquid_fill(n).min(capacity - moisture);
-            if taken == 0 {
-                continue;
-            }
-            moisture += taken;
-            surface.set(x + dx, y + dy, Cell::EMPTY);
-            break; // one neighbour per visit -- infiltration is not instant
+    // Infiltration: soil drinks an adjacent liquid, taking only what fits
+    // and leaving the rest as water.
+    //
+    // **Both halves of this were wrong, and the first was reported from
+    // live play** — "there is no mechanism for water getting absorbed into
+    // soil and increasing its moisture", which was correct as observed even
+    // though the mechanism was right here.
+    //
+    // The gate used to be `moisture + SOIL_SATURATED / 2 <= capacity`,
+    // meaning soil could only absorb while under **half** saturated. Field
+    // capacity is 620 of 1000, so any ground at or above field capacity —
+    // which is what ordinary damp soil between rain events *is*, and what
+    // `filmstrip`'s `forest` scene starts at — was completely waterproof. A
+    // puddle sat on top of it forever. The gate existed to stop a nearly
+    // full cell destroying a whole water cell for a sliver of moisture,
+    // which was a real problem; it was just solved in the wrong place.
+    //
+    // Solving it properly removes the need for the gate: take `min(fill,
+    // room)` and **write the remainder back as water** instead of deleting
+    // the cell outright. Absorbing a cell whole and keeping only part of it
+    // was a silent mass leak, and one the old gate hid rather than fixed —
+    // `infiltration_conserves_water_it_cannot_fit` passed against the gated
+    // version only because infiltration never ran at all in that setup.
+    for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
+        if moisture >= capacity {
+            break;
         }
+        let n = surface.get(x + dx, y + dy);
+        if surface.materials().kind(n.material) != MaterialKind::Liquid {
+            continue;
+        }
+        let fill = liquid_fill(n);
+        let taken = fill.min(capacity - moisture);
+        if taken == 0 {
+            continue;
+        }
+        moisture += taken;
+        if taken >= fill {
+            surface.set(x + dx, y + dy, Cell::EMPTY);
+        } else {
+            // Partly drunk. `aux` on a `Liquid` is its fill, and 0 there
+            // means *full* rather than empty, so a genuinely drained cell
+            // must become `Cell::EMPTY` and never `with_aux(0)` — the
+            // gotcha `material::LIQUID_FULL`'s own doc exists for.
+            surface.set(x + dx, y + dy, n.with_aux(fill - taken));
+        }
+        break; // one neighbour per visit -- infiltration is not instant
     }
 
     if moisture > material::SOIL_FIELD_CAPACITY {
@@ -2028,6 +2055,77 @@ mod tests {
             held > 0,
             "water that soaked in has to be *somewhere* -- it is stored as per-cell moisture, not destroyed"
         );
+    }
+
+    /// Reported from live play: "there is no mechanism for water getting
+    /// absorbed into soil and increasing its moisture." Correct as
+    /// observed, and this is the reproduction.
+    ///
+    /// Damp ground — not dry ground — is the case that matters, because it
+    /// is the case a scene actually contains: soil between rain events sits
+    /// near field capacity, which is what `filmstrip`'s `forest` scene
+    /// starts at.
+    #[test]
+    fn damp_soil_still_absorbs_a_puddle() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..64 {
+            for y in 40..50 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        for x in 20..30 {
+            w.set(x, 39, Cell::new(material::WATER, 0));
+        }
+
+        run(&mut w, 600);
+
+        assert_eq!(
+            count(&w, material::WATER),
+            0,
+            "a puddle sitting on damp soil should soak in; ground at field capacity is not waterproof"
+        );
+    }
+
+    /// Infiltration must not destroy the water it cannot fit.
+    ///
+    /// A cell is absorbed whole, so any fill beyond the receiving cell's
+    /// remaining room used to vanish — invisible in play, and exactly the
+    /// class of silent mass leak the engine's own conservation tests exist
+    /// to catch elsewhere.
+    #[test]
+    fn infiltration_conserves_water_it_cannot_fit() {
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        // One soil cell with only a little room, under a full water cell,
+        // walled so nothing can flow away and confuse the accounting.
+        for y in 18..24 {
+            w.set(14, y, Cell::new(material::STONE, 0));
+            w.set(16, y, Cell::new(material::STONE, 0));
+        }
+        w.set(15, 22, Cell::new(material::STONE, 0));
+        w.set(15, 21, Cell::new(soil, 0).with_aux(material::SOIL_SATURATED - 200));
+        w.set(15, 20, Cell::new(material::WATER, 0));
+
+        let total = |w: &World| -> u32 {
+            let b = w.bounds().unwrap();
+            (b.min_y..=b.max_y)
+                .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                .map(|(x, y)| {
+                    let c = w.get(x, y);
+                    if c.material == material::WATER {
+                        liquid_fill(c) as u32
+                    } else if c.material == soil {
+                        soil_moisture(c) as u32
+                    } else {
+                        0
+                    }
+                })
+                .sum()
+        };
+        let before = total(&w);
+        run(&mut w, 200);
+        assert_eq!(total(&w), before, "water absorbed beyond a cell's room must stay water, not vanish");
     }
 
     #[test]
