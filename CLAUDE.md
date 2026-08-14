@@ -83,6 +83,25 @@ An image tells you *what* and *where*. A metric tells you *how much* and
 *whether it came back*. Reaching for a metric to answer "what and where" is
 the recurring mistake.
 
+**Resolve an ambiguous complaint before building anything.** "Flatness at
+rest" was read as the surface texture and turned out to mean a screen-wide
+tilt — opposite directions, a whole detour spent on the wrong one. When a
+report could mean two different things, the cheap move is to measure both
+and see which one is actually there, or to ask. It is much cheaper than the
+fix you build for the wrong reading.
+
+**Ask what a metric counts when nothing is wrong.** The whisker hunt defined
+a "film" as a water cell with air above and below — which is *what falling
+water looks like*, so the metric counted every droplet in the world. Its
+numbers were real and meant nothing. Sanity-check a new metric against a
+case you know is fine, before trusting it about a case you don't.
+
+**When the complaint is about something visible and persistent, measure the
+standing state, not the event rate.** Attributing film *creation* blamed the
+plain straight-down fall for 76% of them — true, and useless, because those
+films existed for one frame each. The artifact that persists came from
+somewhere else entirely, and only a standing count showed it.
+
 ### Metric traps, each of which has already cost real time
 
 - **Liquids: measure column *volume*, not the topmost cell.** A `Liquid` cell
@@ -129,6 +148,29 @@ consider it at all.
   before, the number after, and what was tried and rejected on the way.
 - **Determinism is required** (same-build, per `PLAN.md`) — it was reversed
   from "not required" and some older comments still say otherwise.
+- **A guard test must be able to fail for the *replacement* artifact**, not
+  only the original one. A fix that cleared torn seam rows and introduced
+  much worse banding passed its own test, because that test only looked at
+  rows lying on a seam. If a fix trades one artifact for another, its test
+  should be the thing that catches the trade.
+- **Two fixes failing the same way means the approach is wrong, not the
+  tuning.** Two separate attempts to penalise a cell crossing a chunk seam
+  both replaced the tear with a throttle at the same seam. That is a signal
+  to change the approach — the third attempt fixed the sweep *order* instead
+  and cost nothing.
+- **When several knobs move the same number, check what each one trades.**
+  `min_transfer` and `HORIZONTAL_TRANSFER_REACH` both make water settle
+  sooner; the first does it by giving up on the last of the levelling
+  (residual tilt 1 → 5 cells), the second costs no accuracy at all. Knobs
+  that look interchangeable on the headline metric usually are not.
+- **Measure a cost against the state the optimisation exists for.** An
+  animated grain looked free in every moving scene and cost ~10 ms/frame on a
+  *settled* one, because what it defeats is the dirty-rect render skip — and
+  a settled world is exactly where that skip does its work.
+- **For "does this look right", ship a runtime selector rather than choosing.**
+  Five grain modes behind one key settled in minutes a question that no
+  amount of argument or still images had. Default to current behaviour, name
+  the active one on screen, and state what each option *costs*.
 - Prefer an independent review before significant commits; batch small ones.
 
 ## Gotchas that have each caused a real bug
@@ -142,6 +184,17 @@ consider it at all.
 - `MAX_REACH == CHUNK_SIZE / 2` exactly, and that equality is load-bearing for
   `parallel.rs`'s cross-chunk write-safety proof *and* for its
   reinsert-then-replay loop. Changing it needs both re-derived.
+- **Never `git add -A` here.** This tree gets worked in concurrently; doing
+  so once swept ~1,200 lines of someone else's in-progress work into an
+  unrelated commit. Stage explicit paths.
+- **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
+  whole project, not that file — 28 files and ~3,000 lines in one go. The
+  full-format pass is deliberately deferred work (`PLAN.md` issue #10) and
+  CI keeps `cargo fmt --check` informational for exactly that reason, so do
+  not let it ride along with an unrelated change.
+- **A green suite does not prove a test ran.** Deleting an `#[ignore]` took
+  the `#[test]` above it with it; the test compiled, was never collected, and
+  the suite stayed green. Clippy's dead-code warning caught it, not the tests.
 - The liquid heightfield bodies in `liquid.rs` are **test-only today** —
   nothing in production promotes a body, because automatic promotion was
   implemented and reverted over a real architectural gap. Bugs in that
