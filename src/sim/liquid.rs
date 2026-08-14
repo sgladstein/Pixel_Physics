@@ -606,12 +606,9 @@ impl LiquidBody {
         if avg <= 0.0 {
             return None;
         }
-        for &edge_i in &[0usize, n - 1] {
-            if (self.h[edge_i] as f64) > avg * EDGE_OVERFLOW_RATIO && self.edge_has_room(world, edge_i) {
-                return Some(edge_i);
-            }
-        }
-        None
+        [0usize, n - 1]
+            .into_iter()
+            .find(|&edge_i| (self.h[edge_i] as f64) > avg * EDGE_OVERFLOW_RATIO && self.edge_has_room(world, edge_i))
     }
 
     /// Open space beside edge column `edge_i`, at the middle of its depth.

@@ -172,6 +172,45 @@ pub struct MaterialDef {
     /// even though it is still, eventually, headed for flat).
     #[serde(default)]
     pub flow_rate: u16,
+    /// Below this fill difference, two horizontally adjacent cells of this
+    /// liquid count as settled rather than continuing to trade small amounts
+    /// back and forth as their neighbours slowly finish levelling.
+    /// `flow_rate`'s natural sibling: that one caps how much moves per tick,
+    /// this one is the threshold under which nothing moves at all.
+    ///
+    /// **Was a hardcoded `update::MIN_LIQUID_TRANSFER`.** Its history is
+    /// worth keeping, because it is a history of the same trade being
+    /// re-decided as the surrounding mechanisms changed. Originally tuned
+    /// *up* to 150 (15% of `LIQUID_FULL`) because 8 left a wide test puddle
+    /// still visibly settling after ~12,000 frames — but Report B
+    /// (`Reports/liquid-simulation-research-r2.md`) §3c's own instruction was
+    /// to "treat this number as the diagnostic, not the setting", and it came
+    /// back down to 16 (2%) once `find_lateral_descent` took over bulk
+    /// transport, measured against a 100-column scene where 8 missed the
+    /// 20-unit/300-frame bar and 16 cleared it.
+    ///
+    /// **Re-measured since, and the trade looks different again**, because
+    /// that bar was an *exactness* bar and this project does not want
+    /// exactness (`CLAUDE.md`). Levelling time to flat, against the visible
+    /// tilt left behind:
+    ///
+    /// | value | 200 columns | 400 columns | visible tilt |
+    /// |---|---|---|---|
+    /// | 16 | 1546 frames | 6354 | 0 cells |
+    /// | 60 | 747 | 2751 | 1–2 cells |
+    /// | 100 | 620 | 2072 | 2–4 cells |
+    ///
+    /// Roughly halving the settling time — and so the number of frames a
+    /// pool keeps its chunks awake — for a surface slope around 0.5%, which
+    /// is not visible. The old warning that a wide band gives water "a 1:4
+    /// angle of repose" predates `find_lateral_descent` and no longer holds.
+    ///
+    /// Which side of that is right is a *look* judgement rather than a
+    /// derivable number, which is why it lives here now: a hot-reloadable
+    /// per-material field with a live tunables entry (`O`), so it can be
+    /// swept on real water instead of argued about. The default stays 16.
+    #[serde(default = "default_min_transfer")]
+    pub min_transfer: u16,
     pub colors: Vec<[u8; 3]>,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
@@ -270,6 +309,12 @@ pub struct MaterialDef {
     pub breaks_into: String,
 }
 
+/// 16, the value the constant this replaced was tuned to — so a `.ron` that
+/// says nothing about it behaves exactly as before.
+fn default_min_transfer() -> u16 {
+    16
+}
+
 fn default_friction_angle() -> f32 {
     45.0
 }
@@ -350,6 +395,8 @@ pub struct Material {
     stability_reach_base: f32,
     pub dispersion: u8,
     pub flow_rate: u16,
+    /// See `MaterialDef::min_transfer`.
+    pub min_transfer: u16,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
     pub palette: Vec<[u8; 4]>,
@@ -576,6 +623,7 @@ impl From<MaterialDef> for Material {
             stability_reach_base,
             dispersion: def.dispersion,
             flow_rate: def.flow_rate,
+            min_transfer: def.min_transfer,
             palette: def
                 .colors
                 .iter()
@@ -682,6 +730,7 @@ impl MaterialRegistry {
             max_stability_angle: 0.0,
             dispersion: 0,
             flow_rate: 0,
+            min_transfer: default_min_transfer(),
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
@@ -706,6 +755,7 @@ impl MaterialRegistry {
             max_stability_angle: 0.0,
             dispersion: 0,
             flow_rate: 0,
+            min_transfer: default_min_transfer(),
             colors: vec![[20, 20, 24]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,

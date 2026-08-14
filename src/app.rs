@@ -174,6 +174,7 @@ impl App {
             "density" => m.density = new_value,
             "friction_angle" => m.friction_angle = new_value,
             "flammability" => m.flammability = new_value,
+            "min_transfer" => m.min_transfer = new_value.max(0.0) as u16,
             "heat_conductivity" => m.heat_conductivity = new_value,
             "ignition_temperature" => m.ignition_temperature = new_value,
             "burn_temperature" => m.burn_temperature = new_value,

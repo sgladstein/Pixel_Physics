@@ -21,7 +21,7 @@
 //! starting point, and registering it would either silently clamp to a
 //! misleadingly-finite value or need its own special-cased UI.
 
-use crate::sim::material::MaterialRegistry;
+use crate::sim::material::{MaterialKind, MaterialRegistry};
 
 /// One live-adjustable value. `value` is a live snapshot at the moment
 /// the registry was built, not a handle back into the registry it came
@@ -65,6 +65,18 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
             step: 1.0,
         });
         out.push(Tunable { category: category.clone(), name: "flammability".into(), value: m.flammability, min: 0.0, max: 1.0, step: 0.05 });
+        // Liquids only -- a dead band means nothing to a powder or a gas, and
+        // an entry per material that ignores it is just noise in the panel.
+        if m.kind == MaterialKind::Liquid {
+            out.push(Tunable {
+                category: category.clone(),
+                name: "min_transfer".into(),
+                value: m.min_transfer as f32,
+                min: 0.0,
+                max: 400.0,
+                step: 4.0,
+            });
+        }
         out.push(Tunable {
             category: category.clone(),
             name: "heat_conductivity".into(),

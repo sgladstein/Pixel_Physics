@@ -25,6 +25,12 @@
     kind: Liquid,
     density: 1.0,
     flow_rate: 1000,
+    // Dead band: below this fill difference two adjacent cells stop trading.
+    // 16 is flat but slow; 60 roughly halves settling time (and so how long
+    // a pool keeps its chunks awake) for a ~0.5% surface slope that is not
+    // visible. Live-tunable with `O` -- sweep it on real water rather than
+    // guessing. See `MaterialDef::min_transfer` for the measurements.
+    min_transfer: 16,
     colors: [
         (64, 116, 208),
         (58, 108, 198),

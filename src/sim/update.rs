@@ -470,27 +470,6 @@ fn transfer_liquid_vertical<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> 
     true
 }
 
-/// Below this fill difference, two horizontally adjacent liquid cells count
-/// as settled rather than continuing to trade small amounts back and forth
-/// as their surrounding neighbours slowly finish levelling.
-///
-/// Originally tuned *up* to 150 (15% of `LIQUID_FULL`) because 8 left a wide
-/// test puddle still visibly settling after ~12,000 frames -- but per
-/// Report B (`Reports/liquid-simulation-research-r2.md`) §3c's own
-/// instruction, that was always "treat this number as the diagnostic, not
-/// the setting": a change to the leveling mechanism that doesn't let it come
-/// back down didn't fix the underlying problem. The liquid heightfield
-/// design (`Reports/liquid-heightfield-design.md`) promotes large connected
-/// bodies out of this per-cell dead band entirely, onto a solver that
-/// doesn't need one -- so this dead band now only has to cover *unpromoted*
-/// liquid, and B-9 requires it drop back to <= 16. Dropped to exactly 16 (2%
-/// of `LIQUID_FULL`, the B-9 ceiling), not 8: 8 measured at 31 units of
-/// residual unevenness after 300 frames on B-9's own 100-column scene
-/// (`a_wide_shallow_pool_levels_within_budget`), missing the 20-unit/
-/// 300-frame bar; 16 measured at or under it. A real, re-measured trade of
-/// precision for settling speed at unpromoted scale, not a rounding-level
-/// tweak or a guess.
-const MIN_LIQUID_TRANSFER: u16 = 16;
 
 // `HORIZONTAL_TRANSFER_REACH` (how far `transfer_liquid_horizontal` below
 // looks past the immediate neighbour for a genuinely emptier cell to level
@@ -553,7 +532,7 @@ fn transfer_liquid_horizontal<S: CellSurface>(surface: &mut S, x: i32, y: i32, d
     // treating it as "close enough to flat, stop" is what actually bounds
     // the settling time to something practical, the same trade the residual
     // wedge from sand's own angle-of-repose already makes for powders.
-    if src_fill < dst_fill + MIN_LIQUID_TRANSFER {
+    if src_fill < dst_fill + surface.materials().get(src.material).min_transfer {
         return false;
     }
 
@@ -1480,7 +1459,15 @@ mod tests {
         // to. Checked directly against the live constant so this test
         // fails the moment it creeps back up rather than only when someone
         // remembers to re-derive the bound.
-        const { assert!(MIN_LIQUID_TRANSFER <= 16, "B-9: MIN_LIQUID_TRANSFER must drop to <= 16") };
+        // Was a `const` assert against the old hardcoded constant. Now a
+        // runtime one against water's own value, since the dead band moved
+        // onto `Material` to become live-tunable -- the bound is the same,
+        // it is just no longer knowable at compile time.
+        let w0 = World::new(Rect::new(0, 0, 1, 1));
+        assert!(
+            w0.materials.get(material::WATER).min_transfer <= 16,
+            "B-9: water's min_transfer must be <= 16 for this budget"
+        );
 
         // A single shallow row, not a tall column: at this depth, fill
         // unevenness *within* the row is exactly "adjacent-column height
