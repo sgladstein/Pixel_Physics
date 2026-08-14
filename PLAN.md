@@ -3745,8 +3745,53 @@ guarantee the double tuning §8a exists to prevent.
 - `RootTip` never retired, so once roots could grow, every root cell stayed an
   eligible tip and the frontier multiplied into mats spanning the soil bed.
 
-**Still to do:** the sidecar (Decision 2), polarity (Decision 6), the one economy
-pass (Decision 4's remainder), and bud break — in that order, unchanged.
+**Decision 2 started, and it was driven by performance** (`1e7b30f`,
+`fe426ff`, plus `696630f`). Measured on six trees over 6,000 frames:
+
+| | active sites | elapsed |
+|---|---|---|
+| before | 2,698 | 41 s |
+| cheap fixes only | 2,698 | 22 s |
+| after the per-organism pass | **18** | **16 s** |
+
+- `OrganismState::cells` is hooked at **`World::set`**, not at the design
+  doc's dozen creation/removal sites. Every one of those paths writes
+  through `set`, so hooking the write is complete by construction — the
+  lesson already recorded in that function for `FLAG_MANAGED`. Gated by a
+  test checking the list against a full grid scan after growth, after
+  erasing through a canopy, and after fire.
+- Mature cells left the active-site schedule entirely; their upkeep runs in
+  one pass per organism. `thicken()`'s per-cell whole-organism flood fill
+  became one row histogram per organism, producing the identical number.
+- The dispatch no longer heap-allocates per cell per tick.
+
+**A finding worth generalising, now in `CLAUDE.md`: a performance limit
+standing in for a design one hides the design one.** `MAX_SITES_PER_FRAME`
+(2,000) against 2,698 due sites had been *accidentally throttling plant
+growth*. Removing the backlog exposed that nothing bounded root growth at
+all — roots then converted essentially a whole soil bed to root tissue.
+Fixed with real allometry (a conserved root:shoot ratio, `MAX_ROOT_FRACTION`),
+using the whole-organism totals the cell list makes cheap and §6 sanctions.
+
+**Still to do:** polarity (Decision 6), the one economy pass (Decision 4's
+remainder), and bud break — in that order, unchanged.
+
+**The economy pass now has concrete, visible targets** — all consequences of
+the same removed throttle, and all shape/tuning rather than missing
+mechanism, which is why they wait for the single pass after polarity rather
+than being tuned twice:
+
+- **Canopies merge into a slab.** Roots are bounded by allometry; the shoot
+  is bounded by nothing equivalent. The mechanisms that should bound it
+  (self-shading, the resource gate) exist and are mis-parameterised.
+- **`thicken()` makes a pancake, not a trunk.** It only grows left/right, so
+  a trunk base carrying the whole canopy spreads sideways along open ground.
+  `width` is also still "same-organism cells immediately left/right on this
+  row", which on a diagonal stem is 1 almost everywhere. Fix both when
+  `thicken()` is next touched.
+- Tree-to-tree variance was 5x before any of this; `examples/
+  debug_tree_variants.rs` still compares six variants at n=1 each and must
+  become an ensemble before the pass.
 
 **Known-open, carried forward:**
 
