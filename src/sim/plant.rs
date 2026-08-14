@@ -674,9 +674,18 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         .collect();
                     if !spots.is_empty() {
                         let (lx, ly) = spots[rng.below(spots.len() as u32) as usize];
-                        let leaf_shade = rng.below(shades) as u8;
+                        // Real `leaf` material, not the shoot's own wood --
+                        // foliage burns hot and fast, weighs almost
+                        // nothing, and holds up nothing, none of which
+                        // `wood` expresses. Falls back to the parent's
+                        // material if the species' world has no `leaf`
+                        // loaded, so a stripped-down asset set degrades to
+                        // the old look rather than failing to grow.
+                        let leaf_material = world.materials.id_of("leaf").unwrap_or(cell.material);
+                        let leaf_shades = world.materials.get(leaf_material).palette.len().max(1) as u32;
+                        let leaf_shade = rng.below(leaf_shades) as u8;
                         let leaf_aux = organism::with_canopy_density(organism::pack_aux(CellType::Leaf, 0.0), GROW_CANOPY_DEPOSIT);
-                        let leaf_cell = Cell::new(cell.material, leaf_shade).with_organism_id(organism_id).with_aux(leaf_aux);
+                        let leaf_cell = Cell::new(leaf_material, leaf_shade).with_organism_id(organism_id).with_aux(leaf_aux);
                         world.set(lx, ly, leaf_cell);
                         next.push(reschedule_organism(lx, ly, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
                     }
@@ -867,9 +876,17 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
         })
         .unwrap_or(0.0);
     if growable(world, x, y + 1, root_force) {
-        let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
+        // The companion root is `rootwood`, and that choice propagates for
+        // free: every cell `Grow` creates copies its parent's material, so
+        // the whole root system below ground comes out as rootwood while
+        // the shoot above stays wood, with no cell-type-to-material table
+        // anywhere. `update_powder`'s soil stabilization (§6d) depends on
+        // being able to ask "is this a root" from the material id alone,
+        // which is the reason rootwood is a material at all.
+        let root_material = world.materials.id_of("rootwood").unwrap_or(cell.material);
+        let shades = world.materials.get(root_material).palette.len().max(1) as u32;
         let shade = rng.below(shades) as u8;
-        let root_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::RootTip, 0.0));
+        let root_cell = Cell::new(root_material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::RootTip, 0.0));
         world.set(x, y + 1, root_cell);
         next.push(reschedule_organism(x, y + 1, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
     }

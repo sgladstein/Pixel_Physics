@@ -193,6 +193,23 @@ const SOIL_DRAINAGE_RATE: f32 = 0.25;
 /// `SOIL_SATURATED`, so the exchange is mass-conserving at the boundary.
 const SOIL_INFILTRATION_MIN_ROOM: u16 = material::SOIL_SATURATED / 2;
 
+/// Is this grain held in place by a root threading through it?
+///
+/// Four-neighbour, not eight: a root crossing a shear plane reinforces the
+/// soil it is actually embedded in, and a diagonal corner-touch is a weaker
+/// claim than this binary rule should be making. Erring toward *less*
+/// stabilization keeps the mechanic from quietly freezing whole hillsides
+/// off one stray root.
+///
+/// Matched by name once, not by a hardcoded id: `rootwood` is data like
+/// every other material, and a world loaded without it simply has no
+/// root-reinforced soil rather than failing.
+fn root_reinforced<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
+    [(0, -1), (0, 1), (-1, 0), (1, 0)]
+        .iter()
+        .any(|&(dx, dy)| surface.materials().get(surface.get(x + dx, y + dy).material).reinforces_powder)
+}
+
 /// Infiltration and gravity drainage for one `Powder` cell.
 ///
 /// Two rules, both local, run before the movement rules below:
@@ -280,11 +297,46 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     // feature that does nothing in that scene is not a trade worth making.
     // The caller already has `cell`, so reusing it makes the check a Vec
     // index and nothing else.
-    let wet_changed = if surface.materials().get(cell.material).water_capacity > 0 {
-        update_soil_water(surface, x, y)
-    } else {
-        false
-    };
+    let holds_water = surface.materials().get(cell.material).water_capacity > 0;
+    let wet_changed = if holds_water { update_soil_water(surface, x, y) } else { false };
+
+    // **Root-reinforced soil does not fall.** One check, before any of the
+    // movement rules, and it is the mirror of "too much weight breaks a
+    // branch" pointing the other way: today the world acts on plants
+    // (light, moisture, wind, fire) and plants act back on almost nothing.
+    //
+    // `Reports/plant-substrate-v2-design.md` §6d, including its correction
+    // of `PLAN.md`'s original framing. The plan proposed "extending
+    // anchor-distance credit outward from a root into adjacent soil",
+    // which cannot work: `Powder` cells take no part in `structural.rs` at
+    // all -- they have no anchor distance and never break free, they simply
+    // fall via this function every frame. There is no distance to extend
+    // credit into. The correct place is here.
+    //
+    // Grounded in measured geotechnics rather than analogy. Roots crossing
+    // a shear plane act as laterally loaded fibres in tension, resolving
+    // into a tangential component that adds **apparent cohesion** to the
+    // soil -- the Wu-Waldron model, from Waldron (1977), SSSAJ 41:843-849
+    // and Wu, McKinnell & Swanston (1979), Can. Geotech. J. 16:19-33, still
+    // the baseline in slope-stability practice.
+    //
+    // **Simplification, named:** apparent cohesion is a continuous strength
+    // increment and this is a binary "does not move". The graded version
+    // (root-adjacent soil gets a reduced roll reach, so it holds a steeper
+    // slope without being fully immobile) is strictly more faithful and is
+    // the obvious upgrade if binary reads as too absolute. Starting binary
+    // because it is one check and immediately verifiable by eye.
+    //
+    // Asked of the *material*, which is the whole reason `rootwood` is a
+    // material rather than a shaded `CellType`: this function holds a bare
+    // `Cell` and has no route to organism state.
+    // Gated on `holds_water`, which is already in hand, so a powder that
+    // is not soil never pays the four neighbour fetches this needs. Same
+    // reasoning as the water pass above: the sand-and-water stress scene
+    // must not pay for a plant mechanic it has no plants for.
+    if holds_water && root_reinforced(surface, x, y) {
+        return wet_changed;
+    }
 
     // Straight down, unless the cell below is a hole opened this frame by
     // something escaping *sideways* out of it. Dropping into that hole is
@@ -1884,6 +1936,69 @@ mod tests {
             }
         }
         n
+    }
+
+    /// Wu-Waldron, as a behaviour rather than a citation: soil threaded by
+    /// roots holds where bare soil slumps.
+    ///
+    /// Measured as the *difference* between two identical slopes, one
+    /// rooted and one not, rather than against an absolute. A bare pile's
+    /// final shape depends on friction angle, repose hysteresis and the
+    /// sweep's own ordering, none of which this rule is about; the paired
+    /// comparison cancels all of it and leaves only the effect under test.
+    #[test]
+    fn root_threaded_soil_holds_a_slope_that_bare_soil_loses() {
+        let build = |rooted: bool| -> World {
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+            for x in 0..64 {
+                w.set(x, 50, Cell::new(material::STONE, 0));
+            }
+            // A steep bank: a right triangle of soil that cannot stand at
+            // soil's own angle of repose and must slump.
+            for step in 0..20 {
+                for y in (49 - step)..50 {
+                    w.set(20 + step, y, Cell::new(soil, 0));
+                }
+            }
+            if rooted {
+                // A root *system*, not one strand. The rule reinforces a
+                // grain's four neighbours, so a single root column holds
+                // only the two columns beside it -- measured at one cell of
+                // difference, which is real but says nothing about whether
+                // the mechanic matters. Root density is the variable, and a
+                // grown tree spreads roots across many columns (see
+                // `docs/screenshots/plant-v2-leaves/forest-root-systems.png`),
+                // so the representative case is several strands.
+                for root_x in [24, 28, 32, 36] {
+                    for y in 30..50 {
+                        w.set(root_x, y, Cell::new(rootwood, 0));
+                    }
+                }
+            }
+            w
+        };
+
+        // How far the toe of the bank has spread past where soil started.
+        let spread = |w: &World| -> i32 {
+            let soil = w.materials.id_of("soil").unwrap();
+            (0..64)
+                .filter(|&x| (0..50).any(|y| w.get(x, y).material == soil))
+                .max()
+                .unwrap_or(0)
+        };
+
+        let mut bare = build(false);
+        let mut rooted = build(true);
+        run(&mut bare, 600);
+        run(&mut rooted, 600);
+
+        let (bare_spread, rooted_spread) = (spread(&bare), spread(&rooted));
+        assert!(
+            rooted_spread < bare_spread,
+            "root-reinforced soil should slump less far than bare soil: rooted reached {rooted_spread}, bare reached {bare_spread}"
+        );
     }
 
     #[test]

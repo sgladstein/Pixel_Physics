@@ -1,0 +1,42 @@
+// Foliage. A real material rather than a shade of `wood`, because its
+// *physics* genuinely differ on four numbers that already exist -- which is
+// this engine's own test for when a material is warranted
+// (`material.rs`: behaviour comes from `kind` plus numeric parameters).
+// `Reports/plant-substrate-v2-design.md` §6a.
+//
+// Produced by `Grow`'s plastochron, laterally off a shoot, never as part of
+// the stem itself. `CellType::Leaf` is what carries `Photosynthesize`; this
+// is what that cell is made of.
+(
+    name: "leaf",
+    display: "Leaf",
+    kind: Plant,
+    // Foliage is not wood. Well under `wood`'s 0.9.
+    density: 0.25,
+    colors: [
+        (58, 96, 40),
+        (70, 116, 48),
+        (48, 82, 34),
+        (82, 132, 56),
+    ],
+    // Much more flammable than heartwood, and it burns *out* far faster. A
+    // real canopy fire runs through foliage, not through trunks, and this
+    // is what lets the engine's existing Drossel-Schwabl forest-fire loop
+    // express that: leaves carry the fire between crowns while the wood
+    // beneath them survives a fast-moving front.
+    flammability: 0.75,
+    burn_temperature: 550.0,
+    burn_duration: 40,
+    burns_into: "ash",
+    heat_conductivity: 0.2,
+    // **One, and it is deliberately not `wood`'s 8.** `structural.rs`
+    // treats every `Plant`-kind cell as body material, so a leaf does take
+    // part in the support search; the design doc's §6a is explicit that a
+    // leaf must not be a load path, since "treating it as a load path
+    // would let a canopy hold up a trunk". A span of 1 means a leaf holds
+    // up nothing but itself and drops the moment its own attachment goes,
+    // which is the closest this model gets to "not structural" without a
+    // separate exemption in the traversal.
+    max_unsupported_span: 1,
+    breaks_into: "deadwood",
+)

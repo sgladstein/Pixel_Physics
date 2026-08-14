@@ -341,6 +341,16 @@ pub struct MaterialDef {
     /// first. Flagged rather than done.
     #[serde(default)]
     pub water_capacity: u16,
+    /// Whether this material reinforces a `Powder` it is embedded in, so
+    /// that grain no longer falls — the Wu-Waldron apparent-cohesion effect
+    /// roots have on soil (`update.rs`'s `root_reinforced`).
+    ///
+    /// A flag rather than a name lookup for a measured reason: the first
+    /// version asked `materials().id_of("rootwood")`, which is a string
+    /// hash, **once per powder cell per frame**. A `bool` on the material
+    /// the neighbour already resolves to is a `Vec` index instead.
+    #[serde(default)]
+    pub reinforces_powder: bool,
     pub colors: Vec<[u8; 3]>,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
@@ -546,6 +556,8 @@ pub struct Material {
     pub penetration_resistance: f32,
     /// See `MaterialDef::water_capacity`.
     pub water_capacity: u16,
+    /// See `MaterialDef::reinforces_powder`.
+    pub reinforces_powder: bool,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
     pub palette: Vec<[u8; 4]>,
@@ -776,6 +788,7 @@ impl From<MaterialDef> for Material {
             fill_dimming: def.fill_dimming,
             penetration_resistance: def.penetration_resistance,
             water_capacity: def.water_capacity,
+            reinforces_powder: def.reinforces_powder,
             palette: def
                 .colors
                 .iter()
@@ -836,6 +849,11 @@ const EMBEDDED: &[&str] = &[
     // runtime, not just in a test.
     include_str!("../../assets/materials/soil.ron"),
     include_str!("../../assets/materials/deadwood.ron"),
+    // Appended for the same reason the comment above gives -- never
+    // inserted among the others, which would renumber every well-known id
+    // after it at runtime rather than in a test.
+    include_str!("../../assets/materials/leaf.ron"),
+    include_str!("../../assets/materials/rootwood.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -886,6 +904,7 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            reinforces_powder: false,
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
@@ -914,6 +933,7 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            reinforces_powder: false,
             colors: vec![[20, 20, 24]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
