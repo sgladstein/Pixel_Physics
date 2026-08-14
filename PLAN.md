@@ -549,6 +549,105 @@ Two things to get right early:
   order now: **`entities → CA sweep → rigid bodies → render`**.
 - **Perception is cheap and unconstrained.** `MAX_REACH` binds CA rules because
   of how waking works; entities are outside the sweep and may read anywhere.
+  **Correction, from `Reports/population-dynamics-research.md` §4a:** true as an
+  engineering statement, dangerous as an ecological one. An entity that perceives
+  arbitrarily far and moves toward what it perceives has *effective* mobility far
+  above its step size, and mobility past a sharp critical threshold destroys the
+  spatial structure that coexistence depends on (Reichenbach, Mobilia & Frey,
+  *Nature* 448:1046). **Constrain perception range for ecological reasons even
+  though nothing technical requires it**, and treat perception radius × movement
+  rate as one combined stability parameter, measured rather than guessed.
+
+### M18 Phase 2's species set: a cycle, not a chain
+
+**Re-shaped from `Reports/population-dynamics-research.md` before any creature
+`.ron` is written, because it determines what they contain (§12).** The original
+sketch — a worm and something that eats worms — is the configuration Gause showed
+goes extinct *regardless of starting population*, and Huffaker only rescued it by
+engineering spatial structure **and** handicapping the predator's dispersal. A
+linear food chain has a top predator checked by nothing but starvation; a
+non-transitive cycle has every species checked by another, and coexists on a
+lattice where a two-species chain does not (§6).
+
+**Proposed cycle, using only mechanisms that already exist** — §6 notes a
+material-mediated interaction is both more interesting than "eats" and cheaper,
+since the substrate already does the work:
+
+| species | does | loses to |
+|---|---|---|
+| **worm** | burrows loose powder, loosening compacted material behind it | *binder* — hardened substrate is unburrowable |
+| **binder** | eats loose powder, excretes a compacted variant (higher `friction_angle`/`density`, which `roll_along_slope` and the two-angle repose model already turn into behaviour) | *borer* |
+| **borer** | eats binders, but can only travel through compacted material | *worm* — loosened ground strands it |
+
+A → B → C → A, expressed entirely through material properties the engine already
+simulates. **The physical refuge falls out for free**: loose sand is the worm's
+refuge from the borer, which is §3's preferred reservoir mechanism (a burrow the
+predator cannot follow into) rather than an off-screen immigration hack.
+
+**Species identity needs owner sign-off before implementation** — the cycle
+*structure* is the report's recommendation; these three particular creatures are
+this plan's proposal, not the report's.
+
+**Design rules that come with it, all from the same report:**
+
+- **Prey must disperse better than predators** — not equally, better. The single
+  most load-bearing parameter in the system (§2), and it must be **asserted as a
+  property of the `.ron` data** so a well-meaning tuning change cannot silently
+  invert it (§9c).
+- **Cap mobility at half the measured threshold.** Sweep combined mobility, find
+  where persistence falls below 50%, ship at no more than half of it — the
+  transition is sharp, so margin is cheap insurance (§9b).
+- **Density-dependent predator mortality**, the cheapest defence against the
+  enrichment problem below, and something the existing energy budget nearly
+  expresses already (§5).
+- **Acceptance is an ensemble, never a single run** (§8, §9a): all species alive
+  at 100,000 frames in ≥80% of 20 seeds. Extinction is stochastic; a parameter set
+  with a 30% extinction rate looks fine three times and then fails in front of a
+  player. This is the same finding the plant work hit independently — twelve
+  identical trees span a five-fold size range (`examples/plant_probe.rs
+  -- trees=12`) — so **one persistence-testing harness should serve both**, per
+  §12, rather than growing two.
+
+### Standing note: everything else getting better makes the ecology less stable
+
+`Reports/population-dynamics-research.md` §5, recorded here because it is exactly
+the cross-system interaction that produces a week of misdirected debugging.
+Rosenzweig's paradox of enrichment: raising the prey's carrying capacity raises
+the amplitude of population cycles, and amplitude crossing zero is extinction —
+with no atto-fox to rescue it, since an individual-based grid has extinction as a
+genuine absorbing state (§3).
+
+**Every improvement on this roadmap is an enrichment event.** Working plants mean
+more prey food; fixed water levelling means more habitable area; worldgen with a
+water table means a richer world everywhere. The plant work now in progress is
+one. So the ecology will get *less* stable as the engine gets *better*, and the
+failure will be attributed to whatever shipped most recently.
+
+**Two corrections to the report, verified against this codebase:**
+
+- **§7a (chunk sleeping) is already decided, not open.** The report asks whether
+  creatures keep their chunk awake or have timers advanced on wake, warning that
+  either silently creates a perfect refuge or a silent extinction. `scheduler.rs`'s
+  own module doc settled it: the active-site schedule is *explicitly independent
+  of chunk sleep state*, so creatures and plants tick in sleeping chunks. Record
+  it; don't re-decide it.
+- **§7d (per-chunk RNG) names the wrong generator.** `Chunk::rng` is seeded from
+  chunk coordinates, but organisms and creatures never touch it — it is reached
+  only by the CA sweep through `CellSurface::rng()`. Both `plant.rs` and
+  `creature.rs` drew from the single shared `World::rng`, whose real defect is
+  *order coupling*: every organism's sequence depends on how many draws every
+  other caller made first. The recommendation (a per-organism stream) was right
+  for the wrong reason. **Done for plants** (`rng::stream`); `creature.rs` still
+  draws from `World::rng` and should move the same way before Phase 2 breeding.
+
+**§7c is real and still open:** `World::push_creature` guards a `u16` overflow
+with a `debug_assert`, and CI runs `--release` exclusively, so it is never checked
+anywhere; in release the assert vanishes and `(len - 1) as u16` silently wraps, so
+creature 65,536 *becomes* creature 0 — two creatures sharing one state slot,
+presenting as a creature behaving erratically. `creatures` never shrinks, so with
+breeding this is a hard limit on **cumulative births**, not live population. Fix
+with the same free-list `free_organism` needs, and do them together (§7c) — the
+plant work's Decision 2 is the pass that builds it.
 
 **Verify:** a worm burrows through sand and cannot enter stone; a creature flees
 a fire it senses through the temperature field; killing one leaves a destructible
@@ -3540,6 +3639,87 @@ tip taking the larger share at §7h tick 6) is the load-bearing one, and
 `VEIN_GAIN = 0` must reproduce today's isotropic results exactly so a
 future regression here stays bisectable. Evolution stays out of scope for
 this phase either way (§8b).
+
+---
+
+## Plant substrate v2 — started, on branch `plant-substrate-v2` (session handoff)
+
+The design above was "fully planned, zero code written" for several sessions.
+Implementation started on a worktree branch off `master` at `a39da4e`, isolated
+because explosion work was live in the main working tree at the time.
+
+**Re-ordered against the design doc's own §10, for reasons that are recorded
+where they bite rather than only here.** The doc sequences sidecar → polarity →
+leaves, and instructs that neither of the first two be screenshot-verified. That
+is two large invisible refactors before anything reaches the screen, which is the
+shape `CLAUDE.md` says has repeatedly failed here. The revised order puts a
+lookable-at result at the end of every step.
+
+**Landed so far:**
+
+1. **Tooling first (`fdb7a0c`).** `render.rs` gains `OrganismOverlay` (`B`
+   cycles it), the organism-side parallel to `FieldOverlay`: cell type, resource,
+   canopy density. `filmstrip` gains `tree`/`forest` scenes and `channel=`;
+   `examples/plant_probe.rs` dumps the per-cell numbers. Baseline committed under
+   `docs/screenshots/plant-v2-baseline/` with a README of what each sheet shows.
+2. **Real leaves (`4ff9f52`).** A plastochron counter on `ActiveKind::Organism`
+   retires every N-th parent to `Leaf` instead of `MatureBody`. **This is the one
+   place the design doc is wrong:** §3a lists a plastochron counter among the
+   scalars that make the sidecar migration a prerequisite for leaves. It is not a
+   per-cell scalar — it is lineage state, which `ActiveSite` already hands
+   parent→child for `stale_ticks` — so it costs no `aux` bits and the visible half
+   of Decision 4 did not have to wait behind the migration.
+3. **Per-organism RNG (`f9ab577`)** and **open bug #3 reproduced (`dcb9c0d`)`**.
+
+**Measured, on the standard scene at 8,000 frames:**
+
+| | before | after |
+|---|---|---|
+| organism cells | 18 | 69 |
+| `Leaf` cells | 0 | 18 |
+| thickest contiguous run | 1 | 4 |
+| height | 6 rows | 33 rows |
+
+`SecondaryThicken` had **never fired on anything, ever** — it counts downstream
+`Leaf | GrowingTip` cells and tips retire the instant they grow, so the count sat
+at 0–2 against `pipe_ratio: 2.5` for a tree's whole life. Persistent leaves are
+what give it a real signal.
+
+**Four findings that change the remaining plan:**
+
+- **Transport is starved, not runaway.** `diffuse_resource` is dispatched from the
+  CA sweep, which skips settled chunks: measured awake on 22.8% of frames, then 0
+  once the tree settles, while decay runs every organism tick regardless.
+  Invisible today because `GrowingTip` carries its own `Photosynthesize` and each
+  tip funds itself; it becomes a correctness problem the moment Decision 4 moves
+  `Photosynthesize` to `Leaf` only. **Decision 2 is a correctness prerequisite,
+  not a storage tidy-up**, and its gate is this duty cycle.
+- **Growth is frontier-limited, not income-limited.** The tree stops while still
+  holding mid-range resource (and post-leaves, saturated at 4.0/4.0). No amount of
+  economy tuning lifts the ceiling; only bud break does.
+- **Single-run tuning is unsound here.** Twelve identical trees in one scene span
+  **31–153 cells and 10–33 leaves** (`plant_probe -- trees=12`). Swapping the RNG
+  alone moved the standard scene 69→19 cells. `examples/debug_tree_variants.rs`
+  compares six variants at n=1 each and is the harness the whole economy gets
+  tuned with — it needs to become an ensemble before Decision 4's re-tune, and it
+  is the same harness `population-dynamics-research.md` §12 asks the creature work
+  to share.
+- **Canopy density is *not* inert** (deposit and decay both work: 1.600 → 0.800 →
+  0.533 → 0.267 → 0), but its whole live range is ~6 quantization steps and its
+  decay constant was already tuned around the quantization half-step. That is the
+  measured version of §3a's "tail wagging the dog."
+
+**Still to do, in order:** Phase 2 (soil moisture, `leaf`/`rootwood` materials,
+root displacement into soil, `Absorb` from soil — pulled *ahead* of the tuning
+pass, because the design doc's §10 sequences its "single tuning pass" before step
+8 adds `RootTip` an entirely new income source, which would guarantee the double
+tuning §8a exists to prevent); then the sidecar, polarity, the one economy pass,
+and bud break.
+
+**`germinate()`'s root gate is deferred to Phase 2 deliberately.** Refusing a root
+on bare stone is *correct* — trees should not root in rock. It refuses on soil
+too, and that is the real bug, but it cannot be fixed honestly until roots can
+enter soil.
 
 ---
 
