@@ -222,7 +222,7 @@ fn has_growable_neighbour(world: &World, x: i32, y: i32, organism_id: u16) -> bo
     })
 }
 
-fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_ticks: u8) -> Vec<ActiveSite> {
+fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_ticks: u8, plastochron: u8) -> Vec<ActiveSite> {
     let cell = world.get(x, y);
     // The cell may have burned, been erased, or already be something else
     // by the time its schedule comes due — mirrors `moss_tick`'s own check,
@@ -298,7 +298,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     world.set(tx, ty, new_cell);
                     resource -= cost;
                     world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), cell_type, resource)));
-                    next.push(reschedule_organism(tx, ty, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
+                    next.push(reschedule_organism(tx, ty, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
                 }
             }
             // `Reports/tree-rewrite-design.md` §0/§2/§3: direction-biased,
@@ -306,7 +306,17 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             // (canopy) and `RootTip` (roots) -- deliberately a separate
             // behavior from `Divide` above, not a mode of it; see this
             // module's own `organism.rs` doc for why.
-            Behavior::Grow { cost, branch_chance, continuation_weight, light_weight, wind_weight, upward_weight, crowding_weight, max_active_tips } => {
+            Behavior::Grow {
+                cost,
+                branch_chance,
+                continuation_weight,
+                light_weight,
+                wind_weight,
+                upward_weight,
+                crowding_weight,
+                max_active_tips,
+                plastochron: plastochron_interval,
+            } => {
                 if resource < cost {
                     continue;
                 }
@@ -416,7 +426,38 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // `RootTip` is untouched (`tree.ron`'s roots aren't the
                 // shape under investigation here, and have no `MatureBody`-
                 // equivalent "settled root" type to retire into yet).
-                let self_type_after_grow = if cell_type == CellType::GrowingTip { CellType::MatureBody } else { cell_type };
+                //
+                // `Reports/plant-substrate-v2-design.md` §5a: every
+                // `plastochron`-th step along a lineage, that retiring
+                // parent becomes a `Leaf` rather than `MatureBody`. The
+                // *parent*, deliberately, not the child -- the child
+                // carries the frontier forward (that is the whole point of
+                // the retirement fix above), so making the child a `Leaf`
+                // would terminate the lineage every plastochron. Retiring
+                // the parent instead places foliage along the shoot behind
+                // the advancing tip, where leaves are on a real shoot, and
+                // creates no new cell at all.
+                //
+                // This is what gives `thicken()` something real to count.
+                // It counts downstream `Leaf | GrowingTip` cells, and with
+                // tips retiring the instant they grow, that count was
+                // measured at 0-2 for the whole life of a tree
+                // (`docs/screenshots/plant-v2-baseline/`) -- never once
+                // clearing `pipe_ratio: 2.5`, so `SecondaryThicken` had
+                // never fired on anything. Persistent `Leaf` cells make the
+                // count grow with the canopy, which is the signal
+                // Shinozaki's pipe model actually specifies.
+                let lineage_step = plastochron.saturating_add(1);
+                let leaf_due = plastochron_interval > 0 && lineage_step.is_multiple_of(plastochron_interval);
+                let self_type_after_grow = if cell_type == CellType::GrowingTip {
+                    if leaf_due {
+                        CellType::Leaf
+                    } else {
+                        CellType::MatureBody
+                    }
+                } else {
+                    cell_type
+                };
 
                 let total: f32 = candidates.iter().map(|&(_, _, s)| s).sum();
                 let mut pick = (world.rng.below(10_000) as f32 / 10_000.0) * total;
@@ -458,7 +499,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // a silent no-op since this behavior shipped.
                 resource -= cost;
                 world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), self_type_after_grow, resource)));
-                next.push(reschedule_organism(tx, ty, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
+                next.push(reschedule_organism(tx, ty, organism_id, 0, lineage_step, world.frame + ORGANISM_TICK_INTERVAL));
 
                 // §3's branching: a second successful `Grow`, in a
                 // different direction, this same tick -- gated by the
@@ -489,7 +530,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // primary child's identical case above.
                             resource -= cost;
                             world.set(x, y, cell.with_aux(pack_aux_preserving_density(cell.aux(), self_type_after_grow, resource)));
-                            next.push(reschedule_organism(bx, by, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
+                            next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
                         }
                     }
                 }
@@ -567,9 +608,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         // roll succeeded) -- reset the staleness counter, mirroring
         // `moss_tick`'s old reasoning: staleness tracks "had somewhere to
         // try", not "successfully grew".
-        next.push(reschedule_organism(x, y, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
+        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, world.frame + ORGANISM_TICK_INTERVAL));
     } else if stale_ticks + 1 < ORGANISM_STALE_LIMIT {
-        next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, world.frame + ORGANISM_TICK_INTERVAL));
+        next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, world.frame + ORGANISM_TICK_INTERVAL));
     } else if cell_type == CellType::GrowingTip {
         // `Reports/tree-rewrite-design.md` §4: the staleness-limit
         // transition to `MatureBody` made real, not just asserted -- an
@@ -584,7 +625,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         // gave it any behavior (`SecondaryThicken`) -- one more check now,
         // at the standard interval, so it doesn't just go permanently
         // silent the instant it transitions.
-        next.push(reschedule_organism(x, y, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
+        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, world.frame + ORGANISM_TICK_INTERVAL));
     }
     // Otherwise (any other cell type, e.g. a permanently enclosed
     // `RootTip`): permanently enclosed -- stop checking, matching the old
@@ -592,8 +633,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     next
 }
 
-fn reschedule_organism(x: i32, y: i32, organism: u16, stale_ticks: u8, next_frame: u64) -> ActiveSite {
-    ActiveSite { x, y, kind: ActiveKind::Organism { organism, stale_ticks }, next_frame }
+fn reschedule_organism(x: i32, y: i32, organism: u16, stale_ticks: u8, plastochron: u8, next_frame: u64) -> ActiveSite {
+    ActiveSite { x, y, kind: ActiveKind::Organism { organism, stale_ticks, plastochron }, next_frame }
 }
 
 /// A `Seed` cell's `Germinate` firing (`Reports/tree-rewrite-design.md`
@@ -609,13 +650,13 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell) ->
     // ground and is not expected to be; checking it here would destroy
     // every seedling before its root ever gets the chance to reach soil.
     world.set(x, y, cell.with_aux(organism::pack_aux(CellType::GrowingTip, 0.0)));
-    let mut next = vec![reschedule_organism(x, y, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL)];
+    let mut next = vec![reschedule_organism(x, y, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL)];
     if world.is_empty(x, y + 1) {
         let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
         let shade = world.rng.below(shades) as u8;
         let root_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::RootTip, 0.0));
         world.set(x, y + 1, root_cell);
-        next.push(reschedule_organism(x, y + 1, organism_id, 0, world.frame + ORGANISM_TICK_INTERVAL));
+        next.push(reschedule_organism(x, y + 1, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
     }
     next
 }
@@ -682,7 +723,7 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32)
 /// to name all three variants to stay exhaustive.
 pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     match site.kind {
-        ActiveKind::Organism { organism, stale_ticks } => organism_tick(world, site.x, site.y, organism, stale_ticks),
+        ActiveKind::Organism { organism, stale_ticks, plastochron } => organism_tick(world, site.x, site.y, organism, stale_ticks, plastochron),
         ActiveKind::StructuralCheck => unreachable!("scheduler::step routes StructuralCheck to structural::tick"),
         ActiveKind::Creature { .. } => unreachable!("scheduler::step routes Creature to creature::tick"),
         ActiveKind::Decay => unreachable!("scheduler::step routes Decay to decay::tick"),
@@ -710,7 +751,7 @@ impl World {
         let organism_id = self.push_organism(moss_species);
         let aux = organism::pack_aux(CellType::GrowingTip, 0.0);
         self.set(x, y, Cell::new(moss_material, shade).with_organism_id(organism_id).with_aux(aux));
-        let site = reschedule_organism(x, y, organism_id, 0, self.frame + ORGANISM_TICK_INTERVAL);
+        let site = reschedule_organism(x, y, organism_id, 0, 0, self.frame + ORGANISM_TICK_INTERVAL);
         self.schedule_active_site(site);
     }
 
@@ -748,7 +789,7 @@ impl World {
         let organism_id = self.push_organism(tree_species);
         let aux = organism::pack_aux(CellType::Seed, 0.0);
         self.set(x, y, Cell::new(wood, shade).with_organism_id(organism_id).with_aux(aux));
-        let site = reschedule_organism(x, y, organism_id, 0, self.frame + ORGANISM_TICK_INTERVAL);
+        let site = reschedule_organism(x, y, organism_id, 0, 0, self.frame + ORGANISM_TICK_INTERVAL);
         self.schedule_active_site(site);
         true
     }
@@ -924,7 +965,7 @@ mod tests {
         let seed = Cell::new(material, 0).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::GrowingTip, start_resource));
         w.set(50, 50, seed);
 
-        organism_tick(&mut w, 50, 50, organism_id, 0);
+        organism_tick(&mut w, 50, 50, organism_id, 0, 0);
 
         let (_, parent_resource) = organism::unpack_aux(w.get(50, 50).aux());
         // `damp_chance`/`dry_chance` are both 1.0, so exactly one of the
@@ -1256,7 +1297,7 @@ mod tests {
         // holding this organism's material.
         w.set(50, 50, Cell::EMPTY);
 
-        let produced = organism_tick(&mut w, 50, 50, organism_id, 0);
+        let produced = organism_tick(&mut w, 50, 50, organism_id, 0, 0);
 
         assert!(produced.is_empty(), "an orphaned cell should not reschedule itself");
         assert_eq!(w.get(50, 50).material, material::EMPTY, "the orphaned check must not have written new wood from open air");
@@ -1280,7 +1321,7 @@ mod tests {
         w.set(50, 50, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
 
         w.set(50, 50, Cell::EMPTY);
-        let produced = organism_tick(&mut w, 50, 50, organism_id, 0);
+        let produced = organism_tick(&mut w, 50, 50, organism_id, 0, 0);
 
         assert!(produced.is_empty(), "an orphaned root should not reschedule itself");
         assert_eq!(w.get(50, 50).material, material::EMPTY, "the orphaned check must not have written new wood from open air");
@@ -1339,7 +1380,7 @@ mod tests {
         let organism_id = w.push_organism(tree_species);
         let aux = organism::pack_aux(CellType::GrowingTip, 0.0);
         w.set(100, 20, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
-        let site = reschedule_organism(100, 20, organism_id, 0, w.frame + ORGANISM_TICK_INTERVAL);
+        let site = reschedule_organism(100, 20, organism_id, 0, 0, w.frame + ORGANISM_TICK_INTERVAL);
         w.schedule_active_site(site);
 
         run_with_fields(&mut w, (ORGANISM_TICK_INTERVAL as usize) * 3);
@@ -1414,7 +1455,7 @@ mod tests {
 
         // One full organism_tick cycle on this cell itself -- the same
         // cadence a neighbour's own Grow check would be running on.
-        let _ = organism_tick(&mut w, 100, 20, organism_id, 0);
+        let _ = organism_tick(&mut w, 100, 20, organism_id, 0, 0);
 
         let density = organism::canopy_density(w.get(100, 20).aux());
         assert!(density > 0.0, "a fresh deposit should still be visible to a neighbour after one organism_tick cycle, got {density}");
@@ -1435,7 +1476,7 @@ mod tests {
         w.set(100, 20, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
 
         for _ in 0..20 {
-            let _ = organism_tick(&mut w, 100, 20, organism_id, 0);
+            let _ = organism_tick(&mut w, 100, 20, organism_id, 0, 0);
         }
 
         let density = organism::canopy_density(w.get(100, 20).aux());
@@ -1469,7 +1510,7 @@ mod tests {
         let aux = organism::pack_aux(CellType::GrowingTip, 2.0);
         w.set(100, 100, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
 
-        let next = organism_tick(&mut w, 100, 100, organism_id, 0);
+        let next = organism_tick(&mut w, 100, 100, organism_id, 0, 0);
 
         let (self_type, _) = organism::unpack_aux(w.get(100, 100).aux());
         assert_eq!(self_type, Some(CellType::MatureBody), "a GrowingTip that just grew should retire to MatureBody, not stay an equally-eligible growth candidate");
@@ -1483,5 +1524,86 @@ mod tests {
             .collect();
         assert_eq!(new_tips.len(), 1, "expected exactly one new GrowingTip child, got {new_tips:?}");
         assert!(!next.is_empty(), "the new child should be scheduled");
+    }
+
+    /// The plastochron's own unit: a tip whose lineage step is about to hit
+    /// the interval retires to `Leaf`, and one that isn't retires to
+    /// `MatureBody`. Driven through `organism_tick`'s real dispatch rather
+    /// than by calling a helper, since the whole mechanism is the
+    /// parent→child hand-off of a counter that lives on the `ActiveSite`.
+    #[test]
+    fn a_retiring_tip_becomes_a_leaf_once_per_plastochron() {
+        let wood = material::MaterialId(11);
+        // `tree.ron` ships `plastochron: 3`, so lineage steps 3, 6, 9 ...
+        // leaf and the rest mature. Entering a tick with `plastochron = 2`
+        // makes this the third step.
+        for (entering, expected) in [(2u8, CellType::Leaf), (0u8, CellType::MatureBody), (1u8, CellType::MatureBody)] {
+            let mut w = test_world();
+            let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+            let organism_id = w.push_organism(tree);
+            let aux = organism::pack_aux(CellType::GrowingTip, 2.0);
+            w.set(100, 100, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+
+            organism_tick(&mut w, 100, 100, organism_id, 0, entering);
+
+            let (self_type, _) = organism::unpack_aux(w.get(100, 100).aux());
+            assert_eq!(
+                self_type,
+                Some(expected),
+                "entering a growth step with plastochron={entering} against tree.ron's interval of 3 should retire to {expected:?}"
+            );
+        }
+    }
+
+    /// The point of the whole change, asserted end to end rather than as a
+    /// unit: a tree grown from a seed produces real `Leaf` cells, and
+    /// `SecondaryThicken` — which had **never fired on anything** before
+    /// this, because it counts downstream `Leaf | GrowingTip` cells and
+    /// tips retire the instant they grow — produces a trunk more than one
+    /// cell thick.
+    ///
+    /// Both halves are measured against the committed baseline in
+    /// `docs/screenshots/plant-v2-baseline/`, where the same scene gives 0
+    /// leaves and a thickest contiguous run of 1. Bars sit well under what
+    /// was measured after the change (18 leaves, run of 4), per this repo's
+    /// "set bars from measurement with headroom" convention — they exist to
+    /// catch the mechanism going inert again, not to pin the exact shape,
+    /// which is expected to keep moving as later phases land.
+    #[test]
+    fn a_grown_tree_produces_leaves_and_a_trunk_thicker_than_one_cell() {
+        let mut w = test_world();
+        w.plant_tree(100, 20);
+        run_with_fields(&mut w, 8000);
+
+        let b = w.bounds().unwrap();
+        let mut leaves = 0;
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                if organism::unpack_aux(w.get(x, y).aux()).0 == Some(CellType::Leaf) && w.get(x, y).organism_id() != 0 {
+                    leaves += 1;
+                }
+            }
+        }
+        assert!(leaves >= 5, "a grown tree should carry real Leaf cells; got {leaves} (baseline before the plastochron: 0)");
+
+        let thickest = (b.min_y..=b.max_y)
+            .map(|y| {
+                let (mut best, mut run) = (0usize, 0usize);
+                for x in b.min_x..=b.max_x {
+                    if w.get(x, y).organism_id() != 0 {
+                        run += 1;
+                        best = best.max(run);
+                    } else {
+                        run = 0;
+                    }
+                }
+                best
+            })
+            .max()
+            .unwrap_or(0);
+        assert!(
+            thickest >= 2,
+            "SecondaryThicken should fire once leaves give thicken() a real downstream count; thickest contiguous run was {thickest} (baseline: 1)"
+        );
     }
 }

@@ -36,7 +36,21 @@ fn main() {
             w.set(x, y, Cell::new(material::STONE, 0));
         }
     }
+    // Must stay identical to `filmstrip`'s own `tree` scene, including the
+    // puddle, and that is not a cosmetic detail. Without it, row `GROUND_Y
+    // - 1` is open air for the tree's whole life and `thicken()` -- which
+    // only ever grows left/right into an *empty* neighbour -- spreads along
+    // it unopposed, reporting a 19-cell contiguous run at the base. With
+    // the puddle, water occupies that row, `world.is_empty` refuses, and
+    // the same tree bases out at 2-3 cells.
+    //
+    // So `SecondaryThicken`'s ground-level behaviour is decided by whatever
+    // happens to be lying on the row beside the trunk. Worth knowing before
+    // reading any thickness number off this probe, and worth fixing when
+    // `thicken()` is next touched: growing sideways along one open row is
+    // a pancake, not a trunk.
     w.plant_tree(200, GROUND_Y - 1);
+    w.paint_circle(150, GROUND_Y - 4, 7, material::WATER);
 
     let mut awake_frames = 0u64;
     for _ in 0..frames {
@@ -68,9 +82,62 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
     }
 
     println!("\n{} organism cells", cells.len());
-    println!("{:>5} {:>5}  {:<12} {:>9} {:>9}", "x", "y", "type", "resource", "canopy");
-    for (x, y, ty, resource, canopy) in &cells {
-        println!("{x:>5} {y:>5}  {:<12} {resource:>9.3} {canopy:>9.3}", format!("{ty:?}"));
+
+    // Histogram before the dump: on a tree of any size the per-cell listing
+    // is unreadable, and "how many leaves are there" is the question this
+    // phase is actually asking. Counted by `CellType` rather than by
+    // material, since every one of these paints as plain `wood` today --
+    // which is the whole reason the overlay exists.
+    let mut counts = std::collections::BTreeMap::new();
+    for (_, _, ty, _, _) in &cells {
+        *counts.entry(format!("{ty:?}")).or_insert(0usize) += 1;
+    }
+    for (ty, n) in &counts {
+        println!("  {ty:<20} {n:>5}");
+    }
+    if let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) = (
+        cells.iter().map(|c| c.0).min(),
+        cells.iter().map(|c| c.0).max(),
+        cells.iter().map(|c| c.1).min(),
+        cells.iter().map(|c| c.1).max(),
+    ) {
+        println!("  bounding box x {min_x}..={max_x}, y {min_y}..={max_y}");
+    }
+
+    // How thick the trunk actually is: the longest **contiguous** run of
+    // same-organism cells on any one row, which is what `thicken()`'s own
+    // `width` term measures and what "one cell thick" means.
+    //
+    // The first version of this counted every organism cell on a row
+    // instead, and reported 22 on a tree that is visibly one cell thick
+    // everywhere -- it was counting two separate branches that happen to
+    // cross the same height as if they were one wide trunk. Recorded rather
+    // than quietly fixed, because a metric that answers a *different*
+    // question than its own name claims is the exact failure `CLAUDE.md`
+    // catalogues, and this one would have reported `SecondaryThicken` as
+    // working when the picture plainly showed it was not.
+    let thickest = (0..HEIGHT)
+        .map(|y| {
+            let (mut best, mut run) = (0usize, 0usize);
+            for x in 0..WIDTH {
+                if w.get(x, y).organism_id() != 0 {
+                    run += 1;
+                    best = best.max(run);
+                } else {
+                    run = 0;
+                }
+            }
+            best
+        })
+        .max()
+        .unwrap_or(0);
+    println!("  thickest contiguous run on one row: {thickest} cells");
+
+    if std::env::args().any(|a| a == "dump") {
+        println!("{:>5} {:>5}  {:<12} {:>9} {:>9}", "x", "y", "type", "resource", "canopy");
+        for (x, y, ty, resource, canopy) in &cells {
+            println!("{x:>5} {y:>5}  {:<12} {resource:>9.3} {canopy:>9.3}", format!("{ty:?}"));
+        }
     }
 
     let max_canopy = cells.iter().map(|c| c.4).fold(0.0f32, f32::max);

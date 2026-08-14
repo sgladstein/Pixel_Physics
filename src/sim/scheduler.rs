@@ -55,7 +55,32 @@ pub enum ActiveKind {
     /// stone or more moss must not stay on the active-site list for the
     /// rest of the program's life — the unbounded cost the scheduler's
     /// whole design exists to avoid).
-    Organism { organism: u16, stale_ticks: u8 },
+    ///
+    /// `plastochron` counts successful growth steps along *this lineage* —
+    /// the interval between successive leaf primordia at a shoot apex, and
+    /// the standard botanical term for the periodicity that spaces leaves
+    /// along a shoot. `plant.rs`'s `Grow` advances it parent→child and
+    /// retires a parent to `Leaf` instead of `MatureBody` when it comes
+    /// round, which is what makes `CellType::Leaf` a cell anything actually
+    /// produces.
+    ///
+    /// **Why it lives here and not in `Cell::aux`.** `aux` is full for an
+    /// organism cell (4 bits type + 8 resource + 4 canopy density), and
+    /// `Reports/plant-substrate-v2-design.md` §3a lists a plastochron
+    /// counter among the four new scalars that make its sidecar migration a
+    /// prerequisite for real leaves. That is true of the *other* three and
+    /// not of this one: a plastochron is a property of a growing lineage,
+    /// not of a cell — a retired `MatureBody` has no use for it and a fresh
+    /// tip needs its parent's value, which is exactly the parent→child
+    /// hand-off an `ActiveSite` already performs for `stale_ticks`. Riding
+    /// here costs no `aux` bits and lets leaves land before the migration
+    /// rather than behind it.
+    ///
+    /// `research/m16-plant-biology.md` §2 already recommends this same
+    /// oscillator shape for lateral-root priming, over a flat per-tick
+    /// branch probability, citing Moreno-Risueno et al. (2010) — one
+    /// mechanism, two eventual users, neither invented here.
+    Organism { organism: u16, stale_ticks: u8, plastochron: u8 },
     /// M17: a `Solid` cell whose distance-to-anchor may need recomputing —
     /// scheduled reactively (painting, erasing, an explosion), never at
     /// world-gen time, so pre-placed terrain is never retroactively
@@ -247,7 +272,7 @@ mod tests {
         w.schedule_active_site(ActiveSite {
             x: 10,
             y: 10,
-            kind: ActiveKind::Organism { organism: 0, stale_ticks: 0 },
+            kind: ActiveKind::Organism { organism: 0, stale_ticks: 0, plastochron: 0 },
             next_frame: 100,
         });
         w.begin_step();

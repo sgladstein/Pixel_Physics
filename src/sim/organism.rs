@@ -176,6 +176,27 @@ pub enum Behavior {
         /// `MAX_TIPS_PER_TREE`/`MAX_ROOTS_PER_TREE` caps, now read from the
         /// organism's own live schedule rather than a `Vec` length.
         max_active_tips: u32,
+        /// Successful growth steps between leaves along one shoot — the
+        /// **plastochron**, the real botanical interval between successive
+        /// leaf primordia at a shoot apex (`Reports/plant-substrate-v2-
+        /// design.md` §5a). Every `plastochron`-th step, the *retiring
+        /// parent* becomes a `Leaf` instead of a `MatureBody`, placing
+        /// foliage along the shoot behind the advancing tip, which is where
+        /// leaves are on a real shoot.
+        ///
+        /// **`0` disables it**, and that is a real value rather than a
+        /// sentinel for "unset": a `RootTip` grows by the same rule and
+        /// must never produce foliage underground, and a species whose
+        /// photosynthetic surface *is* its shoot (`Reports/tree-rewrite-
+        /// design.md` §9's cactus sketch) legitimately wants no separate
+        /// leaf stage at all.
+        ///
+        /// Per-species rather than a Rust constant because leaf spacing is
+        /// exactly the kind of value `design-philosophy.md` §2a says
+        /// graduates to data immediately — it is gameplay-facing, a
+        /// non-programmer would plausibly tune it, and it is one of the
+        /// clearest silhouette levers a species file has.
+        plastochron: u8,
     },
     /// Reads the light field, credits the resource scalar — a `Leaf`
     /// cell's own contribution to the resource economy `Grow`/`Divide`

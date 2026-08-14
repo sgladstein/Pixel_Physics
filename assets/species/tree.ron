@@ -60,6 +60,15 @@
                 upward_weight: 0.1,
                 crowding_weight: 0.5,
                 max_active_tips: 14,
+                // Every 3rd growth step along a shoot leaves a Leaf behind.
+                // Untuned -- picked as the smallest interval that still
+                // reads as "leaves spaced along a stem" rather than "every
+                // cell is a leaf", and deliberately not tuned here: the one
+                // economy pass this phase gets happens after polarity lands
+                // (Reports/plant-substrate-v2-design.md §10 step 3), and
+                // tuning it twice is exactly what that sequencing exists to
+                // avoid.
+                plastochron: 3,
             ),
             Photosynthesize(rate: 0.5),
         ]),
@@ -74,6 +83,11 @@
                 upward_weight: 0.6,
                 crowding_weight: 0.0,
                 max_active_tips: 10,
+                // Roots grow by the same rule and must never leaf
+                // underground -- 0 disables the mechanism entirely, which is
+                // a real value here rather than "unset". See the field's own
+                // doc in organism.rs.
+                plastochron: 0,
             ),
         ]),
         (MatureBody, [
