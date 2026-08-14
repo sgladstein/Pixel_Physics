@@ -52,8 +52,36 @@ pub const LIQUID_MAX_COMPRESS: u16 = 10;
 /// transfer logic already uses, and this is the lower-level module of the
 /// two, matching how `LIQUID_FULL`/`LIQUID_MAX_COMPRESS` above already live
 /// here for the same reason. See `update.rs`'s own doc on this constant for
-/// why 8, not the derivation of the number itself.
-pub const HORIZONTAL_TRANSFER_REACH: i32 = 8;
+/// the mechanism itself.
+///
+/// **24, raised from 8**, because this turned out to be what governs the
+/// complaint that a wide body "has a tilt across the whole screen". Measured
+/// on a 512-wide pour, waterline tilt end to end and the frame everything
+/// finally sleeps:
+///
+/// | reach | tilt at frame 2000 | asleep at | tilt at rest |
+/// |---|---|---|---|
+/// | 8 | 18 cells | 12,153 | 1 cell |
+/// | 16 | 15 | 5,867 | 1 |
+/// | 24 | 14 | 4,464 | 1 |
+/// | 32 | 9 | 3,202 | 1 |
+///
+/// The tilt is not permanent at any of these — every one settles to a single
+/// cell across 510 columns. What differs is *how long it takes to get there*,
+/// and at 8 that was three and a half minutes of visibly-sloped water that
+/// looked settled because almost nothing was moving.
+///
+/// Note this is a strictly better lever than `Material::min_transfer` for the
+/// same complaint, and the two were easy to confuse: widening the dead band
+/// also sleeps sooner, but it does it by *giving up* on the last of the
+/// levelling, so tilt at rest goes 1 -> 3 -> 5 cells. Widening this reach
+/// costs no accuracy at all.
+///
+/// Stopped at 24 rather than 32: 32 is faster again but measured ~12.3 ms on
+/// the stress scene against ~8.7 at 8, where 24 costs ~9.3 ms (+7%). 24 also
+/// keeps a margin under `MAX_REACH`, which `parallel.rs`'s write-disjointness
+/// proof is pinned to, rather than sitting exactly on it.
+pub const HORIZONTAL_TRANSFER_REACH: i32 = 24;
 
 /// How far a `Liquid` cell may look sideways for a column it can actually
 /// fall from — `update::find_lateral_descent`'s own bound, and the

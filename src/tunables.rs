@@ -7,14 +7,20 @@
 //! **Scope of this pass.** Materials are the only registrant — every
 //! finite `f32` field on `Material` (`density`, `friction_angle`,
 //! `flammability`, `ignition_temperature`, `burn_temperature`,
-//! `heat_conductivity`, `melting_point`, `boiling_point`). Integer fields
-//! (`dispersion: u8`, `flow_rate: u16`, `burn_duration: u16`,
-//! `max_unsupported_span: u16`) are deliberately not registered yet — this
-//! module's save path always writes back a float literal (RON's own
-//! syntax distinguishes `45` from `45.0`), and building that distinction
-//! in for four fields nothing here exercises would be scope creep, not a
-//! head start; a future pass can add an integer variant when a real
-//! caller needs one. A field left at its "never" sentinel (`f32::INFINITY`
+//! `heat_conductivity`, `melting_point`, `boiling_point`), plus engine
+//! constants that are not material fields at all (see `TunableGroup::
+//! Explosion`).
+//!
+//! **Integer fields.** These used to be excluded on the reasoning that the
+//! save path always writes a float literal and building the distinction in
+//! for fields nothing exercised would be scope creep. That reasoning was
+//! wrong in a way that cost a real bug rather than just an absent feature:
+//! `min_transfer` *was* registered anyway (liquids only), so saving it wrote
+//! `min_transfer: 60.0` into a `u16` and RON rejected the file with
+//! "Expected comma" — reported from live play. `Tunable::integral` now
+//! carries the distinction explicitly and `format_value` honours it, so
+//! integer fields are registerable and `flow_rate` is registered too.
+//! A field left at its "never" sentinel (`f32::INFINITY`
 //! — `ignition_temperature`, `burn_temperature`, `melting_point`,
 //! `boiling_point`, all default to this per `material.rs`'s own doc) is
 //! also skipped: dragging a slider "up" from infinity has no sensible
@@ -78,6 +84,34 @@ pub struct Tunable {
     pub min: f32,
     pub max: f32,
     pub step: f32,
+    /// Whether the underlying `.ron` field is an integer type rather than a
+    /// float. Every [`Tunable`] carries its value as `f32` for one uniform
+    /// adjust/display path, but the *file* is typed, and RON will not accept
+    /// a decimal where a `u8`/`u16` is declared.
+    ///
+    /// Getting this wrong is not a cosmetic problem, and it shipped: the
+    /// save path formatted every value through `format_value`, which always
+    /// emits a decimal point, so saving `water.min_transfer` (a `u16`) wrote
+    /// `min_transfer: 60.0` and `ron::from_str` rejected it with
+    /// **"Expected comma"** — RON reads the `60`, then finds `.0` where it
+    /// wanted the next field. That is exactly the error the panel's own
+    /// footer was reporting, on the one liquid field the file comments
+    /// specifically invite people to sweep live. Reported from live play,
+    /// reproduced directly against `water.ron` before this field existed.
+    pub integral: bool,
+}
+
+impl Tunable {
+    /// A float-valued tunable — the common case.
+    fn float(group: TunableGroup, category: &str, name: &str, value: f32, min: f32, max: f32, step: f32) -> Self {
+        Self { group, category: category.into(), name: name.into(), value, min, max, step, integral: false }
+    }
+
+    /// An integer-valued one, whose `.ron` field must never be written with
+    /// a decimal point — see `integral`.
+    fn integer(group: TunableGroup, category: &str, name: &str, value: f32, min: f32, max: f32, step: f32) -> Self {
+        Self { group, category: category.into(), name: name.into(), value, min, max, step, integral: true }
+    }
 }
 
 /// Every material field worth exposing, in a stable order (the order the
@@ -90,48 +124,19 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
     for id in materials.paintable() {
         let m = materials.get(id);
         let category = m.name.clone();
-        out.push(Tunable { group: TunableGroup::Physics, category: category.clone(), name: "density".into(), value: m.density, min: 0.0, max: 5.0, step: 0.1 });
-        out.push(Tunable {
-            group: TunableGroup::Physics,
-            category: category.clone(),
-            name: "friction_angle".into(),
-            value: m.friction_angle,
-            min: 1.0,
-            max: 89.0,
-            step: 1.0,
-        });
-        out.push(Tunable { group: TunableGroup::Physics, category: category.clone(), name: "flammability".into(), value: m.flammability, min: 0.0, max: 1.0, step: 0.05 });
+        let phys = TunableGroup::Physics;
+        out.push(Tunable::float(phys, &category, "density", m.density, 0.0, 5.0, 0.1));
+        out.push(Tunable::float(phys, &category, "friction_angle", m.friction_angle, 1.0, 89.0, 1.0));
+        out.push(Tunable::float(phys, &category, "flammability", m.flammability, 0.0, 1.0, 0.05));
         // Liquids only -- a dead band means nothing to a powder or a gas, and
         // an entry per material that ignores it is just noise in the panel.
         if m.kind == MaterialKind::Liquid {
-            out.push(Tunable {
-                group: TunableGroup::Visual,
-                category: category.clone(),
-                name: "fill_dimming".into(),
-                value: m.fill_dimming,
-                min: 0.0,
-                max: 1.0,
-                step: 0.05,
-            });
-            out.push(Tunable {
-                group: TunableGroup::Physics,
-                category: category.clone(),
-                name: "min_transfer".into(),
-                value: m.min_transfer as f32,
-                min: 0.0,
-                max: 400.0,
-                step: 4.0,
-            });
+            out.push(Tunable::float(TunableGroup::Visual, &category, "fill_dimming", m.fill_dimming, 0.0, 1.0, 0.05));
+            // `u16` in the file -- see `Tunable::integral`.
+            out.push(Tunable::integer(phys, &category, "min_transfer", m.min_transfer as f32, 0.0, 400.0, 4.0));
+            out.push(Tunable::integer(phys, &category, "flow_rate", m.flow_rate as f32, 0.0, 1000.0, 25.0));
         }
-        out.push(Tunable {
-            group: TunableGroup::Physics,
-            category: category.clone(),
-            name: "heat_conductivity".into(),
-            value: m.heat_conductivity,
-            min: 0.0,
-            max: 1.0,
-            step: 0.05,
-        });
+        out.push(Tunable::float(phys, &category, "heat_conductivity", m.heat_conductivity, 0.0, 1.0, 0.05));
         for (field, value) in [
             ("ignition_temperature", m.ignition_temperature),
             ("burn_temperature", m.burn_temperature),
@@ -139,7 +144,7 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
             ("boiling_point", m.boiling_point),
         ] {
             if value.is_finite() {
-                out.push(Tunable { group: TunableGroup::Physics, category: category.clone(), name: field.into(), value, min: 0.0, max: 2000.0, step: 10.0 });
+                out.push(Tunable::float(phys, &category, field, value, 0.0, 2000.0, 10.0));
             }
         }
     }
@@ -170,12 +175,16 @@ pub fn material_file_path(dir: impl AsRef<std::path::Path>, material_name: &str)
 /// `field: new_value,` on its own line just before the file's own closing
 /// `)` (the outermost one — every shipped material file is a single
 /// top-level struct, so its last `)` is unambiguous) rather than erroring.
-pub fn write_field_value(source: &str, field: &str, new_value: f32) -> Result<String, String> {
+///
+/// `integral` selects the number format — see [`Tunable::integral`] for why
+/// a decimal point in the wrong place is a save-breaking error rather than a
+/// cosmetic one.
+pub fn write_field_value(source: &str, field: &str, new_value: f32, integral: bool) -> Result<String, String> {
     match find_field_value_span(source, field) {
         Some(span) => {
             let mut out = String::with_capacity(source.len());
             out.push_str(&source[..span.start]);
-            out.push_str(&format_value(new_value));
+            out.push_str(&format_value(new_value, integral));
             out.push_str(&source[span.end..]);
             Ok(out)
         }
@@ -202,7 +211,7 @@ pub fn write_field_value(source: &str, field: &str, new_value: f32) -> Result<St
             if needs_comma {
                 out.push(',');
             }
-            out.push_str(&format!("\n    {field}: {},\n", format_value(new_value)));
+            out.push_str(&format!("\n    {field}: {},\n", format_value(new_value, integral)));
             out.push_str(&source[close..]);
             Ok(out)
         }
@@ -279,7 +288,14 @@ fn find_field_value_span(source: &str, field: &str) -> Option<std::ops::Range<us
 /// Rounded to 4 decimal places and trailing zeros stripped, so a step of
 /// `0.1` repeatedly applied doesn't accumulate `f32` noise into the file
 /// as `45.09999998`.
-fn format_value(v: f32) -> String {
+fn format_value(v: f32, integral: bool) -> String {
+    if integral {
+        // No decimal point at all: the field is a `u8`/`u16` in the file and
+        // RON rejects `60.0` there with "Expected comma". Rounded rather
+        // than truncated so a value nudged to 59.9999 by repeated `step`
+        // addition saves as 60, not 59.
+        return format!("{}", v.round() as i64);
+    }
     let s = format!("{v:.4}");
     let trimmed = s.trim_end_matches('0');
     let trimmed = trimmed.trim_end_matches('.');
@@ -338,7 +354,7 @@ mod tests {
     #[test]
     fn write_field_value_replaces_only_the_named_field() {
         let source = "(name: \"sand\", kind: Powder, density: 1.6, friction_angle: 34.0, colors: [(1,2,3)])";
-        let updated = write_field_value(source, "friction_angle", 40.0).unwrap();
+        let updated = write_field_value(source, "friction_angle", 40.0, false).unwrap();
         assert!(updated.contains("friction_angle: 40.0"));
         assert!(updated.contains("density: 1.6"), "an unrelated field must be untouched: {updated}");
         assert_eq!(updated.len(), source.len() + "40.0".len() - "34.0".len());
@@ -350,7 +366,7 @@ mod tests {
         // A field literally named "temperature" exists too, distinct from
         // "burn_temperature" -- searching for "temperature" must not stop
         // at the substring inside "burn_temperature".
-        let updated = write_field_value(source, "temperature", 25.0).unwrap();
+        let updated = write_field_value(source, "temperature", 25.0, false).unwrap();
         assert!(updated.contains("burn_temperature: 900.0"), "burn_temperature must be untouched: {updated}");
         assert!(updated.contains("temperature: 25.0"), "the standalone temperature field should have been updated: {updated}");
     }
@@ -358,7 +374,7 @@ mod tests {
     #[test]
     fn write_field_value_preserves_comments_elsewhere_in_the_file() {
         let source = "// a real reason this material exists\n(name: \"oil\", kind: Liquid, density: 0.8)";
-        let updated = write_field_value(source, "density", 0.9).unwrap();
+        let updated = write_field_value(source, "density", 0.9, false).unwrap();
         assert!(updated.starts_with("// a real reason this material exists\n"), "the comment must survive verbatim: {updated}");
     }
 
@@ -371,7 +387,7 @@ mod tests {
         // save, without the parse-before-write safety net catching it
         // (the result is still valid RON, just missing the comment).
         let source = "(name: \"oil\", kind: Liquid, density: 1.0 // heavy\n)";
-        let updated = write_field_value(source, "density", 0.9).unwrap();
+        let updated = write_field_value(source, "density", 0.9, false).unwrap();
         assert!(updated.contains("// heavy"), "the inline comment must survive: {updated}");
         assert!(updated.contains("density: 0.9"), "{updated}");
     }
@@ -383,7 +399,7 @@ mod tests {
         // so a comma is needed" -- `last_significant_char` has to see past
         // it to the real last field (which already ends in a comma here).
         let source = "(name: \"stone\", kind: Solid, density: 2.5, colors: [(1,2,3)],\n// a trailing note\n)";
-        let updated = write_field_value(source, "heat_conductivity", 0.4).unwrap();
+        let updated = write_field_value(source, "heat_conductivity", 0.4, false).unwrap();
         assert!(updated.contains("// a trailing note"), "the comment must survive: {updated}");
         ron::from_str::<material::MaterialDef>(&updated).expect("must still parse -- no stray or missing comma: {updated}");
     }
@@ -395,7 +411,7 @@ mod tests {
         // particular file never wrote it, relying on the struct default
         // instead. Saving an adjustment must still work, not error.
         let source = "(name: \"stone\", kind: Solid, density: 2.5, colors: [(128, 128, 132)], max_unsupported_span: 3)";
-        let updated = write_field_value(source, "heat_conductivity", 0.4).unwrap();
+        let updated = write_field_value(source, "heat_conductivity", 0.4, false).unwrap();
         assert!(updated.contains("heat_conductivity: 0.4"), "{updated}");
         assert!(updated.contains("density: 2.5"), "existing fields must be untouched: {updated}");
         assert!(updated.trim_end().ends_with(')'), "must still end with the closing paren: {updated}");
@@ -404,7 +420,7 @@ mod tests {
 
     #[test]
     fn write_field_value_errors_only_when_there_is_no_closing_paren_at_all() {
-        assert!(write_field_value("not a ron struct", "density", 1.0).is_err());
+        assert!(write_field_value("not a ron struct", "density", 1.0, false).is_err());
     }
 
     #[test]
@@ -416,15 +432,17 @@ mod tests {
         // produces valid RON, so a regression here would be caught before
         // it ever reached that safety net silently passing malformed text.
         let source = std::fs::read_to_string("assets/materials/sand.ron").expect("sand.ron should exist in the crate root");
-        let updated = write_field_value(&source, "friction_angle", 37.5).unwrap();
+        let updated = write_field_value(&source, "friction_angle", 37.5, false).unwrap();
         ron::from_str::<material::MaterialDef>(&updated).expect("edited sand.ron should still parse");
     }
 
     #[test]
     fn format_value_strips_trailing_zeros_but_keeps_a_decimal_point() {
-        assert_eq!(format_value(45.0), "45.0");
-        assert_eq!(format_value(12.345), "12.345");
-        assert_eq!(format_value(0.1), "0.1");
-        assert_eq!(format_value(-5.5), "-5.5");
+        assert_eq!(format_value(45.0, true), "45");
+        assert_eq!(format_value(59.9999, true), "60", "an integral value must round, not truncate");
+        assert_eq!(format_value(45.0, false), "45.0");
+        assert_eq!(format_value(12.345, false), "12.345");
+        assert_eq!(format_value(0.1, false), "0.1");
+        assert_eq!(format_value(-5.5, false), "-5.5");
     }
 }

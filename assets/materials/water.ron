@@ -37,7 +37,7 @@
     // cells are partial, but they are all at the surface, and their fill
     // ranges widely enough to draw anywhere from ~54% to 100% brightness.
     // Live-tunable with `O`.
-    fill_dimming: 0.65,
+    fill_dimming: 0.0,
     colors: [
         (64, 116, 208),
         (58, 108, 198),

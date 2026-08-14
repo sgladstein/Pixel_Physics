@@ -132,7 +132,7 @@ pub fn trigger(world: &mut World, particles: &mut ParticleSystem, cx: i32, cy: i
 
             if dist2 > vaporize_r2 {
                 let (vx, vy) = debris_velocity(world, x, y, cx, cy, strength);
-                particles.spawn(x as f32, y as f32, vx, vy, cell.material, cell.shade);
+                particles.spawn_piercing((x as f32, y as f32), (vx, vy), cell.material, cell.shade, pierce_budget(strength));
             }
             let was_structural = matches!(world.materials.kind(cell.material), material::MaterialKind::Solid | material::MaterialKind::Plant);
             world.set(x, y, Cell::EMPTY);
@@ -175,7 +175,7 @@ pub fn trigger(world: &mut World, particles: &mut ParticleSystem, cx: i32, cy: i
             let pickup_chance = shockwave_pickup_chance(radius, dist2.sqrt());
             if world.rng.chance(pickup_chance) {
                 let (vx, vy) = debris_velocity(world, x, y, cx, cy, strength);
-                particles.spawn(x as f32, y as f32, vx, vy, cell.material, cell.shade);
+                particles.spawn_piercing((x as f32, y as f32), (vx, vy), cell.material, cell.shade, pierce_budget(strength));
                 world.set(x, y, Cell::EMPTY);
             }
         }
@@ -229,6 +229,25 @@ pub fn trigger(world: &mut World, particles: &mut ParticleSystem, cx: i32, cy: i
 /// of fading to exactly zero — `Rng::chance` silently treats negative as
 /// "never," so the annulus quietly narrowed below what the constant says it
 /// should be.
+/// Cells of loose material a blast's debris may punch through before it has
+/// to come to rest (`particle::Particle::pierce`).
+///
+/// Scaled by `strength` rather than fixed, so a bigger charge reaches
+/// further through cover — but deliberately *not* by `radius`, which already
+/// sets how much material is thrown; conflating the two would make a wide,
+/// weak blast punch as far as a narrow, violent one.
+///
+/// The divisor is set from the measurement this mechanic exists to fix
+/// rather than from anything physical: on a flat sand bed at the app's own
+/// `strength = 180`, cells thrown clear of the blast zone fell to exactly
+/// zero once cover exceeded roughly 15 cells. A budget of `180 / 12 = 15`
+/// puts the reach back at about that threshold before `PIERCE_SPEED_
+/// RETENTION`'s own decay is accounted for, which is the point at which the
+/// mechanic starts to matter rather than a value tuned for a target number.
+fn pierce_budget(strength: f32) -> u8 {
+    (strength / 12.0).clamp(0.0, u8::MAX as f32) as u8
+}
+
 fn shockwave_pickup_chance(radius: i32, dist: f32) -> f32 {
     // Clamped defensively: right at the outer edge, `dist` and the
     // continuous radius are equal in exact math but not always in float

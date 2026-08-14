@@ -48,7 +48,7 @@ use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::world::World;
 use pixel_physics::sim::rng;
-use pixel_physics::sim::{material, parallel, update};
+use pixel_physics::sim::{explosion, material, parallel, update};
 
 const WIDTH: i32 = 512;
 const HEIGHT: i32 = 320;
@@ -121,7 +121,61 @@ fn build(scene: &str) -> World {
             w.paint_circle(250, 70, 40, material::SAND);
             w.paint_circle(380, 70, 24, material::SAND);
         }
-        other => panic!("unknown scene {other:?}; known: pour, fall, blob, sand"),
+        // M15 explosions. A settled sand pile with a stone slab buried in
+        // it and open air above -- the geometry the owner's own live report
+        // used ("two explosions in a sand pile"), plus enough solid
+        // material for the crater edge and the fireball ring to read
+        // against something that cannot avalanche. `explode=` fires into it.
+        "boom" => {
+            stone_floor(&mut w);
+            for x in 100..412 {
+                for y in 180..floor_y {
+                    w.set(x, y, Cell::new(material::SAND, (rng::jitter(x, y) * 255.0) as u8));
+                }
+            }
+            for x in 150..360 {
+                for y in 230..244 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+        }
+        // The same blast against `Solid` only, so nothing can slump in and
+        // hide what the blast itself actually did.
+        "boom_stone" => {
+            stone_floor(&mut w);
+            for x in 100..412 {
+                for y in 180..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+        }
+        // A deep, flat sand bed with nothing else in it -- for firing several
+        // blasts at different *depths* below the free surface in one image.
+        // The owner's own framing of the M15 complaint: material only blasts
+        // around when the charge is near the edge, and "it just doesn't
+        // happen if you're not really close."
+        "sandbed" => {
+            stone_floor(&mut w);
+            for x in 20..492 {
+                for y in 120..floor_y {
+                    w.set(x, y, Cell::new(material::SAND, (rng::jitter(x, y) * 255.0) as u8));
+                }
+            }
+        }
+        // The same depth sweep in the other material the complaint named.
+        // A liquid holds no angle of repose, so a crater here closes by
+        // flowing rather than by avalanching.
+        "waterbed" => {
+            stone_floor(&mut w);
+            for x in 20..492 {
+                for y in 120..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+        }
+        other => panic!(
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed"
+        ),
     }
     w
 }
@@ -141,6 +195,9 @@ struct Args {
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
     gif: bool,
+    /// `explode=x,y,radius,strength,frame` -- fire one `explosion::trigger`
+    /// at the given frame. Repeatable, for several blasts in one run.
+    explosions: Vec<(i32, i32, i32, f32, usize)>,
 }
 
 fn parse() -> Args {
@@ -156,6 +213,7 @@ fn parse() -> Args {
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
         grain: GrainMode::Position,
         gif: false,
+        explosions: Vec::new(),
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -179,6 +237,11 @@ fn parse() -> Args {
                     other => panic!("unknown grain {other:?}"),
                 }
             }
+            "explode" => {
+                let n: Vec<f32> = v.split(',').map(|s| s.parse().expect("explode")).collect();
+                assert_eq!(n.len(), 5, "explode=x,y,radius,strength,frame");
+                a.explosions.push((n[0] as i32, n[1] as i32, n[2] as i32, n[3], n[4] as usize));
+            }
             "crop" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
                 assert_eq!(n.len(), 4, "crop=x,y,w,h");
@@ -190,12 +253,58 @@ fn parse() -> Args {
     a
 }
 
+/// Fire every scheduled explosion whose frame has arrived, removing it from
+/// the pending list so it cannot fire twice. Draining rather than
+/// index-matching makes this safe to call both inside the stepping loop and
+/// immediately before a capture, which is what lets `frame=0` work at all
+/// (with `start=0` the loop body never runs before the first tile).
+fn fire_due_explosions(
+    world: &mut World,
+    particles: &mut ParticleSystem,
+    pending: &mut Vec<(i32, i32, i32, f32, usize)>,
+    now: usize,
+) {
+    let mut i = 0;
+    while i < pending.len() {
+        if pending[i].4 <= now {
+            let (x, y, r, strength, _) = pending.remove(i);
+            println!("  boom: ({x}, {y}) r={r} strength={strength} at frame {now}");
+            explosion::trigger(world, particles, x, y, r, strength);
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// One full frame, in `App::update`'s own phase order.
+///
+/// This harness originally ran the CA sweep and nothing else, which is fine
+/// for liquids but makes an explosion unviewable: debris lives in
+/// `ParticleSystem` and does not move without `particles.step`, and the
+/// pressure/heat a blast writes never propagates without `step_fields`. The
+/// added phases are no-ops or non-CA-affecting for the four pre-existing
+/// scenes (nothing promotes a liquid body, nothing schedules an active site,
+/// and no liquid rule reads the field), so they do not move the measurements
+/// already recorded against those.
+fn advance(world: &mut World, particles: &mut ParticleSystem, parallel_driver: bool) {
+    if parallel_driver {
+        parallel::step(world);
+    } else {
+        update::step(world);
+    }
+    world.step_liquid_bodies();
+    world.step_active_sites();
+    particles.step(world);
+    world.step_fields();
+}
+
 fn main() {
     let args = parse();
     let mut world = build(&args.scene);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
-    let particles = ParticleSystem::new();
+    let mut particles = ParticleSystem::new();
+    let mut pending = args.explosions.clone();
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
     let (cw, ch) = (args.crop.width(), args.crop.height());
@@ -222,13 +331,11 @@ fn main() {
         for i in 0..args.count {
             let target = args.start + i * args.every;
             while step_no < target {
-                if args.parallel_driver {
-                    parallel::step(&mut world);
-                } else {
-                    update::step(&mut world);
-                }
+                fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
+                advance(&mut world, &mut particles, args.parallel_driver);
                 step_no += 1;
             }
+            fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
 
@@ -273,13 +380,11 @@ fn main() {
     while captured < args.count {
         let target = args.start + captured * args.every;
         while step_no < target {
-            if args.parallel_driver {
-                parallel::step(&mut world);
-            } else {
-                update::step(&mut world);
-            }
+            fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
+            advance(&mut world, &mut particles, args.parallel_driver);
             step_no += 1;
         }
+        fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
         // `force_full`, not the dirty-rect path: this must draw the whole
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.
@@ -304,7 +409,7 @@ fn main() {
                 }
             }
         }
-        println!("  tile {captured}: frame {target}, awake {}/{}", world.active_chunk_count(), world.chunk_count());
+        println!("  tile {captured}: frame {target}, awake {}/{}, particles {}", world.active_chunk_count(), world.chunk_count(), particles.len());
         captured += 1;
     }
 

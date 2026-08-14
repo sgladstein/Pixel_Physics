@@ -251,7 +251,7 @@ impl App {
         let path = tunables::material_file_path(material::ASSET_DIR, &t.category);
         let result = (|| -> Result<(), String> {
             let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-            let updated = tunables::write_field_value(&source, &t.name, t.value)?;
+            let updated = tunables::write_field_value(&source, &t.name, t.value, t.integral)?;
             ron::from_str::<material::MaterialDef>(&updated).map_err(|e| format!("edit would corrupt the file: {e}"))?;
             std::fs::write(&path, updated).map_err(|e| e.to_string())?;
             Ok(())
@@ -332,6 +332,12 @@ impl App {
         // window title bar.
         let label = format!("{} R{}", self.selected_name(), self.brush_radius);
         hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
+        // The help panel existed from the start and was invisible unless you
+        // already knew the key -- which is the same as not existing. Hidden
+        // only while help itself is open, where it would be redundant.
+        if !self.show_help {
+            hud::draw_text(frame, WIDTH, HEIGHT, WIDTH as i32 - 56, HEIGHT as i32 - 10, "? HELP", WHITE);
+        }
 
         if let Some((sx, sy)) = cursor {
             // Brush outline preview -- always on while the cursor is in the
@@ -484,16 +490,21 @@ impl App {
             }
         }
         let lines = [
-            "SPACE PAUSE    . STEP    R RESET",
-            "F1 CHUNK OVERLAY    F5 RELOAD",
             "LEFT CLICK PAINT    RIGHT CLICK ERASE",
-            "[ ] BRUSH SIZE    = - ZOOM",
-            "Q E CYCLE MATERIAL    1-9 SELECT",
+            "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
+            "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
+            "",
             "F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
-            "I HOVER INSPECTOR    V FIELD OVERLAY",
-            "TAB MATERIAL PALETTE    ? THIS HELP",
-            "G WATER GRAIN    K A/B EXPERIMENT",
+            "",
+            "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
+            "F1 CHUNK OVERLAY    G WATER GRAIN",
+            "",
+            "O TUNABLES  (PGUP PGDN SWITCH MENU,",
+            "             ARROWS SELECT/ADJUST, ENTER SAVE)",
+            "K A/B EXPERIMENT    F5 RELOAD ASSETS",
+            "",
+            "? THIS HELP    ESC CLOSE",
         ];
         for (i, line) in lines.iter().enumerate() {
             hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 8 + i as i32 * 10, line, WHITE);

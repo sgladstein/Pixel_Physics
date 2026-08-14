@@ -45,6 +45,19 @@ const MAX_DRAG: f32 = 1.0;
 const MIN_GRAVITY_SCALE: f32 = 0.9;
 const MAX_GRAVITY_SCALE: f32 = 1.1;
 
+/// Fraction of its speed a particle keeps for each cell of loose material it
+/// punches through (`Particle::pierce`). Below 1.0 so debris decelerates
+/// inside cover and comes to rest rather than crossing any thickness of it
+/// for free — that falloff is what keeps a deeply buried charge from
+/// throwing material to the surface as freely as a shallow one, which is the
+/// distinction the mechanic exists to restore rather than erase.
+const PIERCE_SPEED_RETENTION: f32 = 0.82;
+
+/// How far `land` will search outward for an empty cell when a particle
+/// comes to rest embedded in material — see its own comment. Small: this is
+/// a last resort for a piercing particle, not a placement solver.
+const NEAREST_EMPTY_SEARCH: i32 = 4;
+
 pub struct Particle {
     pub x: f32,
     pub y: f32,
@@ -68,6 +81,28 @@ pub struct Particle {
     /// for the vertical axis: without this, particles that start identical
     /// keep falling at exactly the same rate and never visually separate.
     pub gravity_scale: f32,
+    /// How many cells of *loose* material (`Powder`/`Liquid`) this particle
+    /// may still punch through before it has to come to rest. Zero for
+    /// ordinary debris, which lands on the first thing it touches.
+    ///
+    /// This exists because of a measured, structural gap: nothing in this
+    /// engine can move through material. A CA cell only ever moves into
+    /// empty space, and a free particle lands the instant its next substep
+    /// is occupied — so an explosion buried more than a few cells deep has
+    /// nowhere to throw anything. Measured on a flat sand bed at radius 20:
+    /// cells thrown clear of the blast zone were 2 at 2 cells of cover, 33
+    /// at 15, and **exactly 0** at 30 and beyond; in water, 0 at every depth
+    /// including 2. The material that *did* move rose with depth (69 → 686
+    /// cells) but all of it was collapse into the hole, not ejecta. The
+    /// owner's report of the same thing: "you have to be so close to the
+    /// edge to actually get material to blast around. it just doesn't happen
+    /// if you're not really close."
+    ///
+    /// Piercing is deliberately restricted to loose material — a blast can
+    /// throw grit out through sand or water, but debris does not tunnel
+    /// through a stone wall, which is the same line `explosion.rs`'s
+    /// shockwave step already draws for the same reason.
+    pub pierce: u8,
 }
 
 /// Uniform in `min..max` (exclusive upper bound, inherited from `Rng::
@@ -105,6 +140,19 @@ impl ParticleSystem {
     }
 
     pub fn spawn(&mut self, x: f32, y: f32, vx: f32, vy: f32, material: MaterialId, shade: u8) {
+        self.spawn_piercing((x, y), (vx, vy), material, shade, 0);
+    }
+
+    /// `spawn`, plus a budget of loose cells the particle may punch through
+    /// before it must land — see `Particle::pierce`. Kept as a separate
+    /// entry point rather than a seventh parameter on `spawn`, because every
+    /// caller other than `explosion::trigger` wants the plain
+    /// land-on-first-contact behaviour and should not have to say so.
+    ///
+    /// Position and velocity are taken as pairs rather than four scalars
+    /// purely to stay under clippy's argument-count limit, which the
+    /// unpacked form trips.
+    pub fn spawn_piercing(&mut self, (x, y): (f32, f32), (vx, vy): (f32, f32), material: MaterialId, shade: u8, pierce: u8) {
         let drag = ranged(&mut self.rng, MIN_DRAG, MAX_DRAG);
         let gravity_scale = ranged(&mut self.rng, MIN_GRAVITY_SCALE, MAX_GRAVITY_SCALE);
         self.particles.push(Particle {
@@ -116,6 +164,7 @@ impl ParticleSystem {
             shade,
             drag,
             gravity_scale,
+            pierce,
         });
     }
 
@@ -192,7 +241,7 @@ impl Default for ParticleSystem {
 /// frame that did not end in a landing. Every test in this module failed the
 /// same way (a particle "falling" that never actually moved), which is what
 /// caught it — the bug was in what the function *did*, not in any of them.
-fn advance_and_check_landing(world: &World, particle: &mut Particle) -> Option<(i32, i32)> {
+fn advance_and_check_landing(world: &mut World, particle: &mut Particle) -> Option<(i32, i32)> {
     let (vx, vy) = (particle.vx, particle.vy);
     let distance = (vx * vx + vy * vy).sqrt();
     if distance <= 0.0 {
@@ -204,6 +253,47 @@ fn advance_and_check_landing(world: &World, particle: &mut Particle) -> Option<(
     for _ in 0..steps {
         let (next_x, next_y) = (particle.x + step_x, particle.y + step_y);
         let (cell_x, cell_y) = (next_x.round() as i32, next_y.round() as i32);
+        // Punch through loose material rather than landing on it, while a
+        // pierce budget remains — see `Particle::pierce` for the measured
+        // reason this exists at all.
+        //
+        // The particle carries its own grain straight through and writes
+        // nothing to the CA grid on the way. An *exchange* version was
+        // tried first — deposit the carried grain in the cell being left,
+        // pick up the loose cell being entered — on the reasoning that it
+        // conserves mass locally and drags a visible channel of material
+        // outward. It does both, and it looks wrong: depositing at every
+        // step riddles the pile with a trail of displaced grains and
+        // scattered holes, which reads as static/corruption rather than
+        // motion, and it transports material only one cell per exchange no
+        // matter how far the particle actually flies — a bucket brigade,
+        // not ejecta. Measured: it tripled "material disturbed" while
+        // leaving "material thrown clear" at zero, which is the wrong one
+        // of the two to move. Carrying the grain is also strictly cheaper
+        // (no CA writes per pierced cell).
+        //
+        // Mass is still conserved: the grain stays on the particle until it
+        // lands, and `land`'s nearest-empty search below guarantees a
+        // particle that runs out of pierce while embedded still has
+        // somewhere legal to come to rest.
+        if particle.pierce > 0 && world.in_bounds(cell_x, cell_y) {
+            let entering = world.get(cell_x, cell_y).material;
+            let loose = matches!(
+                world.materials.kind(entering),
+                super::material::MaterialKind::Powder | super::material::MaterialKind::Liquid
+            );
+            if loose {
+                particle.pierce -= 1;
+                // Punching through costs speed, so debris slows to a stop
+                // inside deep cover instead of crossing any thickness of it
+                // for free — that falloff with depth is the point.
+                particle.vx *= PIERCE_SPEED_RETENTION;
+                particle.vy *= PIERCE_SPEED_RETENTION;
+                particle.x = next_x;
+                particle.y = next_y;
+                continue;
+            }
+        }
         // `world.is_empty` deliberately, and deliberately *not* changed to a
         // raw material test the way `explosion::trigger` was. The question
         // here is "is this position available to land in", which is precisely
@@ -236,10 +326,38 @@ fn land(world: &mut World, particle: &Particle, at: (i32, i32)) {
     };
     if world.in_bounds(tx, ty) && world.is_empty(tx, ty) {
         world.set(tx, ty, super::cell::Cell::new(particle.material, particle.shade));
+        return;
     }
-    // If neither position is available (e.g. spawned already overlapping
-    // something), the particle is simply dropped — better than corrupting
-    // whatever occupies the cell it would have overwritten.
+    // Neither position is available. Before this, the particle was simply
+    // dropped here — acceptable when the only way to reach this branch was
+    // spawning already overlapping something, but not once `Particle::
+    // pierce` exists: a particle that runs out of pierce mid-way through a
+    // sand pile is embedded by construction, both positions are occupied,
+    // and dropping it would silently delete a grain on *every* deeply
+    // buried blast rather than in a rare edge case. Search outward for
+    // somewhere legal to come to rest instead.
+    //
+    // Bounded deliberately, and small: this is a last resort for a particle
+    // that is already inside material, not a general placement solver, and
+    // an unbounded search would scan the whole world for the genuinely
+    // hopeless case (a particle inside a solid block with no gap at all).
+    // Ring by ring, so the grain surfaces at the nearest opening rather than
+    // teleporting to whichever cell happens to come first in scan order.
+    for ring in 1..=NEAREST_EMPTY_SEARCH {
+        for dy in -ring..=ring {
+            for dx in -ring..=ring {
+                if dx.abs() != ring && dy.abs() != ring {
+                    continue; // interior of this ring was covered by a previous one
+                }
+                let (nx, ny) = (tx + dx, ty + dy);
+                if world.in_bounds(nx, ny) && world.is_empty(nx, ny) {
+                    world.set(nx, ny, super::cell::Cell::new(particle.material, particle.shade));
+                    return;
+                }
+            }
+        }
+    }
+    // Genuinely nowhere to go — dropped, as before.
 }
 
 #[cfg(test)]
