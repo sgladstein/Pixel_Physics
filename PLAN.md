@@ -3773,8 +3773,27 @@ all — roots then converted essentially a whole soil bed to root tissue.
 Fixed with real allometry (a conserved root:shoot ratio, `MAX_ROOT_FRACTION`),
 using the whole-organism totals the cell list makes cheap and §6 sanctions.
 
-**Still to do:** polarity (Decision 6), the one economy pass (Decision 4's
-remainder), and bud break — in that order, unchanged.
+**Step 0, before any new plant work: rebase onto `master`.**
+
+This branch was cut from `master` at `a39da4e` while explosion work was live
+in the main working tree, which is why it is on its own worktree at
+`.claude/worktrees/plant-v2`. That work has since landed and `master` has
+moved on, so the divergence is real and only gets more expensive to carry —
+21 commits is already past the point where deferring is the cheaper option.
+
+It is not merely hygiene. The explosion work touched `parallel.rs` and
+`surface.rs`, and the per-organism transport pass sits directly downstream
+of both. Rebasing *after* building polarity on top would mean resolving a
+transport-mechanism conflict inside a transport-mechanism change.
+
+Expect mechanical conflicts in `render.rs`, `app.rs` and
+`examples/filmstrip.rs` — every plant change to those three is additive (an
+overlay enum beside the existing one, a key binding, a new scene). Re-run
+the full suite *and* `examples/ascii` afterwards before starting anything:
+a rebase that compiles is not evidence the sweep still behaves.
+
+**Still to do after that:** polarity (Decision 6), the one economy pass
+(Decision 4's remainder), and bud break — in that order, unchanged.
 
 **The economy pass now has concrete, visible targets** — all consequences of
 the same removed throttle, and all shape/tuning rather than missing
