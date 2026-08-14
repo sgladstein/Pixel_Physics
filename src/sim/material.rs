@@ -354,12 +354,62 @@ pub struct MaterialDef {
     /// without this milestone needing to change.
     #[serde(default)]
     pub breaks_into: String,
+
+    /// How thick this material has to be before it holds *itself* up.
+    ///
+    /// A cell every one of whose neighbours within this Chebyshev radius is
+    /// `Solid` counts as an anchor outright, exactly as if it touched
+    /// bedrock — so the minimum self-supporting thickness is `2 * r + 1`
+    /// cells. `structural.rs`'s module doc carries the reasoning; the short
+    /// version is that the play world is a 2D *slice* through a 3D world
+    /// (`Reports/worldgen-design.md` §0), so rock confined on every visible
+    /// side is being held up by material out of plane that the slice
+    /// cannot see. Requiring it to trace an in-plane path to bedrock asks
+    /// the slice to justify support it structurally has no way to observe,
+    /// which is why bulk terrain had to be exempted from checking at all
+    /// before this existed.
+    ///
+    /// **0 means disabled**, not "radius zero" — a literal radius-0
+    /// neighbourhood is just the cell itself, which every `Solid` cell
+    /// trivially satisfies, and would make every cell in the world an
+    /// anchor. Left unset, a material never self-supports and behaves
+    /// exactly as it did before this field existed.
+    #[serde(default)]
+    pub confinement_radius: u16,
+
+    /// What one step of `max_unsupported_span` costs, per direction the
+    /// support comes *from*: standing on the cell below, leaning on the one
+    /// beside, or hanging from the one above.
+    ///
+    /// Rock is strong in compression and weak in bending and tension, so
+    /// these are not equal in reality and were not distinguished at all
+    /// before this: the relaxation charged a flat 1 in every direction,
+    /// which is why a 1-cell tower built up from the ground snapped at the
+    /// same height a 1-cell cantilever reached sideways. Make `below` cheap
+    /// and a wall stands to any height; keep `beside` dear and an overhang
+    /// still fails at its span; make `above` dearest and nothing hangs far.
+    ///
+    /// All three default to 1, which is the flat cost this replaced — so a
+    /// `.ron` that says nothing about them behaves exactly as before.
+    #[serde(default = "default_support_cost")]
+    pub support_cost_below: u16,
+    #[serde(default = "default_support_cost")]
+    pub support_cost_beside: u16,
+    #[serde(default = "default_support_cost")]
+    pub support_cost_above: u16,
 }
 
 /// 16, the value the constant this replaced was tuned to — so a `.ron` that
 /// says nothing about it behaves exactly as before.
 fn default_min_transfer() -> u16 {
     16
+}
+
+/// 1 — the flat, direction-blind step cost `structural.rs`'s relaxation
+/// charged before `support_cost_*` split it three ways, so a `.ron` that
+/// sets none of them relaxes exactly as it always did.
+fn default_support_cost() -> u16 {
+    1
 }
 
 /// 0.65, matching the hardcoded `MIN_LIQUID_BRIGHTNESS` of 0.35 this
@@ -464,6 +514,12 @@ pub struct Material {
     pub melting_point: f32,
     pub boiling_point: f32,
     pub max_unsupported_span: u16,
+    /// See `MaterialDef::confinement_radius`. 0 means disabled.
+    pub confinement_radius: u16,
+    /// See `MaterialDef::support_cost_below` and its siblings.
+    pub support_cost_below: u16,
+    pub support_cost_beside: u16,
+    pub support_cost_above: u16,
 
     // Names as written in the `.ron` file (empty = unset), kept so
     // `MaterialRegistry::resolve_references` can look them up once every
@@ -694,6 +750,18 @@ impl From<MaterialDef> for Material {
             melting_point: def.melting_point,
             boiling_point: def.boiling_point,
             max_unsupported_span: def.max_unsupported_span,
+            confinement_radius: def.confinement_radius,
+            // Clamped to at least 1 so a lateral or upward step always costs
+            // *something*. All three at 0 would let a distance propagate
+            // arbitrarily far without ever growing, silently disabling
+            // `max_unsupported_span` for that material rather than tuning it
+            // -- a content mistake that would read as "spans stopped working"
+            // with nothing pointing at the cause. `below` is deliberately
+            // exempt: 0 there is the whole point (free compression), and a
+            // column standing on an anchor is genuinely supported.
+            support_cost_below: def.support_cost_below,
+            support_cost_beside: def.support_cost_beside.max(1),
+            support_cost_above: def.support_cost_above.max(1),
             melts_into_name: def.melts_into,
             boils_into_name: def.boils_into,
             burns_into_name: def.burns_into,
@@ -802,6 +870,10 @@ impl MaterialRegistry {
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
             breaks_into: String::new(),
+            confinement_radius: 0,
+            support_cost_below: 1,
+            support_cost_beside: 1,
+            support_cost_above: 1,
         }));
         reg.insert(Material::from(MaterialDef {
             name: "bedrock".into(),
@@ -828,9 +900,15 @@ impl MaterialRegistry {
             reactions: Vec::new(),
             // Bedrock is the anchor itself — it must never be the thing
             // that breaks free, so this stays unset regardless of what any
-            // other material's span is.
+            // other material's span is. `confinement_radius` is moot for the
+            // same reason (it only ever *adds* anchors, and bedrock already
+            // is one), so it stays disabled rather than pretending to matter.
             max_unsupported_span: u16::MAX,
             breaks_into: String::new(),
+            confinement_radius: 0,
+            support_cost_below: 1,
+            support_cost_beside: 1,
+            support_cost_above: 1,
         }));
         reg
     }

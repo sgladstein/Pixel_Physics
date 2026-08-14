@@ -185,12 +185,21 @@ fn main() {
         w.plant_moss_seed(72, 14);
     });
 
-    // M17: a short stone bridge anchored at both world edges, cut on one
-    // side after settling. Should print twice: intact (nothing broken, since
-    // every cell of a 7-wide bridge sits within stone's span-3 reach of one
-    // end or the other), then with the far half collapsed into gravel after
-    // the right anchor is erased.
-    structural_scene("M17: cutting a bridge's far support collapses the far span", 7, 15);
+    // M17: a stone bridge anchored at both world edges, cut on one side
+    // after settling. Should print twice: intact (nothing broken, since
+    // every cell sits within stone's span of one end or the other), then
+    // with the far span collapsed into gravel after the right anchor is
+    // erased.
+    //
+    // **Width tracks stone's span and has to.** This was 7 wide against a
+    // span of 3. Confinement and direction-weighted steps raised the span
+    // well past that, and at 7 wide the scene silently stopped demonstrating
+    // anything -- cutting the anchor removed one cell and the remaining six
+    // stood, since all of them were now comfortably in reach of the left
+    // edge. It printed a perfectly healthy-looking bridge twice and proved
+    // nothing. Keep this wider than 2x the span, or it degrades the same way
+    // again.
+    structural_scene("M17: cutting a bridge's far support collapses the far span", 30, 15);
 
     // M18: a worm burrows through a sand field (should visibly relocate from
     // its seed position over the run), then a fire is lit nearby partway

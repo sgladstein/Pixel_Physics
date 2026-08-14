@@ -168,6 +168,24 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
                 out.push(Tunable::float(phys, &category, field, value, 0.0, 2000.0, 10.0));
             }
         }
+        // Structural integrity (`structural.rs`), `Solid` only -- a
+        // confinement radius or a compression weight means nothing to a
+        // powder or a gas, and the panel is long enough already. A material
+        // sitting at the "never" span sentinel is skipped for exactly the
+        // reason an infinite `ignition_temperature` is: there is no sensible
+        // value to drag a slider up from. All `u16` in the file, so all
+        // `integer` -- see `Tunable::integral` for why writing `2.0` into one
+        // is a save-breaking error rather than a cosmetic one.
+        if m.kind == MaterialKind::Solid && m.max_unsupported_span != u16::MAX {
+            out.push(Tunable::integer(phys, &category, "max_unsupported_span", m.max_unsupported_span as f32, 0.0, 64.0, 1.0));
+            out.push(Tunable::integer(phys, &category, "confinement_radius", m.confinement_radius as f32, 0.0, 8.0, 1.0));
+            out.push(Tunable::integer(phys, &category, "support_cost_below", m.support_cost_below as f32, 0.0, 8.0, 1.0));
+            // Floored at 1, matching `Material::from`'s own clamp: all three
+            // at 0 would let a distance propagate forever without growing,
+            // silently disabling spans rather than tuning them.
+            out.push(Tunable::integer(phys, &category, "support_cost_beside", m.support_cost_beside as f32, 1.0, 8.0, 1.0));
+            out.push(Tunable::integer(phys, &category, "support_cost_above", m.support_cost_above as f32, 1.0, 8.0, 1.0));
+        }
     }
     out
 }

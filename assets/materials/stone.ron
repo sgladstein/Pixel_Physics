@@ -15,6 +15,22 @@
         (138, 136, 140),
         (110, 112, 118),
     ],
-    max_unsupported_span: 3,
+    max_unsupported_span: 16,
     breaks_into: "gravel",
+
+    // Confinement (structural.rs): stone 5 cells thick holds itself up, on
+    // the reasoning that a 2D slice cannot see the rock holding a ceiling up
+    // out of plane. This is the knob that decides how thin a cave roof can
+    // get before it comes down, so it is the one to reach for first when
+    // caves feel too fragile or too forgiving.
+    confinement_radius: 2,
+
+    // Rock is strong in compression, weak in bending, weakest in tension.
+    // Standing on rock is free, so a wall or pillar built up from the ground
+    // stands to any height; leaning out costs the full step, so an overhang
+    // still snaps once it passes `max_unsupported_span`; hanging costs
+    // triple, so nothing dangles far from what holds it.
+    support_cost_below: 0,
+    support_cost_beside: 1,
+    support_cost_above: 3,
 )

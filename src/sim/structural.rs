@@ -10,6 +10,57 @@
 //! upgrades the "falls as loose material" part into coherent tumbling
 //! bodies later without this milestone needing to change.
 //!
+//! # Why confinement is an anchor
+//!
+//! Distance-to-bedrock alone is the wrong question to ask of *bulk*
+//! material, and no choice of `max_unsupported_span` fixes it. A cell
+//! buried 500 cells deep inside a mountain has a path length of 500 —
+//! vastly over any sane span — while being the most supported cell in the
+//! world. Read literally, that model condemns the interior of every
+//! mountain, which is exactly why terrain had to be exempted from checking
+//! altogether before this existed (see the next section).
+//!
+//! The fix comes from what this world *is*. The play world is a 2D
+//! vertical **slice** through a 3D world (`Reports/worldgen-design.md`
+//! §0: "the world is 2D; the worldgen is 3D"). A real cave ceiling is held
+//! up largely by rock out of plane. Requiring every cell to trace an
+//! in-plane path to bedrock asks the slice to justify support it
+//! structurally has no way to observe — so a cell confined on every side
+//! the slice *can* see (`is_confined`, per-material
+//! `confinement_radius`) is treated as anchored outright. That is also
+//! honest rock mechanics rather than a convenience: confinement is what
+//! gives rock its strength, and failure initiates at free faces, not in
+//! confined interiors.
+//!
+//! What falls out, from one local test:
+//!
+//! - Bulk terrain is *genuinely* anchored rather than accidentally exempt,
+//!   which is what `Reports/worldgen-design.md` §6b ("the
+//!   structural-integrity landmine") asks for.
+//! - A thick cave ceiling stands at any width; a thin one collapses. The
+//!   confinement radius **is** the minimum stable thickness, which is §7's
+//!   open problem ("a noise-defined ceiling has no bounded thickness")
+//!   answered rather than worked around.
+//! - A thick, fully disconnected floating island is now permanently
+//!   stable. **This is deliberate**, not an oversight: in a 2D slice you
+//!   cannot prove it *isn't* supported out of plane, and terrain you can
+//!   trust is worth more than a collapse nobody asked for. The
+//!   count-to-infinity collapse described below still fires for genuinely
+//!   thin unsupported structures, which is where it was always doing the
+//!   real work.
+//!
+//! # Why one step's cost depends on its direction
+//!
+//! The relaxation used to charge a flat 1 per step regardless of where the
+//! support came from, which makes a 1-cell tower built up from the ground
+//! fail at exactly the height a 1-cell cantilever reaches sideways. Real
+//! rock does not behave that way: it is strong in compression and weak in
+//! bending and tension. `support_cost_below`/`_beside`/`_above` split that
+//! flat 1 three ways, so standing on something is cheap, leaning out is
+//! dear, and hanging is dearest. A wall stands to any height; an overhang
+//! still snaps at its span. All three default to 1, which is exactly the
+//! behaviour they replaced.
+//!
 //! # Why this is a label-correcting relaxation, not a one-shot BFS
 //!
 //! Distance is a shortest-path property: `d = 0` at an anchor, otherwise
@@ -91,12 +142,32 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         return vec![reschedule(world, x, y)];
     }
 
-    let is_anchor = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
+    // Copied out rather than held as a `&Material` borrow, because
+    // `break_free`/`world.set` below need `&mut World` and every one of
+    // these is `Copy`.
+    let (span, breaks_into, confinement_radius, cost_below, cost_beside, cost_above) = {
+        let m = world.materials.get(cell.material);
+        (
+            m.max_unsupported_span,
+            m.breaks_into,
+            m.confinement_radius,
+            m.support_cost_below,
+            m.support_cost_beside,
+            m.support_cost_above,
+        )
+    };
+
+    // Two ways to be an anchor, not one. Touching bedrock is the original
+    // and still the literal case; being *confined* is the one that makes
+    // bulk terrain structurally valid rather than merely exempt from
+    // checking -- see the module doc's "Why confinement is an anchor".
+    let is_anchor = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK)
+        || is_confined(world, x, y, confinement_radius);
 
     let new_distance: u16 = if is_anchor {
         0
     } else {
-        let mut min_neighbour = u16::MAX;
+        let mut best = u16::MAX;
         let mut has_usable_neighbour = false;
         let mut has_burning_neighbour = false;
         for (dx, dy) in NEIGHBOURS_4 {
@@ -114,7 +185,17 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
                 continue;
             }
             has_usable_neighbour = true;
-            min_neighbour = min_neighbour.min(neighbour.aux());
+            // What this step costs depends on where the support is coming
+            // *from*. `y` grows downward, so `dy == 1` is the cell beneath
+            // (standing on it -- compression, cheap) and `dy == -1` is the
+            // cell above (hanging from it -- tension, dear). Saturates at
+            // u16::MAX, i.e. "unreachable" stays unreachable.
+            let step = match dy {
+                1 => cost_below,
+                -1 => cost_above,
+                _ => cost_beside,
+            };
+            best = best.min(neighbour.aux().saturating_add(step));
         }
         if has_burning_neighbour && !has_usable_neighbour {
             // Every Solid neighbour that exists is mid-burn -- there is no
@@ -124,12 +205,11 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             // structural state.
             return vec![reschedule(world, x, y)];
         }
-        min_neighbour.saturating_add(1) // saturates at u16::MAX, i.e. "unreachable" stays unreachable
+        best
     };
 
-    let material = world.materials.get(cell.material);
-    if new_distance > material.max_unsupported_span {
-        let Some(into) = material.breaks_into else {
+    if new_distance > span {
+        let Some(into) = breaks_into else {
             // No configured fallback: this material's span is finite but it
             // has nowhere to fall back to. Treated as "not actually
             // participating" rather than silently deleting content a
@@ -291,6 +371,29 @@ fn schedule_solid_neighbours(world: &World, x: i32, y: i32) -> Vec<ActiveSite> {
         .collect()
 }
 
+/// Whether `(x, y)` is confined enough by surrounding `Solid` material to
+/// count as an anchor in its own right — every cell within Chebyshev
+/// `radius` being `Solid`, so the minimum self-supporting thickness is
+/// `2 * radius + 1`. See the module doc for why confinement stands in for
+/// out-of-plane support, and `MaterialDef::confinement_radius` for why 0
+/// means *disabled* rather than "radius zero".
+///
+/// Deliberately `Solid` only, not `is_body_material`'s `Solid | Plant`: a
+/// tree growing against a cliff face does not hold the cliff up. Bedrock
+/// and the out-of-bounds sentinel are both `Solid`, so world edges confine
+/// — the same single-check trick the bedrock anchor test already relies on.
+/// The cell itself is included in the scan, which is what keeps a `Plant`
+/// cell from ever self-confining regardless of what its species data says.
+fn is_confined(world: &World, x: i32, y: i32, radius: u16) -> bool {
+    if radius == 0 {
+        return false;
+    }
+    let r = radius as i32;
+    (-r..=r).all(|dy| {
+        (-r..=r).all(|dx| world.materials.kind(world.get(x + dx, y + dy).material) == MaterialKind::Solid)
+    })
+}
+
 /// Whether `material` participates in the structural system at all —
 /// `Solid` (M17) or `Plant` (architecture item 9, trees). Named after the
 /// same helper `rigid.rs` (M8) already has for exactly the same "which
@@ -399,19 +502,50 @@ mod tests {
     }
 
     #[test]
-    fn a_stone_span_exceeding_its_tolerance_breaks_into_gravel() {
+    fn a_stone_cantilever_exceeding_its_tolerance_breaks_into_gravel() {
+        // Was a 6-tall vertical stack, back when every step cost a flat 1
+        // and stone's span was 3. That scenario no longer breaks anything
+        // and *should* not: `support_cost_below: 0` means standing on rock
+        // is free, so a column stands to any height (see
+        // `a_stone_tower_stands_however_tall_it_gets`). Leaning sideways is
+        // what still accumulates, so an over-span cell is now a cantilever.
         let mut w = test_world();
-        // A stack 6 cells tall resting on the real bottom edge (y=63) --
-        // stone's span is 3, so the cells at distance 4 and 5 (the top two)
-        // are unsupported once actually checked.
-        for i in 0..6 {
-            w.set(30, 63 - i, Cell::new(material::STONE, 0));
+        let span = w.materials.get(material::STONE).max_unsupported_span as i32;
+        // Anchored at the left world edge (x=0's own out-of-bounds
+        // neighbour reads as the BEDROCK sentinel), reaching well past the
+        // span. One cell thick, so it is never confined.
+        for x in 0..=(span + 6) {
+            w.set(x, 30, Cell::new(material::STONE, 0));
         }
-        w.schedule_structural_check(30, 63 - 5); // the topmost cell, distance 5
-        run(&mut w, 200);
+        let tip = span + 6;
+        w.schedule_structural_check(tip, 30);
+        run(&mut w, 400);
 
         let gravel = w.materials.id_of("gravel").unwrap();
-        assert_eq!(w.get(30, 63 - 5).material, gravel, "an over-span stone cell should have broken into gravel");
+        assert_eq!(w.get(tip, 30).material, gravel, "a cantilever cell past stone's span should have broken into gravel");
+        assert_eq!(w.get(0, 30).material, material::STONE, "the anchored root of the cantilever should still be standing");
+    }
+
+    #[test]
+    fn a_stone_tower_stands_however_tall_it_gets() {
+        // The other half of the direction-weighting claim, and the reason
+        // the test above had to change shape. Rock is strong in
+        // compression: a wall or pillar built up from the ground is
+        // supported at every step, so it must not snap at the same reach a
+        // cantilever does. One cell wide, so confinement plays no part --
+        // this is purely `support_cost_below: 0` doing the work.
+        let mut w = test_world();
+        let span = w.materials.get(material::STONE).max_unsupported_span as i32;
+        assert!(span < 40, "test needs a tower taller than the span to be meaningful");
+        for y in (63 - 40)..=63 {
+            w.set(30, y, Cell::new(material::STONE, 0));
+        }
+        w.schedule_structural_check(30, 63 - 40); // the topmost cell
+        run(&mut w, 400);
+
+        for y in (63 - 40)..=63 {
+            assert_eq!(w.get(30, y).material, material::STONE, "a ground-anchored tower crumbled at y={y}");
+        }
     }
 
     #[test]
@@ -518,10 +652,14 @@ mod tests {
         // test -- whatever add_pressure_impulse writes stays exactly as
         // written until read, no timing sensitivity to worry about.
         let mut w = test_world();
-        for i in 0..6 {
-            w.set(30, 63 - i, Cell::new(material::STONE, 0));
+        // A cantilever, not the vertical stack this used to use -- see
+        // `a_stone_cantilever_exceeding_its_tolerance_breaks_into_gravel`
+        // for why a stack no longer breaks at all.
+        let span = w.materials.get(material::STONE).max_unsupported_span as i32;
+        for x in 0..=(span + 6) {
+            w.set(x, 30, Cell::new(material::STONE, 0));
         }
-        let (tx, ty) = (30, 63 - 5); // the topmost cell, distance 5, will break
+        let (tx, ty) = (span + 6, 30); // the tip, past the span, will break
         assert_eq!(w.field_at(tx, ty).pressure, 0.0, "test setup should start at ambient pressure");
 
         w.schedule_structural_check(tx, ty);
@@ -628,31 +766,151 @@ mod tests {
     #[test]
     fn editing_max_unsupported_span_while_running_changes_what_stands() {
         let mut w = test_world();
-        // Same 6-tall stack resting on the real bottom edge (y=63) as
-        // `a_stone_span_exceeding_its_tolerance_breaks_into_gravel` -- the
-        // topmost cell sits at distance 5, past the shipped span of 3.
-        for i in 0..6 {
-            w.set(30, 63 - i, Cell::new(material::STONE, 0));
+        // A cantilever, matching the shape
+        // `a_stone_cantilever_exceeding_its_tolerance_breaks_into_gravel`
+        // now uses -- a vertical stack no longer breaks at any height, so
+        // it can no longer show a span change doing anything.
+        const LENGTH: i32 = 24;
+        for x in 0..=LENGTH {
+            w.set(x, 30, Cell::new(material::STONE, 0));
         }
         let stone = w.materials.id_of("stone").unwrap();
-        assert!(w.materials.get(stone).max_unsupported_span < 5, "test assumes the shipped span is under 5");
+        assert!(
+            w.materials.get(stone).max_unsupported_span < LENGTH as u16,
+            "test assumes the shipped span is shorter than the cantilever, or widening it proves nothing"
+        );
         // Widen stone's tolerance via a manufactured, more tolerant material
         // set loaded through a synthetic reload rather than mutating the
         // registry directly, since that's the only public way content
-        // changes at runtime.
+        // changes at runtime. Deliberately says nothing about
+        // `confinement_radius` or `support_cost_*`, which also checks that
+        // their defaults leave a one-cell-thick beam relaxing at a flat 1
+        // per lateral step exactly as it did before those fields existed.
         let dir = std::env::temp_dir().join("pixel-physics-m17-span-test");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("stone.ron"),
-            "(name: \"stone\", kind: Solid, density: 2.5, colors: [(128,128,132)], max_unsupported_span: 10, breaks_into: \"gravel\")",
+            "(name: \"stone\", kind: Solid, density: 2.5, colors: [(128,128,132)], max_unsupported_span: 40, breaks_into: \"gravel\")",
         )
         .unwrap();
         w.materials.reload(&dir).unwrap();
         std::fs::remove_dir_all(&dir).ok();
 
-        w.schedule_structural_check(30, 63 - 5);
-        run(&mut w, 200);
-        assert_eq!(w.get(30, 63 - 5).material, material::STONE, "widening the span at runtime should have let the tall stack stand");
+        w.schedule_structural_check(LENGTH, 30);
+        run(&mut w, 400);
+        assert_eq!(w.get(LENGTH, 30).material, material::STONE, "widening the span at runtime should have let the long cantilever stand");
+    }
+
+    // --- Confinement: the minimum self-supporting thickness --------------
+    //
+    // The claim `Reports/worldgen-design.md` §7 records as unsolved ("a
+    // noise-defined ceiling has no bounded thickness"). These two are
+    // deliberately a matched pair at the exact boundary -- `2r + 1` stands
+    // and `2r - 1` does not -- so they fail if confinement stops meaning
+    // "minimum stable thickness" in either direction, rather than only
+    // catching a ceiling that got more fragile.
+
+    /// A floating horizontal slab `thickness` cells deep, spanning the whole
+    /// world so its only in-plane anchors are the two world edges, with open
+    /// air above and below it so nothing is resting on anything.
+    fn ceiling_world(thickness: i32) -> World {
+        let mut w = test_world();
+        for y in 30..(30 + thickness) {
+            for x in 0..64 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // Disturb the middle, the furthest point from either edge anchor.
+        w.schedule_structural_check_around(32, 30 + thickness / 2);
+        w
+    }
+
+    #[test]
+    fn a_ceiling_at_the_confinement_thickness_holds_itself_up() {
+        let mut w = test_world();
+        let r = w.materials.get(material::STONE).confinement_radius as i32;
+        assert!(r > 0, "test is meaningless unless stone actually opts into confinement");
+        let span = w.materials.get(material::STONE).max_unsupported_span as i32;
+        assert!(32 > span, "the world's midpoint must be past the span, or the edges alone would hold it");
+
+        w = ceiling_world(2 * r + 1);
+        run(&mut w, 600);
+
+        assert_eq!(
+            w.get(32, 30 + r).material,
+            material::STONE,
+            "a slab exactly 2r+1 thick should contain a confined row and hold itself up regardless of width"
+        );
+    }
+
+    #[test]
+    fn a_ceiling_below_the_confinement_thickness_comes_down() {
+        let mut w = test_world();
+        let r = w.materials.get(material::STONE).confinement_radius as i32;
+        let thin = 2 * r - 1;
+        assert!(thin > 0, "test needs a positive thickness to be a ceiling at all");
+
+        w = ceiling_world(thin);
+        run(&mut w, 600);
+
+        let gravel = w.materials.id_of("gravel").unwrap();
+        assert_eq!(
+            w.get(32, 30 + thin / 2).material,
+            gravel,
+            "a slab one cell under the confinement thickness has no confined row anywhere in it, so its midpoint is 32 lateral steps from the nearest edge anchor and should have come down"
+        );
+    }
+
+    #[test]
+    fn a_thick_floating_island_stays_up_on_purpose() {
+        // The deliberate, documented consequence of treating confinement as
+        // an anchor (module doc): in a 2D slice you cannot prove an island
+        // *isn't* held up out of plane, so a thick one stays. Pinned as a
+        // test because it is exactly the kind of behaviour a later change
+        // might "fix" without realising it was chosen.
+        let mut w = test_world();
+        let r = w.materials.get(material::STONE).confinement_radius as i32;
+        let size = 2 * r + 3;
+        // Away from every world edge, so no edge sentinel anchors it and
+        // confinement is genuinely the only thing holding it up.
+        for y in 20..(20 + size) {
+            for x in 20..(20 + size) {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w.schedule_structural_check_around(20 + size / 2, 20 + size / 2);
+        run(&mut w, 600);
+
+        assert_eq!(
+            w.get(20 + size / 2, 20 + size / 2).material,
+            material::STONE,
+            "a floating island thicker than the confinement diameter should stay up -- see the module doc on why this is chosen, not accidental"
+        );
+    }
+
+    #[test]
+    fn a_blob_of_brushed_stone_does_not_crumble_in_mid_air() {
+        // The reported complaint, encoded directly: "when I use the stone
+        // brush it collapses into powder and falls to the ground." Goes
+        // through `paint_capsule` -- the real brush path, including its own
+        // `schedule_structural_check_around` call -- at `App`'s default
+        // `brush_radius` of 6, in open air well clear of every world edge so
+        // no edge sentinel can anchor it by accident.
+        //
+        // Before confinement this had no path to any anchor at all, so its
+        // distances climbed without bound (the count-to-infinity dynamic the
+        // module doc describes) until every cell passed its span. Now the
+        // core of a 13-cell-wide disc is confined, and confined rock is
+        // anchored rock.
+        let mut w = test_world();
+        w.paint_capsule((32, 32), (32, 32), 6, material::STONE, 1.0);
+        assert_eq!(w.get(32, 32).material, material::STONE, "test setup: the brush should have painted stone");
+        run(&mut w, 600);
+
+        assert_eq!(w.get(32, 32).material, material::STONE, "a brushed stone blob crumbled in mid-air");
+        let gravel = w.materials.id_of("gravel").unwrap();
+        let crumbled = (0..64).any(|x| (0..64).any(|y| w.get(x, y).material == gravel));
+        assert!(!crumbled, "no part of a brushed stone blob should have broken into gravel");
     }
 
     // --- Organism-owned cells: the real `organism_structural_tick` -------
