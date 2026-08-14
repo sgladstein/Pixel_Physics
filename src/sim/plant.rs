@@ -2049,6 +2049,64 @@ mod tests {
         assert!(!next.is_empty(), "the new child should be scheduled");
     }
 
+    /// The gate on Decision 2 step 1: every organism's cell list must agree
+    /// exactly with a full scan of the grid.
+    ///
+    /// The design doc calls this step "where the real bugs are", because a
+    /// list maintained at a dozen creation and removal sites drifts the
+    /// moment one is missed — and a *stale* entry pointing at a cell that
+    /// is now someone else's is far worse than a leaked one. Registration
+    /// hooks `World::set` instead, so it is complete by construction, and
+    /// this asserts that claim against every path a real run exercises
+    /// rather than against the paths anyone remembered to list.
+    ///
+    /// Deliberately exercises destruction as well as growth: fire burning
+    /// cells away, an explosion, and the brush erasing straight through a
+    /// trunk are all removal paths that know nothing about organisms.
+    #[test]
+    fn every_organism_cell_list_agrees_with_the_grid() {
+        let mut w = test_world();
+        plant_tree_on_ground(&mut w, 60, 40);
+        plant_tree_on_ground(&mut w, 120, 40);
+        w.plant_moss_seed(30, 39);
+        run_with_fields(&mut w, 4000);
+
+        let check = |w: &World, when: &str| {
+            let b = w.bounds().unwrap();
+            let mut scanned: std::collections::HashMap<u16, std::collections::HashSet<(i32, i32)>> = Default::default();
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let id = w.get(x, y).organism_id();
+                    if id != 0 {
+                        scanned.entry(id).or_default().insert((x, y));
+                    }
+                }
+            }
+            for (&id, cells) in &scanned {
+                let state = w.organism(id).unwrap_or_else(|| panic!("{when}: organism {id} owns cells but has no state"));
+                assert_eq!(&state.cells, cells, "{when}: organism {id}'s cell list disagrees with the grid");
+            }
+            // And nothing recorded that is no longer really there.
+            for id in scanned.keys() {
+                if let Some(state) = w.organism(*id) {
+                    for &(cx, cy) in &state.cells {
+                        assert_eq!(w.get(cx, cy).organism_id(), *id, "{when}: {id} lists ({cx},{cy}) which it does not own");
+                    }
+                }
+            }
+        };
+        check(&w, "after growth");
+
+        // Destruction paths that have no idea organisms exist.
+        w.paint_circle(60, 30, 6, material::EMPTY);
+        run_with_fields(&mut w, 200);
+        check(&w, "after erasing through a canopy");
+
+        w.ignite_circle(120, 36, 5);
+        run_with_fields(&mut w, 3000);
+        check(&w, "after fire");
+    }
+
     /// Decision 1(ii): a root grows *into* penetrable soil, a shoot does
     /// not, and neither goes through stone however hard it pushes.
     ///

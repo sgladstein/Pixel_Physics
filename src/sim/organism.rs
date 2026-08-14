@@ -330,6 +330,35 @@ pub struct SpeciesId(pub u16);
 /// ahead of a caller that would exercise it.
 pub struct OrganismState {
     pub species: SpeciesId,
+    /// Every cell this organism currently owns.
+    ///
+    /// **Step one of `Reports/plant-substrate-v2-design.md`'s Decision 2**,
+    /// and deliberately behaviour-free: it is maintained and asserted
+    /// against a full grid scan, and nothing reads it to make a decision
+    /// yet. The design doc's own migration plan puts the risk here, in
+    /// keeping the list honest across every path that creates or destroys
+    /// an organism cell, and gets that verified before anything depends on
+    /// it.
+    ///
+    /// **What this unlocks is mostly performance.** Today every mature cell
+    /// sits on the active-site schedule forever and re-derives whole-
+    /// organism facts by itself — `thicken()`'s flood fill being the worst
+    /// case, quadratic in tree size. With an enumerable cell list, the
+    /// per-cell upkeep becomes one pass per *organism*, which is the shape
+    /// M16's own principle asks for ("plants only change at their tips — a
+    /// trunk is inert") and which the schedule currently inverts. It also
+    /// makes `free_organism`, a real anchor list for `organism_is_
+    /// supported`, and a cheap `organism_active_tip_count` all possible;
+    /// each is noted as blocked on exactly this in its own doc.
+    ///
+    /// A `HashSet` of positions rather than the design doc's slot-indexed
+    /// `Vec<Option<OrganismCell>>`, for now: that layout addresses cells by
+    /// an index stored in `Cell::aux`, and `aux` has no room until the
+    /// resource scalar moves out at the doc's step 2c. Positions give
+    /// enumeration and O(1) removal today without pre-committing the
+    /// encoding, and the owner of every entry is unambiguous — which is the
+    /// property that made the doc reject a *global* position map.
+    pub cells: std::collections::HashSet<(i32, i32)>,
 }
 
 pub struct SpeciesRegistry {

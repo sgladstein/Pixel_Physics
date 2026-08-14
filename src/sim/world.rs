@@ -467,7 +467,7 @@ impl World {
     /// moment a future caller needs it. Returns the encoded `organism_id`
     /// to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
-        let state = OrganismState { species };
+        let state = OrganismState { species, cells: std::collections::HashSet::new() };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];
             // Wraps at 16 generations (4 bits) rather than growing further
@@ -501,10 +501,28 @@ impl World {
         slot.state.as_ref()
     }
 
-    // `organism_mut` (mutate an organism's own state in place) and
+    /// Mutable counterpart to `organism`, same generational check.
+    ///
+    /// Added for `set`'s cell-list bookkeeping (`Reports/plant-substrate-v2-
+    /// design.md` Decision 2, step 1). The generation test is what makes a
+    /// stale `organism_id` still held by some cell resolve to `None` rather
+    /// than silently editing an unrelated organism that has since been
+    /// allocated the same slot.
+    pub(crate) fn organism_mut(&mut self, organism_id: u16) -> Option<&mut OrganismState> {
+        let (slot_index, generation) = decode_organism_id(organism_id);
+        if slot_index == 0 {
+            return None;
+        }
+        let slot = self.organisms.get_mut((slot_index - 1) as usize)?;
+        if slot.generation != generation {
+            return None;
+        }
+        slot.state.as_mut()
+    }
+
     // `free_organism` (return a slot to `free_organism_slots`, the other
-    // half of issue #8's actual fix) are not here yet, deliberately: no
-    // species retrofitted so far needs either. Moss's `Divide` never
+    // half of issue #8's actual fix) is not here yet, deliberately: no
+    // species retrofitted so far needs it. Moss's `Divide` never
     // touches `OrganismState` after creation (its resource scalar lives
     // entirely in `Cell::aux`, not here), and detecting "this organism has
     // no cells left" cheaply needs a real anchor/tip list to search from
@@ -986,6 +1004,38 @@ impl World {
         // before this was folded into a single lookup).
         if old.managed() {
             self.demote_body_at(x, y);
+        }
+        // Organism cell bookkeeping, at the same seam and for the same
+        // reason `managed()` above is checked here rather than at every
+        // caller: `Reports/plant-substrate-v2-design.md`'s Decision 2 lists
+        // a dozen creation and removal sites to hook (germinate, both of
+        // Grow's children, the leaf spawn, Divide's child, thicken's write,
+        // both planters, structural::break_free, fire's burnout, brush
+        // erase), and warns that step 2a "is where the real bugs are".
+        //
+        // It does not need to be a list. Every one of those paths writes
+        // through here, so hooking the write itself is complete by
+        // construction -- which is this function's own recorded lesson,
+        // stated a few lines above: "an enumeration that has to stay
+        // complete is the failure mode this project keeps rediscovering."
+        //
+        // Guarded so the overwhelmingly common case -- neither cell belongs
+        // to an organism -- costs one branch on a value already in hand.
+        // This is the hottest function in the engine and the reason the
+        // `managed()` check above reuses `write_cell`'s returned old value
+        // rather than reading the cell a second time.
+        let (was, now) = (old.organism_id(), cell.organism_id());
+        if was != now {
+            if was != 0 {
+                if let Some(state) = self.organism_mut(was) {
+                    state.cells.remove(&(x, y));
+                }
+            }
+            if now != 0 {
+                if let Some(state) = self.organism_mut(now) {
+                    state.cells.insert((x, y));
+                }
+            }
         }
     }
 
