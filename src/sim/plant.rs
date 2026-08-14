@@ -174,6 +174,23 @@ fn pack_aux_preserving_density(existing_aux: u16, cell_type: CellType, resource:
 /// actual trigger to make this data instead of a constant.
 const ORGANISM_TICK_INTERVAL: u64 = 45;
 
+/// How often an **ungerminated seed** is checked, while it may still be
+/// falling.
+///
+/// Much shorter than `ORGANISM_TICK_INTERVAL`, and the reason is bookkeeping
+/// rather than biology: an `ActiveSite` names a fixed position, but a seed
+/// is a `Powder` and moves. A seed falls about a cell a frame, so at 45
+/// frames it could be 45 cells from where its site says it is, while at 4 it
+/// is within a handful and `relocated_seed` can find it. A seed is also
+/// exactly one cell that exists only briefly, so the extra checks cost
+/// nothing worth measuring.
+const SEED_TICK_INTERVAL: u64 = 4;
+
+/// How far below its recorded position to look for a seed that has fallen.
+/// Generous against `SEED_TICK_INTERVAL`'s own bound (roughly one cell per
+/// frame), so a seed dropped down a long shaft is still found.
+const SEED_FALL_SEARCH: i32 = 12;
+
 /// Consecutive checks that found nothing to do (`Divide` found no growable
 /// candidate) an organism cell tolerates before it stops rescheduling
 /// itself — generalizes moss's old `MOSS_STALE_LIMIT`, same reasoning:
@@ -275,7 +292,39 @@ fn has_growable_neighbour(world: &World, x: i32, y: i32, organism_id: u16) -> bo
     })
 }
 
+/// Where this organism's seed actually is, given a site that says `(x, y)`.
+///
+/// A seed is a `Powder` now, so it falls, rolls and settles somewhere other
+/// than where it was planted — but its `ActiveSite` still names the planting
+/// position. Rather than teach the scheduler to follow a moving cell (which
+/// wants the per-organism cell list Decision 2 builds, and is the right fix
+/// later), a seed that has left its recorded position is looked for
+/// directly below it, in the narrow cone a falling grain can reach.
+///
+/// Deliberately seed-only. Every other organism cell is immovable, so
+/// nothing else can go missing this way and nothing else pays for the
+/// search.
+fn relocated_seed(world: &World, x: i32, y: i32, organism_id: u16) -> Option<(i32, i32)> {
+    for dy in 1..=SEED_FALL_SEARCH {
+        for dx in [0, -1, 1] {
+            let (nx, ny) = (x + dx * dy.min(2), y + dy);
+            let c = world.get(nx, ny);
+            if c.organism_id() == organism_id && organism::unpack_aux(c.aux()).0 == Some(CellType::Seed) {
+                return Some((nx, ny));
+            }
+        }
+    }
+    None
+}
+
 fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_ticks: u8, plastochron: u8) -> Vec<ActiveSite> {
+    // A seed that fell out from under its own site: pick the search back up
+    // wherever it landed instead of dropping the organism on the floor.
+    if world.get(x, y).organism_id() != organism_id {
+        if let Some((sx, sy)) = relocated_seed(world, x, y, organism_id) {
+            return vec![reschedule_organism(sx, sy, organism_id, stale_ticks, plastochron, world.frame + SEED_TICK_INTERVAL)];
+        }
+    }
     let cell = world.get(x, y);
     // The cell may have burned, been erased, or already be something else
     // by the time its schedule comes due — mirrors `moss_tick`'s own check,
@@ -306,9 +355,22 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     // preserves density via `pack_aux_preserving_density`, so every write
     // this tick carries the already-decayed value forward, not the
     // pre-decay one.
+    //
+    // **Written only when it actually changes.** This used to `set`
+    // unconditionally every tick, which dirties the cell's chunk every
+    // time — so an organism kept the CA sweep awake forever merely by
+    // existing. Invisible while a tree was ~18 cells and its handful of
+    // ticks were 45 frames apart; once trees reached 70+ cells, enough of
+    // them came due each frame that the chunk never settled, and
+    // `a_settled_world_with_a_growing_tree_still_sleeps_between_growth_
+    // ticks` started failing. Same guard, and the same reasoning, as
+    // `update_powder`'s own `flowing` clear.
     let decayed_density = organism::canopy_density(cell.aux()) * CANOPY_DENSITY_DECAY_PER_TICK;
-    let cell = cell.with_aux(organism::with_canopy_density(cell.aux(), decayed_density));
-    world.set(x, y, cell);
+    let decayed_aux = organism::with_canopy_density(cell.aux(), decayed_density);
+    let cell = cell.with_aux(decayed_aux);
+    if decayed_aux != world.get(x, y).aux() {
+        world.set(x, y, cell);
+    }
 
     // One stream per (organism, cell, tick), seeded from exactly those --
     // never `world.rng`, whose sequence depends on how many draws every
@@ -784,11 +846,25 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 found_candidate = true;
             }
             Behavior::Germinate { light_threshold, moisture_threshold, instant } => {
-                let ready = instant || {
+                // **A seed germinates where it lands, never in mid-air.**
+                // Now that a seed is a `Powder` it falls, and without this
+                // it could meet its light and moisture conditions on the way
+                // down and sprout a tree hanging in the air -- which is the
+                // very first thing the owner reported about tree growth
+                // ("the tree just starts growing in mid-air, no matter where
+                // you place it"). Requiring something underneath makes that
+                // structurally impossible rather than unlikely.
+                //
+                // A raw material test, not `world.is_empty`: the question is
+                // "is there anything holding this up", which is what
+                // `is_empty`'s managed-aware meaning does *not* answer.
+                let resting = world.get(x, y + 1).material != material::EMPTY;
+                let ready = resting
+                    && (instant || {
                     let light = ambient_light_above(world, x, y);
                     let moisture = world.field_at(x, y).moisture;
                     light >= light_threshold && moisture >= moisture_threshold
-                };
+                });
                 if ready {
                     return germinate(world, x, y, organism_id, cell, &mut rng);
                 }
@@ -805,14 +881,17 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         }
     }
 
+    // An ungerminated seed keeps the fast cadence -- it may still be
+    // falling, and `relocated_seed`'s search bound assumes it.
+    let interval = if cell_type == CellType::Seed { SEED_TICK_INTERVAL } else { ORGANISM_TICK_INTERVAL };
     if found_candidate || !next.is_empty() {
         // A candidate existed this tick (whether or not any behavior's own
         // roll succeeded) -- reset the staleness counter, mirroring
         // `moss_tick`'s old reasoning: staleness tracks "had somewhere to
         // try", not "successfully grew".
-        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, world.frame + ORGANISM_TICK_INTERVAL));
+        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, world.frame + interval));
     } else if stale_ticks + 1 < ORGANISM_STALE_LIMIT {
-        next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, world.frame + ORGANISM_TICK_INTERVAL));
+        next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, world.frame + interval));
     } else if cell_type == CellType::GrowingTip {
         // `Reports/tree-rewrite-design.md` §4: the staleness-limit
         // transition to `MatureBody` made real, not just asserted -- an
@@ -851,7 +930,15 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // creation above. A freshly germinated seed is not yet connected to any
     // ground and is not expected to be; checking it here would destroy
     // every seedling before its root ever gets the chance to reach soil.
-    world.set(x, y, cell.with_aux(organism::pack_aux(CellType::GrowingTip, 0.0)));
+    // The seed cell is `seed` material; the shoot it becomes is wood.
+    let wood = world.materials.id_of("wood").unwrap_or(cell.material);
+    let shades = world.materials.get(wood).palette.len().max(1) as u32;
+    let shoot_shade = rng.below(shades) as u8;
+    world.set(
+        x,
+        y,
+        Cell::new(wood, shoot_shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::GrowingTip, 0.0)),
+    );
     let mut next = vec![reschedule_organism(x, y, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL)];
     // The companion root starts wherever this species' own `RootTip` could
     // *grow*, which since Decision 1(ii) includes penetrable soil and not
@@ -1082,7 +1169,11 @@ impl World {
     /// position isn't empty or `wood`/the named species isn't loaded,
     /// mirroring `plant_moss_seed`'s own no-op preconditions.
     pub fn plant_tree_species(&mut self, x: i32, y: i32, species_name: &str) -> bool {
-        let Some(wood) = self.materials.id_of("wood") else {
+        // `seed` material, not `wood`: a seed is a Powder and falls to the
+        // ground on its own rather than hanging wherever it was placed.
+        // Falls back to `wood` so a stripped asset set still plants.
+        let seed_material = self.materials.id_of("seed").or_else(|| self.materials.id_of("wood"));
+        let Some(seed_material) = seed_material else {
             return false;
         };
         let Some(tree_species) = self.species.id_of(species_name) else {
@@ -1091,12 +1182,13 @@ impl World {
         if !self.is_empty(x, y) {
             return false;
         }
-        let shades = self.materials.get(wood).palette.len().max(1) as u32;
+        let shades = self.materials.get(seed_material).palette.len().max(1) as u32;
         let shade = self.rng.below(shades) as u8;
         let organism_id = self.push_organism(tree_species);
         let aux = organism::pack_aux(CellType::Seed, 0.0);
-        self.set(x, y, Cell::new(wood, shade).with_organism_id(organism_id).with_aux(aux));
-        let site = reschedule_organism(x, y, organism_id, 0, 0, self.frame + ORGANISM_TICK_INTERVAL);
+        self.set(x, y, Cell::new(seed_material, shade).with_organism_id(organism_id).with_aux(aux));
+        // Checked often while it is still falling -- see SEED_TICK_INTERVAL.
+        let site = reschedule_organism(x, y, organism_id, 0, 0, self.frame + SEED_TICK_INTERVAL);
         self.schedule_active_site(site);
         true
     }
@@ -1112,6 +1204,25 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 199, 199))
+    }
+
+    /// Plant a seed **on ground**, which every tree test now needs.
+    ///
+    /// A seed is a `Powder` and falls, and `Germinate` requires something
+    /// underneath it, so a seed planted into open air drops to the bottom
+    /// of the world instead of sprouting where it was put. Every tree test
+    /// here used to plant into mid-air and rely on it germinating there --
+    /// they were encoding the very first thing the owner reported about
+    /// tree growth ("the tree just starts growing in mid-air, no matter
+    /// where you place it"), which is now structurally impossible.
+    ///
+    /// The floor is one row of stone directly under the seed, wide enough
+    /// that a seed which rolls a little still lands on it.
+    fn plant_tree_on_ground(w: &mut World, x: i32, y: i32) {
+        for fx in (x - 6)..=(x + 6) {
+            w.set(fx, y + 1, Cell::new(material::STONE, 0));
+        }
+        w.plant_tree(x, y);
     }
 
     fn run(w: &mut World, frames: usize) {
@@ -1154,7 +1265,7 @@ mod tests {
     fn planting_on_occupied_ground_is_a_no_op() {
         let mut w = test_world();
         w.set(50, 50, Cell::new(material::STONE, 0));
-        w.plant_tree(50, 50);
+        plant_tree_on_ground(&mut w, 50, 50);
         w.plant_moss_seed(50, 50);
         assert_eq!(w.get(50, 50).material, material::STONE, "planting overwrote existing material");
         assert_eq!(w.active_site_count(), 0, "a no-op plant should not schedule anything");
@@ -1373,8 +1484,8 @@ mod tests {
         // `run_with_fields`, not plain `run` -- germination depends on a
         // real light field, which plain `run` deliberately never steps.
         let mut w = test_world();
-        w.plant_tree(50, 20);
-        w.plant_tree(150, 20);
+        plant_tree_on_ground(&mut w, 50, 20);
+        plant_tree_on_ground(&mut w, 150, 20);
         run_with_fields(&mut w, 3000);
 
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
@@ -1400,7 +1511,7 @@ mod tests {
     #[test]
     fn a_settled_world_with_a_growing_tree_still_sleeps_between_growth_ticks() {
         let mut w = test_world();
-        w.plant_tree(50, 20);
+        plant_tree_on_ground(&mut w, 50, 20);
         // A handful of frames is enough for the CA sweep itself to settle
         // (a single static wood cell has nothing to move); the tree keeps
         // growing on its own, much slower schedule.
@@ -1424,7 +1535,7 @@ mod tests {
         // means here instead: the wood *count* stops changing -- no new
         // cells, even though the schedule itself stays alive.
         let mut w = test_world();
-        w.plant_tree(50, 20);
+        plant_tree_on_ground(&mut w, 50, 20);
         run_with_fields(&mut w, 3000);
         let wood = w.materials.id_of("wood").unwrap();
         let count_at_3000 = count(&w, wood);
@@ -1444,7 +1555,7 @@ mod tests {
         // rows of open sky. The water tank keeps the same offsets *below*
         // the seed as the old test used (floor 10 rows down, water
         // starting 2 rows down), just shifted to match.
-        w.plant_tree(50, 20);
+        plant_tree_on_ground(&mut w, 50, 20);
         // A walled, floored tank directly below the seed -- water is a
         // liquid and falls/drains under gravity like anything else, so an
         // unconfined puddle sinks or spreads away before a root ever
@@ -1483,7 +1594,7 @@ mod tests {
     #[test]
     fn a_planted_tree_is_flammable_and_burns_to_ash() {
         let mut w = test_world();
-        w.plant_tree(50, 20);
+        plant_tree_on_ground(&mut w, 50, 20);
         run_with_fields(&mut w, 300); // let it grow a little first
         let wood = w.materials.id_of("wood").unwrap();
         assert!(count(&w, wood) > 0, "test setup should have some wood to ignite");
@@ -1559,7 +1670,7 @@ mod tests {
         // `run_with_fields`, not plain `run` -- growth depends on a real
         // light field.
         let mut w = test_world();
-        w.plant_tree(100, 20);
+        plant_tree_on_ground(&mut w, 100, 20);
         let organism_id = w.get(100, 20).organism_id();
         // Generous but not unbounded -- empirically enough for real
         // branch_chance rolls to land at least once (confirmed against
@@ -1672,7 +1783,7 @@ mod tests {
         // planting depth (y < FIELD_SCALE) whose offset read would go
         // negative and land out of the world entirely, which reads as
         // blocked/zero regardless of the fix under test.
-        w.plant_tree(100, 20);
+        plant_tree_on_ground(&mut w, 100, 20);
         run_with_fields(&mut w, 400); // several germination checks (ORGANISM_TICK_INTERVAL apart)
 
         let (cell_type, _) = organism::unpack_aux(w.get(100, 20).aux());
@@ -1879,7 +1990,7 @@ mod tests {
     #[test]
     fn shedding_every_leaf_does_not_disconnect_the_stem() {
         let mut w = test_world();
-        w.plant_tree(100, 20);
+        plant_tree_on_ground(&mut w, 100, 20);
         run_with_fields(&mut w, 8000);
 
         let b = w.bounds().unwrap();
@@ -1967,7 +2078,7 @@ Leaves must hang off the stem, not be segments of it",
         const CAP: usize = 14;
 
         let mut w = test_world();
-        w.plant_tree(100, 20);
+        plant_tree_on_ground(&mut w, 100, 20);
         let organism_id = w.get(100, 20).organism_id();
         assert_ne!(organism_id, 0, "test setup: planting should have stamped an organism id");
 
@@ -2067,7 +2178,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
     fn grown_trees_produce_leaves_and_a_trunk_thicker_than_one_cell() {
         let mut w = test_world();
         for x in [40, 90, 140] {
-            w.plant_tree(x, 20);
+            plant_tree_on_ground(&mut w, x, 20);
         }
         run_with_fields(&mut w, 8000);
 

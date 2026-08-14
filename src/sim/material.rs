@@ -854,6 +854,7 @@ const EMBEDDED: &[&str] = &[
     // after it at runtime rather than in a test.
     include_str!("../../assets/materials/leaf.ron"),
     include_str!("../../assets/materials/rootwood.ron"),
+    include_str!("../../assets/materials/seed.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

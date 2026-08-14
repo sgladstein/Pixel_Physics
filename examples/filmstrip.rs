@@ -259,8 +259,11 @@ fn build(scene: &str) -> World {
                 }
             }
             w.paint_circle(260, TREE_GROUND_Y - 3, 6, material::WATER);
+            // Dropped from well above the ground on purpose: a seed is a
+            // Powder, so this exercises the fall and landing rather than
+            // pre-placing each seed on the surface.
             for x in [80, 200, 320, 440] {
-                w.plant_tree(x, TREE_GROUND_Y - 1);
+                w.plant_tree(x, TREE_GROUND_Y - 25);
             }
         }
         other => panic!(
