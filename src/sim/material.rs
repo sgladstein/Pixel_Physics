@@ -258,6 +258,36 @@ pub struct MaterialDef {
     /// *entirely* at the surface, which is exactly where the eye looks.
     #[serde(default = "default_fill_dimming")]
     pub fill_dimming: f32,
+    /// Mechanical resistance a root tip has to overcome to grow through
+    /// this material, in **MPa**, so the number means something outside
+    /// this engine. A `RootTip` displaces a `Powder` cell in place when
+    /// this is below the species' own limit; anything at or above it stops
+    /// root elongation, and `Solid`-kind material is never penetrable
+    /// regardless (`plant.rs`'s `Grow`).
+    ///
+    /// **Real units, and a real threshold.** The dry-end bound of the least
+    /// limiting water range is set at a penetrometer resistance of **2-3
+    /// MPa**, above which root elongation effectively stops — Da Silva,
+    /// Kay & Perfect (1994), *Characterization of the Least Limiting Water
+    /// Range of Soils*, SSSAJ 58:1775-1781, which is the same framework
+    /// `Reports/plant-substrate-v2-design.md` §4b uses for soil moisture.
+    /// So the numbers here are calibrated against a published bound rather
+    /// than invented: loose `soil` sits well under it, compacted `gravel`
+    /// well over.
+    ///
+    /// **Why not just use `density`**, which the design doc offers as the
+    /// cheaper option: density and penetration resistance are genuinely
+    /// different properties, and conflating them means a material cannot be
+    /// dense and loose (wet sand) or light and hard (pumice) without one
+    /// of the two behaviours coming out wrong. This is also exactly the
+    /// kind of gameplay-facing value `design-philosophy.md` §2a says
+    /// graduates to `.ron` data immediately.
+    ///
+    /// Defaults high, so a material that says nothing is impenetrable.
+    /// That is the safe direction: a new material silently letting roots
+    /// eat through it would be discovered as roots growing through a floor.
+    #[serde(default = "default_penetration_resistance")]
+    pub penetration_resistance: f32,
     pub colors: Vec<[u8; 3]>,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
@@ -364,6 +394,13 @@ fn default_min_transfer() -> u16 {
 
 /// 0.65, matching the hardcoded `MIN_LIQUID_BRIGHTNESS` of 0.35 this
 /// replaced, so a `.ron` that says nothing about it looks exactly as before.
+/// Impenetrable by default -- see `penetration_resistance`'s own doc for
+/// why the safe default is "no", not "yes". Well above the 2-3 MPa bound
+/// at which real root elongation stops.
+fn default_penetration_resistance() -> f32 {
+    100.0
+}
+
 fn default_fill_dimming() -> f32 {
     0.65
 }
@@ -452,6 +489,8 @@ pub struct Material {
     pub min_transfer: u16,
     /// See `MaterialDef::fill_dimming`.
     pub fill_dimming: f32,
+    /// See `MaterialDef::penetration_resistance`.
+    pub penetration_resistance: f32,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
     pub palette: Vec<[u8; 4]>,
@@ -680,6 +719,7 @@ impl From<MaterialDef> for Material {
             flow_rate: def.flow_rate,
             min_transfer: def.min_transfer,
             fill_dimming: def.fill_dimming,
+            penetration_resistance: def.penetration_resistance,
             palette: def
                 .colors
                 .iter()
@@ -788,6 +828,7 @@ impl MaterialRegistry {
             flow_rate: 0,
             min_transfer: default_min_transfer(),
             fill_dimming: default_fill_dimming(),
+            penetration_resistance: default_penetration_resistance(),
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
@@ -814,6 +855,7 @@ impl MaterialRegistry {
             flow_rate: 0,
             min_transfer: default_min_transfer(),
             fill_dimming: default_fill_dimming(),
+            penetration_resistance: default_penetration_resistance(),
             colors: vec![[20, 20, 24]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,

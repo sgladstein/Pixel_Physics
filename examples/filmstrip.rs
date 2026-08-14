@@ -230,15 +230,28 @@ fn build(scene: &str) -> World {
                 for y in (TREE_GROUND_Y + 40)..(TREE_GROUND_Y + 46) {
                     w.set(x, y, Cell::new(material::STONE, 0));
                 }
-                // Soil bed, with the bottom rows wet -- a crude standing
-                // water table until Decision 3 makes soil moisture real.
-                for y in TREE_GROUND_Y..(TREE_GROUND_Y + 34) {
+                // Soil all the way down to the stone.
+                //
+                // An earlier version buried a band of free `water` in the
+                // lower soil as a stand-in water table. That does not work
+                // and the reason is worth keeping: `soil` is a `Powder` and
+                // sinks through `Liquid`, so within a few hundred frames the
+                // soil had swapped places with the water and the "table" was
+                // a film lying on the *surface* — with every seed then
+                // germinating onto water rather than soil, and no root ever
+                // starting. Correct physics, useless scene, and it read as a
+                // root bug.
+                //
+                // A real water table needs moisture held *inside* soil
+                // cells, which is Decision 3 (§4a, per-cell fill in a
+                // `Powder`'s own `aux`). Until that lands the honest scene
+                // is dry soil, and the puddle below is on the surface where
+                // it will stay put.
+                for y in TREE_GROUND_Y..(TREE_GROUND_Y + 40) {
                     w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8));
                 }
-                for y in (TREE_GROUND_Y + 34)..(TREE_GROUND_Y + 40) {
-                    w.set(x, y, water_at(x, y));
-                }
             }
+            w.paint_circle(260, TREE_GROUND_Y - 3, 6, material::WATER);
             for x in [80, 200, 320, 440] {
                 w.plant_tree(x, TREE_GROUND_Y - 1);
             }

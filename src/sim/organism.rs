@@ -207,6 +207,23 @@ pub enum Behavior {
         /// non-programmer would plausibly tune it, and it is one of the
         /// clearest silhouette levers a species file has.
         plastochron: u8,
+        /// Mechanical resistance, in MPa, this cell type can force its way
+        /// through — a `RootTip` converts a `Powder` neighbour whose
+        /// `Material::penetration_resistance` is *below* this into root
+        /// tissue in place, instead of being blocked by it.
+        ///
+        /// `0.0` means "only grows into open air", which is correct for a
+        /// canopy `GrowingTip`: a shoot growing into a sand dune is not a
+        /// thing, and `Reports/tree-rewrite-design.md` §5 already scopes
+        /// growing-into-material to roots only.
+        ///
+        /// Per species because root penetrating force genuinely varies —
+        /// and because it is the parameter that decides whether a species
+        /// can colonise compacted ground, which is a gameplay-facing
+        /// difference between plants rather than an engine constant.
+        /// Real root growth pressures are on the order of 0.2-1.5 MPa,
+        /// which is what `tree.ron`'s value is set against.
+        penetration_force: f32,
     },
     /// Reads the light field, credits the resource scalar — a `Leaf`
     /// cell's own contribution to the resource economy `Grow`/`Divide`

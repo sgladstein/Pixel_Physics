@@ -52,6 +52,7 @@ fn variant_ron(v: &Variant) -> String {
                 crowding_weight: 0.5,
                 max_active_tips: 14,
                 plastochron: 3,
+                penetration_force: 0.0,
             ),
             Photosynthesize(rate: {rate}),
         ]),
@@ -67,6 +68,7 @@ fn variant_ron(v: &Variant) -> String {
                 crowding_weight: 0.0,
                 max_active_tips: 10,
                 plastochron: 0,
+                penetration_force: 1.2,
             ),
         ]),
         (MatureBody, [

@@ -69,6 +69,9 @@
                 // tuning it twice is exactly what that sequencing exists to
                 // avoid.
                 plastochron: 3,
+                // A shoot only grows into open air. Reports/tree-rewrite-
+                // design.md §5 scopes growing-into-material to roots.
+                penetration_force: 0.0,
             ),
             Photosynthesize(rate: 0.5),
         ]),
@@ -88,6 +91,11 @@
                 // a real value here rather than "unset". See the field's own
                 // doc in organism.rs.
                 plastochron: 0,
+                // Real root axial growth pressure is on the order of
+                // 0.2-1.5 MPa; 1.2 puts this tree through loose soil (0.8)
+                // and sand (1.4 -- refused), and never through gravel
+                // (3.5) or any Solid. See Material::penetration_resistance.
+                penetration_force: 1.2,
             ),
         ]),
         (MatureBody, [

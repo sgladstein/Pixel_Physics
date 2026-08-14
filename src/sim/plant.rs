@@ -13,7 +13,7 @@
 
 use super::cell::Cell;
 use super::field::FIELD_SCALE;
-use super::material::MaterialKind;
+use super::material::{self, MaterialKind};
 use super::organism::{self, Behavior, CellType};
 use super::rng::{self, Rng};
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -54,6 +54,46 @@ fn normalize(v: (f32, f32)) -> (f32, f32) {
 /// diffusion's own math would have produced at this position had it been
 /// able to write into empty cells, consistent with `diffuse_resource`'s
 /// own neighbour-average formula for the same channel.
+/// Can a growing cell of this species advance into `(x, y)`?
+///
+/// Open air always. **Plus, for a cell type with real `penetration_force`
+/// (roots), a `Powder` whose `Material::penetration_resistance` it can
+/// overcome** — `Reports/plant-substrate-v2-design.md`'s Decision 1(ii),
+/// the reason a root can finally leave open air. Until this existed a root
+/// could only ever extend into a literal void, so a tree planted on soil
+/// grew no root system at all, which is the long-standing "no roots in the
+/// test scene" report.
+///
+/// **A raw `material == EMPTY` test, deliberately not `World::is_empty`.**
+/// `Cell::is_empty()` is managed-aware: a promoted liquid body's container
+/// cells are materially empty but report as occupied, and the question here
+/// is "is there material in the way", not "is this position available".
+/// `CLAUDE.md` lists this as a gotcha that has already caused a real bug;
+/// nothing promotes a body in production yet, so getting it wrong would be
+/// latent rather than visible, which is worse.
+///
+/// One cell is converted, never a pushed column. A real root tip does not
+/// shove a column of soil ahead of itself — it sheds lubricating border
+/// cells and the soil deforms plastically and locally around it, and roots
+/// preferentially follow existing pores and old channels rather than
+/// displacing bulk soil at all. Converting one cell is closer to that than
+/// a piston would be, as well as cheaper.
+fn growable(world: &World, x: i32, y: i32, penetration_force: f32) -> bool {
+    let cell = world.get(x, y);
+    if cell.material == material::EMPTY {
+        return true;
+    }
+    if penetration_force <= 0.0 {
+        return false;
+    }
+    let m = world.materials.get(cell.material);
+    // `Powder` only. `Solid` never yields however hard a root pushes --
+    // which preserves the already-playtested behaviour that a tree on bare
+    // stone fails to root, rather than silently letting roots eat the floor.
+    // `Liquid` is `Absorb`'s business, not a thing to grow *through*.
+    m.kind == MaterialKind::Powder && m.penetration_resistance < penetration_force
+}
+
 fn candidate_crowding(world: &World, x: i32, y: i32, organism_id: u16) -> f32 {
     let mut sum = 0.0f32;
     let mut count = 0u32;
@@ -327,6 +367,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 crowding_weight,
                 max_active_tips,
                 plastochron: plastochron_interval,
+                penetration_force,
             } => {
                 if resource < cost {
                     continue;
@@ -398,7 +439,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
                 for (dx, dy) in NEIGHBOURS_8 {
                     let (nx, ny) = (x + dx, y + dy);
-                    if !world.is_empty(nx, ny) {
+                    if !growable(world, nx, ny, penetration_force) {
                         continue;
                     }
                     let dir = normalize((dx as f32, dy as f32));
@@ -556,7 +597,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     let alt: Vec<(i32, i32, f32)> = candidates.into_iter().filter(|&(nx, ny, _)| (nx, ny) != (tx, ty)).collect();
                     if !alt.is_empty() {
                         let (bx, by, _) = alt[rng.below(alt.len() as u32) as usize];
-                        if world.is_empty(bx, by) {
+                        if growable(world, bx, by, penetration_force) {
                             let branch_shade = rng.below(shades) as u8;
                             let branch_aux = organism::with_canopy_density(organism::pack_aux(cell_type, 0.0), GROW_CANOPY_DEPOSIT);
                             let branch_cell = Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(branch_aux);
@@ -721,7 +762,29 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // every seedling before its root ever gets the chance to reach soil.
     world.set(x, y, cell.with_aux(organism::pack_aux(CellType::GrowingTip, 0.0)));
     let mut next = vec![reschedule_organism(x, y, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL)];
-    if world.is_empty(x, y + 1) {
+    // The companion root starts wherever this species' own `RootTip` could
+    // *grow*, which since Decision 1(ii) includes penetrable soil and not
+    // just open air.
+    //
+    // This gate is why a seed planted on soil produced no root system at
+    // all: the cell below a seed resting on the ground is, by definition,
+    // ground. It read as a scene problem ("the test room has a stone
+    // floor") and was really this — on soil it failed for the same reason,
+    // just less obviously. Deliberately left alone until now rather than
+    // loosened earlier: refusing to root in bare *stone* is correct
+    // behaviour, so the gate could not be fixed honestly until roots had
+    // somewhere legitimate to go.
+    let root_force = world
+        .species
+        .get(world.organism(organism_id).map(|s| s.species).expect("germinating organism exists"))
+        .behaviors(CellType::RootTip)
+        .iter()
+        .find_map(|b| match b {
+            Behavior::Grow { penetration_force, .. } => Some(*penetration_force),
+            _ => None,
+        })
+        .unwrap_or(0.0);
+    if growable(world, x, y + 1, root_force) {
         let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
         let shade = rng.below(shades) as u8;
         let root_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_aux(CellType::RootTip, 0.0));
@@ -1669,6 +1732,33 @@ mod tests {
             .collect();
         assert_eq!(new_tips.len(), 1, "expected exactly one new GrowingTip child, got {new_tips:?}");
         assert!(!next.is_empty(), "the new child should be scheduled");
+    }
+
+    /// Decision 1(ii): a root grows *into* penetrable soil, a shoot does
+    /// not, and neither goes through stone however hard it pushes.
+    ///
+    /// Driven through `growable` directly rather than a full simulation:
+    /// the gate is the whole mechanism, and a grown-tree test would make
+    /// "did a root reach this cell" depend on the resource economy as well
+    /// (which is exactly the still-open `RootTip` income stall).
+    #[test]
+    fn a_root_penetrates_soil_but_not_stone_and_a_shoot_penetrates_neither() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+        let gravel = w.materials.id_of("gravel").expect("gravel is a compiled-in material");
+        w.set(10, 10, Cell::new(soil, 0));
+        w.set(11, 10, Cell::new(material::STONE, 0));
+        w.set(12, 10, Cell::new(gravel, 0));
+
+        // `tree.ron`'s own RootTip force, and its GrowingTip's (0.0).
+        const ROOT: f32 = 1.2;
+        const SHOOT: f32 = 0.0;
+
+        assert!(growable(&w, 10, 10, ROOT), "a root should push through loose soil (0.8 MPa against 1.2)");
+        assert!(!growable(&w, 11, 10, ROOT), "no root may enter Solid stone, whatever its force");
+        assert!(!growable(&w, 12, 10, ROOT), "gravel at 3.5 MPa is past the 2-3 MPa bound where root elongation stops");
+        assert!(!growable(&w, 10, 10, SHOOT), "a canopy shoot has no penetrating force and must stay in open air");
+        assert!(growable(&w, 50, 50, SHOOT), "open air is always growable");
     }
 
     /// Leaves hang *off* the stem, never form part of it — asserted the way
