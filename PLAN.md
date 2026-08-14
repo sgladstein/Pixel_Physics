@@ -3852,11 +3852,30 @@ halving, and 0.267 × 0.5 = 0.133 rounds straight back to 0.267 — so density h
 a **permanent floor of one quantum on every cell that ever received a
 deposit**, and the mechanism whose whole purpose is letting later growth
 reclaim space near mature wood could never release it. As `f32` it now reaches
-zero. Paired 24-tree ensembles: biomass flat (5872–5881 → 5806), but trees get
-thinner (rows wider than one cell, 42% → 35%) and shorter (median height 40 →
-30). That is weaker self-avoidance, and `GROW_CANOPY_DEPOSIT` and `tree.ron`'s
-`crowding_weight` were both tuned with the floor in place. **Not re-tuned here**
-— §10 forbids `.ron` edits at this step so the economy pass tunes once.
+zero.
+
+**Trees are visibly worse than baseline right now, and the cause is not
+established.** Paired 24-tree ensembles: biomass flat (5872–5881 → 5806), but
+trees are thinner (rows wider than one cell, 42% → 35%) and shorter (median
+height 40 → 30). The shape metric read 42 on four consecutive baseline runs, so
+that is a real shift, not noise. Four candidate causes were A/B'd on the
+migrated code and **all four were ruled out** — every variant lands at 35–36:
+
+| variant | rows >1 cell wide, mean |
+|---|---|
+| baseline (4 runs) | 42 |
+| migrated, as shipped | 35 |
+| + canopy density re-quantized | 36 |
+| + resource re-quantized | 36 |
+| + transport per-frame at 1 substep | 36 |
+
+So the cause is common to every variant. **The leading untested hypothesis is
+the duty-cycle change**: on the CA sweep, transport stopped dead once a tree's
+chunk slept; it now runs forever. That is exactly what this entry demanded as
+Decision 2's gate, so if it is the cause the answer is to re-tune against it,
+not undo it. **This is the first thing the economy pass should nail down** — it
+is a tuning question, not a missing mechanism, and §10 forbids `.ron` edits
+here so the pass tunes once.
 
 **A metric caveat worth carrying into that pass:** `plant_probe` plants its
 seeds *on the ground*, so its trees never fall. It therefore reported a healthy

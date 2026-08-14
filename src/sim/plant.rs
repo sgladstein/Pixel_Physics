@@ -165,15 +165,35 @@ fn candidate_crowding(world: &World, x: i32, y: i32, organism_id: u16) -> f32 {
 /// The left column is a *range over three runs of one binary*, because the
 /// old code was not reproducible run to run — see this pass's own note on
 /// sorting the cell list, which is what made the right column a single
-/// number.
+/// number. The shape row is the exception and is worth knowing: it read
+/// **42 on four consecutive baseline runs**, so it is a robust population
+/// statistic and the 42 → 35 shift is real rather than noise.
 ///
-/// Total biomass is flat (−1%, barely above that noise floor); the medians
-/// drop by about a quarter while the means hold, and trees get thinner
-/// (42% → 35% of rows wider than one cell). Same mass, in clumpier and
-/// shorter trees. That is what weaker self-avoidance should do: the floor
-/// was acting as a permanent baseline crowding signal pushing growth
-/// outward and upward, and `GROW_CANOPY_DEPOSIT` and `tree.ron`'s
-/// `crowding_weight` were both tuned with it in place.
+/// **What causes that shift is NOT established, and specifically it is not
+/// this constant.** The obvious story — the floor was a permanent baseline
+/// crowding signal pushing growth outward, so losing it makes trees
+/// thinner — is wrong, and was checked rather than assumed. Replaying the
+/// old 4-bit quantization on the migrated code moves the shape metric from
+/// 35 to **36**, about one point of a seven-point change:
+///
+/// | variant | rows >1 cell wide, mean |
+/// |---|---|
+/// | baseline (4 runs) | 42 |
+/// | migrated, as shipped | 35 |
+/// | migrated + canopy density re-quantized | 36 |
+/// | migrated + resource re-quantized | 36 |
+/// | migrated + transport per-frame at 1 substep | 36 |
+///
+/// Every variant lands at 35–36, so the cause is something common to all of
+/// them and none of the four is it. **The leading untested hypothesis is
+/// the duty-cycle change**: dispatched from the CA sweep, transport stopped
+/// entirely once a tree's chunk went to sleep, and it now runs forever. That
+/// is the very thing `PLAN.md` asked for as Decision 2's gate, so if it is
+/// the cause the answer is to re-tune against it, not to undo it.
+///
+/// Recorded here rather than fixed because `Reports/plant-substrate-v2-
+/// design.md` §10 forbids `.ron` edits at this step so the economy pass
+/// tunes once, against the final transport mechanism.
 ///
 /// **This is `CLAUDE.md`'s "fixing a bug often exposes a constant that was
 /// compensating for it", and the constants are deliberately not re-tuned
