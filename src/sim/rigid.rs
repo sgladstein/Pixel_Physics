@@ -124,6 +124,21 @@ const DISPLACE_SEARCH: i32 = 4;
 /// a blender.
 const SPIN_PER_SPEED: f32 = 0.012;
 
+/// Pressure written into the field per unit of strike force.
+const STRIKE_PRESSURE: f32 = 6.0;
+
+/// How much a blow of this radius shifts the fragment-size ladder. A tap
+/// chips; a heavy swing calves slabs. Capped at 2 (a 128-cell ceiling)
+/// because past that a "fragment" is the whole wall and stops reading as a
+/// piece broken off it.
+fn size_bias(radius: i32) -> u32 {
+    match radius {
+        0..=5 => 0,
+        6..=11 => 1,
+        _ => 2,
+    }
+}
+
 /// 4-connected flood fill over `Solid` cells starting at `(seed_x, seed_y)`.
 ///
 /// Returns `None` if the seed cell itself isn't `Solid` — there is no
@@ -427,14 +442,14 @@ pub fn try_promote_failing_region(world: &mut World, x: i32, y: i32) -> bool {
 /// so the grit is a *consequence* of the same draw rather than a separate
 /// fudge factor.
 fn fracture(world: &mut World, region: &[(i32, i32)]) {
-    fracture_with_impulse(world, region, None)
+    fracture_with_impulse(world, region, None, 0)
 }
 
 /// As `fracture`, but every fragment is thrown away from `origin` at
 /// `force`. This is what makes a *blow* different from a collapse: the same
 /// rock comes apart either way, but struck rock leaves the wound rather than
 /// sagging out of it.
-fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Option<((f32, f32), f32)>) {
+fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Option<((f32, f32), f32)>, size_bias: u32) {
     let mut remaining: Vec<(i32, i32)> = region.to_vec();
     remaining.sort_unstable(); // deterministic seed order, as `label_failing_region` already guarantees
     let mut left: HashSet<(i32, i32)> = remaining.iter().copied().collect();
@@ -446,7 +461,12 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
         // 2, 4, 8, 16 or 32 cells. Uniform over the exponent means each
         // doubling is half as likely per cell of material consumed, which
         // is the heavy-tailed shape fragmentation actually has.
-        let target = 1usize << (1 + world.rng.below(5) as usize);
+        // A wider blow takes bigger pieces off. `size_bias` shifts the
+        // whole ladder up, so a heavy swing or a large blast calves slabs
+        // where a light tap produces chips -- without flattening the
+        // distribution, which is what stops it reading as all-or-nothing
+        // again.
+        let target = 1usize << (1 + world.rng.below(5) as usize + size_bias as usize);
         let fragment = take_fragment(&mut left, seed, target);
         if fragment.len() >= MIN_BODY_CELLS {
             promote(world, &fragment, impulse);
@@ -655,10 +675,53 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     // and then threw nothing at all -- the larger the swing, the less
     // happened, which is exactly backwards.
     if loosened.len() >= MIN_FRACTURE_CELLS {
-        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)));
+        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)), size_bias(radius));
     }
+    // Every destructive event owes feedback (`Reports/design-philosophy.md`
+    // §0a). A blow shoves the air as well as the rock, which is what makes
+    // smoke and loose grit near the impact react instead of a hit landing in
+    // total silence.
+    world.add_pressure_impulse(cx, cy, radius.max(2), force * STRIKE_PRESSURE);
     for &(x, y) in &loosened {
         world.schedule_structural_check_around(x, y);
+    }
+}
+
+/// Break the loosened rock around a blast into chunks and throw them.
+///
+/// Explosions cleared their crater and spawned single-cell debris particles,
+/// which is the right treatment for sand and the wrong one for rock: a blast
+/// against stone produced a clean hole and a spray of grit, never a piece.
+/// Reported as wanting the opposite -- "you explode a rock to make a cave and
+/// pieces should crack."
+///
+/// Called after a blast stage has finished clearing, on the shell it just
+/// exposed. Only unattached solid cells are eligible, which means the rim
+/// has already been through `structural::detach_exposed_neighbours` and is
+/// genuinely no longer braced by the mass behind it.
+pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: i32, force: f32, size_bias: u32) {
+    let mut loosened = Vec::new();
+    // An annulus, not a disc. Scanning the whole disc also swept up the
+    // crater's *interior* -- material the blast was still working through --
+    // and converted it before the front reached it, which left later stages
+    // nothing to clear. The wall is what comes away, not the hole.
+    for dy in -outer..=outer {
+        for dx in -outer..=outer {
+            let (x, y) = (origin.0 + dx, origin.1 + dy);
+            let d2 = dx * dx + dy * dy;
+            if d2 > outer * outer || d2 < inner * inner || !world.in_bounds(x, y) {
+                continue;
+            }
+            let cell = world.get(x, y);
+            if cell.attached() || !is_body_material(world, x, y) || cell.organism_id() != 0 {
+                continue;
+            }
+            loosened.push((x, y));
+        }
+    }
+    if loosened.len() >= MIN_FRACTURE_CELLS {
+        loosened.sort_unstable(); // deterministic seed order
+        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias);
     }
 }
 

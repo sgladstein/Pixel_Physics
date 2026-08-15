@@ -342,6 +342,7 @@ impl Blast {
     /// Clear the annulus between two fronts, converting material to debris.
     fn clear_annulus(&self, world: &mut World, particles: &mut ParticleSystem, tuning: &Tuning, prev2: f32, now2: f32, vaporize2: f32) {
         let reach = front_reach(now2);
+        let mut struck_rock = false;
         for y in (self.cy - reach)..=(self.cy + reach) {
             for x in (self.cx - reach)..=(self.cx + reach) {
                 let (dx, dy) = (x - self.cx, y - self.cy);
@@ -398,8 +399,24 @@ impl Blast {
                     // transition the eraser goes through -- see
                     // `structural::detach_exposed_neighbours`.
                     super::structural::detach_exposed_neighbours(world, x, y);
+                    struck_rock = true;
                 }
             }
+        }
+
+        // Crack the crater wall into pieces. Everything above turns the
+        // blast's own volume into single-cell debris particles, which is the
+        // right treatment for sand and the wrong one for stone -- against
+        // rock it produced a clean hole and a spray of grit, never a piece.
+        // The rim has just been loosened by `detach_exposed_neighbours`, so
+        // it is no longer braced by the mass behind it and can come away as
+        // chunks thrown outward from the charge.
+        //
+        // Guarded on having actually hit something structural: an airburst,
+        // or a blast inside a sand pile, should not pay for a shell scan it
+        // has no rock to find.
+        if struck_rock {
+            super::rigid::fracture_shell(world, (self.cx, self.cy), reach, reach + BLAST_SHELL_REACH, self.strength * BLAST_SHELL_FORCE, 1);
         }
     }
 
@@ -585,6 +602,15 @@ const SCORCH_SHELL_THICKNESS: f32 = 3.0;
 /// Fractional spread applied to each ignited cell's burn duration, so a
 /// fireball's cells burn out at staggered times instead of all at once. See
 /// the call site for the measurement that motivated it.
+/// How far past the blast front to look for rock the charge has loosened.
+/// Small: the shell that can come away is the crater wall itself, not the
+/// countryside around it.
+const BLAST_SHELL_REACH: i32 = 3;
+
+/// Fraction of a blast's strength that gets spent throwing crater-wall
+/// chunks, as opposed to the debris particles and pressure it already wrote.
+const BLAST_SHELL_FORCE: f32 = 0.06;
+
 const BURN_DURATION_JITTER: f32 = 0.5;
 
 /// Integer loop bound for a squared radius — the smallest box that can
@@ -913,12 +939,21 @@ mod tests {
             })
             .filter(|&(x, y)| w.get(x, y).is_empty())
             .count();
-        let debris_count = particles.iter().count();
+        // Debris particles *and* chunk bodies. Both are "the blast turned
+        // this into something that flies", which is what this test actually
+        // guards -- the alternative being vaporized, i.e. silently gone.
+        // Counting only particles used to be the same thing; it stopped
+        // being so once a blast started cracking its crater wall into
+        // coherent pieces, which takes rock that would have been grit and
+        // makes it chunks instead. Scoring that as a loss would have this
+        // test pushing against the feature.
+        let body_cells: usize = w.chunk_bodies.iter().map(|b| b.cells.len()).sum();
+        let debris_count = particles.iter().count() + body_cells;
         assert!(cleared > 0, "test setup: nothing was cleared at all");
         assert!(
             (debris_count as f32) > (cleared as f32) * 0.7,
             "most of the cleared blast radius should have become debris, not vaporized: \
-             {debris_count} debris out of {cleared} cleared cells"
+             {debris_count} debris (particles + chunk cells) out of {cleared} cleared cells"
         );
     }
 
