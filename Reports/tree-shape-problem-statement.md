@@ -128,3 +128,73 @@ widest run → the root mat). Judge by:
   foliage. Ours has run at 48:1;
 - **whether growth is still happening at frame 20,000**, which is the
   actual subject of this document.
+
+
+---
+
+## 8. RESOLVED: both diagnoses were right, and the number that governs everything
+
+Two agents reached competing diagnoses — `tree-extension-audit.md` said the
+tip population is a **sub-critical branching process**;
+`tree-diagnosis-review.md` said that was a **ceiling artifact**. The
+discriminating measurement they both named has now been run: offspring per
+tip, with and without headroom, 8 trees / 30,000 frames.
+
+```
+                        ground=96        ground=200
+organism cells               3,147            14,459
+offspring per tip           0.9944            0.9983
+deaths from no upward room     19%                9%
+```
+
+**Both are right, and neither is sufficient alone.**
+
+- The **ceiling is real**: doubling the sky moves the ratio from 0.9944 to
+  0.9983 and cuts boundary-caused deaths from 19% to 9%.
+- The **sub-criticality is real and not an artifact**: it persists at
+  `ground=200`, where only 9% of deaths are boundary-caused. The process is
+  still below 1, so the population still goes extinct with probability 1 —
+  it just takes longer.
+
+### The number that governs tree size
+
+For a branching process the expected total progeny of a lineage is
+`1/(1−m)`. Checked against the measurement:
+
+```
+m = 0.9944 → 1/(1−m) = 179     observed 3,147 cells
+m = 0.9983 → 1/(1−m) = 588     observed 14,459 cells
+predicted size ratio 3.3x      observed 4.6x
+```
+
+Same order, from a model with no free parameters. **Tree size is governed
+by how close the offspring ratio sits to 1**, and because the relationship
+is `1/(1−m)`, it is violently sensitive there: 0.994 → 0.998 is a 4.6x
+tree. That single fact reframes the whole problem.
+
+### What this means for every knob touched so far
+
+- **Every parameter that has ever been tuned on this branch was moving `m`
+  by fractions of a percent**, and the visible result was a size change of
+  several hundred percent. That is why the work oscillated between a whip
+  and a blob without ever finding a middle: near criticality there is no
+  stable middle to find. **The whip is `m` slightly under 1; the blob is
+  `m` slightly over.**
+- **`m > 1` is not the goal either.** Above 1 a branching process grows
+  without bound — that is the blob, and it is why bud break ran away. The
+  goal is `m` held *at* 1 by a feedback that responds to the plant's state,
+  which is exactly what a competitive allocation does: shares sum to
+  income, so adding tips lowers each tip's share and pushes `m` back down.
+  Palubicki's `n = ⌊v⌋` is that feedback.
+- **The three causes the audit measured are all `m` terms**, and all are
+  fixable: a child born with zero carbon (52.8% of starvation refusals),
+  transport parking the newest cell at the poorest end of the conductance
+  gradient (measured 1:19), and a staleness counter that counts `Grow`
+  failures and is never reset by income arriving later in the same tick.
+
+### Standing conclusion
+
+Do not tune for size. **Tune `m`, measure `m`, and report `m`** — it is one
+counter pair (tips born, tips aged out) and it predicts size better than
+any metric on this branch. Then bound the plant by making `m` respond to
+crowding and light rather than by capping anything.
