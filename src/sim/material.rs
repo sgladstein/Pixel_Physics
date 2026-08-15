@@ -776,10 +776,18 @@ impl From<MaterialDef> for Material {
             // arbitrarily far without ever growing, silently disabling
             // `max_unsupported_span` for that material rather than tuning it
             // -- a content mistake that would read as "spans stopped working"
-            // with nothing pointing at the cause. `below` is deliberately
-            // exempt: 0 there is the whole point (free compression), and a
-            // column standing on an anchor is genuinely supported.
-            support_cost_below: def.support_cost_below,
+            // with nothing pointing at the cause.
+            //
+            // `below` used to be exempt, on the reasoning that 0 there was
+            // "the whole point (free compression)". It is now clamped like
+            // its siblings, and that is load-bearing rather than tidiness.
+            // A zero here makes a whole column relax to
+            // `aux == 0`, and `load::evaluate` treats distance 0 as *anchored*
+            // -- so the structure becomes immune to every failure mode
+            // including hanging in mid-air. That is model 3's self-consistent
+            // zero (`Reports/load-model-handoff.md` §6) resurrected as total
+            // immunity, and it used to be reachable from any `.ron` file.
+            support_cost_below: def.support_cost_below.max(1),
             support_cost_beside: def.support_cost_beside.max(1),
             support_cost_above: def.support_cost_above.max(1),
             melts_into_name: def.melts_into,

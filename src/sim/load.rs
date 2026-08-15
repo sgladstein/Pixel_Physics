@@ -128,7 +128,7 @@ const MAX_REGION_CELLS: usize = 20_000;
 /// collapse is what `Reports/fracture-mechanics-design.md` §3.4 asks for
 /// anyway — "a collapse that resolves over a second reads better than one
 /// that resolves instantly".
-const MAX_SUBTREE_CELLS: usize = 1024;
+const MAX_SUBTREE_CELLS: usize = 8192;
 
 /// Cells every load walk in one frame may visit between them, across all
 /// checks. The counterpart of `scheduler::MAX_SITES_PER_FRAME`, and needed
@@ -512,13 +512,20 @@ fn subtree_sum(world: &World, x: i32, y: i32, memo: &mut SubtreeMemo, budget: &m
     }
     let mut kids = Vec::new();
     let mut stack = vec![Step::Enter((x, y))];
+    // Cells actually walked, not `stack.len()`. Those are different
+    // quantities -- the stack holds the pending *frontier*, which for a
+    // wide flat slab stays small while the walk visits thousands -- and
+    // testing the wrong one here meant this cap and the identically-named
+    // one in `supported_subtree` bounded two different things while
+    // claiming to bound the same one.
+    let mut walked = 0usize;
     while let Some(step) = stack.pop() {
         match step {
             Step::Enter(node) => {
                 if memo.contains_key(&node) {
                     continue;
                 }
-                if *budget == 0 || stack.len() > MAX_SUBTREE_CELLS {
+                if *budget == 0 || walked >= MAX_SUBTREE_CELLS {
                     // Out of room. Recorded as carrying only itself and
                     // flagged truncated, which **under**states the load --
                     // the safe direction, since the failure mode of
@@ -527,6 +534,7 @@ fn subtree_sum(world: &World, x: i32, y: i32, memo: &mut SubtreeMemo, budget: &m
                     continue;
                 }
                 *budget = budget.saturating_sub(1);
+                walked += 1;
                 children(world, node.0, node.1, &mut kids);
                 let mut held = [(0, 0); 4];
                 for (slot, &kid) in held.iter_mut().zip(kids.iter()) {

@@ -245,8 +245,29 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // because of it. So the falling half of a convergence wavefront still
     // costs nothing.
     let worsened = new_distance > cell.aux();
+    // **The distance wavefront is computed once, here, and every early
+    // return below carries it.** It is independent of the load model and
+    // must never be skipped by it.
+    //
+    // It was, and the consequence was total. Three of the returns below --
+    // out of budget, uninteresting, deferred -- dropped this fan-out, so a
+    // cell could write a new distance and then never tell its neighbours.
+    // On `scene=capped` the very first check's support search consumed the
+    // whole frame budget, the tick deferred without propagating, and the
+    // relaxation stopped dead: at frame **3,000** the scene still had only
+    // the 10 sites `build()` seeded, every one of its 15,840 cells still at
+    // `aux 0`, and not a single cell had ever been load-evaluated. The
+    // column "stood" because nothing had ever asked whether it should --
+    // `CLAUDE.md`'s vacuous-test failure, in the acceptance harness rather
+    // than the suite, and on the one case that exists to catch regressions.
+    // Worse, dispatch is ordered by `(next_frame, x, y)`, so a frozen
+    // structure at low `x` wins the budget every frame and starves every
+    // other structural check in the world behind it.
+    let mut propagate = Vec::new();
     if moved {
         world.set(x, y, cell.with_aux(new_distance));
+        propagate.push(reschedule(world, x, y));
+        propagate.extend(schedule_solid_neighbours(world, x, y));
         // Judged only once its distance has *settled*, which is both
         // cheaper and more correct.
         //
@@ -264,17 +285,25 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // changing, which is `Reports/load-model-handoff.md` §5.2's stale-
         // parent hazard. Waiting for the cell to settle sidesteps it.
         if !worsened {
-            let mut next = vec![reschedule(world, x, y)];
-            next.extend(schedule_solid_neighbours(world, x, y));
-            return next;
+            return propagate;
         }
+    }
+
+    /// Reschedule this cell for another look without losing the wavefront.
+    macro_rules! defer {
+        () => {{
+            if !moved {
+                propagate.push(reschedule(world, x, y));
+            }
+            return propagate;
+        }};
     }
 
     // Out of budget for this frame: defer rather than judge, so a cascade
     // spreads over frames instead of spiking one. Deliberately not "assume
     // it holds and stop checking" -- that would silently drop the check.
     if world.load_budget == 0 {
-        return vec![reschedule(world, x, y)];
+        defer!();
     }
     // Attached bulk with no crack and no free face cannot fail, so it does
     // not walk its support chain either. Checked here rather than only
@@ -284,7 +313,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // volume -- `scene=capped`'s column is 11,520 cells of which ~800 are
     // surface.
     if !super::load::is_structurally_interesting(world, x, y) {
-        return Vec::new();
+        return propagate;
     }
 
     // The failure criterion, and the whole point of the load model:
@@ -302,7 +331,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     world.load_budget = budget;
     world.load_cache = cache;
     if matches!(verdict, super::load::ChainVerdict::Deferred) {
-        return vec![reschedule(world, x, y)];
+        defer!();
     }
     if let super::load::ChainVerdict::Failing(region) = verdict {
         // The forest this describes is about to change out from under it.
@@ -319,7 +348,8 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // The neighbours that were relying on this as a stepping stone need
         // to recompute too -- this is what turns a break into a *cascade*
         // rather than one isolated piece vanishing.
-        let mut next = schedule_solid_neighbours(world, x, y);
+        let mut next = propagate;
+        next.extend(schedule_solid_neighbours(world, x, y));
         for &(fx, fy) in &region {
             next.extend(schedule_solid_neighbours(world, fx, fy));
         }
@@ -331,9 +361,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // actively rescheduled and let whatever disturbs this cell next
     // schedule it again.
     if moved {
-        let mut next = vec![reschedule(world, x, y)];
-        next.extend(schedule_solid_neighbours(world, x, y));
-        return next;
+        return propagate;
     }
     //
     // Scheduling the parent here instead was tried and reverted. It fixed
