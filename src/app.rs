@@ -964,12 +964,12 @@ pub fn build_terrain_only(world: &mut World) {
     // not something generated terrain could rely on.
     for x in 0..w {
         for y in (h - 2)..h {
-            world.set(x, y, Cell::new(material::BEDROCK, 0));
+            world.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
         }
     }
     for x in 0..w {
         for y in (h - 8)..(h - 2) {
-            world.set(x, y, Cell::new(stone, (x % 4) as u8));
+            world.set(x, y, Cell::new(stone, (x % 4) as u8).with_attached(true));
         }
     }
 
@@ -981,7 +981,7 @@ pub fn build_terrain_only(world: &mut World) {
     let mut ledge = |x0: i32, x1: i32, y: i32| {
         for x in x0..x1 {
             for dy in 0..6 {
-                world.set(x, y + dy, Cell::new(stone, (x % 4) as u8));
+                world.set(x, y + dy, Cell::new(stone, (x % 4) as u8).with_attached(true));
             }
         }
     };
@@ -1135,14 +1135,22 @@ mod tests {
         assert_eq!(
             app.world.get(ledge_probe.0, ledge_probe.1).aux(),
             0,
-            "a confined ledge cell should have resolved to an anchor, not merely defaulted to 0"
+            "an attached ledge cell should resolve to an anchor"
         );
-        // A cell at the ledge's underside is *not* confined (open air below
-        // it), so it must carry a real, non-zero relaxed distance -- this is
-        // what proves the pass actually ran rather than leaving defaults.
-        let underside = app.world.get(130, 205);
-        assert_eq!(underside.material, stone, "test setup: expected the ledge's bottom row here");
-        assert!(underside.aux() > 0, "an unconfined ledge cell should carry a real distance, not 0");
+        // Attachment is what anchors it, and it has to be *stated* rather
+        // than inferred -- a ledge that stands only because nothing has
+        // checked it yet is section 6b's landmine, and reads identically
+        // from the outside.
+        assert!(
+            app.world.get(ledge_probe.0, ledge_probe.1).attached(),
+            "generated terrain must mark itself attached, or it is anchored only by never having been asked"
+        );
+        // Freshly brushed material is foreground and must NOT inherit it,
+        // or everything the player builds becomes indestructible -- the
+        // exact failure two inferred-support models both had.
+        let mut probe = App::new();
+        probe.world.paint_capsule((40, 40), (40, 40), 3, stone, 1.0);
+        assert!(!probe.world.get(40, 40).attached(), "brushed stone must be foreground, not attached");
 
         for _ in 0..400 {
             app.update();

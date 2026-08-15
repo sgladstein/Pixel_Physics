@@ -5,6 +5,36 @@ already heavily documented and the architecture is written up at length
 elsewhere — see below. What is not written down anywhere else, and what this
 project keeps re-learning the expensive way, is the method.
 
+## The ethos: it has to feel satisfying
+
+**Stated by the owner as a core value, above correctness of any individual
+mechanic: everything should feel satisfying.** A mechanic that is right on
+paper and dull in the hand has failed, and "the test passes" is not a
+defence.
+
+This is not a restatement of "looks good in motion" below — that is about
+*appearance*, and this is about *response*. Destroying something should feel
+like destroying it: the thing should crack, throw debris, come apart in
+pieces of varying size, and react to how it was hit. Two failures that
+already cost real rework, both of which passed every test they had:
+
+- **All-or-nothing outcomes.** Structural failure produced either a single
+  large coherent body or a uniform dissolve into powder, with nothing in
+  between. Real breakage is a *distribution* — a few blocks, more cobbles, a
+  lot of grit — and its absence read as fake immediately.
+- **No verb behind the effect.** Destruction could only be triggered by
+  *erasing* support, which delivers no load and no impulse, so nothing ever
+  failed from being *hit*. The mechanic worked and still felt inert, because
+  the player had no way to strike anything.
+
+Practical consequences when weighing a change: prefer the version with more
+legible feedback even when it is less exact; a graded outcome beats a binary
+one; and if a destructive event produces no debris, no impulse and no sound
+of consequence, it is not finished regardless of what the simulation
+believes. Judge this by playing it, not by reading the diff — the owner's
+playtest reports have overturned three separate models that all looked
+correct in tests.
+
 ## What this project is optimising for
 
 **Looks good and realistic, in motion, at play scale — without ruining

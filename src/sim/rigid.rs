@@ -102,6 +102,11 @@ const STALL_FRAMES_BEFORE_SETTLING: u8 = 3;
 /// single cell "tumbling" is just a grain.
 const MIN_BODY_CELLS: usize = 8;
 
+/// Smallest failing region worth fracturing at all. Below this the region is
+/// left to the caller's per-cell conversion, which looks the same and costs
+/// less.
+const MIN_FRACTURE_CELLS: usize = 6;
+
 /// Largest one. A failing region bigger than this is a structural collapse,
 /// not a chunk: flying it as one rigid piece both looks wrong (a whole
 /// cliff face gliding intact) and makes the fit test expensive, so it falls
@@ -361,33 +366,117 @@ pub fn try_promote_failing_region(world: &mut World, x: i32, y: i32) -> bool {
     let Some(region) = label_failing_region(world, x, y, MAX_BODY_CELLS + 1) else {
         return false;
     };
-    if region.len() < MIN_BODY_CELLS || region.len() > MAX_BODY_CELLS {
+    if region.len() < MIN_FRACTURE_CELLS || region.len() > MAX_BODY_CELLS {
         return false;
     }
+    fracture(world, &region);
+    true
+}
 
-    let cells: Vec<BodyCell> = region
+/// Break `region` apart into a *distribution* of debris — several bodies of
+/// differing size plus loose rubble — rather than one outcome for all of it.
+///
+/// # Why a distribution and not a single body
+///
+/// This used to promote the whole region as one `ChunkBody` if it was large
+/// enough and convert every cell to rubble if it was not. Reported from
+/// play: "it also seems like everything either disintegrates into powder or
+/// breaks off as a large piece; there needs to be more rubble when things
+/// break." Both outcomes were individually plausible and the *binary* was
+/// the problem — real rock fracture produces a size distribution, a few
+/// blocks and more cobbles and a lot of grit, and its absence reads as fake
+/// on sight regardless of how each half behaves.
+///
+/// Fragment sizes are drawn from a power-of-two ladder, so small pieces are
+/// common and large ones rare without needing a tuned curve — the shape
+/// falls out of the draw rather than being authored, which is the line
+/// `Reports/design-philosophy.md` §2b draws. Anything that comes out below
+/// `MIN_BODY_CELLS` is not worth flying as a rigid body and becomes rubble,
+/// so the grit is a *consequence* of the same draw rather than a separate
+/// fudge factor.
+fn fracture(world: &mut World, region: &[(i32, i32)]) {
+    let mut remaining: Vec<(i32, i32)> = region.to_vec();
+    remaining.sort_unstable(); // deterministic seed order, as `label_failing_region` already guarantees
+    let mut left: HashSet<(i32, i32)> = remaining.iter().copied().collect();
+
+    for &seed in &remaining {
+        if !left.contains(&seed) {
+            continue;
+        }
+        // 2, 4, 8, 16 or 32 cells. Uniform over the exponent means each
+        // doubling is half as likely per cell of material consumed, which
+        // is the heavy-tailed shape fragmentation actually has.
+        let target = 1usize << (1 + world.rng.below(5) as usize);
+        let fragment = take_fragment(&mut left, seed, target);
+        if fragment.len() >= MIN_BODY_CELLS {
+            promote(world, &fragment);
+        } else {
+            for &(fx, fy) in &fragment {
+                shatter_to_rubble(world, fx, fy);
+            }
+        }
+    }
+}
+
+/// Flood up to `target` connected cells out of `left`, removing them.
+fn take_fragment(left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize) -> Vec<(i32, i32)> {
+    let mut out = Vec::new();
+    let mut stack = vec![seed];
+    left.remove(&seed);
+    while let Some((x, y)) = stack.pop() {
+        out.push((x, y));
+        if out.len() >= target {
+            break;
+        }
+        for (dx, dy) in NEIGHBOURS_4 {
+            let next = (x + dx, y + dy);
+            if left.remove(&next) {
+                stack.push(next);
+            }
+        }
+    }
+    // Anything still stacked was claimed out of `left` but never reached
+    // before the size cap, so it has to go back or it is silently deleted --
+    // material that belonged to the region and ends up neither in a fragment
+    // nor in the pool for the next one. Caught by the conservation
+    // assertions, which is exactly what they are for.
+    for pending in stack {
+        left.insert(pending);
+    }
+    out
+}
+
+/// Lift `cells` out of the grid as one coherent falling body.
+fn promote(world: &mut World, cells: &[(i32, i32)]) {
+    let (ox, oy) = cells[0];
+    let body_cells: Vec<BodyCell> = cells
         .iter()
         .map(|&(cx, cy)| {
             let cell = world.get(cx, cy);
-            BodyCell { dx: cx - x, dy: cy - y, material: cell.material, shade: cell.shade }
+            BodyCell { dx: cx - ox, dy: cy - oy, material: cell.material, shade: cell.shade }
         })
         .collect();
-
-    // Lift the region out of the grid before anything else looks at it: the
-    // body owns these cells now, and leaving them behind would duplicate
-    // every one of them the moment it lands.
-    for &(cx, cy) in &region {
+    for &(cx, cy) in cells {
         world.set(cx, cy, Cell::EMPTY);
     }
-    // Whatever the region was holding up has just lost it. Same reactive
-    // hook painting and explosions already go through -- this is what makes
-    // one chunk breaking off able to bring more down after it.
-    for &(cx, cy) in &region {
+    for &(cx, cy) in cells {
         world.schedule_structural_check_around(cx, cy);
     }
+    world.chunk_bodies.push(ChunkBody { cells: body_cells, x: ox as f32, y: oy as f32, vx: 0.0, vy: 0.0, stalled: 0 });
+}
 
-    world.chunk_bodies.push(ChunkBody { cells, x: x as f32, y: y as f32, vx: 0.0, vy: 0.0, stalled: 0 });
-    true
+/// Convert one cell to its material's `breaks_into`, losing attachment —
+/// whatever comes free is no longer backed by the mass it broke out of.
+fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
+    let cell = world.get(x, y);
+    let Some(into) = world.materials.get(cell.material).breaks_into else {
+        return; // no configured debris: leave it rather than deleting content
+    };
+    let shades = world.materials.get(into).palette.len().max(1) as u32;
+    let shade = world.rng.below(shades) as u8;
+    let temp = cell.temperature();
+    world.set(x, y, Cell::new(into, shade).with_temperature(temp));
+    world.schedule_structural_check_around(x, y);
 }
 
 /// Flood the connected cells that are solid, unowned, and already past
@@ -615,7 +704,12 @@ fn displace(world: &mut World, body: &ChunkBody, x: i32, y: i32) -> bool {
 fn settle(world: &mut World, body: &ChunkBody) {
     for cell in &body.cells {
         let (x, y) = body.cell_position(cell);
-        let fresh = Cell::new(cell.material, cell.shade); // aux defaults to 0, deliberately -- see the doc above
+        // `Cell::new` starts unattached and with `aux` at 0, and both are
+        // deliberate. A body only exists because it broke out of something,
+        // so it is no longer backed by the mass it came from -- landing must
+        // not silently re-attach it, or a chunk that fell would become
+        // immovable terrain wherever it happened to stop.
+        let fresh = Cell::new(cell.material, cell.shade);
         if world.in_bounds(x, y) && world.is_empty(x, y) {
             world.set(x, y, fresh);
             continue;
@@ -870,19 +964,50 @@ mod tests {
         (0..64).map(|x| (0..64).filter(|&y| w.get(x, y).material == m).count()).sum()
     }
 
+    /// Every cell of the original structure, wherever it ended up: still in
+    /// the grid as stone, converted to rubble, or lifted into a body. What
+    /// fracture must conserve is *material*, not any one form of it.
+    fn total_debris(w: &World) -> usize {
+        let rubble = w.materials.get(material::STONE).breaks_into.expect("stone must define a breaks_into");
+        count_material(w, material::STONE) + count_material(w, rubble) + w.chunk_bodies.iter().map(|b| b.cells.len()).sum::<usize>()
+    }
+
     #[test]
     fn a_failing_region_is_promoted_and_leaves_the_grid() {
         let mut w = test_world();
         failing_slab(&mut w, 20, 20, 6, 3); // 18 cells, inside MIN..=MAX
         assert!(try_promote_failing_region(&mut w, 20, 20), "a slab this size should promote");
 
-        assert_eq!(w.chunk_bodies.len(), 1);
-        assert_eq!(w.chunk_bodies[0].cells.len(), 18);
         assert_eq!(
             count_material(&w, material::STONE),
             0,
-            "promoted cells must be lifted out of the grid, or landing duplicates every one of them"
+            "every cell of a fractured region must leave the grid, as a body or as rubble"
         );
+        assert_eq!(total_debris(&w), 18, "fracture conserved the wrong amount of material");
+        assert!(!w.chunk_bodies.is_empty(), "an 18-cell region should yield at least one body-sized fragment");
+    }
+
+    #[test]
+    fn fracture_produces_a_mix_of_chunks_and_rubble_not_one_outcome() {
+        // The reported complaint this exists for: "everything either
+        // disintegrates into powder or breaks off as a large piece; there
+        // needs to be more rubble when things break." Both halves have to be
+        // present in the *same* failure, and the sizes have to vary -- a
+        // single body, or a uniform dissolve, are the two things this must
+        // fail on.
+        let mut w = test_world();
+        failing_slab(&mut w, 10, 10, 20, 12); // 240 cells, plenty to break up
+        assert!(try_promote_failing_region(&mut w, 10, 10));
+
+        let rubble = w.materials.get(material::STONE).breaks_into.unwrap();
+        assert!(count_material(&w, rubble) > 0, "a fracture that produced no loose rubble at all is the all-or-nothing failure");
+        assert!(w.chunk_bodies.len() > 1, "a 240-cell region should break into several pieces, not one");
+        assert_eq!(total_debris(&w), 240, "fracture lost or duplicated material");
+
+        let sizes: Vec<usize> = w.chunk_bodies.iter().map(|b| b.cells.len()).collect();
+        let smallest = sizes.iter().min().unwrap();
+        let largest = sizes.iter().max().unwrap();
+        assert!(largest > smallest, "every fragment came out the same size, so the distribution is not doing anything: {sizes:?}");
     }
 
     #[test]
@@ -921,8 +1046,11 @@ mod tests {
             }
         }
         assert!(try_promote_failing_region(&mut w, 20, 20));
-        assert_eq!(w.chunk_bodies[0].cells.len(), 18, "the body swallowed cells that were not failing");
-        assert_eq!(count_material(&w, material::STONE), 42, "the supported cells should still be in the grid");
+        assert_eq!(
+            count_material(&w, material::STONE),
+            42,
+            "fracture reached past the failing region into cells that were still supported"
+        );
     }
 
     #[test]
@@ -935,15 +1063,26 @@ mod tests {
         assert!(try_promote_failing_region(&mut w, 20, 10));
         let start_y = w.chunk_bodies[0].y;
 
+        // The CA sweep runs too: fracture now emits loose rubble alongside
+        // bodies, and rubble is a `Powder` that only falls through the
+        // ordinary sweep. Stepping bodies alone left it hanging in mid-air
+        // at its original height, which is what this assertion caught.
         for _ in 0..200 {
             step_chunk_bodies(&mut w);
+            crate::sim::update::step(&mut w);
         }
 
-        assert!(w.chunk_bodies.is_empty(), "the body never settled");
-        assert_eq!(count_material(&w, material::STONE), 18, "every cell of the body should be back in the grid exactly once");
+        assert!(w.chunk_bodies.is_empty(), "the bodies never settled");
+        assert_eq!(total_debris(&w), 18, "material was lost or duplicated between fracture and landing");
         // It came to rest lower than it started, i.e. it actually fell
         // rather than settling where it was promoted.
-        let landed = (0..64).flat_map(|x| (0..64).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::STONE).map(|(_, y)| y).min().unwrap();
+        let rubble = w.materials.get(material::STONE).breaks_into.unwrap();
+        let landed = (0..64)
+            .flat_map(|x| (0..64).map(move |y| (x, y)))
+            .filter(|&(x, y)| matches!(w.get(x, y).material, m if m == material::STONE || m == rubble))
+            .map(|(_, y)| y)
+            .min()
+            .unwrap();
         assert!((landed as f32) > start_y, "the body settled at or above where it started ({landed} vs {start_y})");
     }
 
@@ -967,8 +1106,10 @@ mod tests {
         let span = w.materials.get(material::STONE).max_unsupported_span;
         for x in 0..64 {
             for y in 0..64 {
-                if w.get(x, y).material == material::STONE {
-                    assert!(w.get(x, y).aux() <= span, "a landed cell kept its pre-flight distance at ({x}, {y}), so it will re-break immediately");
+                let c = w.get(x, y);
+                if c.material == material::STONE {
+                    assert!(c.aux() <= span, "a landed cell kept its pre-flight distance at ({x}, {y}), so it will re-break immediately");
+                    assert!(!c.attached(), "landed debris must not re-attach to the background, or a fallen chunk becomes immovable terrain");
                 }
             }
         }
@@ -999,7 +1140,7 @@ mod tests {
         }
 
         assert_eq!(count_material(&w, material::SAND), sand_before, "the body deleted sand it passed through instead of displacing it");
-        assert_eq!(count_material(&w, material::STONE), 18, "the body itself lost cells");
+        assert_eq!(total_debris(&w), 18, "the body itself lost cells");
     }
 
     #[test]

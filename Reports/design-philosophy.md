@@ -16,6 +16,11 @@ yet, and you need to know which way to lean.
 
 **Settled with the owner — do not re-litigate:**
 
+- **Everything should feel satisfying. This is a core ethos, not a polish
+  pass.** A mechanic that is defensible in principle and dull in the hand has
+  failed. See §0a — it is listed first because it has already overturned
+  three separate models that were correct by their own tests.
+
 - A tuning constant becomes `.ron` data **immediately**, if a non-programmer
   might plausibly want to tweak it. Not everything needs to be data-driven —
   purely internal constants stay in Rust. See §2.
@@ -34,6 +39,53 @@ yet, and you need to know which way to lean.
   reason this document exists.
 
 ---
+
+## 0a. The ethos: satisfying is a requirement, not a finish
+
+Stated by the owner directly, and placed ahead of everything else here
+because it outranks the rest when they conflict: **making everything feel
+satisfying should be a core ethos.**
+
+It is distinct from §0's emergence thesis and from `CLAUDE.md`'s "looks good
+in motion." Emergence is about where behaviour *comes from*; looks-good is
+about *appearance*; this is about **response** — what it feels like to act on
+the world and have the world answer. A simulation can be emergent, look
+correct, pass its tests, and still be inert to play.
+
+The destruction work is the worked example, and it failed this bar three
+times in a row while passing everything else:
+
+- **Support inferred from geometry** (confinement, then thickness-scaling)
+  made bulk terrain stable, which is what it was asked to do — and silently
+  made everything the player built indestructible. Reported from play as "it
+  only really takes effect for pretty narrow stone lines."
+- **All-or-nothing breakage.** A failure produced one large coherent body or
+  a uniform dissolve to powder. Real fracture is a size *distribution*, and
+  the absence of the middle read as fake on sight.
+- **No verb.** Destruction could only be provoked by erasing support, which
+  applies no load and no impulse. There was no way to *hit* anything, so
+  nothing ever broke from being struck, and the falling pieces dropped
+  perfectly flat because nothing had imparted any rotation.
+
+The general lessons, stated so they transfer past this one subsystem:
+
+1. **Graded beats binary.** Where an outcome could be a spectrum, make it
+   one. Binary outcomes are the single most reliable source of "this feels
+   fake" in the feedback so far.
+2. **Every destructive event owes feedback** — debris, an impulse, a mark
+   left behind. `emergent-world-architecture.md` §5c already made this
+   argument for the *field*; this generalizes it to the player's senses.
+3. **A mechanic needs a verb.** If the only way to trigger something is an
+   editor operation, it is not yet a game mechanic, however correct the
+   simulation underneath is.
+4. **Only play settles it.** None of the three failures above was visible in
+   test output, and one of them was invisible in a rendered contact sheet
+   too — it took printing a counter to discover the feature had never once
+   fired. When judging feel, the artifact is the running game.
+
+This does not license authored outcomes: §2b's line still holds, and the fix
+for "unsatisfying" is a better *mechanism*, never a curve fitted to produce a
+specific result.
 
 ## 0. Where this comes from
 

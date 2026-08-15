@@ -10,44 +10,37 @@
 //! upgrades the "falls as loose material" part into coherent tumbling
 //! bodies later without this milestone needing to change.
 //!
-//! # Why confinement is an anchor
+//! # Why attachment is stated, not inferred
 //!
 //! Distance-to-bedrock alone is the wrong question to ask of *bulk*
-//! material, and no choice of `max_unsupported_span` fixes it. A cell
-//! buried 500 cells deep inside a mountain has a path length of 500 —
-//! vastly over any sane span — while being the most supported cell in the
-//! world. Read literally, that model condemns the interior of every
-//! mountain, which is exactly why terrain had to be exempted from checking
-//! altogether before this existed (see the next section).
+//! material. A cell buried 500 cells deep inside a mountain has a path
+//! length of 500 — vastly over any sane span — while being the most
+//! supported cell in the world. Read literally, that model condemns the
+//! interior of every mountain.
 //!
-//! The fix comes from what this world *is*. The play world is a 2D
-//! vertical **slice** through a 3D world (`Reports/worldgen-design.md`
-//! §0: "the world is 2D; the worldgen is 3D"). A real cave ceiling is held
-//! up largely by rock out of plane. Requiring every cell to trace an
-//! in-plane path to bedrock asks the slice to justify support it
-//! structurally has no way to observe — so a cell confined on every side
-//! the slice *can* see (`is_confined`, per-material
-//! `confinement_radius`) is treated as anchored outright. That is also
-//! honest rock mechanics rather than a convenience: confinement is what
-//! gives rock its strength, and failure initiates at free faces, not in
-//! confined interiors.
+//! The reason is that the play world is a 2D vertical **slice** through a
+//! 3D world (`Reports/worldgen-design.md` §0: "the world is 2D; the
+//! worldgen is 3D"). A cave ceiling is held up largely by rock out of
+//! plane, which the slice does not contain and cannot see.
 //!
-//! What falls out, from one local test:
+//! **Two attempts to infer that from geometry both failed, and the failure
+//! is worth recording because it is the same failure twice.** First "a
+//! sufficiently confined cell is an anchor", then "thickness scales how far
+//! a cell can span." Each was tuned until terrain stood, and each then
+//! turned out to have made everything the player built indestructible —
+//! reported from play as "it only really takes effect for pretty narrow
+//! stone lines." Weaken either one enough for built structures to break and
+//! it starts eating the mountain instead. There is no setting that
+//! separates them, because the difference is not a property of shape.
 //!
-//! - Bulk terrain is *genuinely* anchored rather than accidentally exempt,
-//!   which is what `Reports/worldgen-design.md` §6b ("the
-//!   structural-integrity landmine") asks for.
-//! - A thick cave ceiling stands at any width; a thin one collapses. The
-//!   confinement radius **is** the minimum stable thickness, which is §7's
-//!   open problem ("a noise-defined ceiling has no bounded thickness")
-//!   answered rather than worked around.
-//! - A thick, fully disconnected floating island is now permanently
-//!   stable. **This is deliberate**, not an oversight: in a 2D slice you
-//!   cannot prove it *isn't* supported out of plane, and terrain you can
-//!   trust is worth more than a collapse nobody asked for. The
-//!   count-to-infinity collapse described below still fires for genuinely
-//!   thin unsupported structures, which is where it was always doing the
-//!   real work.
+//! It is a property of what the material *is*, so it is now stated:
+//! `Cell::attached` marks material belonging to the background mass, and an
+//! attached cell is an anchor outright. Terrain says so about itself;
+//! anything standing in front of it has to earn its support through a real
+//! path. **Attachment is lost by destruction** — `break_free` and
+//! `rigid::try_promote_failing_region` both drop it — so breaking a piece
+//! out of a cliff is exactly the moment it stops being held, which is what
+//! makes mining produce debris that falls.
 //!
 //! # Why one step's cost depends on its direction
 //!
@@ -158,24 +151,25 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // Copied out rather than held as a `&Material` borrow, because
     // `break_free`/`world.set` below need `&mut World` and every one of
     // these is `Copy`.
-    let (span, breaks_into, confinement_radius, cost_below, cost_beside, cost_above) = {
+    let (span, breaks_into, cost_below, cost_beside, cost_above) = {
         let m = world.materials.get(cell.material);
         (
             m.max_unsupported_span,
             m.breaks_into,
-            m.confinement_radius,
             m.support_cost_below,
             m.support_cost_beside,
             m.support_cost_above,
         )
     };
 
-    // Two ways to be an anchor, not one. Touching bedrock is the original
-    // and still the literal case; being *confined* is the one that makes
-    // bulk terrain structurally valid rather than merely exempt from
-    // checking -- see the module doc's "Why confinement is an anchor".
-    let is_anchor = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK)
-        || is_confined(world, x, y, confinement_radius);
+    // Two ways to be an anchor. Touching bedrock is the literal case;
+    // being part of the background mass (`Cell::attached`) is the one that
+    // makes bulk terrain structurally valid rather than merely exempt from
+    // checking, and it is *stated* by whatever built the terrain rather
+    // than inferred from shape -- see `FLAG_ATTACHED` for why two attempts
+    // to infer it both failed.
+    let is_anchor = cell.attached()
+        || NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
 
     let new_distance: u16 = if is_anchor {
         0
@@ -373,6 +367,11 @@ fn break_free(world: &mut World, x: i32, y: i32, into: MaterialId) {
     let shades = world.materials.get(into).palette.len().max(1) as u32;
     let shade = world.rng.below(shades) as u8;
     let temp = world.get(x, y).temperature();
+    // Deliberately *not* carrying `attached` across: whatever comes free is
+    // no longer backed by the mass it broke out of. `Cell::new` starts
+    // unattached, so this is the transition rather than an omission -- see
+    // `FLAG_ATTACHED`, and note it is what turns digging into a cliff into
+    // debris that actually falls.
     world.set(x, y, Cell::new(into, shade).with_temperature(temp));
     world.add_pressure_impulse(x, y, COLLAPSE_IMPULSE_RADIUS, COLLAPSE_IMPULSE_STRENGTH);
 }
@@ -457,9 +456,8 @@ pub fn compute_world_distances(world: &mut World) {
             if !is_relaxable(world, cell) {
                 continue;
             }
-            let radius = world.materials.get(cell.material).confinement_radius;
-            let anchored = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK)
-                || is_confined(world, x, y, radius);
+            let anchored = cell.attached()
+                || NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
             let distance = if anchored { 0 } else { u16::MAX };
             world.set(x, y, cell.with_aux(distance));
             if anchored {
@@ -515,29 +513,6 @@ pub fn compute_world_distances(world: &mut World) {
 /// them to `organism_structural_tick` instead of relaxing them in place.
 fn is_relaxable(world: &World, cell: Cell) -> bool {
     is_body_material(world, cell.material) && cell.organism_id() == 0
-}
-
-/// Whether `(x, y)` is confined enough by surrounding `Solid` material to
-/// count as an anchor in its own right — every cell within Chebyshev
-/// `radius` being `Solid`, so the minimum self-supporting thickness is
-/// `2 * radius + 1`. See the module doc for why confinement stands in for
-/// out-of-plane support, and `MaterialDef::confinement_radius` for why 0
-/// means *disabled* rather than "radius zero".
-///
-/// Deliberately `Solid` only, not `is_body_material`'s `Solid | Plant`: a
-/// tree growing against a cliff face does not hold the cliff up. Bedrock
-/// and the out-of-bounds sentinel are both `Solid`, so world edges confine
-/// — the same single-check trick the bedrock anchor test already relies on.
-/// The cell itself is included in the scan, which is what keeps a `Plant`
-/// cell from ever self-confining regardless of what its species data says.
-fn is_confined(world: &World, x: i32, y: i32, radius: u16) -> bool {
-    if radius == 0 {
-        return false;
-    }
-    let r = radius as i32;
-    (-r..=r).all(|dy| {
-        (-r..=r).all(|dx| world.materials.kind(world.get(x + dx, y + dy).material) == MaterialKind::Solid)
-    })
 }
 
 /// Whether `material` participates in the structural system at all —
@@ -1043,28 +1018,41 @@ mod tests {
     }
 
     #[test]
-    fn a_blob_of_brushed_stone_does_not_crumble_in_mid_air() {
-        // The reported complaint, encoded directly: "when I use the stone
-        // brush it collapses into powder and falls to the ground." Goes
-        // through `paint_capsule` -- the real brush path, including its own
-        // `schedule_structural_check_around` call -- at `App`'s default
-        // `brush_radius` of 6, in open air well clear of every world edge so
-        // no edge sentinel can anchor it by accident.
+    fn brushed_stone_is_foreground_and_unattached_terrain_is_not() {
+        // The distinction the whole model now rests on, asserted directly
+        // rather than through its consequences: material the player places
+        // is foreground and has to earn its support, while terrain says of
+        // itself that it is backed by the mass behind the slice.
         //
-        // Before confinement this had no path to any anchor at all, so its
-        // distances climbed without bound (the count-to-infinity dynamic the
-        // module doc describes) until every cell passed its span. Now the
-        // core of a 13-cell-wide disc is confined, and confined rock is
-        // anchored rock.
+        // This replaces `a_blob_of_brushed_stone_does_not_crumble_in_mid_air`,
+        // whose claim was reversed on purpose. That test pinned a mid-air
+        // blob hanging there forever, which was the *symptom* of inferring
+        // support from geometry -- the same rule that made every built
+        // structure indestructible, reported from play. A rock painted in
+        // open air with nothing under it should come down.
         let mut w = test_world();
         w.paint_capsule((32, 32), (32, 32), 6, material::STONE, 1.0);
-        assert_eq!(w.get(32, 32).material, material::STONE, "test setup: the brush should have painted stone");
-        run(&mut w, 600);
+        assert!(!w.get(32, 32).attached(), "brushed stone must be foreground");
 
-        assert_eq!(w.get(32, 32).material, material::STONE, "a brushed stone blob crumbled in mid-air");
-        let debris = stone_debris(&w);
-        let crumbled = (0..64).any(|x| (0..64).any(|y| w.get(x, y).material == debris));
-        assert!(!crumbled, "no part of a brushed stone blob should have broken free");
+        w.set(10, 10, Cell::new(material::STONE, 0).with_attached(true));
+        let site = ActiveSite { x: 10, y: 10, kind: ActiveKind::StructuralCheck, next_frame: 0 };
+        tick(&mut w, &site);
+        assert_eq!(w.get(10, 10).material, material::STONE, "an attached cell must anchor outright, whatever its shape");
+        assert_eq!(w.get(10, 10).aux(), 0, "an attached cell is an anchor, so its distance is 0");
+    }
+
+    #[test]
+    fn an_unsupported_foreground_blob_does_not_hang_in_mid_air() {
+        // The reversal above, stated as behaviour. Known gap it does *not*
+        // cover: this only asserts the blob stops being intact stone, not
+        // that it comes apart into a satisfying mix of chunks and rubble.
+        // That is the fracture-distribution work -- "everything either
+        // disintegrates into powder or breaks off as a large piece; there
+        // needs to be more rubble" -- and it is not built yet.
+        let mut w = test_world();
+        w.paint_capsule((32, 25), (32, 25), 6, material::STONE, 1.0);
+        run(&mut w, 900);
+        assert_ne!(w.get(32, 25).material, material::STONE, "a foreground blob with nothing under it should not hang in mid-air");
     }
 
     // --- Organism-owned cells: the real `organism_structural_tick` -------

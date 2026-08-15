@@ -77,6 +77,34 @@ const FLAG_MANAGED: u8 = 0b0000_1000;
 /// than only on the powder path — harmless for the kinds that never read it.
 const FLAG_UNDERCUT: u8 = 0b0001_0000;
 
+/// Set on material that is part of the **background mass** — the rock the
+/// 2D slice is cut through, rather than something standing in front of it.
+///
+/// This is the engine's answer to a question geometry cannot answer. The
+/// play world is a vertical slice through a 3D world
+/// (`Reports/worldgen-design.md` §0), so a cave wall is held up largely by
+/// rock *out of plane* that the slice will never contain. Two earlier
+/// attempts tried to infer that from shape — first "a sufficiently confined
+/// cell is anchored", then "thickness scales how far a cell can span" — and
+/// both failed the same way: any rule strong enough to hold up a mountain
+/// also made everything the player built indestructible, and any rule weak
+/// enough to let built structures break also ate the mountain. It is not a
+/// property of shape. It is a property of what the material *is*.
+///
+/// So it is stated instead of guessed at. An attached cell is an anchor
+/// outright: it never falls, whatever its shape, because the mass behind it
+/// is holding it. Unattached material has to earn its support through a
+/// real path, which is what makes a built cantilever a genuine engineering
+/// problem.
+///
+/// **Attachment is lost, never gained, by destruction.** Break a piece out
+/// of a cliff and the part that comes free stops being backed by anything —
+/// `structural.rs` clears this as it detaches, and that transition is
+/// precisely what turns "I dug into a mountain" into falling chunks and
+/// rubble. Whether *placing* material can attach it is a separate question
+/// this flag does not decide.
+const FLAG_ATTACHED: u8 = 0b0010_0000;
+
 /// Default temperature for a newly created cell, in Celsius. Room temperature;
 /// chosen so cells created before the M13 ambient field exists still hold a
 /// believable value instead of 0 or an extreme.
@@ -236,6 +264,19 @@ impl Cell {
     #[inline]
     pub fn with_undercut(mut self, undercut: bool) -> Self {
         self.set_flag(FLAG_UNDERCUT, undercut);
+        self
+    }
+
+    /// See `FLAG_ATTACHED`'s own doc — whether this cell is part of the
+    /// background mass, and therefore anchored no matter its shape.
+    #[inline]
+    pub fn attached(self) -> bool {
+        self.flags & FLAG_ATTACHED != 0
+    }
+
+    #[inline]
+    pub fn with_attached(mut self, attached: bool) -> Self {
+        self.set_flag(FLAG_ATTACHED, attached);
         self
     }
 

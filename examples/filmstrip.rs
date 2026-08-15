@@ -67,8 +67,12 @@ fn water_at(x: i32, y: i32) -> Cell {
 
 fn stone_floor(w: &mut World) {
     for x in 0..WIDTH {
+        // Terrain, so it declares itself attached the way `build_terrain`
+        // does -- otherwise it is foreground material that has to hold
+        // itself up, and a floor that is only anchored at the world edges
+        // erodes inward from every free face.
         for y in (HEIGHT - FLOOR_THICKNESS)..HEIGHT {
-            w.set(x, y, Cell::new(material::STONE, 0));
+            w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
         }
     }
 }
@@ -221,11 +225,15 @@ fn build(scene: &str) -> World {
         // scene is for.
         "snap" => {
             stone_floor(&mut w);
+            // The pillar is a cliff: attached, so it anchors the shelf and
+            // does not crumble under its own weight.
             for y in 120..200 {
                 for x in 60..80 {
-                    w.set(x, y, Cell::new(material::STONE, 0));
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
                 }
             }
+            // The shelf is *not* attached -- it is the thing under test, and
+            // cutting it off its pillar should drop it.
             for y in 140..143 {
                 for x in 80..112 {
                     w.set(x, y, Cell::new(material::STONE, 0));
