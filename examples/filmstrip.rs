@@ -400,6 +400,26 @@ struct Args {
     /// an image says a shelf is still up, and only a number says whether it
     /// is up with 3% of its capacity used or 97%.
     probes: Vec<(i32, i32)>,
+    /// `repeat=N` -- run the whole scene N times and report the **minimum**
+    /// worst-frame with the spread beside it, rather than one sample.
+    ///
+    /// This machine is contended enough that a single sample is not a
+    /// measurement. Observed within one session: 18.0 ms twice running on
+    /// `scene=terrain`, which schedules zero structural checks and cannot
+    /// be doing the work that number would imply, and 40.5 / 55.6 ms on
+    /// scenes that measured 14-19 ms moments later. Three separate
+    /// near-misses where contention was almost read as a regression.
+    ///
+    /// The minimum is the right statistic, not the mean: contention can
+    /// only ever make a frame *slower*, so the fastest observed run is the
+    /// closest thing to the machine's actual cost. The spread is printed
+    /// beside it so a sample that is all noise is visible as such.
+    repeat: usize,
+    /// `min_overloaded=N` / `max_failures=N` -- exit non-zero unless the
+    /// run produced at least / at most that many structural failures. See
+    /// `check_expectations`.
+    min_overloaded: Option<u32>,
+    max_failures: Option<u32>,
     /// `loadmap=1` -- also report the single most-stressed cell in the
     /// world per tile. `CLAUDE.md`: sanity-check a new metric against a
     /// case you know is fine before trusting it about one you don't, and
@@ -424,6 +444,9 @@ fn parse() -> Args {
         explosions: Vec::new(),
         probes: Vec::new(),
         loadmap: false,
+        repeat: 1,
+        min_overloaded: None,
+        max_failures: None,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -447,6 +470,9 @@ fn parse() -> Args {
                     other => panic!("unknown grain {other:?}"),
                 }
             }
+            "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),
+            "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
+            "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
             "loadmap" => a.loadmap = v != "false",
             "load" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("load")).collect();
@@ -571,8 +597,74 @@ fn report_loads(world: &World, args: &Args) {
     }
 }
 
+/// Assert what the scene was supposed to do, and exit non-zero if it did
+/// not. Returns whether everything asked for held.
+///
+/// # Why the mechanism is asserted and not just the outcome
+///
+/// Because "it still stands" is true of a structure that is standing and
+/// equally true of one nothing ever looked at. That is not hypothetical:
+/// `scene=capped` was recorded as passing its acceptance case -- "the
+/// thick column still stands, worst stress 0.00" -- while the whole
+/// 15,840-cell structure was frozen, every cell still at `aux 0`, and not
+/// one of them had ever been load-evaluated. The assertion was true and
+/// meant nothing, which is `CLAUDE.md`'s vacuous-test failure arriving in
+/// the acceptance harness instead of the test suite.
+///
+/// So a scene that is supposed to collapse must show the *criterion
+/// firing* (`min_overloaded`), not merely that material moved; and a scene
+/// that is supposed to stand must show that nothing fired
+/// (`max_failures`), which is only meaningful once the same binary has
+/// demonstrated it can fire at all on the collapsing scenes.
+fn check_expectations(world: &World, args: &Args) -> bool {
+    let f = world.structural_failures;
+    let mut ok = true;
+    if let Some(min) = args.min_overloaded {
+        if f.overloaded < min {
+            println!("  FAIL: expected at least {min} overload failures, got {}", f.overloaded);
+            ok = false;
+        }
+    }
+    if let Some(max) = args.max_failures {
+        let total = f.overloaded + f.unsupported;
+        if total > max {
+            println!("  FAIL: expected at most {max} structural failures, got {total}");
+            ok = false;
+        }
+    }
+    if ok && (args.min_overloaded.is_some() || args.max_failures.is_some()) {
+        println!("  OK: scene={} met its expectations", args.scene);
+    }
+    ok
+}
+
 fn main() {
     let args = parse();
+    // Repeated runs are for the *timing* only -- the image and the
+    // expectations come from the last one, which is a full run like any
+    // other. Deliberately re-simulated from scratch rather than reusing a
+    // warm world, since a second pass over an already-settled scene
+    // measures nothing.
+    let mut samples: Vec<f64> = Vec::new();
+    for _ in 1..args.repeat {
+        samples.push(run_once(&args, false).0);
+    }
+    let (last_ms, world) = run_once(&args, true);
+    samples.push(last_ms);
+    if args.repeat > 1 {
+        let best = samples.iter().cloned().fold(f64::INFINITY, f64::min);
+        let worst = samples.iter().cloned().fold(0.0, f64::max);
+        println!("worst frame over {} runs: {best:.2} ms (spread {best:.2}-{worst:.2})", args.repeat);
+    }
+    if !check_expectations(&world, &args) {
+        std::process::exit(1);
+    }
+}
+
+/// One full run. Returns its worst frame in ms and the finished world.
+/// `render` is false for the extra timing samples, which do not need an
+/// image and should not pay for one.
+fn run_once(args: &Args, render: bool) -> (f64, World) {
     let mut world = build(&args.scene);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
@@ -646,7 +738,10 @@ fn main() {
         }
         drop(encoder);
         println!("animated gif ({tile_w}x{tile_h}, {} frames): {}", args.count, args.out);
-        return;
+        // The gif branch is for watching motion, not for measuring; it has
+        // no per-frame timing of its own and `repeat`/expectations do not
+        // apply to it.
+        return (0.0, world);
     }
 
     let mut captured = 0usize;
@@ -709,6 +804,10 @@ fn main() {
         // the zoom levels these sheets are usually read at, so "did this
         // actually promote to a body" is a question the picture cannot
         // answer on its own.
+        if !render {
+            captured += 1;
+            continue;
+        }
         println!(
             "  tile {captured}: frame {target}, awake {}/{}, sites {}, particles {}, bodies {} ({} cells)",
             world.active_chunk_count(),
@@ -729,12 +828,17 @@ fn main() {
             "    failures: overloaded {} ({} cells), unsupported {} ({} cells)",
             f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
         );
-        println!("    worst frame so far: {worst_ms:.2} ms (frame {worst_frame})");
-        report_loads(&world, &args);
+        if render {
+            println!("    worst frame so far: {worst_ms:.2} ms (frame {worst_frame})");
+            report_loads(&world, args);
+        }
         captured += 1;
     }
 
-    image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
-        .expect("writing the contact sheet");
-    println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
+    if render {
+        image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
+            .expect("writing the contact sheet");
+        println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
+    }
+    (worst_ms, world)
 }

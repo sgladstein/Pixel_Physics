@@ -28,6 +28,16 @@ jobs:
       - name: cargo run --example ascii
         run: cargo run --release --example ascii --locked
 
+      # The structural acceptance cases, run rather than remembered. Each
+      # asserts the *mechanism* as well as the outcome -- a scene that
+      # should collapse has to show the failure criterion firing, not just
+      # that material moved. That distinction is not academic: `capped` was
+      # recorded as passing its acceptance case ("the column still stands")
+      # for two commits while the whole structure was frozen and had never
+      # been evaluated at all. See scripts/acceptance.sh.
+      - name: structural acceptance cases
+        run: bash scripts/acceptance.sh
+
       # Informational only, not gating: the codebase predates rustfmt.toml
       # (added alongside this workflow) and has not yet had a full `cargo
       # fmt` pass run against it, which would be a large, separate change
