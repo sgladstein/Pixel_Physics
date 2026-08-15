@@ -3854,28 +3854,55 @@ deposit**, and the mechanism whose whole purpose is letting later growth
 reclaim space near mature wood could never release it. As `f32` it now reaches
 zero.
 
-**Trees are visibly worse than baseline right now, and the cause is not
-established.** Paired 24-tree ensembles: biomass flat (5872–5881 → 5806), but
-trees are thinner (rows wider than one cell, 42% → 35%) and shorter (median
-height 40 → 30). The shape metric read 42 on four consecutive baseline runs, so
-that is a real shift, not noise. Four candidate causes were A/B'd on the
-migrated code and **all four were ruled out** — every variant lands at 35–36:
+**`rows >1 cell wide` mostly measures the basal pancake. Do not tune against
+it.** This is the metric trap `CLAUDE.md` warns about — ask what a metric counts
+when nothing is wrong — found the expensive way, after eight A/B runs chasing a
+"regression" in it.
+
+Paired 24-tree ensembles across the migration:
+
+| | baseline | after 2c |
+|---|---|---|
+| total organism cells | 5872–5881 | 5806 |
+| rows >1 cell wide, mean | 42% | 35% |
+| **thickest contiguous run on one row** | **61** | **121** |
+| **stem thickness above the base**, mean | **11.8** | **13.3** |
+| stem thickness above the base, median | 5 | 4 |
+
+The headline metric dropped 42 → 35, which reads as "trees got thinner". They
+did not: *above the base*, where the trunk actually is, they are slightly
+**thicker** on the mean. The entire gap sits in the basal region, where
+`thicken()` spreads sideways along open ground — the pancake this file already
+lists as known-open. The migration widened the outcome distribution: more pure
+whips *and* a bigger maximum slab (121 cells vs 61), at flat mean biomass.
+
+**Lowering `pipe_ratio` "fixes" the metric by making the pancake worse.**
+Measured: 10.0 → 6.0 takes the metric from 35% to 43%, matching baseline — and
+takes biomass from 5,806 to 13,795 and draws a slab spreading the full width of
+the ground. Reverted; `pipe_ratio` stays 10.0. **The real fix is the `thicken()`
+change already on the books** (grow around the stem rather than left/right, and
+stop `width` reading 1 on a diagonal stem), not a tuning knob.
+
+**Eight candidate causes for the 42 → 35 shift were A/B'd; all were ruled out**
+— every variant lands at 35–37 and none reaches 42:
 
 | variant | rows >1 cell wide, mean |
 |---|---|
-| baseline (4 runs) | 42 |
+| baseline (4 runs, stable) | 42 |
 | migrated, as shipped | 35 |
 | + canopy density re-quantized | 36 |
 | + resource re-quantized | 36 |
 | + transport per-frame at 1 substep | 36 |
+| + transport gated on chunk-awake (old duty cycle) | 35 |
+| + iteration order reversed | 35 |
+| + scalar writes dirty the chunk again | 35 |
+| + Gauss-Seidel instead of Jacobi | 37 |
+| + Gauss-Seidel and both quantizations | 35 |
 
-So the cause is common to every variant. **The leading untested hypothesis is
-the duty-cycle change**: on the CA sweep, transport stopped dead once a tree's
-chunk slept; it now runs forever. That is exactly what this entry demanded as
-Decision 2's gate, so if it is the cause the answer is to re-tune against it,
-not undo it. **This is the first thing the economy pass should nail down** — it
-is a tuning question, not a missing mechanism, and §10 forbids `.ron` edits
-here so the pass tunes once.
+Not cumulative — the combination is *worse* than Gauss-Seidel alone, so these
+interact rather than adding. Given the metric turned out to be pancake-dominated,
+the shift is no longer worth chasing as a defect; **judge the next pass on stem
+thickness above the base and on the picture, not on this number.**
 
 **A metric caveat worth carrying into that pass:** `plant_probe` plants its
 seeds *on the ground*, so its trees never fall. It therefore reported a healthy

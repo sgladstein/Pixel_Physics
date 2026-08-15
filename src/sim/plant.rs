@@ -170,30 +170,22 @@ fn candidate_crowding(world: &World, x: i32, y: i32, organism_id: u16) -> f32 {
 /// statistic and the 42 → 35 shift is real rather than noise.
 ///
 /// **What causes that shift is NOT established, and specifically it is not
-/// this constant.** The obvious story — the floor was a permanent baseline
-/// crowding signal pushing growth outward, so losing it makes trees
-/// thinner — is wrong, and was checked rather than assumed. Replaying the
-/// old 4-bit quantization on the migrated code moves the shape metric from
-/// 35 to **36**, about one point of a seven-point change:
+/// this constant** — replaying the old 4-bit quantization on the migrated
+/// code moves the metric 35 → 36, one point of seven. Eight candidates were
+/// A/B'd and all were ruled out; the table is in `PLAN.md` rather than
+/// duplicated here.
 ///
-/// | variant | rows >1 cell wide, mean |
-/// |---|---|
-/// | baseline (4 runs) | 42 |
-/// | migrated, as shipped | 35 |
-/// | migrated + canopy density re-quantized | 36 |
-/// | migrated + resource re-quantized | 36 |
-/// | migrated + transport per-frame at 1 substep | 36 |
+/// **And the shift is largely not real.** `rows >1 cell wide` is dominated
+/// by the basal pancake `thicken()` produces, not by trunk thickness:
+/// measured *above the base*, mean stem thickness went 11.8 → **13.3**,
+/// i.e. slightly thicker, while the thickest single row went 61 → 121.
+/// The metric fell because the distribution widened, not because trunks
+/// thinned. Lowering `pipe_ratio` from 10.0 to 6.0 restores the metric to
+/// 43% and simultaneously takes biomass from 5,806 to 13,795 by drawing a
+/// slab across the whole ground — tuning the artifact, not the tree.
 ///
-/// Every variant lands at 35–36, so the cause is something common to all of
-/// them and none of the four is it. **The leading untested hypothesis is
-/// the duty-cycle change**: dispatched from the CA sweep, transport stopped
-/// entirely once a tree's chunk went to sleep, and it now runs forever. That
-/// is the very thing `PLAN.md` asked for as Decision 2's gate, so if it is
-/// the cause the answer is to re-tune against it, not to undo it.
-///
-/// Recorded here rather than fixed because `Reports/plant-substrate-v2-
-/// design.md` §10 forbids `.ron` edits at this step so the economy pass
-/// tunes once, against the final transport mechanism.
+/// So this constant is left alone, and so is `pipe_ratio`. The real fix is
+/// the `thicken()` change `PLAN.md` already lists as known-open.
 ///
 /// **This is `CLAUDE.md`'s "fixing a bug often exposes a constant that was
 /// compensating for it", and the constants are deliberately not re-tuned
