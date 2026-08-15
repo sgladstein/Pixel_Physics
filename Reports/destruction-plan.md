@@ -263,6 +263,78 @@ made things better.
 
 ---
 
+## Phase F - Improve the testing environment
+
+Requested by the owner, and by the time it was requested this document
+had already accumulated the evidence for it three times over. Every item
+below is a real cost already paid, not a hypothetical.
+
+**F1. Timings on this machine are not trustworthy, and nothing says so at
+the point of use.** Contention has produced 18.0 ms twice in a row on
+`scene=terrain` - a scene with **zero** pending sites and zero awake
+chunks, which cannot be doing structural work at all - and 40.5 ms and
+55.6 ms on scenes that measured 14-19 ms moments later. Three separate
+near-misses where a phantom regression was almost chased. `filmstrip`
+should run each measurement a few times and report the **minimum** with
+the spread beside it, so a noisy sample is visible as noise rather than
+read as a result.
+
+**F2. The acceptance cases are run by hand and can pass vacuously.** The
+five cases in `load-model-handoff.md` section 7 are checked by rendering a
+contact sheet and looking, which is right and must stay - but nothing
+*runs* them. That is how `scene=capped` came to be reported as passing
+while the entire 15,840-cell structure was frozen and had never been
+evaluated: the assertion "it still stands" was true and meant nothing. An
+acceptance harness should assert, per scene, both the outcome **and** that
+the mechanism fired - `failures: overloaded N` is already printed, and a
+scene that passes with `N == 0` when it should collapse is exactly the
+vacuous case.
+
+**F3. There is no way to replay what the owner saw.** Playtest reports
+arrive as prose and screenshots, and every one so far has had to be
+reconstructed into a `filmstrip` scene by hand - sometimes wrongly, and
+"resolve an ambiguous complaint before building anything" is already a
+`CLAUDE.md` rule paid for in a wasted detour. A record/replay of input
+against a seed, or simply a "dump the current world to a scene file" key,
+would turn a report into a reproduction.
+
+**F4. `cargo test` takes ~90 seconds and the release filmstrip build
+dominates the edit loop.** Not urgent, but it is the reason measurement
+gets batched, and batching measurement is how a regression gets attributed
+to the wrong change.
+
+**F5. Nothing guards the frame budget.** `examples/ascii.rs` reports
+worst-frame and CI runs it, but no test fails when a scene regresses from
+4 ms to 40 ms. Given F1, that guard has to be built on the minimum of
+several runs or it will be permanently flaky - which is probably why it
+does not exist yet, and is not a reason to keep going without it.
+
+---
+
+## Pending owner verification
+
+Things that are built, tested, and **not yet judged by the person whose
+judgement decides them**. Recorded because `CLAUDE.md` is emphatic that
+tests passing is not evidence the screen changed, and three models have
+already shipped that passed everything and were rejected on sight.
+
+- **Does the build envelope feel right?** C1 keys a structure into terrain
+  at the joint. Verified: it applies at the joint and does not chain.
+  *Unverified:* whether what you can now build is satisfying, which is a
+  taste question and cannot be settled from here.
+- **Does destruction feel eager enough now?** B1/B2 removed three immunity
+  hatches. The counters say the criterion fires; nothing says it feels
+  good.
+- **Is the collapse *timing* right?** The per-frame load budget paces
+  cascades deliberately, and `scene=ligament` resolves over ~350 frames.
+  Progressive was the design intent; sluggish is the risk.
+- **Does the landing impulse read?** D2 added one; it moves smoke and
+  grit, and whether that registers has to be seen in motion.
+- **A2's key binding** for the stress overlay, and whether it should be a
+  `GrainMode`-style render selector or a separate toggle.
+
+---
+
 ## What we are explicitly not doing
 
 - **A real stiffness solver, at any point on the roadmap.** Category
@@ -291,10 +363,11 @@ unsaid.
 ## Order of work
 
 ```
-A1 A3 A4   legibility + the neck reading as the neck   (small)
-B1 B2 B3   turn the model on for built structures      (small, high fallout)
-D2         landing feedback                            (tiny)
-C1         keying from the support parent              (small)
+A1 A3 A4   legibility + the neck reading as the neck   DONE
+B1 B2 B3   turn the model on for built structures      DONE
+D2         landing feedback                            DONE
+C1         keying from the support parent              DONE
+F1 F2      trustworthy timings, acceptance harness     (small, next)
 D1         fail the section, not the cell              (medium, highest value)
 A2         stress overlay                              (small)
 C3 C4      locality, and bound the background brush    (small)
@@ -303,5 +376,11 @@ E1         push damage from the break                  (large, subsumes work)
 ```
 
 `D2` is placed early only because it is nearly free and improves every
-subsequent playtest. `D1` is the highest-value item and sits after `B`
-because judging it needs the model actually running.
+subsequent playtest.
+
+`F1` and `F2` move ahead of `D1` deliberately. `D1` is the highest-value
+*behaviour* change left, and it is precisely the kind whose effect has to
+be judged by measurement and by eye - which is the thing currently least
+trustworthy. Fixing the instrument before taking the reading is cheaper
+than doubting the reading afterwards, and this document now has three
+worked examples of the alternative.

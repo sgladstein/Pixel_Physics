@@ -757,11 +757,37 @@ pub fn capacity(world: &World, x: i32, y: i32) -> i64 {
         return i64::MAX; // this material does not participate in the structural system at all
     }
     let base = (m.max_unsupported_span as i64).pow(2) / 2;
-    let section = section(world, x, y, support_parent(world, x, y));
+    let parent = support_parent(world, x, y);
+    let section = section(world, x, y, parent);
     // Attachment buys *capacity*, never immunity. Anchoring on it made an
     // undercut shelf unfallable however much was dug from beneath it --
     // model 3 of the four this replaces.
-    let attachment = if cell.attached() { m.attached_span_bonus as i64 } else { 1 };
+    //
+    // # Keying: the bonus belongs to the *joint*, not to the cell
+    //
+    // Reported from play: "we should be able to attach foreground objects
+    // to background objects." The load path already crosses that interface
+    // -- a beam built against a cliff takes its support from the cliff
+    // like anything else -- but the *capacity* at the joint did not, so
+    // the first foreground cell was as weak as if it were floating, and
+    // built structures tore off exactly where they met the terrain.
+    //
+    // So a cell is keyed when the neighbour actually holding it up is
+    // background, whether or not it is itself. **This cannot chain**, and
+    // that is the whole reason it is safe: the bonus is a property of an
+    // *edge*, so painting A against a cliff does not turn A into a source
+    // of it for B. The obvious alternative -- "adjacent to attached
+    // becomes attached" -- spreads without limit, and since the floor is
+    // attached, everything built on the ground would inherit it. That is
+    // how all four earlier support models made player structures
+    // indestructible.
+    //
+    // The "but the floor is attached" objection resolves here in the right
+    // direction rather than being dodged: a tower's *base* is keyed to the
+    // ground, and nothing above it is. Foundations are exactly where a
+    // keyed joint belongs.
+    let keyed = cell.attached() || parent.is_some_and(|(px, py)| world.get(px, py).attached());
+    let attachment = if keyed { m.attached_span_bonus as i64 } else { 1 };
     let capacity = base.saturating_mul(section.pow(2)).saturating_mul(attachment).saturating_mul(uncracked_faces(world, x, y)) / CRACK_FACES;
     // A cell whose support is a pile of loose grains is *held*, but it is
     // not braced: sand resists compression and essentially no bending. So
@@ -1131,6 +1157,41 @@ mod tests {
         }
         let cut = evaluate(&w, 8, 33).expect("still evaluable once fully cut");
         assert!(!cut.supported, "a fracture carried all the way through must actually detach the piece");
+    }
+
+    #[test]
+    fn a_beam_keyed_into_terrain_is_stronger_at_the_joint_and_only_there() {
+        // The owner's ask -- "we should be able to attach foreground
+        // objects to background objects" -- answered as a property of the
+        // *joint* rather than of the cell. Both halves are asserted,
+        // because the half that matters for safety is the second: if the
+        // bonus chained, everything a player builds would inherit it from
+        // the ground up, which is how all four earlier support models made
+        // built structures indestructible.
+        let mut w = test_world();
+        for y in 28..40 {
+            for x in 0..10 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // Foreground beam reaching out of the cliff face.
+        for x in 10..30 {
+            w.set(x, 33, Cell::new(material::STONE, 0));
+        }
+        structural::compute_world_distances(&mut w);
+
+        assert!(!w.get(10, 33).attached(), "test setup: the beam must be foreground");
+        assert_eq!(support_parent(&w, 10, 33), Some((9, 33)), "test setup: the root's support should come from the cliff");
+
+        let root = capacity(&w, 10, 33);
+        let next = capacity(&w, 11, 33);
+        let bonus = w.materials.get(material::STONE).attached_span_bonus as i64;
+        assert!(bonus > 1, "test setup: stone needs a real attachment bonus for this to mean anything");
+        assert_eq!(root, next * bonus, "the cell keyed into the cliff should carry the full attachment bonus");
+
+        // And it stops there. One cell further out takes its support from
+        // foreground stone, so there is no joint and no bonus.
+        assert_eq!(capacity(&w, 12, 33), next, "the bonus chained outward, which would make everything built indestructible");
     }
 
     #[test]
