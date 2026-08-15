@@ -3900,6 +3900,67 @@ seedling's foliage faster than it could be replaced, starving the plant
 building it. The visible symptom (a slab) was two steps removed from the
 damage (seedlings quietly failing).
 
+### Bud break — built, measured, and **reverted**. Read this before rebuilding it.
+
+`Reports/plant-substrate-v2-design.md` §2e specifies `BudBreak {
+resource_threshold, crowding_threshold, chance }` on `MatureBody`, argues
+it is "self-limiting without a cap", and calls it the only thing that can
+lift the size ceiling. It was implemented as written, wired into
+`tree.ron`, measured, and taken back out. **Three of its claims are false in
+this engine, each falsified by measurement rather than argument.**
+
+**The ceiling is real.** Without budding, a 24-tree ensemble reaches 0
+active sites by frame 16,000 and is flat from there (4,682 → 7,265 →
+7,466 → 7,484 at 4k/8k/16k/24k). So §2e's diagnosis is right even though
+its mechanism is not.
+
+**1. "Surplus resource" carries no information.** The premise is that a
+mature cell holding surplus has nothing downstream consuming what it is
+fed. It does not: carbon fills *every* cell to `RESOURCE_SCALE` exactly
+(that is what `transport`'s headroom clamp guarantees), so once a tree
+stops growing every mature cell is at the cap simultaneously. Raising
+`resource_threshold` from 0.75 to **0.99** — a near-impossible surplus —
+moved the ensemble from 17,181 to 17,365 cells. It is not a gate.
+
+**2. "Self-limiting without a cap" is false.** Local crowding closes for
+about two ticks (`GROW_CANOPY_DEPOSIT` 1.5, halved every tick), and
+conductance is no better: with growth stopped there is no flux anywhere,
+so every face decays to basal together. **When a tree stops growing, every
+local signal equalizes at once**, so any purely local "am I idle" test
+fires on every mature cell simultaneously. A per-cell chance then makes
+budding proportional to *volume* — every new cell is another bud site —
+and the tree fills in as a solid mass. The time series is unambiguous:
+recognisable tree to frame 2,000, then a mound expanding from the base
+with leaves buried inside it.
+
+**3. A rate cap is not enough, and neither is allometry.** Moving the roll
+to one per organism per tick converts exponential growth into linear
+growth, and linear growth still fills the world — the canopy went lumpy at
+frame 12,500 instead of 3,000. Adding the shoot-side allometry bound this
+file asks for (`MAX_SHOOT_FRACTION`, the mirror of `MAX_ROOT_FRACTION`)
+does **not** fix it either, and the reason generalises: **a ratio bound
+does not bound size.** Roots and shoot can both grow without limit while
+staying in band. Measured with budding off, the shoot bound cost ~13%
+biomass (7,484 → 6,529 at frame 24,000) and changed nothing about
+saturation, so it is a tax with no benefit unless something else is
+producing frontier. Both reverted.
+
+**What is *not* the problem: self-shading.** It works — `field.rs` blocks
+light on `MaterialKind::Plant`, so a buried cell really is dark. The canopy
+grows at its *lit surface*, which is correct; the slab is the mass filling
+in behind that surface.
+
+**What a future attempt needs.** Not a better threshold — a real bound on
+absolute size, which this engine currently has nowhere. Two candidates
+neither of which was tried: making growth cost rise with distance from the
+roots (a hydraulic limit, which is what actually bounds real trees), or
+triggering budding on **disturbance** rather than idleness, which is both
+the cited biology (`research/m16-plant-biology.md` §5's fire-resprouting)
+and self-limiting by construction. The second is also the more satisfying
+one in the hand — cut a limb and the tree resprouts near the wound — and
+it needs no size bound at all, because the trigger is an event rather than
+a state.
+
 **Do not tune against `rows >1 cell wide`.** It is dominated by the basal
 slab; eight A/B runs were spent chasing a "regression" in it that turned
 out to be the metric, not the trees. Judge on **stem thickness above the
