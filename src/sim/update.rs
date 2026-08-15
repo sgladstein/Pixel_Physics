@@ -328,8 +328,26 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
             continue;
         }
         let (wetter, drier) = if moisture > there { (moisture, there) } else { (there, moisture) };
-        let wetness = wetter as f32 / capacity.max(1) as f32;
-        let moved = (((wetter - drier) as f32) * SOIL_CAPILLARY_RATE * wetness) as u16;
+        // Wetness is a *fraction of the wetter cell's own* capacity, and
+        // the room available is the *receiver's*. Both used to read this
+        // cell's `capacity` regardless of which side was which, so a
+        // neighbour with a smaller capacity could be pushed above its own
+        // limit and a wetter neighbour's fraction was computed against the
+        // wrong denominator.
+        //
+        // **Latent, not live** -- `water_capacity` is opt-in and `soil` is
+        // the only material that has it, so every exchange today is
+        // soil-to-soil with equal capacities and both readings agree. It
+        // goes live the moment a second water-holding powder exists, which
+        // is exactly what widening `water_capacity` to sand would do (see
+        // `Material::water_capacity`'s own note on that being flagged
+        // rather than done). Fixed now because the cost is two lines and
+        // the failure would be a silent over-fill. Found by independent
+        // review.
+        let wetter_capacity = if moisture > there { capacity } else { n_capacity };
+        let wetness = wetter as f32 / wetter_capacity.max(1) as f32;
+        let room = if moisture > there { n_capacity.saturating_sub(there) } else { capacity.saturating_sub(moisture) };
+        let moved = ((((wetter - drier) as f32) * SOIL_CAPILLARY_RATE * wetness) as u16).min(room);
         if moved == 0 {
             continue;
         }
@@ -1234,6 +1252,66 @@ fn try_move<S: CellSurface>(surface: &mut S, x: i32, y: i32, tx: i32, ty: i32) -
 
 #[cfg(test)]
 mod tests {
+
+    /// Capillary flow must respect the *receiver's* capacity, not the
+    /// sender's.
+    ///
+    /// Needs two water-holding powders with different capacities to be
+    /// observable at all: with equal capacities the drier cell is by
+    /// definition below its own limit, so the clamp can never bind and the
+    /// bug is invisible. `soil` is the only such material shipped, so this
+    /// writes a second one (`tightsoil`, a third of soil's capacity) into a
+    /// temp directory and loads it additively -- the same trick
+    /// `examples/debug_tree_variants.rs` uses for species.
+    #[test]
+    fn capillary_flow_never_pushes_a_neighbour_past_its_own_capacity() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let dir = std::env::temp_dir().join("pixel_physics_capillary_capacity_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("tightsoil.ron"),
+            format!(
+                r#"(
+    name: "tightsoil",
+    display: "Tight soil",
+    kind: Powder,
+    density: 1.5,
+    friction_angle: 40.0,
+    colors: [(90, 70, 50)],
+    water_capacity: {},
+    penetration_resistance: 0.8,
+)
+"#,
+                material::SOIL_SATURATED / 3
+            ),
+        )
+        .unwrap();
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        w.materials.reload(&dir).expect("tightsoil should parse");
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let tight = w.materials.id_of("tightsoil").expect("just loaded");
+        let tight_capacity = w.materials.get(tight).water_capacity;
+
+        // A saturated ordinary soil cell beside a nearly-full tight one, so
+        // the exchange runs from soil into a neighbour with much less room.
+        w.set(10, 10, Cell::new(soil, 0).with_aux(material::SOIL_SATURATED));
+        w.set(11, 10, Cell::new(tight, 0).with_aux(tight_capacity - 1));
+
+        for _ in 0..200 {
+            update_soil_water(&mut w, 10, 10);
+            update_soil_water(&mut w, 11, 10);
+        }
+
+        let held = soil_moisture(w.get(11, 10));
+        assert!(
+            held <= tight_capacity,
+            "a neighbour must never be filled past its own water_capacity: {held} > {tight_capacity}"
+        );
+    }
+
     use super::*;
 
     fn world_with_floor() -> World {
