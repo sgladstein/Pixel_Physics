@@ -348,8 +348,9 @@ pub struct MaterialDef {
     /// compute_world_distances` relaxes it at generation — so this value is
     /// live against generated terrain rather than only against what a
     /// player builds. It no longer has to carry the whole model on its own,
-    /// though: `confinement_radius` handles bulk material, leaving this to
-    /// mean specifically "how far an unconfined cantilever reaches."
+    /// though: `attached_span_bonus` carries the background mass, leaving
+    /// this to mean specifically "how far loose foreground material
+    /// reaches."
     #[serde(default = "default_never_u16")]
     pub max_unsupported_span: u16,
     /// What an unsupported cell becomes once it breaks free, or empty to
@@ -360,27 +361,32 @@ pub struct MaterialDef {
     #[serde(default)]
     pub breaks_into: String,
 
-    /// How thick this material has to be before it holds *itself* up.
+    /// How much further this material spans when it is part of the
+    /// background mass (`Cell::attached`) rather than standing in front of
+    /// it: `effective_span = max_unsupported_span * this` for attached
+    /// cells, and the plain span for everything else.
     ///
-    /// A cell every one of whose neighbours within this Chebyshev radius is
-    /// `Solid` counts as an anchor outright, exactly as if it touched
-    /// bedrock — so the minimum self-supporting thickness is `2 * r + 1`
-    /// cells. `structural.rs`'s module doc carries the reasoning; the short
-    /// version is that the play world is a 2D *slice* through a 3D world
-    /// (`Reports/worldgen-design.md` §0), so rock confined on every visible
-    /// side is being held up by material out of plane that the slice
-    /// cannot see. Requiring it to trace an in-plane path to bedrock asks
-    /// the slice to justify support it structurally has no way to observe,
-    /// which is why bulk terrain had to be exempted from checking at all
-    /// before this existed.
+    /// The play world is a 2D slice through a 3D world
+    /// (`Reports/worldgen-design.md` §0), so rock belonging to the massif is
+    /// braced by material the slice does not contain. That is worth a large
+    /// multiplier — but **not immunity**, which is the distinction this
+    /// field exists to hold. Attachment used to anchor a cell outright, and
+    /// an undercut shelf could then never fall however much was dug out from
+    /// beneath it, because its interior was still "attached" and therefore
+    /// still held. Reported from play as "nothing breaks off, everything
+    /// still dissolves".
     ///
-    /// **0 means disabled**, not "radius zero" — a literal radius-0
-    /// neighbourhood is just the cell itself, which every `Solid` cell
-    /// trivially satisfies, and would make every cell in the world an
-    /// anchor. Left unset, a material never self-supports and behaves
-    /// exactly as it did before this field existed.
-    #[serde(default)]
-    pub confinement_radius: u16,
+    /// Keyed on attachment rather than on shape, which is what keeps it
+    /// safe: two earlier attempts to buy the same strength from geometry
+    /// (confinement, then thickness) also made everything the *player* built
+    /// unbreakable, because geometry cannot tell a mountain from a wall
+    /// someone stacked. Attachment can — nothing the player places is ever
+    /// attached.
+    ///
+    /// 1 (the default) means attachment buys no extra reach at all.
+    #[serde(default = "default_attached_span_bonus")]
+    pub attached_span_bonus: u16,
+
 
     /// What one step of `max_unsupported_span` costs, per direction the
     /// support comes *from*: standing on the cell below, leaning on the one
@@ -414,6 +420,12 @@ fn default_min_transfer() -> u16 {
 /// charged before `support_cost_*` split it three ways, so a `.ron` that
 /// sets none of them relaxes exactly as it always did.
 fn default_support_cost() -> u16 {
+    1
+}
+
+/// 1 — attachment buys no extra span unless a material asks for it, so a
+/// `.ron` that says nothing behaves exactly as it did before this existed.
+fn default_attached_span_bonus() -> u16 {
     1
 }
 
@@ -519,8 +531,8 @@ pub struct Material {
     pub melting_point: f32,
     pub boiling_point: f32,
     pub max_unsupported_span: u16,
-    /// See `MaterialDef::confinement_radius`. 0 means disabled.
-    pub confinement_radius: u16,
+    /// See `MaterialDef::attached_span_bonus`. Always >= 1.
+    pub attached_span_bonus: u16,
     /// See `MaterialDef::support_cost_below` and its siblings.
     pub support_cost_below: u16,
     pub support_cost_beside: u16,
@@ -755,7 +767,10 @@ impl From<MaterialDef> for Material {
             melting_point: def.melting_point,
             boiling_point: def.boiling_point,
             max_unsupported_span: def.max_unsupported_span,
-            confinement_radius: def.confinement_radius,
+            // Floored at 1: 0 would silently make attached rock *weaker*
+            // than loose material, which is never what a content author
+            // means by leaving a field small.
+            attached_span_bonus: def.attached_span_bonus.max(1),
             // Clamped to at least 1 so a lateral or upward step always costs
             // *something*. All three at 0 would let a distance propagate
             // arbitrarily far without ever growing, silently disabling
@@ -876,7 +891,7 @@ impl MaterialRegistry {
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
             breaks_into: String::new(),
-            confinement_radius: 0,
+            attached_span_bonus: 1,
             support_cost_below: 1,
             support_cost_beside: 1,
             support_cost_above: 1,
@@ -906,12 +921,10 @@ impl MaterialRegistry {
             reactions: Vec::new(),
             // Bedrock is the anchor itself — it must never be the thing
             // that breaks free, so this stays unset regardless of what any
-            // other material's span is. `confinement_radius` is moot for the
-            // same reason (it only ever *adds* anchors, and bedrock already
-            // is one), so it stays disabled rather than pretending to matter.
+            // other material's span is.
             max_unsupported_span: u16::MAX,
             breaks_into: String::new(),
-            confinement_radius: 0,
+            attached_span_bonus: 1,
             support_cost_below: 1,
             support_cost_beside: 1,
             support_cost_above: 1,

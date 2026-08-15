@@ -178,7 +178,6 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
         // is a save-breaking error rather than a cosmetic one.
         if m.kind == MaterialKind::Solid && m.max_unsupported_span != u16::MAX {
             out.push(Tunable::integer(phys, &category, "max_unsupported_span", m.max_unsupported_span as f32, 0.0, 64.0, 1.0));
-            out.push(Tunable::integer(phys, &category, "confinement_radius", m.confinement_radius as f32, 0.0, 8.0, 1.0));
             out.push(Tunable::integer(phys, &category, "support_cost_below", m.support_cost_below as f32, 0.0, 8.0, 1.0));
             // Floored at 1, matching `Material::from`'s own clamp: all three
             // at 0 would let a distance propagate forever without growing,

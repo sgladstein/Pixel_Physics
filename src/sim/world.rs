@@ -1255,6 +1255,14 @@ impl World {
                 if placed_structural || erased_structural {
                     self.schedule_structural_check_around(x, y);
                 }
+                // Cutting rock costs its neighbours their backing, which is
+                // what lets mining produce anything at all -- see
+                // `structural::detach_exposed_neighbours`. Erasing only:
+                // *placing* material must not strip the attachment of the
+                // terrain it was placed against.
+                if erased_structural {
+                    super::structural::detach_exposed_neighbours(self, x, y);
+                }
             }
         }
     }

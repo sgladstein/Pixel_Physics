@@ -390,6 +390,14 @@ impl Blast {
                 // just dropped whatever it was propping up.
                 if was_structural {
                     world.schedule_structural_check_around(x, y);
+                    // A blast is the loudest possible version of "this rock
+                    // has been broken": the crater wall stops being part of
+                    // the mass behind it, so what the explosion undercuts
+                    // can actually come down as pieces afterwards rather
+                    // than hanging over a perfectly clean hole. Same
+                    // transition the eraser goes through -- see
+                    // `structural::detach_exposed_neighbours`.
+                    super::structural::detach_exposed_neighbours(world, x, y);
                 }
             }
         }

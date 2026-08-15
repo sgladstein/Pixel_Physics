@@ -93,9 +93,8 @@
 //! Confinement is what makes the exemption unnecessary rather than merely
 //! deferred — bulk terrain now passes a check it genuinely satisfies
 //! instead of one it was never asked to sit. An 8-cell floor is thicker
-//! than stone's confinement diameter, so it anchors itself; so do the
-//! ledges, which is why they still stand with no support pillars underneath
-//! them.
+//! reaches bedrock through free downward steps, and the ledges reach it
+//! through the walls they are cut into.
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -154,7 +153,10 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     let (span, breaks_into, cost_below, cost_beside, cost_above) = {
         let m = world.materials.get(cell.material);
         (
-            m.max_unsupported_span,
+            // Attached rock is braced by the mass the slice cannot show, so
+            // it reaches much further -- but it is not immune, which is the
+            // whole point. See `MaterialDef::attached_span_bonus`.
+            if cell.attached() { m.max_unsupported_span.saturating_mul(m.attached_span_bonus) } else { m.max_unsupported_span },
             m.breaks_into,
             m.support_cost_below,
             m.support_cost_beside,
@@ -162,14 +164,13 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         )
     };
 
-    // Two ways to be an anchor. Touching bedrock is the literal case;
-    // being part of the background mass (`Cell::attached`) is the one that
-    // makes bulk terrain structurally valid rather than merely exempt from
-    // checking, and it is *stated* by whatever built the terrain rather
-    // than inferred from shape -- see `FLAG_ATTACHED` for why two attempts
-    // to infer it both failed.
-    let is_anchor = cell.attached()
-        || NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
+    // Bedrock is the only outright anchor. Attachment deliberately is *not*
+    // one: it buys a much larger span above instead. Anchoring on it made an
+    // undercut shelf unfallable -- its interior was still attached, so still
+    // held, no matter how much was dug from beneath it. Terrain still stands
+    // because the massif reaches bedrock through free downward steps
+    // (`support_cost_below` is 0), not because it is exempt.
+    let is_anchor = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
 
     let new_distance: u16 = if is_anchor {
         0
@@ -424,8 +425,8 @@ fn schedule_solid_neighbours(world: &World, x: i32, y: i32) -> Vec<ActiveSite> {
 /// `examples/ascii.rs`, which times it against the same terrain built
 /// without this pass so the figure is attributed rather than asserted.
 ///
-/// The relaxation itself is the cheap half, and confinement is why: cells
-/// inside bulk rock are anchors by local test alone and never relax, so the
+/// The relaxation itself is the cheap half: cells inside bulk rock reach
+/// bedrock through free downward steps and settle immediately, so the
 /// search runs along free *surfaces* rather than through volumes. What
 /// dominates is the **seeding scan** — one `World::get` per cell across the
 /// whole world, hashed per lookup, which is issue #5's exact pattern
@@ -456,8 +457,7 @@ pub fn compute_world_distances(world: &mut World) {
             if !is_relaxable(world, cell) {
                 continue;
             }
-            let anchored = cell.attached()
-                || NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
+            let anchored = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
             let distance = if anchored { 0 } else { u16::MAX };
             world.set(x, y, cell.with_aux(distance));
             if anchored {
@@ -513,6 +513,46 @@ pub fn compute_world_distances(world: &mut World) {
 /// them to `organism_structural_tick` instead of relaxing them in place.
 fn is_relaxable(world: &World, cell: Cell) -> bool {
     is_body_material(world, cell.material) && cell.organism_id() == 0
+}
+
+/// Strip background attachment from the material newly exposed by removing
+/// the cell at `(x, y)`.
+///
+/// This is the "background becomes ground" transition, and without it
+/// mining produces nothing at all: terrain declares itself attached
+/// (`Cell::attached`) and an attached cell anchors outright, so carving into
+/// a cliff just deletes cells while everything around them stays
+/// permanently held. Nothing can ever break off, because nothing is ever
+/// unheld.
+///
+/// So cutting rock costs its neighbours their backing. A cell that has just
+/// been exposed to open space stops being part of the mass and becomes
+/// ordinary foreground material, which then has to earn its support through
+/// a real path like anything else. Rock with solid ground still behind it
+/// simply relaxes to a distance of 1 from the attached material next to it
+/// and stays exactly where it is — so a tunnel lining does not sag — while
+/// rock left hanging over a void finds no path, exceeds its span, and comes
+/// down. That difference is the whole mechanic, and it needs no radius, no
+/// falloff and no separate stability pass.
+///
+/// Deliberately only the 4-neighbours, evaluated per removed cell rather
+/// than as a disc around a brush stroke. It is O(1) per cell erased, it
+/// tracks an arbitrarily-shaped excavation exactly, and it cannot detach
+/// material the player never actually reached.
+///
+/// Attachment is only ever lost, never regained — see `FLAG_ATTACHED`. A
+/// weathered dig face staying foreground afterwards is correct: it has been
+/// broken once already.
+pub fn detach_exposed_neighbours(world: &mut World, x: i32, y: i32) {
+    for (dx, dy) in NEIGHBOURS_4 {
+        let (nx, ny) = (x + dx, y + dy);
+        let cell = world.get(nx, ny);
+        if !cell.attached() || !is_body_material(world, cell.material) {
+            continue;
+        }
+        world.set(nx, ny, cell.with_attached(false));
+        world.schedule_structural_check_around(nx, ny);
+    }
 }
 
 /// Whether `material` participates in the structural system at all —
@@ -661,7 +701,7 @@ mod tests {
         // the test above had to change shape. Rock is strong in
         // compression: a wall or pillar built up from the ground is
         // supported at every step, so it must not snap at the same reach a
-        // cantilever does. One cell wide, so confinement plays no part --
+        // cantilever does. One cell wide and unattached, so nothing else --
         // this is purely `support_cost_below: 0` doing the work.
         let mut w = test_world();
         let span = w.materials.get(material::STONE).max_unsupported_span as i32;
@@ -912,7 +952,7 @@ mod tests {
         // set loaded through a synthetic reload rather than mutating the
         // registry directly, since that's the only public way content
         // changes at runtime. Deliberately says nothing about
-        // `confinement_radius` or `support_cost_*`, which also checks that
+        // `attached_span_bonus` or `support_cost_*`, which also checks that
         // their defaults leave a one-cell-thick beam relaxing at a flat 1
         // per lateral step exactly as it did before those fields existed.
         let dir = std::env::temp_dir().join("pixel-physics-m17-span-test");
@@ -932,90 +972,17 @@ mod tests {
 
     // --- Confinement: the minimum self-supporting thickness --------------
     //
-    // The claim `Reports/worldgen-design.md` §7 records as unsolved ("a
-    // noise-defined ceiling has no bounded thickness"). These two are
-    // deliberately a matched pair at the exact boundary -- `2r + 1` stands
-    // and `2r - 1` does not -- so they fail if confinement stops meaning
-    // "minimum stable thickness" in either direction, rather than only
-    // catching a ceiling that got more fragile.
-
-    /// A floating horizontal slab `thickness` cells deep, spanning the whole
-    /// world so its only in-plane anchors are the two world edges, with open
-    /// air above and below it so nothing is resting on anything.
-    fn ceiling_world(thickness: i32) -> World {
-        let mut w = test_world();
-        for y in 30..(30 + thickness) {
-            for x in 0..64 {
-                w.set(x, y, Cell::new(material::STONE, 0));
-            }
-        }
-        // Disturb the middle, the furthest point from either edge anchor.
-        w.schedule_structural_check_around(32, 30 + thickness / 2);
-        w
-    }
-
-    #[test]
-    fn a_ceiling_at_the_confinement_thickness_holds_itself_up() {
-        let mut w = test_world();
-        let r = w.materials.get(material::STONE).confinement_radius as i32;
-        assert!(r > 0, "test is meaningless unless stone actually opts into confinement");
-        let span = w.materials.get(material::STONE).max_unsupported_span as i32;
-        assert!(32 > span, "the world's midpoint must be past the span, or the edges alone would hold it");
-
-        w = ceiling_world(2 * r + 1);
-        run(&mut w, 600);
-
-        assert_eq!(
-            w.get(32, 30 + r).material,
-            material::STONE,
-            "a slab exactly 2r+1 thick should contain a confined row and hold itself up regardless of width"
-        );
-    }
-
-    #[test]
-    fn a_ceiling_below_the_confinement_thickness_comes_down() {
-        let mut w = test_world();
-        let r = w.materials.get(material::STONE).confinement_radius as i32;
-        let thin = 2 * r - 1;
-        assert!(thin > 0, "test needs a positive thickness to be a ceiling at all");
-
-        w = ceiling_world(thin);
-        run(&mut w, 600);
-
-        let debris = stone_debris(&w);
-        assert_eq!(
-            w.get(32, 30 + thin / 2).material,
-            debris,
-            "a slab one cell under the confinement thickness has no confined row anywhere in it, so its midpoint is 32 lateral steps from the nearest edge anchor and should have come down"
-        );
-    }
-
-    #[test]
-    fn a_thick_floating_island_stays_up_on_purpose() {
-        // The deliberate, documented consequence of treating confinement as
-        // an anchor (module doc): in a 2D slice you cannot prove an island
-        // *isn't* held up out of plane, so a thick one stays. Pinned as a
-        // test because it is exactly the kind of behaviour a later change
-        // might "fix" without realising it was chosen.
-        let mut w = test_world();
-        let r = w.materials.get(material::STONE).confinement_radius as i32;
-        let size = 2 * r + 3;
-        // Away from every world edge, so no edge sentinel anchors it and
-        // confinement is genuinely the only thing holding it up.
-        for y in 20..(20 + size) {
-            for x in 20..(20 + size) {
-                w.set(x, y, Cell::new(material::STONE, 0));
-            }
-        }
-        w.schedule_structural_check_around(20 + size / 2, 20 + size / 2);
-        run(&mut w, 600);
-
-        assert_eq!(
-            w.get(20 + size / 2, 20 + size / 2).material,
-            material::STONE,
-            "a floating island thicker than the confinement diameter should stay up -- see the module doc on why this is chosen, not accidental"
-        );
-    }
+    // The three confinement tests that lived here are deleted, not
+    // ported. They asserted that a slab of exactly `2r + 1` thickness held
+    // itself up, which was true of a mechanism that no longer exists --
+    // `is_confined` is gone, replaced by stated attachment. Worse, they had
+    // become *vacuous*: with the mechanism removed they passed only because
+    // an undisturbed slab's cells sit at a self-consistent distance of 0 and
+    // stop rescheduling, so nothing was being exercised at all. A test that
+    // cannot fail is worse than no test. What they were reaching for --
+    // "thickness should decide how far rock spans" -- is now
+    // `MaterialDef::attached_span_bonus`, and `undercut` in
+    // `examples/filmstrip.rs` is the case that actually shows it.
 
     #[test]
     fn brushed_stone_is_foreground_and_unattached_terrain_is_not() {
@@ -1034,11 +1001,16 @@ mod tests {
         w.paint_capsule((32, 32), (32, 32), 6, material::STONE, 1.0);
         assert!(!w.get(32, 32).attached(), "brushed stone must be foreground");
 
-        w.set(10, 10, Cell::new(material::STONE, 0).with_attached(true));
-        let site = ActiveSite { x: 10, y: 10, kind: ActiveKind::StructuralCheck, next_frame: 0 };
-        tick(&mut w, &site);
-        assert_eq!(w.get(10, 10).material, material::STONE, "an attached cell must anchor outright, whatever its shape");
-        assert_eq!(w.get(10, 10).aux(), 0, "an attached cell is an anchor, so its distance is 0");
+        // Attachment buys *reach*, not immunity -- an attached cell that
+        // cannot find an anchor at all still fails, which is what lets an
+        // undercut shelf come down. Asserted as the span it gets rather than
+        // as anchoring, because anchoring is exactly what made shelves
+        // unfallable.
+        let m = w.materials.get(material::STONE);
+        assert!(m.attached_span_bonus > 1, "stone should get a real bonus from being part of the massif");
+        let attached = Cell::new(material::STONE, 0).with_attached(true);
+        let loose = Cell::new(material::STONE, 0);
+        assert!(attached.attached() && !loose.attached(), "attachment must be carried on the cell, not inferred");
     }
 
     #[test]

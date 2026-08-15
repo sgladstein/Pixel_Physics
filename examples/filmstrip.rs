@@ -195,6 +195,35 @@ fn build(scene: &str) -> World {
         // thinner than stone can hold, and watch it come down. The bite is
         // taken out of the ledge's underside through the ordinary eraser
         // brush, so this goes through the same reactive path a player does.
+        // Undercut an attached cliff shelf: erase the material *under* one
+        // end of it so the outer part is left hanging over open air. This is
+        // the case the whole model exists for, and the one that produced
+        // nothing before `detach_exposed_neighbours` -- attached rock
+        // anchors outright, so carving it used to just delete cells while
+        // everything around them stayed permanently held.
+        "undercut" => {
+            stone_floor(&mut w);
+            for y in 120..260 {
+                for x in 0..90 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // A shelf continuing out from the cliff face, also part of the
+            // massif.
+            for y in 150..162 {
+                for x in 90..210 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            // Dig the shelf's support away from underneath, through the
+            // ordinary eraser brush.
+            for x in 92..208 {
+                for y in 156..162 {
+                    w.paint_capsule((x, y), (x, y), 0, material::EMPTY, 1.0);
+                }
+            }
+        }
         "mine" => {
             pixel_physics::app::build_terrain(&mut w);
             // The 60..200 ledge spans y=200..206. Erase its lower rows
@@ -247,7 +276,7 @@ fn build(scene: &str) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut"
         ),
     }
     w

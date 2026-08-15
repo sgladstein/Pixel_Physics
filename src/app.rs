@@ -985,9 +985,14 @@ pub fn build_terrain_only(world: &mut World) {
             }
         }
     };
-    ledge(60, 200, 200);
-    ledge(300, 440, 150);
+    ledge(0, 110, 200); // cut into the left wall
+    ledge(402, w, 150); // cut into the right wall
     ledge(180, 320, 260);
+    for y in 266..(h - 8) {
+        for x in 244..256 {
+            world.set(x, y, Cell::new(stone, (x % 4) as u8).with_attached(true)); // the middle platform's pillar
+        }
+    }
 
     // The world is left dirty on purpose. The first sweep examines the terrain,
     // finds that none of it moves, and settles from the second frame onward.
@@ -1127,15 +1132,15 @@ mod tests {
         let stone = id(&app, "stone");
         let h = HEIGHT as i32;
 
-        // The ledges are the interesting case -- they float, with no
-        // in-plane path to bedrock at all, and stand only because 6 cells
-        // is thicker than stone's confinement diameter of 5.
-        let ledge_probe = (130, 202);
+        // The ledges are the interesting case. They reach bedrock only
+        // through the wall they are cut into, and attachment buys them the
+        // span to get there -- it does not anchor them outright, which is
+        // what would make an undercut shelf unfallable.
+        let ledge_probe = (60, 202);
         assert_eq!(app.world.get(ledge_probe.0, ledge_probe.1).material, stone, "test setup: expected a ledge here");
-        assert_eq!(
-            app.world.get(ledge_probe.0, ledge_probe.1).aux(),
-            0,
-            "an attached ledge cell should resolve to an anchor"
+        assert!(
+            app.world.get(ledge_probe.0, ledge_probe.1).aux() < u16::MAX,
+            "the ledge never reached an anchor, so it is standing only because nothing has checked it yet"
         );
         // Attachment is what anchors it, and it has to be *stated* rather
         // than inferred -- a ledge that stands only because nothing has
@@ -1162,7 +1167,7 @@ mod tests {
         for y in (h - 2)..h {
             assert_eq!(app.world.get(256, y).material, material::BEDROCK, "the bedrock floor was disturbed at y={y}");
         }
-        for &(x, y) in &[(130, 202), (370, 152), (250, 262)] {
+        for &(x, y) in &[(60, 202), (460, 152), (250, 262)] {
             assert_eq!(app.world.get(x, y).material, stone, "a floating ledge crumbled at ({x}, {y})");
         }
         // Read from the registry rather than named, so retargeting stone's
