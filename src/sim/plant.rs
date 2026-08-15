@@ -95,6 +95,73 @@ fn growable(world: &World, x: i32, y: i32, penetration_force: f32) -> bool {
     m.kind == MaterialKind::Powder && m.penetration_resistance < penetration_force
 }
 
+/// Push the water held in the soil cell at `(x, y)` into its neighbours,
+/// before something overwrites that cell.
+///
+/// **A root growing into soil used to delete the water that was there.**
+/// `growable` lets a `RootTip` enter a penetrable `Powder`, and `Grow` then
+/// writes its new cell straight over it — replacing the `aux` that, for a
+/// `Powder`, *is* the moisture. In the `forest` scene every root cell
+/// silently destroyed `SOIL_FIELD_CAPACITY` (620) units; a hundred-cell
+/// root system lost roughly sixty-two saturated cells' worth. Nothing
+/// noticed because no conservation tally covers held water — the liquid
+/// tallies only know about `Liquid` cells, which is `Material::water_
+/// capacity`'s own recorded caveat. Found by independent review.
+///
+/// Displacing rather than crediting, deliberately: handing it to the root
+/// as resource would double-count against `Absorb`, which is the behaviour
+/// that already exists to take water *up*. A root physically displaces the
+/// soil it grows into; the water in that soil goes into the soil around it.
+///
+/// Any remainder that will not fit in the neighbourhood is genuinely lost,
+/// and that is honest rather than swept aside: the alternative is refusing
+/// the growth, which would make root architecture depend on local soil
+/// saturation in a way nothing in the design asks for. Worth revisiting if
+/// held water ever gets a conservation tally.
+fn displace_soil_water(world: &mut World, x: i32, y: i32) {
+    let cell = world.get(x, y);
+    if world.materials.get(cell.material).water_capacity == 0 {
+        return;
+    }
+    let mut carried = update::soil_moisture(cell);
+    if carried == 0 {
+        return;
+    }
+    for (dx, dy) in NEIGHBOURS_8 {
+        if carried == 0 {
+            break;
+        }
+        let (nx, ny) = (x + dx, y + dy);
+        let n = world.get(nx, ny);
+        let n_capacity = world.materials.get(n.material).water_capacity;
+        if n_capacity == 0 {
+            continue;
+        }
+        // Bounded by the *neighbour's* capacity, not this cell's -- the
+        // same asymmetry `update.rs`'s capillary exchange gets wrong and
+        // gets away with only because `soil` is currently the one material
+        // that holds water at all.
+        let held = update::soil_moisture(n);
+        let moved = carried.min(n_capacity.saturating_sub(held));
+        if moved == 0 {
+            continue;
+        }
+        world.set(nx, ny, n.with_aux(held + moved));
+        carried -= moved;
+    }
+    // **Write the remainder back rather than trusting the caller to
+    // overwrite this cell.** Every production caller does overwrite it a
+    // line later, so this is invisible there -- but leaving the source at
+    // its original reading makes the function *create* water when called on
+    // its own, which is exactly what its conservation test caught. A
+    // function that only conserves when its caller happens to clean up
+    // after it is a trap for the next caller.
+    if carried != update::soil_moisture(cell) {
+        let now = world.get(x, y);
+        world.set(x, y, now.with_aux(carried));
+    }
+}
+
 fn candidate_crowding(world: &World, x: i32, y: i32, organism_id: u16) -> f32 {
     let mut sum = 0.0f32;
     let mut count = 0u32;
@@ -850,6 +917,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // signal over time instead of fighting a refill every
                 // single sweep visit.
                 let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(cell_type));
+                displace_soil_water(world, tx, ty);
                 world.set(tx, ty, new_cell);
                 // The deposit has to follow `set`, not ride along with it:
                 // `set` is what registers the cell's `OrganismCell`, so
@@ -899,6 +967,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             let branch_shade = rng.below(shades) as u8;
                             let branch_cell =
                                 Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(cell_type));
+                            displace_soil_water(world, bx, by);
                             world.set(bx, by, branch_cell);
                             deposit_canopy(world, bx, by, GROW_CANOPY_DEPOSIT);
                             // No structural check here either -- see the
@@ -1428,6 +1497,7 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
         let shades = world.materials.get(root_material).palette.len().max(1) as u32;
         let shade = rng.below(shades) as u8;
         let root_cell = Cell::new(root_material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::RootTip));
+        displace_soil_water(world, x, y + 1);
         world.set(x, y + 1, root_cell);
         next.push(reschedule_organism(x, y + 1, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
     }
@@ -2620,6 +2690,53 @@ mod tests {
             grown > 20,
             "a seedling from a dropped seed should have grown into a tree, got {grown} cells -- \
              a shoot missing from the cell list reads 0 carbon forever and stalls at germination"
+        );
+    }
+
+    /// A root growing into soil must displace the water that was there,
+    /// not delete it.
+    ///
+    /// The cell a root grows into is a `Powder` whose `aux` *is* its
+    /// moisture, and `Grow` writes straight over it. Before this, every
+    /// root cell destroyed whatever that cell held — in the `forest` scene,
+    /// 620 units each. No conservation tally covers held water (the liquid
+    /// tallies only know about `Liquid` cells), so nothing caught it.
+    #[test]
+    fn a_root_growing_into_soil_displaces_its_water_rather_than_destroying_it() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+
+        // A patch of soil, the middle cell full and the rest with room.
+        for x in 49..=51 {
+            for y in 49..=51 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY / 2));
+            }
+        }
+        w.set(50, 50, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+
+        let total_before: u32 = (49..=51)
+            .flat_map(|x| (49..=51).map(move |y| (x, y)))
+            .map(|(x, y)| update::soil_moisture(w.get(x, y)) as u32)
+            .sum();
+
+        displace_soil_water(&mut w, 50, 50);
+
+        let moved_out = update::soil_moisture(w.get(50, 50)) as u32;
+        let total_after: u32 = (49..=51)
+            .flat_map(|x| (49..=51).map(move |y| (x, y)))
+            .map(|(x, y)| update::soil_moisture(w.get(x, y)) as u32)
+            .sum();
+
+        // The centre cell's own reading is untouched -- the caller is about
+        // to overwrite it -- so conservation is measured as "everything
+        // that was there is now in the neighbours plus the doomed cell".
+        assert_eq!(
+            total_after, total_before,
+            "displacing must conserve: the neighbourhood held {total_before} and now holds {total_after}"
+        );
+        assert!(
+            moved_out < material::SOIL_FIELD_CAPACITY as u32,
+            "the cell about to be overwritten should have handed its water on, still holds {moved_out}"
         );
     }
 
