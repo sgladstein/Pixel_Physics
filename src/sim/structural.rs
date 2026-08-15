@@ -164,6 +164,13 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         )
     };
 
+    // Fractures cut what the cell can carry. This is what turns a crack
+    // from a mark into damage: a scored overhang gives way where an intact
+    // one of the same reach holds, and each further blow shortens the reach
+    // again -- so a piece visibly weakens before it goes, rather than
+    // switching from fine to fallen.
+    let span = weakened_by_cracks(world, x, y, span);
+
     // Bedrock is the only outright anchor. Attachment deliberately is *not*
     // one: it buys a much larger span above instead. Anchoring on it made an
     // undercut shelf unfallable -- its interior was still attached, so still
@@ -523,6 +530,41 @@ pub fn compute_world_distances(world: &mut World) {
 fn is_relaxable(world: &World, cell: Cell) -> bool {
     is_body_material(world, cell.material) && cell.organism_id() == 0
 }
+
+/// Reduce `span` by how badly `(x, y)` is fractured.
+///
+/// Counts cracked edges, not *intact* ones, and the distinction matters: a
+/// cell at a free rock face has fewer neighbours than one buried in a slab,
+/// and being at a surface is not damage. Only a fracture is.
+///
+/// Scales linearly with how much of the cell's cross-section is still
+/// joined, floored at 1 so a heavily scored cell is very weak rather than
+/// instantly gone — the point is a piece that sags and then fails, not one
+/// that vanishes the moment it is touched. All four edges cracked needs no
+/// handling here: the relaxation simply finds no path through the cell at
+/// all.
+///
+/// **Engine constant, not `.ron` data, and that is a gap rather than a
+/// decision.** `Reports/design-philosophy.md` §2a says a gameplay-facing
+/// constant graduates to hot-reloadable data immediately, and "different
+/// materials should break differently" is an explicit near-term goal — how
+/// brittle a material is under damage is exactly the sort of thing that
+/// wants a slider. Left as a constant only because the load model in
+/// `Reports/fracture-mechanics-design.md` §1c replaces this arithmetic
+/// wholesale, and authoring a field about to be reinterpreted is worse than
+/// authoring one once.
+fn weakened_by_cracks(world: &World, x: i32, y: i32, span: u16) -> u16 {
+    let cracked = NEIGHBOURS_4.iter().filter(|&&(dx, dy)| edge_is_cracked(world, x, y, dx, dy)).count() as u16;
+    if cracked == 0 {
+        return span;
+    }
+    let intact = CRACK_FACES.saturating_sub(cracked).max(1);
+    (span / CRACK_FACES).saturating_mul(intact).max(1)
+}
+
+/// Edges a cell has, and so the denominator for how much of its section a
+/// fracture has taken away.
+const CRACK_FACES: u16 = 4;
 
 /// Whether a fracture separates `(x, y)` from its neighbour at `(dx, dy)`.
 ///
@@ -1065,6 +1107,51 @@ mod tests {
     // "thickness should decide how far rock spans" -- is now
     // `MaterialDef::attached_span_bonus`, and `undercut` in
     // `examples/filmstrip.rs` is the case that actually shows it.
+
+    /// A one-cell cantilever `length` long, anchored at the left world edge.
+    fn cantilever(length: i32) -> World {
+        let mut w = test_world();
+        for x in 0..=length {
+            w.set(x, 30, Cell::new(material::STONE, 0));
+        }
+        w
+    }
+
+    #[test]
+    fn a_scored_span_gives_way_where_an_intact_one_holds() {
+        // The whole point of damage that accumulates: the same beam, the
+        // same reach, different outcome because one of them has been worked
+        // at. Without this a crack is a decal.
+        let probe = test_world();
+        let span = probe.materials.get(material::STONE).max_unsupported_span as i32;
+        let length = span - 4; // comfortably within reach when undamaged
+        drop(probe);
+
+        let mut intact = cantilever(length);
+        intact.schedule_structural_check(length, 30);
+        run(&mut intact, 600);
+        assert_eq!(
+            intact.get(length, 30).material,
+            material::STONE,
+            "test setup: an undamaged beam this short should hold, or the comparison below proves nothing"
+        );
+
+        let mut scored = cantilever(length);
+        // Score the beam near its root, where a cantilever is most stressed.
+        for x in 3..6 {
+            let c = scored.get(x, 30).with_crack_down(true).with_crack_right(true);
+            scored.set(x, 30, c);
+        }
+        scored.schedule_structural_check(length, 30);
+        scored.schedule_structural_check_around(4, 30);
+        run(&mut scored, 600);
+
+        assert_ne!(
+            scored.get(length, 30).material,
+            material::STONE,
+            "a beam fractured at its root should give way at a reach the same beam holds undamaged"
+        );
+    }
 
     #[test]
     fn brushed_stone_is_foreground_and_unattached_terrain_is_not() {

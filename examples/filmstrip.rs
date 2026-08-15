@@ -237,6 +237,30 @@ fn build(scene: &str) -> World {
             pixel_physics::sim::structural::compute_world_distances(&mut w);
             pixel_physics::sim::rigid::strike(&mut w, 260, 150, 14, 12.0);
         }
+        // Work one spot on an attached shelf with repeated blows, the way a
+        // player would with `C`. Each hit drives the fissure deeper and cuts
+        // what the rock around it can carry, so the shelf should give way
+        // after several -- rather than needing to be chewed away cell by
+        // cell, which is what erasing amounts to.
+        "worked" => {
+            stone_floor(&mut w);
+            for y in 120..280 {
+                for x in 0..90 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for y in 150..164 {
+                for x in 90..250 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            // Six blows on the shelf where it leaves the cliff -- the most
+            // stressed point of a cantilever, and where a person would aim.
+            for _ in 0..6 {
+                pixel_physics::sim::rigid::strike(&mut w, 100, 157, 7, 6.0);
+            }
+        }
         "mine" => {
             pixel_physics::app::build_terrain(&mut w);
             // The 60..200 ledge spans y=200..206. Erase its lower rows
@@ -289,7 +313,7 @@ fn build(scene: &str) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked"
         ),
     }
     w

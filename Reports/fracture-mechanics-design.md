@@ -242,6 +242,33 @@ sessions; take a baseline on a quiet machine *before* starting.
 4. **Crack propagation** along the stress ratio, once there is a stress
    ratio to follow.
 
-Steps 1 and 2 are independently shippable and independently judgeable by
-eye. Step 3 is the one that must not be rushed: it changes the failure
-criterion for every material at once.
+Step 1 is independently shippable and judgeable by eye.
+
+**Step 2 is not, and that was an error in this plan — recorded rather than
+quietly corrected.** Capacity was expected to be visible on its own: score a
+shelf near its root, watch it give way. Built and measured, it does almost
+nothing for that case, and the reason is this document's own §0 argument
+turned back on it. Failure is evaluated per cell as *its own reach* against
+*its own span*. A crack at the root weakens a cell whose distance is ~10,
+which was never going to fail at any span; the far end that *is* near its
+limit is not the part that got hit. Six blows at the join of a 160-cell
+shelf left it standing (`filmstrip scene=worked`).
+
+Capacity only bites where a cell is both heavily cracked *and* already near
+its reach limit — real, but a narrow case, and not the one anybody means by
+"work a crack until the piece drops."
+
+**So capacity is not a step, it is half of step 3.** `load > capacity` needs
+both sides; shipping the capacity side alone buys a small effect and no
+demonstration. The corrected order is:
+
+1. **Crack seeding** — done.
+2. **Load/torque accumulation, switching to `load > capacity`**, with
+   capacity from cracks as its other half, deleting §2's list in the same
+   change. This is the step that makes a worked root give way.
+3. **Crack propagation** along the stress ratio, once there is one.
+
+Step 2 is now the largest single change in this plan and still must not be
+rushed: it changes the failure criterion for every material at once. The
+capacity arithmetic itself is already in `structural::weakened_by_cracks`
+and can be reused as-is.
