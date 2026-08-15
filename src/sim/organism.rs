@@ -817,7 +817,31 @@ const DENSITY_SUBSTEPS: u32 = 45;
 const VEIN_BASAL: f32 = 0.1;
 /// Per-tick conductance turnover.
 const VEIN_DECAY: f32 = 0.1;
-/// Flux-driven conductance gain. **Set this to 0 and the whole mechanism
+/// Flux-driven conductance gain, and with `VEIN_BASAL` it sets the
+/// canalization contrast — the one number the behaviour actually depends
+/// on (`CANALIZATION_CONTRAST`).
+///
+/// **Tuned from 2.9 (contrast 30:1) to 0.9 (10:1) in the economy pass**,
+/// against the measured establishment rate rather than an aspiration.
+/// `plant-substrate-v2-design.md` §7e names the contrast as the first knob
+/// to reach for when seedlings stall, ahead of `CARBON_SUBSTEPS` and well
+/// ahead of the seed reserve, and the measurement agrees. Across all six
+/// variants of `examples/debug_tree_variants.rs` at n=16:
+///
+/// | contrast | seedlings established | organism cells | strand contrast achieved |
+/// |---|---|---|---|
+/// | 30:1 | 54/96 (56%) | 4,906 | 20.7x of 30 |
+/// | **10:1** | **70/96 (73%)** | **6,321** | **6.1x of 10** |
+///
+/// So 17 points of establishment and 29% more biomass, for a hierarchy
+/// that is still unmistakably a hierarchy — and note the *fraction* of the
+/// available range actually reached barely moved (69% -> 61%), so the
+/// mechanism is working just as hard at the lower setting. Going further
+/// to 5:1 was tried and rejected: it took the ceiling below what a strand
+/// needs to be visibly distinct, and it broke the chain test by making the
+/// assertion's own threshold unreachable.
+///
+/// **Set this to 0 and the whole mechanism
 /// reduces exactly to the isotropic rule it generalizes** — the A/B switch
 /// §7c asks for, and what makes a regression here bisectable.
 ///
@@ -833,7 +857,7 @@ const VEIN_DECAY: f32 = 0.1;
 /// the correct split: those assert invariants the reduction preserves, so
 /// a suite that went fully green *or* fully red would mean the A/B was
 /// testing the wrong thing.
-const VEIN_GAIN: f32 = 2.9;
+const VEIN_GAIN: f32 = 0.9;
 
 /// Flux-free fixed point, `VEIN_BASAL / VEIN_DECAY`. Undifferentiated
 /// parenchyma sits here.
@@ -855,9 +879,17 @@ pub const CANALIZATION_CONTRAST: f32 = CONDUCTANCE_MAX / CONDUCTANCE_MIN;
 /// Bounded by the same explicit-diffusion stability limit every other
 /// diffusion in this engine respects, but applied to the **largest**
 /// conductance in play rather than a typical one: `TRANSPORT_RATE *
-/// CONDUCTANCE_MAX <= 0.25`. At contrast 30 that caps it at 0.00833, and
-/// 0.008 sits just under.
-const TRANSPORT_RATE: f32 = 0.008;
+/// CONDUCTANCE_MAX <= 0.25`. At contrast 10 that caps it at 0.025, and
+/// 0.024 sits just under.
+///
+/// **Re-derived when the contrast moved, and that coupling is the point.**
+/// Lowering the contrast raises the rate the bound permits, which is
+/// precisely how a *seedling* benefits: undifferentiated tissue conducts
+/// at `TRANSPORT_RATE * CONDUCTANCE_MIN`, so 30:1 gave it 0.008 and 10:1
+/// gives it 0.024 — three times the transport before any strand exists.
+/// Changing one of these without the other either breaks the stability
+/// bound or throws away the gain.
+const TRANSPORT_RATE: f32 = 0.024;
 
 /// Carbon transport iterations per organism tick.
 ///
@@ -1457,9 +1489,16 @@ mod tests {
         let mid = conductance_at(&w, 8, 10);
         // NEIGHBOURS_4 is [-x, +x, -y, +y]: index 1 is downstream along the
         // chain, indices 2 and 3 point at empty space.
+        // Expressed as a fraction of the *available* range rather than a
+        // fixed multiple of the floor: a hardcoded `> 5x basal` silently
+        // becomes unsatisfiable the moment the canalization contrast is
+        // tuned below 5:1, which is a test failing for the tuning rather
+        // than for the mechanism. Half the span says "this face clearly
+        // canalized" at any contrast.
+        let midpoint = CONDUCTANCE_MIN + (CONDUCTANCE_MAX - CONDUCTANCE_MIN) * 0.5;
         assert!(
-            mid[1] > CONDUCTANCE_MIN * 5.0,
-            "the downstream face of a chain carrying real flux should canalize well above the basal floor, got {}",
+            mid[1] > midpoint,
+            "the downstream face of a chain carrying real flux should canalize past the midpoint              of the available range ({midpoint}), got {}",
             mid[1]
         );
         assert!(

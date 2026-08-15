@@ -1,8 +1,13 @@
 # Polarity — the picture gate for Decision 6
 
-Shot after `12739bc` ("Give the carbon channel polarity, and let a strand
-canalize"), on the `forest` scene, which is the same scene the earlier
-plant sheets use:
+Shot on the `forest` scene, the same scene the earlier plant sheets use.
+
+**Re-shot after the economy pass tuned the canalization contrast from 30:1
+to 10:1**, so these show polarity as tuned rather than as first landed. The
+change is visible: at 30:1 this tree was a bare whip, and at 10:1 it
+carries a long lateral branch and roughly twice the foliage. Establishment
+across the variant ensemble went 56% → 73% and biomass +29%; see
+`organism::VEIN_GAIN` for the table and the reasoning.
 
 ```
 cargo run --release --example filmstrip -- scene=forest start=8000 every=1 count=1 cols=1 zoom=14 crop=64,4,44,44 channel=<off|celltype|vein>
@@ -48,14 +53,17 @@ Paired numbers, from `plant_probe -- trees=24 frames=8000`, because the
 sheet says *what and where* and only a number says *how much*:
 
 ```
-vein conductance (max face per cell), 1..30:
-  min 1.00  p50 1.45  p90 27.77  p99 29.98  max 30.00
-  1775/4906 cells still at the basal floor (36%) -- undifferentiated tissue
-  strand contrast, p99/p50: 20.72x (ceiling 30x)
+vein conductance (max face per cell), 1..10:
+  2445/6321 cells still at the basal floor (39%) -- undifferentiated tissue
+  strand contrast, p99/p50: 6.14x (ceiling 10x)
 ```
 
 The median cell is essentially unpolarized while the top decile is
-saturated. That split is the mechanism working.
+saturated. That split is the mechanism working, and it is worth knowing
+that the *fraction of the available range* actually reached barely moved
+when the contrast was retuned (69% of 30:1, 61% of 10:1) — the mechanism
+works just as hard at the lower setting, it simply has less room to work
+in, which is what made 10:1 a cheap trade for the establishment gain.
 
 ## Two things not to misread
 
