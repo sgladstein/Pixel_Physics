@@ -337,3 +337,109 @@ slab and has already misled this project twice.
 - [Apical dominance and apical control in multiple flushing (Cline & Harrington, USDA PNW)](https://www.fs.usda.gov/pnw/pubs/journals/pnw_2007_cline001.pdf) — apical dominance vs apical control
 - [Tree Anatomy 101 (Iowa State University Extension)](https://naturalresources.extension.iastate.edu/forestry/tree_biology/101.html) — excurrent/decurrent and leader-vs-lateral elongation
 - [Control of bud activation by an auxin transport switch (Prusinkiewicz et al., PNAS 2009)](https://www.pnas.org/doi/10.1073/pnas.0906696106) — already cited in `plant.rs`; the algorithm §4 would port
+
+---
+
+## 7. The 2D problem, and why it changes what "fix the shape" means
+
+Raised by the owner, and it is the most important framing in this document
+because it invalidates a category of fix rather than a particular one:
+
+> we are working in a 2d environment. Real trees grow in 3d. In our world
+> it is way easier for two branches or even separate trees to grow into
+> each other/merge. How do we avoid this in a satisfying (internally
+> consistent) manner.
+
+### 7a. The density argument, stated numerically
+
+A crown of radius `R` holds volume `~R³` in three dimensions and area
+`~R²` in two. Put the same `N` branch tips in both and the 2D crown is
+**`R` times denser**. Every branching intuition anyone has — including
+every parameter in `tree.ron`, and every model in the literature §2 cites —
+is calibrated against a world where a new branch can go *around* its
+neighbours in the third dimension. In 2D there is nowhere to go around.
+
+So a branching rule that produces an airy 3D crown produces a solid 2D
+one, and no amount of tuning a 3D-shaped rule escapes that. **A 2D tree
+needs materially fewer branches than its 3D counterpart, not the same
+branches restrained.**
+
+### 7b. The reframing: a real crown *is* a solid mass — of leaves
+
+The complaint is that the canopy fills in. But a real tree viewed from
+outside is *already* opaque: you cannot see its branches, only foliage.
+Our 2D view is much closer to that silhouette than to a slice through the
+crown, so **a filled crown is not the error.** What is filling it is.
+
+Measured (`PLAN.md`): wood 12,039 against 253 leaves, a ratio of **48:1**,
+and climbing. Invert that and the same silhouette reads correctly — a
+sparse woody skeleton carrying a mass of foliage is what a tree *is*.
+
+This changes the target. The previous framing — "stop the crown filling" —
+was aimed at the wrong quantity, and self-pruning (§1) was proposed to
+serve it. The corrected target is **shift the composition**: bound wood
+hard by the pipe model, and let leaves be abundant. Self-pruning still has
+a job (crown recession, the clear bole) but it is no longer the headline.
+
+### 7c. Crown shyness — one real mechanism, both merge problems
+
+Real forests solve exactly the merging problem the owner describes, and it
+has a name: **crown shyness**, the river-like gaps adjacent trees leave
+between their canopies. Three mechanisms are proposed and probably all
+operate: mechanical abrasion of tips in wind, pest/disease avoidance, and
+**shade-avoidance signalling** — phytochromes detecting the red/far-red
+ratio of light *reflected off neighbouring foliage*, and growth shifting
+away from it.
+
+The third is directly implementable here, and it is worth noticing why it
+is the right shape of answer rather than merely an available one:
+**far-red reflectance does not care whose leaves it came off.** A tip
+detects *foliage nearby*, not *foliage belonging to another organism*. So a
+single rule prevents a tree merging with itself **and** with its
+neighbour — which is precisely the pair of failures 2D makes likely.
+
+The engine already has the field this needs. `canopy_density` is a
+deposit-diffuse-decay proximity signal read by `Grow` as a crowding
+penalty — a stigmergic stand-in for exactly this. But
+`candidate_crowding` filters it to `n.organism_id() == organism_id`, and
+there is a test asserting that it does
+(`candidate_crowding_ignores_a_different_organisms_density`). **That filter
+is the opposite of crown shyness**, and it was a reasonable call when the
+channel was framed as *self*-avoidance; under the far-red reading it is
+wrong, because a phytochrome cannot ask who a leaf belongs to.
+
+Making the channel organism-blind is a small change with a citation, and
+it converts an existing self-avoidance mechanism into stand-level spacing
+for free.
+
+### 7d. What this means for the order
+
+Revised from §5, which was written before the 2D framing:
+
+1. **Make `candidate_crowding` organism-blind** (§7c). Smallest change,
+   real citation, and it is the direct answer to the owner's question.
+   Also gives the crowding term something to do at stand scale, which it
+   has never had.
+2. **Invert the wood:leaf ratio** (§7b). `thicken()` is producing 48x more
+   wood than foliage and also *consumes* leaves as it goes. Bound wood
+   harder and stop it eating the crown it is supposed to serve.
+3. **Reduce branching density for 2D** (§7a). `branch_chance` and
+   `max_active_tips` were never chosen against a 2D area budget.
+4. Self-pruning (§1), now for crown recession and the clear bole rather
+   than as the fix for filling.
+5. Everything else in §5, unchanged.
+
+**And a caution about reading the pictures**, recorded because it has
+already cost a wrong call in this document: a time series that gets
+*less* blobby is not the same as a tree. An intermediate frame with a
+visible stem and a spreading top was described here as "a genuine tree —
+vertical trunk, branching crown" and the owner's correction was that it is
+"better but still blobby". Judge against a clear bole and a foliage crown,
+not against the previous frame.
+
+## Sources (§7)
+
+- [Crown shyness — Natural History Museum](https://www.nhm.ac.uk/discover/crown-shyness-are-trees-social-distancing.html)
+- [Crown shyness: why some trees avoid touching leaves (IFLScience)](https://www.iflscience.com/crown-shyness-why-some-trees-avoid-touching-leaves-creating-a-fractured-canopy-59993)
+- [The shade avoidance syndrome in Arabidopsis: phytochrome A and B differentiate vegetation proximity from canopy shade](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4204825/) — the far-red proximity signal, distinct from shading
+- [Crown shyness in various tree species (IJSDR)](https://www.ijsdr.org/papers/IJSDR1812056.pdf)
