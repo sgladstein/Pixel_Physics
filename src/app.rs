@@ -82,6 +82,11 @@ pub struct App {
     pinned: Option<(TunableGroup, String, String)>,
     /// `K` — whether the current A/B experiment is on. See `toggle_experiment`.
     pub experiment: bool,
+    /// `B` — whether the brush lays down *background* rock rather than
+    /// foreground. Off by default: what a player builds should have to hold
+    /// itself up. On, the brush authors terrain, which is braced by the mass
+    /// behind the slice and behaves like a cliff rather than a structure.
+    pub build_background: bool,
 }
 
 /// Re-read both the material and species directories over the current
@@ -143,7 +148,14 @@ impl App {
             tunables_group: TunableGroup::Physics,
             pinned: None,
             experiment: false,
+            build_background: false,
         }
+    }
+
+    /// `B` — swap the brush between building structures and authoring
+    /// terrain. See `build_background`.
+    pub fn toggle_build_background(&mut self) {
+        self.build_background = !self.build_background;
     }
 
     pub fn toggle_hover_inspector(&mut self) {
@@ -718,6 +730,7 @@ impl App {
             "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
             "",
             "C STRIKE ROCK    F IGNITE    P BURST    X EXPLODE",
+            "B BRUSH LAYS BACKGROUND ROCK (TERRAIN) VS FOREGROUND",
             "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
             "",
             "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
@@ -804,7 +817,7 @@ impl App {
         let to = self.renderer.screen_to_world(to.0, to.1);
         let density = self.emission_density(m, erase);
         self.world
-            .paint_capsule(from, to, self.brush_radius, m, density);
+            .paint_capsule_as(from, to, self.brush_radius, m, density, self.build_background);
     }
 
     /// Force-ignite the brush area at a screen position. See
@@ -1193,6 +1206,43 @@ mod tests {
         let debris = app.world.materials.get(stone).breaks_into.expect("stone must define a breaks_into");
         let crumbled = (0..WIDTH as i32).any(|x| (0..h).any(|y| app.world.get(x, y).material == debris));
         assert!(!crumbled, "some terrain broke free despite nothing disturbing it");
+    }
+
+    #[test]
+    fn the_background_brush_authors_terrain_and_the_default_brush_does_not() {
+        // The distinction the whole support model rests on, exposed as a
+        // tool. Default off, because material a player stacks should have to
+        // hold itself up -- but a hand-authored cave wall is terrain and has
+        // to be able to say so, or every built cavern behaves like a
+        // free-standing structure.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        // `select_material` is 1-based (it is driven by the number keys).
+        app.select_material(app.paintable.iter().position(|&m| m == stone).unwrap() + 1);
+
+        // Sampled over the brush rather than at its exact centre: painting
+        // rolls a per-cell density, so no single cell is guaranteed.
+        let painted = |app: &App, sx: i32, sy: i32| -> Vec<bool> {
+            let (wx, wy) = app.renderer.screen_to_world(sx, sy);
+            (-6..=6)
+                .flat_map(|dy| (-6..=6).map(move |dx| (dx, dy)))
+                .filter(|&(dx, dy)| app.world.get(wx + dx, wy + dy).material == stone)
+                .map(|(dx, dy)| app.world.get(wx + dx, wy + dy).attached())
+                .collect()
+        };
+
+        assert!(!app.build_background, "the brush should lay foreground by default");
+        app.paint(60, 60, false);
+        let foreground = painted(&app, 60, 60);
+        assert!(!foreground.is_empty(), "test setup: the brush painted no stone at all");
+        assert!(foreground.iter().all(|a| !a), "the default brush must not author background");
+
+        app.toggle_build_background();
+        assert!(app.build_background);
+        app.paint(160, 60, false);
+        let background = painted(&app, 160, 60);
+        assert!(!background.is_empty(), "test setup: the background brush painted no stone at all");
+        assert!(background.iter().all(|a| *a), "the background brush should author terrain");
     }
 
     #[test]

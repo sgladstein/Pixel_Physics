@@ -1204,6 +1204,31 @@ impl World {
         material: MaterialId,
         density: f32,
     ) {
+        self.paint_capsule_as(a, b, radius, material, density, false)
+    }
+
+    /// As `paint_capsule`, but places material as part of the **background
+    /// mass** when `attached` (see `Cell::attached`).
+    ///
+    /// The brush lays down foreground by default, and that is the right
+    /// default: material a player stacks has to hold itself up, which is
+    /// what makes building a real constraint. But terrain is not built that
+    /// way — a cave wall is braced by rock out of plane — so authoring
+    /// terrain needs to say so, or every hand-made cavern behaves like a
+    /// free-standing structure and collapses.
+    ///
+    /// Kept as a separate entry point rather than a parameter on
+    /// `paint_capsule` so the dozens of existing callers, none of which want
+    /// this, stay untouched.
+    pub fn paint_capsule_as(
+        &mut self,
+        a: (i32, i32),
+        b: (i32, i32),
+        radius: i32,
+        material: MaterialId,
+        density: f32,
+        attached: bool,
+    ) {
         let shades = self.materials.get(material).palette.len().max(1) as u32;
         let r = radius.max(0);
         let r2 = (r * r) as f32;
@@ -1240,7 +1265,7 @@ impl World {
                 // therefore the only thing `render::GrainMode::Cell` can
                 // key grain on so the texture travels with the material.
                 let shade = (self.rng.below(shades) + shades * self.rng.below(256 / shades.max(1))) as u8;
-                self.set(x, y, Cell::new(material, shade));
+                self.set(x, y, Cell::new(material, shade).with_attached(attached && material != material::EMPTY));
                 // M17: either side of this write might be a `Solid`/`Plant`
                 // (architecture item 9) that just gained or lost a neighbour
                 // it was relying on -- placing new stone, or erasing existing
