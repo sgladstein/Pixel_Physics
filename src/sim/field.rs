@@ -126,6 +126,55 @@ const LIGHT_DIFFUSION_RATE: f32 = 0.3;
 /// i.e. nothing. The field still sleeps after convergence (settled worst
 /// frame 0.0002 ms) and the dirty-rect render skip still reads 0.000 ms.
 ///
+/// ## The A/B that should have justified this in the first place
+///
+/// The change above was argued from a *depth profile*, and an adversarial
+/// review established that the profile was measured on an unconverged
+/// field at an uncontrolled day/night phase — so the stated premise ("a
+/// tree cannot be planted more than a couple of field rows from open sky")
+/// was not sound, and the doc claims disagree with each other (20 rows in
+/// one place, ~145 in another, for the *same* constant).
+///
+/// The measurement nobody had taken is the one on tree outcomes, 8 trees /
+/// 30,000 frames:
+///
+/// | | `ground=96` | `ground=200` |
+/// |---|---|---|
+/// | **0.9997** | 3,147 cells | 14,459 cells |
+/// | 0.997 | **126 cells** | **8 cells** |
+///
+/// **At 0.997 a tree at `ground=200` does not grow at all** — 8 cells is
+/// bare germination — and at 96 it reaches a 126-cell stub. So the value
+/// stands, on a 25x outcome difference, *despite* the reasoning that
+/// originally produced it being wrong. Recorded that way round deliberately:
+/// a right answer reached by a bad measurement is still a bad measurement,
+/// and the next person to touch this should re-derive rather than trust it.
+///
+/// ## Known bad side effects, not yet addressed
+///
+/// The same review measured three consequences of this value that are real
+/// and are *not* fixed by it being outcome-justified:
+///
+/// - **`Germinate`'s 0.1 light gate is now unreachable** anywhere with sky
+///   access — converged, light never crosses 0.1 in 300 rows of open air at
+///   either phase. The gate has degraded into "am I sealed in rock", and
+///   seeds germinate 200 rows down.
+/// - **The deep field never converges within a day/night period** (relaxation
+///   ~3,300 steps against `DAY_NIGHT_PERIOD_FRAMES` 3,600), so for ~45% of
+///   every cycle the profile *inverts* near the surface — at midnight `y=0`
+///   reads 0.2 while `y=48` reads 0.93. `phototropism_dir` therefore points
+///   **downward** across the top ~70 rows for nearly half of every day, and
+///   `light_weight` is the second-largest term in `Grow`'s blend.
+/// - **Caves light up.** Through a `FIELD_SCALE`-aligned 24-wide shaft,
+///   light reads 0.18 at 156 rows underground and 150 cells into a tunnel —
+///   above the germination gate.
+///
+/// The right fix is probably to decouple *reach* from *amplitude* rather
+/// than to move this constant back: the outcome gain comes from light
+/// arriving at depth, while all three side effects come from the whole
+/// field being brighter. That is a separate change and is not attempted
+/// here.
+///
 /// Retuned from an original 0.85 ("diffuse fast, decay hard," a genuine
 /// local-glow-only reading) to 0.997, by explicit owner request: outdoor
 /// sunlight reaching real depth is more realistic than requiring every
