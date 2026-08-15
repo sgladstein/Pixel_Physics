@@ -230,7 +230,14 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             // stops checking (matches an unset span's own behaviour).
             return Vec::new();
         };
-        break_free(world, x, y, into);
+        // M8: a failure big enough to read as a *chunk* leaves as one
+        // coherent falling piece rather than dissolving into loose grains
+        // one cell at a time. Falls back to the per-cell conversion below
+        // when the region is too small to be worth it or too large to be a
+        // chunk at all -- see `rigid::try_promote_failing_region`.
+        if !super::rigid::try_promote_failing_region(world, x, y) {
+            break_free(world, x, y, into);
+        }
         // The neighbours that were relying on this cell as a stepping
         // stone need to recompute too -- this is what turns a single break
         // into a *cascade* rather than one isolated cell vanishing.

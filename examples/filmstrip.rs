@@ -201,8 +201,45 @@ fn build(scene: &str) -> World {
                 }
             }
         }
+        // A thin shelf cantilevered off a thick pillar, with the join then
+        // cut so the shelf detaches whole.
+        //
+        // This is the case that actually produces an M8 chunk body, and the
+        // contrast with `mine` is the point. A mined roof fails
+        // *progressively* -- its cells sit at genuinely different distances
+        // (17, 18, 19...) and cross their span on different ticks, so at the
+        // instant the first one breaks its neighbours are still supported
+        // and there is no region to promote. A *detached* region has no
+        // anchor at all, so its cells climb in lockstep (the
+        // count-to-infinity dynamic in `structural.rs`'s module doc) and
+        // cross together, which is what gives `try_promote_failing_region` a
+        // whole connected region to find at once.
+        //
+        // The shelf is deliberately 3 cells thick: thicker than stone's
+        // confinement diameter and it would anchor itself and hang there
+        // forever, which is documented, intended behaviour and not what this
+        // scene is for.
+        "snap" => {
+            stone_floor(&mut w);
+            for y in 120..200 {
+                for x in 60..80 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for y in 140..143 {
+                for x in 80..112 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            // Cut the shelf off its pillar, through the ordinary eraser
+            // brush so this goes down the same reactive path a player does.
+            for y in 140..143 {
+                w.paint_capsule((80, y), (80, y), 0, material::EMPTY, 1.0);
+            }
+        }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap"
         ),
     }
     w
@@ -322,6 +359,11 @@ fn advance(world: &mut World, particles: &mut ParticleSystem, blasts: &mut explo
         update::step(world);
     }
     world.step_liquid_bodies();
+    // M8 chunk bodies, in `App::update`'s own slot. Without this a promoted
+    // body is lifted out of the grid and then never moves -- a collapse
+    // would render as material simply disappearing, which is exactly the
+    // kind of thing this harness exists to catch by eye.
+    pixel_physics::sim::rigid::step_chunk_bodies(world);
     world.step_active_sites();
     blasts.step(world, particles);
     particles.step(world);
@@ -440,7 +482,20 @@ fn main() {
                 }
             }
         }
-        println!("  tile {captured}: frame {target}, awake {}/{}, particles {}", world.active_chunk_count(), world.chunk_count(), particles.len());
+        // `bodies` reports M8 chunk bodies in flight. Worth printing rather
+        // than inferring from the image: a coherent falling slab and a
+        // tightly-packed scatter of loose grains look nearly identical at
+        // the zoom levels these sheets are usually read at, so "did this
+        // actually promote to a body" is a question the picture cannot
+        // answer on its own.
+        println!(
+            "  tile {captured}: frame {target}, awake {}/{}, particles {}, bodies {} ({} cells)",
+            world.active_chunk_count(),
+            world.chunk_count(),
+            particles.len(),
+            world.chunk_bodies.len(),
+            world.chunk_bodies.iter().map(|b| b.cells.len()).sum::<usize>(),
+        );
         captured += 1;
     }
 

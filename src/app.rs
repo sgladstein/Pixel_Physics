@@ -369,6 +369,14 @@ impl App {
         // this phase to do; wired in now so later steps land here rather
         // than needing frame-order surgery.
         self.world.step_liquid_bodies();
+        // M8 chunk bodies in the same slot and for the same reason: a body
+        // spanning two same-parity chunks would write to both from separate
+        // workers and break `parallel.rs`'s write-disjointness proof
+        // (`Reports/coupling-research.md` §4 states this outright), so it
+        // gets its own serial phase. Before active sites, so a structural
+        // check this frame sees a landed chunk's cells already in the grid
+        // rather than a frame-old hole where they used to be.
+        crate::sim::rigid::step_chunk_bodies(&mut self.world);
         // M16 active sites after the CA sweep too, for the same reason as
         // particles below: a root deciding whether to drink an adjacent
         // water cell needs this frame's settled position, not last frame's.

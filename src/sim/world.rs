@@ -96,6 +96,13 @@ pub struct World {
     pub frame: u64,
     pub materials: MaterialRegistry,
     pub rng: Rng,
+    /// M8: coherent pieces of broken structure currently in flight
+    /// (`rigid::ChunkBody`). A plain `Vec`, stepped in index order, because
+    /// insertion order is the only tiebreak that stays identical run to run
+    /// — the same determinism requirement that moved `active_sites` off a
+    /// `HashMap`. Distinct from `bodies` below, which is the liquid
+    /// heightfield's own unrelated arena.
+    pub chunk_bodies: Vec<crate::sim::rigid::ChunkBody>,
     /// M16: growing plant tips (and M17/M18's structural checks and
     /// creature ticks), due soonest at the top -- a min-heap keyed on
     /// `ActiveSite::next_frame`, see `scheduler::step`'s own doc for why
@@ -212,6 +219,7 @@ impl World {
             frame: 0,
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
+            chunk_bodies: Vec::new(),
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             bodies: Vec::new(),

@@ -407,7 +407,16 @@ impl Renderer {
             GrainMode::AnimatedSmooth => true,
             _ => false,
         };
-        let full = force_full || scale_changed || self.field_overlay != FieldOverlay::Off || self.show_chunk_overlay || !particles.is_empty();
+        // `chunk_bodies` joins `particles` in forcing a full redraw for the
+        // identical reason: both are drawn off-grid on top of the per-cell
+        // pass, so the dirty-rect skip has no idea they moved and would
+        // leave a smear of stale body pixels behind a falling chunk.
+        let full = force_full
+            || scale_changed
+            || self.field_overlay != FieldOverlay::Off
+            || self.show_chunk_overlay
+            || !particles.is_empty()
+            || !world.chunk_bodies.is_empty();
 
         let recomputed = if full {
             for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
@@ -461,6 +470,7 @@ impl Renderer {
         };
 
         self.draw_particles(world, particles, frame, width, height);
+        self.draw_chunk_bodies(world, frame, width, height);
 
         if self.show_chunk_overlay {
             self.draw_chunk_overlay(world, frame, width, height);
@@ -520,6 +530,31 @@ impl Renderer {
             for dy in 0..block {
                 for dx in 0..block {
                     put(frame, width, height, sx + dx, sy + dy, colour);
+                }
+            }
+        }
+    }
+
+    /// M8 chunk bodies, drawn the same way free particles are and for the
+    /// same reason: a body in flight has been lifted *out* of the CA grid
+    /// (`rigid::try_promote_failing_region` erases its cells so a landing
+    /// cannot duplicate them), so the per-cell pass above cannot see it. A
+    /// falling chunk would otherwise simply vanish for the whole of its
+    /// flight and reappear on landing.
+    fn draw_chunk_bodies(&self, world: &World, frame: &mut [u8], width: u32, height: u32) {
+        let block = self.zoom.max(1);
+        for body in &world.chunk_bodies {
+            for cell in &body.cells {
+                let (wx, wy) = body.cell_position(cell);
+                let Some((sx, sy)) = self.world_to_screen(wx, wy) else {
+                    continue;
+                };
+                let palette = &world.materials.get(cell.material).palette;
+                let colour = palette[cell.shade as usize % palette.len()];
+                for dy in 0..block {
+                    for dx in 0..block {
+                        put(frame, width, height, sx + dx, sy + dy, colour);
+                    }
                 }
             }
         }
