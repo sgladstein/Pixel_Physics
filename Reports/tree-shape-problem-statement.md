@@ -156,21 +156,49 @@ deaths from no upward room     19%                9%
   still below 1, so the population still goes extinct with probability 1 —
   it just takes longer.
 
-### The number that governs tree size
+### CORRECTION: the size "prediction" in the first version of this section was circular
 
-For a branching process the expected total progeny of a lineage is
-`1/(1−m)`. Checked against the measurement:
+The first version of §8 claimed that expected total progeny `1/(1−m)`
+predicted tree size "from a model with no free parameters". **It does not.
+The claim was a tautology and is withdrawn.**
+
+`m` was computed as `born / (born + seeds)`, so
 
 ```
-m = 0.9944 → 1/(1−m) = 179     observed 3,147 cells
-m = 0.9983 → 1/(1−m) = 588     observed 14,459 cells
-predicted size ratio 3.3x      observed 4.6x
+1/(1−m)  =  (born + seeds) / seeds  =  born/8 + 1
 ```
 
-Same order, from a model with no free parameters. **Tree size is governed
-by how close the offspring ratio sits to 1**, and because the relationship
-is `1/(1−m)`, it is violently sensitive there: 0.994 → 0.998 is a 4.6x
-tree. That single fact reframes the whole problem.
+which is total tips created divided by seed count — *tree size expressed in
+tips*. Checked against every run taken:
+
+```
+                    born    1/(1−m)    born/8 + 1
+ground=96           1411      177.4        177.4
+ground=200          4651      582.4        582.4
+```
+
+Identical to four significant figures, because they are the same
+expression. It "predicted" size because it *was* size. Recorded rather than
+quietly fixed, because it is the fifth quantity on this branch that turned
+out to measure something other than what it claimed, and the first one that
+I derived rather than inherited.
+
+### What actually stands
+
+**The audit's framing, which used two genuinely independent rates:**
+lineages are created by branching at **5.7% per growth** and die at **5.9%
+per tip**. Those are separate measurements of separate events, and their
+comparison is meaningful. Marginally more lineages die than are born, which
+is the sub-criticality — and it is why the population drifts to extinction
+rather than reaching a steady state.
+
+**The scene dependence, which is a real paired measurement:** doubling the
+sky takes the stand from 3,147 to 14,459 cells and pushes boundary-caused
+tip deaths from 19% down to 9%.
+
+**What a non-circular version would need:** offspring per tip measured
+*per generation*, or the branch rate and death rate tracked separately over
+time — not a ratio of cumulative totals against a constant seed count.
 
 ### What this means for every knob touched so far
 
