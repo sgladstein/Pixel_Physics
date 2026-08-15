@@ -253,12 +253,36 @@ only one that costs the dirty-rect render skip.
 
 ---
 
-## Open, found by independent review during the polarity pass (M18 plant v2)
+## ~~Open~~ **CLOSED** — the three the polarity review raised (M18 plant v2)
 
-Three findings from the review before `12739bc`. Two of the five it raised
-were mine and are fixed in that commit; these three are older than this
-branch, were reproduced or traced by the reviewer, and are **not fixed**.
-None is caught by the current suite.
+All three are now fixed, each with a guard verified to fail against the old
+code. Kept here rather than deleted, because what they have in common is
+worth more than any one of them: **all three were invisible to the suite
+for the same reason — nothing tallies held water, and nothing walked the
+frontier cell types.** A new test that covers either of those covers a
+whole class.
+
+| finding | fixed in | guard |
+|---|---|---|
+| allometry gate permanently retiring roots | `ab39721` | `a_root_tip_that_ages_out_retires_instead_of_becoming_a_phantom` |
+| `Grow` into soil destroying stored water | (next commit) | `a_root_growing_into_soil_displaces_its_water_rather_than_destroying_it` |
+| capillary exchange over-filling a neighbour | `13bce0a` | `capillary_flow_never_pushes_a_neighbour_past_its_own_capacity` |
+
+Two of them turned out differently from the review's framing, and the
+difference is recorded at each site:
+
+- The root bug was **not** fixable by marking the "not now" gates as
+  `found_candidate`, which is what the framing suggests. That breaks
+  `a_tree_eventually_stops_growing` immediately — the staleness counter is
+  the only thing that makes growth terminate. The real defect was that
+  ageing out had no landing site for `RootTip`.
+- The capillary bug needed a **second water-holding material to be
+  testable at all**. With equal capacities the drier cell is by definition
+  below its own limit, so the clamp can never bind. The guard writes a
+  `tightsoil` into a temp dir and loads it additively.
+
+The original descriptions follow, since the reproductions are still the
+cheapest way back into each area.
 
 ### 1. `MAX_ROOT_FRACTION` feeds the staleness counter, permanently retiring roots
 
