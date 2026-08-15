@@ -26,6 +26,7 @@ cargo test
 | `F` | Force-ignite whatever's under the brush (debug tool) |
 | `P` | Throw a burst of the selected material as free particles (debug tool) |
 | `X` | Trigger an explosion (its own radius/strength, tunable under `O` -> EXPLOSION, **not** the brush radius) |
+| `C` | **Strike** the rock under the cursor — pulverizes the centre, loosens the rock around it and throws the pieces. Force scales with brush size. The destruction *verb*: erasing removes support but delivers no load, so before this nothing could fail from being hit |
 | `T` | Plant a tree seed under the brush (M16 debug tool) |
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `W` | Plant a worm under the brush (M18 debug tool) |

@@ -427,6 +427,14 @@ pub fn try_promote_failing_region(world: &mut World, x: i32, y: i32) -> bool {
 /// so the grit is a *consequence* of the same draw rather than a separate
 /// fudge factor.
 fn fracture(world: &mut World, region: &[(i32, i32)]) {
+    fracture_with_impulse(world, region, None)
+}
+
+/// As `fracture`, but every fragment is thrown away from `origin` at
+/// `force`. This is what makes a *blow* different from a collapse: the same
+/// rock comes apart either way, but struck rock leaves the wound rather than
+/// sagging out of it.
+fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Option<((f32, f32), f32)>) {
     let mut remaining: Vec<(i32, i32)> = region.to_vec();
     remaining.sort_unstable(); // deterministic seed order, as `label_failing_region` already guarantees
     let mut left: HashSet<(i32, i32)> = remaining.iter().copied().collect();
@@ -441,7 +449,7 @@ fn fracture(world: &mut World, region: &[(i32, i32)]) {
         let target = 1usize << (1 + world.rng.below(5) as usize);
         let fragment = take_fragment(&mut left, seed, target);
         if fragment.len() >= MIN_BODY_CELLS {
-            promote(world, &fragment);
+            promote(world, &fragment, impulse);
         } else {
             for &(fx, fy) in &fragment {
                 shatter_to_rubble(world, fx, fy);
@@ -484,7 +492,7 @@ fn take_fragment(left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize
 }
 
 /// Lift `cells` out of the grid as one coherent falling body.
-fn promote(world: &mut World, cells: &[(i32, i32)]) {
+fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32), f32)>) {
     let (ox, oy) = cells[0];
     let body_cells: Vec<BodyCell> = cells
         .iter()
@@ -504,12 +512,27 @@ fn promote(world: &mut World, cells: &[(i32, i32)]) {
     // are what stop a shattered shelf from falling as a neat stack of
     // perfectly level bars.
     let spread = (ox % 5 - 2) as f32 * 0.18;
+    // Thrown outward from the blow, if there was one. Falls back to the
+    // sideways nudge a collapse gets, so a piece that merely came loose
+    // still does not drop perfectly straight.
+    let (vx, vy) = match impulse {
+        Some(((fx, fy), force)) => {
+            let (dx, dy) = (ox as f32 - fx, oy as f32 - fy);
+            let distance = (dx * dx + dy * dy).sqrt().max(1.0);
+            // Falls off with distance, so the rock nearest the blow is
+            // thrown hardest and the far edge merely sags free -- a uniform
+            // push reads as an explosion regardless of how hard you hit.
+            let scale = force / distance;
+            (dx / distance * scale + spread, dy / distance * scale)
+        }
+        None => (spread, 0.0),
+    };
     world.chunk_bodies.push(ChunkBody {
         cells: body_cells,
         x: ox as f32,
         y: oy as f32,
-        vx: spread,
-        vy: 0.0,
+        vx,
+        vy,
         spin: ((ox + oy) % 3) as f32 * 0.3,
         stalled: 0,
     });
@@ -570,6 +593,73 @@ fn label_failing_region(world: &World, seed_x: i32, seed_y: i32, max_cells: usiz
     // determinism trap in a new place.
     out.sort_unstable();
     Some(out)
+}
+
+/// Hit the rock at `(cx, cy)` hard enough to break it.
+///
+/// # Why destruction needs a verb of its own
+///
+/// Until this existed the only way to provoke a structural failure was to
+/// *erase* support and wait for the consequences. An eraser delivers no load
+/// and no impulse, so nothing ever failed from being struck -- the mechanic
+/// worked and still felt inert, which is the failure
+/// `Reports/design-philosophy.md` §0a records as "a mechanic needs a verb".
+/// Waiting several ticks for a cascade to notice you removed something is
+/// also the opposite of feedback.
+///
+/// A blow does three things at once, and all three are the point:
+///
+/// - **Pulverizes** the cells it lands on. That is the bite taken out.
+/// - **Loosens** the rock around the wound, stripping its attachment to the
+///   background mass so it is no longer braced by the rock behind it. This
+///   is the same `detach_exposed_neighbours` transition digging goes
+///   through, applied over the whole struck area at once.
+/// - **Fractures and throws** what it loosened, immediately rather than via
+///   the cascade, so the pieces leave the wound on the frame you hit it.
+///
+/// Struck rock that was already unsupported still gets picked up by the
+/// ordinary structural cascade afterwards, so hitting the base of an
+/// overhang both throws chips *and* brings the overhang down a moment later.
+pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
+    let core = (radius / 3).max(1);
+    let mut loosened = Vec::new();
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let (x, y) = (cx + dx, cy + dy);
+            let d2 = dx * dx + dy * dy;
+            if d2 > radius * radius || !world.in_bounds(x, y) {
+                continue;
+            }
+            if !is_body_material(world, x, y) || world.get(x, y).organism_id() != 0 {
+                continue;
+            }
+            if d2 <= core * core {
+                shatter_to_rubble(world, x, y); // the bite
+            } else {
+                loosened.push((x, y));
+            }
+        }
+    }
+    // Loosen first, so the fracture below sees rock that is no longer
+    // claiming to be braced by the massif.
+    for &(x, y) in &loosened {
+        let cell = world.get(x, y);
+        if cell.attached() {
+            world.set(x, y, cell.with_attached(false));
+        }
+    }
+    // No upper bound here, deliberately. `MAX_BODY_CELLS` exists to stop a
+    // *single* body being enormous; `fracture` splits whatever it is given
+    // into fragments of at most 32 cells, so a wide blow just yields more
+    // pieces. Gating on it meant a big strike loosened several hundred cells
+    // and then threw nothing at all -- the larger the swing, the less
+    // happened, which is exactly backwards.
+    if loosened.len() >= MIN_FRACTURE_CELLS {
+        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)));
+    }
+    for &(x, y) in &loosened {
+        world.schedule_structural_check_around(x, y);
+    }
 }
 
 /// Advance every body one frame, settling any that have come to rest.
@@ -1264,6 +1354,62 @@ mod tests {
             "the promoted body was smaller than the minimum chunk size, so it should not have promoted at all"
         );
         assert!(w.chunk_bodies.is_empty(), "the body never settled back into the grid");
+    }
+
+    #[test]
+    fn a_strike_throws_pieces_out_of_solid_rock() {
+        // The verb. Erasing removes support but delivers no load, so before
+        // this nothing could fail from being *hit* -- a mechanic that worked
+        // and still felt inert (`Reports/design-philosophy.md` §0a).
+        //
+        // Struck into the middle of a solid attached mass, so nothing here
+        // is failing for structural reasons: any piece that leaves is
+        // leaving because it was hit.
+        let mut w = test_world();
+        for y in 10..50 {
+            for x in 10..50 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        assert!(w.chunk_bodies.is_empty());
+
+        strike(&mut w, 30, 30, 8, 6.0);
+
+        assert!(!w.chunk_bodies.is_empty(), "a strike into solid rock threw no pieces at all");
+        // Thrown *outward*: every body should be moving away from where it
+        // was hit, not merely dropped.
+        for body in &w.chunk_bodies {
+            let (dx, dy) = (body.x - 30.0, body.y - 30.0);
+            let outward = body.vx * dx + body.vy * dy;
+            assert!(outward > 0.0, "a fragment at ({}, {}) was thrown toward the blow, not away from it", body.x, body.y);
+        }
+        // And it left a wound rather than only loosening things.
+        assert_ne!(w.get(30, 30).material, material::STONE, "the strike did not pulverize the cells it landed on");
+    }
+
+    #[test]
+    fn struck_rock_stops_being_part_of_the_background_mass() {
+        // Loosening is what lets the *cascade* finish the job after the blow
+        // -- hit the base of an overhang and it should both throw chips now
+        // and bring the overhang down a moment later. Rock that stayed
+        // attached would stay braced and never follow.
+        let mut w = test_world();
+        for y in 10..50 {
+            for x in 10..50 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        strike(&mut w, 30, 30, 6, 4.0);
+
+        let survivor = (10..50)
+            .flat_map(|x| (10..50).map(move |y| (x, y)))
+            .find(|&(x, y)| {
+                let d2 = (x - 30) * (x - 30) + (y - 30) * (y - 30);
+                d2 > 9 && d2 <= 36 && w.get(x, y).material == material::STONE
+            });
+        if let Some((x, y)) = survivor {
+            assert!(!w.get(x, y).attached(), "rock inside the blow radius at ({x}, {y}) is still claiming to be braced by the massif");
+        }
     }
 
     #[test]

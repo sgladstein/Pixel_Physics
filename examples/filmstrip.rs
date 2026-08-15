@@ -224,6 +224,19 @@ fn build(scene: &str) -> World {
                 }
             }
         }
+        // A solid attached cliff, struck once. Nothing here is structurally
+        // unsound, so every piece that leaves is leaving because it was hit
+        // -- which is the whole point of having a verb at all.
+        "strike" => {
+            stone_floor(&mut w);
+            for y in 60..280 {
+                for x in 140..380 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            pixel_physics::sim::rigid::strike(&mut w, 260, 150, 14, 12.0);
+        }
         "mine" => {
             pixel_physics::app::build_terrain(&mut w);
             // The 60..200 ledge spans y=200..206. Erase its lower rows
@@ -276,7 +289,7 @@ fn build(scene: &str) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike"
         ),
     }
     w

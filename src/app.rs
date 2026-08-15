@@ -27,6 +27,12 @@ pub const HEIGHT: u32 = 320;
 /// one fills in within a handful of frames.
 const STREAM_DENSITY: f32 = 0.3;
 
+/// How hard a strike throws its debris, per cell of brush radius. Tuned so a
+/// small brush chips and a large one hurls -- the brush size is already the
+/// player's sense of "how big a hit is this", so it drives the force rather
+/// than a second hidden number.
+const STRIKE_FORCE_PER_RADIUS: f32 = 0.9;
+
 pub struct App {
     pub world: World,
     pub particles: ParticleSystem,
@@ -711,7 +717,7 @@ impl App {
             "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
             "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
             "",
-            "F IGNITE    P BURST    X EXPLODE",
+            "C STRIKE ROCK    F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
             "",
             "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
@@ -846,6 +852,17 @@ impl App {
     pub fn explode(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         self.blasts.trigger(&mut self.world, &mut self.particles, x, y);
+    }
+
+    /// Strike the rock under the cursor — the destruction *verb*.
+    ///
+    /// Scaled off the brush so the tool the player is already sizing is the
+    /// tool that decides how hard they hit, rather than introducing a second
+    /// invisible number to tune. See `rigid::strike`.
+    pub fn strike(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        let force = self.brush_radius as f32 * STRIKE_FORCE_PER_RADIUS;
+        crate::sim::rigid::strike(&mut self.world, x, y, self.brush_radius, force);
     }
 
     /// Plant a tree seed at a screen position — M16 debug tool. See
