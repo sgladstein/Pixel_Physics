@@ -3900,6 +3900,72 @@ seedling's foliage faster than it could be replaced, starving the plant
 building it. The visible symptom (a slab) was two steps removed from the
 damage (seedlings quietly failing).
 
+### AUDIT: what the scene discovery invalidates, and what survives
+
+**The environment every plant judgement was made in is not fit for plants**,
+and this was found only after the polarity and economy work. See
+`Reports/tree-architecture-research.md` §6. Headroom above ground, by
+harness:
+
+| harness | rows of sky | used for |
+|---|---|---|
+| `debug_tree_variants` | **20** | the canalization contrast tuning |
+| `plant_probe` (default `ground=40`) | **40** | every ensemble number below |
+| `filmstrip` `tree` / `forest` | **40** | every screenshot |
+
+Trees reach 41-47 rows in those scenes, so **they are pressed against the
+ceiling and can only spread sideways**. Measured directly: widest
+above-ground row is **56 cells at 40 rows of sky and 7 cells at 70**. The
+"canopies merge into a slab" symptom that drove two sessions of work is
+substantially this.
+
+And there is no depth that fixes it, because `field.rs` seeds light only on
+the topmost chunk's top row and diffuses it down with `LIGHT_DECAY` —
+**light attenuates through empty air**, so headroom costs illumination.
+Same trees, `ground=70`, decay alone: median height **21 → 65** and biomass
+**1,271 → 15,362**. Light is the binding constraint on tree size; no plant
+mechanism was ever the limit.
+
+**Stands — correctness, established by synthetic unit tests or by
+run-to-run comparison, with no dependence on scene shape:**
+
+- The Decision 2 sidecar migration, and transport moving off the CA sweep.
+- The `ChunkView` cell-list bug (a falling seed vanished from its own
+  organism), both halves — same-chunk and remote.
+- The determinism fix (sorted iteration; 5877/5872/5881 → 5806 ×3).
+- `RootTip` retiring instead of becoming a phantom.
+- A root growing into soil displacing its water instead of deleting it.
+- The capillary capacity clamp.
+- Transport honouring `RESOURCE_SCALE` (a cell held 92.0 against a cap of 4).
+- The polarity mechanism itself and its six tests — all synthetic organisms.
+- `thicken()`'s width bug. The *defect* is real and scene-free: the growing
+  end of a run always read `width = 2`, so the gate never terminated.
+- The ensemble harness, and all three metric corrections. **These are worth
+  more now, not less** — the audit was only possible because the metrics
+  had been cleaned up.
+
+**Must be re-measured — tuned or judged against a ceiling:**
+
+- **The canalization contrast 30:1 → 10:1.** Tuned on establishment rate in
+  the 20-row scene. The *direction* may well hold; the numbers do not.
+- **`thicken()`'s measured magnitudes** (slab 105 → 51, establishment
+  doubled). The fix stands, the effect sizes were measured against a
+  ceiling.
+- **The bud break verdict.** "Fills the world as a solid mass" was measured
+  against a 40-row ceiling, and the mass is exactly what a ceiling
+  produces. **That revert may have been wrong**, and re-testing it in a
+  proper scene is the first thing to do after the scene exists.
+- **`tree-architecture-research.md` §1** (maintenance respiration and
+  self-pruning). Reasoned from the mass symptom. The biology is sound and
+  the citations stand; whether it is *this engine's* missing mechanism is
+  now unproven.
+- The respiration and gravitysense sweeps, both run in the bad scene.
+
+**Order from here:** fix the environment first — a scene with real
+headroom, which needs the light model to stop attenuating through empty air
+— and only then re-measure. Nothing about plant shape should be concluded
+before that.
+
 ### Bud break — built, measured, and **reverted**. Read this before rebuilding it.
 
 `Reports/plant-substrate-v2-design.md` §2e specifies `BudBreak {

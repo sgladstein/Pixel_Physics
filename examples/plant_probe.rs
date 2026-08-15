@@ -280,8 +280,15 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
     // question than its own name claims is the exact failure `CLAUDE.md`
     // catalogues, and this one would have reported `SecondaryThicken` as
     // working when the picture plainly showed it was not.
-    let thickest = (0..HEIGHT)
-        .map(|y| {
+    // **Split above and below ground, and that is not cosmetic.** This
+    // scanned every row in the world, so a horizontal *root mat* -- which
+    // spreads through soil by design, and which `MAX_ROOT_FRACTION` already
+    // bounds -- counted as a canopy slab. Reported as one number it moved
+    // for root reasons and was read as a canopy result. That is the third
+    // plant metric on this branch to measure something other than its own
+    // name; see `PLAN.md` on `rows >1 cell wide` and the vein contrast.
+    let widest_run = |rows: std::ops::Range<i32>| -> usize {
+        rows.map(|y| {
             let (mut best, mut run) = (0usize, 0usize);
             for x in 0..WIDTH {
                 if w.get(x, y).organism_id() != 0 {
@@ -294,8 +301,10 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
             best
         })
         .max()
-        .unwrap_or(0);
-    println!("  thickest contiguous run on one row: {thickest} cells");
+        .unwrap_or(0)
+    };
+    println!("  thickest contiguous run, above ground: {} cells", widest_run(0..ground_y()));
+    println!("  thickest contiguous run, below ground: {} cells (roots spread by design)", widest_run(ground_y()..HEIGHT));
 
     if std::env::args().any(|a| a == "dump") {
         println!("{:>5} {:>5}  {:<12} {:>9} {:>9}", "x", "y", "type", "resource", "canopy");

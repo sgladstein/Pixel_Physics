@@ -66,6 +66,22 @@ const FLOOR_THICKNESS: i32 = 8;
 /// without re-reading `LIGHT_DECAY`'s own doc; a scene where nothing
 /// germinates looks identical to a scene where growth is broken.
 const TREE_GROUND_Y: i32 = 40;
+/// Ground level for the `grove` scene — deliberately deep in the world, so
+/// there is real sky above it.
+///
+/// The number is a compromise between two constraints that pull opposite
+/// ways, and naming them is the point: a plant needs **headroom**, which
+/// wants ground low in the world, and it needs **light**, which
+/// `field.rs` seeds only on the topmost chunk's top row and then diffuses
+/// downward with `LIGHT_DECAY` — so depth costs illumination. At the
+/// shipped decay, light crosses `Germinate`'s 0.1 gate around 75 cells
+/// below open sky, which is a hard ceiling on how deep this can sit.
+///
+/// 96 leaves ~96 rows of sky, comfortably more than the ~21 rows trees
+/// currently use, so the scene stops being the limit and the plant starts
+/// being it. If trees are ever tuned taller than that, raise this before
+/// concluding anything about canopy shape.
+const GROVE_GROUND_Y: i32 = 96;
 
 /// Water with a varied `shade`, the way the brush lays it down
 /// (`World::paint_capsule` rolls a random shade per cell). The scenes below
@@ -266,8 +282,41 @@ fn build(scene: &str) -> World {
                 w.plant_tree(x, TREE_GROUND_Y - 25);
             }
         }
+        // **A scene built for growing plants, rather than one built for
+        // particle physics and reused.** `Reports/tree-architecture-
+        // research.md` §6: every judgement about tree shape up to this
+        // point was made in `forest`, which puts ground at y=40 in a
+        // 320-tall world -- 40 rows of sky against 280 of dirt, because it
+        // was laid out when depth was the interesting axis. Trees reached
+        // that ceiling and could only spread sideways, and the resulting
+        // silhouette was read as "canopies merge into a slab" and chased
+        // as a plant bug for two sessions. Measured: at 40 rows of sky the
+        // widest above-ground row is 56 cells; at 70 it is **7**.
+        //
+        // So this scene inverts the proportions -- a deep sky over a soil
+        // bed just thick enough for a real root system -- and is the one
+        // to judge plant *shape* in. `forest` is kept as it is: it is
+        // still the right scene for root/soil work, and every earlier
+        // sheet was shot in it.
+        "grove" => {
+            let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+            for x in 0..WIDTH {
+                for y in (GROVE_GROUND_Y + 34)..(GROVE_GROUND_Y + 40) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+                for y in GROVE_GROUND_Y..(GROVE_GROUND_Y + 34) {
+                    w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            // Spaced far enough apart to grow into each other only late,
+            // so early shape is the plant's own and late shape shows
+            // competition -- which is what a stand is for.
+            for x in [110, 250, 390] {
+                w.plant_tree(x, GROVE_GROUND_Y - 25);
+            }
+        }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove"
         ),
     }
     w
