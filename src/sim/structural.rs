@@ -333,14 +333,20 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     if matches!(verdict, super::load::ChainVerdict::Deferred) {
         defer!();
     }
-    if let super::load::ChainVerdict::Failing(region) = verdict {
+    if let super::load::ChainVerdict::Failing(failure) = verdict {
         // The forest this describes is about to change out from under it.
         world.load_cache.clear();
+        world.structural_failures.record(failure.mode, failure.region.len());
+        let region = failure.region;
         // M8: a failure big enough to read as a *chunk* leaves as coherent
         // falling pieces rather than dissolving into loose grains one cell
         // at a time. Falls back to the per-cell conversion when the region
         // is too small to be worth it.
-        if !super::rigid::fracture_failing_region(world, &region) {
+        //
+        // `failure.at`, not `(x, y)`: the cell that gave way is the ancestor
+        // the chain walk found over its limit, which may be many cells from
+        // the one this tick was checking. It is where the impulse belongs.
+        if !super::rigid::fracture_failing_region(world, &region, failure.at) {
             for &(fx, fy) in &region {
                 break_free(world, fx, fy);
             }

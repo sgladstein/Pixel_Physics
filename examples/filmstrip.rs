@@ -718,6 +718,17 @@ fn main() {
             world.chunk_bodies.len(),
             world.chunk_bodies.iter().map(|b| b.cells.len()).sum::<usize>(),
         );
+        // Which failure fired, cumulatively. An overloaded piece and a
+        // piece that was never held look identical falling, so the image
+        // cannot say which mechanism produced what is on screen -- and
+        // those are the two halves of the model, with different causes and
+        // different bugs. `CLAUDE.md`: print the count next to the image
+        // and read both.
+        let f = world.structural_failures;
+        println!(
+            "    failures: overloaded {} ({} cells), unsupported {} ({} cells)",
+            f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
+        );
         println!("    worst frame so far: {worst_ms:.2} ms (frame {worst_frame})");
         report_loads(&world, &args);
         captured += 1;

@@ -217,11 +217,43 @@ pub struct World {
     /// up, so a walk can hand `&mut` straight to it and stop when it hits
     /// zero without knowing what the ceiling was.
     pub load_budget: u32,
+    /// Cumulative count of structural failures, by kind
+    /// (`load::FailureMode`). Debug instrumentation, and deliberately not
+    /// optional: a coherent falling slab and a scatter of loose grains are
+    /// indistinguishable in a contact sheet, and so are the two failure
+    /// modes -- one of which is "this was overloaded" and the other "this
+    /// was never held". Read by `examples/filmstrip.rs` beside the image.
+    pub structural_failures: FailureCounts,
     /// Per-frame caches for the load walks (`load::Cache`).
     /// Cleared by `scheduler::step` each frame and again by
     /// `structural::tick` the instant a break mutates the grid, since both
     /// invalidate the support forest it summarises.
     pub load_cache: crate::sim::load::Cache,
+}
+
+/// How many structural failures of each kind have fired, and how much
+/// material each took. See `World::structural_failures`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FailureCounts {
+    pub overloaded: u32,
+    pub overloaded_cells: u32,
+    pub unsupported: u32,
+    pub unsupported_cells: u32,
+}
+
+impl FailureCounts {
+    pub fn record(&mut self, mode: crate::sim::load::FailureMode, cells: usize) {
+        match mode {
+            crate::sim::load::FailureMode::Overloaded => {
+                self.overloaded += 1;
+                self.overloaded_cells += cells as u32;
+            }
+            crate::sim::load::FailureMode::Unsupported => {
+                self.unsupported += 1;
+                self.unsupported_cells += cells as u32;
+            }
+        }
+    }
 }
 
 impl World {
@@ -247,6 +279,7 @@ impl World {
             touched_chunks: std::collections::HashSet::new(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
             load_cache: crate::sim::load::Cache::default(),
+            structural_failures: FailureCounts::default(),
         };
         world.ensure_chunks_for(bounds);
         world

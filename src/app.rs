@@ -8,6 +8,7 @@ use crate::hud;
 use crate::render::{self, Renderer};
 use crate::sim::chunk::Rect;
 use crate::sim::explosion;
+use crate::sim::load;
 use crate::sim::material::{self, MaterialId, MaterialKind};
 use crate::sim::organism;
 use crate::sim::parallel;
@@ -711,6 +712,51 @@ impl App {
     /// field channel at the world position under the cursor — every
     /// existing data path `I` toggles into view rather than needing a
     /// debugger to inspect.
+    /// What the structural model thinks of the cell under the cursor.
+    ///
+    /// # Why this is not a nice-to-have
+    ///
+    /// `load::Load::stress()` is the ratio the failure criterion actually
+    /// tests, it has always been computed, and until now **nothing in the
+    /// running game read it** — its only consumer was `examples/filmstrip`.
+    /// So the model decided whether a player's structure stood using two
+    /// quantities that are invisible on screen: `attached`, a bit that
+    /// multiplies capacity twelvefold and renders identically either way,
+    /// and `section`, which can differ 1,600x between two cells that draw
+    /// the same.
+    ///
+    /// That is precisely how every shipped stress system in this genre
+    /// went wrong. `Reports/prior-art-destruction.md`: Medieval Engineers'
+    /// complaints were "buttresses push into the legs" — *unpredictable*,
+    /// not *too fragile* — while Rust ships a cruder physical model that
+    /// players accept because the number is written on the hammer.
+    ///
+    /// Says why when there is nothing to show, rather than going blank:
+    /// "no reading" covers both "solid rock that cannot fail" and "this
+    /// cell is not part of the structural system at all", and confusing
+    /// those wastes a session.
+    fn structural_line(&self, wx: i32, wy: i32) -> String {
+        if let Some(load) = load::evaluate(&self.world, wx, wy) {
+            return format!(
+                "STRESS {:.2} M{} T{}/{}{}{}",
+                load.stress(),
+                load.mass,
+                load.torque,
+                load.capacity,
+                if load.supported { "" } else { " UNSUPPORTED" },
+                if load.truncated { " PARTIAL" } else { "" },
+            );
+        }
+        let cell = self.world.get(wx, wy);
+        if !structural::is_body_material(&self.world, cell.material) {
+            return "NOT STRUCTURAL".into();
+        }
+        if cell.aux() == 0 {
+            return "ANCHORED".into();
+        }
+        format!("BULK D{} {}", cell.aux(), if cell.attached() { "BACKGROUND" } else { "FOREGROUND" })
+    }
+
     fn draw_hover_inspector(&self, frame: &mut [u8], sx: i32, sy: i32, colour: [u8; 4]) {
         let (wx, wy) = self.renderer.screen_to_world(sx, sy);
         let cell = self.world.get(wx, wy);
@@ -720,6 +766,7 @@ impl App {
             format!("{material} ({wx},{wy})"),
             format!("TEMP {}C{}", cell.temperature(), if cell.is_burning() { " BURNING" } else { "" }),
             format!("P{:.1} T{:.0} L{:.1} M{:.1}", field.pressure, field.temperature, field.light, field.moisture),
+            self.structural_line(wx, wy),
         ];
         for (i, line) in lines.iter().enumerate() {
             hud::draw_text(frame, WIDTH, HEIGHT, 4, 4 + i as i32 * 9, line, colour);

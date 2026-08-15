@@ -142,6 +142,12 @@ const STRIKE_PRESSURE: f32 = 6.0;
 /// large collapse producing an explosion-sized shockwave.
 const COLLAPSE_PRESSURE: f32 = 4.0;
 
+/// How far the extra shove at a fracture's own joint reaches, and how much
+/// harder it hits than the collapse's broad displacement. Tight and sharp:
+/// this exists to give the break a *location*, not to add another blast.
+const SNAP_RADIUS: i32 = 4;
+const SNAP_PRESSURE_FACTOR: f32 = 0.75;
+
 /// How far past a blow's own radius its fractures run. Cracks reaching
 /// further than the damage is what lets a player work a fissure across a
 /// span rather than having to chew through it.
@@ -434,11 +440,11 @@ impl ChunkBody {
 /// column cap where "part breaks into chunks ... the other parts just
 /// crumble to dust". A size cap belongs on a fragment, never on whether a
 /// region breaks at all.
-pub fn fracture_failing_region(world: &mut World, region: &[(i32, i32)]) -> bool {
+pub fn fracture_failing_region(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) -> bool {
     if region.len() < MIN_FRACTURE_CELLS {
         return false;
     }
-    fracture(world, region);
+    fracture(world, region, broke_at);
     true
 }
 
@@ -463,15 +469,15 @@ pub fn fracture_failing_region(world: &mut World, region: &[(i32, i32)]) -> bool
 /// `MIN_BODY_CELLS` is not worth flying as a rigid body and becomes rubble,
 /// so the grit is a *consequence* of the same draw rather than a separate
 /// fudge factor.
-fn fracture(world: &mut World, region: &[(i32, i32)]) {
-    fracture_with_impulse(world, region, None, 0)
+fn fracture(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) {
+    fracture_with_impulse(world, region, None, 0, Some(broke_at))
 }
 
 /// As `fracture`, but every fragment is thrown away from `origin` at
 /// `force`. This is what makes a *blow* different from a collapse: the same
 /// rock comes apart either way, but struck rock leaves the wound rather than
 /// sagging out of it.
-fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Option<((f32, f32), f32)>, size_bias: u32) {
+fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Option<((f32, f32), f32)>, size_bias: u32, broke_at: Option<(i32, i32)>) {
     // Every destructive event owes feedback (`Reports/design-philosophy.md`
     // §0a), and a collapse is one. `break_free` has always written this for
     // a single cell converting to rubble; a region coming apart into chunks
@@ -479,10 +485,6 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
     // nothing, so a structure that failed by *cracking* -- now the common
     // case -- shoved no air at all while one that crumbled did.
     if !region.is_empty() {
-        // Centred on the region and sized to *reach* all of it. Sizing the
-        // radius from the cell count instead looked reasonable and left the
-        // far end of anything long and thin outside the impulse entirely --
-        // a 22-cell cantilever collapsing shoved no air at its own tip.
         let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
         for &(x, y) in region {
             x0 = x0.min(x);
@@ -490,9 +492,28 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
             x1 = x1.max(x);
             y1 = y1.max(y);
         }
+        // Two impulses, because a collapse is two events and they happen
+        // in different places. The whole piece displaces air as it goes --
+        // sized to *reach* all of it, since sizing from the cell count left
+        // the far end of anything long and thin outside the impulse
+        // entirely, and a 22-cell cantilever shoved no air at its own tip.
         let radius = (((x1 - x0) / 2).max((y1 - y0) / 2) + 1).max(2);
         let strength = (region.len() as f32).sqrt() * COLLAPSE_PRESSURE;
         world.add_pressure_impulse((x0 + x1) / 2, (y0 + y1) / 2, radius, strength);
+        // And the fracture itself is a sharp, *local* event at the joint
+        // that gave way. Without this the collapse has no origin the eye
+        // can find: `World::add_pressure_impulse` paints a flat disc with
+        // no falloff, so the region-wide shove above is identical at the
+        // neck and a hundred cells out along the piece that fell. Reported
+        // as the difference between "the neck snapped" and "some rock
+        // fell" -- see `Reports/destruction-plan.md` A3.
+        //
+        // `broke_at` is `None` for a blast, which has no single failing
+        // cell; `strike` and `fracture_shell` pass their own origin, which
+        // is the same idea for a different cause.
+        if let Some((ox, oy)) = broke_at {
+            world.add_pressure_impulse(ox, oy, SNAP_RADIUS, strength * SNAP_PRESSURE_FACTOR);
+        }
     }
     let mut remaining: Vec<(i32, i32)> = region.to_vec();
     remaining.sort_unstable(); // deterministic seed order, as `label_failing_region` already guarantees
@@ -754,7 +775,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     // and then threw nothing at all -- the larger the swing, the less
     // happened, which is exactly backwards.
     if loosened.len() >= MIN_FRACTURE_CELLS {
-        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)), size_bias(radius));
+        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)), size_bias(radius), Some((cx, cy)));
     }
     // Every destructive event owes feedback (`Reports/design-philosophy.md`
     // §0a). A blow shoves the air as well as the rock, which is what makes
@@ -800,7 +821,7 @@ pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: 
     }
     if loosened.len() >= MIN_FRACTURE_CELLS {
         loosened.sort_unstable(); // deterministic seed order
-        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias);
+        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
     }
 }
 
@@ -1293,7 +1314,7 @@ mod tests {
     fn a_failing_region_is_promoted_and_leaves_the_grid() {
         let mut w = test_world();
         let region = loose_slab(&mut w, 20, 20, 6, 3); // 18 cells, inside MIN..=MAX
-        assert!(fracture_failing_region(&mut w, &region), "a slab this size should promote");
+        assert!(fracture_failing_region(&mut w, &region, region[0]), "a slab this size should promote");
 
         assert_eq!(
             count_material(&w, material::STONE),
@@ -1314,7 +1335,7 @@ mod tests {
         // fail on.
         let mut w = test_world();
         let region = loose_slab(&mut w, 10, 10, 20, 12); // 240 cells, plenty to break up
-        assert!(fracture_failing_region(&mut w, &region));
+        assert!(fracture_failing_region(&mut w, &region, region[0]));
 
         let rubble = w.materials.get(material::STONE).breaks_into.unwrap();
         assert!(count_material(&w, rubble) > 0, "a fracture that produced no loose rubble at all is the all-or-nothing failure");
@@ -1335,7 +1356,7 @@ mod tests {
         // the cells alone for that fallback to convert.
         let mut w = test_world();
         let region = loose_slab(&mut w, 20, 20, 2, 2); // 4 cells
-        assert!(!fracture_failing_region(&mut w, &region));
+        assert!(!fracture_failing_region(&mut w, &region, region[0]));
         assert!(w.chunk_bodies.is_empty());
         assert_eq!(count_material(&w, material::STONE), 4, "a declined region must be left in the grid for the caller to convert");
     }
@@ -1354,11 +1375,39 @@ mod tests {
         // claim reversed.
         let mut w = test_world();
         let region = loose_slab(&mut w, 0, 10, 60, 10); // 600 cells, well past MAX_BODY_CELLS
-        assert!(fracture_failing_region(&mut w, &region), "a large collapse should still break up, not decline");
+        assert!(fracture_failing_region(&mut w, &region, region[0]), "a large collapse should still break up, not decline");
 
         assert!(w.chunk_bodies.len() > 1, "600 cells should yield many pieces, not one");
         assert_eq!(total_debris(&w), 600, "fracture lost or duplicated material");
         assert_eq!(count_material(&w, material::STONE), 0, "every cell of the region should have left the grid");
+    }
+
+    #[test]
+    fn a_collapse_shoves_air_at_the_joint_that_gave_way() {
+        // The impulse used to be centred on the region's bounding box,
+        // which for a subtree failure is the middle of the piece that fell
+        // -- often a long way from the joint that actually broke. So the
+        // air moved, the grit jumped, and none of it happened where the
+        // player was looking. `Reports/destruction-plan.md` A3.
+        //
+        // A long thin region, because that is the shape where the two
+        // origins are far apart and the difference is visible: 60 cells
+        // wide, breaking at its left end.
+        let mut w = test_world();
+        let region = loose_slab(&mut w, 0, 10, 60, 3);
+        let neck = (0, 10);
+        let middle = (30, 11);
+        assert_eq!(w.field_at(neck.0, neck.1).pressure, 0.0, "test setup should start at ambient pressure");
+
+        assert!(fracture_failing_region(&mut w, &region, neck));
+
+        let at_neck = w.field_at(neck.0, neck.1).pressure.abs();
+        let at_middle = w.field_at(middle.0, middle.1).pressure.abs();
+        assert!(at_neck > 0.5, "the joint that broke should have been shoved, found {at_neck}");
+        assert!(
+            at_neck > at_middle,
+            "the collapse should read as starting at the joint ({at_neck}) rather than mid-piece ({at_middle})"
+        );
     }
 
     #[test]
@@ -1377,7 +1426,7 @@ mod tests {
                 w.set(x, y, Cell::new(material::STONE, 0)); // aux 0 -- well supported, and adjacent
             }
         }
-        assert!(fracture_failing_region(&mut w, &region));
+        assert!(fracture_failing_region(&mut w, &region, region[0]));
         assert_eq!(
             count_material(&w, material::STONE),
             42,
@@ -1392,7 +1441,7 @@ mod tests {
             w.set(x, 63, Cell::new(material::BEDROCK, 0));
         }
         let region = loose_slab(&mut w, 20, 10, 6, 3);
-        assert!(fracture_failing_region(&mut w, &region));
+        assert!(fracture_failing_region(&mut w, &region, region[0]));
         let start_y = w.chunk_bodies[0].y;
 
         // The CA sweep runs too: fracture now emits loose rubble alongside
@@ -1429,7 +1478,7 @@ mod tests {
             w.set(x, 63, Cell::new(material::BEDROCK, 0));
         }
         let region = loose_slab(&mut w, 20, 10, 6, 3);
-        assert!(fracture_failing_region(&mut w, &region));
+        assert!(fracture_failing_region(&mut w, &region, region[0]));
         for _ in 0..200 {
             step_chunk_bodies(&mut w);
         }
@@ -1465,7 +1514,7 @@ mod tests {
         }
         let sand_before = count_material(&w, material::SAND);
         let region = loose_slab(&mut w, 20, 10, 6, 3);
-        assert!(fracture_failing_region(&mut w, &region));
+        assert!(fracture_failing_region(&mut w, &region, region[0]));
 
         for _ in 0..300 {
             step_chunk_bodies(&mut w);
@@ -1655,7 +1704,7 @@ mod tests {
             .map(|_| {
                 let mut w = test_world();
                 let region = loose_slab(&mut w, 20, 20, 6, 3);
-                fracture_failing_region(&mut w, &region);
+                fracture_failing_region(&mut w, &region, region[0]);
                 w.chunk_bodies[0].cells.iter().map(|c| (c.dx, c.dy)).collect()
             })
             .collect();

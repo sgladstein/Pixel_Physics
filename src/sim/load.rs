@@ -779,17 +779,18 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
 /// The two failures produce genuinely different regions — see the module
 /// doc. Both come back sorted, so whatever `rigid::fracture` seeds from is
 /// identical run to run.
-pub fn failing_region(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mut u32) -> Option<Vec<(i32, i32)>> {
+pub fn failing_region(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mut u32) -> Option<Failure> {
     let load = evaluate_within(world, x, y, cache, budget)?;
     if !load.fails() {
         return None;
     }
     if !load.supported {
-        return Some(detached_piece(world, x, y, &mut cache.anchors, budget));
+        let region = detached_piece(world, x, y, &mut cache.anchors, budget);
+        return Some(Failure { at: (x, y), mode: FailureMode::Unsupported, region });
     }
     let (mut subtree, _) = supported_subtree(world, x, y, budget);
     subtree.sort_unstable();
-    Some(subtree)
+    Some(Failure { at: (x, y), mode: FailureMode::Overloaded, region: subtree })
 }
 
 /// Ancestors a settling cell re-checks on its way to the anchor.
@@ -842,8 +843,8 @@ pub fn failing_along_support_chain(world: &World, x: i32, y: i32, cache: &mut Ca
             // have caught it ran out of budget and quietly said fine.
             return ChainVerdict::Deferred;
         }
-        if let Some(region) = failing_region(world, at.0, at.1, cache, budget) {
-            return ChainVerdict::Failing(region);
+        if let Some(failure) = failing_region(world, at.0, at.1, cache, budget) {
+            return ChainVerdict::Failing(failure);
         }
         match support_parent(world, at.0, at.1) {
             Some(parent) => at = parent,
@@ -853,10 +854,36 @@ pub fn failing_along_support_chain(world: &World, x: i32, y: i32, cache: &mut Ca
     ChainVerdict::Holds
 }
 
+/// Which of the two failures fired. They are different events with
+/// different causes, and a contact sheet cannot tell them apart — a piece
+/// that was overloaded and a piece that was never held look identical
+/// falling. `CLAUDE.md`: "did it fire at all" needs a counter, not a
+/// picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FailureMode {
+    /// The chain reached an anchor, but the moment exceeded the section.
+    Overloaded,
+    /// Nothing held it at all.
+    Unsupported,
+}
+
+/// A failure, and **where** it happened.
+///
+/// The position is not the cell that was checked — it is the ancestor the
+/// chain walk found to be over its limit, which may be many cells away.
+/// Carried out so the impulse, and therefore what the eye reads as the
+/// origin of the collapse, lands on the joint that gave way rather than on
+/// the middle of the piece that fell.
+pub struct Failure {
+    pub at: (i32, i32),
+    pub mode: FailureMode,
+    pub region: Vec<(i32, i32)>,
+}
+
 /// What a chain walk concluded. `Deferred` is not `Holds` — see
 /// `failing_along_support_chain`.
 pub enum ChainVerdict {
-    Failing(Vec<(i32, i32)>),
+    Failing(Failure),
     Holds,
     Deferred,
 }
@@ -999,8 +1026,9 @@ mod tests {
 
         let load = evaluate(&w, 25, 24).expect("a floating blob cell should be evaluable");
         assert!(!load.supported, "a blob with no path to an anchor must read as unsupported");
-        let region = failing_region(&w, 25, 24, &mut Cache::default(), &mut unbounded()).expect("an unsupported cell must fail");
-        assert_eq!(region.len(), 80, "the whole 10x8 blob should come away, not one cell of it");
+        let failure = failing_region(&w, 25, 24, &mut Cache::default(), &mut unbounded()).expect("an unsupported cell must fail");
+        assert_eq!(failure.mode, FailureMode::Unsupported, "nothing holds this blob, so it is not *overloaded* -- it is falling");
+        assert_eq!(failure.region.len(), 80, "the whole 10x8 blob should come away, not one cell of it");
     }
 
     #[test]
