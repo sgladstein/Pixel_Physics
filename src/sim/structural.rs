@@ -180,6 +180,11 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         let mut has_usable_neighbour = false;
         let mut has_burning_neighbour = false;
         for (dx, dy) in NEIGHBOURS_4 {
+            // A fracture between us carries no load, however solid the rock
+            // on the far side is.
+            if edge_is_cracked(world, x, y, dx, dy) {
+                continue;
+            }
             let neighbour = world.get(x + dx, y + dy);
             if !is_body_material(world, neighbour.material) {
                 continue;
@@ -476,6 +481,9 @@ pub fn compute_world_distances(world: &mut World) {
             continue; // superseded by a shorter path already processed
         }
         for (dx, dy) in NEIGHBOURS_4 {
+            if edge_is_cracked(world, x, y, dx, dy) {
+                continue;
+            }
             let (nx, ny) = (x + dx, y + dy);
             let neighbour = world.get(nx, ny);
             if !is_relaxable(world, neighbour) {
@@ -514,6 +522,29 @@ pub fn compute_world_distances(world: &mut World) {
 /// them to `organism_structural_tick` instead of relaxing them in place.
 fn is_relaxable(world: &World, cell: Cell) -> bool {
     is_body_material(world, cell.material) && cell.organism_id() == 0
+}
+
+/// Whether a fracture separates `(x, y)` from its neighbour at `(dx, dy)`.
+///
+/// The single rule the whole crack mechanic rests on: support does not cross
+/// a crack. Nothing else has to detect "a fissure has gone all the way
+/// around this piece" — once it has, the piece cannot reach an anchor
+/// through any uncracked path, its distance runs away, and the existing
+/// failure machinery breaks it off. A crack that only partly encircles
+/// something changes nothing structurally, which is right: a scored face is
+/// still a face.
+///
+/// Each edge is owned by exactly one of the two cells it separates (see
+/// `FLAG_CRACK_RIGHT`), so reaching left or up means asking the *neighbour*
+/// about its own right or down edge.
+pub fn edge_is_cracked(world: &World, x: i32, y: i32, dx: i32, dy: i32) -> bool {
+    match (dx, dy) {
+        (1, 0) => world.get(x, y).crack_right(),
+        (-1, 0) => world.get(x - 1, y).crack_right(),
+        (0, 1) => world.get(x, y).crack_down(),
+        (0, -1) => world.get(x, y - 1).crack_down(),
+        _ => false,
+    }
 }
 
 /// Strip background attachment from the material newly exposed by removing
@@ -878,8 +909,15 @@ mod tests {
         w.schedule_structural_check(tx, ty);
         run(&mut w, 200);
 
+        // Either outcome counts as "it broke": the cell is now rubble in
+        // place, or it left the grid entirely as part of a chunk body. A
+        // failure takes the whole overhang now, so the tip is usually lifted
+        // rather than converted -- pinning it to rubble specifically would
+        // be pinning which of the two happened, which is not what this test
+        // is about.
         let debris = stone_debris(&w);
-        assert_eq!(w.get(tx, ty).material, debris, "test setup should have broken the topmost cell");
+        let broke = w.get(tx, ty).material == debris || w.get(tx, ty).material == material::EMPTY;
+        assert!(broke, "test setup should have broken the tip, found {:?}", w.get(tx, ty).material);
         assert!(
             w.field_at(tx, ty).pressure.abs() > 0.5,
             "a structural break should have written a pressure impulse into the field, found {}",

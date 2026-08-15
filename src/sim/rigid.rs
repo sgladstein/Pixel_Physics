@@ -127,6 +127,11 @@ const SPIN_PER_SPEED: f32 = 0.012;
 /// Pressure written into the field per unit of strike force.
 const STRIKE_PRESSURE: f32 = 6.0;
 
+/// Pressure a collapse writes, per square root of its cell count — so a
+/// shelf coming down is felt more than a pebble breaking loose, without a
+/// large collapse producing an explosion-sized shockwave.
+const COLLAPSE_PRESSURE: f32 = 4.0;
+
 /// How much a blow of this radius shifts the fragment-size ladder. A tap
 /// chips; a heavy swing calves slabs. Capped at 2 (a 128-cell ceiling)
 /// because past that a "fragment" is the whole wall and stops reading as a
@@ -450,6 +455,28 @@ fn fracture(world: &mut World, region: &[(i32, i32)]) {
 /// rock comes apart either way, but struck rock leaves the wound rather than
 /// sagging out of it.
 fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Option<((f32, f32), f32)>, size_bias: u32) {
+    // Every destructive event owes feedback (`Reports/design-philosophy.md`
+    // §0a), and a collapse is one. `break_free` has always written this for
+    // a single cell converting to rubble; a region coming apart into chunks
+    // is a louder version of the same event and was silently writing
+    // nothing, so a structure that failed by *cracking* -- now the common
+    // case -- shoved no air at all while one that crumbled did.
+    if !region.is_empty() {
+        // Centred on the region and sized to *reach* all of it. Sizing the
+        // radius from the cell count instead looked reasonable and left the
+        // far end of anything long and thin outside the impulse entirely --
+        // a 22-cell cantilever collapsing shoved no air at its own tip.
+        let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        for &(x, y) in region {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        }
+        let radius = (((x1 - x0) / 2).max((y1 - y0) / 2) + 1).max(2);
+        let strength = (region.len() as f32).sqrt() * COLLAPSE_PRESSURE;
+        world.add_pressure_impulse((x0 + x1) / 2, (y0 + y1) / 2, radius, strength);
+    }
     let mut remaining: Vec<(i32, i32)> = region.to_vec();
     remaining.sort_unstable(); // deterministic seed order, as `label_failing_region` already guarantees
     let mut left: HashSet<(i32, i32)> = remaining.iter().copied().collect();
@@ -573,17 +600,40 @@ fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
 }
 
 /// Flood the connected cells that are solid, unowned, and already past
-/// their own material's span. See `try_promote_failing_region` for why this
-/// predicate rather than plain solidity.
+/// their own material's span -- see below for why that was wrong.
+///
+/// # Why the whole appendage, not the cells that are over span
+///
+/// Flooding only cells already past their span made structures dissolve
+/// from the tip inward instead of cracking, for two compounding reasons.
+/// The cascade is progressive, so at the instant the first cell crosses,
+/// its neighbours have not, and the set is one cell -- below
+/// `MIN_FRACTURE_CELLS`, so it fell through to per-cell conversion and the
+/// fracture path never ran. And when a player builds outward the failing
+/// cell is the one just placed at the very tip, with nothing beyond it, so
+/// the set is one cell however patient the cascade is.
+///
+/// Real cantilevers fail at the root and the whole span drops. With
+/// `support_cost_below` at 0 a cell's stored distance is its horizontal
+/// reach out from whatever holds it up, so anchored material sits at 0 and
+/// anything hanging off it is 1 or more. Flooding "connected, unattached,
+/// distance above zero" therefore takes the entire appendage and stops dead
+/// at the anchor, with no threshold to tune. A tower is untouched: every
+/// cell of it is at 0 through that same free downward step.
 fn label_failing_region(world: &World, seed_x: i32, seed_y: i32, max_cells: usize) -> Option<Vec<(i32, i32)>> {
-    let failing = |x: i32, y: i32| {
+    let hanging = |x: i32, y: i32| {
         let cell = world.get(x, y);
         if !is_body_material(world, x, y) || cell.organism_id() != 0 {
             return false;
         }
-        cell.aux() > world.materials.get(cell.material).max_unsupported_span
+        // Attached rock is held by the mass behind it and is not hanging off
+        // anything; it must never be swept into a falling piece by a
+        // neighbour's failure. Everything else with a non-zero distance is,
+        // by definition, reaching out from something rather than sitting on
+        // it -- see this function's doc for why that is the right set.
+        !cell.attached() && cell.aux() > 0
     };
-    if !failing(seed_x, seed_y) {
+    if !hanging(seed_x, seed_y) {
         return None;
     }
 
@@ -601,7 +651,12 @@ fn label_failing_region(world: &World, seed_x: i32, seed_y: i32, max_cells: usiz
             if visited.contains(&next) {
                 continue;
             }
-            if failing(next.0, next.1) {
+            // A fracture is where the piece ends: walking across one would
+            // drag down rock it is no longer joined to.
+            if super::structural::edge_is_cracked(world, x, y, dx, dy) {
+                continue;
+            }
+            if hanging(next.0, next.1) {
                 visited.insert(next);
                 stack.push(next);
             }
