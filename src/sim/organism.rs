@@ -833,6 +833,22 @@ const VEIN_DECAY: f32 = 0.1;
 /// | 30:1 | 54/96 (56%) | 4,906 | 20.7x of 30 |
 /// | **10:1** | **70/96 (73%)** | **6,321** | **6.1x of 10** |
 ///
+/// **Re-derived after `RESOURCE_SCALE` was made to bind in transport**,
+/// since the table above was measured against an economy where a cell
+/// could hold 23x its stated cap. The choice survives, on better numbers
+/// and for a new reason — at n=12 across all six variants:
+///
+/// | contrast | established | cells | undiff / partial / vascular |
+/// |---|---|---|---|
+/// | 30:1 | 56/72 | 4,117 | 38% / 32% / 30% |
+/// | **10:1** | **68/72** | **7,265** | 29% / 37% / **33%** |
+/// | 5:1 | 70/72 | 7,485 | 29% / 41% / 29% |
+///
+/// 5:1 now edges 10:1 on establishment (97% vs 94%) but produces *fewer*
+/// fully vascular cells and halves the ceiling a strand can reach, so it
+/// buys three points of germination by making the mechanism less able to
+/// differentiate at all. 10:1 is the point where both are still good.
+///
 /// So 17 points of establishment and 29% more biomass, for a hierarchy
 /// that is still unmistakably a hierarchy — and note the *fraction* of the
 /// available range actually reached barely moved (69% -> 61%), so the
