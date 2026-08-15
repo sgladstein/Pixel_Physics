@@ -132,6 +132,25 @@ const STRIKE_PRESSURE: f32 = 6.0;
 /// large collapse producing an explosion-sized shockwave.
 const COLLAPSE_PRESSURE: f32 = 4.0;
 
+/// How far past a blow's own radius its fractures run. Cracks reaching
+/// further than the damage is what lets a player work a fissure across a
+/// span rather than having to chew through it.
+const CRACK_REACH: i32 = 3;
+
+/// Fractures scored per blow. Few enough to read as distinct fissures
+/// rather than a shatter pattern.
+const CRACK_RAYS: u32 = 5;
+
+/// Extra reach a ray gains from running into existing damage. Stress
+/// concentrates at a crack tip, so repeated blows in one place drive a
+/// fissure deeper instead of scribbling a new one each time.
+const CRACK_TIP_BONUS: i32 = 2;
+
+/// How many times a single ray may claim `CRACK_TIP_BONUS`. Bounds the walk
+/// so working one spot forever cannot drive a fissure across the whole
+/// world, while still leaving several blows' worth of room to grow.
+const CRACK_TIP_MAX_STEPS: i32 = 6;
+
 /// How much a blow of this radius shifts the fragment-size ladder. A tap
 /// chips; a heavy swing calves slabs. Capped at 2 (a 128-cell ceiling)
 /// because past that a "fragment" is the whole wall and stops reading as a
@@ -670,6 +689,66 @@ fn label_failing_region(world: &World, seed_x: i32, seed_y: i32, max_cells: usiz
     Some(out)
 }
 
+/// Score fractures radiating out from a blow.
+///
+/// A crack runs *along* the ray, so it separates the rock either side of
+/// that line: travelling horizontally it cuts the down edges of the cells it
+/// crosses, travelling vertically the right edges. Which is to say the edge
+/// marked is the one perpendicular to the direction of travel — get that
+/// backwards and the cracks run across the ray instead of along it, cutting
+/// the rock into rings rather than wedges.
+///
+/// Diagonal rays leave a staircase of cuts that does not fully separate
+/// anything, and that is correct rather than a limitation: a partial crack
+/// should weaken rock without detaching it. Capacity counts cracked edges,
+/// so a staircase weakens; only a continuous cut separates.
+///
+/// **Cracks prefer to extend cracks.** Running into existing damage buys the
+/// ray extra reach, because a crack tip is where stress concentrates — so
+/// hitting the same spot repeatedly drives a fissure deeper rather than
+/// scribbling a fresh one each time, and the player can work a crack along
+/// deliberately. That is the difference between damage that accumulates and
+/// damage that merely repeats.
+fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, rays: u32) {
+    // Ray directions are keyed on the *site*, not drawn fresh per blow, and
+    // that is what makes damage accumulate. Jittering per call sent every
+    // hit off in new directions, so a second blow on the same spot scored
+    // fresh fissures beside the old ones instead of driving them deeper --
+    // the crack-tip bonus below could almost never find anything to extend.
+    // It is also the more physical reading: how a given rock splits at a
+    // given point is a property of the rock, not of the swing.
+    let jitter = super::rng::jitter(cx, cy);
+    // Only *pre-existing* damage earns a ray extra reach. Rays from one blow
+    // cross each other near the origin, so counting cracks this call just
+    // made had every strike max out its own bonus immediately and left
+    // nothing for the next one to build on -- the reach was identical after
+    // one blow and after two.
+    let mut scored_now: HashSet<(i32, i32)> = HashSet::new();
+    for i in 0..rays {
+        let theta = (i as f32 + jitter) * std::f32::consts::TAU / rays as f32;
+        let (dx, dy) = (theta.cos(), theta.sin());
+        let horizontal = dx.abs() > dy.abs();
+        let mut reach = length;
+        let mut r = from;
+        while r <= reach {
+            let x = cx + (dx * r as f32).round() as i32;
+            let y = cy + (dy * r as f32).round() as i32;
+            if !world.in_bounds(x, y) || !is_body_material(world, x, y) {
+                break; // a crack stops at a free face; there is nothing left to split
+            }
+            let cell = world.get(x, y);
+            if cell.cracked() && !scored_now.contains(&(x, y)) {
+                reach = (reach + CRACK_TIP_BONUS).min(length + CRACK_TIP_BONUS * CRACK_TIP_MAX_STEPS);
+            }
+            let scored = if horizontal { cell.with_crack_down(true) } else { cell.with_crack_right(true) };
+            world.set(x, y, scored);
+            scored_now.insert((x, y));
+            world.schedule_structural_check_around(x, y);
+            r += 1;
+        }
+    }
+}
+
 /// Hit the rock at `(cx, cy)` hard enough to break it.
 ///
 /// # Why destruction needs a verb of its own
@@ -696,13 +775,20 @@ fn label_failing_region(world: &World, seed_x: i32, seed_y: i32, max_cells: usiz
 /// ordinary structural cascade afterwards, so hitting the base of an
 /// overhang both throws chips *and* brings the overhang down a moment later.
 pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
+    // Three zones, and the split is what makes a blow read as a blow rather
+    // than as a hole appearing. The core is pulverized -- that is the bite.
+    // A thin shell around it chips off immediately, so every hit produces
+    // visible flying rock whether or not anything structural gives way. Past
+    // that the rock is *scored*: damage that shows and accumulates without
+    // detaching, which is the state the whole mechanic was missing.
     let core = (radius / 3).max(1);
+    let chip = (radius * 2 / 3).max(core + 1);
     let mut loosened = Vec::new();
-    for dy in -radius..=radius {
-        for dx in -radius..=radius {
+    for dy in -chip..=chip {
+        for dx in -chip..=chip {
             let (x, y) = (cx + dx, cy + dy);
             let d2 = dx * dx + dy * dy;
-            if d2 > radius * radius || !world.in_bounds(x, y) {
+            if d2 > chip * chip || !world.in_bounds(x, y) {
                 continue;
             }
             if !is_body_material(world, x, y) || world.get(x, y).organism_id() != 0 {
@@ -715,6 +801,9 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
             }
         }
     }
+    // Cracks reach well past the rock the blow actually removes -- that
+    // reach is the whole point of striking rather than erasing.
+    score_cracks(world, cx, cy, chip, radius * CRACK_REACH, CRACK_RAYS);
     // Loosen first, so the fracture below sees rock that is no longer
     // claiming to be braced by the massif.
     for &(x, y) in &loosened {
@@ -1505,6 +1594,56 @@ mod tests {
         assert_ne!(w.get(30, 30).material, material::STONE, "the strike did not pulverize the cells it landed on");
     }
 
+    /// How far the furthest fracture reaches from `(cx, cy)`.
+    fn crack_reach(w: &World, cx: i32, cy: i32) -> i32 {
+        let mut furthest = 0;
+        for x in 0..64 {
+            for y in 0..64 {
+                if w.get(x, y).cracked() {
+                    let d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                    furthest = furthest.max((d2 as f32).sqrt() as i32);
+                }
+            }
+        }
+        furthest
+    }
+
+    #[test]
+    fn working_the_same_spot_drives_a_crack_deeper() {
+        // Stress concentrates at a crack tip, so a second blow on damaged
+        // rock should *extend* the fissure rather than scribble a fresh one
+        // beside it. This is what makes damage accumulate instead of merely
+        // repeat, and what lets a player work a crack along deliberately
+        // rather than chewing through a span.
+        // Two independently built worlds rather than a clone: `World` is not
+        // `Clone`, and building twice also proves the difference comes from
+        // the second blow rather than from any state the first left behind.
+        let slab = |w: &mut World| {
+            for y in 4..60 {
+                for x in 4..60 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+        };
+        let mut once = test_world();
+        slab(&mut once);
+        let mut twice = test_world();
+        slab(&mut twice);
+
+        strike(&mut once, 32, 32, 5, 3.0);
+        let after_one = crack_reach(&once, 32, 32);
+
+        strike(&mut twice, 32, 32, 5, 3.0);
+        strike(&mut twice, 32, 32, 5, 3.0);
+        let after_two = crack_reach(&twice, 32, 32);
+
+        assert!(after_one > 0, "a single blow scored no fractures at all");
+        assert!(
+            after_two > after_one,
+            "a second blow on the same spot should drive the fissure further out ({after_one} -> {after_two}), not just re-score the same rock"
+        );
+    }
+
     #[test]
     fn struck_rock_stops_being_part_of_the_background_mass() {
         // Loosening is what lets the *cascade* finish the job after the blow
@@ -1519,15 +1658,28 @@ mod tests {
         }
         strike(&mut w, 30, 30, 6, 4.0);
 
-        let survivor = (10..50)
+        // Two zones, two claims. Inside the blow the rock is *loosened* --
+        // stripped of its backing, so the cascade can finish what the hit
+        // started. Beyond it the rock is *scored* -- still part of the
+        // massif, but carrying fractures that weaken it and that a later
+        // blow can drive deeper. Checking only the first would pass with
+        // cracks doing nothing at all.
+        let loosened = (10..50)
             .flat_map(|x| (10..50).map(move |y| (x, y)))
             .find(|&(x, y)| {
                 let d2 = (x - 30) * (x - 30) + (y - 30) * (y - 30);
-                d2 > 9 && d2 <= 36 && w.get(x, y).material == material::STONE
+                d2 > 4 && d2 <= 16 && w.get(x, y).material == material::STONE
             });
-        if let Some((x, y)) = survivor {
-            assert!(!w.get(x, y).attached(), "rock inside the blow radius at ({x}, {y}) is still claiming to be braced by the massif");
+        if let Some((x, y)) = loosened {
+            assert!(!w.get(x, y).attached(), "rock inside the blow at ({x}, {y}) is still claiming to be braced by the massif");
         }
+        let scored = (10..50)
+            .flat_map(|x| (10..50).map(move |y| (x, y)))
+            .any(|(x, y)| {
+                let d2 = (x - 30) * (x - 30) + (y - 30) * (y - 30);
+                d2 > 36 && w.get(x, y).cracked()
+            });
+        assert!(scored, "the blow scored no fractures beyond the rock it removed, so it cannot be worked at");
     }
 
     #[test]

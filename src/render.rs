@@ -215,6 +215,11 @@ const MAX_ZOOM: i32 = 8;
 /// "the same kind of picture, zoomed out" rather than aliasing into noise.
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
+/// How far a fractured cell is darkened, out of 256. Dark enough to read as
+/// a break at a glance, light enough that a scored face is still obviously
+/// rock rather than a hole.
+const CRACK_DARKEN: u16 = 110;
+
 pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
     /// Prototype switch — see the enum's own doc.
@@ -568,7 +573,22 @@ impl Renderer {
         let palette = &world.materials.get(cell.material).palette;
         // Modulo keeps any shade value valid, so a palette can shrink on hot
         // reload in M3 without invalidating cells already in the world.
-        let base = palette[cell.shade as usize % palette.len()];
+        let mut base = palette[cell.shade as usize % palette.len()];
+        // Fractured rock draws dark along the break. Cracks are edge state
+        // (`FLAG_CRACK_RIGHT`), and at 1:1 an edge has no pixels of its own
+        // to draw into -- so the *cell* owning the crack is darkened
+        // instead, which renders a fissure as a dark seam threading through
+        // the rock at any zoom. Without this the entire mechanic is
+        // invisible: rock would weaken, sag and eventually drop with nothing
+        // on screen ever having looked damaged.
+        if cell.cracked() {
+            base = [
+                (base[0] as u16 * CRACK_DARKEN / 256) as u8,
+                (base[1] as u16 * CRACK_DARKEN / 256) as u8,
+                (base[2] as u16 * CRACK_DARKEN / 256) as u8,
+                base[3],
+            ];
+        }
         // A raw material check, not `cell.is_empty()` -- a promoted liquid
         // body's container cell (`Reports/liquid-heightfield-design.md`
         // §3c) is materially empty but `FLAG_MANAGED`, and `is_empty()`'s
