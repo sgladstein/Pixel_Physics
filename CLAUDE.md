@@ -70,6 +70,8 @@ already changed decisions:
 | `Reports/*.md` | Design records and research, one per subsystem |
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions, what has been ruled out *by measurement*, and what was tried and reverted. Read this before touching a listed area. |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
+| `Reports/fracture-mechanics-design.md` | Why rock breaks the way it does, and why three earlier support models were wrong |
+| `Reports/load-model-handoff.md` | **The next step on destruction**, written up to be picked up cold |
 
 **Source comments are load-bearing.** They record *why*, including approaches
 that were tried and reverted and must not be retried. Do not strip them when

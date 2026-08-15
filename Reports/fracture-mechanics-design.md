@@ -4,6 +4,11 @@
 successive support models, and after the owner identified the defect the
 third one still had.
 
+**Implementation handoff: `Reports/load-model-handoff.md`** — the remaining
+step written up file-by-file, with the four support models already tried and
+rejected, the repo gotchas, and the acceptance cases. Read that to *build*
+this; read on to understand *why*.
+
 **Read `Reports/design-philosophy.md` §0a first.** Satisfying is the
 requirement here, and this subsystem is the worked example of failing it.
 
