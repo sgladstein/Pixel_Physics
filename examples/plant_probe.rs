@@ -12,26 +12,22 @@
 //! cargo run --release --example plant_probe -- frames=200
 //! ```
 
-use pixel_physics::sim::cell::Cell;
-use pixel_physics::sim::chunk::Rect;
-use pixel_physics::sim::organism;
-use pixel_physics::sim::world::World;
-use pixel_physics::sim::{material, parallel};
+mod common;
 
-const WIDTH: i32 = 512;
-const HEIGHT: i32 = 320;
-/// Matches `filmstrip`'s `TREE_GROUND_Y` — see that constant's doc for why
-/// the depth is pinned to `field.rs`'s light profile rather than chosen.
-/// Overridable with `ground=N`, because the default is low enough to cap
-/// the answer: at `ground=40` there are only 40 rows of sky, and trees
-/// median 35 of them — so a height reading there measures the *scene*, not
-/// the plant. `field.rs`'s `LIGHT_DECAY` puts `Germinate`'s `0.1` crossing
-/// around 75 cells below open sky, so ~70 is the deepest ground that still
-/// germinates, and the widest window this question can be asked in.
+use pixel_physics::sim::organism;
+use pixel_physics::sim::parallel;
+
+
+/// Soil surface row. Defaults to `common::PlantScene`'s, which is chosen
+/// so the *plant* is the limit rather than the world's top edge -- see that
+/// type's doc for the three times a ceiling-bound scene produced a wrong
+/// conclusion. Override with `ground=N` only to deliberately test a
+/// constrained world, and check `canopy top` in the output before trusting
+/// any shape number from it.
 fn ground_y() -> i32 {
     std::env::args()
         .find_map(|a| a.strip_prefix("ground=").map(|v| v.parse().expect("ground")))
-        .unwrap_or(40)
+        .unwrap_or(common::PlantScene::default().ground_y)
 }
 
 fn main() {
@@ -40,56 +36,16 @@ fn main() {
         .find_map(|a| a.strip_prefix("frames=").map(|v| v.parse().expect("frames")))
         .unwrap_or(400);
 
-    let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
-    let soil = w.materials.id_of("soil").expect("soil is compiled in");
-    for x in 0..WIDTH {
-        for y in (ground_y() + 30)..(ground_y() + 36) {
-            w.set(x, y, Cell::new(material::STONE, 0));
-        }
-        for y in ground_y()..(ground_y() + 30) {
-            w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
-        }
-    }
-    // `trees=N` plants N well-separated trees in one world and reports the
-    // spread of outcomes rather than one number.
-    //
-    // **This is not a nicety.** Swapping `plant.rs` from the shared
-    // `World::rng` to a per-organism stream -- a change that alters *which*
-    // numbers a tree draws, not how many or how they are distributed --
-    // moved this scene from 69 cells and 18 leaves to 19 and 6. Same
-    // species file, same scene, same frame count. A single run therefore
-    // cannot tell "this parameter is better" from "this run drew luckier
-    // numbers", which is exactly what `examples/debug_tree_variants.rs`
-    // does today with n=1 per variant, and exactly what
-    // `Reports/population-dynamics-research.md` §8 argues about ecologies
-    // ("single runs prove nothing... acceptance must be over an ensemble").
-    // The plant work needs it first, so it grows here.
+    // **One scene, shared with `filmstrip`** -- see `common::PlantScene`.
+    // These two harnesses used to build their own worlds and were compared
+    // as if they matched; they did not, in tree count, spacing, seed
+    // placement and soil depth.
     let trees: usize = std::env::args()
         .find_map(|a| a.strip_prefix("trees=").map(|v| v.parse().expect("trees")))
         .unwrap_or(1);
-    let spacing = WIDTH / (trees as i32 + 1);
-    for i in 0..trees as i32 {
-        w.plant_tree(spacing * (i + 1), ground_y() - 1);
-    }
-    if trees == 1 {
-        // The single-tree case must stay identical to `filmstrip`'s own
-        // `tree` scene, puddle included, and that is not a cosmetic detail.
-        // Without it, row `ground_y() - 1` is open air for the tree's whole
-        // life and `thicken()` -- which only ever grows left/right into an
-        // *empty* neighbour -- spreads along it unopposed, reporting a
-        // 19-cell contiguous run at the base. With the puddle, water
-        // occupies that row, `world.is_empty` refuses, and the same tree
-        // bases out at 2-3 cells.
-        //
-        // So `SecondaryThicken`'s ground-level behaviour is decided by
-        // whatever happens to be lying on the row beside the trunk. Worth
-        // knowing before reading any thickness number off this probe, and
-        // worth fixing when `thicken()` is next touched: growing sideways
-        // along one open row is a pancake, not a trunk. The ensemble runs
-        // without a puddle, so its thickness figures are the *unopposed*
-        // case and should be read as an upper bound.
-        w.paint_circle(150, ground_y() - 4, 7, material::WATER);
-    }
+    let scene = common::PlantScene { ground_y: ground_y(), trees, ..Default::default() };
+    let (width, height) = (scene.width, scene.height);
+    let mut w = scene.build();
 
     let mut awake_frames = 0u64;
     for _ in 0..frames {
@@ -105,8 +61,8 @@ fn main() {
     // Soil water profile: what a growing stand actually does to the ground.
     {
         let mut held: Vec<u16> = Vec::new();
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
+        for y in 0..height {
+            for x in 0..width {
                 let c = w.get(x, y);
                 if w.materials.get(c.material).water_capacity > 0 {
                     held.push(pixel_physics::sim::update::soil_moisture(c));
@@ -136,8 +92,8 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
     // ("one cell thick", "still a tiny tree"), so they get reported per
     // tree across the ensemble rather than as one run's figure.
     let mut per_organism: std::collections::BTreeMap<u16, (usize, usize, i32, i32)> = std::collections::BTreeMap::new();
-    for y in 0..HEIGHT {
-        for x in 0..WIDTH {
+    for y in 0..height {
+        for x in 0..width {
             let c = w.get(x, y);
             if c.organism_id() == 0 {
                 continue;
@@ -172,16 +128,16 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
     // a whip with a lump on it.
     let mut rows_total: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
     let mut rows_wide: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
-    for y in 0..HEIGHT {
+    for y in 0..height {
         let (mut run, mut owner) = (0usize, 0u16);
-        for x in 0..=WIDTH {
+        for x in 0..=width {
             // Woody cells only. A leaf now sits *beside* the stem it
             // grew from, so counting every organism cell makes a bare
             // stem-plus-leaf pair read as a two-cell-thick trunk -- which
             // took the "rows wider than one cell" figure from 25% to 88%
             // on a change that added no wood at all. Thickness is a
             // question about the woody stem, so `Leaf` is excluded.
-            let id = if x < WIDTH {
+            let id = if x < width {
                 let c = w.get(x, y);
                 if organism::cell_type(c.aux()) == Some(organism::CellType::Leaf) { 0 } else { c.organism_id() }
             } else {
@@ -228,6 +184,18 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         println!("  cells     min {smin:>4}  median {smed:>4}  max {smax:>4}  mean {smean:>7.1}");
         println!("  leaves    min {lmin:>4}  median {lmed:>4}  max {lmax:>4}  mean {lmean:>7.1}");
         println!("  height    min {hmin:>4}  median {hmed:>4}  max {hmax:>4}  mean {hmean:>7.1}   (scene ceiling: {} rows of sky)", ground_y());
+        // **The ceiling detector, and the first thing to read.** A run
+        // whose canopy reaches row 0 is contaminated: trees that cannot go
+        // up spread sideways, which is the "canopies merge into a slab"
+        // symptom that was chased as a plant bug across two sessions and
+        // three scenes (`forest` at 40 rows of sky, `grove` at 96, and
+        // `ground=200`, where median shoot height still measured 203).
+        // Discard the shape numbers rather than interpreting them.
+        match common::canopy_top(&w) {
+            Some(top) if top <= 0 => println!("  canopy top  row {top}   *** CEILING HIT -- shape numbers from this run are void ***"),
+            Some(top) => println!("  canopy top  row {top}   ({top} rows of clearance remain)"),
+            None => println!("  canopy top  -- nothing grew"),
+        }
         let wide_pct: Vec<usize> = per_organism
             .keys()
             .map(|k| {
@@ -290,7 +258,7 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
     let widest_run = |rows: std::ops::Range<i32>| -> usize {
         rows.map(|y| {
             let (mut best, mut run) = (0usize, 0usize);
-            for x in 0..WIDTH {
+            for x in 0..width {
                 if w.get(x, y).organism_id() != 0 {
                     run += 1;
                     best = best.max(run);
@@ -304,7 +272,7 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         .unwrap_or(0)
     };
     println!("  thickest contiguous run, above ground: {} cells", widest_run(0..ground_y()));
-    println!("  thickest contiguous run, below ground: {} cells (roots spread by design)", widest_run(ground_y()..HEIGHT));
+    println!("  thickest contiguous run, below ground: {} cells (roots spread by design)", widest_run(ground_y()..height));
 
     if std::env::args().any(|a| a == "dump") {
         println!("{:>5} {:>5}  {:<12} {:>9} {:>9}", "x", "y", "type", "resource", "canopy");

@@ -38,12 +38,40 @@ vs hard-coded 3), spacing (56 vs 140 cells at 8 trees), seed placement
 scene builder both call. **This is why the crown-shyness commit was tuned
 at one stand density and eyeballed at another.**
 
-**0b. Size the world from evidence.** `ground=200` is *still* ceiling-bound
-— median shoot height 203 in a 200-row sky, five of eight trees pinned at
-the boundary. Raise the harness world height (both harnesses declare their
-own `WIDTH`/`HEIGHT`) until median height is comfortably below the ceiling
-and `canopyTop` never reaches 0 during a run. Empty sky chunks sleep, so
-the cost should be near zero — verify with the ascii worst-frame number.
+**0b. Size the world from evidence — BLOCKED, and the reason is a light
+model defect, not a scene parameter.**
+
+Measured, 8 trees / 30,000 frames, varying only ground depth:
+
+| ground | cells | clearance at end |
+|---|---|---|
+| 200 | 8,529 | **3 rows** |
+| 250 | 179 | 196 rows |
+| 300 | 62 | 295 rows |
+| 400 | 8 (nothing germinated) | 399 rows |
+
+A cliff, not a curve. **No depth is both well-lit and un-ceilinged.**
+
+The cause: `field.rs` seeds light on the topmost chunk's top row and
+diffuses downward, so **light gets brighter as a tree climbs** — an
+unbounded incentive to grow to the world's top edge, which is where every
+scene has ended up pinned. Real sunlight is uniform above the canopy; the
+gradient belongs *under* occluders.
+
+**This is the same defect behind the `LIGHT_DECAY` mess** — the constant is
+outcome-justified at 25x, but the germination gate is unreachable,
+phototropism inverts for ~45% of each day/night cycle, and caves light up.
+All four symptoms are one cause: attenuation is a function of *distance*
+where it should be a function of *occlusion*.
+
+**The fix is a per-column sky-visibility model** rather than pure
+diffusion — a cell with unobstructed sky above gets full light regardless
+of depth; attenuation comes from `is_blocked` cells in the column. The
+field already tracks blocking for exactly this. That is a real change and
+should be scoped on its own.
+
+**Until it lands, every shape conclusion carries a ceiling caveat.** The
+harness now prints `canopy top`; a run that reaches row 0 is void.
 
 **0c. Report per-tree distributions, never stand sums.** Per-tree sizes
 span **15 to 793 (53x)** with 2–3 of 8 trees failing to establish. Every
@@ -69,8 +97,27 @@ arbitrary phase of a 3,600-frame oscillator whose deep-field relaxation
 (~3,300 steps) exceeds its period. Either warm up and sample at a fixed
 phase, or report the phase alongside every number.
 
+**0f. The light model — now the blocking item for 0b.** Attenuation is a
+function of *distance* where it should be a function of *occlusion*. One
+cause, four symptoms: no un-ceilinged well-lit scene exists, the
+germination gate is unreachable, phototropism inverts for ~45% of each
+day/night cycle, and caves light up.
+
+The fix is per-column sky visibility rather than pure diffusion — a cell
+with unobstructed sky above gets full light regardless of depth, and
+attenuation comes from `is_blocked` cells above it. `field.rs` already
+maintains that blocking bitmap for its own purposes, so the data exists.
+Diffusion stays for lateral bleed under a canopy, which is what makes
+shade soft rather than a hard shadow edge.
+
+Scope it on its own and A/B it on tree outcomes, not on a depth profile —
+the depth-profile argument has been wrong twice.
+
 **Acceptance:** two harnesses, one scene; `canopyTop > 0` at end of run;
 per-tree distributions printed; birth and death rates printed separately.
+
+**Status:** 0a done (`examples/common/mod.rs`), 0d partly done (canopy top
+detector landed). 0b blocked on 0f. 0c and 0e outstanding.
 
 ---
 
