@@ -169,6 +169,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // one of the same reach holds, and each further blow shortens the reach
     // again -- so a piece visibly weakens before it goes, rather than
     // switching from fine to fallen.
+    let span = span.saturating_mul(depth_factor(world, x, y));
     let span = weakened_by_cracks(world, x, y, span);
 
     // Bedrock is the only outright anchor. Attachment deliberately is *not*
@@ -530,6 +531,53 @@ pub fn compute_world_distances(world: &mut World) {
 fn is_relaxable(world: &World, cell: Cell) -> bool {
     is_body_material(world, cell.material) && cell.organism_id() == 0
 }
+
+/// How much further rock reaches for being *deep* rather than thin.
+///
+/// A one-cell ledge and a forty-cell-thick cap had exactly the same span,
+/// so a massive block of stone was as fragile as a shelf and any noticeable
+/// overhang on a thick column tore itself off. Reported from play: a tall
+/// thick column with "a shallow overhang ... crumbles by itself".
+///
+/// Section depth is the missing term, and it is the dominant one in real
+/// beams — bending capacity grows with the square of depth, which is why a
+/// joist is deep rather than wide. Measured *vertically*, because that is
+/// the direction perpendicular to the span of a horizontal overhang, and a
+/// horizontal overhang is the case that fails.
+///
+/// # Why this is not the thickness rule that was tried and reverted
+///
+/// An earlier model measured burial depth in *all* directions and used it
+/// to anchor a cell outright. It made thickness into immunity: nothing at
+/// or past the threshold could fail anywhere, mid-air included. This is a
+/// bounded multiplier on span, so a deep beam reaches much further and
+/// still fails if pushed — and it measures the *beam's* depth rather than
+/// how buried a cell is, so a cell on the top face of a thick slab gets the
+/// slab's full depth instead of the zero its own burial would suggest.
+/// That surface-erosion problem is what sank the earlier attempt's repair.
+fn depth_factor(world: &World, x: i32, y: i32) -> u16 {
+    let mut depth = 1u16;
+    for dir in [-1, 1] {
+        let mut step = 1;
+        while depth < MAX_SECTION_DEPTH {
+            let probe = world.get(x, y + dir * step);
+            if !is_body_material(world, probe.material) || probe.material == material::EMPTY {
+                break;
+            }
+            depth += 1;
+            step += 1;
+        }
+    }
+    1 + depth / DEPTH_PER_SPAN_STEP
+}
+
+/// Deepest section worth measuring. Past this the reach is already far
+/// beyond anything a 512-wide world contains, and each extra cell is another
+/// read for nothing.
+const MAX_SECTION_DEPTH: u16 = 40;
+
+/// Cells of section depth per extra multiple of the base span.
+const DEPTH_PER_SPAN_STEP: u16 = 4;
 
 /// Reduce `span` by how badly `(x, y)` is fractured.
 ///

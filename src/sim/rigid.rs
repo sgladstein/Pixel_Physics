@@ -107,11 +107,20 @@ const MIN_BODY_CELLS: usize = 8;
 /// less.
 const MIN_FRACTURE_CELLS: usize = 6;
 
-/// Largest one. A failing region bigger than this is a structural collapse,
-/// not a chunk: flying it as one rigid piece both looks wrong (a whole
-/// cliff face gliding intact) and makes the fit test expensive, so it falls
-/// back to per-cell conversion and comes down as loose material.
+/// Largest a single body may be. Past this one piece stops reading as a
+/// chunk broken off a wall and starts reading as the wall gliding intact,
+/// and the per-substep fit test gets expensive.
+///
+/// This is a cap on a *fragment*, not on a collapse — it used to gate
+/// whether a region was promoted at all, which meant a large failure
+/// declined and dissolved to dust instead. See
+/// `try_promote_failing_region`.
 const MAX_BODY_CELLS: usize = 400;
+
+/// Ceiling on a single collapse, in cells. Not a "too big to be a chunk"
+/// test -- a region this size becomes many chunks -- just a bound on how
+/// much work one failure may do in one frame.
+const MAX_FRACTURE_CELLS: usize = 4000;
 
 /// How far `displace` looks for somewhere to shove a loose cell the body is
 /// moving into. Bounded and small on purpose — this is a shove, not a
@@ -434,10 +443,18 @@ impl ChunkBody {
 /// a different trigger — reachability computed forward rather than read
 /// from the cached distance — and is deliberately not attempted here.
 pub fn try_promote_failing_region(world: &mut World, x: i32, y: i32) -> bool {
-    let Some(region) = label_failing_region(world, x, y, MAX_BODY_CELLS + 1) else {
+    let Some(region) = label_failing_region(world, x, y, MAX_FRACTURE_CELLS) else {
         return false;
     };
-    if region.len() < MIN_FRACTURE_CELLS || region.len() > MAX_BODY_CELLS {
+    // No upper bound. `MAX_BODY_CELLS` caps a *single* body, and `fracture`
+    // splits whatever it is given into fragments of at most 32-128 cells, so
+    // a large collapse should simply yield more pieces. Gating on it meant
+    // anything bigger than 400 cells fell through to per-cell conversion and
+    // dissolved -- the bigger the piece, the more certain it turned to dust,
+    // which is exactly backwards and is the same mistake `strike` had.
+    // Reported from play: a thick column cap where "part breaks into chunks
+    // ... the other parts just crumble to dust".
+    if region.len() < MIN_FRACTURE_CELLS {
         return false;
     }
     fracture(world, &region);
@@ -512,7 +529,7 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
         // where a light tap produces chips -- without flattening the
         // distribution, which is what stops it reading as all-or-nothing
         // again.
-        let target = 1usize << (1 + world.rng.below(5) as usize + size_bias as usize);
+        let target = (1usize << (1 + world.rng.below(5) as usize + size_bias as usize)).min(MAX_BODY_CELLS);
         let fragment = take_fragment(&mut left, seed, target);
         if fragment.len() >= MIN_BODY_CELLS {
             promote(world, &fragment, impulse);
@@ -1393,12 +1410,24 @@ mod tests {
     }
 
     #[test]
-    fn a_region_too_large_to_be_a_chunk_is_not_promoted() {
+    fn a_large_collapse_becomes_many_chunks_rather_than_dust() {
+        // This asserted the opposite until play showed the opposite was
+        // wrong. A region over `MAX_BODY_CELLS` used to decline promotion
+        // and fall through to per-cell conversion, so the *bigger* the
+        // collapse the more certain it dissolved -- a thick column's cap
+        // came down as dust while smaller pieces broke into chunks.
+        //
+        // `MAX_BODY_CELLS` caps a single body, and `fracture` splits a
+        // region into fragments regardless of how large it is, so size was
+        // never a reason to decline. Kept as the reproduction, with the
+        // claim reversed.
         let mut w = test_world();
-        // Wider than MAX_BODY_CELLS -- a collapse, not a chunk.
-        failing_slab(&mut w, 0, 10, 60, 10); // 600 cells
-        assert!(!try_promote_failing_region(&mut w, 0, 10));
-        assert!(w.chunk_bodies.is_empty());
+        failing_slab(&mut w, 0, 10, 60, 10); // 600 cells, well past MAX_BODY_CELLS
+        assert!(try_promote_failing_region(&mut w, 0, 10), "a large collapse should still break up, not decline");
+
+        assert!(w.chunk_bodies.len() > 1, "600 cells should yield many pieces, not one");
+        assert_eq!(total_debris(&w), 600, "fracture lost or duplicated material");
+        assert_eq!(count_material(&w, material::STONE), 0, "every cell of the region should have left the grid");
     }
 
     #[test]

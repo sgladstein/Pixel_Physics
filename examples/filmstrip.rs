@@ -261,6 +261,26 @@ fn build(scene: &str) -> World {
                 pixel_physics::sim::rigid::strike(&mut w, 100, 157, 7, 6.0);
             }
         }
+        // The reported case: a tall thick player-built column with a cap
+        // overhanging it on both sides. Built as foreground (no
+        // `with_attached`), exactly as the stone brush lays it down, so this
+        // is what a player actually gets. It used to tear its own cap off
+        // and dissolve most of it to dust.
+        "capped" => {
+            stone_floor(&mut w);
+            for y in 120..floor_y {
+                for x in 226..286 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for y in 90..126 {
+                for x in 196..316 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            w.schedule_structural_check_around(200, 108);
+            w.schedule_structural_check_around(312, 108);
+        }
         "mine" => {
             pixel_physics::app::build_terrain(&mut w);
             // The 60..200 ledge spans y=200..206. Erase its lower rows
@@ -313,7 +333,7 @@ fn build(scene: &str) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked, capped"
         ),
     }
     w
