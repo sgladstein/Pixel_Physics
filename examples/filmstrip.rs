@@ -351,13 +351,14 @@ fn parse() -> Args {
                 "celltype" => a.organism_overlay = OrganismOverlay::CellType,
                 "resource" => a.organism_overlay = OrganismOverlay::Resource,
                 "canopy" => a.organism_overlay = OrganismOverlay::CanopyDensity,
+                "vein" => a.organism_overlay = OrganismOverlay::VeinConductance,
                 "soil" => a.organism_overlay = OrganismOverlay::SoilMoisture,
                 "light" => a.field_overlay = FieldOverlay::Light,
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
                 "pressure" => a.field_overlay = FieldOverlay::Pressure,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, soil, light, moisture, temperature, pressure"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure"
                 ),
             },
             "explode" => {

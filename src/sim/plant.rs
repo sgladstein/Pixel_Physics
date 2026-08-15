@@ -638,10 +638,26 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         same_organism_neighbours += 1;
                     }
                 }
-                let away_from_growth = if same_organism_neighbours > 0 {
-                    normalize((-away_sum.0, -away_sum.1))
-                } else {
-                    (0.0, -1.0) // the seed's very first Grow: straight up, same fallback the old Tip's initial dir used
+                // **`away_from_supply`, replacing `away_from_growth`** --
+                // Decision 6 §7g. Polarity adds no new scoring term and no
+                // new species parameter; it replaces the computation behind
+                // the existing `continuation_weight`, which keeps
+                // `tree.ron`'s `0.7` meaning what it meant and keeps the
+                // economy pass comparing a six-weight blend rather than a
+                // seven-weight one.
+                //
+                // The geometric average below stays as the fallback, and is
+                // reached in exactly two cases: an organism whose supply
+                // field is still uniformly basal (a seed's first `Grow`,
+                // before any flux has been carried), and a cell with no
+                // same-organism 4-neighbour to be supplied *by*. So the
+                // first growth step of every organism is bit-identical to
+                // before, and §2a's zero-neighbour `(0.0, -1.0)` proof
+                // survives untouched.
+                let away_from_supply = match organism::supply_direction(world, x, y) {
+                    Some((sx, sy)) => (-sx, -sy),
+                    None if same_organism_neighbours > 0 => normalize((-away_sum.0, -away_sum.1)),
+                    None => (0.0, -1.0), // the seed's very first Grow: straight up, same fallback the old Tip's initial dir used
                 };
 
                 let photo = organism::phototropism_dir(world, x as f32, y as f32);
@@ -685,7 +701,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     }
                     let dir = normalize((dx as f32, dy as f32));
                     let density = candidate_crowding(world, nx, ny, organism_id);
-                    let score = dot(dir, away_from_growth) * continuation_weight
+                    let score = dot(dir, away_from_supply) * continuation_weight
                         + dot(dir, photo) * light_weight
                         + dot(dir, wind) * wind_weight
                         + dot(dir, gravity_or_water) * upward_weight
@@ -2489,6 +2505,72 @@ mod tests {
             "a seedling from a dropped seed should have grown into a tree, got {grown} cells -- \
              a shoot missing from the cell list reads 0 carbon forever and stalls at germination"
         );
+    }
+
+    /// The same failure again, one seam over: a seed whose final fall step
+    /// **crosses a chunk boundary**.
+    ///
+    /// `ChunkView::set` splits writes in two. A same-chunk write goes
+    /// straight into the worker's own `Chunk` and is handled by
+    /// `ChunkOutcome::organism_moves`. A *remote* write is queued and
+    /// replayed by `run_pass` — through `World::set_owned`, which calls
+    /// `write_cell` directly and therefore skips `World::set`'s
+    /// `reindex_organism_cell` exactly as the same-chunk path does. Fixing
+    /// only the first half left the second half broken, and the comment on
+    /// `organism_moves` asserted the opposite ("a remote write is replayed
+    /// through `World::set`") — an independent review caught it.
+    ///
+    /// Geometry is deliberate rather than incidental: `CHUNK_SIZE` is 64,
+    /// so soil topped at y=65 makes the seed's last step land on **y=64**,
+    /// the first row of chunk row 1, written from a cell in chunk row 0.
+    /// That single step is the only remote write in the whole fall.
+    ///
+    /// The y=128 boundary would do the same but cannot be used: `field.rs`'s
+    /// `LIGHT_DECAY` puts `Germinate`'s threshold around 75 rows below open
+    /// sky, so a seedling there is too dark to grow and the test would fail
+    /// for a reason that has nothing to do with the seam.
+    #[test]
+    fn a_seed_landing_across_a_chunk_boundary_stays_in_its_cell_list() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+        // Stone under the soil, or the soil is a `Powder` with nothing
+        // beneath it and falls out of the scene -- which reads exactly like
+        // "the mechanism does nothing" and is the scene error `CLAUDE.md`
+        // names twice.
+        for x in 40..120 {
+            for y in 80..87 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+            for y in 65..80 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        w.plant_tree(60, 30);
+
+        for _ in 0..4000 {
+            super::super::parallel::step(&mut w);
+            w.step_active_sites();
+            field::step(&mut w);
+        }
+
+        let b = w.bounds().unwrap();
+        let mut scanned: std::collections::HashMap<u16, std::collections::HashSet<(i32, i32)>> = Default::default();
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let id = w.get(x, y).organism_id();
+                if id != 0 {
+                    scanned.entry(id).or_default().insert((x, y));
+                }
+            }
+        }
+        assert!(!scanned.is_empty(), "the seed should have landed and germinated");
+        for (&id, cells) in &scanned {
+            let state = w.organism(id).unwrap_or_else(|| panic!("organism {id} owns cells but has no state"));
+            let listed: std::collections::HashSet<(i32, i32)> = state.cells.keys().copied().collect();
+            assert_eq!(&listed, cells, "organism {id}'s cell list disagrees with the grid after a cross-chunk landing");
+        }
+        let grown: usize = scanned.values().map(|c| c.len()).sum();
+        assert!(grown > 10, "a seedling that landed across a chunk boundary should still grow, got {grown} cells");
     }
 
     /// Decision 1(ii): a root grows *into* penetrable soil, a shoot does

@@ -618,7 +618,7 @@ pub const CANOPY_DENSITY_SCALE: f32 = 4.0;
 /// `Vec<Option<OrganismCell>>` by a slot number stored back in `aux`, and
 /// a position-keyed map makes the position the key instead. See
 /// `OrganismState::cells` for why that swap was made.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OrganismCell {
     /// Photosynthate. Was the 8-bit `aux` field; `Absorb`/`Photosynthesize`
     /// still clamp it to `RESOURCE_SCALE`.
@@ -626,6 +626,38 @@ pub struct OrganismCell {
     /// `Reports/tree-rewrite-design.md` §2b's crowding signal, clamped to
     /// `CANOPY_DENSITY_SCALE`.
     pub canopy_density: f32,
+    /// Per-face carbon **efflux** conductance, indexed in `NEIGHBOURS_4`
+    /// order — Decision 6 (`Reports/plant-substrate-v2-design.md` §7b).
+    ///
+    /// `carbon_conductance[k]` governs export *out of this cell* across
+    /// face `k`. The neighbour on the other side stores its own,
+    /// independent, opposing value, and the two are not required to agree:
+    /// that asymmetry is the whole mechanism. A cell's *polarity* — a
+    /// single direction, which only `Grow` wants — is derived from these
+    /// on demand (`supply_direction`), never stored.
+    ///
+    /// Four independent values rather than the research sketch's packed
+    /// 3-bit direction, and the deciding reason is that **a single stored
+    /// direction cannot represent a branch point**, which is the one case
+    /// the mechanism exists to resolve: a cell feeding two children has two
+    /// faces genuinely carrying flux, and an enum would have to pick one,
+    /// deciding apical dominance in the data structure before the update
+    /// rule ever ran.
+    pub carbon_conductance: [f32; 4],
+}
+
+impl Default for OrganismCell {
+    /// **Conductance starts at `CONDUCTANCE_MIN`, not zero, and that is
+    /// load-bearing.** Zero conductance gives zero flux gives zero
+    /// reinforcement, forever — a bootstrap deadlock. The literature has
+    /// the same term for the same reason: `ρ₀` in §7a's equation is a
+    /// *basal* insertion rate, constitutive and flux-independent, because
+    /// carriers are inserted before they are polarized. Every fresh cell is
+    /// therefore perfectly isotropic and differentiates only from flux it
+    /// actually carried.
+    fn default() -> Self {
+        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4] }
+    }
 }
 
 // --- The shared connectivity primitive ---------------------------------
@@ -761,9 +793,142 @@ const DIFFUSION_RATE: f32 = 0.2;
 /// `TRANSPORT_SUBSTEPS`, arrived at early.** That section makes the point
 /// that 45 was never a decision -- it was "how often the sweep runs" --
 /// and that making it an explicit parameter is the actual gain. It is a
-/// first-class tuning target for the economy pass, and polarity will
-/// re-derive it against its own stability bound.
-pub const TRANSPORT_SUBSTEPS: u32 = 45;
+/// first-class tuning target for the economy pass.
+///
+/// **Applies to the canopy-density channel only now that polarity has
+/// landed** — carbon runs its own `CARBON_SUBSTEPS` against its own
+/// stability bound. Kept at 45 deliberately: density's behaviour is what
+/// `crowding_weight` is tuned against, and changing its substep count
+/// while introducing polarity would make the two indistinguishable.
+const DENSITY_SUBSTEPS: u32 = 45;
+
+// --- Polarity: canalization of the carbon channel -----------------------
+//
+// `Reports/plant-substrate-v2-design.md` Decision 6 (§7). The mechanism is
+// Sachs's canalization as formalized by Mitchison and by Prusinkiewicz et
+// al. (2009, PNAS 106:17431-17436, already cited in `plant.rs`'s module
+// doc): flux through a face reinforces that face's capacity to carry flux,
+// so a channel that starts marginally ahead pulls further ahead, and the
+// choice becomes hard to reverse once made. That hysteresis is the point --
+// it is what converts a sequence of coin flips into a committed branch.
+
+/// Constitutive, flux-independent conductance insertion per organism tick
+/// (`ρ₀` in §7a). Required, not decorative — see `OrganismCell::default`.
+const VEIN_BASAL: f32 = 0.1;
+/// Per-tick conductance turnover.
+const VEIN_DECAY: f32 = 0.1;
+/// Flux-driven conductance gain. **Set this to 0 and the whole mechanism
+/// reduces exactly to the isotropic rule it generalizes** — the A/B switch
+/// §7c asks for, and what makes a regression here bisectable.
+///
+/// Verified by rebuilding with it zeroed rather than through a runtime
+/// knob: this is read in the transport inner loop, and threading a
+/// parameter through to make it settable would put a branch there for a
+/// test's benefit. Zeroed, **exactly three tests fail, and they are the
+/// three that assert polarity specifically** —
+/// `a_chain_canalizes_along_its_axis_and_not_across_it`,
+/// `the_better_connected_tip_outdraws_the_hungrier_one`, and
+/// `supply_direction_is_none_until_something_has_actually_been_carried`.
+/// The boundedness and isotropy/conservation tests keep passing, which is
+/// the correct split: those assert invariants the reduction preserves, so
+/// a suite that went fully green *or* fully red would mean the A/B was
+/// testing the wrong thing.
+const VEIN_GAIN: f32 = 2.9;
+
+/// Flux-free fixed point, `VEIN_BASAL / VEIN_DECAY`. Undifferentiated
+/// parenchyma sits here.
+pub const CONDUCTANCE_MIN: f32 = VEIN_BASAL / VEIN_DECAY;
+/// Saturated fixed point, `(VEIN_BASAL + VEIN_GAIN) / VEIN_DECAY`. A fully
+/// canalized strand approaches this and **provably cannot exceed it**,
+/// because `Φ` saturates at 1 — the bounded form of §7a(3), chosen over
+/// Mitchison's pure quadratic precisely because the quadratic diverges.
+pub const CONDUCTANCE_MAX: f32 = (VEIN_BASAL + VEIN_GAIN) / VEIN_DECAY;
+
+/// The only thing the behaviour actually depends on is the *ratio*
+/// `CONDUCTANCE_MAX / CONDUCTANCE_MIN`, and it deserves a name: the
+/// canalization contrast, `1 + VEIN_GAIN / VEIN_BASAL` = 30:1 as tuned.
+/// Tune the contrast, not the three constants independently.
+pub const CANALIZATION_CONTRAST: f32 = CONDUCTANCE_MAX / CONDUCTANCE_MIN;
+
+/// Per-substep carbon transport coefficient.
+///
+/// Bounded by the same explicit-diffusion stability limit every other
+/// diffusion in this engine respects, but applied to the **largest**
+/// conductance in play rather than a typical one: `TRANSPORT_RATE *
+/// CONDUCTANCE_MAX <= 0.25`. At contrast 30 that caps it at 0.00833, and
+/// 0.008 sits just under.
+const TRANSPORT_RATE: f32 = 0.008;
+
+/// Carbon transport iterations per organism tick.
+///
+/// **Consequence worth stating before it is rediscovered as a bug:
+/// unpolarized tissue now transports carbon far more slowly than the flat
+/// `DIFFUSION_RATE` it replaces** — `TRANSPORT_RATE * CONDUCTANCE_MIN` is
+/// 0.008 against 0.2, recovered only partially over these substeps. That is
+/// correct and is the entire point: undifferentiated parenchyma *is* a poor
+/// conductor, a vascular strand *is* a good one, and the biological
+/// function of vascular tissue is that the contrast exists.
+///
+/// It also makes a falsifiable prediction: a fresh seedling with no
+/// established vasculature is transport-limited and its first act is to
+/// canalize a strand from its first source to its tip. **If seedlings
+/// instead simply never get going, the two knobs are the canalization
+/// contrast and this number, in that order — not the seed reserve.**
+const CARBON_SUBSTEPS: u32 = 16;
+
+/// Fallback for `J_REF` when a species defines no `Grow` cost to derive it
+/// from. See `flux_reference` for why the species value is preferred.
+const DEFAULT_FLUX_REFERENCE: f32 = 0.2;
+
+/// The conductance response, a Hill function with exponent 2.
+///
+/// `Φ(J) = J² / (J_REF² + J²)`, deliberately resolving §7a's finding (1)
+/// against (2)/(3) rather than picking a third option at random. It is
+/// **convex below `J_REF`** — superlinear, so a face with a flux advantage
+/// compounds it faster than linearly, which is the regime that makes
+/// canalization actually canalize and produces §7a(1)'s loopless directed
+/// trees. And it is **concave above**, saturating at 1, which is what makes
+/// the rule non-divergent where the pure quadratic is provably divergent.
+///
+/// So the engine gets the quadratic's topology in the regime where topology
+/// is being decided, and the bounded form's stability in the regime where a
+/// long-running simulation would otherwise blow up.
+fn conductance_response(flux: f32, flux_reference: f32) -> f32 {
+    let j2 = flux * flux;
+    j2 / (flux_reference * flux_reference + j2)
+}
+
+/// `J_REF`: the flux one growing tip's demand represents.
+///
+/// Taken from the species' own shoot `Grow.cost` rather than hardcoded, so
+/// the operating point moves with the economy it is measuring. Below one
+/// tip's worth of demand the response is competition-amplifying; above it,
+/// it saturates. `tree.ron`'s `cost: 0.2` therefore puts `J_REF` at 0.2,
+/// which is the value §7h's worked example uses.
+///
+/// The shoot's cost, not the root's (0.25), and not their mean: §7h works
+/// the arithmetic against the canopy, and a single reference keeps the
+/// response comparable across the whole organism. A species with no `Grow`
+/// at all falls back to `DEFAULT_FLUX_REFERENCE`.
+fn flux_reference(species: &Species) -> f32 {
+    species
+        .behaviors(CellType::GrowingTip)
+        .iter()
+        .find_map(|b| match b {
+            Behavior::Grow { cost, .. } => Some(*cost),
+            _ => None,
+        })
+        .filter(|c| *c > 0.0)
+        .unwrap_or(DEFAULT_FLUX_REFERENCE)
+}
+
+/// The index in `NEIGHBOURS_4` of the face pointing back the other way —
+/// cell *i*'s face `k` and its neighbour's face `opposite(k)` are the two
+/// halves of one shared boundary.
+const fn opposite_face(k: usize) -> usize {
+    // NEIGHBOURS_4 is [-x, +x, -y, +y], so the pairs are (0,1) and (2,3).
+    k ^ 1
+}
 
 /// Run one organism tick's worth of resource and canopy-density transport
 /// over every cell `organism_id` owns.
@@ -815,24 +980,41 @@ pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
         neighbours.push(row);
     }
 
+    let species_id = state.species;
+    let flux_ref = flux_reference(world.species.get(species_id));
+
     let state = world.organism(organism_id).expect("checked above");
     let mut carbon: Vec<f32> = cells.iter().map(|p| state.cells[p].carbon).collect();
     let mut density: Vec<f32> = cells.iter().map(|p| state.cells[p].canopy_density).collect();
+    let mut conductance: Vec<[f32; 4]> = cells.iter().map(|p| state.cells[p].carbon_conductance).collect();
 
-    // Jacobi, not Gauss-Seidel: each substep reads the previous substep's
-    // values for every cell and writes a fresh buffer. The rule this
-    // replaces updated in place in sweep order, so a cell saw some
-    // neighbours already advanced and some not, and the result depended on
-    // which chunk the sweep reached first -- the ordering dependence
-    // `plant-substrate-v2-design.md` §7c names as a defect of the old
-    // form. Double-buffering removes it, and is required anyway now the
-    // iteration order comes from a map rather than the grid.
-    let (mut next_carbon, mut next_density) = (carbon.clone(), density.clone());
-    for _ in 0..TRANSPORT_SUBSTEPS {
+    // --- Canopy density: the symmetric rule, unchanged ------------------
+    //
+    // **Only the carbon channel becomes polar** (§7f), and that is a
+    // decision rather than a scope cut. Canopy density is not a transported
+    // substance -- there is no vessel carrying it, no source, no sink and
+    // no conserved quantity; it is a stigmergic proxy for "how much of my
+    // own tissue is near here", deposited at creation and read by `Grow` as
+    // a crowding penalty. Making it follow established conductance would
+    // make it blind exactly where it needs to see: a tip must avoid dense
+    // canopy in *any* direction, and a clump sitting off-vein is the
+    // crowded direction it most needs to detect.
+    //
+    // **Deviates from §7f in one detail, deliberately.** That section says
+    // density can run through the general pairwise form with a constant
+    // conductance and come out "bit-for-bit the symmetric average it is
+    // today". It cannot: the mean rule is `R + (mean(n) - R) * RATE`, while
+    // pairwise with constant `c` gives `R + RATE*c*n*(mean(n) - R)` -- a
+    // factor of `n`, the neighbour count, which varies per cell. Matching
+    // them needs `c = 1/n`, which is per-cell rather than per-face and so
+    // neither symmetric nor conserving. Since density's behaviour is what
+    // `crowding_weight` is tuned against, the tested rule is kept verbatim
+    // and the general form is used only where it is actually correct.
+    let mut next_density = density.clone();
+    for _ in 0..DENSITY_SUBSTEPS {
         for i in 0..cells.len() {
-            let (mut carbon_sum, mut density_sum, mut n) = (0.0f32, 0.0f32, 0u32);
+            let (mut density_sum, mut n) = (0.0f32, 0u32);
             for slot in neighbours[i].iter().flatten() {
-                carbon_sum += carbon[*slot];
                 density_sum += density[*slot];
                 n += 1;
             }
@@ -844,17 +1026,80 @@ pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
             // applied on the diffusion pass erased a fresh deposit before
             // any neighbour's much-less-frequent `Grow` check could read
             // it -- a real bug, found by live verification.
-            if n == 0 {
-                next_carbon[i] = carbon[i];
-                next_density[i] = density[i];
-                continue;
-            }
-            let n = n as f32;
-            next_carbon[i] = (carbon[i] + (carbon_sum / n - carbon[i]) * DIFFUSION_RATE).max(0.0);
-            next_density[i] = (density[i] + (density_sum / n - density[i]) * DIFFUSION_RATE).clamp(0.0, CANOPY_DENSITY_SCALE);
+            next_density[i] = if n == 0 {
+                density[i]
+            } else {
+                (density[i] + (density_sum / n as f32 - density[i]) * DIFFUSION_RATE).clamp(0.0, CANOPY_DENSITY_SCALE)
+            };
         }
-        std::mem::swap(&mut carbon, &mut next_carbon);
         std::mem::swap(&mut density, &mut next_density);
+    }
+
+    // --- Carbon: the pairwise carrier rule ------------------------------
+    //
+    // §7c. For the face between cells i and j:
+    //
+    //     efflux(i->j) = RATE * c_ij * R_i      (carrier-mediated, source-
+    //     efflux(j->i) = RATE * c_ji * R_j       concentration proportional)
+    //     net J_ij     = RATE * (c_ij*R_i - c_ji*R_j)
+    //
+    // Three properties, each a reason this is the right form and not merely
+    // a workable one. It **reduces exactly to Fickian diffusion when
+    // polarity is absent** (`c_ij = c_ji = c` gives `RATE*c*(R_i - R_j)`),
+    // so polarity is a strict generalization of what shipped before and
+    // `VEIN_GAIN = 0` recovers it exactly. It is **exactly conserving** --
+    // every unit leaving i arrives at j in the same statement -- where the
+    // mean rule was not, each cell independently moving toward its
+    // neighbours' mean in place. And it **matches the biology**: PIN efflux
+    // carriers sit on a specific membrane face, which is why the model is
+    // indexed per ordered cell pair rather than per cell.
+    //
+    // Each face is visited exactly once, from the cell on its -x/-y side,
+    // and both halves of the exchange are applied together. Deltas are
+    // accumulated and applied after the sweep rather than in place, so the
+    // result carries no dependence on which cell was visited first.
+    let mut flux = vec![[0.0f32; 4]; cells.len()];
+    let mut delta = vec![0.0f32; cells.len()];
+    for _ in 0..CARBON_SUBSTEPS {
+        delta.iter_mut().for_each(|d| *d = 0.0);
+        for i in 0..cells.len() {
+            // Only the +x and +y faces, so the -x/-y ones are not counted a
+            // second time from the neighbour's side.
+            for k in [1usize, 3usize] {
+                let Some(j) = neighbours[i][k] else { continue };
+                let out = conductance[i][k] * carbon[i];
+                let back = conductance[j][opposite_face(k)] * carbon[j];
+                let net = TRANSPORT_RATE * (out - back);
+                delta[i] -= net;
+                delta[j] += net;
+                flux[i][k] += net;
+                flux[j][opposite_face(k)] -= net;
+            }
+        }
+        for i in 0..cells.len() {
+            carbon[i] = (carbon[i] + delta[i]).max(0.0);
+        }
+    }
+
+    // --- The conductance update (§7d, §7e) ------------------------------
+    //
+    // Fed by the whole tick's accumulated flux rather than a per-substep
+    // value, which gives the two-timescale structure the biology has: bulk
+    // flow is fast, carrier turnover is slow.
+    //
+    // **Only the positive part reinforces, and the clamp is not a fudge.**
+    // Conductance on cell i's face toward j is an *efflux* capacity. Net
+    // import across that face is evidence that j's opposing face is
+    // conducting, and j is the cell that should be credited -- it will be,
+    // by its own entry. Crediting both sides of a reversing face would make
+    // a face that merely oscillates read as a strong channel, which is the
+    // opposite of what canalization means.
+    for i in 0..cells.len() {
+        for k in 0..4 {
+            let j = flux[i][k].max(0.0);
+            let c = conductance[i][k];
+            conductance[i][k] = c + VEIN_BASAL + VEIN_GAIN * conductance_response(j, flux_ref) - VEIN_DECAY * c;
+        }
     }
 
     let Some(state) = world.organism_mut(organism_id) else {
@@ -864,8 +1109,64 @@ pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
         if let Some(slot) = state.cells.get_mut(pos) {
             slot.carbon = carbon[i];
             slot.canopy_density = density[i];
+            slot.carbon_conductance = conductance[i];
         }
     }
+}
+
+/// The direction carbon is arriving from, as a normalized vector, or `None`
+/// when nothing has established yet.
+///
+/// **This is what `Grow`'s `away_from_growth` becomes** (§7g). For each of
+/// the four faces, the neighbour on the other side stores its own
+/// conductance on the face pointing *back at this cell*, and that value is
+/// exactly "how strongly does that neighbour export into me". Summing the
+/// face directions weighted by those values gives the supply direction.
+///
+/// **Why this is strictly better than the geometric version it replaces,
+/// on that version's own terms.** `tree-rewrite-design.md` §2a introduced
+/// `away_from_growth` because "grow away from the parent" is undefined at a
+/// branch point, and solved it by averaging over every same-organism
+/// neighbour — which treats a *sibling* tip, created by the same branch
+/// event, as equally "behind you" even though it feeds you nothing. That
+/// sibling drags the average sideways and makes two fresh branches repel
+/// each other for purely positional reasons. Here a sibling that exports
+/// nothing sits at `CONDUCTANCE_MIN` and contributes almost nothing, while
+/// the stem cell actually feeding this tip has a ratcheted face and
+/// dominates. **The mechanism now distinguishes "adjacent to" from
+/// "supplied by"**, which is what §2a was approximating and could not
+/// express.
+///
+/// Returns `None` when every supply weight is still at the basal floor — a
+/// seed's very first `Grow`, before any flux has been carried anywhere — so
+/// the caller can fall back to the geometric rule and §2a's proof survives
+/// the degenerate case unchanged.
+pub fn supply_direction(world: &crate::sim::world::World, x: i32, y: i32) -> Option<(f32, f32)> {
+    let organism_id = world.get(x, y).organism_id();
+    if organism_id == 0 {
+        return None;
+    }
+    let state = world.organism(organism_id)?;
+    let (mut sx, mut sy) = (0.0f32, 0.0f32);
+    let mut strongest = 0.0f32;
+    for (k, (dx, dy)) in NEIGHBOURS_4.into_iter().enumerate() {
+        let Some(n) = state.cells.get(&(x + dx, y + dy)) else { continue };
+        // The neighbour's face pointing back at this cell.
+        let weight = n.carbon_conductance[opposite_face(k)];
+        strongest = strongest.max(weight);
+        sx += weight * dx as f32;
+        sy += weight * dy as f32;
+    }
+    // Still isotropic everywhere: no information here, and normalizing
+    // would amplify float noise into a confident direction.
+    if strongest < CONDUCTANCE_MIN * (1.0 + 1e-3) {
+        return None;
+    }
+    let len = (sx * sx + sy * sy).sqrt();
+    if len < 1e-6 {
+        return None;
+    }
+    Some((sx / len, sy / len))
 }
 
 // --- Ported field-read helpers ------------------------------------------
@@ -1112,6 +1413,279 @@ mod tests {
             CANOPY_DENSITY_SCALE,
             "an isolated cell's density should not decay from repeated transport calls alone"
         );
+    }
+
+    // --- Polarity (Decision 6, design doc §7k) -------------------------
+
+    /// Build a bare organism from a list of positions, all `wood`
+    /// `MatureBody`, and hand back its id.
+    fn polarity_organism(w: &mut World, cells: &[(i32, i32)]) -> u16 {
+        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+        let species = w.species.id_of("tree").expect("tree is a compiled-in species");
+        let organism_id = w.push_organism(species);
+        for &(x, y) in cells {
+            w.set(x, y, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
+        }
+        organism_id
+    }
+
+    fn conductance_at(w: &World, x: i32, y: i32) -> [f32; 4] {
+        w.organism_cell(x, y).expect("registered").carbon_conductance
+    }
+
+    /// The minimal observable proof that canalization happens at all: a
+    /// straight chain with a source at one end and a drained sink at the
+    /// other develops conductance along its axis far above the basal floor,
+    /// while the faces pointing *across* the chain — which carry no flux,
+    /// because there is nothing on the other side of them — stay at it.
+    #[test]
+    fn a_chain_canalizes_along_its_axis_and_not_across_it() {
+        use super::super::chunk::Rect;
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let cells: Vec<(i32, i32)> = (5..13).map(|x| (x, 10)).collect();
+        let organism_id = polarity_organism(&mut w, &cells);
+
+        for _ in 0..40 {
+            // Held source at one end, drained sink at the other — a leaf
+            // and a growing tip, without needing either to exist yet.
+            w.organism_cell_mut(5, 10).expect("registered").carbon = 1.0;
+            w.organism_cell_mut(12, 10).expect("registered").carbon = 0.0;
+            transport(&mut w, organism_id);
+        }
+
+        let mid = conductance_at(&w, 8, 10);
+        // NEIGHBOURS_4 is [-x, +x, -y, +y]: index 1 is downstream along the
+        // chain, indices 2 and 3 point at empty space.
+        assert!(
+            mid[1] > CONDUCTANCE_MIN * 5.0,
+            "the downstream face of a chain carrying real flux should canalize well above the basal floor, got {}",
+            mid[1]
+        );
+        assert!(
+            (mid[2] - CONDUCTANCE_MIN).abs() < 1e-3 && (mid[3] - CONDUCTANCE_MIN).abs() < 1e-3,
+            "faces with no neighbour carry no flux and must stay basal, got {:?}",
+            &mid[2..4]
+        );
+        assert!(
+            mid[1] <= CONDUCTANCE_MAX + 1e-3,
+            "conductance must not exceed its fixed-point ceiling, got {} > {CONDUCTANCE_MAX}",
+            mid[1]
+        );
+    }
+
+    /// **The real gate on this step** -- §7h's Y-junction, and the one
+    /// that fails if `Φ`, `J_REF` or the contrast ratio are mis-set.
+    ///
+    /// One stem cell feeds two tips, symmetric in every respect. Both draw
+    /// and spend on growth; at one tick `A` grows and `B` does not (§7h's
+    /// single asymmetry: `B`'s candidate set came back empty, a routine
+    /// outcome in crowded canopy). `A` therefore *spends* and ends up the
+    /// **less hungry** of the two.
+    ///
+    /// Under the isotropic rule the split is decided by hunger alone, so
+    /// `B` takes the larger share next tick and the lead flips -- which is
+    /// exactly what `tree-rewrite-design.md` §3 published as the honest
+    /// description of shipped behaviour, and why nothing accumulates.
+    /// Under Decision 6 the stored conductance beats transient hunger and
+    /// the lead holds. A flipped lead is the isotropic rule's signature.
+    ///
+    /// **Supply-limited, not source-pinned, and that is the whole reason
+    /// this test is shaped the way it is.** An earlier version held the
+    /// stem at a fixed 1.0 every tick, i.e. an infinite reservoir. Flux
+    /// then grows without bound as conductance ratchets, `Φ` saturates at
+    /// 1 for *both* faces, and the response stops discriminating: the
+    /// conductance ratio collapsed to 1.04 with both faces pinned near the
+    /// ceiling (24.5 vs 23.5), and the gate failed for a reason that had
+    /// nothing to do with the mechanism. §7h delivers a fixed `Q` per tick
+    /// precisely so the operating point stays near `J_REF`, where the Hill
+    /// function is still convex and a flux advantage compounds.
+    #[test]
+    fn the_better_connected_tip_outdraws_the_hungrier_one() {
+        use super::super::chunk::Rect;
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let stem = (10, 11);
+        let (tip_a, tip_b) = ((9, 10), (11, 10));
+        let organism_id = polarity_organism(&mut w, &[stem, (10, 10), tip_a, tip_b]);
+
+        // §7h's constants: `Q` per tick into the stem, `cost` per growth.
+        const Q: f32 = 0.3;
+        const COST: f32 = 0.2;
+
+        let spend = |w: &mut World, at: (i32, i32)| -> bool {
+            let c = w.carbon_at(at.0, at.1);
+            if c >= COST {
+                w.organism_cell_mut(at.0, at.1).expect("registered").carbon = c - COST;
+                true
+            } else {
+                false
+            }
+        };
+
+        // **The one asymmetry, and it is not invented.** §7h: at one tick
+        // both tips can afford to grow, `A` grows and `B` does not --
+        // because `B`'s candidate set came back empty (`plant.rs`: "if
+        // candidates.is_empty() { continue; }"), a routine outcome in
+        // crowded canopy. `A` spends and `B` does not. Nothing else ever
+        // differs between them; the whole question is what the system does
+        // with one lost growth step.
+        // Fired the *first time `B` could actually have grown*, rather than
+        // at a hardcoded tick: early ticks have not accumulated `cost` yet,
+        // so "skip B at tick 1" is a no-op and the two tips stay bit-identical
+        // (found the hard way -- the faces came out equal to seven decimals).
+        let mut b_has_stalled = false;
+        for _ in 0..60 {
+            w.organism_cell_mut(stem.0, stem.1).expect("registered").carbon += Q;
+            transport(&mut w, organism_id);
+            spend(&mut w, tip_a);
+            if !b_has_stalled && w.carbon_at(tip_b.0, tip_b.1) >= COST {
+                b_has_stalled = true;
+            } else {
+                spend(&mut w, tip_b);
+            }
+        }
+        assert!(b_has_stalled, "the setup requires B to have missed exactly one growth step");
+
+        let c_a = conductance_at(&w, 10, 10)[0]; // junction's -x face, toward A
+        let c_b = conductance_at(&w, 10, 10)[1]; // ... and +x face, toward B
+        assert!(
+            c_a > c_b * 1.05,
+            "A's face should have canalized measurably ahead of B's, got {c_a} vs {c_b} (ratio {}).              Both sitting near {CONDUCTANCE_MAX} means flux has saturated Φ and the response can no              longer discriminate -- that is a supply/J_REF mismatch, not a broken rule",
+            c_a / c_b
+        );
+
+        // **What is asserted, and why it is not §7h's tick-6 arithmetic
+        // verbatim.** That table pins the stem at `R_S = 1.0` when
+        // computing hunger *and* limits delivery to `Q = 0.3` per tick.
+        // Those are two different constraints, and a running simulation
+        // cannot honour both: a genuinely supply-limited stem sits far
+        // below 1.0, so one `cost`-sized spend is a large *relative* change
+        // in hunger rather than §7h's 0.82-vs-0.98. Reproducing the table's
+        // numbers would mean pinning the stem, which drives flux to ~19x
+        // `J_REF`, saturates `Φ` on both faces, and collapses the
+        // conductance ratio to 1.0 -- measured, and it is how the first
+        // draft of this test failed.
+        //
+        // So the *claim* is tested rather than the illustration: the split
+        // is no longer decided by hunger alone. Equal hunger, unequal
+        // conductance -> the better-connected tip must draw more. That is
+        // precisely what the isotropic rule cannot do, and it is the
+        // property every downstream consequence in §7h rests on.
+        let equal = 0.05f32;
+        w.organism_cell_mut(tip_a.0, tip_a.1).expect("registered").carbon = equal;
+        w.organism_cell_mut(tip_b.0, tip_b.1).expect("registered").carbon = equal;
+        w.organism_cell_mut(stem.0, stem.1).expect("registered").carbon += Q;
+        transport(&mut w, organism_id);
+        let (gained_a, gained_b) = (w.carbon_at(tip_a.0, tip_a.1) - equal, w.carbon_at(tip_b.0, tip_b.1) - equal);
+        assert!(
+            gained_a > gained_b,
+            "at equal hunger the better-connected tip must draw more -- A gained {gained_a},              B gained {gained_b} at conductance {c_a} vs {c_b}. Equal gains mean the conductance              is not reaching the transport rule at all"
+        );
+
+        // And the quantitative form: the advantage should track the
+        // conductance ratio, not merely have the right sign.
+        let share_ratio = gained_a / gained_b;
+        let conductance_ratio = c_a / c_b;
+        assert!(
+            share_ratio > 1.0 + (conductance_ratio - 1.0) * 0.5,
+            "the supply advantage ({share_ratio}) should track the conductance advantage              ({conductance_ratio}), not merely have the right sign"
+        );
+
+        // **The hysteresis claim.** A hunger disadvantage *smaller than the
+        // conductance advantage* must not flip the lead -- that is what
+        // "hard to reverse once established" means, and under the isotropic
+        // rule any hunger disadvantage at all flips it immediately.
+        let handicap = 1.0 + (conductance_ratio - 1.0) * 0.5;
+        w.organism_cell_mut(tip_a.0, tip_a.1).expect("registered").carbon = equal * handicap;
+        w.organism_cell_mut(tip_b.0, tip_b.1).expect("registered").carbon = equal;
+        w.organism_cell_mut(stem.0, stem.1).expect("registered").carbon += Q;
+        let before = (equal * handicap, equal);
+        transport(&mut w, organism_id);
+        let gained_a = w.carbon_at(tip_a.0, tip_a.1) - before.0;
+        let gained_b = w.carbon_at(tip_b.0, tip_b.1) - before.1;
+        assert!(
+            gained_a > gained_b,
+            "the less hungry but better connected tip must still take the larger share --              A gained {gained_a}, B gained {gained_b} (conductance {c_a} vs {c_b},              handicap {handicap}). A flipped lead here is the isotropic rule's signature"
+        );
+    }
+
+    /// §7a(2) is explicit that the unbounded quadratic form diverges. Drive
+    /// one face at saturating flux for far longer than any tree lives and
+    /// assert the bounded form was actually used.
+    #[test]
+    fn conductance_is_bounded_however_long_it_is_driven() {
+        use super::super::chunk::Rect;
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let cells: Vec<(i32, i32)> = (5..9).map(|x| (x, 10)).collect();
+        let organism_id = polarity_organism(&mut w, &cells);
+
+        for _ in 0..2000 {
+            w.organism_cell_mut(5, 10).expect("registered").carbon = RESOURCE_SCALE;
+            w.organism_cell_mut(8, 10).expect("registered").carbon = 0.0;
+            transport(&mut w, organism_id);
+        }
+
+        for &(x, y) in &cells {
+            for (k, c) in conductance_at(&w, x, y).iter().enumerate() {
+                assert!(c.is_finite(), "conductance went non-finite at ({x},{y}) face {k}");
+                assert!(*c <= CONDUCTANCE_MAX + 1e-3, "conductance {c} at ({x},{y}) face {k} exceeded the ceiling {CONDUCTANCE_MAX}");
+            }
+        }
+    }
+
+    /// The A/B switch of §7c, made a test rather than a claim: with no
+    /// flux-driven gain, every face sits at `CONDUCTANCE_MIN` forever and
+    /// the pairwise rule is identically Fickian. This is what makes a
+    /// regression in the polar machinery bisectable — if this fails, the
+    /// reduction to the isotropic case is broken and that is the bug.
+    #[test]
+    fn with_no_gain_every_face_stays_isotropic_and_transport_is_symmetric() {
+        use super::super::chunk::Rect;
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let organism_id = polarity_organism(&mut w, &[(5, 10), (6, 10)]);
+        w.organism_cell_mut(5, 10).expect("registered").carbon = 1.0;
+
+        // `VEIN_GAIN` is a compile-time constant, so rather than rebuild
+        // with it zeroed, assert the property that makes it meaningful:
+        // with *no established polarity* the exchange is symmetric, so two
+        // cells with equal conductance move toward each other's mean and
+        // conserve exactly -- Fick, which is what `VEIN_GAIN = 0` pins the
+        // system to permanently.
+        let start: f32 = w.carbon_at(5, 10) + w.carbon_at(6, 10);
+        let a = conductance_at(&w, 5, 10);
+        let b = conductance_at(&w, 6, 10);
+        assert_eq!(a, [CONDUCTANCE_MIN; 4], "a fresh cell must start perfectly isotropic, not at zero");
+        assert_eq!(b, [CONDUCTANCE_MIN; 4]);
+
+        transport(&mut w, organism_id);
+        let total: f32 = w.carbon_at(5, 10) + w.carbon_at(6, 10);
+        assert!((total - start).abs() < 1e-4, "the pairwise rule must conserve exactly: {start} -> {total}");
+        assert!(w.carbon_at(5, 10) > w.carbon_at(6, 10), "carbon should still flow down the gradient");
+        assert!(w.carbon_at(6, 10) > 0.0, "the empty cell should have gained");
+    }
+
+    /// `Grow`'s fallback (§7g) is reached exactly when it should be: an
+    /// organism whose conductance is still uniformly basal carries no
+    /// direction information, and must say so rather than returning a
+    /// confident direction built from float noise.
+    #[test]
+    fn supply_direction_is_none_until_something_has_actually_been_carried() {
+        use super::super::chunk::Rect;
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let organism_id = polarity_organism(&mut w, &[(5, 10), (6, 10), (7, 10)]);
+        assert_eq!(supply_direction(&w, 6, 10), None, "a brand-new organism has no established supply direction");
+
+        for _ in 0..30 {
+            w.organism_cell_mut(5, 10).expect("registered").carbon = 1.0;
+            w.organism_cell_mut(7, 10).expect("registered").carbon = 0.0;
+            transport(&mut w, organism_id);
+        }
+        let dir = supply_direction(&w, 6, 10).expect("a canalized chain should have a supply direction");
+        assert!(dir.0 < -0.5, "supply should read as arriving from -x, got {dir:?}");
     }
 
     #[test]

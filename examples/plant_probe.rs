@@ -304,6 +304,43 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         }
     }
 
+    // Vein conductance -- the companion number to `filmstrip channel=vein`.
+    // The sheet answers "is there a strand hierarchy and where"; this
+    // answers "how much", which a one-cell-wide twig on a ramp cannot.
+    {
+        let mut conductances: Vec<f32> = Vec::new();
+        for &(x, y, _, _, _) in &cells {
+            if let Some(cell) = w.organism_cell(x, y) {
+                conductances.push(cell.carbon_conductance.iter().copied().fold(f32::MIN, f32::max));
+            }
+        }
+        if !conductances.is_empty() {
+            conductances.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+            let at = |q: f32| conductances[((conductances.len() - 1) as f32 * q) as usize];
+            let basal = conductances.iter().filter(|c| **c < organism::CONDUCTANCE_MIN * 1.05).count();
+            println!(
+                "
+vein conductance (max face per cell), {}..{}:",
+                organism::CONDUCTANCE_MIN,
+                organism::CONDUCTANCE_MAX
+            );
+            println!(
+                "  min {:.2}  p50 {:.2}  p90 {:.2}  p99 {:.2}  max {:.2}",
+                conductances[0],
+                at(0.5),
+                at(0.9),
+                at(0.99),
+                conductances[conductances.len() - 1]
+            );
+            println!(
+                "  {basal}/{} cells still at the basal floor ({:.0}%) -- undifferentiated tissue",
+                conductances.len(),
+                100.0 * basal as f32 / conductances.len() as f32
+            );
+            println!("  strand contrast, p99/p50: {:.2}x (ceiling {:.0}x)", at(0.99) / at(0.5).max(1e-6), organism::CANALIZATION_CONTRAST);
+        }
+    }
+
     let max_canopy = cells.iter().map(|c| c.4).fold(0.0f32, f32::max);
     let max_resource = cells.iter().map(|c| c.3).fold(0.0f32, f32::max);
     println!("\nmax resource {max_resource:.3} / {:.1}", organism::RESOURCE_SCALE);

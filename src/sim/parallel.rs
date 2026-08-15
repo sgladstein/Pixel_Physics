@@ -263,10 +263,20 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
             // columns in an active chunk from this same pass that hasn't
             // been reinserted yet. Detected here instead, deferred to
             // `pending_demotions` below.
-            if world.get(x, y).managed() {
+            let old = world.get(x, y);
+            if old.managed() {
                 pending_demotions.push((x, y));
             }
             world.set_owned(x, y, cell);
+            // `set_owned` goes straight to `write_cell`, so it bypasses
+            // `World::set`'s organism bookkeeping exactly as the same-chunk
+            // path does -- the remote half of the same seam, and it has to
+            // be replayed here for the same reason. Missing this left a
+            // seed whose *last* fall step crossed a chunk boundary out of
+            // its own organism's cell list, which is a one-row-in-64 window
+            // and produced a sterile single cell rather than a tree. See
+            // `World::reindex_organism_cell`.
+            world.reindex_organism_cell(x, y, old.organism_id(), cell.organism_id());
         }
         for (coord, x, y) in outcome.dirty_touches {
             world.mark_dirty_at(coord, x, y);
@@ -347,13 +357,21 @@ struct ChunkOutcome {
     /// Organism cell-list membership changes from *same-chunk* writes —
     /// `(x, y, was_organism_id, now_organism_id)`.
     ///
-    /// `World::set` maintains `OrganismState::cells` itself, and a remote
-    /// write is replayed through it, so neither needs anything here. A
-    /// same-chunk write never reaches `World::set` at all, so without this
-    /// queue an organism cell that moves inside one chunk — in practice a
-    /// falling seed, the only mobile organism cell — silently drops out of
-    /// its own organism's cell list while staying in the grid. See
-    /// `World::reindex_organism_cell` for what that cost.
+    /// `World::set` maintains `OrganismState::cells` itself, but **neither
+    /// half of this function's write path goes through it**: a same-chunk
+    /// write lands in the worker's own `Chunk`, and a remote write is
+    /// replayed by `run_pass` through `World::set_owned`, which calls
+    /// `write_cell` directly. So both halves have to replay the
+    /// bookkeeping — this queue covers the same-chunk half, and `run_pass`
+    /// covers the remote one at the point of replay.
+    ///
+    /// An earlier revision of this comment claimed remote writes were
+    /// replayed through `World::set` and fixed only the same-chunk half.
+    /// They are not, and the surviving half of the bug had a one-row-in-64
+    /// window: a seed whose *last* fall step crossed a chunk boundary
+    /// vanished from its cell list and grew into a single sterile cell.
+    /// Caught by independent review, not by the suite. See
+    /// `World::reindex_organism_cell`.
     organism_moves: Vec<(i32, i32, u16, u16)>,
 }
 

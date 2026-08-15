@@ -223,6 +223,17 @@ pub enum OrganismOverlay {
     /// The crowding signal `Grow`'s `crowding_weight` scores against,
     /// `0..CANOPY_DENSITY_SCALE`.
     CanopyDensity,
+    /// **Vein conductance** — the largest of a cell's four per-face carbon
+    /// efflux conductances, `CONDUCTANCE_MIN..CONDUCTANCE_MAX`.
+    ///
+    /// The channel Decision 6 exists to make visible. Canalization either
+    /// produces a strand hierarchy — a bright path from source to sink
+    /// against dim undifferentiated tissue — or it does not, and no unit
+    /// test answers that question the way a picture does. Renders the max
+    /// rather than a sum or a mean because the question is "is this cell
+    /// part of a channel", and a cell with one strongly conducting face is,
+    /// however isotropic its other three are.
+    VeinConductance,
     /// Water held in a `Powder` cell — not organism data, but the same
     /// question ("what is in this cell that I cannot see") and the channel
     /// the root work has to be able to look at. Without it, a wetting
@@ -236,7 +247,8 @@ impl OrganismOverlay {
             OrganismOverlay::Off => OrganismOverlay::CellType,
             OrganismOverlay::CellType => OrganismOverlay::Resource,
             OrganismOverlay::Resource => OrganismOverlay::CanopyDensity,
-            OrganismOverlay::CanopyDensity => OrganismOverlay::SoilMoisture,
+            OrganismOverlay::CanopyDensity => OrganismOverlay::VeinConductance,
+            OrganismOverlay::VeinConductance => OrganismOverlay::SoilMoisture,
             OrganismOverlay::SoilMoisture => OrganismOverlay::Off,
         }
     }
@@ -247,6 +259,7 @@ impl OrganismOverlay {
             OrganismOverlay::CellType => "CELL TYPE",
             OrganismOverlay::Resource => "RESOURCE",
             OrganismOverlay::CanopyDensity => "CANOPY DENSITY",
+            OrganismOverlay::VeinConductance => "VEIN CONDUCTANCE",
             OrganismOverlay::SoilMoisture => "SOIL MOISTURE",
         }
     }
@@ -279,6 +292,10 @@ const CELL_TYPE_BLEND: f32 = 0.85;
 const SCALAR_RAMP_RESOURCE: [f32; 3] = [120.0, 255.0, 160.0];
 const SCALAR_RAMP_CANOPY: [f32; 3] = [255.0, 80.0, 80.0];
 const SCALAR_RAMP_MOISTURE: [f32; 3] = [80.0, 170.0, 255.0];
+/// Deliberately unlike `SCALAR_RAMP_RESOURCE`: conductance and the carbon
+/// it carries are different quantities on different timescales, and two
+/// green ramps would invite reading one sheet as the other.
+const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
 
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
@@ -353,17 +370,37 @@ pub struct Renderer {
     /// channels — `B` cycles it. `Off` by default and costs nothing then,
     /// same shape as `field_overlay` above.
     ///
-    /// **Unlike `field_overlay`, this does not defeat the dirty-rect
-    /// skip**, and the difference is real rather than an oversight. A field
-    /// reading changes when `field::step` diffuses it, which happens
-    /// independently of any cell being written, so an untouched chunk's
-    /// tint genuinely can change. Every channel *this* overlay draws is
-    /// stored in `Cell::aux` and can only change via a `set` — `organism::
-    /// diffuse_resource` writes only `if new_aux != cell.aux()`, and
-    /// `plant::organism_tick` writes through `World::set` — so a changed
-    /// organism channel always comes with a dirtied chunk, and the skip
-    /// stays correct. Only *switching* channels needs a full redraw, which
-    /// `last_organism_overlay` below is what catches.
+    /// **The scalar channels defeat the dirty-rect skip; `CellType` does
+    /// not.** That split is exact, and the reasoning changed when the
+    /// scalars moved off `Cell::aux`.
+    ///
+    /// This overlay used to be able to keep the skip wholesale, on the
+    /// argument that every channel it draws lives in `Cell::aux` and can
+    /// only change via a `set`, so a changed reading always came with a
+    /// dirtied chunk. **Decision 2 step 2c falsified that.** `carbon`,
+    /// `canopy_density` and `carbon_conductance` live in `OrganismState`
+    /// now, and `plant.rs` deliberately relies on writing them *without*
+    /// touching the grid — that is what stopped an organism keeping the CA
+    /// sweep awake merely by existing. So those three change with no chunk
+    /// dirtied, and on a settled world the overlay would freeze while the
+    /// values underneath it kept moving.
+    ///
+    /// Which is precisely the failure this overlay was built to prevent:
+    /// `CLAUDE.md`'s "a debug readout must not be a function of the thing
+    /// it debugs" — a frozen sheet and a genuinely static channel draw the
+    /// same picture, and the obvious reading ("the mechanism is dead")
+    /// would send a fix at working code. It has already cost this project
+    /// one wrong diagnosis.
+    ///
+    /// `CellType` is exempt because a cell type really does live in `aux`
+    /// and really can only change through a `set`. It keeps the skip.
+    ///
+    /// **Cost, stated because it is the thing being traded** (`CLAUDE.md`:
+    /// measure a cost against the state the optimisation exists for): a
+    /// full redraw every frame is ~10 ms mean on a *settled* world, the
+    /// number `grain`'s animated modes are documented against. This is a
+    /// debug overlay that is `Off` by default and costs exactly nothing
+    /// then, which is the same bargain `field_overlay` already makes.
     pub organism_overlay: OrganismOverlay,
     /// `organism_overlay` as of the last `draw` call. A change means every
     /// existing pixel in the buffer was tinted for a different channel, so
@@ -521,11 +558,16 @@ impl Renderer {
         let scale_changed = self.last_zoom_state != Some(zoom_state);
         self.last_zoom_state = Some(zoom_state);
 
-        // One full redraw when the organism channel changes, and none after
-        // — see `organism_overlay`'s own doc for why this overlay can keep
-        // the dirty-rect skip where `field_overlay` cannot.
+        // One full redraw when the organism channel changes, and — for the
+        // channels that read the sidecar rather than `Cell::aux` — one every
+        // frame, since those values change with no chunk dirtied. See
+        // `organism_overlay`'s own doc for why that split is exact.
         let organism_overlay_changed = self.last_organism_overlay != self.organism_overlay;
         self.last_organism_overlay = self.organism_overlay;
+        let organism_overlay_is_live = matches!(
+            self.organism_overlay,
+            OrganismOverlay::Resource | OrganismOverlay::CanopyDensity | OrganismOverlay::VeinConductance
+        );
 
         self.frame = self.frame.wrapping_add(1);
         // The animated variants are the ones whose output changes with
@@ -551,6 +593,7 @@ impl Renderer {
         let full = force_full
             || scale_changed
             || organism_overlay_changed
+            || organism_overlay_is_live
             || self.field_overlay != FieldOverlay::Off
             || self.show_chunk_overlay
             || !particles.is_empty();
@@ -914,6 +957,18 @@ impl Renderer {
             OrganismOverlay::Resource => {
                 let t = (world.carbon_at(x, y) / organism::RESOURCE_SCALE).clamp(0.0, 1.0);
                 (scalar_ramp(t, SCALAR_RAMP_RESOURCE), 1.0)
+            }
+            OrganismOverlay::VeinConductance => {
+                // Normalized across the *live* range rather than 0..max, so
+                // undifferentiated tissue sits at the ramp floor instead of
+                // a third of the way up it. A cell that has never carried
+                // flux reads as unambiguously dark.
+                let c = world
+                    .organism_cell(x, y)
+                    .map_or(organism::CONDUCTANCE_MIN, |cell| cell.carbon_conductance.iter().copied().fold(f32::MIN, f32::max));
+                let span = organism::CONDUCTANCE_MAX - organism::CONDUCTANCE_MIN;
+                let t = ((c - organism::CONDUCTANCE_MIN) / span).clamp(0.0, 1.0);
+                (scalar_ramp(t, SCALAR_RAMP_VEIN), 1.0)
             }
             OrganismOverlay::CanopyDensity => {
                 let t = (world.canopy_density_at(x, y) / organism::CANOPY_DENSITY_SCALE).clamp(0.0, 1.0);
