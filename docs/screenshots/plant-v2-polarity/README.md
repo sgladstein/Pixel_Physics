@@ -30,7 +30,7 @@ cargo run --release --example filmstrip -- scene=forest start=1200 every=1700 co
 |---|---|
 | `tree-material.png` | ordinary material colour — what a player sees |
 | `tree-celltype.png` | `CellType`: purple `MatureBody`, pink `Leaf`, orange `RootTip` |
-| `tree-vein.png` | **`VeinConductance`** — the max of a cell's four per-face carbon efflux conductances, `CONDUCTANCE_MIN..CONDUCTANCE_MAX` (1..30) |
+| `tree-vein.png` | **`VeinConductance`** — the max of a cell's four per-face carbon efflux conductances, `CONDUCTANCE_MIN..CONDUCTANCE_MAX` (1..10) |
 | `vein-time-series.png` | the same channel at frames 1200 / 2900 / 4600 / 6300 |
 
 `channel=vein` is new in this pass, and `B` cycles to it in the app.
@@ -50,11 +50,15 @@ channel was built and shot, and the sheets below are the gate.
 ## What they show
 
 **A real hierarchy, not a uniform lift.** In `tree-vein.png` the root
-system and lower stem are brightest, brightness falls steadily toward the
-tips, and the lateral branch on the left is almost dark. Nothing in the
-code computes subtree size or identifies a trunk; the conductance field
-carries that information because it is what the flux wrote into it. This is
-Shinozaki's pipe model arrived at from transport rather than asserted.
+ball, the lower trunk and the long lateral branch are saturated, while the
+thin upper twigs are dark. Nothing in the code computes subtree size or
+identifies a trunk; the conductance field carries that information because
+it is what the flux wrote into it. This is Shinozaki's pipe model arrived
+at from transport rather than asserted.
+
+Note the lateral branch reads *bright*, which is not an error: it carries a
+real share of the canopy, so it carries real flux. Brightness is load, not
+importance.
 
 **It develops over time.** `vein-time-series.png` is the load-bearing
 sheet: at frame 1200 the whole plant is dim and roughly uniform, and by
@@ -88,11 +92,15 @@ counts when nothing is wrong", for the second time on this branch.
 
 ## Two things not to misread
 
-**The tree is a whip, and that is not polarity's doing.** It was a whip
-before this pass too, and the trunk-thickening deficit is `thicken()`
-growing sideways along open ground rather than around the stem — recorded
-as known-open in `PLAN.md` and left for the economy pass. Do not read the
-silhouette here as a verdict on Decision 6.
+**Do not read the silhouette as a verdict on Decision 6.** Tree shape at
+this step is set by the economy and by `thicken()`, not by polarity — §10's
+point, and still true. Earlier versions of these sheets showed a bare whip
+for exactly that reason; the `thicken()` fix is what changed it, not
+anything in the transport rule.
+
+The one place polarity *does* now reach shape is `stem_width`, which takes
+its cross-section axis from `supply_direction` — the first consumer of the
+conductance field outside transport.
 
 **Shot on `forest`, not `tree`, deliberately.** Canalization is about
 choosing between *competing* paths. The `tree` scene currently draws a
