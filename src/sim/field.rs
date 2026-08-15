@@ -192,7 +192,7 @@ const LIGHT_DIFFUSION_RATE: f32 = 0.3;
 /// peak/trough before qualifying. A live perf re-check against the stress
 /// scene is worth doing before this ships broadly; not done as part of
 /// this change.
-const LIGHT_DECAY: f32 = 0.9997;
+const LIGHT_DECAY: f32 = 0.95;
 
 /// Humidity spreads through air more readily than it evaporates away, unlike
 /// light — a much larger diffusion rate than `LIGHT_DIFFUSION_RATE`, still
@@ -680,24 +680,104 @@ fn sky_light_amplitude(frame: u64) -> f32 {
 /// through the transition — a real property of daylight, not a bug to work
 /// around. Force-waking every frame regardless, the way `add_light` does,
 /// would defeat field sleeping (issue #4) for every open-sky scene, all day.
+/// What fraction of direct sunlight survives one blocked field block.
+///
+/// A field block is `FIELD_SCALE` (8) world cells square, so one blocked
+/// block is a substantial thickness of canopy or rock — but not an absolute
+/// wall, which matters: a hard zero makes shade a binary stencil with a
+/// visible edge at field resolution, and
+/// `Reports/tree-procedural-prior-art.md` records that pairing a *graded*
+/// rule (self-pruning, shedding) with a *binary* light signal makes
+/// branches vanish the instant they stop extending. Keeping transmission
+/// graded leaves room for that mechanism to work later.
+///
+/// Rock still goes effectively black after two blocks (0.04), which is what
+/// keeps caves dark.
+const SKY_TRANSMISSION: f32 = 0.2;
+
+/// Direct sunlight, cast **down each column** from open sky.
+///
+/// **Replaces seeding only the topmost chunk's top row and letting
+/// diffusion carry light downward**, which made illumination a function of
+/// *distance from the world's top edge* rather than of what was in the way.
+/// Four separate symptoms had that one cause, and all of them are recorded
+/// with measurements in `Reports/tree-architecture-implementation-plan.md`
+/// §0f:
+///
+/// - **Light got brighter as a plant climbed**, so growing up always paid
+///   and every scene ended with its trees pinned against the world
+///   boundary — chased as a plant bug across two sessions and three scenes.
+///   With a sweep of ground depth the outcome was a cliff, not a curve: at
+///   200 rows of sky a stand reached 8,529 cells with 3 rows of clearance,
+///   at 250 it managed 179 cells, and at 400 nothing germinated at all.
+///   **No depth was both well-lit and un-ceilinged.**
+/// - `Germinate`'s 0.1 light gate became unreachable anywhere with sky
+///   access, degrading into "am I sealed in rock".
+/// - The deep field never converged inside a day/night period, so the
+///   profile *inverted* for ~45% of every cycle and `phototropism_dir`
+///   pointed **downward** across the top ~70 rows for nearly half of each
+///   day.
+/// - Caves lit up through any opening wider than `FIELD_SCALE`.
+///
+/// A column cast fixes all four at once, because it is the physically
+/// right shape: **clear air does not attenuate sunlight, occluders do.**
+/// Open sky now reads the same at any depth, so height carries no intrinsic
+/// reward and a canopy shades what is beneath it because it is *in the
+/// way*.
+///
+/// Diffusion is deliberately kept for everything else — it is what makes
+/// shade soft and bleeds light sideways under a canopy rather than leaving
+/// a hard stencil edge at field resolution. This pass only adds the direct
+/// component, taking the max so diffusion can fill but never darken.
+///
+/// Cost is one downward walk per field column per field step, over the
+/// blocked bitmap `rebuild_blocked` has already built for every chunk this
+/// step — no CA reads and no extra scan.
 fn apply_sky(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
     let amplitude = sky_light_amplitude(world.frame);
-    for &coord in coords {
-        let above = ChunkCoord::new(coord.x, coord.y - 1);
-        if world.chunk(above).is_some() {
-            continue; // another chunk sits above it -- not exposed to sky
-        }
-        let Some(tile) = next.get_mut(&coord) else {
-            continue;
-        };
+    if coords.is_empty() {
+        return;
+    }
+    // Group the chunk grid into columns so each can be walked top to
+    // bottom. A chunk row with no chunk at all is open sky and passes light
+    // through untouched, which is what makes a world with sparse chunks
+    // behave the same as one with empty chunks allocated.
+    let (min_cy, max_cy) = coords.iter().fold((i32::MAX, i32::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
+    let mut columns: Vec<i32> = coords.iter().map(|c| c.x).collect();
+    columns.sort_unstable();
+    columns.dedup();
+
+    for cx in columns {
         for lx in 0..FIELD_TILE_SIZE {
-            if !tile.is_blocked_local(lx, 0) {
-                let mut cell = tile.get_local(lx, 0);
-                cell.light = amplitude;
-                tile.set_local(lx, 0, cell);
+            let mut carried = amplitude;
+            for cy in min_cy..=max_cy {
+                let coord = ChunkCoord::new(cx, cy);
+                let Some(tile) = next.get_mut(&coord) else {
+                    continue; // no chunk here: open sky, carry on unchanged
+                };
+                for ly in 0..FIELD_TILE_SIZE {
+                    if tile.is_blocked_local(lx, ly) {
+                        // A blocked block carries no light of its own (the
+                        // existing invariant) and dims what passes through.
+                        carried *= SKY_TRANSMISSION;
+                        continue;
+                    }
+                    if carried <= 0.0 {
+                        continue;
+                    }
+                    let mut cell = tile.get_local(lx, ly);
+                    // Max, never assignment: diffusion may legitimately
+                    // have brought *more* light here from a neighbouring
+                    // column, and this pass must not darken it.
+                    if carried > cell.light {
+                        cell.light = carried;
+                        tile.set_local(lx, ly, cell);
+                    }
+                }
             }
         }
     }
+    let _ = world;
 }
 
 /// Constant moisture source wherever a `Liquid` CA cell is present —
@@ -1270,17 +1350,86 @@ mod tests {
         );
     }
 
+    /// A *point* source still falls off with distance — but this has to be
+    /// asked underground now, and the reason is the point of `apply_sky`.
+    ///
+    /// The original version of this test placed a point light in open air
+    /// and asserted the reading 72 rows below was dimmer. It was, because
+    /// sky light itself used to decay with depth, so *everything* was
+    /// dimmer further down. Once direct sunlight became a column cast, open
+    /// air reads full brightness at any depth and swamps a point source
+    /// entirely — the assertion failed, correctly, because it was measuring
+    /// the sky's distance falloff rather than the source's.
+    ///
+    /// Sealed in rock the sky cannot reach, so what is left is the thing
+    /// the test is named for.
     #[test]
-    fn light_diffuses_from_a_source_and_decays_with_distance() {
+    fn a_point_light_falls_off_with_distance_where_the_sky_cannot_reach() {
         let mut w = test_world();
-        w.add_light(128, 128, 2, 1.0);
+        // A solid block with a hollow interior: no column from open sky
+        // reaches inside it.
+        // The rock above the cavity has to be genuinely thick: one blocked
+        // field block only attenuates by `SKY_TRANSMISSION`, so a thin roof
+        // leaves the cavity uniformly lit by transmitted sky and swamps the
+        // point source all over again. 90 rows is ~11 blocks, i.e. 0.2^11.
+        for x in 60..200 {
+            for y in 40..250 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 100..160 {
+            for y in 140..240 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        w.add_light(128, 150, 2, 1.0);
         for _ in 0..10 {
             step(&mut w);
         }
-        let near = w.field_at(128, 128).light;
-        let far = w.field_at(128, 200).light;
+        let near = w.field_at(128, 150).light;
+        let far = w.field_at(128, 235).light;
         assert!(near > 0.0, "light source went dark");
-        assert!(far < near, "light did not fall off with distance");
+        assert!(far < near, "a point light must still fall off with distance: near {near}, far {far}");
+    }
+
+    /// The invariant that replaced it: **clear air does not attenuate
+    /// sunlight; occluders do.**
+    ///
+    /// Light used to be seeded on the topmost chunk's top row and carried
+    /// down by diffusion, so illumination was a function of *distance from
+    /// the world's top edge*. That gave a plant an unbounded reward for
+    /// climbing and pinned every scene's trees against the world boundary —
+    /// see `apply_sky` for the four symptoms and their measurements.
+    #[test]
+    fn open_air_is_equally_lit_at_any_depth_and_a_roof_still_shades() {
+        let mut w = test_world();
+        for _ in 0..40 {
+            step(&mut w);
+        }
+        let high = w.field_at(128, 16).light;
+        let low = w.field_at(128, 240).light;
+        assert!(high > 0.0, "open sky went dark");
+        assert!(
+            (low - high).abs() < 1e-3,
+            "clear air must not attenuate sunlight: {high} at row 16 against {low} at row 240"
+        );
+
+        // A roof, and the same column underneath it must go dark.
+        let mut w = test_world();
+        for x in 80..200 {
+            for y in 100..108 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for _ in 0..40 {
+            step(&mut w);
+        }
+        let above_roof = w.field_at(128, 64).light;
+        let under_roof = w.field_at(128, 160).light;
+        assert!(
+            under_roof < above_roof * 0.5,
+            "an occluder must shade what is beneath it: {above_roof} above against {under_roof} below"
+        );
     }
 
     #[test]
