@@ -1315,6 +1315,9 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // Leaves per row, then a running total downward, so every cell can read
     // "how much foliage do I carry" without a traversal of its own.
     let mut leaves_in_row: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
+    // **Total tissue per row — the pipe model's actual cross-section.**
+    // Counted in the walk that is already happening, so it is free.
+    let mut cells_in_row: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let (mut root_cells, mut shoot_cells) = (0u32, 0u32);
     let mut min_y = i32::MAX;
     let mut max_y = i32::MIN;
@@ -1325,6 +1328,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         if c.organism_id() != organism_id {
             continue;
         }
+        *cells_in_row.entry(cy).or_insert(0) += 1;
         let ty = organism::cell_type(c.aux());
         if matches!(ty, Some(CellType::Leaf) | Some(CellType::GrowingTip)) {
             *leaves_in_row.entry(cy).or_insert(0) += 1;
@@ -1400,7 +1404,8 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 }
                 Behavior::SecondaryThicken { pipe_ratio } => {
                     let carried = leaves_above.get(&cy).copied().unwrap_or(0);
-                    thicken(world, cx, cy, organism_id, pipe_ratio, carried as usize, &mut rng);
+                    let row_width = cells_in_row.get(&cy).copied().unwrap_or(1).max(1);
+                    thicken(world, cx, cy, organism_id, pipe_ratio, carried as usize, row_width as usize, &mut rng);
                 }
                 // Frontier behaviours never run here -- a mature cell has
                 // no growth to do, and `Germinate` belongs to a `Seed`.
@@ -1583,57 +1588,9 @@ fn cross_section_axis(world: &World, x: i32, y: i32) -> [(i32, i32); 2] {
     [(-sx, -sy), (sx, sy)]
 }
 
-/// How far `stem_width` will walk before giving up. A trunk wider than
-/// this is not a trunk, and an unbounded walk would make thickening
-/// O(organism) per cell again -- the exact cost the `can_widen` early
-/// rejection above exists to avoid.
-const MAX_STEM_WIDTH: i32 = 24;
 
-/// The stem's actual cross-section at `(x, y)`: the length of the
-/// contiguous same-organism run through it, along `axis`.
-///
-/// **This replaces a count of immediate neighbours, and that is the whole
-/// pancake bug.** The old form was `1 + (same-organism cells at (x-1,y) and
-/// (x+1,y))`, which is at most 3 -- but more importantly, the *growing end*
-/// of a widening run always has exactly one same-organism neighbour, so it
-/// always read 2 no matter how wide the trunk had actually become. It
-/// therefore passed `leaf_count / width > pipe_ratio` forever and the run
-/// extended without limit, which is why a trunk base spread 81-121 cells
-/// sideways along open ground instead of stopping at a few cells thick.
-///
-/// Measuring the whole run makes the gate terminate where the pipe model
-/// says it should: at `leaf_count / pipe_ratio` cells wide.
-///
-/// **The larger consequence is not trunk shape, it is whether seedlings
-/// live at all**, and that was not predicted -- it was measured, and then
-/// explained. `thicken` deliberately grows *through* its own leaves (see
-/// the `own_leaf` branch below, and its grounding in real leaf-trace
-/// severance). An unbounded trunk therefore ate the seedling's early
-/// foliage faster than the seedling could replace it, starving the plant
-/// that was building it. Bounding the width lets those leaves survive:
-/// across all six variants of `debug_tree_variants` at n=12, the baseline
-/// went from **5/12 established to 11/12**, and the best variant from 75%
-/// to 100%. Peak foliage on the best tree went 31 -> 55 leaves.
-///
-/// Worth keeping as a shape of bug rather than just a fix: a mechanism
-/// that consumes a resource *and* is gated on a quantity it can drive to
-/// zero will run away, and the visible symptom (a slab of wood) was two
-/// steps removed from the damage (seedlings quietly failing to establish).
-fn stem_width(world: &World, x: i32, y: i32, organism_id: u16, axis: [(i32, i32); 2]) -> usize {
-    let mut width = 1usize;
-    for (dx, dy) in axis {
-        for k in 1..=MAX_STEM_WIDTH {
-            let (nx, ny) = (x + dx * k, y + dy * k);
-            if world.get(nx, ny).organism_id() != organism_id {
-                break;
-            }
-            width += 1;
-        }
-    }
-    width
-}
-
-fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, leaf_count: usize, rng: &mut Rng) {
+#[allow(clippy::too_many_arguments)]
+fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, leaf_count: usize, row_width: usize, rng: &mut Rng) {
     let axis = cross_section_axis(world, x, y);
     // **Cheapest possible rejection first.** The flood fill below is
     // O(organism size), and it ran for *every* `MatureBody` cell every tick
@@ -1677,8 +1634,36 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     // near the top carries almost nothing. Counting the entire organism
     // instead (which the undirected flood fill did before that filter was
     // added) thickens every cell equally and produces a slab.
-    let width = stem_width(world, x, y, organism_id, axis);
-    if (leaf_count as f32 / width as f32) <= pipe_ratio {
+    // **The gate compares foliage above against this row's *total* tissue,
+    // not against a local measurement — and that distinction was the whole
+    // runaway.**
+    //
+    // `leaf_count` is already per-row ("every `Leaf` above this row"), but
+    // `width` used to be per-*cell*: the length of the local run, or the
+    // local tissue density. So every cell in a row saw the same 253 leaves
+    // above it and independently thickened its own neighbourhood, and a row
+    // holding fifty cells thickened fifty times over. Shinozaki's pipe
+    // model says the cross-section *at a height* is proportional to the
+    // foliage above it; a per-cell reading is not that quantity, and
+    // nothing about it is conserved as the row widens.
+    //
+    // Two local measurements were tried before this and both ran away, in
+    // the same direction and for the same underlying reason -- a growing
+    // structure is *porous*, so any local probe under-reads:
+    //
+    // - walking the run perpendicular to `supply_direction`: exact in a
+    //   slender stem, meaningless in a blob, and holes cut the run short.
+    //   `pipe_ratio` 10 and 25 both produced a widest row of exactly 105
+    //   cells while the gate's arithmetic says 10 should cap it at 25.
+    // - counting tissue in a radius-3 disc: orientation-free, and *worse*
+    //   (31,591 wood against 12,039, widest row 274), because the holes
+    //   that make a blob porous also lower its density.
+    //
+    // The row total cannot under-read that way: every cell the row gained
+    // counts, holes included, so widening the row closes the gate on the
+    // next tick. It is also free -- `organism_upkeep` already walks every
+    // cell to build `leaves_in_row`.
+    if (leaf_count as f32 / row_width as f32) <= pipe_ratio {
         return;
     }
     // Which side to try first is a coin flip, not always left.
@@ -2839,13 +2824,17 @@ mod tests {
     /// A widening trunk must stop widening, and the *end* of the run is
     /// where the old rule could not tell that it had.
     ///
-    /// `thicken`'s gate is `leaf_count / width > pipe_ratio`. `width` used
-    /// to count immediate same-organism neighbours on the row, so a cell at
-    /// the growing end of a run — one neighbour behind it, open air ahead —
-    /// always read exactly **2**, however wide the trunk had actually
-    /// become. It therefore passed the gate forever and the run extended
-    /// without limit, which is the 81-to-121-cell slab measured spreading
-    /// sideways along open ground.
+    /// `thicken`'s gate is `leaf_count / row_width > pipe_ratio`, where
+    /// `row_width` is the organism's **total** tissue in this row — the
+    /// pipe model's cross-section at a height. The five cells placed below
+    /// are that row, so the gate sees 5 whatever it reads locally.
+    ///
+    /// Three earlier versions measured this *per cell* and every one ran
+    /// away, because a growing structure is porous and any local probe
+    /// under-reads: immediate neighbours (the run's end always read 2),
+    /// the run perpendicular to `supply_direction` (meaningless in a blob),
+    /// and tissue density in a disc (holes lower it). The row total cannot
+    /// under-read — every cell the row gained counts.
     ///
     /// Five cells wide carrying 30 leaves is comfortably past the pipe
     /// model's bound at `pipe_ratio = 10` (30/5 = 6). Measuring the whole
@@ -2866,7 +2855,7 @@ mod tests {
         let mut rng = rng::stream(organism_id as u64, 54, 50, 0);
 
         // 30 leaves above, against `tree.ron`'s own pipe_ratio of 10.
-        thicken(&mut w, 54, 50, organism_id, 10.0, 30, &mut rng);
+        thicken(&mut w, 54, 50, organism_id, 10.0, 30, 5, &mut rng);
 
         assert_eq!(
             w.get(55, 50).organism_id(),
@@ -2876,7 +2865,7 @@ mod tests {
 
         // ...and it still widens when it genuinely is too thin for its load.
         let mut rng = rng::stream(organism_id as u64, 54, 50, 1);
-        thicken(&mut w, 54, 50, organism_id, 10.0, 300, &mut rng);
+        thicken(&mut w, 54, 50, organism_id, 10.0, 300, 5, &mut rng);
         assert_ne!(w.get(55, 50).organism_id(), 0, "300 leaves on a five-wide trunk is under-built and should still thicken");
     }
 
