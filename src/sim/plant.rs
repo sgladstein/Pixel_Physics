@@ -1481,6 +1481,22 @@ const MAX_STEM_WIDTH: i32 = 24;
 ///
 /// Measuring the whole run makes the gate terminate where the pipe model
 /// says it should: at `leaf_count / pipe_ratio` cells wide.
+///
+/// **The larger consequence is not trunk shape, it is whether seedlings
+/// live at all**, and that was not predicted -- it was measured, and then
+/// explained. `thicken` deliberately grows *through* its own leaves (see
+/// the `own_leaf` branch below, and its grounding in real leaf-trace
+/// severance). An unbounded trunk therefore ate the seedling's early
+/// foliage faster than the seedling could replace it, starving the plant
+/// that was building it. Bounding the width lets those leaves survive:
+/// across all six variants of `debug_tree_variants` at n=12, the baseline
+/// went from **5/12 established to 11/12**, and the best variant from 75%
+/// to 100%. Peak foliage on the best tree went 31 -> 55 leaves.
+///
+/// Worth keeping as a shape of bug rather than just a fix: a mechanism
+/// that consumes a resource *and* is gated on a quantity it can drive to
+/// zero will run away, and the visible symptom (a slab of wood) was two
+/// steps removed from the damage (seedlings quietly failing to establish).
 fn stem_width(world: &World, x: i32, y: i32, organism_id: u16, axis: [(i32, i32); 2]) -> usize {
     let mut width = 1usize;
     for (dx, dy) in axis {

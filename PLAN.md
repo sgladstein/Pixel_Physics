@@ -3818,8 +3818,92 @@ is unreachable. Worth noting the trap: the *chain* canalization test passes
 under packing either way (flux saturates Φ), so only the discriminating gate
 dies — a guard suite that looks green while the mechanism is unmeasurable.
 
-**Still to do after that:** polarity (Decision 6), the one economy pass
-(Decision 4's remainder), and bud break — in that order, unchanged.
+**Polarity landed** (`12739bc`), and the economy pass is under way. **Bud
+break is the remaining item.**
+
+### Polarity (Decision 6) — landed
+
+`carbon_conductance: [f32; 4]` on `OrganismCell`, the pairwise carrier rule
+with substeps, the Hill-function conductance update, and `Grow`'s
+`away_from_growth` → `away_from_supply` swap. Gate was a picture as well as
+unit tests: `render.rs` gained a VEIN CONDUCTANCE channel (`B` in-app,
+`channel=vein` in filmstrip) and `plant_probe` prints the distribution
+beside it. Sheets under `docs/screenshots/plant-v2-polarity/`.
+
+Deviated from §7f in one place, recorded in `transport`: density cannot run
+through the general pairwise form and stay "bit-for-bit" the symmetric
+average, because the mean rule and the pairwise rule differ by the
+neighbour count. Density keeps its tested rule.
+
+The §7h Y-junction test asserts the *claim*, not the illustration. §7h pins
+the stem at 1.0 for hunger and caps delivery at Q=0.3, which a running
+simulation cannot do both of; pinning drives flux to ~19× J_REF, saturates
+Φ on both faces and collapses the conductance ratio to 1.00. Supply-limited
+instead, the ratio lands at 1.26 against §7h's predicted 1.38.
+
+### The economy pass — three things landed, in this order
+
+**1. The harness had to become an ensemble first, and it immediately
+justified itself** (`f4ce696`). `debug_tree_variants` compared six variants
+at one tree each. Its n=1 output read as "highrate is 3× baseline"; at n=8
+that variant spans 15 to 488 and every range overlaps every other. **Any
+tuning decision taken on the old harness would have been wrong.** It now
+prints the full value list and refuses to rank when the leader's median
+sits inside the runner-up's range.
+
+Two side findings: growth converges by **4,000** frames (counts identical
+at 4k/10k/20k), so the old 20,000 was 3× longer than needed; and replicates
+must be different planting *positions*, since `rng::stream` is seeded from
+position and re-running one scene draws identical numbers.
+
+**The finding that matters is that the outcome is bimodal** — 13–21 cells
+(germinated then stopped) or 100–500, almost nothing between. A mean
+describes a population that does not exist. Report the **establishment
+rate** instead.
+
+**2. Canalization contrast 30:1 → 10:1** (`11c2b1e`). §7e names the
+contrast as the first knob when seedlings stall, ahead of
+`CARBON_SUBSTEPS`; measured, and it is right.
+
+| contrast | established | cells | strand contrast achieved |
+|---|---|---|---|
+| 30:1 | 54/96 (56%) | 4,906 | 20.7× of 30 |
+| **10:1** | **70/96 (73%)** | **6,321** | 6.1× of 10 |
+
+`TRANSPORT_RATE` re-derives with it (0.008 → 0.024) and that coupling *is*
+the mechanism: lowering contrast raises the rate the stability bound
+permits, and unpolarized tissue conducts at `RATE · CONDUCTANCE_MIN`, so a
+seedling with no strand gets 3× the transport. 5:1 tried and rejected.
+
+**3. `thicken()` measures the trunk's real cross-section** (`c0e278f`) —
+and this was the big one.
+
+`width` was a count of immediate left/right neighbours, so the *growing end
+of a run* always read 2 however wide the trunk had become. It passed
+`leaf_count / width > pipe_ratio` forever and spread sideways without
+limit. Now the full contiguous run, measured perpendicular to the stem
+(axis from `supply_direction` — the first consumer of the conductance field
+outside transport).
+
+| | before | after |
+|---|---|---|
+| thickest run on one row | 105 | 51 |
+| stem thickness above base, max | 103 | 32 |
+| stem thickness above base, median | 5 | 6 |
+| rows >1 cell wide | 38% | 44% |
+| leaves, max | 31 | 55 |
+
+**And it roughly doubled establishment** — baseline 5/12 → 11/12 at n=12,
+best variant 75% → 100%. Not predicted; measured, then explained.
+`thicken` grows *through* its own leaves, so an unbounded trunk ate the
+seedling's foliage faster than it could be replaced, starving the plant
+building it. The visible symptom (a slab) was two steps removed from the
+damage (seedlings quietly failing).
+
+**Do not tune against `rows >1 cell wide`.** It is dominated by the basal
+slab; eight A/B runs were spent chasing a "regression" in it that turned
+out to be the metric, not the trees. Judge on **stem thickness above the
+base**, on the **establishment rate**, and on the picture.
 
 **Two bugs step 2c exposed, both older than it, both recorded where they
 bite:**
