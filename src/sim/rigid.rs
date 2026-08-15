@@ -117,10 +117,11 @@ const MIN_FRACTURE_CELLS: usize = 6;
 /// `try_promote_failing_region`.
 const MAX_BODY_CELLS: usize = 400;
 
-/// Ceiling on a single collapse, in cells. Not a "too big to be a chunk"
-/// test -- a region this size becomes many chunks -- just a bound on how
-/// much work one failure may do in one frame.
-const MAX_FRACTURE_CELLS: usize = 4000;
+// The ceiling on a single collapse (`MAX_FRACTURE_CELLS`) lived here while
+// this module decided which cells were failing. It moved with that decision
+// to `load::MAX_REGION_CELLS`, which is where a region's size is now
+// bounded -- during the accumulation, so a truncated region also reports
+// that its load figures are floors rather than totals.
 
 /// How far `displace` looks for somewhere to shove a loose cell the body is
 /// moving into. Bounded and small on purpose — this is a shove, not a
@@ -397,67 +398,47 @@ impl ChunkBody {
     }
 }
 
-/// Promote the connected region of *already-failing* structure containing
-/// `(x, y)` into a `ChunkBody`, returning whether it did.
+/// Break an already-decided failing `region` apart into falling pieces,
+/// returning whether it did.
 ///
 /// Returns `false` — leaving the caller to fall back to per-cell
-/// `breaks_into` conversion — when the region is too small to read as a
-/// chunk or too large to be one.
+/// `breaks_into` conversion — only when the region is too small to be worth
+/// fracturing at all.
 ///
-/// # Why the flood fill has a failure predicate rather than reusing
-/// `label_component`
+/// # Why this no longer decides *which* cells fail
 ///
-/// `label_component` labels connected *solid*, which for an overhang that
-/// is about to come down includes the entire mountain it is still attached
-/// to. What a body needs is the connected set of cells that are themselves
-/// past their span — which is a different question with a conveniently
-/// cheap answer, because `structural.rs` has already written every cell's
-/// distance into `aux` by the time a break fires. So this is a flood over
-/// "solid, and `aux` exceeds this material's `max_unsupported_span`".
+/// It used to. `label_failing_region` flooded "connected, unattached,
+/// distance above zero" from the failing cell and took the whole appendage,
+/// and that flood existed for exactly one reason: under the reach model the
+/// root of a cantilever never failed on its own, so something had to
+/// reconstruct the piece that should have come away. It produced roughly
+/// the right outcome by the wrong mechanism, and it degraded precisely
+/// where it mattered — a partially cracked overhang has no single
+/// distance-defined appendage to take.
 ///
-/// # What this does *not* catch, measured rather than assumed
+/// `load::failing_region` now answers that question properly, from the
+/// support forest: the piece is the subtree the failing cell was actually
+/// holding up, or, when nothing holds the cell either, the connected region
+/// that has genuinely come free. **Both had to change in the same commit.**
+/// Leaving the flood in beside a root that now fails on its own means one
+/// failure detaches twice.
 ///
-/// **Only a detached region becomes a chunk. Progressive span failure does
-/// not, and cannot.** This was verified by counting bodies rather than by
-/// looking at the result, which mattered: a mined roof coming down as loose
-/// rubble and one coming down as a coherent slab are nearly indis-
-/// tinguishable in a contact sheet, and the picture read as "chunks are
-/// working" while `filmstrip`'s own body count said `bodies 0` throughout.
+/// # No upper bound, deliberately
 ///
-/// The two cases differ for a real reason. In `filmstrip`'s `snap` scene a
-/// shelf is cut off its pillar, so *nothing* in it can reach an anchor; its
-/// cells then climb in lockstep (the count-to-infinity dynamic in
-/// `structural.rs`'s module doc) and cross their span within a tick or two
-/// of each other, so the flood finds the whole region at once — 54 cells,
-/// one body. In the `mine` scene the roof is still attached to an anchored
-/// stub at each end, so its cells sit at genuinely different distances and
-/// the failure wavefront walks inward one cell per
-/// `STRUCTURAL_TICK_INTERVAL`. At the instant the first cell crosses, its
-/// neighbour is still one short of crossing, and the region is one cell.
-///
-/// That is the physically right answer rather than a gap to paper over: a
-/// roof still held at both ends is not a chunk that fell off, it is a span
-/// crumbling, and it should come down as loose material. Widening the
-/// predicate to "within a cell or two of failing" would sweep in cells that
-/// genuinely stand. Getting chunks out of *mining* specifically would need
-/// a different trigger — reachability computed forward rather than read
-/// from the cached distance — and is deliberately not attempted here.
-pub fn try_promote_failing_region(world: &mut World, x: i32, y: i32) -> bool {
-    let Some(region) = label_failing_region(world, x, y, MAX_FRACTURE_CELLS) else {
-        return false;
-    };
-    // No upper bound. `MAX_BODY_CELLS` caps a *single* body, and `fracture`
-    // splits whatever it is given into fragments of at most 32-128 cells, so
-    // a large collapse should simply yield more pieces. Gating on it meant
-    // anything bigger than 400 cells fell through to per-cell conversion and
-    // dissolved -- the bigger the piece, the more certain it turned to dust,
-    // which is exactly backwards and is the same mistake `strike` had.
-    // Reported from play: a thick column cap where "part breaks into chunks
-    // ... the other parts just crumble to dust".
+/// `MAX_BODY_CELLS` caps a *single* body, and `fracture` splits whatever it
+/// is given into fragments of at most 32-128 cells, so a large collapse
+/// simply yields more pieces. Gating on it meant anything bigger than 400
+/// cells fell through to per-cell conversion and dissolved — the bigger the
+/// piece, the more certain it turned to dust, which is exactly backwards
+/// and is the same mistake `strike` had. Reported from play as a thick
+/// column cap where "part breaks into chunks ... the other parts just
+/// crumble to dust". A size cap belongs on a fragment, never on whether a
+/// region breaks at all.
+pub fn fracture_failing_region(world: &mut World, region: &[(i32, i32)]) -> bool {
     if region.len() < MIN_FRACTURE_CELLS {
         return false;
     }
-    fracture(world, &region);
+    fracture(world, region);
     true
 }
 
@@ -635,77 +616,6 @@ fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
     world.schedule_structural_check_around(x, y);
 }
 
-/// Flood the connected cells that are solid, unowned, and already past
-/// their own material's span -- see below for why that was wrong.
-///
-/// # Why the whole appendage, not the cells that are over span
-///
-/// Flooding only cells already past their span made structures dissolve
-/// from the tip inward instead of cracking, for two compounding reasons.
-/// The cascade is progressive, so at the instant the first cell crosses,
-/// its neighbours have not, and the set is one cell -- below
-/// `MIN_FRACTURE_CELLS`, so it fell through to per-cell conversion and the
-/// fracture path never ran. And when a player builds outward the failing
-/// cell is the one just placed at the very tip, with nothing beyond it, so
-/// the set is one cell however patient the cascade is.
-///
-/// Real cantilevers fail at the root and the whole span drops. With
-/// `support_cost_below` at 0 a cell's stored distance is its horizontal
-/// reach out from whatever holds it up, so anchored material sits at 0 and
-/// anything hanging off it is 1 or more. Flooding "connected, unattached,
-/// distance above zero" therefore takes the entire appendage and stops dead
-/// at the anchor, with no threshold to tune. A tower is untouched: every
-/// cell of it is at 0 through that same free downward step.
-fn label_failing_region(world: &World, seed_x: i32, seed_y: i32, max_cells: usize) -> Option<Vec<(i32, i32)>> {
-    let hanging = |x: i32, y: i32| {
-        let cell = world.get(x, y);
-        if !is_body_material(world, x, y) || cell.organism_id() != 0 {
-            return false;
-        }
-        // Attached rock is held by the mass behind it and is not hanging off
-        // anything; it must never be swept into a falling piece by a
-        // neighbour's failure. Everything else with a non-zero distance is,
-        // by definition, reaching out from something rather than sitting on
-        // it -- see this function's doc for why that is the right set.
-        !cell.attached() && cell.aux() > 0
-    };
-    if !hanging(seed_x, seed_y) {
-        return None;
-    }
-
-    let mut visited: HashSet<(i32, i32)> = HashSet::new();
-    visited.insert((seed_x, seed_y));
-    let mut stack = vec![(seed_x, seed_y)];
-    let mut out = Vec::new();
-    while let Some((x, y)) = stack.pop() {
-        out.push((x, y));
-        if out.len() >= max_cells {
-            break; // caller treats an over-cap region as "too big to be a chunk"
-        }
-        for (dx, dy) in NEIGHBOURS_4 {
-            let next = (x + dx, y + dy);
-            if visited.contains(&next) {
-                continue;
-            }
-            // A fracture is where the piece ends: walking across one would
-            // drag down rock it is no longer joined to.
-            if super::structural::edge_is_cracked(world, x, y, dx, dy) {
-                continue;
-            }
-            if hanging(next.0, next.1) {
-                visited.insert(next);
-                stack.push(next);
-            }
-        }
-    }
-    // Sorted so promotion order (and therefore the body's cell order, and
-    // therefore every fit test and landing write below) is identical run to
-    // run -- a `HashSet`-driven flood is not, which is issue #7's exact
-    // determinism trap in a new place.
-    out.sort_unstable();
-    Some(out)
-}
-
 /// Score fractures radiating out from a blow.
 ///
 /// A crack runs *along* the ray, so it separates the rock either side of
@@ -760,6 +670,14 @@ fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, ray
             let scored = if horizontal { cell.with_crack_down(true) } else { cell.with_crack_right(true) };
             world.set(x, y, scored);
             scored_now.insert((x, y));
+            // A fissure is where the rock has parted company with the mass
+            // behind the slice, so it stops claiming to be braced by it.
+            // This is what carries a blow's *reach* into the structural
+            // model: the bite is 4 cells wide and the cracks run 21, and
+            // before this only the bite loosened anything -- so the cracks
+            // were visible damage that changed nothing about what the rock
+            // could carry. See `structural::detach_around_crack`.
+            super::structural::detach_around_crack(world, x, y);
             world.schedule_structural_check_around(x, y);
             r += 1;
         }
@@ -1337,13 +1255,26 @@ mod tests {
     /// promotion can be exercised without waiting out a real structural
     /// cascade. `aux` past stone's span is exactly the state
     /// `structural::tick` leaves a cell in at the moment it breaks.
-    fn failing_slab(w: &mut World, x0: i32, y0: i32, width: i32, height: i32) {
-        let over_span = w.materials.get(material::STONE).max_unsupported_span + 1;
+    /// A rectangle of loose stone, returned as the region a failure would
+    /// hand to `fracture_failing_region`.
+    ///
+    /// Deciding *which* cells fail is no longer this module's job -- it
+    /// moved to `load::failing_region`, which is where the criterion lives
+    /// -- so these tests supply the region rather than provoking one. The
+    /// stamped-on `aux` is now needed by exactly one of them
+    /// (`a_settled_body_does_not_immediately_re_break`, which has to be
+    /// able to *see* that landing resets it) and is kept only for that.
+    fn loose_slab(w: &mut World, x0: i32, y0: i32, width: i32, height: i32) -> Vec<(i32, i32)> {
+        let stale = w.materials.get(material::STONE).max_unsupported_span + 1;
+        let mut region = Vec::new();
         for y in y0..(y0 + height) {
             for x in x0..(x0 + width) {
-                w.set(x, y, Cell::new(material::STONE, 0).with_aux(over_span));
+                w.set(x, y, Cell::new(material::STONE, 0).with_aux(stale));
+                region.push((x, y));
             }
         }
+        region.sort_unstable();
+        region
     }
 
     fn count_material(w: &World, m: MaterialId) -> usize {
@@ -1361,8 +1292,8 @@ mod tests {
     #[test]
     fn a_failing_region_is_promoted_and_leaves_the_grid() {
         let mut w = test_world();
-        failing_slab(&mut w, 20, 20, 6, 3); // 18 cells, inside MIN..=MAX
-        assert!(try_promote_failing_region(&mut w, 20, 20), "a slab this size should promote");
+        let region = loose_slab(&mut w, 20, 20, 6, 3); // 18 cells, inside MIN..=MAX
+        assert!(fracture_failing_region(&mut w, &region), "a slab this size should promote");
 
         assert_eq!(
             count_material(&w, material::STONE),
@@ -1382,8 +1313,8 @@ mod tests {
         // single body, or a uniform dissolve, are the two things this must
         // fail on.
         let mut w = test_world();
-        failing_slab(&mut w, 10, 10, 20, 12); // 240 cells, plenty to break up
-        assert!(try_promote_failing_region(&mut w, 10, 10));
+        let region = loose_slab(&mut w, 10, 10, 20, 12); // 240 cells, plenty to break up
+        assert!(fracture_failing_region(&mut w, &region));
 
         let rubble = w.materials.get(material::STONE).breaks_into.unwrap();
         assert!(count_material(&w, rubble) > 0, "a fracture that produced no loose rubble at all is the all-or-nothing failure");
@@ -1403,8 +1334,8 @@ mod tests {
         // `breaks_into` conversion -- so this must decline, and must leave
         // the cells alone for that fallback to convert.
         let mut w = test_world();
-        failing_slab(&mut w, 20, 20, 2, 2); // 4 cells
-        assert!(!try_promote_failing_region(&mut w, 20, 20));
+        let region = loose_slab(&mut w, 20, 20, 2, 2); // 4 cells
+        assert!(!fracture_failing_region(&mut w, &region));
         assert!(w.chunk_bodies.is_empty());
         assert_eq!(count_material(&w, material::STONE), 4, "a declined region must be left in the grid for the caller to convert");
     }
@@ -1422,8 +1353,8 @@ mod tests {
         // never a reason to decline. Kept as the reproduction, with the
         // claim reversed.
         let mut w = test_world();
-        failing_slab(&mut w, 0, 10, 60, 10); // 600 cells, well past MAX_BODY_CELLS
-        assert!(try_promote_failing_region(&mut w, 0, 10), "a large collapse should still break up, not decline");
+        let region = loose_slab(&mut w, 0, 10, 60, 10); // 600 cells, well past MAX_BODY_CELLS
+        assert!(fracture_failing_region(&mut w, &region), "a large collapse should still break up, not decline");
 
         assert!(w.chunk_bodies.len() > 1, "600 cells should yield many pieces, not one");
         assert_eq!(total_debris(&w), 600, "fracture lost or duplicated material");
@@ -1431,23 +1362,26 @@ mod tests {
     }
 
     #[test]
-    fn only_cells_past_their_span_join_the_body() {
-        // The reason this uses its own predicate instead of
-        // `label_component`: an overhang about to come down is still
-        // attached to the mountain, and labelling connected *solid* would
-        // fly the mountain too.
+    fn fracture_touches_only_the_region_it_was_given() {
+        // Was `only_cells_past_their_span_join_the_body`, asserting the
+        // flood predicate this module used to own. The predicate moved to
+        // `load::failing_region`; the claim worth keeping here is the one
+        // about *this* function, and it is not vacuous -- an overhang about
+        // to come down is still adjacent to the mountain, and a fracture
+        // that grew its region by even one ring would take the mountain
+        // with it.
         let mut w = test_world();
-        failing_slab(&mut w, 20, 20, 6, 3); // failing
+        let region = loose_slab(&mut w, 20, 20, 6, 3);
         for y in 20..23 {
             for x in 26..40 {
                 w.set(x, y, Cell::new(material::STONE, 0)); // aux 0 -- well supported, and adjacent
             }
         }
-        assert!(try_promote_failing_region(&mut w, 20, 20));
+        assert!(fracture_failing_region(&mut w, &region));
         assert_eq!(
             count_material(&w, material::STONE),
             42,
-            "fracture reached past the failing region into cells that were still supported"
+            "fracture reached past the region it was handed, into cells that were still supported"
         );
     }
 
@@ -1457,8 +1391,8 @@ mod tests {
         for x in 0..64 {
             w.set(x, 63, Cell::new(material::BEDROCK, 0));
         }
-        failing_slab(&mut w, 20, 10, 6, 3);
-        assert!(try_promote_failing_region(&mut w, 20, 10));
+        let region = loose_slab(&mut w, 20, 10, 6, 3);
+        assert!(fracture_failing_region(&mut w, &region));
         let start_y = w.chunk_bodies[0].y;
 
         // The CA sweep runs too: fracture now emits loose rubble alongside
@@ -1494,8 +1428,8 @@ mod tests {
         for x in 0..64 {
             w.set(x, 63, Cell::new(material::BEDROCK, 0));
         }
-        failing_slab(&mut w, 20, 10, 6, 3);
-        assert!(try_promote_failing_region(&mut w, 20, 10));
+        let region = loose_slab(&mut w, 20, 10, 6, 3);
+        assert!(fracture_failing_region(&mut w, &region));
         for _ in 0..200 {
             step_chunk_bodies(&mut w);
         }
@@ -1530,8 +1464,8 @@ mod tests {
             }
         }
         let sand_before = count_material(&w, material::SAND);
-        failing_slab(&mut w, 20, 10, 6, 3);
-        assert!(try_promote_failing_region(&mut w, 20, 10));
+        let region = loose_slab(&mut w, 20, 10, 6, 3);
+        assert!(fracture_failing_region(&mut w, &region));
 
         for _ in 0..300 {
             step_chunk_bodies(&mut w);
@@ -1720,8 +1654,8 @@ mod tests {
         let orders: Vec<Vec<(i32, i32)>> = (0..8)
             .map(|_| {
                 let mut w = test_world();
-                failing_slab(&mut w, 20, 20, 6, 3);
-                try_promote_failing_region(&mut w, 20, 20);
+                let region = loose_slab(&mut w, 20, 20, 6, 3);
+                fracture_failing_region(&mut w, &region);
                 w.chunk_bodies[0].cells.iter().map(|c| (c.dx, c.dy)).collect()
             })
             .collect();

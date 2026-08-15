@@ -291,6 +291,44 @@ fn build(scene: &str) -> World {
                 }
             }
         }
+        // Acceptance case 4, and the owner's original case: a big overhang
+        // joined to the cliff by a deliberately thin ligament. It must snap
+        // at the *neck*, not at the tip and not at all.
+        //
+        // This is the shape the reach model could not get right in
+        // principle rather than by tuning. The ligament sits at *low*
+        // distance -- it is right next to solid rock -- so reach says it is
+        // fine, while the tip, being far out, is the part that fails. That
+        // is backwards: rock fails where the stress is highest, and the
+        // stress is highest where the section is thinnest.
+        //
+        // No blow and no erasing: the geometry alone has to be enough, so
+        // nothing here can be mistaken for the strike doing the work.
+        "ligament" => {
+            stone_floor(&mut w);
+            for y in 100..280 {
+                for x in 0..100 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // The neck: 4 cells deep, 10 long. Everything beyond it has to
+            // carry its moment through these forty cells.
+            for y in 150..154 {
+                for x in 100..110 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // The overhang: 40 deep and 110 long, hung off that neck.
+            for y in 130..170 {
+                for x in 110..220 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            // One structural check at the neck, which is all a disturbance
+            // would do. Nothing is removed, nothing is struck.
+            w.schedule_structural_check_around(105, 152);
+        }
         // A thin shelf cantilevered off a thick pillar, with the join then
         // cut so the shelf detaches whole.
         //
@@ -333,7 +371,7 @@ fn build(scene: &str) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked, capped"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked, capped, ligament"
         ),
     }
     w
@@ -357,6 +395,17 @@ struct Args {
     /// `explode=x,y,radius,strength,frame` -- fire one `explosion::trigger`
     /// at the given frame. Repeatable, for several blasts in one run.
     explosions: Vec<(i32, i32, i32, f32, usize)>,
+    /// `load=x,y` -- print `sim::load::evaluate` at that cell for every
+    /// tile. Repeatable. The structural counterpart of the `bodies` line:
+    /// an image says a shelf is still up, and only a number says whether it
+    /// is up with 3% of its capacity used or 97%.
+    probes: Vec<(i32, i32)>,
+    /// `loadmap=1` -- also report the single most-stressed cell in the
+    /// world per tile. `CLAUDE.md`: sanity-check a new metric against a
+    /// case you know is fine before trusting it about one you don't, and
+    /// "nothing anywhere is over 1.0" on a scene that visibly stands is
+    /// exactly that check.
+    loadmap: bool,
 }
 
 fn parse() -> Args {
@@ -373,6 +422,8 @@ fn parse() -> Args {
         grain: GrainMode::Position,
         gif: false,
         explosions: Vec::new(),
+        probes: Vec::new(),
+        loadmap: false,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -395,6 +446,12 @@ fn parse() -> Args {
                     "motion" => GrainMode::Motion,
                     other => panic!("unknown grain {other:?}"),
                 }
+            }
+            "loadmap" => a.loadmap = v != "false",
+            "load" => {
+                let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("load")).collect();
+                assert_eq!(n.len(), 2, "load=x,y");
+                a.probes.push((n[0], n[1]));
             }
             "explode" => {
                 let n: Vec<f32> = v.split(',').map(|s| s.parse().expect("explode")).collect();
@@ -462,6 +519,56 @@ fn advance(world: &mut World, particles: &mut ParticleSystem, blasts: &mut explo
     blasts.step(world, particles);
     particles.step(world);
     world.step_fields();
+}
+
+/// Print whatever structural probes were asked for. Separate from the tile
+/// line above because these scan the world and the tile line does not — a
+/// scene that isn't about structure should pay nothing for this existing.
+fn report_loads(world: &World, args: &Args) {
+    for &(x, y) in &args.probes {
+        match pixel_physics::sim::load::evaluate(world, x, y) {
+            Some(l) => println!(
+                "    load ({x},{y}): mass {} torque {} capacity {} stress {:.2}{}{}",
+                l.mass,
+                l.torque,
+                l.capacity,
+                l.stress(),
+                if l.supported { "" } else { " UNSUPPORTED" },
+                if l.truncated { " TRUNCATED" } else { "" },
+            ),
+            // Says *which* of the reasons, because "nothing here" covers
+            // both "solid rock that cannot fail" and "this cell is gone",
+            // and confusing those wastes a session.
+            None => {
+                let cell = world.get(x, y);
+                let name = &world.materials.get(cell.material).name;
+                println!("    load ({x},{y}): not evaluated -- {name}, aux {}, attached {}", cell.aux(), cell.attached());
+            }
+        }
+    }
+    if !args.loadmap {
+        return;
+    }
+    let mut worst: Option<((i32, i32), pixel_physics::sim::load::Load)> = None;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let Some(l) = pixel_physics::sim::load::evaluate(world, x, y) else { continue };
+            if worst.is_none_or(|(_, w)| l.stress() > w.stress()) {
+                worst = Some(((x, y), l));
+            }
+        }
+    }
+    match worst {
+        Some(((x, y), l)) => println!(
+            "    worst stress: {:.2} at ({x},{y}) -- mass {} torque {} capacity {}{}",
+            l.stress(),
+            l.mass,
+            l.torque,
+            l.capacity,
+            if l.supported { "" } else { " UNSUPPORTED" }
+        ),
+        None => println!("    worst stress: nothing evaluable in the world"),
+    }
 }
 
 fn main() {
@@ -544,11 +651,31 @@ fn main() {
 
     let mut captured = 0usize;
     let mut step_no = 0usize;
+    // Worst *single* frame, not the mean, and reported per tile rather than
+    // once at the end. `Reports/fracture-mechanics-design.md` §3.4 names the
+    // cascade spike as the thing to watch -- each break changes loads and
+    // triggers more breaks in the same frame -- and a mean over 250 frames
+    // hides exactly that. Per tile, because it localizes the spike to a
+    // phase of the scene instead of just proving one happened.
+    let mut worst_ms = 0.0f64;
+    let mut worst_frame = 0usize;
     while captured < args.count {
         let target = args.start + captured * args.every;
         while step_no < target {
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+            let began = std::time::Instant::now();
             advance(&mut world, &mut particles, &mut blasts, args.parallel_driver);
+            let ms = began.elapsed().as_secs_f64() * 1000.0;
+            // Frame 0 is excluded, and not to flatter the number: every
+            // scene spikes there, including `terrain`, which runs no
+            // structural work at all. It is chunk and field allocation plus
+            // first-touch page faults, paid once at startup, and leaving it
+            // in made all seven scenes report the same ~70-110 ms and hid
+            // the differences between them entirely.
+            if ms > worst_ms && step_no > 0 {
+                worst_ms = ms;
+                worst_frame = step_no;
+            }
             step_no += 1;
         }
         fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
@@ -583,13 +710,16 @@ fn main() {
         // actually promote to a body" is a question the picture cannot
         // answer on its own.
         println!(
-            "  tile {captured}: frame {target}, awake {}/{}, particles {}, bodies {} ({} cells)",
+            "  tile {captured}: frame {target}, awake {}/{}, sites {}, particles {}, bodies {} ({} cells)",
             world.active_chunk_count(),
             world.chunk_count(),
+            world.active_site_count(),
             particles.len(),
             world.chunk_bodies.len(),
             world.chunk_bodies.iter().map(|b| b.cells.len()).sum::<usize>(),
         );
+        println!("    worst frame so far: {worst_ms:.2} ms (frame {worst_frame})");
+        report_loads(&world, &args);
         captured += 1;
     }
 

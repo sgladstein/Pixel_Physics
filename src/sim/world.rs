@@ -208,6 +208,20 @@ pub struct World {
     /// in the very call that's checking it) was caught by an independent
     /// review and closed the same way, checking both before and after.
     touched_chunks: std::collections::HashSet<ChunkCoord>,
+    /// Cells the load walks in `load.rs` may still visit this frame,
+    /// refilled to `load::MAX_LOAD_CELLS_PER_FRAME` by `scheduler::step`.
+    ///
+    /// Lives on `World` rather than being threaded through the scheduler
+    /// because a structural check is dispatched one site at a time and the
+    /// budget has to survive between them. Spent down rather than counted
+    /// up, so a walk can hand `&mut` straight to it and stop when it hits
+    /// zero without knowing what the ceiling was.
+    pub load_budget: u32,
+    /// Per-frame caches for the load walks (`load::Cache`).
+    /// Cleared by `scheduler::step` each frame and again by
+    /// `structural::tick` the instant a break mutates the grid, since both
+    /// invalidate the support forest it summarises.
+    pub load_cache: crate::sim::load::Cache,
 }
 
 impl World {
@@ -231,6 +245,8 @@ impl World {
             free_organism_slots: Vec::new(),
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
+            load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
+            load_cache: crate::sim::load::Cache::default(),
         };
         world.ensure_chunks_for(bounds);
         world

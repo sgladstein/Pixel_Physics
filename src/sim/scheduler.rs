@@ -169,6 +169,13 @@ impl PartialOrd for ActiveSite {
 /// requeued, just deferred, spreading a big backlog across several frames
 /// instead of spiking one.
 pub fn step(world: &mut World) {
+    // Refilled once per frame, before any site is dispatched: the load
+    // walks a structural check performs are the expensive half of this
+    // phase, and `MAX_SITES_PER_FRAME` alone does not bound them -- 2,000
+    // cheap checks and 2,000 checks that each flood a thousand cells are
+    // the same number of sites and three orders of magnitude apart in cost.
+    world.load_budget = if std::env::var("PROBE_NO_LOAD").is_ok() { 0 } else { crate::sim::load::MAX_LOAD_CELLS_PER_FRAME };
+    world.load_cache.clear();
     let due = world.frame;
     let mut due_sites = Vec::new();
     while due_sites.len() < MAX_SITES_PER_FRAME {

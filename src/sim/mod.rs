@@ -29,9 +29,14 @@
 //!   rather than to world size
 //! * `plant` — M16, moss and tree/root growth, dispatched from `scheduler`
 //! * `structural` — M17, destructible building: solid cells track their
-//!   distance to an anchor, recomputed reactively via `scheduler`, and
-//!   convert to loose material once that distance exceeds their material's
-//!   tolerance
+//!   distance to an anchor, recomputed reactively via `scheduler`. That
+//!   distance is now purely a support-ordering potential — which way is
+//!   downhill toward an anchor — not a failure criterion in itself
+//! * `load` — the support forest that distance induces, and what each cell
+//!   carries: a cell breaks when the bending moment of everything hanging
+//!   off it exceeds what its section can hold. See
+//!   `Reports/fracture-mechanics-design.md` for why reach was the wrong
+//!   question
 //! * `creature` — M18 Phase 1, cell-based creatures (a burrowing worm),
 //!   dispatched from `scheduler` like plant growth and structural checks;
 //!   fire/burning is deliberately not reimplemented here, since `fire.rs`
@@ -52,6 +57,7 @@ pub mod explosion;
 pub mod field;
 pub mod fire;
 pub mod liquid;
+pub mod load;
 pub mod material;
 pub mod organism;
 pub mod parallel;

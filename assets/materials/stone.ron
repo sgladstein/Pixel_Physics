@@ -33,11 +33,23 @@
 
 
     // Rock is strong in compression, weak in bending, weakest in tension.
-    // Standing on rock is free, so a wall or pillar built up from the ground
-    // stands to any height; leaning out costs the full step, so an overhang
-    // still snaps once it passes `max_unsupported_span`; hanging costs
-    // triple, so nothing dangles far from what holds it.
-    support_cost_below: 0,
+    // Leaning out costs the full step; hanging costs triple, so nothing
+    // dangles far from what holds it.
+    //
+    // `support_cost_below` was 0 -- standing on rock was free -- and that
+    // is deleted rather than tuned. It existed only to stop towers snapping
+    // under the *reach* model, where a column's height counted against it
+    // exactly like a cantilever's overhang. Under load a tower stands
+    // because it *carries little* (its mass sits directly above it, so its
+    // bending moment is ~0), which is the real reason, and the zero was
+    // actively harmful for three separate reasons: whole regions shared one
+    // distance, so "closer to an anchor" stopped ordering support and the
+    // parent relation could cycle; a floating blob where every cell claimed
+    // support from the one below sat at a self-consistent distance of 0 and
+    // never even scheduled a recheck; and equal-cost ties made subtree
+    // accumulation double-count. See `load.rs` and
+    // `Reports/fracture-mechanics-design.md` §2/§3.1.
+    support_cost_below: 1,
     support_cost_beside: 1,
     support_cost_above: 3,
 )

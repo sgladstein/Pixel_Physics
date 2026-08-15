@@ -3,12 +3,18 @@
 //! Each `Solid` cell stores in `Cell::aux` its distance, in cells, to the
 //! nearest anchor — bedrock, or the world edge (the same `Cell::OUT_OF_BOUNDS`
 //! sentinel already used everywhere else a rule needs to treat the world's
-//! edge as a wall). A cell whose distance exceeds its material's
-//! `max_unsupported_span` is unsupported and breaks free, converting into
-//! `breaks_into` — loose material the ordinary CA sweep then makes fall.
-//! No polygons, no connected-component labelling, no physics solver; M8
-//! upgrades the "falls as loose material" part into coherent tumbling
-//! bodies later without this milestone needing to change.
+//! edge as a wall). No polygons, no connected-component labelling, no
+//! physics solver.
+//!
+//! **That distance is no longer the failure criterion**, and this file is
+//! now only half the model. Distance decides *which way is downhill toward
+//! an anchor* — the support forest — and `load.rs` decides what fails, by
+//! comparing the bending moment of everything hanging off a cell against
+//! what its section can carry. Reach answers "how far out are you", which
+//! is not the question: a crack at a beam's root weakens a cell that was
+//! never near any span limit, so a worked root never gave way and an
+//! overhang on a two-cell ligament did not notice. See
+//! `Reports/fracture-mechanics-design.md`.
 //!
 //! # Why attachment is stated, not inferred
 //!
@@ -37,10 +43,11 @@
 //! `Cell::attached` marks material belonging to the background mass, and an
 //! attached cell is an anchor outright. Terrain says so about itself;
 //! anything standing in front of it has to earn its support through a real
-//! path. **Attachment is lost by destruction** — `break_free` and
-//! `rigid::try_promote_failing_region` both drop it — so breaking a piece
-//! out of a cliff is exactly the moment it stops being held, which is what
-//! makes mining produce debris that falls.
+//! path. **Attachment is lost by destruction** — `break_free`,
+//! `rigid::fracture` and `rigid::score_cracks` all drop it — so breaking or
+//! even *fracturing* a piece out of a cliff is the moment it stops being
+//! held, which is what makes mining produce debris that falls. Under the
+//! load model attachment buys *capacity*, never immunity.
 //!
 //! # Why one step's cost depends on its direction
 //!
@@ -49,10 +56,14 @@
 //! fail at exactly the height a 1-cell cantilever reaches sideways. Real
 //! rock does not behave that way: it is strong in compression and weak in
 //! bending and tension. `support_cost_below`/`_beside`/`_above` split that
-//! flat 1 three ways, so standing on something is cheap, leaning out is
-//! dear, and hanging is dearest. A wall stands to any height; an overhang
-//! still snaps at its span. All three default to 1, which is exactly the
-//! behaviour they replaced.
+//! flat 1 three ways, so leaning out is dear and hanging is dearest.
+//!
+//! `support_cost_below` was 0 — standing on rock was free — and that is
+//! now 1. It existed only to stop towers snapping under the *reach* model;
+//! under load a tower stands because it *carries little*, its mass sitting
+//! directly above it. The zero also broke the support forest outright:
+//! whole regions shared one distance, so "closer to an anchor" stopped
+//! ordering support at all. See `load.rs` and `stone.ron`.
 //!
 //! # Why this is a label-correcting relaxation, not a one-shot BFS
 //!
@@ -92,9 +103,8 @@
 //! and any change to when checks are scheduled causes global collapse."
 //! Confinement is what makes the exemption unnecessary rather than merely
 //! deferred — bulk terrain now passes a check it genuinely satisfies
-//! instead of one it was never asked to sit. An 8-cell floor is thicker
-//! reaches bedrock through free downward steps, and the ledges reach it
-//! through the walls they are cut into.
+//! instead of one it was never asked to sit. The floor reaches bedrock
+//! directly, and the ledges reach it through the walls they are cut into.
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
@@ -104,7 +114,12 @@ use super::material::{self, MaterialId, MaterialKind};
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
-const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+/// The four-neighbourhood, in the order every tie in this subsystem breaks
+/// on. `load.rs` derives support parents with the same `argmin` the
+/// relaxation below uses, so it has to iterate in the identical order or
+/// the two disagree about which neighbour holds a cell up whenever two
+/// paths cost the same — which is most of a solid slab.
+pub const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
 /// Frames between a structural check and its next one, if its distance is
 /// still changing. Deliberately faster than plant growth's tick intervals
@@ -148,36 +163,17 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     }
 
     // Copied out rather than held as a `&Material` borrow, because
-    // `break_free`/`world.set` below need `&mut World` and every one of
-    // these is `Copy`.
-    let (span, breaks_into, cost_below, cost_beside, cost_above) = {
+    // `world.set` below needs `&mut World` and every one of these is `Copy`.
+    let (cost_below, cost_beside, cost_above) = {
         let m = world.materials.get(cell.material);
-        (
-            // Attached rock is braced by the mass the slice cannot show, so
-            // it reaches much further -- but it is not immune, which is the
-            // whole point. See `MaterialDef::attached_span_bonus`.
-            if cell.attached() { m.max_unsupported_span.saturating_mul(m.attached_span_bonus) } else { m.max_unsupported_span },
-            m.breaks_into,
-            m.support_cost_below,
-            m.support_cost_beside,
-            m.support_cost_above,
-        )
+        (m.support_cost_below, m.support_cost_beside, m.support_cost_above)
     };
 
-    // Fractures cut what the cell can carry. This is what turns a crack
-    // from a mark into damage: a scored overhang gives way where an intact
-    // one of the same reach holds, and each further blow shortens the reach
-    // again -- so a piece visibly weakens before it goes, rather than
-    // switching from fine to fallen.
-    let span = span.saturating_mul(depth_factor(world, x, y));
-    let span = weakened_by_cracks(world, x, y, span);
-
     // Bedrock is the only outright anchor. Attachment deliberately is *not*
-    // one: it buys a much larger span above instead. Anchoring on it made an
-    // undercut shelf unfallable -- its interior was still attached, so still
-    // held, no matter how much was dug from beneath it. Terrain still stands
-    // because the massif reaches bedrock through free downward steps
-    // (`support_cost_below` is 0), not because it is exempt.
+    // one: it buys capacity instead. Anchoring on it made an undercut shelf
+    // unfallable -- its interior was still attached, so still held, no
+    // matter how much was dug from beneath it. Terrain still stands because
+    // the massif genuinely reaches bedrock, not because it is exempt.
     let is_anchor = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK)
         || is_resting_on_ground(world, x, y);
 
@@ -230,37 +226,124 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         best
     };
 
-    if new_distance > span {
-        let Some(into) = breaks_into else {
-            // No configured fallback: this material's span is finite but it
-            // has nowhere to fall back to. Treated as "not actually
-            // participating" rather than silently deleting content a
-            // author forgot to pair `breaks_into` with -- stays Solid,
-            // stops checking (matches an unset span's own behaviour).
-            return Vec::new();
-        };
-        // M8: a failure big enough to read as a *chunk* leaves as one
-        // coherent falling piece rather than dissolving into loose grains
-        // one cell at a time. Falls back to the per-cell conversion below
-        // when the region is too small to be worth it or too large to be a
-        // chunk at all -- see `rigid::try_promote_failing_region`.
-        if !super::rigid::try_promote_failing_region(world, x, y) {
-            break_free(world, x, y, into);
+    // Written *before* the failure test, not after, and the order is
+    // load-bearing: `load::failing_region` reads stored distances, and the
+    // one cell whose value it must not read stale is the cell being judged.
+    let moved = new_distance != cell.aux();
+    // Judged when the distance has *settled*, or when it just got **worse**.
+    //
+    // Settling alone is not enough, and the gap is not subtle: a piece with
+    // no anchor at all never settles. Its cells climb by one each tick
+    // forever -- the count-to-infinity dynamic in this module's own doc --
+    // so "wait until it stops changing" waits for something that will not
+    // happen, and a blob painted in open air hangs there permanently.
+    // Caught by `an_unsupported_foreground_blob_does_not_hang_in_mid_air`.
+    //
+    // A distance that *rose* is precisely the signal that support got
+    // worse, which is the direction that can cause a failure; a distance
+    // that fell means a better path was found and nothing can newly break
+    // because of it. So the falling half of a convergence wavefront still
+    // costs nothing.
+    let worsened = new_distance > cell.aux();
+    if moved {
+        world.set(x, y, cell.with_aux(new_distance));
+        // Judged only once its distance has *settled*, which is both
+        // cheaper and more correct.
+        //
+        // Cheaper, and this is the whole difference between a playable
+        // frame and a five-second one: a disturbance sends a wavefront of
+        // distance changes across the whole affected structure, and every
+        // cell it touches used to pay for a full subtree walk on every
+        // change. Measured at 4,456 ms on `scene=strike` and 6,556 ms on
+        // `scene=capped`. Each cell reschedules itself when it moves, so
+        // every one of them still gets judged -- once, on the tick it stops
+        // moving, instead of once per step of the wavefront.
+        //
+        // More correct because the support forest a load walk reads is
+        // exactly the thing that is mid-flight while distances are still
+        // changing, which is `Reports/load-model-handoff.md` §5.2's stale-
+        // parent hazard. Waiting for the cell to settle sidesteps it.
+        if !worsened {
+            let mut next = vec![reschedule(world, x, y)];
+            next.extend(schedule_solid_neighbours(world, x, y));
+            return next;
         }
-        // The neighbours that were relying on this cell as a stepping
-        // stone need to recompute too -- this is what turns a single break
-        // into a *cascade* rather than one isolated cell vanishing.
-        return schedule_solid_neighbours(world, x, y);
     }
 
-    if new_distance == cell.aux() {
-        return Vec::new(); // stable -- stop being actively rescheduled
+    // Out of budget for this frame: defer rather than judge, so a cascade
+    // spreads over frames instead of spiking one. Deliberately not "assume
+    // it holds and stop checking" -- that would silently drop the check.
+    if world.load_budget == 0 {
+        return vec![reschedule(world, x, y)];
+    }
+    // Attached bulk with no crack and no free face cannot fail, so it does
+    // not walk its support chain either. Checked here rather than only
+    // inside `evaluate` because the chain walk below costs an evaluation
+    // per ancestor, and skipping it for interior rock is the difference
+    // between paying for a structure's *surface* and paying for its
+    // volume -- `scene=capped`'s column is 11,520 cells of which ~800 are
+    // surface.
+    if !super::load::is_structurally_interesting(world, x, y) {
+        return Vec::new();
     }
 
-    world.set(x, y, cell.with_aux(new_distance));
-    let mut next = vec![reschedule(world, x, y)];
-    next.extend(schedule_solid_neighbours(world, x, y));
-    next
+    // The failure criterion, and the whole point of the load model:
+    // **torque > capacity**, not reach > span. See `load.rs` -- the piece
+    // that comes away is the subtree this cell was actually holding up (or,
+    // if nothing holds *it*, the connected region that has come free), so a
+    // worked root gives way and takes the span with it instead of the tip
+    // dissolving inward one cell at a time.
+    // Taken out and put back, the same borrow shape `scheduler::step` and
+    // `step_chunk_bodies` both use: the walk needs `&World` while the cache
+    // it fills lives on the world itself.
+    let mut budget = world.load_budget;
+    let mut cache = std::mem::take(&mut world.load_cache);
+    let verdict = super::load::failing_along_support_chain(world, x, y, &mut cache, &mut budget);
+    world.load_budget = budget;
+    world.load_cache = cache;
+    if matches!(verdict, super::load::ChainVerdict::Deferred) {
+        return vec![reschedule(world, x, y)];
+    }
+    if let super::load::ChainVerdict::Failing(region) = verdict {
+        // The forest this describes is about to change out from under it.
+        world.load_cache.clear();
+        // M8: a failure big enough to read as a *chunk* leaves as coherent
+        // falling pieces rather than dissolving into loose grains one cell
+        // at a time. Falls back to the per-cell conversion when the region
+        // is too small to be worth it.
+        if !super::rigid::fracture_failing_region(world, &region) {
+            for &(fx, fy) in &region {
+                break_free(world, fx, fy);
+            }
+        }
+        // The neighbours that were relying on this as a stepping stone need
+        // to recompute too -- this is what turns a break into a *cascade*
+        // rather than one isolated piece vanishing.
+        let mut next = schedule_solid_neighbours(world, x, y);
+        for &(fx, fy) in &region {
+            next.extend(schedule_solid_neighbours(world, fx, fy));
+        }
+        return next;
+    }
+
+    // Judged along its whole support chain, and holding. If the distance is
+    // still moving, keep the relaxation going; otherwise stop being
+    // actively rescheduled and let whatever disturbs this cell next
+    // schedule it again.
+    if moved {
+        let mut next = vec![reschedule(world, x, y)];
+        next.extend(schedule_solid_neighbours(world, x, y));
+        return next;
+    }
+    //
+    // Scheduling the parent here instead was tried and reverted. It fixed
+    // the same ordering bug `failing_along_support_chain` now fixes, but
+    // every settling cell raised a fresh check on its parent, which raised
+    // one on *its* parent, faster than the queue drained: measured on
+    // `scene=capped` at 26 pending sites climbing to 4,064 with frame cost
+    // tracking it from 2.5 ms to 3,160 ms. Walking the chain inside this
+    // tick does the same work without putting anything new in the queue.
+    Vec::new()
 }
 
 /// Structural check for an organism-owned cell (`cell.organism_id() != 0`)
@@ -289,12 +372,12 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
         // until something else disturbs this organism's own structure.
         return Vec::new();
     }
-    let Some(into) = material.breaks_into else {
+    if material.breaks_into.is_none() {
         // Same "not actually participating" framing the aux-cached path
         // above uses for the identical case.
         return Vec::new();
-    };
-    break_free(world, x, y, into);
+    }
+    break_free(world, x, y);
     schedule_organism_neighbours(world, x, y, organism_id)
 }
 
@@ -378,7 +461,16 @@ fn schedule_organism_neighbours(world: &World, x: i32, y: i32, organism_id: u16)
 const COLLAPSE_IMPULSE_RADIUS: i32 = 3;
 const COLLAPSE_IMPULSE_STRENGTH: f32 = 4.0;
 
-fn break_free(world: &mut World, x: i32, y: i32, into: MaterialId) {
+fn break_free(world: &mut World, x: i32, y: i32) {
+    // Resolved per cell rather than passed in by the caller, because a
+    // failing region is no longer one cell and need not be one material --
+    // a shelf can be part stone and part whatever was built onto it. A cell
+    // whose material has no configured debris is left alone rather than
+    // deleted: "not actually participating" beats silently destroying
+    // content an author forgot to pair `breaks_into` with.
+    let Some(into) = world.materials.get(world.get(x, y).material).breaks_into else {
+        return;
+    };
     let shades = world.materials.get(into).palette.len().max(1) as u32;
     let shade = world.rng.below(shades) as u8;
     let temp = world.get(x, y).temperature();
@@ -532,87 +624,13 @@ fn is_relaxable(world: &World, cell: Cell) -> bool {
     is_body_material(world, cell.material) && cell.organism_id() == 0
 }
 
-/// How much further rock reaches for being *deep* rather than thin.
-///
-/// A one-cell ledge and a forty-cell-thick cap had exactly the same span,
-/// so a massive block of stone was as fragile as a shelf and any noticeable
-/// overhang on a thick column tore itself off. Reported from play: a tall
-/// thick column with "a shallow overhang ... crumbles by itself".
-///
-/// Section depth is the missing term, and it is the dominant one in real
-/// beams — bending capacity grows with the square of depth, which is why a
-/// joist is deep rather than wide. Measured *vertically*, because that is
-/// the direction perpendicular to the span of a horizontal overhang, and a
-/// horizontal overhang is the case that fails.
-///
-/// # Why this is not the thickness rule that was tried and reverted
-///
-/// An earlier model measured burial depth in *all* directions and used it
-/// to anchor a cell outright. It made thickness into immunity: nothing at
-/// or past the threshold could fail anywhere, mid-air included. This is a
-/// bounded multiplier on span, so a deep beam reaches much further and
-/// still fails if pushed — and it measures the *beam's* depth rather than
-/// how buried a cell is, so a cell on the top face of a thick slab gets the
-/// slab's full depth instead of the zero its own burial would suggest.
-/// That surface-erosion problem is what sank the earlier attempt's repair.
-fn depth_factor(world: &World, x: i32, y: i32) -> u16 {
-    let mut depth = 1u16;
-    for dir in [-1, 1] {
-        let mut step = 1;
-        while depth < MAX_SECTION_DEPTH {
-            let probe = world.get(x, y + dir * step);
-            if !is_body_material(world, probe.material) || probe.material == material::EMPTY {
-                break;
-            }
-            depth += 1;
-            step += 1;
-        }
-    }
-    1 + depth / DEPTH_PER_SPAN_STEP
-}
-
-/// Deepest section worth measuring. Past this the reach is already far
-/// beyond anything a 512-wide world contains, and each extra cell is another
-/// read for nothing.
-const MAX_SECTION_DEPTH: u16 = 40;
-
-/// Cells of section depth per extra multiple of the base span.
-const DEPTH_PER_SPAN_STEP: u16 = 4;
-
-/// Reduce `span` by how badly `(x, y)` is fractured.
-///
-/// Counts cracked edges, not *intact* ones, and the distinction matters: a
-/// cell at a free rock face has fewer neighbours than one buried in a slab,
-/// and being at a surface is not damage. Only a fracture is.
-///
-/// Scales linearly with how much of the cell's cross-section is still
-/// joined, floored at 1 so a heavily scored cell is very weak rather than
-/// instantly gone — the point is a piece that sags and then fails, not one
-/// that vanishes the moment it is touched. All four edges cracked needs no
-/// handling here: the relaxation simply finds no path through the cell at
-/// all.
-///
-/// **Engine constant, not `.ron` data, and that is a gap rather than a
-/// decision.** `Reports/design-philosophy.md` §2a says a gameplay-facing
-/// constant graduates to hot-reloadable data immediately, and "different
-/// materials should break differently" is an explicit near-term goal — how
-/// brittle a material is under damage is exactly the sort of thing that
-/// wants a slider. Left as a constant only because the load model in
-/// `Reports/fracture-mechanics-design.md` §1c replaces this arithmetic
-/// wholesale, and authoring a field about to be reinterpreted is worse than
-/// authoring one once.
-fn weakened_by_cracks(world: &World, x: i32, y: i32, span: u16) -> u16 {
-    let cracked = NEIGHBOURS_4.iter().filter(|&&(dx, dy)| edge_is_cracked(world, x, y, dx, dy)).count() as u16;
-    if cracked == 0 {
-        return span;
-    }
-    let intact = CRACK_FACES.saturating_sub(cracked).max(1);
-    (span / CRACK_FACES).saturating_mul(intact).max(1)
-}
-
-/// Edges a cell has, and so the denominator for how much of its section a
-/// fracture has taken away.
-const CRACK_FACES: u16 = 4;
+// Section depth and crack weakening used to live here, as multipliers on
+// `max_unsupported_span`. They are not deleted -- they moved to `load.rs`
+// and became multipliers on *capacity*, which is what they were always
+// reaching for. Section depth also changed shape on the way: it is squared
+// (bending capacity grows with the square of depth, the dominant term in a
+// real beam) and is measured perpendicular to wherever the support is
+// coming from rather than always vertically. See `load::capacity`.
 
 /// Whether a fracture separates `(x, y)` from its neighbour at `(dx, dy)`.
 ///
@@ -666,7 +684,32 @@ pub fn edge_is_cracked(world: &World, x: i32, y: i32, dx: i32, dy: i32) -> bool 
 /// weathered dig face staying foreground afterwards is correct: it has been
 /// broken once already.
 pub fn detach_exposed_neighbours(world: &mut World, x: i32, y: i32) {
-    let r = DETACH_DEPTH;
+    detach_around(world, x, y, DETACH_DEPTH);
+}
+
+/// Strip background attachment from every cell within `r` of `(x, y)`.
+///
+/// Split out of `detach_exposed_neighbours` because *removing* material is
+/// no longer the only thing that loosens rock. **Fracturing it does too**,
+/// and that is what `rigid::score_cracks` calls this for: a fissure is the
+/// plane along which rock has parted company with the mass behind it, so
+/// scored rock stops claiming to be braced by material out of plane.
+///
+/// Reported from play, and this is the fix for it: *"when background
+/// objects break to become foreground it is too conservative — it basically
+/// only breaks really close to the strike"*, alongside *"when I shatter
+/// background objects it looks like I have shattered through but it doesn't
+/// drop."* Both were the same cause. A blow only ever loosened the rock it
+/// physically bit out (a radius-7 swing reaches 4 cells), while its cracks
+/// ran three times further and changed nothing about attachment — so the
+/// visible fissures were decoration, and the shelf they crossed kept a
+/// twelvefold capacity bonus it had visibly stopped deserving.
+///
+/// Measured on `scene=worked`: without this the six blows shed the shelf's
+/// lower ten rows and left a 3-deep skin standing 160 cells out, at 92% of
+/// its capacity — right at the margin, which is why it read as "shattered
+/// through but still up".
+fn detach_around(world: &mut World, x: i32, y: i32, r: i32) {
     for dy in -r..=r {
         for dx in -r..=r {
             let (nx, ny) = (x + dx, y + dy);
@@ -678,6 +721,20 @@ pub fn detach_exposed_neighbours(world: &mut World, x: i32, y: i32) {
             world.schedule_structural_check_around(nx, ny);
         }
     }
+}
+
+/// How far a *fracture* loosens rock either side of itself, in cells.
+///
+/// Smaller than `DETACH_DEPTH`: a cut face has had material physically
+/// taken off it, while a crack has only parted — but not zero, for exactly
+/// the reason `DETACH_DEPTH` is not 1. A one-cell band around a fissure
+/// makes everything that later breaks away a one-cell sheet, and pieces can
+/// only be as thick as the loosened rock they came from.
+const CRACK_DETACH_DEPTH: i32 = 2;
+
+/// Loosen the rock around a fracture at `(x, y)`. See `detach_around`.
+pub fn detach_around_crack(world: &mut World, x: i32, y: i32) {
+    detach_around(world, x, y, CRACK_DETACH_DEPTH);
 }
 
 /// How deep into the rock a cut loosens material, in cells.
@@ -725,7 +782,7 @@ fn is_resting_on_ground(world: &World, x: i32, y: i32) -> bool {
 /// same helper `rigid.rs` (M8) already has for exactly the same "which
 /// kinds of cell count as body, not air or clutter" question, since it's
 /// the identical question asked for a different purpose.
-fn is_body_material(world: &World, material: MaterialId) -> bool {
+pub fn is_body_material(world: &World, material: MaterialId) -> bool {
     matches!(world.materials.kind(material), MaterialKind::Solid | MaterialKind::Plant)
 }
 
@@ -883,24 +940,39 @@ mod tests {
     }
 
     #[test]
-    fn a_wood_beam_exceeding_its_span_breaks_into_deadwood() {
+    fn an_overloaded_wood_beam_comes_down_as_deadwood() {
         // Architecture item 9: structural integrity extended to `Plant`,
-        // exercised through the exact same span/break mechanism the stone
-        // test above already proves, just with wood's own numbers (span 8,
-        // `breaks_into: "deadwood"`).
+        // exercised with wood's own numbers (`max_unsupported_span` 8, so a
+        // capacity base of 32, against `breaks_into: "deadwood"`).
+        //
+        // Was `a_wood_beam_exceeding_its_span_breaks_into_deadwood`, and it
+        // asserted the tip specifically became deadwood *in place*. It
+        // failed on the switch to load, reporting `EMPTY` -- which is the
+        // new model working rather than a regression: a cantilever fails at
+        // its root and the whole span drops, so the tip is now lifted out
+        // of the grid as part of a falling body instead of crumbling where
+        // it stood. Pinning which of the two happened was pinning the
+        // mechanism, so the claim is restated as the outcome: it is no
+        // longer standing there as wood, and it turned into wood's own
+        // debris somewhere.
         let mut w = test_world();
         let wood = w.materials.id_of("wood").unwrap();
         // A 12-cell horizontal beam anchored only at its left end (touching
-        // the world's left edge) -- longer than wood's span of 8, so the
-        // far end is unsupported once actually checked.
+        // the world's left edge). Root moment is 1+2+...+11 = 66 against a
+        // capacity of 32, so it must give way.
         for x in 0..12 {
             w.set(x, 30, Cell::new(wood, 0));
         }
-        w.schedule_structural_check(11, 30); // the far end, distance 11
+        w.schedule_structural_check(11, 30);
         run(&mut w, 200);
 
+        assert_ne!(w.get(11, 30).material, wood, "an overloaded wood beam should not still be standing");
         let deadwood = w.materials.id_of("deadwood").unwrap();
-        assert_eq!(w.get(11, 30).material, deadwood, "an over-span wood cell should have broken into deadwood");
+        // Anywhere in the world: deadwood is a `Powder`, so once it is free
+        // it falls like anything else and this beam has nothing under it.
+        let debris_somewhere = (0..64).any(|x| (0..64).any(|y| w.get(x, y).material == deadwood))
+            || w.chunk_bodies.iter().any(|b| b.cells.iter().any(|c| c.material == wood));
+        assert!(debris_somewhere, "the beam vanished instead of becoming debris or a falling body");
     }
 
     #[test]
