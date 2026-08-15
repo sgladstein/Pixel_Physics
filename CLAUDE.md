@@ -115,6 +115,24 @@ An image tells you *what* and *where*. A metric tells you *how much* and
 *whether it came back*. Reaching for a metric to answer "what and where" is
 the recurring mistake.
 
+**"Did it fire at all" needs a counter, not a picture.** An image shows
+*what* and *where*; it cannot show whether the thing you built is what
+produced it. A collapse rendered as coherent falling slabs, was read as
+"chunks are working," and the harness's own body count said **zero for the
+whole run** — the feature had never once executed, and what was on screen
+was loose rubble that happened to hold its shape. Two very different
+mechanisms look identical at the zoom a contact sheet is read at. When a
+change adds a discrete "this happened" event, print the count next to the
+image and read both.
+
+**Check that a planned step can demonstrate itself, before promising it
+will.** "Cracks weaken rock" was scheduled as an independently shippable,
+judge-by-eye milestone. Built, it did almost nothing visible, because
+failure was evaluated per cell against *its own* reach and a crack at a
+beam's root weakens a cell the criterion never tests. One question asked
+earlier — *which cell does this rule actually evaluate?* — would have caught
+it before the work.
+
 **Resolve an ambiguous complaint before building anything.** "Flatness at
 rest" was read as the surface texture and turned out to mean a screen-wide
 tilt — opposite directions, a whole detour spent on the wrong one. When a
@@ -203,6 +221,27 @@ consider it at all.
   Five grain modes behind one key settled in minutes a question that no
   amount of argument or still images had. Default to current behaviour, name
   the active one on screen, and state what each option *costs*.
+- **A size cap must bound work, never gate whether something happens.**
+  Written twice in one session: fracture declined any region larger than its
+  body-size cap and fell through to per-cell conversion, so the *bigger* the
+  collapse the more certain it dissolved into dust. The cap belonged on a
+  fragment, not on the decision to break at all. Any `if too_big { return }`
+  is a claim that the largest cases deserve the least behaviour — check that
+  is what you meant.
+- **When a rule must tell apart two things that can look identical, state
+  the difference as data.** Four successive support models tried to infer
+  "is this held up" from *shape*, and every one was either strong enough to
+  hold a mountain or weak enough to let a player's tower break, never both —
+  because geometry cannot distinguish a mountain from a wall someone
+  stacked. The fix was a bit on the cell saying which it is. If tuning keeps
+  trading one case for the other, the rule is reading the wrong quantity;
+  more tuning will not find a setting that does not exist.
+- **A superseded mechanism's tests keep passing while testing nothing.**
+  Distinct from the `#[ignore]` case below — these *run*, pass, and exercise
+  nothing, because the scenario is trivially stable once the mechanism they
+  were written for is gone. When replacing a mechanism, deliberately break
+  the *replacement* and confirm the old tests fail. If they still pass,
+  delete them rather than porting them.
 - Prefer an independent review before significant commits; batch small ones.
 
 ## Gotchas that have each caused a real bug
@@ -216,6 +255,17 @@ consider it at all.
 - `MAX_REACH == CHUNK_SIZE / 2` exactly, and that equality is load-bearing for
   `parallel.rs`'s cross-chunk write-safety proof *and* for its
   reinsert-then-replay loop. Changing it needs both re-derived.
+- **A commit message is not evidence the change is in the file.** A `git
+  stash` cycle restored an older blob over a source file, so a commit that
+  claimed a behaviour change shipped only its *doc comment* — the code kept
+  the old predicate, and nobody noticed for four commits, because the
+  message read correctly and the tests still passed. After any stash, rebase
+  or merge, re-read the function, not the diff.
+- **The app locks its own exe.** While the sandbox is running, `cargo build`
+  fails with "failed to remove `pixel-physics.exe`"; `cargo test` still
+  works. Separately, stale incremental artifacts produce bogus `LNK2019
+  unresolved external symbol anon.…` link errors — `rm -rf
+  target/debug/incremental` clears it, and it is not a code error.
 - **Never `git add -A` here.** This tree gets worked in concurrently; doing
   so once swept ~1,200 lines of someone else's in-progress work into an
   unrelated commit. Stage explicit paths.
