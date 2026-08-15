@@ -599,6 +599,19 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 plastochron: plastochron_interval,
                 penetration_force,
             } => {
+                // **These three gates deliberately do *not* set
+                // `found_candidate`, and that is what makes growth
+                // terminate.** The staleness counter is how "temporarily
+                // short" becomes "permanently short": a tip that cannot
+                // afford `cost` tick after tick eventually ages out and
+                // retires, which is the entire mechanism behind
+                // `a_tree_eventually_stops_growing`. Marking them as "had
+                // somewhere to try" was tried and reverted -- it makes a
+                // resource-starved tree grow forever.
+                //
+                // What the ageing-out must *not* do is drop a cell on the
+                // floor, which is the bug this pass fixed a few lines
+                // below: see the stale-limit retirement.
                 if resource < cost {
                     continue;
                 }
@@ -1096,7 +1109,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         next.push(reschedule_organism(x, y, organism_id, 0, plastochron, world.frame + interval));
     } else if stale_ticks + 1 < ORGANISM_STALE_LIMIT {
         next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, world.frame + interval));
-    } else if cell_type == CellType::GrowingTip {
+    } else if matches!(cell_type, CellType::GrowingTip | CellType::RootTip) {
         // `Reports/tree-rewrite-design.md` §4: the staleness-limit
         // transition to `MatureBody` made real, not just asserted -- an
         // independent review of the design caught that describing this in
@@ -1107,6 +1120,21 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         // current `resource` forward rather than resetting it -- which is
         // now automatic: the retirement is a cell-type write, and the
         // sidecar entry it does not touch is where the resource lives.
+        //
+        // **Covers `RootTip` as well as `GrowingTip`, and used to cover
+        // only the latter.** A `RootTip` that aged out therefore matched no
+        // branch at all: never rescheduled, never retired, and skipped by
+        // `organism_upkeep` (which ignores frontier cell types). It became
+        // a phantom — invisible to every pass, yet still counted in
+        // `root_cells` and still occupying a slot against `max_active_tips`,
+        // so it went on tightening the allometry ratio that had blocked it
+        // in the first place. Found by independent review.
+        //
+        // `MatureBody` is the right home for the same reason
+        // `self_type_after_grow` already gives for the *successful* path:
+        // settled root tissue genuinely does thicken and anchor, and that
+        // is the behaviour set `tree.ron` attaches to `MatureBody`. This
+        // just makes the two paths agree.
         world.set(x, y, cell.with_aux(organism::pack_cell_type(CellType::MatureBody)));
         write_carbon(world, x, y, resource);
         // `MatureBody` still needs its own periodic upkeep if the species
@@ -2592,6 +2620,55 @@ mod tests {
             grown > 20,
             "a seedling from a dropped seed should have grown into a tree, got {grown} cells -- \
              a shoot missing from the cell list reads 0 carbon forever and stalls at germination"
+        );
+    }
+
+    /// A `RootTip` that ages out must retire, not vanish.
+    ///
+    /// At the staleness limit only a `GrowingTip` used to retire to
+    /// `MatureBody`. A `RootTip` matched no branch: it was never
+    /// rescheduled, never retired, and `organism_upkeep` skips frontier
+    /// cell types — so nothing visited it again. It stayed a `RootTip`
+    /// forever, invisible to every pass, while still counting toward
+    /// `root_cells` and still holding a slot against `max_active_tips`,
+    /// tightening the very allometry ratio that had blocked it.
+    ///
+    /// Driven through the allometry gate specifically, because that is the
+    /// condition that produces the failure in the field: an organism that
+    /// is already more than `MAX_ROOT_FRACTION` root blocks every root tip
+    /// on every tick, so they all age out together.
+    #[test]
+    fn a_root_tip_that_ages_out_retires_instead_of_becoming_a_phantom() {
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+        let rootwood = w.materials.id_of("rootwood").unwrap_or(wood);
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+        let organism_id = w.push_organism(tree);
+
+        // An organism that is overwhelmingly root, so the allometry gate
+        // blocks its tip every tick.
+        for x in 40..60 {
+            place(&mut w, (x, 60), rootwood, organism_id, CellType::MatureBody, (4.0, 0.0));
+        }
+        place(&mut w, (50, 61), rootwood, organism_id, CellType::RootTip, (4.0, 0.0));
+        // Directly, not via `step_organisms`, which is frame-gated on
+        // `ORGANISM_TICK_INTERVAL` and would silently not run at frame 0.
+        organism_upkeep(&mut w, organism_id); // refresh root_cells / shoot_cells
+        let state = w.organism(organism_id).expect("live");
+        assert!(
+            state.root_cells as f32 / (state.root_cells + state.shoot_cells) as f32 >= MAX_ROOT_FRACTION,
+            "the scene must actually trip the allometry gate, or this tests nothing"
+        );
+
+        // Enough ticks to exhaust the staleness counter.
+        for stale in 0..=ORGANISM_STALE_LIMIT {
+            organism_tick(&mut w, 50, 61, organism_id, stale, 0);
+        }
+
+        assert_eq!(
+            organism::cell_type(w.get(50, 61).aux()),
+            Some(CellType::MatureBody),
+            "a root tip blocked by allometry until it aged out must retire to MatureBody, not stay              an unschedulable RootTip that still counts against root_cells and max_active_tips"
         );
     }
 
