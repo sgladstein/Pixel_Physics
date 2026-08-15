@@ -87,7 +87,24 @@ pub struct App {
     /// itself up. On, the brush authors terrain, which is braced by the mass
     /// behind the slice and behaves like a cliff rather than a structure.
     pub build_background: bool,
+    /// A short-lived on-screen line, and the frame it stops being drawn on.
+    ///
+    /// `message` already existed but is only ever *read* from the window
+    /// title bar and the tunables panel's own footer — neither of which is
+    /// where anyone is looking mid-stroke. Reported from play about `B`
+    /// specifically: the brush changes what it authors and nothing on the
+    /// world itself says so, so which mode you are in has to be inferred
+    /// from what happens after you have already painted. A mode change is
+    /// exactly the case that wants a transient: it is worth saying loudly
+    /// once and worth nothing a second later, unlike the persistent brush
+    /// label beneath it.
+    toast: Option<(String, u64)>,
 }
+
+/// Frames a `toast` stays up — two seconds at the sandbox's fixed 60 Hz.
+/// Long enough to read a short line without looking away from the cursor,
+/// short enough that it is gone before the next stroke finishes.
+const TOAST_FRAMES: u64 = 120;
 
 /// Re-read both the material and species directories over the current
 /// registries, returning a combined status message. Shared by `App::new`
@@ -149,13 +166,23 @@ impl App {
             pinned: None,
             experiment: false,
             build_background: false,
+            toast: None,
         }
+    }
+
+    /// Put `text` on screen for `TOAST_FRAMES`. See `App::toast`.
+    fn show_toast(&mut self, text: impl Into<String>) {
+        self.toast = Some((text.into(), self.world.frame + TOAST_FRAMES));
     }
 
     /// `B` — swap the brush between building structures and authoring
     /// terrain. See `build_background`.
     pub fn toggle_build_background(&mut self) {
         self.build_background = !self.build_background;
+        // Names the mode being *entered* and what it means, not just the
+        // key that was pressed: "background" alone does not say that the
+        // difference is whether what you paint has to hold itself up.
+        self.show_toast(if self.build_background { "BRUSH: BACKGROUND — TERRAIN, BRACED" } else { "BRUSH: FOREGROUND — MUST HOLD ITSELF UP" });
     }
 
     pub fn toggle_hover_inspector(&mut self) {
@@ -435,10 +462,31 @@ impl App {
         // erasing. Forcing a full redraw whenever any of this is showing is
         // the simple, always-correct alternative to tracking that footprint
         // separately; see `Renderer::draw`'s own doc for the full reasoning.
-        let force_full = cursor.is_some() || self.show_palette || self.show_help || self.show_tunables || self.show_hover_inspector || self.pinned.is_some();
+        let force_full = cursor.is_some()
+            || self.show_palette
+            || self.show_help
+            || self.show_tunables
+            || self.show_hover_inspector
+            || self.pinned.is_some()
+            // A toast paints over terrain and has no tracked footprint, so
+            // the frame it expires on has to redraw or it stays burned in
+            // over a settled world -- the exact reason every other overlay
+            // is in this list.
+            || self.active_toast().is_some();
         let touched = self.world.take_touched_chunks();
         self.renderer.draw(&self.world, &self.particles, &touched, frame, (WIDTH, HEIGHT), force_full);
         self.draw_hud(frame, cursor);
+    }
+
+    /// The toast text, if one is set and has not yet expired. Expiry is
+    /// checked at draw time against `world.frame` rather than cleared by a
+    /// per-frame tick, so this needs no update-phase wiring at all. It does
+    /// mean a toast raised while *paused* stays up until the simulation
+    /// runs again, which is the behaviour worth having: the point is to say
+    /// which mode the brush is in, and paused is exactly when someone is
+    /// setting up rather than watching a clock.
+    fn active_toast(&self) -> Option<&str> {
+        self.toast.as_ref().filter(|(_, until)| self.world.frame < *until).map(|(text, _)| text.as_str())
     }
 
     fn draw_hud(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
@@ -450,6 +498,12 @@ impl App {
         // window title bar.
         let label = format!("{} R{}", self.selected_name(), self.brush_radius);
         hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
+        // Directly above the persistent brush label, so a mode change reads
+        // as a line about the brush rather than as an unrelated notice
+        // somewhere else on screen.
+        if let Some(toast) = self.active_toast() {
+            hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 20, toast, YELLOW);
+        }
         // The help panel existed from the start and was invisible unless you
         // already knew the key -- which is the same as not existing. Hidden
         // only while help itself is open, where it would be redundant.
@@ -1243,6 +1297,38 @@ mod tests {
         let background = painted(&app, 160, 60);
         assert!(!background.is_empty(), "test setup: the background brush painted no stone at all");
         assert!(background.iter().all(|a| *a), "the background brush should author terrain");
+    }
+
+    #[test]
+    fn toggling_the_background_brush_says_which_mode_it_is_now_in() {
+        // Reported from play: `B` changes what the brush authors and
+        // nothing on the world says so, so the mode had to be inferred
+        // from whether what you painted then fell down. Asserts the
+        // *transient* specifically -- that it names the new mode, and that
+        // it stops being drawn on its own rather than sitting there
+        // forever.
+        let mut app = App::new();
+        assert!(app.active_toast().is_none(), "nothing should be announced before anything is toggled");
+
+        app.toggle_build_background();
+        let entering = app.active_toast().expect("toggling the brush mode should announce it").to_string();
+        assert!(entering.contains("BACKGROUND"), "the toast should name the mode being entered, found {entering:?}");
+
+        app.toggle_build_background();
+        let leaving = app.active_toast().expect("toggling back should announce that too").to_string();
+        assert!(leaving.contains("FOREGROUND"), "toggling back should name foreground, found {leaving:?}");
+
+        // Expiry is measured in simulation frames, so run past it. Fewer
+        // than `TOAST_FRAMES` first, to check it is still up -- otherwise
+        // this would pass just as happily against a toast that never drew.
+        for _ in 0..(TOAST_FRAMES / 2) {
+            app.update();
+        }
+        assert!(app.active_toast().is_some(), "the toast expired well before TOAST_FRAMES");
+        for _ in 0..TOAST_FRAMES {
+            app.update();
+        }
+        assert!(app.active_toast().is_none(), "the toast never expired");
     }
 
     #[test]
