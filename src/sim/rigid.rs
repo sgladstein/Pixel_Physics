@@ -118,6 +118,12 @@ const MAX_BODY_CELLS: usize = 400;
 /// placement solver.
 const DISPLACE_SEARCH: i32 = 4;
 
+/// Quarter-turns accumulated per unit of speed per frame. Tuned so a chunk
+/// falling a few dozen cells turns once or twice rather than spinning like a
+/// pinwheel — the point is for it to read as tumbling rock, not as debris in
+/// a blender.
+const SPIN_PER_SPEED: f32 = 0.012;
+
 /// 4-connected flood fill over `Solid` cells starting at `(seed_x, seed_y)`.
 ///
 /// Returns `None` if the seed cell itself isn't `Solid` — there is no
@@ -307,10 +313,36 @@ pub struct ChunkBody {
     pub y: f32,
     pub vx: f32,
     pub vy: f32,
+    /// Accumulated turn, in quarter-turns. A body tips as it falls rather
+    /// than gliding down flat, which was the single most-reported thing
+    /// wrong with how debris looked: "when they do [break off] they just
+    /// fall directly perfectly flat down."
+    ///
+    /// Quarter turns, not free rotation, and deliberately so. A cell grid
+    /// has no way to represent a slab at 37 degrees without resampling it,
+    /// and resampling a rotating body is where the classic re-rasterization
+    /// leaks and holes come from (`PLAN.md` records the pitfall and the
+    /// inverse-mapping fix). At 90 degrees the transform is exact — an
+    /// offset maps to another offset with no interpolation at all — so a
+    /// tumbling chunk can never gain or lose a cell.
+    spin: f32,
     stalled: u8,
 }
 
 impl ChunkBody {
+    /// Turn the whole body a quarter turn about its origin.
+    ///
+    /// `(dx, dy) -> (-dy, dx)`, which is exact on a grid: every cell lands
+    /// on exactly one other cell, so this cannot leak or duplicate material
+    /// however many times it is applied.
+    fn rotate_quarter(&mut self) {
+        for cell in &mut self.cells {
+            let (dx, dy) = (cell.dx, cell.dy);
+            cell.dx = -dy;
+            cell.dy = dx;
+        }
+    }
+
     /// Where `cell` currently sits in world coordinates.
     pub fn cell_position(&self, cell: &BodyCell) -> (i32, i32) {
         (self.x.round() as i32 + cell.dx, self.y.round() as i32 + cell.dy)
@@ -420,10 +452,15 @@ fn fracture(world: &mut World, region: &[(i32, i32)]) {
 
 /// Flood up to `target` connected cells out of `left`, removing them.
 fn take_fragment(left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize) -> Vec<(i32, i32)> {
+    // Breadth-first, not depth-first. A DFS flood snakes: it follows one
+    // arm to its end before coming back, so fragments came out as long
+    // stringy runs — "thin individual pixel lines" rather than chunks. BFS
+    // grows outward in rings from the seed, which gives compact, blocky
+    // pieces of roughly the requested size.
     let mut out = Vec::new();
-    let mut stack = vec![seed];
+    let mut stack = std::collections::VecDeque::from([seed]);
     left.remove(&seed);
-    while let Some((x, y)) = stack.pop() {
+    while let Some((x, y)) = stack.pop_front() {
         out.push((x, y));
         if out.len() >= target {
             break;
@@ -431,7 +468,7 @@ fn take_fragment(left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize
         for (dx, dy) in NEIGHBOURS_4 {
             let next = (x + dx, y + dy);
             if left.remove(&next) {
-                stack.push(next);
+                stack.push_back(next);
             }
         }
     }
@@ -462,7 +499,20 @@ fn promote(world: &mut World, cells: &[(i32, i32)]) {
     for &(cx, cy) in cells {
         world.schedule_structural_check_around(cx, cy);
     }
-    world.chunk_bodies.push(ChunkBody { cells: body_cells, x: ox as f32, y: oy as f32, vx: 0.0, vy: 0.0, stalled: 0 });
+    // A piece breaks *outward*, not straight down: seed a sideways nudge
+    // and a starting tilt from which side of the fracture it came off. Both
+    // are what stop a shattered shelf from falling as a neat stack of
+    // perfectly level bars.
+    let spread = (ox % 5 - 2) as f32 * 0.18;
+    world.chunk_bodies.push(ChunkBody {
+        cells: body_cells,
+        x: ox as f32,
+        y: oy as f32,
+        vx: spread,
+        vy: 0.0,
+        spin: ((ox + oy) % 3) as f32 * 0.3,
+        stalled: 0,
+    });
 }
 
 /// Convert one cell to its material's `breaks_into`, losing attachment —
@@ -553,6 +603,28 @@ pub fn step_chunk_bodies(world: &mut World) {
 /// to rest and should be re-rasterized.
 fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     body.vy += GRAVITY;
+
+    // Tip while falling. Spin accumulates with speed, so a piece that has
+    // barely come loose turns slowly and one in a long drop tumbles -- and a
+    // body that is already at rest does not rotate at all, which matters
+    // because a settled chunk snapping through 90 degrees would look like a
+    // glitch rather than physics.
+    body.spin += (body.vx.abs() + body.vy.abs()) * SPIN_PER_SPEED;
+    if body.spin >= 1.0 {
+        body.spin -= 1.0;
+        let turned = {
+            let mut probe = body.clone();
+            probe.rotate_quarter();
+            // Only turn if the turned shape actually fits. Otherwise a body
+            // wedged in a gap would rotate straight through the wall beside
+            // it, which is the one way this transform can cheat.
+            blocked_axis(world, &probe, probe.x, probe.y).is_none()
+        };
+        if turned {
+            body.rotate_quarter();
+        }
+    }
+
     body.vx = body.vx.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
     body.vy = body.vy.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
 

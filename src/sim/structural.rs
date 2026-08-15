@@ -170,7 +170,8 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // held, no matter how much was dug from beneath it. Terrain still stands
     // because the massif reaches bedrock through free downward steps
     // (`support_cost_below` is 0), not because it is exempt.
-    let is_anchor = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
+    let is_anchor = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK)
+        || is_resting_on_ground(world, x, y);
 
     let new_distance: u16 = if is_anchor {
         0
@@ -544,15 +545,58 @@ fn is_relaxable(world: &World, cell: Cell) -> bool {
 /// weathered dig face staying foreground afterwards is correct: it has been
 /// broken once already.
 pub fn detach_exposed_neighbours(world: &mut World, x: i32, y: i32) {
-    for (dx, dy) in NEIGHBOURS_4 {
-        let (nx, ny) = (x + dx, y + dy);
-        let cell = world.get(nx, ny);
-        if !cell.attached() || !is_body_material(world, cell.material) {
-            continue;
+    let r = DETACH_DEPTH;
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let (nx, ny) = (x + dx, y + dy);
+            let cell = world.get(nx, ny);
+            if !cell.attached() || !is_body_material(world, cell.material) {
+                continue;
+            }
+            world.set(nx, ny, cell.with_attached(false));
+            world.schedule_structural_check_around(nx, ny);
         }
-        world.set(nx, ny, cell.with_attached(false));
-        world.schedule_structural_check_around(nx, ny);
     }
+}
+
+/// How deep into the rock a cut loosens material, in cells.
+///
+/// Deliberately more than 1. At a depth of one this stripped a single-cell
+/// *skin* off the dig face, so everything that subsequently broke away was a
+/// one-cell sheet — reported from play as debris that "look like thin
+/// individual pixel lines" rather than chunks. Pieces can only be as thick
+/// as the loosened rock they are cut from.
+const DETACH_DEPTH: i32 = 3;
+
+/// Whether `(x, y)` is simply sitting on top of something that can hold it.
+///
+/// The relaxation otherwise only accepts `Solid`/`Plant` neighbours as
+/// support, which is right for spanning a gap and badly wrong for a rock
+/// lying on the ground: a chunk that landed on its own rubble had *no* valid
+/// support neighbour at all, so its distance ran away to the maximum,
+/// exceeded its span, and it shattered where it lay. Reported from play as
+/// debris that "when they hit the ground they turn to powder."
+///
+/// **Powder specifically**, and this is the whole subtlety. Solid support is
+/// already handled properly by the relaxation, which asks whether the cell
+/// below can *itself* reach an anchor. Accepting solid here as well was a
+/// bug with a long history in this file: a blob floating in mid-air rests on
+/// its own lower cells, so every cell of it would declare itself grounded
+/// and the blob would hang there forever — the same self-consistent fixed
+/// point that made two earlier support models fail. Powder is the one case
+/// the relaxation genuinely cannot see, because a `Powder` cell carries no
+/// distance to consult.
+///
+/// Treating a granular pile as ground is safe in a way that treating solid
+/// as ground is not: powder is under the CA sweep's control, so if it flows
+/// out from underneath, that write dirties the chunk and whatever was
+/// sitting on it gets re-examined. Liquids and gases are excluded — floating
+/// is buoyancy, not support, and nothing here models it.
+///
+/// Only the cell *directly below*: this answers "is it standing on the
+/// ground", not "is there a second, weaker way to span a gap sideways".
+fn is_resting_on_ground(world: &World, x: i32, y: i32) -> bool {
+    world.materials.kind(world.get(x, y + 1).material) == MaterialKind::Powder
 }
 
 /// Whether `material` participates in the structural system at all —
@@ -1023,7 +1067,19 @@ mod tests {
         // needs to be more rubble" -- and it is not built yet.
         let mut w = test_world();
         w.paint_capsule((32, 25), (32, 25), 6, material::STONE, 1.0);
-        run(&mut w, 900);
+        // The CA sweep runs too, and has to. Rubble is a `Powder`, and
+        // `is_resting_on_ground` counts powder directly below as support --
+        // so debris that has not been given a chance to fall away props up
+        // whatever is above it, and the blob stops mid-collapse. That is a
+        // harness artifact rather than a rule to change: in the running game
+        // the sweep clears it in the same frames.
+        for _ in 0..900 {
+            w.begin_step();
+            scheduler::step(&mut w);
+            w.end_step();
+            crate::sim::rigid::step_chunk_bodies(&mut w);
+            update::step(&mut w);
+        }
         assert_ne!(w.get(32, 25).material, material::STONE, "a foreground blob with nothing under it should not hang in mid-air");
     }
 
