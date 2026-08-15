@@ -1101,7 +1101,29 @@ pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
                 let Some(j) = neighbours[i][k] else { continue };
                 let out = conductance[i][k] * carbon[i];
                 let back = conductance[j][opposite_face(k)] * carbon[j];
-                let net = TRANSPORT_RATE * (out - back);
+                let mut net = TRANSPORT_RATE * (out - back);
+                // **Bounded by the receiving cell's headroom**, exactly as
+                // the capillary exchange in `update.rs` is bounded by its
+                // neighbour's `water_capacity`.
+                //
+                // `RESOURCE_SCALE` is documented as a cap on what one cell
+                // may hold, and until polarity landed it held without
+                // anything enforcing it here: the old symmetric rule moved
+                // each cell toward its neighbours' *mean*, which cannot
+                // exceed the largest value present, so a clamp at the two
+                // sources (`Photosynthesize`, `Absorb`) was enough. The
+                // pairwise carrier rule has no such property -- it moves
+                // carbon *down a conductance gradient*, so a cell that is a
+                // net sink accumulates without bound while sources keep
+                // topping up to the cap every tick.
+                //
+                // Measured before this clamp: a single cell reached **92.0
+                // against a scale of 4.0**, twenty-three times its stated
+                // maximum and enough to fund 460 growth steps at
+                // `tree.ron`'s `cost`. The economy tuning above was done
+                // against that, so it is worth re-checking after.
+                let headroom = if net > 0.0 { RESOURCE_SCALE - carbon[j] } else { RESOURCE_SCALE - carbon[i] };
+                net = net.clamp(-headroom.max(0.0), headroom.max(0.0));
                 delta[i] -= net;
                 delta[j] += net;
                 flux[i][k] += net;
@@ -1109,7 +1131,7 @@ pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
             }
         }
         for i in 0..cells.len() {
-            carbon[i] = (carbon[i] + delta[i]).max(0.0);
+            carbon[i] = (carbon[i] + delta[i]).clamp(0.0, RESOURCE_SCALE);
         }
     }
 
@@ -1646,6 +1668,52 @@ mod tests {
         assert!(
             gained_a > gained_b,
             "the less hungry but better connected tip must still take the larger share --              A gained {gained_a}, B gained {gained_b} (conductance {c_a} vs {c_b},              handicap {handicap}). A flipped lead here is the isotropic rule's signature"
+        );
+    }
+
+    /// Carbon must respect `RESOURCE_SCALE` even when nothing is
+    /// photosynthesizing — transport alone must not push a cell past it.
+    ///
+    /// This held for free under the old symmetric rule, which moves a cell
+    /// toward its neighbours' *mean* and so can never exceed the largest
+    /// value present; a clamp at the two sources was enough. The pairwise
+    /// carrier rule has no such property. Its equilibrium across a face is
+    /// `c_ij·R_i = c_ji·R_j`, so a cell whose *inbound* conductance is high
+    /// and whose *outbound* is low settles at `R_j = R_i · c_ij/c_ji` —
+    /// which for a fully canalized face feeding an unpolarized one is the
+    /// canalization contrast times the source. Measured on a 24-tree
+    /// ensemble before the fix: a single cell reached **92.0 against a
+    /// scale of 4.0**, twenty-three times its stated maximum and enough to
+    /// fund 460 growth steps at `tree.ron`'s `cost`.
+    ///
+    /// **The asymmetry is imposed rather than grown**, and re-imposed each
+    /// tick. A symmetric setup cannot show this — equal conductances make
+    /// the equilibrium `R_j = R_i`, so the cell converges neatly to the cap
+    /// and the test passes with or without the clamp. That is exactly what
+    /// the first version of this test did, and it was worthless.
+    #[test]
+    fn transport_never_pushes_a_cell_past_the_resource_scale() {
+        use super::super::chunk::Rect;
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let organism_id = polarity_organism(&mut w, &[(10, 10), (11, 10)]);
+
+        for _ in 0..400 {
+            // A source held at the cap, as `Photosynthesize` leaves it.
+            w.organism_cell_mut(10, 10).expect("registered").carbon = RESOURCE_SCALE;
+            // A one-way valve: the left cell exports hard (+x face at the
+            // ceiling), the right cell barely exports back (-x face at the
+            // floor). This is what a canalized strand feeding inert
+            // parenchyma looks like.
+            w.organism_cell_mut(10, 10).expect("registered").carbon_conductance[1] = CONDUCTANCE_MAX;
+            w.organism_cell_mut(11, 10).expect("registered").carbon_conductance[0] = CONDUCTANCE_MIN;
+            transport(&mut w, organism_id);
+        }
+
+        let sink = w.carbon_at(11, 10);
+        assert!(
+            sink <= RESOURCE_SCALE + 1e-3,
+            "transport must not fill a cell past RESOURCE_SCALE ({RESOURCE_SCALE}), got {sink} --              the pairwise rule's equilibrium is R_j = R_i * c_ij/c_ji, so an unclamped sink settles              at the canalization contrast times its source"
         );
     }
 
