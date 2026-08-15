@@ -250,3 +250,48 @@ with **zero occupancy changes**. Its interior genuinely does not move. So
 not, but nothing can animate an interior that is standing still — `Muted`
 and `Animated` are the variants aimed at that half, and `Animated` is the
 only one that costs the dirty-rect render skip.
+
+---
+
+## Open, found by independent review during the polarity pass (M18 plant v2)
+
+Three findings from the review before `12739bc`. Two of the five it raised
+were mine and are fixed in that commit; these three are older than this
+branch, were reproduced or traced by the reviewer, and are **not fixed**.
+None is caught by the current suite.
+
+### 1. `MAX_ROOT_FRACTION` feeds the staleness counter, permanently retiring roots
+
+`plant.rs`'s allometry gate `continue`s without setting `found_candidate`,
+so a *transient* root:shoot ratio counts as a failed tick. After
+`STALE_LIMIT` blocked ticks the `RootTip` stops rescheduling — and
+`organism_upkeep` skips frontier cell types, so nothing ever visits it
+again. It loses `Absorb`/`Transpire` permanently while still counting
+toward `root_cells`, which ratchets the very ratio that blocked it.
+
+The gate is meant to say "not now", which is the "temporary shortfall"
+framing `Divide`'s own resource gate uses — that path sets
+`found_candidate` and this one does not. Suspect this first if roots look
+like they stop drinking on a mature tree.
+
+### 2. `Grow` into soil destroys the soil's stored water
+
+Growing a root into a penetrable soil cell overwrites the cell wholesale,
+replacing its `aux` — which for a `Powder` is moisture — with cell-type
+bits. In the `forest` scene each root cell silently deletes
+`SOIL_FIELD_CAPACITY` (620) units; a 100-cell root system loses roughly 62
+water cells' worth. No conservation tally covers held water, which is why
+nothing noticed.
+
+Note this interacts with the still-open `water_capacity` item below: any
+liquid-conservation test taught about held water will start failing here.
+
+### 3. Capillary exchange can push a neighbour above its own capacity
+
+`update.rs`'s capillary step bounds the transfer by *this* cell's
+`water_capacity` and writes `there + moved` without checking the
+neighbour's. Latent today because `water_capacity` is opt-in and only
+`soil` has it, so every exchange is soil-to-soil with equal capacity. It
+goes live the moment a second water-holding powder exists with a different
+capacity — which is exactly what widening `water_capacity` to sand would
+do.
