@@ -99,6 +99,33 @@ const HEAT_DIFFUSION_RATE: f32 = 0.2;
 /// right without being physically accurate. Revisit if M6's rendering needs
 /// something better.
 const LIGHT_DIFFUSION_RATE: f32 = 0.3;
+/// **Retuned again, 0.997 → 0.9997, because air was attenuating sunlight.**
+/// Measured in a *completely empty* world with no occluder anywhere
+/// (`print_light_versus_depth`), the old value read 4.00 at the surface and
+/// **0.16 at depth 128** — falling below `Germinate`'s own 0.1 gate by
+/// about depth 145 in vacuum. That is not shading, it is distance through
+/// clear air, and real air does not do it.
+///
+/// It was the binding constraint on how large a plant could ever get, and
+/// nothing about the plants themselves ever was. Same trees, same code, at
+/// `ground=70` changing only this constant: median height **21 → 65**,
+/// biomass **1,271 → 15,362**. It also meant *no* scene depth worked — a
+/// shallow ground gave a tree a ceiling to spread against, and a deep one
+/// gave it darkness — which is why `plant_probe`'s own doc had recorded
+/// "~70 is the deepest ground that still germinates" as a fact of life.
+///
+/// At 0.9997 the same probe reads 1.79 at depth 96 and 0.41 at 288: air is
+/// close to transparent over a world height, and a gradient survives.
+/// Attenuation now comes from occlusion, which is where it belongs — this
+/// function's own `blocked` handling — rather than from distance.
+///
+/// **Costs, measured paired in one session rather than assumed.** The
+/// previous retune recorded an unverified worry that convergence would slow
+/// and asked for a live perf re-check "before this ships broadly"; this is
+/// that check. CA+field parallel stress, min of 3: **10.027 → 10.061 ms**,
+/// i.e. nothing. The field still sleeps after convergence (settled worst
+/// frame 0.0002 ms) and the dirty-rect render skip still reads 0.000 ms.
+///
 /// Retuned from an original 0.85 ("diffuse fast, decay hard," a genuine
 /// local-glow-only reading) to 0.997, by explicit owner request: outdoor
 /// sunlight reaching real depth is more realistic than requiring every
@@ -116,7 +143,7 @@ const LIGHT_DIFFUSION_RATE: f32 = 0.3;
 /// peak/trough before qualifying. A live perf re-check against the stress
 /// scene is worth doing before this ships broadly; not done as part of
 /// this change.
-const LIGHT_DECAY: f32 = 0.997;
+const LIGHT_DECAY: f32 = 0.9997;
 
 /// Humidity spreads through air more readily than it evaporates away, unlike
 /// light — a much larger diffusion rate than `LIGHT_DIFFUSION_RATE`, still
@@ -1716,5 +1743,39 @@ mod tests {
 
         step(&mut w);
         assert!(w.field_at(128, 128).pressure.abs() > 1.0, "the impulse was never actually solved after waking the field");
+    }
+}
+
+#[cfg(test)]
+mod light_depth_probe {
+    use super::*;
+    use crate::sim::chunk::Rect;
+    use crate::sim::world::World;
+
+    /// Prints the light profile against depth in a **completely empty**
+    /// world — no occluders anywhere, so whatever falls off here is the
+    /// model attenuating through *air*.
+    ///
+    /// `#[ignore]`d because it prints rather than asserts, and kept because
+    /// it is the measurement that found `LIGHT_DECAY` was the binding
+    /// constraint on how tall a plant could ever grow. At the previous
+    /// 0.997 it read 0.16 at depth 128 — below `Germinate`'s own 0.1 gate
+    /// by depth ~145, in vacuum. Reach for this before tuning anything
+    /// about plant height, and before adding sky to a scene.
+    ///
+    /// ```text
+    /// cargo test --lib print_light_versus_depth -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn print_light_versus_depth() {
+        let mut w = World::new(Rect::new(0, 0, 511, 319));
+        for _ in 0..4000 {
+            step(&mut w);
+        }
+        println!("depth  light");
+        for y in (0..320).step_by(16) {
+            println!("{y:5}  {:.4}", w.field_at(256, y).light);
+        }
     }
 }

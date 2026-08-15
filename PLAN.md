@@ -3961,10 +3961,31 @@ run-to-run comparison, with no dependence on scene shape:**
   now unproven.
 - The respiration and gravitysense sweeps, both run in the bad scene.
 
-**Order from here:** fix the environment first — a scene with real
-headroom, which needs the light model to stop attenuating through empty air
-— and only then re-measure. Nothing about plant shape should be concluded
-before that.
+**The environment is now fixed, and it corrected the audit above.**
+`LIGHT_DECAY` 0.997 → 0.9997 (air is near-transparent; attenuation comes
+from occlusion, where it belongs), plus a `grove` scene with ~96 rows of
+sky. Frame cost unchanged, paired: 10.027 → 10.061 ms.
+
+**And with light and headroom both fixed, the mass is real.** Trees now
+reach 94 rows tall instead of 21 — and then grow into a large branching
+blob anyway. So the ceiling was *hiding* the problem by starving growth,
+not causing it. Two consequences:
+
+- The audit above overstated. "The slab is substantially a ceiling
+  artifact" is **wrong**; the ceiling was a confound, and removing it makes
+  the mass more visible, not less.
+- **`Reports/tree-architecture-research.md` §1 is back on.** Maintenance
+  respiration and self-pruning remain the best candidate for what is
+  missing, and can now be tested somewhere the answer means something.
+
+What still stands from the audit is the *list* — every correctness fix
+survives, and every tuned number (the canalization contrast above all,
+measured in a 20-row scene) still needs re-deriving in `grove`.
+
+**Order from here:** re-measure in `grove`, in this order — the
+canalization contrast, then self-pruning, then the bud break verdict. Do
+not re-tune anything against `forest` or the default `plant_probe` ground
+again; both are 40-row scenes and are now for root and soil work only.
 
 ### Bud break — built, measured, and **reverted**. Read this before rebuilding it.
 
