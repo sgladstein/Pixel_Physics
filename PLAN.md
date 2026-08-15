@@ -3982,6 +3982,42 @@ What still stands from the audit is the *list* — every correctness fix
 survives, and every tuned number (the canalization contrast above all,
 measured in a 20-row scene) still needs re-deriving in `grove`.
 
+### The blob is almost pure wood, and `thicken()` is why
+
+Measured in `grove` (96 rows of sky, light fixed), 8 trees:
+
+| frame | total | Leaf | MatureBody | widest run above ground |
+|---|---|---|---|---|
+| 3,000 | 868 | 92 | 768 | 10 |
+| 5,000 | 2,711 | 184 | 2,512 | 34 |
+| 9,000 | 8,611 | 255 | 8,355 | 103 |
+| 14,000 | 12,292 | **253** | **12,039** | 105 |
+
+**Foliage plateaus at ~255 while wood grows to 12,039.** From frame 5,000
+on, leaves grow 38% and wood grows 379%; the wood:leaf ratio goes 8:1 →
+**48:1**. The blob is not a canopy at all, it is secondary thickening —
+and `SecondaryThicken`'s whole justification is Shinozaki's pipe model,
+*wood in proportion to the foliage it supplies*. At 48:1 that gate is
+plainly not binding.
+
+**The growth trajectory passes through a good tree and keeps going.** The
+time series is unambiguous: frames 3,300–5,100 read as a genuine tree —
+vertical trunk, branching crown, thickened base — and everything after is
+the same tree filling in. So the *shape* mechanisms are broadly right and
+what is missing is anything that stops the filling. That is a much better
+position than "trees are the wrong shape".
+
+**Prime suspect, and it is in code this branch already touched.**
+`thicken()` measures `width` along the axis perpendicular to
+`supply_direction`. In a slender stem that axis is meaningful. Inside a
+blob the supply direction is near-arbitrary, so the "perpendicular" is
+arbitrary too, and the run it measures is not the cell's actual thickness —
+a horizontal lobe measured vertically reads as thin and keeps widening.
+The fix that made the *end of a run* terminate correctly (`c0e278f`) does
+not help once the axis itself is meaningless. Check this before reaching
+for self-pruning: it is cheaper, and it is a defect rather than a missing
+mechanism.
+
 **Order from here:** re-measure in `grove`, in this order — the
 canalization contrast, then self-pruning, then the bud break verdict. Do
 not re-tune anything against `forest` or the default `plant_probe` ground
