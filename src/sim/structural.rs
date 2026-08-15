@@ -110,6 +110,7 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
 use super::cell::Cell;
+use super::chunk::Rect;
 use super::material::{self, MaterialId, MaterialKind};
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
@@ -646,6 +647,110 @@ pub fn compute_world_distances(world: &mut World) {
     }
 }
 
+/// Re-converge distances over `region` in one pass, seeded from the
+/// already-correct values around it.
+///
+/// # Why a stroke needs this and a reactive relaxation is not enough
+///
+/// `tick` relaxes one cell per scheduled check, and reschedules its
+/// neighbours `STRUCTURAL_TICK_INTERVAL` frames later — so a wavefront
+/// advances roughly one cell per 5 frames. That is the right shape for a
+/// *disturbance*, which is local and whose consequences should arrive
+/// progressively. It is the wrong shape for material appearing from
+/// nothing: a freshly painted cell starts at `aux = 0`, which reads as
+/// anchored, and the true distance has to climb from there one round at a
+/// time. A 192-cell column needs ~192 rounds — over fifteen seconds at
+/// 60 Hz — during which the structure is either wrongly immune or
+/// half-converged, and *then* it decides whether to fall.
+///
+/// That is the shape of "I built a thing and it collapsed ten seconds
+/// later", which is the single most-reported complaint about building
+/// here, and it is a scheduling artifact rather than anything the load
+/// model believes.
+///
+/// Generated terrain never had this problem because
+/// `compute_world_distances` converges it in one pass before anything
+/// looks at it. This gives the brush the same treatment, scoped to what
+/// the stroke touched.
+///
+/// # Why the seeding is not the same as the world pass
+///
+/// `compute_world_distances` can start every cell at "unreachable" because
+/// it is computing the whole world. Here the rock *outside* `region`
+/// already holds correct values, and they are the boundary condition: the
+/// heap is seeded both with anchors inside the region and with every
+/// already-known cell just outside it, so a stroke against a cliff inherits
+/// the cliff's distances instead of rediscovering them. Cells inside start
+/// at `u16::MAX`, which is honest — a cell the search never reaches is
+/// genuinely unsupported rather than accidentally reading as anchored,
+/// which is `Reports/worldgen-design.md` §6b's landmine in miniature.
+pub fn relax_region(world: &mut World, region: Rect) {
+    let mut heap: BinaryHeap<Reverse<(u16, i32, i32)>> = BinaryHeap::new();
+    for y in region.min_y..=region.max_y {
+        for x in region.min_x..=region.max_x {
+            let cell = world.get(x, y);
+            if !is_relaxable(world, cell) {
+                continue;
+            }
+            let anchored = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK)
+                || is_resting_on_ground(world, x, y);
+            let distance = if anchored { 0 } else { u16::MAX };
+            world.set(x, y, cell.with_aux(distance));
+            if anchored {
+                heap.push(Reverse((0, x, y)));
+            }
+        }
+    }
+    // The boundary condition: everything just outside the region keeps the
+    // distance it already had, and seeds the search inward.
+    for y in (region.min_y - 1)..=(region.max_y + 1) {
+        for x in (region.min_x - 1)..=(region.max_x + 1) {
+            if region.contains(x, y) {
+                continue;
+            }
+            let cell = world.get(x, y);
+            if is_relaxable(world, cell) && cell.aux() < u16::MAX {
+                heap.push(Reverse((cell.aux(), x, y)));
+            }
+        }
+    }
+
+    while let Some(Reverse((distance, x, y))) = heap.pop() {
+        if world.get(x, y).aux() != distance {
+            continue; // superseded by a shorter path already processed
+        }
+        for (dx, dy) in NEIGHBOURS_4 {
+            if edge_is_cracked(world, x, y, dx, dy) {
+                continue;
+            }
+            let (nx, ny) = (x + dx, y + dy);
+            // Only ever writes *inside* the region -- the values outside are
+            // the boundary condition and must not be disturbed by a stroke
+            // that did not touch them.
+            if !region.contains(nx, ny) {
+                continue;
+            }
+            let neighbour = world.get(nx, ny);
+            if !is_relaxable(world, neighbour) {
+                continue;
+            }
+            let step = {
+                let m = world.materials.get(neighbour.material);
+                match dy {
+                    -1 => m.support_cost_below,
+                    1 => m.support_cost_above,
+                    _ => m.support_cost_beside,
+                }
+            };
+            let candidate = distance.saturating_add(step);
+            if candidate < neighbour.aux() {
+                world.set(nx, ny, neighbour.with_aux(candidate));
+                heap.push(Reverse((candidate, nx, ny)));
+            }
+        }
+    }
+}
+
 /// Whether this cell's `aux` is a structural distance that
 /// `compute_world_distances` may read and write.
 ///
@@ -904,6 +1009,33 @@ mod tests {
             8,
             "two overlapping schedule_structural_check_around calls should dedup to 8 distinct positions, not the raw 10"
         );
+    }
+
+    #[test]
+    fn a_painted_column_knows_its_own_distances_immediately() {
+        // `Reports/destruction-plan.md` B3. A painted cell starts at
+        // `aux = 0`, which reads as *anchored*, and a reactive relaxation
+        // climbs from there at roughly one cell per
+        // `STRUCTURAL_TICK_INTERVAL` frames -- so a 30-cell column would
+        // spend ~30 rounds either wrongly immune or half-converged before
+        // deciding anything. That delay is the shape of "I built a thing
+        // and it collapsed ten seconds later".
+        //
+        // Zero frames are run below, deliberately: the claim is that the
+        // stroke itself leaves the structure converged.
+        let mut w = test_world();
+        let top = 34;
+        w.paint_capsule((30, 63), (30, top), 1, material::STONE, 1.0);
+
+        assert_eq!(w.get(30, 63).aux(), 0, "the base sits on the world edge, which is an anchor");
+        let at_top = w.get(30, top).aux();
+        assert!(
+            (25..u16::MAX).contains(&at_top),
+            "the top of a 30-cell column should already know it is ~29 steps from an anchor, found {at_top}"
+        );
+        // The failure this guards against is specifically reading as
+        // anchored, which is what `aux = 0` means everywhere else.
+        assert_ne!(at_top, 0, "a freshly painted column top read as anchored");
     }
 
     #[test]

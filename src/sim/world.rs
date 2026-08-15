@@ -1281,6 +1281,7 @@ impl World {
         let shades = self.materials.get(material).palette.len().max(1) as u32;
         let r = radius.max(0);
         let r2 = (r * r) as f32;
+        let mut touched_structure = false;
 
         for y in (a.1.min(b.1) - r)..=(a.1.max(b.1) + r) {
             for x in (a.0.min(b.0) - r)..=(a.0.max(b.0) + r) {
@@ -1326,9 +1327,10 @@ impl World {
                 let placed_structural = matches!(self.materials.kind(material), material::MaterialKind::Solid | material::MaterialKind::Plant);
                 let erased_structural = material == material::EMPTY
                     && matches!(self.materials.kind(existing_material), material::MaterialKind::Solid | material::MaterialKind::Plant);
-                if placed_structural || erased_structural {
-                    self.schedule_structural_check_around(x, y);
+                if !placed_structural && !erased_structural {
+                    continue;
                 }
+                self.schedule_structural_check_around(x, y);
                 // Cutting rock costs its neighbours their backing, which is
                 // what lets mining produce anything at all -- see
                 // `structural::detach_exposed_neighbours`. Erasing only:
@@ -1337,7 +1339,24 @@ impl World {
                 if erased_structural {
                     super::structural::detach_exposed_neighbours(self, x, y);
                 }
+                touched_structure = true;
             }
+        }
+        // One converged pass over what the stroke touched, rather than
+        // letting a reactive wavefront climb through it a cell per five
+        // frames. See `structural::relax_region` for why a stroke needs
+        // this and generated terrain never did. Margin covers the cells
+        // just outside the brush whose own distance the new material
+        // changes, and `DETACH_DEPTH`'s loosened band on an erase.
+        if touched_structure {
+            const MARGIN: i32 = 4;
+            let region = Rect::new(
+                a.0.min(b.0) - r - MARGIN,
+                a.1.min(b.1) - r - MARGIN,
+                a.0.max(b.0) + r + MARGIN,
+                a.1.max(b.1) + r + MARGIN,
+            );
+            super::structural::relax_region(self, region);
         }
     }
 
