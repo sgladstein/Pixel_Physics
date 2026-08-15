@@ -1421,7 +1421,82 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
 /// for a real cross-sectional measurement, which would need actual
 /// perpendicular-to-growth-axis geometry this engine doesn't track per
 /// cell — an honest simplification, not a hidden one.
+/// The two grid steps perpendicular to the stem's own axis at `(x, y)` --
+/// the direction a stem thickens *around* itself.
+///
+/// The axis comes from polarity: `supply_direction` is where carbon
+/// arrives from, which is along the stem, so the perpendicular of it is the
+/// cross-section. That is what the pipe model means by cross-section, and
+/// it is the first consumer of the conductance field outside transport.
+///
+/// **Falls back to horizontal**, which is what this always used to be, when
+/// no supply direction is established (a young cell, or `VEIN_GAIN` off).
+/// So a vertical trunk behaves exactly as before -- its perpendicular *is*
+/// left/right -- and only a diagonal or horizontal stem changes.
+fn cross_section_axis(world: &World, x: i32, y: i32) -> [(i32, i32); 2] {
+    let Some((ax, ay)) = organism::supply_direction(world, x, y) else {
+        return [(-1, 0), (1, 0)];
+    };
+    // Perpendicular, then quantized onto the 8-neighbourhood. The threshold
+    // is cos(67.5 deg), which splits the circle into eight equal sectors.
+    let (px, py) = (-ay, ax);
+    const T: f32 = 0.383;
+    let sx = if px > T {
+        1
+    } else if px < -T {
+        -1
+    } else {
+        0
+    };
+    let sy = if py > T {
+        1
+    } else if py < -T {
+        -1
+    } else {
+        0
+    };
+    if sx == 0 && sy == 0 {
+        return [(-1, 0), (1, 0)];
+    }
+    [(-sx, -sy), (sx, sy)]
+}
+
+/// How far `stem_width` will walk before giving up. A trunk wider than
+/// this is not a trunk, and an unbounded walk would make thickening
+/// O(organism) per cell again -- the exact cost the `can_widen` early
+/// rejection above exists to avoid.
+const MAX_STEM_WIDTH: i32 = 24;
+
+/// The stem's actual cross-section at `(x, y)`: the length of the
+/// contiguous same-organism run through it, along `axis`.
+///
+/// **This replaces a count of immediate neighbours, and that is the whole
+/// pancake bug.** The old form was `1 + (same-organism cells at (x-1,y) and
+/// (x+1,y))`, which is at most 3 -- but more importantly, the *growing end*
+/// of a widening run always has exactly one same-organism neighbour, so it
+/// always read 2 no matter how wide the trunk had actually become. It
+/// therefore passed `leaf_count / width > pipe_ratio` forever and the run
+/// extended without limit, which is why a trunk base spread 81-121 cells
+/// sideways along open ground instead of stopping at a few cells thick.
+///
+/// Measuring the whole run makes the gate terminate where the pipe model
+/// says it should: at `leaf_count / pipe_ratio` cells wide.
+fn stem_width(world: &World, x: i32, y: i32, organism_id: u16, axis: [(i32, i32); 2]) -> usize {
+    let mut width = 1usize;
+    for (dx, dy) in axis {
+        for k in 1..=MAX_STEM_WIDTH {
+            let (nx, ny) = (x + dx * k, y + dy * k);
+            if world.get(nx, ny).organism_id() != organism_id {
+                break;
+            }
+            width += 1;
+        }
+    }
+    width
+}
+
 fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, leaf_count: usize, rng: &mut Rng) {
+    let axis = cross_section_axis(world, x, y);
     // **Cheapest possible rejection first.** The flood fill below is
     // O(organism size), and it ran for *every* `MatureBody` cell every tick
     // -- so the cost of thickening was quadratic in tree size, and measured
@@ -1437,7 +1512,7 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     // its downstream leaf count rises as the canopy grows, so going inert
     // here would permanently freeze a trunk that should still be thickening.
     // The saving is in the work per tick, not in the number of ticks.
-    let can_widen = [(-1, 0), (1, 0)].iter().any(|&(dx, dy)| {
+    let can_widen = axis.iter().any(|&(dx, dy)| {
         let n = world.get(x + dx, y + dy);
         n.material == material::EMPTY
             || (n.organism_id() == organism_id && organism::cell_type(n.aux()) == Some(CellType::Leaf))
@@ -1464,10 +1539,7 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     // near the top carries almost nothing. Counting the entire organism
     // instead (which the undirected flood fill did before that filter was
     // added) thickens every cell equally and produces a slab.
-    let width = 1 + NEIGHBOURS_4
-        .iter()
-        .filter(|&&(dx, dy)| dy == 0 && world.get(x + dx, y).organism_id() == organism_id)
-        .count();
+    let width = stem_width(world, x, y, organism_id, axis);
     if (leaf_count as f32 / width as f32) <= pipe_ratio {
         return;
     }
@@ -1489,7 +1561,7 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     // Drawn from the organism's own stream (`rng::stream`), so it stays
     // deterministic and stays independent of what every other organism is
     // doing.
-    let sides = if rng.flip() { [(-1, 0), (1, 0)] } else { [(1, 0), (-1, 0)] };
+    let sides = if rng.flip() { axis } else { [axis[1], axis[0]] };
     for (dx, dy) in sides {
         let (nx, ny) = (x + dx, y + dy);
         // A thickening stem may grow *through* its own leaves, not only
@@ -2505,6 +2577,50 @@ mod tests {
             "a seedling from a dropped seed should have grown into a tree, got {grown} cells -- \
              a shoot missing from the cell list reads 0 carbon forever and stalls at germination"
         );
+    }
+
+    /// A widening trunk must stop widening, and the *end* of the run is
+    /// where the old rule could not tell that it had.
+    ///
+    /// `thicken`'s gate is `leaf_count / width > pipe_ratio`. `width` used
+    /// to count immediate same-organism neighbours on the row, so a cell at
+    /// the growing end of a run — one neighbour behind it, open air ahead —
+    /// always read exactly **2**, however wide the trunk had actually
+    /// become. It therefore passed the gate forever and the run extended
+    /// without limit, which is the 81-to-121-cell slab measured spreading
+    /// sideways along open ground.
+    ///
+    /// Five cells wide carrying 30 leaves is comfortably past the pipe
+    /// model's bound at `pipe_ratio = 10` (30/5 = 6). Measuring the whole
+    /// run sees that and refuses; counting neighbours reads 30/2 = 15 and
+    /// widens. So this fails against the old rule for the right reason,
+    /// rather than merely passing against the new one.
+    #[test]
+    fn a_trunk_already_at_its_pipe_model_width_refuses_to_widen_further() {
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+        let organism_id = w.push_organism(tree);
+
+        // A five-cell horizontal run, open air on both ends.
+        for x in 50..55 {
+            place(&mut w, (x, 50), wood, organism_id, CellType::MatureBody, (1.0, 0.0));
+        }
+        let mut rng = rng::stream(organism_id as u64, 54, 50, 0);
+
+        // 30 leaves above, against `tree.ron`'s own pipe_ratio of 10.
+        thicken(&mut w, 54, 50, organism_id, 10.0, 30, &mut rng);
+
+        assert_eq!(
+            w.get(55, 50).organism_id(),
+            0,
+            "a five-wide trunk carrying 30 leaves is already past the pipe model's bound (30/5 = 6 <= 10)              and must not widen further -- reading only immediate neighbours makes the run's end see              width 2 forever, which is the unbounded lateral slab"
+        );
+
+        // ...and it still widens when it genuinely is too thin for its load.
+        let mut rng = rng::stream(organism_id as u64, 54, 50, 1);
+        thicken(&mut w, 54, 50, organism_id, 10.0, 300, &mut rng);
+        assert_ne!(w.get(55, 50).organism_id(), 0, "300 leaves on a five-wide trunk is under-built and should still thicken");
     }
 
     /// The same failure again, one seam over: a seed whose final fall step
