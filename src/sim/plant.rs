@@ -162,12 +162,36 @@ fn displace_soil_water(world: &mut World, x: i32, y: i32) {
     }
 }
 
-fn candidate_crowding(world: &World, x: i32, y: i32, organism_id: u16) -> f32 {
+/// Local foliage proximity at a growth candidate — **any organism's, not
+/// just this one's.**
+///
+/// The `organism_id` filter this used to carry has been removed, and the
+/// reason is a citation rather than a preference. The channel is a
+/// stigmergic stand-in for **shade-avoidance signalling**: a real shoot
+/// senses the red/far-red ratio of light *reflected off nearby foliage*
+/// and shifts its growth away from it. A phytochrome cannot ask whose leaf
+/// it bounced off. Filtering by owner was a defensible reading while this
+/// was framed as *self*-avoidance, and it is the wrong reading of the
+/// mechanism it models.
+///
+/// **This is `Reports/tree-architecture-research.md` §7c, and it answers a
+/// problem 2D creates.** A crown of radius `R` has `~R³` of volume to
+/// branch into in three dimensions and `~R²` of area in two, so the same
+/// branch count is `R` times denser here and neighbouring structures merge
+/// far more readily than any 3D-calibrated model expects. Real forests
+/// solve exactly this with **crown shyness** — the gaps adjacent trees
+/// leave between their canopies — and the far-red mechanism is the one that
+/// transfers, precisely *because* it is owner-blind: one rule keeps a tree
+/// from merging with itself **and** with its neighbour.
+///
+/// Note this deliberately does *not* consult `organism_id` at all now, so
+/// hand-painted inert `wood` contributes nothing (it carries no
+/// `canopy_density`), while any organism's foliage does.
+fn candidate_crowding(world: &World, x: i32, y: i32) -> f32 {
     let mut sum = 0.0f32;
     let mut count = 0u32;
     for (dx, dy) in NEIGHBOURS_8 {
-        let n = world.get(x + dx, y + dy);
-        if n.organism_id() == organism_id {
+        if world.get(x + dx, y + dy).organism_id() != 0 {
             sum += world.canopy_density_at(x + dx, y + dy);
             count += 1;
         }
@@ -780,7 +804,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         continue;
                     }
                     let dir = normalize((dx as f32, dy as f32));
-                    let density = candidate_crowding(world, nx, ny, organism_id);
+                    let density = candidate_crowding(world, nx, ny);
                     let score = dot(dir, away_from_supply) * continuation_weight
                         + dot(dir, photo) * light_weight
                         + dot(dir, wind) * wind_weight
@@ -2457,21 +2481,44 @@ mod tests {
         // (the bug this guards against) would always read exactly 0.0.
         assert!(w.is_empty(50, 50));
 
-        let density = candidate_crowding(&w, 50, 50, organism_id);
+        let density = candidate_crowding(&w, 50, 50);
         assert!(density > 0.0, "candidate_crowding should see the neighbour's deposited density, not the always-empty candidate's own aux, got {density}");
     }
 
+    /// **Reversed, deliberately, and this test used to assert the
+    /// opposite.** It was
+    /// `candidate_crowding_ignores_a_different_organisms_density`, and it
+    /// was a fair reading while this channel was framed as *self*-
+    /// avoidance.
+    ///
+    /// `Reports/tree-architecture-research.md` §7c reframes it: the channel
+    /// is a stand-in for shade-avoidance signalling, where a shoot senses
+    /// the red/far-red ratio of light reflected off nearby foliage — and a
+    /// phytochrome cannot ask whose leaf it came off. Owner-blindness is
+    /// the mechanism, not a relaxation of it, and it is what produces
+    /// **crown shyness**: the gaps real adjacent trees leave between their
+    /// canopies.
+    ///
+    /// It matters here more than in a real forest because this world is 2D.
+    /// A crown has `~R³` of volume to branch into in three dimensions and
+    /// `~R²` of area in two, so neighbouring structures merge far more
+    /// readily than any 3D-calibrated model expects, and one owner-blind
+    /// rule keeps a tree from merging with itself *and* with its neighbour.
     #[test]
-    fn candidate_crowding_ignores_a_different_organisms_density() {
+    fn candidate_crowding_sees_a_neighbouring_organisms_foliage_too() {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
         let this_organism = w.push_organism(tree_species);
         let other_organism = w.push_organism(tree_species);
+        let _ = this_organism;
         place(&mut w, (49, 50), wood, other_organism, CellType::GrowingTip, (0.0, 3.0));
 
-        let density = candidate_crowding(&w, 50, 50, this_organism);
-        assert_eq!(density, 0.0, "a different organism's canopy density should not count as this organism's own crowding");
+        let density = candidate_crowding(&w, 50, 50);
+        assert!(
+            density > 0.0,
+            "a neighbouring organism's foliage must register as crowding -- that is crown shyness,              and it is the one rule keeping two trees from merging in a 2D world. Got {density}"
+        );
     }
 
     // --- Decay-cadence regression (`CANOPY_DENSITY_DECAY_PER_TICK`) ------
