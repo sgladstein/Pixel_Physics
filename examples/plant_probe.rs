@@ -337,7 +337,37 @@ vein conductance (max face per cell), {}..{}:",
                 conductances.len(),
                 100.0 * basal as f32 / conductances.len() as f32
             );
-            println!("  strand contrast, p99/p50: {:.2}x (ceiling {:.0}x)", at(0.99) / at(0.5).max(1e-6), organism::CANALIZATION_CONTRAST);
+            // **Differentiation, not a ratio of percentiles.**
+            //
+            // `p99/p50` was the first thing reported here and it is
+            // actively misleading: it fell from 6.1x to 2.4x across a
+            // change that made canalization *better*, because a thicker
+            // trunk means more cells legitimately carry flux, which lifts
+            // the median. The strands were unchanged -- p99 sat at the
+            // ceiling throughout. A ratio against the median measures how
+            // much *undifferentiated* tissue happens to be lying around,
+            // which is a fact about tree shape, not about the mechanism.
+            //
+            // What canalization actually claims is a *split*: some tissue
+            // becomes vascular and some does not. So report the shape of
+            // the distribution -- how much sits at each end -- and let the
+            // reader see the split directly.
+            let span = organism::CONDUCTANCE_MAX - organism::CONDUCTANCE_MIN;
+            let near_floor = conductances.iter().filter(|c| **c < organism::CONDUCTANCE_MIN + span * 0.1).count();
+            let near_ceiling = conductances.iter().filter(|c| **c > organism::CONDUCTANCE_MIN + span * 0.9).count();
+            let middle = conductances.len() - near_floor - near_ceiling;
+            let pct = |n: usize| 100.0 * n as f32 / conductances.len() as f32;
+            println!(
+                "  differentiation: {:.0}% undifferentiated / {:.0}% partial / {:.0}% vascular",
+                pct(near_floor),
+                pct(middle),
+                pct(near_ceiling)
+            );
+            println!(
+                "  strand strength, p99 vs the basal floor: {:.2}x of a possible {:.0}x",
+                at(0.99) / organism::CONDUCTANCE_MIN,
+                organism::CANALIZATION_CONTRAST
+            );
         }
     }
 

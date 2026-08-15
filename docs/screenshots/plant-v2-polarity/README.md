@@ -2,12 +2,24 @@
 
 Shot on the `forest` scene, the same scene the earlier plant sheets use.
 
-**Re-shot after the economy pass tuned the canalization contrast from 30:1
-to 10:1**, so these show polarity as tuned rather than as first landed. The
-change is visible: at 30:1 this tree was a bare whip, and at 10:1 it
-carries a long lateral branch and roughly twice the foliage. Establishment
-across the variant ensemble went 56% → 73% and biomass +29%; see
-`organism::VEIN_GAIN` for the table and the reasoning.
+**Re-shot after the economy pass**, so these show polarity as tuned and
+after the `thicken()` fix, not as first landed. Two changes are visible in
+them:
+
+- **Canalization contrast 30:1 → 10:1.** At 30:1 this tree was a bare whip;
+  it now carries a long lateral branch and roughly twice the foliage.
+  Establishment across the variant ensemble went 56% → 73%, biomass +29%.
+  See `organism::VEIN_GAIN`.
+- **`thicken()` measures the trunk's real cross-section.** The base is now
+  a tapering trunk rather than a slab spreading along the ground, and that
+  change roughly *doubled* establishment on its own (baseline 5/12 → 11/12)
+  because an unbounded trunk had been eating the seedling's own leaves. See
+  `plant::stem_width`.
+
+Read the vein sheet with the pipe model in mind: the thick lower trunk and
+the lateral branch are saturated because they carry the whole canopy's
+flux, and the thin upper twigs are dark because they carry almost none.
+Brightness tracks *what a cell carries*, not how alive it is.
 
 ```
 cargo run --release --example filmstrip -- scene=forest start=8000 every=1 count=1 cols=1 zoom=14 crop=64,4,44,44 channel=<off|celltype|vein>
@@ -54,16 +66,25 @@ sheet says *what and where* and only a number says *how much*:
 
 ```
 vein conductance (max face per cell), 1..10:
-  2445/6321 cells still at the basal floor (39%) -- undifferentiated tissue
-  strand contrast, p99/p50: 6.14x (ceiling 10x)
+  min 1.00  p50 4.25  p90 9.88  p99 9.99  max 10.00
+  differentiation: 35% undifferentiated / 40% partial / 25% vascular
+  strand strength, p99 vs the basal floor: 9.99x of a possible 10x
 ```
 
-The median cell is essentially unpolarized while the top decile is
-saturated. That split is the mechanism working, and it is worth knowing
-that the *fraction of the available range* actually reached barely moved
-when the contrast was retuned (69% of 30:1, 61% of 10:1) — the mechanism
-works just as hard at the lower setting, it simply has less room to work
-in, which is what made 10:1 a cheap trade for the establishment gain.
+A quarter of the tissue is fully vascular, a third has never carried
+anything, and strands reach the ceiling. That split is the mechanism
+working.
+
+**A metric that had to be replaced, and it is the interesting part.** This
+originally reported `p99/p50` as a "strand contrast", and that number
+*fell* from 6.1x to 2.4x across a change that made canalization plainly
+better (the `thicken()` fix). Nothing about the strands had changed — p99
+sat at the ceiling throughout. A thicker trunk simply means more cells
+legitimately carry flux, which lifts the median, so a ratio against the
+median was measuring how much undifferentiated tissue happened to be lying
+around: a fact about tree *shape*, not about the mechanism. It now reports
+the shape of the distribution instead. `CLAUDE.md`'s "ask what a metric
+counts when nothing is wrong", for the second time on this branch.
 
 ## Two things not to misread
 
