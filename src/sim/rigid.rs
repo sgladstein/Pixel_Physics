@@ -148,6 +148,13 @@ const COLLAPSE_PRESSURE: f32 = 4.0;
 const SNAP_RADIUS: i32 = 4;
 const SNAP_PRESSURE_FACTOR: f32 = 0.75;
 
+/// Pressure a landing writes, per square root of cell count per unit of
+/// impact speed, and the speed below which it writes none. The floor is
+/// what stops a long rubble cascade firing an impulse per settling grain:
+/// a piece that merely came loose and dropped a cell has not *landed*.
+const LANDING_PRESSURE: f32 = 1.5;
+const LANDING_MIN_SPEED: f32 = 1.5;
+
 /// How far past a blow's own radius its fractures run. Cracks reaching
 /// further than the damage is what lets a player work a fissure across a
 /// span rather than having to chew through it.
@@ -382,6 +389,15 @@ pub struct ChunkBody {
     /// tumbling chunk can never gain or lose a cell.
     spin: f32,
     stalled: u8,
+    /// Fastest this body has ever travelled, in cells per frame.
+    ///
+    /// Recorded rather than read at landing because by the time `advance`
+    /// gives up, the velocity has already been damped by the collisions
+    /// that stopped it -- `COLLISION_RETENTION` is 0.3, and a body settles
+    /// only after `STALL_FRAMES_BEFORE_SETTLING` frames of going nowhere.
+    /// Reading `vy` there would report that everything lands gently, which
+    /// is the opposite of what a forty-cell drop should feel like.
+    peak_speed: f32,
 }
 
 impl ChunkBody {
@@ -620,6 +636,7 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
         vy,
         spin: ((ox + oy) % 3) as f32 * 0.3,
         stalled: 0,
+        peak_speed: 0.0,
     });
 }
 
@@ -880,6 +897,7 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
 
     body.vx = body.vx.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
     body.vy = body.vy.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
+    body.peak_speed = body.peak_speed.max((body.vx * body.vx + body.vy * body.vy).sqrt());
 
     let distance = (body.vx * body.vx + body.vy * body.vy).sqrt();
     let steps = distance.ceil().max(1.0) as i32;
@@ -1049,6 +1067,36 @@ fn settle(world: &mut World, body: &ChunkBody) {
         let (x, y) = body.cell_position(cell);
         world.schedule_structural_check_around(x, y);
     }
+
+    // Landing owes feedback, and paid none until now.
+    //
+    // `Reports/design-philosophy.md` §0a: a destructive event that shoves
+    // no air and marks nothing is not finished. `break_free` writes an
+    // impulse per broken cell and `fracture_with_impulse` writes one per
+    // collapse, but the *landing* -- a slab falling forty cells and
+    // arriving -- wrote nothing at all. The most visible moment of a
+    // collapse was the only silent one.
+    //
+    // Scaled by how hard it actually hit and by how much of it there is,
+    // so a pebble tapping down is not a shelf arriving. A body that was
+    // only ever nudged (a fragment that came loose and settled a cell
+    // lower) writes nothing, which is what keeps this from firing
+    // constantly during a long rubble cascade.
+    let speed = body.peak_speed;
+    if speed < LANDING_MIN_SPEED {
+        return;
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+    for cell in &body.cells {
+        let (x, y) = body.cell_position(cell);
+        x0 = x0.min(x);
+        y0 = y0.min(y);
+        x1 = x1.max(x);
+        y1 = y1.max(y);
+    }
+    let radius = (((x1 - x0) / 2).max((y1 - y0) / 2) + 1).max(2);
+    let strength = (body.cells.len() as f32).sqrt() * speed * LANDING_PRESSURE;
+    world.add_pressure_impulse((x0 + x1) / 2, y1, radius, strength);
 }
 
 fn nearest_free(world: &World, x: i32, y: i32) -> Option<(i32, i32)> {
@@ -1380,6 +1428,37 @@ mod tests {
         assert!(w.chunk_bodies.len() > 1, "600 cells should yield many pieces, not one");
         assert_eq!(total_debris(&w), 600, "fracture lost or duplicated material");
         assert_eq!(count_material(&w, material::STONE), 0, "every cell of the region should have left the grid");
+    }
+
+    #[test]
+    fn a_slab_that_falls_and_lands_shoves_air_where_it_hits() {
+        // `Reports/destruction-plan.md` D2. The most visible moment of a
+        // collapse -- the arrival -- was the only one that wrote no field
+        // footprint at all, which `design-philosophy.md` §0a names as one
+        // of the three things that make a destructive event unfinished.
+        let mut w = test_world();
+        for x in 0..64 {
+            w.set(x, 63, Cell::new(material::BEDROCK, 0));
+        }
+        let region = loose_slab(&mut w, 20, 10, 6, 3);
+        assert!(fracture_failing_region(&mut w, &region, region[0]));
+        assert!(!w.chunk_bodies.is_empty(), "test setup: the slab should have promoted to at least one body");
+
+        // The break's own impulse is written around the slab's *original*
+        // position (y=10..12, radius 4), so measuring down at the floor
+        // below cannot pick it up by accident -- which is what makes this
+        // a test of the landing rather than of the promotion.
+        assert_eq!(w.field_at(32, 60).pressure, 0.0, "test setup: the floor should start at ambient pressure");
+
+        for _ in 0..300 {
+            step_chunk_bodies(&mut w);
+            crate::sim::update::step(&mut w);
+        }
+        assert!(w.chunk_bodies.is_empty(), "test setup: the bodies should have settled");
+
+        // Somewhere along the floor, where it actually came down.
+        let felt = (0..64).any(|x| (55..64).any(|y| w.field_at(x, y).pressure.abs() > 0.5));
+        assert!(felt, "a slab fell the height of the world, landed, and shoved no air at all");
     }
 
     #[test]

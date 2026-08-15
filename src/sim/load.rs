@@ -172,6 +172,12 @@ const MAX_SECTION: i64 = 40;
 /// fracture has taken away.
 const CRACK_FACES: i64 = 4;
 
+/// How much of its bending capacity a cell keeps when the only thing under
+/// it is loose grain. Not zero -- a pile does carry weight, and zeroing it
+/// would shatter debris the moment it landed, which is the bug
+/// `rests_on_ground` exists to prevent.
+const GRANULAR_CAPACITY_DIVISOR: i64 = 64;
+
 /// What one cell carries and what it can carry. Everything the failure test
 /// looks at, in one struct, so the hover inspector and the criterion cannot
 /// disagree about a cell.
@@ -302,8 +308,27 @@ pub fn support_parent(world: &World, x: i32, y: i32) -> Option<(i32, i32)> {
 /// is under the CA sweep's control: if it flows out from underneath, that
 /// write dirties the chunk and whatever sat on it is re-examined.
 fn is_anchor(world: &World, x: i32, y: i32) -> bool {
-    NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == super::material::BEDROCK)
-        || world.materials.kind(world.get(x, y + 1).material) == MaterialKind::Powder
+    NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == super::material::BEDROCK) || rests_on_ground(world, x, y)
+}
+
+/// Whether `(x, y)` is sitting on loose material that can hold its weight.
+///
+/// **Supported is not the same as exempt, and conflating them was a bug
+/// with three separate symptoms.** Powder underneath genuinely terminates
+/// a support chain -- that is what stops a chunk shattering the moment it
+/// lands on its own rubble, which is the case the predicate was written
+/// for. What it must *not* do is excuse the cell from the torque test,
+/// because a granular pile's resistance to a bending moment is
+/// approximately none.
+///
+/// Treating them as the same thing meant a few grains of rubble could hold
+/// up anything: `scene=ligament`'s 4,400-cell slab stayed in the air
+/// propped on debris wedged in its own notch, the `worked` shelf kept a
+/// 1-cell skin resting on nothing much, and a sprinkle of sand under a
+/// cantilever made it arbitrarily long. See `capacity`, which now charges
+/// a cell supported this way for what the pile can actually carry.
+fn rests_on_ground(world: &World, x: i32, y: i32) -> bool {
+    world.materials.kind(world.get(x, y + 1).material) == MaterialKind::Powder
 }
 
 /// Whether the support chain from `(x, y)` reaches an anchor.
@@ -737,7 +762,16 @@ pub fn capacity(world: &World, x: i32, y: i32) -> i64 {
     // undercut shelf unfallable however much was dug from beneath it --
     // model 3 of the four this replaces.
     let attachment = if cell.attached() { m.attached_span_bonus as i64 } else { 1 };
-    base.saturating_mul(section.pow(2)).saturating_mul(attachment).saturating_mul(uncracked_faces(world, x, y)) / CRACK_FACES
+    let capacity = base.saturating_mul(section.pow(2)).saturating_mul(attachment).saturating_mul(uncracked_faces(world, x, y)) / CRACK_FACES;
+    // A cell whose support is a pile of loose grains is *held*, but it is
+    // not braced: sand resists compression and essentially no bending. So
+    // resting on powder keeps the chain alive (see `rests_on_ground`) and
+    // costs almost all of the section's capacity, which is what stops a
+    // handful of rubble propping up a slab.
+    if rests_on_ground(world, x, y) {
+        return (capacity / GRANULAR_CAPACITY_DIVISOR).max(1);
+    }
+    capacity
 }
 
 /// What `(x, y)` carries and what it can carry, or `None` if it is not a
@@ -761,8 +795,17 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     if cell.material == super::material::BEDROCK {
         return None; // the anchor material itself, and never a thing that falls
     }
-    if cell.aux() == 0 {
-        return None; // an anchor: held by bedrock, the world edge, or the ground it stands on
+    // Asked of the *world*, not of the cached distance. `aux == 0` was the
+    // test here, and it is not the same claim: everything a player paints
+    // starts at `aux == 0`, and `rigid::settle` deliberately writes 0 into
+    // every cell of a landed body. So both read as "anchored" and became
+    // permanently immune to every failure mode -- which is the binary
+    // immunity all four earlier support models were rejected for, moved
+    // out of the criterion where it was visible and into a guard where it
+    // was not. Measured before this changed: `scene=capped` evaluated 2
+    // cells out of 15,840 across 600 frames.
+    if is_anchor(world, x, y) {
+        return None; // genuinely held from outside the model
     }
     if !is_structurally_interesting(world, x, y) {
         return None;
