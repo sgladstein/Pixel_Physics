@@ -79,6 +79,27 @@ run ligament scene=ligament start=2 every=70 count=6 crop=60,110,180,120 zoom=3 
 #    world eating itself with nobody having touched it.
 run terrain  scene=terrain  start=2 every=90 count=4 crop=0,0,512,320 zoom=1 max_failures=0 repeat=2 max_frame_ms=$BUDGET_MS
 
+# 7/8. A building survives being chipped, and still comes apart when a wall
+#    is actually cut through. The pair is the point: either alone is passable
+#    by cheating in one direction, and this project has shipped both cheats.
+#    "Nothing fails" passes case 7 by making rock invincible, which is how
+#    four earlier support models died; "everything fails" passes case 8.
+#
+#    What they guard is the regression that prompted them: a radius-1 chisel
+#    cut into a 17-cell-thick wall took down 2,516 cells of a room that was
+#    standing at 15% of capacity, because a column carried its roof's full
+#    bending moment all the way to the floor and any one cell of it that lost
+#    its attachment bonus failed wherever it stood. `min_overloaded` on case
+#    8 measured 56; the bar is 5.
+#
+#    A bigger budget than the rest, and not a tuning fudge: the room is the
+#    largest structure any scene here builds and the only one that is mostly
+#    *surface*, so far more of it is structurally interesting than in a solid
+#    massif. Measured 29-32 ms against the 13-22 ms the others sit at, so 90
+#    keeps the same ~3x margin over the measurement that 60 gives them.
+run roomstands scene=room wall=5 dig=0 start=2 every=50 count=5 crop=100,120,280,200 zoom=2 max_failures=0   repeat=2 max_frame_ms=90
+run roomcut    scene=room wall=5 dig=3 start=2 every=50 count=5 crop=100,120,280,200 zoom=2 min_overloaded=5 repeat=2 max_frame_ms=90
+
 # 6. A struck cliff throws pieces. Asserted as *bodies in flight*, not as
 #    overload failures: the mechanism here is the blow's own fracture, and
 #    an earlier bar on overload failures duly broke when an unrelated

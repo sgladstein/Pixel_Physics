@@ -80,10 +80,10 @@ fn stone_floor(w: &mut World) {
 /// The scenes the current bug list is about. Adding one is three lines, and
 /// is much preferred to editing an existing one — a scene that quietly
 /// changed underneath a recorded measurement is worse than no scene.
-fn build(scene: &str) -> World {
+fn build(args: &Args) -> World {
     let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
     let floor_y = HEIGHT - FLOOR_THICKNESS;
-    match scene {
+    match args.scene.as_str() {
         // A large body released against the left wall, spreading right across
         // seven vertical chunk seams. The terracing/banding reproduction.
         "pour" => {
@@ -366,6 +366,55 @@ fn build(scene: &str) -> World {
                 paint(&mut w, pair[0], pair[1]);
             }
         }
+        // **The unzip reproduction.** A hollow room built exactly the way
+        // `Tool::Room` builds one, then one cut into a wall -- one click of
+        // `D`, which is what the report was.
+        //
+        // Two things have to be faithful for this to reproduce, and both
+        // are easy to get wrong:
+        //
+        // - The walls go down through `paint_capsule_as`, not `set`,
+        //   because that is what marks them intact and reruns the scoped
+        //   relaxation. A room laid down with `set` is unattached
+        //   foreground and fails for an entirely different reason.
+        // - The four walls are drawn as four *overlapping* capsule runs, so
+        //   the corners are covered twice. Four independent segments leak
+        //   at every corner, which structurally means the roof is not
+        //   carried by the walls at all -- the scene would then be
+        //   measuring a bug in itself.
+        //
+        // The cut is at mid-height on the left wall, where a doorway goes.
+        //
+        // **What this scene found.** `Tool::Room` sets wall thickness from
+        // `brush_radius` and `App::mine` passes the *same* `brush_radius`
+        // through as the cut radius. A capsule of radius r is `2r+1` thick
+        // and a dig of radius r is `2r+1` across, so a cut into a wall
+        // built by the room tool severs it completely, every time, at any
+        // height, at any brush size. There is no ligament left because
+        // there cannot be one. The roof then hangs off the far wall alone
+        // and duly overloads -- correctly. Two verbs sharing one number
+        // where the whole point is that one must be smaller than the
+        // other.
+        // `wall=` and `dig=` are separate knobs *because the app gives them
+        // the same number* and that turns out to be the whole bug -- see
+        // the note above. Being able to vary them independently here is how
+        // the question "how much thicker than a cut does a wall have to be"
+        // gets an answer instead of an argument.
+        "room" => {
+            stone_floor(&mut w);
+            let (x0, y0) = (140, 150);
+            let (x1, y1) = (x0 + args.span, floor_y - 1);
+            for (a, b) in [((x0, y0), (x1, y0)), ((x0, y1), (x1, y1)), ((x0, y0), (x0, y1)), ((x1, y0), (x1, y1))] {
+                w.paint_capsule_as(a, b, args.wall, material::STONE, 1.0);
+            }
+            // One click, at mid-height on the left wall. `dig=0` makes no
+            // cut at all, which is the control: it says whether the room
+            // even stands untouched, and that has to be established before
+            // any number from a cut means anything.
+            if args.dig > 0 {
+                pixel_physics::sim::rigid::mine(&mut w, x0, (y0 + y1) / 2, args.dig);
+            }
+        }
         // A thin shelf cantilevered off a thick pillar, with the join then
         // cut so the shelf detaches whole.
         //
@@ -408,7 +457,7 @@ fn build(scene: &str) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked, capped, ligament, built"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked, capped, ligament, built, room"
         ),
     }
     w
@@ -416,6 +465,17 @@ fn build(scene: &str) -> World {
 
 struct Args {
     scene: String,
+    /// `wall=N` / `dig=N` -- capsule radii for `scene=room`'s walls and for
+    /// the cut made into them. Both default to 3, which is what the app
+    /// itself does, because the app has only one number for both.
+    wall: i32,
+    dig: i32,
+    /// `span=N` -- how wide `scene=room` is drawn, outer edge to outer
+    /// edge. The knob the whole "what can a player actually build" question
+    /// turns on, and the reason it is a knob rather than a constant: a
+    /// single width says the room stands or does not, and what is wanted is
+    /// the *envelope*.
+    span: i32,
     start: usize,
     every: usize,
     count: usize,
@@ -510,6 +570,9 @@ fn parse() -> Args {
         max_failures: None,
         max_frame_ms: None,
         min_bodies: None,
+        wall: 3,
+        dig: 3,
+        span: 200,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -534,6 +597,9 @@ fn parse() -> Args {
                 }
             }
             "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),
+            "wall" => a.wall = v.parse().expect("wall"),
+            "dig" => a.dig = v.parse().expect("dig"),
+            "span" => a.span = v.parse().expect("span"),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
@@ -742,7 +808,7 @@ fn main() {
 /// `render` is false for the extra timing samples, which do not need an
 /// image and should not pay for one.
 fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
-    let mut world = build(&args.scene);
+    let mut world = build(args);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
     let mut particles = ParticleSystem::new();
@@ -914,6 +980,21 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
             f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
         );
         println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
+        // Pieces or grit. A region below `MIN_FRACTURE_CELLS` is not
+        // fractured at all -- it falls through to per-cell conversion,
+        // which *is* powder -- so a run whose failures average 1 or 2
+        // cells has already decided to produce dust no matter what the
+        // fragment ladder is set to. Printed next to the image because the
+        // two are indistinguishable at the zoom a contact sheet is read
+        // at.
+        let events = f.overloaded + f.unsupported;
+        if events > 0 {
+            println!(
+                "    failing region size: mean {:.1} cells, largest {}",
+                (f.overloaded_cells + f.unsupported_cells) as f64 / events as f64,
+                f.largest_failure
+            );
+        }
         if render {
             println!("    worst frame so far: {worst_ms:.2} ms (frame {worst_frame})");
             report_loads(&world, args);

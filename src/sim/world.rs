@@ -253,6 +253,16 @@ pub struct FailureCounts {
     /// standing at a stress ratio of 1.87. So the question is empirical:
     /// how far do failures *actually* land from their trigger here?
     pub max_chain_reach: u32,
+    /// The largest single failing region, in cells.
+    ///
+    /// The mean (`overloaded_cells / overloaded`) is not enough on its own:
+    /// one 200-cell break averaged with fifty 1-cell ones reads as a
+    /// respectable 5, and 1-cell failures are exactly the shape that
+    /// produces dust, because `rigid::fracture` declines anything below
+    /// `MIN_FRACTURE_CELLS` and falls through to per-cell conversion. So
+    /// the pair -- mean and max -- is what says whether pieces or grit came
+    /// out, and neither half says it alone.
+    pub largest_failure: u32,
 }
 
 impl FailureCounts {
@@ -261,6 +271,7 @@ impl FailureCounts {
     }
 
     pub fn record(&mut self, mode: crate::sim::load::FailureMode, cells: usize) {
+        self.largest_failure = self.largest_failure.max(cells as u32);
         match mode {
             crate::sim::load::FailureMode::Overloaded => {
                 self.overloaded += 1;

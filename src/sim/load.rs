@@ -754,15 +754,15 @@ fn detached_piece(world: &World, x: i32, y: i32, memo: &mut AnchorMemo, budget: 
 /// hold something hanging off its side however tall it is. Generalizing to
 /// "perpendicular to the parent direction" agrees with the old rule on
 /// every case it was written for.
-fn section(world: &World, x: i32, y: i32, parent: Option<(i32, i32)>) -> i64 {
-    section_cells(world, x, y, parent).len() as i64
-}
-
-/// The cells that make up `(x, y)`'s resisting section, including it.
 ///
-/// The same walk `section` measures, kept as a list because a failure
-/// needs the cells and not only the count — see `failing_region`. Ordered
-/// outward from `(x, y)` and capped at `MAX_SECTION`.
+/// # Why this returns the cells and not just a depth
+///
+/// Two callers need the membership, not the count: `failing_region` breaks
+/// the whole section off together, and `capacity` reads how much of the
+/// section is still attached. The count-only wrapper that used to sit here
+/// was deleted when the second of those arrived — one walk, one meaning.
+///
+/// Ordered outward from `(x, y)` and capped at `MAX_SECTION`.
 fn section_cells(world: &World, x: i32, y: i32, parent: Option<(i32, i32)>) -> Vec<(i32, i32)> {
     // Support from below/above travels vertically, so the resisting section
     // is horizontal, and vice versa. No parent (an anchor, or mid-
@@ -829,7 +829,8 @@ pub fn capacity(world: &World, x: i32, y: i32) -> i64 {
     }
     let base = (m.max_unsupported_span as i64).pow(2) / 2;
     let parent = support_parent(world, x, y);
-    let section = section(world, x, y, parent);
+    let section_cells = section_cells(world, x, y, parent);
+    let section = section_cells.len() as i64;
     // Attachment buys *capacity*, never immunity. Anchoring on it made an
     // undercut shelf unfallable however much was dug from beneath it --
     // model 3 of the four this replaces.
@@ -857,6 +858,33 @@ pub fn capacity(world: &World, x: i32, y: i32) -> i64 {
     // direction rather than being dodged: a tower's *base* is keyed to the
     // ground, and nothing above it is. Foundations are exactly where a
     // keyed joint belongs.
+    //
+    // # Tried and reverted: averaging the bonus over the section
+    //
+    // The bonus is a **cliff** -- one flag, twelvefold, on or off -- and
+    // the owner predicted the consequence before it was seen: *"we are
+    // deciding structures are solid when built... then any little damage
+    // turns off the protection, the whole structure will just collapse."*
+    // Measured, on `scene=room`: a radius-1 chisel cut into a 17-cell-thick
+    // wall brought down 2,516 cells of a room that stood untouched at 15%
+    // of capacity, because `mine`'s detach band reaches clean across a wall
+    // that thin.
+    //
+    // Grading it -- attachment as the *mean* over the section, so three
+    // loosened cells out of seventeen cost three seventeenths of the bonus
+    // -- is the obvious graded-beats-binary fix and it **breaks
+    // `scene=undercut`**, which went to zero failures. Undercut spalls
+    // precisely because the rows a dig loosened are weak while the rows
+    // above them are not: at a section of 6 with 3 rows loosened, the mean
+    // reads 6.5x where the old rule read 1x, and the shelf holds. Weakness
+    // being *per cell* is the spalling mechanism, not an artifact of it.
+    //
+    // It also did not help the case it was written for: at the cut, every
+    // cell of the wall's cross-section is loosened, so the mean equals the
+    // minimum and nothing changes. Wrong on both counts, and recorded here
+    // so the next reader does not spend the afternoon on it. The cliff is
+    // real; see `Reports/next-session-handoff.md` for where it actually
+    // comes from.
     let keyed = cell.attached() || parent.is_some_and(|(px, py)| world.get(px, py).attached());
     let attachment = if keyed { m.attached_span_bonus as i64 } else { 1 };
     let capacity = base.saturating_mul(section.pow(2)).saturating_mul(attachment).saturating_mul(uncracked_faces(world, x, y)) / CRACK_FACES;
@@ -958,7 +986,48 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     // which is a flow problem rather than a tree one, and is what
     // `Reports/destruction-plan.md`'s E1 (push damage outward from the
     // break) is shaped to address. Recorded rather than bodged.
-    let torque = (moment_fp - x as i64 * mass_fp).abs() / LOAD_SCALE;
+    let mut torque = (moment_fp - x as i64 * mass_fp).abs() / LOAD_SCALE;
+    // **A column is not charged the beam's moment.** Measured on
+    // `scene=room`, and it is the reason one chisel cut brought a whole
+    // building down: the torque at the inner face of a wall read 76,028 at
+    // y=170, at y=200, at y=250 and at y=300 -- *identical all the way to
+    // the floor*, 140 cells below the roof that produced it. Every cell of
+    // every wall in a building sat at exactly the stress of the worst point
+    // of the roof it carried, so nothing was ever safely deep inside a
+    // structure, and any single cell that lost its attachment bonus
+    // (capacity / 12) failed instantly wherever it happened to be. That is
+    // the unzip: not a runaway propagation front, which was the standing
+    // hypothesis and is disproved -- see the handoff.
+    //
+    // Where the moment actually goes: `|Sx - x·M|` is `M × |x̄ - x|`, the
+    // moment of everything the cell carries about the cell. For a beam
+    // reaching sideways that is right and is the whole model. For a
+    // *column* it charges the eccentricity of the roof's centroid -- fifty
+    // cells away -- to rock that is simply passing a vertical load
+    // downward. The load leaves the beam and enters the column *at the
+    // joint*; below the joint the column carries force, not the beam's
+    // bending. Charging it again is double-counting, in the same family as
+    // the reverted divide-by-section above.
+    //
+    // So on a vertical support step the arm is clamped to the column's own
+    // half-thickness -- the kern: a load landing within a section's middle
+    // puts none of it into tension. Beyond that half-width the moment is
+    // the *beam's*, and the beam is already being tested for it.
+    //
+    // Deliberately a clamp and not an exemption. A column genuinely loaded
+    // off-axis still carries `M × half-width`, which grows with what it
+    // holds, so a thin wall under a heavy eccentric cap still fails -- it
+    // just fails at a stress its own thickness explains rather than at one
+    // borrowed from something fifty cells away. Every acceptance scene
+    // takes its support horizontally at the point that fails
+    // (`worked`/`undercut`/`ligament` are all shelves and necks) and so is
+    // untouched by this; `capped` and `terrain` can only get stronger.
+    if let Some(parent @ (px, _)) = support_parent(world, x, y) {
+        if px == x {
+            let half = (section_cells(world, x, y, Some(parent)).len() as i64 / 2).max(1);
+            torque = torque.min(mass as i64 * half);
+        }
+    }
     Some(Load { mass, moment, torque, capacity: capacity(world, x, y), supported, truncated })
 }
 
