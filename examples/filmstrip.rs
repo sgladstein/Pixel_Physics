@@ -189,6 +189,35 @@ fn build(args: &Args) -> World {
         "terrain" => {
             pixel_physics::app::build_terrain(&mut w);
         }
+        // **One dig into a generated world.** Reported from play: "one crack
+        // in the ground basically propagates throughout the whole world and
+        // slowly breaks everything."
+        //
+        // Kept separate from `scene=worldgen` rather than added to it as a
+        // flag: that scene is worldgen's own, it asserts that a generated
+        // world arrives at rest and *stays* there, and a scene that
+        // sometimes digs would make its zero-failure reading mean two
+        // different things.
+        //
+        // The cut lands on the surface at mid-width, found by walking down
+        // rather than assumed -- generated terrain puts the surface
+        // wherever it likes, and a dig into open air would reproduce
+        // nothing while looking like it had.
+        "worldcrack" => {
+            let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
+            if let Some(e) = err {
+                panic!("{e}");
+            }
+            let name = if args.preset.is_empty() { presets.default_name() } else { args.preset.clone() };
+            let Some(params) = presets.get(&name) else { panic!("unknown preset {name:?}") };
+            pixel_physics::worldgen::generate(&mut w, pixel_physics::worldgen::Spec::Generated { params, seed: args.seed });
+            let x = WIDTH / 2;
+            let surface = (0..HEIGHT).find(|&y| w.get(x, y).material != material::EMPTY).expect("ground somewhere under mid-width");
+            println!("worldcrack {name} seed {} -- cut at ({x}, {})", args.seed, surface + args.dig);
+            if args.dig > 0 {
+                pixel_physics::sim::rigid::mine(&mut w, x, surface + args.dig, args.dig);
+            }
+        }
         // The reference room `B` stamps, standing on the app's real terrain
         // rather than on a flat test floor. `scene=room` answers "does it
         // hold"; this answers "is it a sensible size", which is a different
@@ -499,7 +528,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack"
         ),
     }
     w
