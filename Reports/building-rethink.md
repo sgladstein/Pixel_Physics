@@ -161,6 +161,37 @@ change to `App`'s input handling plus a preview outline that
 
 ---
 
+## 4a. Tried once, reverted, and what it showed
+
+The reframe was implemented and backed out the same session. It is two
+small edits -- `load::is_structurally_interesting` stops treating "next to
+empty" as reason to evaluate an intact cell, and `paint_capsule_as` marks
+everything it places intact -- so the size is not the obstacle.
+
+**`scene=ligament` failed, and for the right reason.** That scene builds a
+4,400-cell overhang on a thin neck and expects it to snap *from geometry
+alone, with nothing touching it*. Under intact-until-damaged nothing ever
+asks, so it stands. The code is behaving as designed; the acceptance case
+encodes the premise this document rejects.
+
+That is the real work item, and it is a judgement call rather than a fix:
+the scene has to knock the neck first, and then assert it snaps **at the
+neck** rather than at the tip -- which was always the claim worth testing,
+since failing at the tip is what the reach model got wrong. Re-scoping an
+acceptance case to match a deliberate design change is legitimate;
+re-scoping one to make a failure go away is not, and the two look
+identical in a diff. It deserves doing deliberately.
+
+`scene=worked` also reported a 61.6 ms frame against a 60 ms bar, best of
+two. Probably contention -- it measures 12-18 ms normally -- but it was not
+re-checked, and should be before the bar is touched.
+
+Everything else passed unchanged: `capped`, `undercut`, `terrain` and
+`strike` were all unaffected, which is the evidence that the reframe does
+not disturb the damage-driven half.
+
+---
+
 ## 5. Suggested order
 
 1. **Click-drag rectangle build tool.** Independent of everything else,

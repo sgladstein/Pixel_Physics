@@ -223,6 +223,20 @@ impl Handler {
         if !self.painting && !self.erasing {
             return;
         }
+        // Freehand only. The drag-out tools commit on release, so painting
+        // as the cursor moves would smear a stroke along the drag *and*
+        // then lay the shape -- reported from play as "the brush isn't
+        // disabled when using the other tools, so it draws while I am
+        // trying to make a rectangle".
+        //
+        // Guarded here rather than at the call sites: there are three of
+        // them (cursor motion, button press, and the per-frame catch-up in
+        // `about_to_wait`), the first version of this guarded only the
+        // press, and a fourth call site added later would reintroduce the
+        // same bug. One gate on the operation itself cannot be missed.
+        if self.app.tool != pixel_physics::app::Tool::Brush {
+            return;
+        }
         let erase = self.erasing;
         match self.last_paint {
             Some(prev) => self.app.paint_stroke(prev, pos, erase),
@@ -426,9 +440,8 @@ impl ApplicationHandler for Handler {
                     // The drag-out tools commit on *release*, so a press
                     // only records where the gesture began; `paint_now`
                     // would lay a blob at the corner.
-                    if self.app.tool == pixel_physics::app::Tool::Brush {
-                        self.paint_now();
-                    } else if let Some((x, y)) = self.cursor {
+                    self.paint_now();
+                    if let Some((x, y)) = self.cursor {
                         self.app.begin_drag(x, y);
                     }
                 } else {
