@@ -1600,14 +1600,20 @@ pub fn step_organisms(world: &mut World) {
 /// `Reports/tree-architecture-research.md` §0b. Left as a constant only
 /// because it has one caller and one species; the moment a second plant
 /// form wants a different foliage economy it belongs in the `.ron`.
-/// **Per leaf *cell*, so it must move when `leaf_cluster` does.** A cluster
+/// **Per leaf *cell*, so it must move when `leaf_cluster` does — and when
+/// the light model changes.** Cut again, 0.01 -> 0.004, when
+/// `FieldTile::occupancy` made sky transmission graded: a canopy that used
+/// to read as a solid wall now passes light in proportion to how full it
+/// is, so the same foliage earns far more. Left alone, mean tree size went
+/// 793 -> 4,983 cells and the stand fused.
+/// A cluster
 /// is a correction to the visual scale of foliage against wood, not a
 /// change to the plant's economy: one plastochron node is still one leaf
 /// spray and should still earn one spray's worth. Left at 0.05 while
 /// `tree.ron` went to five cells per node, the stand's income went up
 /// fivefold and eight trees fused into a hedge (median tree 280 leaves ->
 /// 1,556, and every crown touching its neighbours).
-const LEAF_INCOME_PER_TICK: f32 = 0.01;
+const LEAF_INCOME_PER_TICK: f32 = 0.004;
 
 /// Flush at most one dormant bud into a `GrowingTip`, if the light the
 /// plant is intercepting can support another one.

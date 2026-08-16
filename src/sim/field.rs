@@ -287,6 +287,25 @@ pub struct FieldTile {
     /// solve, because the solve reads it many times per step and CA lookups
     /// are not free.
     blocked: Box<[bool]>,
+    /// **How full this block is**, 0..=255 over its `FIELD_SCALE²` CA
+    /// cells, recomputed in the same scan as `blocked`.
+    ///
+    /// `blocked` is all-or-nothing over an 8x8 region, and that is far too
+    /// coarse for foliage. One twig anywhere in a block marks the whole
+    /// block opaque, so a tree canopy reads as a solid wall: measured, 88%
+    /// of all leaf cells in a grown stand sat below 0.05 light, and there
+    /// was no threshold anywhere between "prunes nothing" and "defoliates
+    /// the world". Two mechanisms are stuck behind that — shade-driven leaf
+    /// abscission, and phototropism, which measured completely inert across
+    /// 1,024 genomes because there is no gradient left to steer by.
+    ///
+    /// Occupancy makes transmission continuous instead of binary, which is
+    /// Beer-Lambert as it should have been: a sparse spray of twigs passes
+    /// most of the light, a dense crown passes little, solid rock passes
+    /// `SKY_TRANSMISSION`. Costs one `u8` per field block and no extra
+    /// scanning — `rebuild_blocked` already visits every CA cell in the
+    /// block and was throwing the count away.
+    occupancy: Box<[u8]>,
     /// Also recomputed every step, in the same scan as `blocked` — whether
     /// any `Liquid` CA cell falls inside this field block. `apply_moisture_
     /// sources` reads this at the end of `step` (mirroring `apply_sky`'s use
@@ -314,6 +333,7 @@ impl FieldTile {
         Self {
             cells: vec![FieldCell::AMBIENT; FIELD_TILE_AREA].into_boxed_slice(),
             blocked: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
+            occupancy: vec![0u8; FIELD_TILE_AREA].into_boxed_slice(),
             moisture_source: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
         }
     }
@@ -339,6 +359,16 @@ impl FieldTile {
     }
 
     #[inline]
+    /// Fraction of this block's CA cells that hold material, 0.0..=1.0.
+    pub fn occupancy_local(&self, lx: i32, ly: i32) -> f32 {
+        self.occupancy[Self::local_index(lx, ly)] as f32 / 255.0
+    }
+
+    fn set_occupancy_local(&mut self, lx: i32, ly: i32, filled: u32, total: u32) {
+        let q = filled.saturating_mul(255).checked_div(total).unwrap_or(0).min(255);
+        self.occupancy[Self::local_index(lx, ly)] = q as u8;
+    }
+
     fn set_blocked_local(&mut self, lx: i32, ly: i32, blocked: bool) {
         self.blocked[Self::local_index(lx, ly)] = blocked;
     }
@@ -756,15 +786,18 @@ fn apply_sky(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord
                     continue; // no chunk here: open sky, carry on unchanged
                 };
                 for ly in 0..FIELD_TILE_SIZE {
-                    if tile.is_blocked_local(lx, ly) {
-                        // A blocked block carries no light of its own (the
-                        // existing invariant) and dims what passes through.
-                        carried *= SKY_TRANSMISSION;
-                        continue;
-                    }
                     if carried <= 0.0 {
                         continue;
                     }
+                    // **The light reaching this block is written here even
+                    // when the block is occupied**, before attenuation.
+                    // A leaf's own reading should be what arrives at it --
+                    // it is the thing doing the intercepting. The previous
+                    // rule skipped occupied blocks entirely, so every leaf
+                    // in a canopy read only whatever lateral diffusion left
+                    // behind, which is why 88% of them measured under 0.05
+                    // and why both shade-pruning and phototropism had no
+                    // gradient to work with.
                     let mut cell = tile.get_local(lx, ly);
                     // Max, never assignment: diffusion may legitimately
                     // have brought *more* light here from a neighbouring
@@ -773,6 +806,15 @@ fn apply_sky(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord
                         cell.light = carried;
                         tile.set_local(lx, ly, cell);
                     }
+                    // **Graded, not binary.** Transmission interpolates
+                    // toward `SKY_TRANSMISSION` with how full the block is,
+                    // so a sparse spray of twigs passes most of the light
+                    // and only a solid block attenuates fully. `blocked`
+                    // is all-or-nothing over 8x8 CA cells, which is far too
+                    // coarse for foliage: one twig made a whole block
+                    // opaque and a canopy read as a wall.
+                    let occupancy = tile.occupancy_local(lx, ly);
+                    carried *= 1.0 + (SKY_TRANSMISSION - 1.0) * occupancy;
                 }
             }
         }
@@ -894,6 +936,9 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                 // that holding forever.
                 // Strongest moisture source anywhere in this block.
                 let mut moisture_level = 0.0f32;
+                // Counted in the scan that is already happening -- see
+                // `FieldTile::occupancy`.
+                let mut filled = 0u32;
                 for dy in 0..FIELD_SCALE {
                     for dx in 0..FIELD_SCALE {
                         // `World::new` eagerly creates every chunk
@@ -916,6 +961,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         // reads elsewhere: solid, so blocked.
                         if !world.in_bounds(bx0 + dx, by0 + dy) {
                             blocked = true;
+                            filled += 1;
                             continue;
                         }
                         let cell = chunk.get_world(bx0 + dx, by0 + dy);
@@ -938,6 +984,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         let kind = world.materials.kind(cell.material);
                         if matches!(kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant) {
                             blocked = true;
+                            filled += 1;
                         }
                         if kind == super::material::MaterialKind::Liquid {
                             moisture_level = 1.0;
@@ -956,6 +1003,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                     }
                 }
                 tile.set_blocked_local(lx, ly, blocked);
+                tile.set_occupancy_local(lx, ly, filled, (FIELD_SCALE * FIELD_SCALE) as u32);
                 tile.set_moisture_source_local(lx, ly, moisture_level);
             }
         }
@@ -1447,7 +1495,13 @@ mod tests {
         // One field cell's worth of solid rock, aligned to the field grid
         // (FIELD_SCALE = 8) so `rebuild_blocked` marks exactly this field
         // cell and no other.
-        for x in 136..144 {
+        // **Nine field blocks wide, not one**, and the width is load-bearing
+        // rather than incidental: lateral diffusion fills a narrow shadow
+        // in from both sides within a few steps, so a single 8x8 occluder
+        // leaves the block beneath it at 74% of open sky however opaque it
+        // is. A shadow only exists if it is wider than the diffusion can
+        // reach across, which is also true of the canopies this models.
+        for x in 104..176 {
             for y in 8..16 {
                 w.set(x, y, Cell::new(material::STONE, 0));
             }
@@ -1457,9 +1511,30 @@ mod tests {
         }
 
         let open = w.field_at(20, 10).light; // open column, one field row below the sky
-        let blocked = w.field_at(140, 10).light; // inside the solid block itself
+        let occluder = w.field_at(140, 10).light; // inside the solid block itself
+        let under = w.field_at(140, 18).light; // beneath the middle of the slab
+        let open_at_depth = w.field_at(20, 18).light; // same depth, open column
         assert!(open > 0.5, "the open column under the sky did not brighten: {open}");
-        assert_eq!(blocked, 0.0, "a solid field cell should never carry a light value of its own");
+
+        // **The invariant here was deliberately reversed**, and the old one
+        // is worth stating because it looked obviously right: a solid field
+        // block used to carry *no* light of its own. Physically that is
+        // backwards — the light arriving at an occluder is exactly what
+        // that occluder intercepts, and a leaf is an occluder. Under the
+        // old rule every leaf inside a canopy read only whatever lateral
+        // diffusion left behind, 88% of them measured under 0.05, and two
+        // separate mechanisms were stuck on it: shade-driven abscission had
+        // no threshold between "prunes nothing" and "defoliates the world",
+        // and `light_weight` measured completely inert across 1,024 genomes
+        // because there was no gradient left to steer by.
+        //
+        // What must still hold is the *gradient*: an occluder is lit by
+        // what reaches it, and everything under it is dimmer.
+        assert!(occluder > 0.5, "a solid block should read the light arriving at it, not zero: {occluder}");
+        assert!(
+            under < open_at_depth * 0.5,
+            "the block under a solid one should be markedly darker than open sky at the same depth: {under} against {open_at_depth}"
+        );
     }
 
     #[test]

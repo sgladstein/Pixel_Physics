@@ -241,13 +241,24 @@
                 //     0.12     38
                 //     0.25      0    every leaf in the world
                 //
-                // There is no threshold between "prunes almost nothing" and
-                // "defoliates the stand". Fixing this means widening the
-                // light channel's dynamic range on occupied cells first --
-                // the same defect that leaves `light_weight` inert in the
-                // genome, so one fix would settle both. Left wired up at
-                // 0.0 so the next attempt starts from the measurement
-                // rather than from the idea.
+                // **Widening the light channel did not rescue it, and the
+                // second measurement found the real reason.** After
+                // `FieldTile::occupancy` made sky transmission graded --
+                // which genuinely did open the channel up, and roughly
+                // quintupled every tree -- 0.25 and even 0.6 still took the
+                // stand to exactly zero leaves.
+                //
+                // The gate is instantaneous, and `sky_light_amplitude` is a
+                // **day/night oscillator**. Every leaf in the world reads
+                // near zero at night, so any fixed threshold is a nightly
+                // extinction event. What abscission needs is light averaged
+                // over at least a full cycle -- a slow per-cell running mean
+                // -- and that is real work rather than a constant.
+                //
+                // Recorded on `PLAN.md` issue 0e (day/night phase sampling)
+                // rather than tuned: this is the third quantity on this
+                // branch to be sampled at an arbitrary phase of a 3,600-
+                // frame oscillator whose relaxation exceeds its own period.
                 shade_death: 0.0,
             ),
         ]),
