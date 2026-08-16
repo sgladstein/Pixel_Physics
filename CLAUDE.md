@@ -89,9 +89,46 @@ cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
 ```
 
 `filmstrip` writes a contact-sheet PNG — several frames of one run in a grid —
-so an artifact can be judged by eye without a window. For the real app, set
-`PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start>,<interval>,<count>` and edit the scene
-into `build_terrain`; frames and a GIF land under `%TEMP%`.
+so an artifact can be judged by eye without a window. For the real app, press
+`F7` to the `flat` preset — dead-level bare rock with 200 rows of sky, the
+structural test bed — or set
+`PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start>,<interval>,<count>`; frames and a GIF
+land under `%TEMP%`.
+
+## Working alongside another session
+
+**This tree is worked in concurrently, and often by more than one agent at
+once.** Git handles the merges; what it cannot handle is the two failures
+below, both of which have cost real hours.
+
+**Work in your own worktree, not the shared checkout.** Two sessions in one
+checkout share a `target/`, so one session's half-finished edit makes the
+*other* session's `cargo test` and `cargo clippy` fail on code it did not
+write and must not fix — and a running sandbox in one session locks the exe
+the other needs to link. Both happened in a single afternoon. A worktree
+gives each session its own `target/`, so a broken build stays local to
+whoever broke it. `.claude/worktrees/` already holds several.
+
+**Know which files are yours.** Collisions are almost never random — they
+land in the same few files every time:
+
+| Area | Files |
+|---|---|
+| Structural / destruction | `src/sim/load.rs`, `structural.rs`, `rigid.rs`, `examples/filmstrip.rs` scenes, `scripts/acceptance.sh` |
+| Worldgen | `src/worldgen/*`, `assets/worldgen.ron`, `tests/worldgen.rs` |
+| **Contested** | `src/app.rs`, `src/main.rs`, `README.md`, `PLAN.md`, this file |
+
+Everything that has actually collided here collided in `src/app.rs`. So:
+**if you touch a contested file, land it quickly** rather than holding a
+large diff across a session — the window in which someone else's work
+cannot compile is the window you created.
+
+If you find yourself needing to commit while a contested file holds
+somebody else's unfinished work, do **not** try to stage around it. Add a
+worktree at `origin/master`, re-apply your own change there, verify, commit
+and push from it, then bring the main tree's branch pointer forward with
+`git reset --mixed origin/master` — which moves the branch and leaves their
+working tree untouched.
 
 ## Method
 
@@ -270,13 +307,17 @@ consider it at all.
   message read correctly and the tests still passed. After any stash, rebase
   or merge, re-read the function, not the diff.
 - **The app locks its own exe.** While the sandbox is running, `cargo build`
-  fails with "failed to remove `pixel-physics.exe`"; `cargo test` still
-  works. Separately, stale incremental artifacts produce bogus `LNK2019
-  unresolved external symbol anon.…` link errors — `rm -rf
-  target/debug/incremental` clears it, and it is not a code error.
-- **Never `git add -A` here.** This tree gets worked in concurrently; doing
-  so once swept ~1,200 lines of someone else's in-progress work into an
-  unrelated commit. Stage explicit paths.
+  fails with "failed to remove `pixel-physics.exe`" — and so does plain
+  `cargo test`, which builds the bin target to run `main.rs`'s eight tests.
+  (This file said `cargo test` still works; it does not, and that cost a
+  confusing ten minutes.) `cargo test --lib` works throughout, and is what
+  to reach for with the app open. Separately, stale incremental artifacts
+  produce bogus `LNK2019 unresolved external symbol anon.…` link errors —
+  `rm -rf target/debug/incremental` clears it, and it is not a code error.
+- **Never `git add -A` here.** Doing so once swept ~1,200 lines of someone
+  else's in-progress work into an unrelated commit. Stage explicit paths,
+  and see "Working alongside another session" above — `git add -A` is the
+  symptom, a shared checkout is the cause.
 - **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
   whole project, not that file — 28 files and ~3,000 lines in one go. The
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and
