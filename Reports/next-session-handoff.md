@@ -75,6 +75,50 @@ bending. Deliberately a clamp and not an exemption — a column still carries
 
 ---
 
+## 1b. The live bug: one dig erodes far more than it should
+
+**Start here.** Reported from play against the generated world: *"one crack
+in the ground basically propagates throughout the whole world and slowly
+breaks everything."* Reproduction is `scene=worldcrack` (commit `de8fedd`),
+which digs once into a generated world.
+
+Measured. It is **bounded** — every preset and seed settles and sleeps
+within ~1,500 frames, `max_chain_reach` stays at 13–22 cells against
+`ROOTWARD_CHECK_STEPS`' 128, and a 20,000-frame run is flat after 4,000. So
+it is not unbounded erosion. But one radius-6 dig on the app's own default
+world (`rolling`, seed `0x5EED`) takes **1,558 cells**: a scar down the
+entire flank of the hill, mostly the soil mantle sliding off and exposing
+bare rock. One click, one hillside.
+
+```
+rolling 0-201   terraced 0-201   wetland 0
+arid   52-348   flat   338-637   canyon 439-2,102
+```
+
+**Work `flat` first, not the hillside.** It is the minimal case and it needs
+nothing from the owner: a homogeneous slab of bare rock, dead level, no
+soil, nothing standing on it, still loses ~600 cells to one hole. Whatever
+does that is almost certainly what takes the hillside too, and on `flat`
+there is no slope, no powder and no strata to argue about.
+
+```
+target/release/examples/filmstrip.exe scene=worldcrack preset=flat seed=1 \
+    dig=6 start=2 every=60 count=6 crop=180,190,160,110 zoom=4 \
+    loadmap=1 out=target/filmstrips/flatcrack.png
+```
+
+Prime suspect, and it is §2d wearing a different hat: `mine` detaches a band
+(`DETACH_DEPTH` 3 per removed cell, plus the crack rays at
+`CRACK_DETACH_DEPTH` 2), every cell in that band loses the 12x attachment
+bonus at once, and the ones still carrying load fail. Narrowing the band was
+tried on `scene=room` and did nothing there — but `room` was dominated by
+the column-moment defect, which is now fixed, so **that experiment is worth
+re-running here**, where there is no column at all.
+
+Still open with the owner: whether the hillside scar *is* what they saw, or
+whether there is a case `worldcrack` does not cover. Needed to tell — the
+preset and seed from the title bar, where they clicked, and `D` or `C`.
+
 ## 2. What is still wrong
 
 ### 2a. `wall=3 span=200` collapses untouched while 2 and 5 stand
