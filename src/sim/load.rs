@@ -439,7 +439,11 @@ fn is_supported(world: &World, x: i32, y: i32, memo: &mut AnchorMemo, budget: &m
 
 /// What one cell's subtree weighs and where that weight sits: total mass,
 /// `Σ mᵢ xᵢ`, and whether the walk was cut short.
-pub type Subtree = (u32, i64, bool);
+/// Accumulated mass and moment in `LOAD_SCALE` fixed point, plus
+/// whether the walk was cut short. Mass is `i64` rather than `u32`
+/// because load is *divided* as it splits between supports, so it needs
+/// the same fixed-point headroom the moment does.
+pub type Subtree = (i64, i64, bool);
 
 /// Per-frame cache of `subtree_sum` results, cleared by `scheduler::step`.
 pub type SubtreeMemo = HashMap<(i32, i32), Subtree>;
@@ -470,31 +474,81 @@ impl Cache {
     }
 }
 
-/// The children of `(x, y)` in the support forest — the neighbours that
-/// take their support *from* it.
+/// How many neighbours are genuinely holding `(x, y)` up: those strictly
+/// closer to an anchor, across an uncracked edge.
 ///
-/// Asked as "who is your parent" rather than "who is further from an
-/// anchor than me", and that is the difference between correct and
-/// double-counted: every cell has exactly one parent, so a cell can appear
-/// in exactly one subtree at each level. Flooding to greater-distance
-/// neighbours instead counts a subtree twice wherever two paths cost the
-/// same, which is most of a solid slab.
-fn children(world: &World, x: i32, y: i32, out: &mut Vec<(i32, i32)>) {
+/// **A cell can have more than one, and that is the whole point.** The
+/// `support_parent` used for walking chains picks a single best one, which
+/// is right for "which way is downhill" and wrong for "who is carrying
+/// this" -- a slab in the middle of a bridge span is held by both legs,
+/// not by whichever the tie-break happened to prefer.
+fn support_count(world: &World, x: i32, y: i32) -> i64 {
+    let own = world.get(x, y).aux();
+    if own == 0 {
+        return 0; // an anchor is held from outside the model
+    }
+    NEIGHBOURS_4
+        .iter()
+        .filter(|&&(dx, dy)| {
+            if edge_is_cracked(world, x, y, dx, dy) {
+                return false;
+            }
+            let n = world.get(x + dx, y + dy);
+            is_body_material(world, n.material) && n.organism_id() == 0 && n.aux() < own
+        })
+        .count() as i64
+}
+
+/// The neighbours that lean on `(x, y)` -- those strictly further from an
+/// anchor, across an uncracked edge.
+///
+/// # Why this is "further away" and not "whose parent is me"
+///
+/// It used to be the latter, and that was the single biggest defect in
+/// this model. `support_parent` is a *function*, so parent-based flooding
+/// builds a spanning **tree** -- and where a structure offers several
+/// routes to the ground, a tree picks exactly one and sends the entire
+/// load down it. Reported from play, and visible in the stress view as a
+/// **one-pixel red line** through an otherwise green building: a table's
+/// whole span loaded its left leg while the right leg carried nothing.
+///
+/// So load spreads over every route that exists, which is what real
+/// structures do. Each cell divides what it carries among its own supports
+/// (`support_count`), so a cell reached two ways contributes half to each.
+/// That is a flow over a DAG rather than a walk over a tree.
+///
+/// **This is not the double-counting pitfall it resembles.** Flooding to
+/// greater-distance neighbours and summing *whole* subtrees really does
+/// count a subtree once per path, which is the trap the parent-based
+/// version was written to avoid. Dividing each cell's load by the number
+/// of supports it has is exactly what makes the total conserved again:
+/// what leaves a cell is what it carries, however many ways it splits.
+fn dependants(world: &World, x: i32, y: i32, out: &mut Vec<(i32, i32)>) {
     out.clear();
+    let own = world.get(x, y).aux();
     for (dx, dy) in NEIGHBOURS_4 {
         if edge_is_cracked(world, x, y, dx, dy) {
-            continue; // a fracture carries no load, so nothing across one is ours
+            continue; // a fracture carries no load, so nothing across one leans on us
         }
         let (nx, ny) = (x + dx, y + dy);
         let cell = world.get(nx, ny);
         if !is_body_material(world, cell.material) || cell.organism_id() != 0 {
             continue;
         }
-        if support_parent(world, nx, ny) == Some((x, y)) {
+        if cell.aux() > own {
             out.push((nx, ny));
         }
     }
 }
+
+/// Fixed-point scale for accumulated mass and moment.
+///
+/// Load is divided as it splits between supports, and integer division
+/// truncates -- down a long chain that would quietly leak mass. One cell
+/// weighs `LOAD_SCALE`, so a split four ways still lands on a whole
+/// number. `i64` has room to spare: 20,000 cells at x~500 is ~4e11 against
+/// a ceiling of 9e18.
+const LOAD_SCALE: i64 = 4096;
 
 /// Total mass and moment of everything `(x, y)` supports, including itself.
 ///
@@ -523,26 +577,21 @@ fn subtree_sum(world: &World, x: i32, y: i32, memo: &mut SubtreeMemo, budget: &m
     if let Some(&known) = memo.get(&(x, y)) {
         return known;
     }
-    // A post-order walk with an explicit stack. `Enter` discovers a cell's
-    // children; `Exit` sums them once they are all in the memo. The child
-    // list is carried on the `Exit` entry rather than recomputed, because
-    // finding it costs ~25 hashed `World::get` calls (four neighbours, each
-    // asking who *its* parent is) and doing that twice per cell doubles the
-    // cost of the single hottest loop in this module. A fixed array, not a
-    // `Vec`: there are never more than four, and this runs often enough
-    // that an allocation per cell is worth avoiding.
+    // A post-order walk with an explicit stack. `Enter` discovers what
+    // leans on a cell; `Exit` sums their shares once they are in the memo.
+    // The list is carried on the `Exit` entry rather than recomputed,
+    // because finding it costs hashed `World::get` calls and doing that
+    // twice per cell doubles the cost of the hottest loop in this module.
     enum Step {
         Enter((i32, i32)),
         Exit((i32, i32), [(i32, i32); 4], usize),
     }
     let mut kids = Vec::new();
     let mut stack = vec![Step::Enter((x, y))];
-    // Cells actually walked, not `stack.len()`. Those are different
-    // quantities -- the stack holds the pending *frontier*, which for a
-    // wide flat slab stays small while the walk visits thousands -- and
-    // testing the wrong one here meant this cap and the identically-named
-    // one in `supported_subtree` bounded two different things while
-    // claiming to bound the same one.
+    // Cells actually walked, not `stack.len()` -- different quantities, and
+    // testing the wrong one meant this cap and the identically-named one in
+    // `supported_subtree` bounded different things while claiming to bound
+    // the same one.
     let mut walked = 0usize;
     while let Some(step) = stack.pop() {
         match step {
@@ -555,12 +604,12 @@ fn subtree_sum(world: &World, x: i32, y: i32, memo: &mut SubtreeMemo, budget: &m
                     // flagged truncated, which **under**states the load --
                     // the safe direction, since the failure mode of
                     // overstating it is terrain deciding it is falling.
-                    memo.insert(node, (1, node.0 as i64, true));
+                    memo.insert(node, (LOAD_SCALE, LOAD_SCALE * node.0 as i64, true));
                     continue;
                 }
                 *budget = budget.saturating_sub(1);
                 walked += 1;
-                children(world, node.0, node.1, &mut kids);
+                dependants(world, node.0, node.1, &mut kids);
                 let mut held = [(0, 0); 4];
                 for (slot, &kid) in held.iter_mut().zip(kids.iter()) {
                     *slot = kid;
@@ -573,23 +622,25 @@ fn subtree_sum(world: &World, x: i32, y: i32, memo: &mut SubtreeMemo, budget: &m
                 }
             }
             Step::Exit(node, held, count) => {
-                let mut mass = 1u32;
-                let mut moment = node.0 as i64;
+                let mut mass = LOAD_SCALE;
+                let mut moment = LOAD_SCALE * node.0 as i64;
                 let mut truncated = false;
                 for &kid in &held[..count] {
-                    // Present unless the child hit the guard above, which
-                    // inserts before this pop -- so the fallback is only a
-                    // belt-and-braces default, never the normal path.
-                    let (m, mo, t) = memo.get(&kid).copied().unwrap_or((1, kid.0 as i64, true));
-                    mass = mass.saturating_add(m);
-                    moment = moment.saturating_add(mo);
+                    let (m, mo, t) = memo.get(&kid).copied().unwrap_or((LOAD_SCALE, LOAD_SCALE * kid.0 as i64, true));
+                    // Each dependant divides what it carries among *its*
+                    // supports and we receive one share. This is what keeps
+                    // the total conserved while letting load spread over
+                    // every route that exists.
+                    let share = support_count(world, kid.0, kid.1).max(1);
+                    mass = mass.saturating_add(m / share);
+                    moment = moment.saturating_add(mo / share);
                     truncated |= t;
                 }
                 memo.insert(node, (mass, moment, truncated));
             }
         }
     }
-    memo.get(&(x, y)).copied().unwrap_or((1, x as i64, true))
+    memo.get(&(x, y)).copied().unwrap_or((LOAD_SCALE, LOAD_SCALE * x as i64, true))
 }
 
 /// Every cell whose support chain passes through `(x, y)`, including it.
@@ -859,7 +910,9 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     }
 
     let supported = is_supported(world, x, y, &mut cache.anchors, budget);
-    let (mass, moment, truncated) = subtree_sum(world, x, y, &mut cache.subtrees, budget);
+    let (mass_fp, moment_fp, truncated) = subtree_sum(world, x, y, &mut cache.subtrees, budget);
+    let mass = (mass_fp / LOAD_SCALE) as u32;
+    let moment = moment_fp / LOAD_SCALE;
     // **Load concentrates through a single path, and that is the open
     // defect this model has left.** Reported from play: a beefy block with
     // holes in it broke immediately while a thin arch beside it stood, and
@@ -885,7 +938,7 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     // which is a flow problem rather than a tree one, and is what
     // `Reports/destruction-plan.md`'s E1 (push damage outward from the
     // break) is shaped to address. Recorded rather than bodged.
-    let torque = (moment - x as i64 * mass as i64).abs();
+    let torque = (moment_fp - x as i64 * mass_fp).abs() / LOAD_SCALE;
     Some(Load { mass, moment, torque, capacity: capacity(world, x, y), supported, truncated })
 }
 
