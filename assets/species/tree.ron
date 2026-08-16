@@ -225,7 +225,31 @@
                 turgor_yield: 0.1,
                 turgor_per_cell: 0.0075,
             ),
-            Photosynthesize(rate: 0.5),
+            Photosynthesize(
+                rate: 0.5,
+                // **OFF, and the measurement is why.** Shade abscission is
+                // the right mechanism for "too many leaves on the lower
+                // trunk" -- it is what makes a real bole bare, and it beats
+                // seasonality for the job. It does not work against *this*
+                // light channel, because the range of light a leaf sees is
+                // far too compressed to tell a buried leaf from a
+                // crown-edge one. Swept, 8 trees / 30,000 frames, mean
+                // leaves per tree:
+                //
+                //     off     411
+                //     0.05     50    -88%
+                //     0.12     38
+                //     0.25      0    every leaf in the world
+                //
+                // There is no threshold between "prunes almost nothing" and
+                // "defoliates the stand". Fixing this means widening the
+                // light channel's dynamic range on occupied cells first --
+                // the same defect that leaves `light_weight` inert in the
+                // genome, so one fix would settle both. Left wired up at
+                // 0.0 so the next attempt starts from the measurement
+                // rather than from the idea.
+                shade_death: 0.0,
+            ),
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
@@ -246,6 +270,15 @@
                 // Roots grow by the same rule and must never leaf
                 // underground. One value, so every order agrees.
                 plastochron: [0],
+                // **Roots read as small balls without this.** They run the
+                // same Grow as a shoot, so they had the same one-cell
+                // heading read and the same wandering -- but underground,
+                // with no phototropism to straighten them and every
+                // direction equally dark, the wander has nothing at all
+                // pulling it into a line. Slightly less than the shoot's,
+                // because a root really does follow moisture around
+                // obstacles rather than driving straight.
+                heading_inertia: 0.75,
                 // Real root axial growth pressure is on the order of
                 // 0.2-1.5 MPa; 1.2 puts this tree through loose soil (0.8)
                 // and sand (1.4 -- refused), and never through gravel
@@ -317,7 +350,7 @@
             SecondaryThicken(pipe_ratio: 110.0),
         ]),
         (Leaf, [
-            Photosynthesize(rate: 0.35),
+            Photosynthesize(rate: 0.35, shade_death: 0.0),
         ]),
     ],
 )

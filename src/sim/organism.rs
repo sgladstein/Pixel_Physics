@@ -454,7 +454,31 @@ pub enum Behavior {
     /// spend from. `rate` is per-tick credit at full light; scaled by the
     /// actual local reading the same way every other field-driven rate in
     /// this codebase is.
-    Photosynthesize { rate: f32 },
+    Photosynthesize {
+        rate: f32,
+        /// Light below which this leaf is **shed**, `0.0` disabling it.
+        ///
+        /// **This is what clears a bole, and it is the mechanism the shape
+        /// was missing rather than seasons.** A leaf that intercepts almost
+        /// nothing costs the plant to keep and earns nothing, so real trees
+        /// abscise shaded foliage continuously — natural pruning, or crown
+        /// lift. It is why a forest tree carries leaves only where light
+        /// reaches and why its lower trunk is bare, and it happens all year
+        /// rather than once a season.
+        ///
+        /// Reaching for seasonality here would be the wrong tool twice
+        /// over: the *shape* it is wanted for comes from shading and not
+        /// from the calendar, and a season short enough to be visible in a
+        /// tree that matures in 30,000 frames would read as flicker rather
+        /// than as a year.
+        ///
+        /// Second-order but real: shedding shaded leaves concentrates the
+        /// remaining foliage at the crown, which sharpens the pipe model's
+        /// taper — a trunk is only thicker than its branches to the extent
+        /// that foliage sits above it.
+        #[serde(default)]
+        shade_death: f32,
+    },
     /// Pulls water out of adjacent soil and loses it to the air — the
     /// transpiration stream — crediting no resource at all.
     ///

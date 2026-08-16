@@ -519,7 +519,7 @@ fn is_damp(world: &World, x: i32, y: i32) -> bool {
 /// upward by one field block is the same trick `phototropism_dir` already
 /// uses (`light_above`, in this same file) for exactly this reason, just
 /// applied to an absolute reading instead of a relative comparison.
-fn ambient_light_above(world: &World, x: i32, y: i32) -> f32 {
+pub fn ambient_light_above(world: &World, x: i32, y: i32) -> f32 {
     world.field_at(x, y - FIELD_SCALE).light
 }
 
@@ -1311,7 +1311,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // arm's own child-creation code.
                 cell_type = self_type_after_grow;
             }
-            Behavior::Photosynthesize { rate } => {
+            // Abscission runs from the upkeep pass, which visits every
+            // leaf; a live tip photosynthesises but is not foliage to shed.
+            Behavior::Photosynthesize { rate, shade_death: _ } => {
                 let light = ambient_light_above(world, x, y);
                 resource = (resource + rate * light).min(organism::RESOURCE_SCALE);
                 write_carbon(world, x, y, resource);
@@ -2062,8 +2064,20 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         }
         for behavior in behavior_buf.into_iter().take(behavior_count).flatten() {
             match behavior {
-                Behavior::Photosynthesize { rate } => {
+                Behavior::Photosynthesize { rate, shade_death } => {
                     let light = ambient_light_above(world, cx, cy);
+                    // Abscission. Checked before the credit, so a leaf that
+                    // is being shed does not also earn on the tick it dies.
+                    //
+                    // The cell is emptied rather than turned to wood: a
+                    // shed leaf is gone, and leaving `MatureBody` behind
+                    // would have shading foliage silently thicken the stem
+                    // it hung from -- the pipe model reading a leaf as
+                    // xylem, which this branch already fixed once.
+                    if shade_death > 0.0 && light < shade_death && organism::cell_type(world.get(cx, cy).aux()) == Some(CellType::Leaf) {
+                        world.set(cx, cy, Cell::EMPTY);
+                        continue;
+                    }
                     resource = (resource + rate * light).min(organism::RESOURCE_SCALE);
                 }
                 Behavior::Transpire { rate } => {
