@@ -95,6 +95,60 @@ rolling 0-201   terraced 0-201   wetland 0
 arid   52-348   flat   338-637   canyon 439-2,102
 ```
 
+### Look at it before doing anything else
+
+`target/filmstrips/front.png` — `preset=flat seed=7`, zoom 8 on the rock
+*beside* the dig, four frames from 400 to 1150. **The rock is being eaten
+into a spongy filigree of voids.** Not a crater, not a collapse, not
+chunks falling: a fretwork of holes opening all through the slab and
+joining up, spreading sideways well past the dig. (Empty renders as sky
+now, so the pale-blue and orange are holes, not material.)
+
+Two things that picture settles, and neither is what the counters suggest:
+
+- It is **not a front advancing from the dig**. Holes appear scattered
+  through the whole region at once. A large area became marginal together
+  and is failing cell-by-cell wherever the sweep reaches it.
+- The pieces are **single cells**. This is `CLAUDE.md`'s "turns to dust"
+  failure in a new place, and any fix judged only on the cell count will
+  miss whether that changed.
+
+### What has been ruled out, by measurement
+
+- **Stale distances.** `relax=1` on `scene=worldcrack` runs a converged
+  pass immediately after the dig. Identical to the cell on eight of nine
+  preset/seed pairs. `canyon` seed 3 went 5,364 → 394, so staleness is real
+  but is not the cause here.
+- **Gating the granular divisor on `parent.is_none()`.** Not one cell moved
+  anywhere. The cells taking the cut have no solid parent to begin with.
+- **Granular capacity as a cap rather than a divisor.** 899/215/0 →
+  25,838/51,262/0. The cap sits far below what a deep intact section
+  resting on soil used to get, and generated terrain is mostly that.
+
+Two attempts on the granular term, both failed, which by this file's own
+rule means **the term is not where the fix goes.** Do not try a third.
+
+### The hypothesis that is left
+
+`break_free` turns every failure into rubble. Rubble is not body material,
+so it neither carries load nor counts toward a section — which means each
+failure strictly weakens its surviving neighbours, in two multiplicative
+ways at once. That is positive feedback with no damping anywhere in it, and
+both failed attempts tried to damp it at the *capacity* end. The untried
+lever is at the source, in `rigid.rs`: what a failed cell becomes, and
+whether a single-cell failure should produce debris that undermines its
+neighbours at all.
+
+**Unverified.** Look at `front.png` first and form your own view.
+
+### A caution about every number in this section
+
+The worldgen session is tuning `assets/worldgen.ron` and its generation
+passes live. Between two sweeps an hour apart, `flat` seed 7 went from 338
+cells to 27,886 — same preset parameters, different strata/soil/water code.
+**Re-baseline before trusting any figure here**, and quote the worldgen
+commit you measured against.
+
 **Work `flat` first, not the hillside.** It is the minimal case and it needs
 nothing from the owner: a homogeneous slab of bare rock, dead level, no
 soil, nothing standing on it, still loses ~600 cells to one hole. Whatever
