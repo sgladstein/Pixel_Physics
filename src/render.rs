@@ -11,6 +11,7 @@ use crate::sim::cell::AMBIENT_TEMPERATURE;
 use crate::sim::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
 use crate::sim::material;
 use crate::sim::particle::ParticleSystem;
+use crate::sky::Sky;
 use crate::sim::rng;
 use crate::sim::world::World;
 
@@ -267,6 +268,16 @@ pub struct Renderer {
     /// always full too, for the same reason: an unwritten buffer has nothing
     /// valid to partially build on.
     last_zoom_state: Option<(i32, i32)>,
+    /// The sky as of this frame, recomputed once per `draw` and read by
+    /// every empty pixel. Held rather than passed because `cell_colour` is
+    /// the per-pixel hot path and recomputing a cosine there would be paying
+    /// for the same answer up to 160,000 times a frame.
+    sky: Sky,
+    /// The quantised sky last actually painted. A frame whose sky key still
+    /// matches this one would repaint the screen to exactly the same pixels,
+    /// so it does not — which is what keeps a day/night sky from costing the
+    /// dirty-rect skip. See `sky::Sky::key`.
+    last_sky_key: Option<[i32; 6]>,
 }
 
 impl Renderer {
@@ -282,6 +293,8 @@ impl Renderer {
             zoom_out_stride: 1,
             field_overlay: FieldOverlay::Off,
             last_zoom_state: None,
+            sky: Sky::at(0, 0, 1),
+            last_sky_key: None,
         }
     }
 
@@ -438,8 +451,26 @@ impl Renderer {
         // the dirty region below -- both where they are now and where they
         // were last frame, since the stale pixels are the reason this was a
         // full redraw in the first place.
+        // The sky changes with the clock rather than with the world, so
+        // nothing in `touched` will ever mention it and the dirty region
+        // cannot find it. It therefore has to force a redraw itself — but
+        // only on the frames it has genuinely changed, which is what the
+        // quantised key is for. Through most of a day that is no frames at
+        // all; through a sunrise it is a modest fraction of them, which is
+        // the one time of day worth repainting for.
+        let bounds = world.bounds();
+        self.sky = Sky::at(
+            world.frame,
+            bounds.map_or(0, |b| b.min_y),
+            bounds.map_or(1, |b| b.max_y),
+        );
+        let sky_key = self.sky.key();
+        let sky_changed = self.last_sky_key != Some(sky_key);
+        self.last_sky_key = Some(sky_key);
+
         let full = force_full
             || scale_changed
+            || sky_changed
             || self.field_overlay != FieldOverlay::Off
             || self.show_chunk_overlay
             || !particles.is_empty();
@@ -636,6 +667,21 @@ impl Renderer {
         // grain jitter/heat-glow instead of flat background -- a visible,
         // static artifact along the outline of every heightfield body.
         if cell.material == material::EMPTY {
+            // Sky, not a flat background. Empty space inside the world is
+            // *air*, and drawing it black made every world read as a cutaway
+            // diagram rather than a place -- the strongest remaining tell,
+            // once the ground itself started looking like ground.
+            //
+            // Empty space is also where the day/night cycle was invisible.
+            // The oscillator has driven the light channel since M16, so
+            // plants and moss have always known what time it is while the
+            // screen did not; this is that same cosine, read rather than
+            // reinvented (`sky::Sky::at`).
+            //
+            // Deliberately *inside* the bounds check above, so the void
+            // outside the world keeps its own colour and stays
+            // distinguishable from a dark night sky.
+            base = self.sky.colour_at(y);
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
             // temperature very much propagate through vacuum) rather than

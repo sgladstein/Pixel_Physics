@@ -610,9 +610,29 @@ const NIGHT_LIGHT_FLOOR: f32 = 0.2;
 /// from sunrise, a peak at noon, a smooth fall to sunset, then flat dark
 /// until the next sunrise — not a pure sinusoid with no true night.
 fn sky_light_amplitude(frame: u64) -> f32 {
-    let phase = (frame % DAY_NIGHT_PERIOD_FRAMES) as f32 / DAY_NIGHT_PERIOD_FRAMES as f32;
-    let daylight = (phase * std::f32::consts::TAU).cos().max(0.0);
+    let daylight = sun_elevation(frame).max(0.0);
     NIGHT_LIGHT_FLOOR + daylight * (MAX_LIGHT - NIGHT_LIGHT_FLOOR)
+}
+
+/// How high the sun stands, as `-1.0` (deep night) through `0.0` (exactly
+/// sunrise or sunset) to `1.0` (noon).
+///
+/// The same cosine [`sky_light_amplitude`] is built from, exposed because the
+/// renderer draws a sky from it and the two must not drift: a sky painting
+/// dawn while the light channel still says midnight would be worse than no
+/// sky at all. This is the shared definition of what time it is, and the sign
+/// is what tells sunrise from sunset — `sun_rising` reads the other half of
+/// the cycle for that.
+pub fn sun_elevation(frame: u64) -> f32 {
+    let phase = (frame % DAY_NIGHT_PERIOD_FRAMES) as f32 / DAY_NIGHT_PERIOD_FRAMES as f32;
+    (phase * std::f32::consts::TAU).cos()
+}
+
+/// Whether the sun is on its way up. Phase runs noon → sunset → midnight →
+/// sunrise, so the second half of the cycle is the rising half.
+pub fn sun_rising(frame: u64) -> bool {
+    let phase = (frame % DAY_NIGHT_PERIOD_FRAMES) as f32 / DAY_NIGHT_PERIOD_FRAMES as f32;
+    phase >= 0.5
 }
 
 /// Top-of-world light boundary condition — architecture report §2's sky

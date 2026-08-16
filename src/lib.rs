@@ -6,6 +6,7 @@
 //!
 //! * [`sim`] — the cellular automaton: cells, materials, chunks, the world
 //! * [`worldgen`] — what fills a world before the simulation touches it
+//! * [`sky`] — what empty space looks like through a day
 //! * [`render`] — turning cells into pixels
 //! * [`app`] — sandbox state: brush, material picker, starting terrain
 //!
@@ -17,6 +18,7 @@
 pub mod app;
 pub mod hud;
 pub mod render;
+pub mod sky;
 pub mod sim;
 pub mod tunables;
 pub mod worldgen;
