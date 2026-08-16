@@ -222,6 +222,48 @@ fn build(args: &Args) -> World {
             }
             w.player = Some(pixel_physics::sim::player::Player::at(40, floor_y - 4));
         }
+        // M9 phase 2: the gnome tunnels into a cliff face, held-digging
+        // while walking into his own bore. What this is read for, in
+        // order: does a bore actually *open* (rubble and stone are near
+        // the same grey, so a dig that only loosens looks identical to
+        // one that never fired -- read the bite counter next to the
+        // image), does the spoil come out of the mouth, and can he walk
+        // over what he has thrown behind him. The massif is deep enough
+        // that the tunnel never breaks through, so the whole run is the
+        // confined case rather than the easy one.
+        "tunnel" => {
+            stone_floor(&mut w);
+            for x in 180..WIDTH {
+                for y in (floor_y - 90)..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            w.player = Some(pixel_physics::sim::player::Player::at(150, floor_y - 4));
+        }
+        // M9's own acceptance line, verbatim: "player can be buried by a
+        // sand dump and dig out". A column of sand drops on a standing
+        // gnome, entombs him, and he digs his way clear -- the counters
+        // report which tick he went under and which tick he came back,
+        // because "buried" is a flag no picture can show.
+        //
+        // A *dump*, sized deliberately: 20x30 of sand, which settles to a
+        // heap burying him about a dozen cells deep. Not a mountain --
+        // the first version of this scene dropped 2240 cells and buried
+        // him thirty deep, where no opening exists within any bounded
+        // spoil throw and he stays under for good. That is the correct
+        // outcome for being at the bottom of a hill (`BURIED_THROW` is
+        // finite on purpose) but it is not the case M9 names, and a scene
+        // that tests the unreachable one tells you nothing about the
+        // reachable one.
+        "bury" => {
+            stone_floor(&mut w);
+            for x in 246..266 {
+                for y in 240..270 {
+                    w.set(x, y, Cell::new(material::SAND, (x % 3) as u8));
+                }
+            }
+            w.player = Some(pixel_physics::sim::player::Player::at(256, floor_y - 4));
+        }
         "worldcrack" => {
             let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
             if let Some(e) = err {
@@ -547,7 +589,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury"
         ),
     }
     w
@@ -759,7 +801,14 @@ fn fire_due_explosions(
 /// scenes (nothing promotes a liquid body, nothing schedules an active site,
 /// and no liquid rule reads the field), so they do not move the measurements
 /// already recorded against those.
-fn advance(world: &mut World, particles: &mut ParticleSystem, blasts: &mut explosion::Blasts, parallel_driver: bool, step_no: usize) {
+fn advance(
+    world: &mut World,
+    particles: &mut ParticleSystem,
+    blasts: &mut explosion::Blasts,
+    parallel_driver: bool,
+    step_no: usize,
+    gnome: &mut Gnome,
+) {
     if parallel_driver {
         parallel::step(world);
     } else {
@@ -776,7 +825,7 @@ fn advance(world: &mut World, particles: &mut ParticleSystem, blasts: &mut explo
     // show the arc, not to be played. A no-op for every scene that
     // summons no player.
     if world.player.is_some() {
-        pixel_physics::sim::player::step(world, gnome_script(step_no), &pixel_physics::sim::player::Tuning::default());
+        gnome.act(world, step_no);
     }
     world.step_active_sites();
     blasts.step(world, particles);
@@ -784,18 +833,117 @@ fn advance(world: &mut World, particles: &mut ParticleSystem, blasts: &mut explo
     world.step_fields();
 }
 
-/// The `scene=gnome` input script: run right the whole time, with a
-/// full-height (held) jump starting at tick 30 of every second. Fixed
-/// rather than argued from: the contact sheet it exists for is judged on
-/// the arc's shape, and a script that changed per run would make two
-/// sheets incomparable.
-fn gnome_script(step_no: usize) -> pixel_physics::sim::player::PlayerInput {
-    let phase = step_no % 60;
-    pixel_physics::sim::player::PlayerInput {
-        right: true,
-        jump_pressed: phase == 30,
-        jump_held: (30..48).contains(&phase),
-        ..Default::default()
+/// The scripted gnome, and the tally of what his verbs actually did.
+///
+/// Scripted rather than played because a contact sheet is judged on the
+/// shape of an arc or the opening of a bore, and a script that varied per
+/// run would make two sheets incomparable. The counters are here for the
+/// separate reason `CLAUDE.md` records: "did it fire at all needs a
+/// counter". A bore full of loose rubble and a bore the dig never touched
+/// are the same picture at the zoom these are read at, and `buried` is a
+/// flag no picture shows at all.
+#[derive(Default)]
+struct Gnome {
+    /// Which script — set from the scene name, since the M9 scenes each
+    /// exist to show a different verb.
+    script: Script,
+    /// Bites that actually landed (the cooldown swallows most frames).
+    bites: usize,
+    /// Loose cells shoved clear of a bore, summed over every bite.
+    displaced: usize,
+    /// First tick he read as buried, and the first tick he was free
+    /// again after that — the two numbers `scene=bury` exists to produce.
+    went_under: Option<usize>,
+    came_back: Option<usize>,
+}
+
+#[derive(Default, Clone, Copy, PartialEq)]
+enum Script {
+    /// `scene=gnome`: run right, jumping once a second.
+    #[default]
+    Course,
+    /// `scene=tunnel`: walk right into the cliff, digging ahead of him.
+    Tunnel,
+    /// `scene=bury`: stand still until the sand lands, then dig out.
+    Bury,
+}
+
+impl Gnome {
+    fn for_scene(scene: &str) -> Self {
+        let script = match scene {
+            "tunnel" => Script::Tunnel,
+            "bury" => Script::Bury,
+            _ => Script::Course,
+        };
+        Self { script, ..Default::default() }
+    }
+
+    /// One tick of scripted input, plus the dig the scripts that dig ask
+    /// for. Ordered dig-then-step, matching `App`: the click is handled
+    /// on the input event, the character steps afterwards, so the
+    /// depenetration pass in `step` sees the cells the dig just freed and
+    /// can stand him up in them on the same frame.
+    fn act(&mut self, world: &mut World, step_no: usize) {
+        use pixel_physics::sim::player::{self, PlayerInput};
+        let tuning = player::Tuning::default();
+        let phase = step_no % 60;
+        let input = match self.script {
+            Script::Course => PlayerInput {
+                right: true,
+                jump_pressed: phase == 30,
+                jump_held: (30..48).contains(&phase),
+                ..Default::default()
+            },
+            // Walking into the face while digging is the point: the bore
+            // must open faster than he walks or he simply stands still
+            // against rock, which is itself worth seeing on the sheet.
+            Script::Tunnel => PlayerInput { right: true, ..Default::default() },
+            Script::Bury => PlayerInput::default(),
+        };
+        // Aim: straight ahead at his own height for the tunnel, and
+        // anywhere at all while buried, since a buried bite auto-aims.
+        let digging = match self.script {
+            Script::Course => false,
+            Script::Tunnel => true,
+            Script::Bury => step_no > 90,
+        };
+        if digging {
+            let (cx, cy) = world.player.as_ref().expect("scene summoned one").center();
+            if let Some(bite) = player::dig(world, (cx + 20, cy), &tuning) {
+                self.bites += 1;
+                self.displaced += bite.displaced;
+            }
+        }
+        player::step(world, input, &tuning);
+        let p = world.player.as_ref().expect("still summoned");
+        if p.buried && self.went_under.is_none() {
+            self.went_under = Some(step_no);
+        }
+        if !p.buried && self.went_under.is_some() && self.came_back.is_none() {
+            self.came_back = Some(step_no);
+        }
+    }
+
+    /// The line printed beside each tile. Empty for scenes with no gnome,
+    /// so the sheets that predate M9 read exactly as they did.
+    fn report(&self, world: &World) -> Option<String> {
+        let p = world.player.as_ref()?;
+        let mut s = format!(
+            "    gnome: at ({:.0}, {:.0}), {}, bites {} ({} cells displaced)",
+            p.x,
+            p.y,
+            if p.buried { "BURIED" } else { "free" },
+            self.bites,
+            self.displaced
+        );
+        if let Some(under) = self.went_under {
+            s.push_str(&format!(", went under at {under}"));
+            match self.came_back {
+                Some(back) => s.push_str(&format!(", dug out by {back} ({} ticks under)", back - under)),
+                None => s.push_str(", still under"),
+            }
+        }
+        Some(s)
     }
 }
 
@@ -935,6 +1083,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
     let mut blasts = explosion::Blasts::new();
+    let mut gnome = Gnome::for_scene(&args.scene);
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
     let (cw, ch) = (args.crop.width(), args.crop.height());
@@ -962,7 +1111,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
             let target = args.start + i * args.every;
             while step_no < target {
                 fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
-                advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no);
+                advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome);
                 step_no += 1;
             }
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
@@ -1030,7 +1179,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
         while step_no < target {
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
             let began = std::time::Instant::now();
-            advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no);
+            advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome);
             let ms = began.elapsed().as_secs_f64() * 1000.0;
             // Frame 0 is excluded, and not to flatter the number: every
             // scene spikes there, including `terrain`, which runs no
@@ -1095,6 +1244,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
         // those are the two halves of the model, with different causes and
         // different bugs. `CLAUDE.md`: print the count next to the image
         // and read both.
+        if let Some(line) = gnome.report(&world) {
+            println!("{line}");
+        }
         let f = world.structural_failures;
         println!(
             "    failures: overloaded {} ({} cells), unsupported {} ({} cells)",

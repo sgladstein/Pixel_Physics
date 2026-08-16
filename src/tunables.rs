@@ -242,6 +242,9 @@ pub fn from_player(t: &Player) -> Vec<Tunable> {
         Tunable::integer(g, c, "coyote_frames", t.coyote_frames as f32, 0.0, 15.0, 1.0),
         Tunable::integer(g, c, "jump_buffer_frames", t.jump_buffer_frames as f32, 0.0, 10.0, 1.0),
         Tunable::integer(g, c, "step_up", t.step_up as f32, 0.0, 3.0, 1.0),
+        Tunable::integer(g, c, "dig_reach", t.dig_reach as f32, 2.0, 40.0, 1.0),
+        Tunable::integer(g, c, "dig_radius", t.dig_radius as f32, 1.0, 12.0, 1.0),
+        Tunable::integer(g, c, "dig_cooldown", t.dig_cooldown as f32, 1.0, 30.0, 1.0),
     ]
 }
 
@@ -259,6 +262,12 @@ pub fn apply_player(t: &mut Player, name: &str, value: f32) {
         "coyote_frames" => t.coyote_frames = value.max(0.0).round() as u8,
         "jump_buffer_frames" => t.jump_buffer_frames = value.max(0.0).round() as u8,
         "step_up" => t.step_up = value.max(0.0).round() as u8,
+        "dig_reach" => t.dig_reach = value.max(0.0).round() as u8,
+        "dig_radius" => t.dig_radius = value.max(1.0).round() as u8,
+        // Floored at 1: a zero cooldown is a bite every frame, which is
+        // not "fast digging" but a bore that opens faster than the eye
+        // can read and a frame cost 8x what was measured.
+        "dig_cooldown" => t.dig_cooldown = value.max(1.0).round() as u8,
         _ => {}
     }
 }

@@ -1319,6 +1319,7 @@ impl App {
             "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
             "",
             "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
+            "  CLICK NEAR THE GNOME: HE DIGS (FURTHER AWAY: BRUSH AS EVER)",
             "C STRIKE ROCK    H DIG (PRECISE CUT)",
             "F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    J PLANT WORM",
@@ -1404,6 +1405,28 @@ impl App {
     /// Paint the area the brush swept between two screen positions, so a fast
     /// drag leaves one continuous stroke rather than a row of blobs.
     pub fn paint_stroke(&mut self, from: (i32, i32), to: (i32, i32), erase: bool) {
+        // M9 phase 2: while the gnome exists, the left button *near him*
+        // is his dig — reach-limited, on his own cooldown, spoil shoved
+        // aside rather than deleted (`player::dig`). Beyond reach the
+        // brush paints as ever, so the sandbox tools stay usable with him
+        // on screen; while he is buried, any left click digs him out
+        // regardless of where the cursor is, because a rescue should not
+        // require pixel-hunting the mound he is inside. The right button
+        // stays the eraser everywhere. Gated here rather than in
+        // `main.rs`'s `paint_now` for the reason that function's own
+        // comment gives: one gate on the operation, three call sites.
+        if !erase {
+            if let Some(p) = &self.world.player {
+                let target = self.renderer.screen_to_world(to.0, to.1);
+                let (cx, cy) = p.center();
+                let (dx, dy) = (target.0 - cx, target.1 - cy);
+                let reach = self.player_tuning.dig_reach as i32;
+                if p.buried || dx * dx + dy * dy <= reach * reach {
+                    player::dig(&mut self.world, target, &self.player_tuning);
+                    return;
+                }
+            }
+        }
         let m = if erase {
             material::EMPTY
         } else {
@@ -1512,7 +1535,7 @@ impl App {
         }
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         self.world.player = Some(player::Player::at(x, y));
-        self.message = Some("gnome summoned — A/D run, W jump, U dismiss".into());
+        self.message = Some("gnome summoned — A/D run, W jump, click near him to dig, U dismiss".into());
     }
 
     /// How much of the brush to fill per application.
