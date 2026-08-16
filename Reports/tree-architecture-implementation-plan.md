@@ -116,14 +116,40 @@ the depth-profile argument has been wrong twice.
 **Acceptance:** two harnesses, one scene; `canopyTop > 0` at end of run;
 per-tree distributions printed; birth and death rates printed separately.
 
-**Status:** 0a done (`examples/common/mod.rs`), 0d partly done (canopy top
-detector landed). 0b blocked on 0f. 0c and 0e outstanding.
+**Status (2026-08-15):** 0a done (`examples/common/mod.rs`). **0f done** —
+`field.rs::apply_sky` is a per-column downward cast now, so light no longer
+brightens with height; that removed the false climb incentive that had
+pinned every scene against the world's top edge. **0b done as a
+consequence**, plus the turgor height bound in `Behavior::Grow`, which
+gives a *derived* ceiling (~120 rows) instead of a scene one: the 200-row
+harness ends with 78 rows of clearance. 0d partly done — canopy top, stem
+thickness above the base and per-tree distributions all print; birth and
+death rates do not. 0c effectively done via the per-tree lists. 0e
+outstanding.
+
+**A ceiling the plant carries is still a ceiling.** With the world ceiling
+gone, every tree now reaches the *turgor* bound instead (heights 127..131
+against a derived ~129) and the crowns fuse laterally along it into a
+single slab — the same artifact, from a different bound. See Phase 2's
+status.
 
 ---
 
-## Phase 1 — branch order (independent, ship first)
+## Phase 1 — branch order (independent, ship first) — **DONE** (`36d2e17`)
 
-Highest value per line in the whole survey, and testable alone.
+Highest value per line in the whole survey, and testable alone. It was.
+
+**Shipped as `organism::ByOrder<T>`** — `Copy`, deserialized from a RON list
+of 1..=`BRANCH_ORDERS` values, padded with the *last* one so a short list
+means "and so on" rather than "zero the rest". `branch_chance`,
+`light_weight`, `upward_weight` and `plastochron` are per-order;
+`OrganismCell::order` holds the tier, inherited straight ahead and
+incremented sideways. In the sidecar, not `aux` bits 4-15.
+
+**Measured:** the establishment lottery disappeared — smallest tree 39 ->
+157 cells, heights 17..143 -> 127..131, stand leaves 521 -> 663. By eye,
+eight bare vertical boles with crowns on top. Wood:leaf went the wrong way
+(9.7 -> 12.9) because the extra mass arrived as trunk.
 
 **The problem it solves:** 14 tips draw a whip because they are 14 copies
 of the same rule. Classical tree L-systems are parameterised by arrays
@@ -146,7 +172,26 @@ overlay; the same species file with a 2-element array produces a shrub.
 
 ---
 
-## Phase 2 — the bud bank
+## Phase 2 — the bud bank — **DONE mechanically** (`ca3c414`), shape regressed
+
+**Shipped:** `CellType::DormantBud` deposited at every plastochron node,
+`Behavior::BudBreak { cost, thickening_survival }`, and `plant::break_buds`
+gating on `supportable = floor(intercepted * income / cost)` once per
+organism per tick. Thickening kills the buds it covers at
+`1 - thickening_survival`.
+
+**Acceptance met:** growth is still happening at frame 30,000 (9 live tips,
+273 dormant buds, against 0 and 0 before), and buds track extension rather
+than volume.
+
+**And the shape is worse, for a reason worth having found.** Every tree
+reaches the turgor bound, buds keep flushing, up is forbidden, so growth
+goes sideways: the eight crowns fuse into one slab 136 cells across at
+exactly that row, with limbs drooping off it. Nothing bounds lateral
+spread — and the mechanism that was supposed to has never run.
+`crowding_weight` is 0.5 in `tree.ron` and `canopy_density` measures
+**0.000 max** on a grown stand, because decay erases the deposit before
+anything reads it. **Fix self-avoidance before judging this phase's shape.**
 
 **The problem it solves:** *nothing ever creates a new tip*. The audit
 measured 1,419 tips created and 1,335 that grew, with lineages born at 5.7%
@@ -186,7 +231,17 @@ bud count tracks cumulative extension, not cell count.
 
 ---
 
-## Phase 3 — the basipetal pass, and girth becomes derived
+## Phase 3 — the basipetal pass, and girth becomes derived — **part done**
+
+**Done (`19b290f`):** the `thicken()` row-total gate is retired. The
+denominator is now the contiguous run of *woody* same-organism cells
+through the cell, which is what Shinozaki names. `pipe_ratio` was
+re-derived from a sweep (10 -> 45) because the correction changed what the
+number means; the sweep table is in `tree.ron` beside the value.
+
+**Not done:** girth as a *derived* quantity — the BFS parent ordering, the
+reverse sweep accumulating `Q`, and the monotone high-water mark.
+`SecondaryThicken` is still a free-standing process with its own knob.
 
 **The problem it solves:** the blob. `SecondaryThicken` is a free-standing
 process with its own knob — **the knob every attempt turned**. In every
@@ -226,7 +281,17 @@ construction.
 
 ---
 
-## Phase 4 — the acropetal pass: allocation, λ, and `n = ⌊v⌋`
+## Phase 4 — the acropetal pass: allocation, λ, and `n = ⌊v⌋` — **part done**
+
+**Done (`ce86950`), out of order and deliberately:** frontier cells receive
+a *share of income* rather than whatever diffusion delivered, and income is
+intercepted light rather than leaf count. This was pulled forward because
+tips were starving beside carbon-rich neighbours and nothing downstream
+could be judged until they stopped. `break_buds`'s `supportable` is
+`n = ⌊v⌋` in miniature.
+
+**Not done:** `λ` (the basipetal/acropetal split between a shoot and its
+laterals), which is the excurrent/decurrent control.
 
 The sustain-and-bound mechanism, and the excurrent/decurrent control.
 
