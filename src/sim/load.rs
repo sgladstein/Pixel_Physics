@@ -289,9 +289,19 @@ pub fn support_parent(world: &World, x: i32, y: i32) -> Option<(i32, i32)> {
     best.map(|(pos, _)| pos)
 }
 
-/// Whether `(x, y)` is anchored outright — touching bedrock (or the world
-/// edge, which `Cell::OUT_OF_BOUNDS` reports as bedrock), or simply sitting
-/// on the ground.
+/// Whether `(x, y)` borders literal bedrock (or the world edge, which
+/// `Cell::OUT_OF_BOUNDS` reports as bedrock) — held from outside the model
+/// entirely, and the **only** thing that exempts a cell from evaluation.
+/// See `evaluate_within` for why this is narrower than `is_anchor`.
+fn touches_bedrock(world: &World, x: i32, y: i32) -> bool {
+    NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == super::material::BEDROCK)
+}
+
+/// Whether `(x, y)` is anchored outright — touching bedrock, or simply
+/// sitting on the ground. This is where a support *chain* walk stops. It is
+/// deliberately **not** what exempts a cell from evaluation — that is
+/// `touches_bedrock` alone, and conflating the two is exactly how B2
+/// shipped dead (see `evaluate_within`).
 ///
 /// Read from the world directly rather than from `aux == 0`, deliberately.
 /// A stored distance is a cache that lags a disturbance by up to a tick;
@@ -308,7 +318,7 @@ pub fn support_parent(world: &World, x: i32, y: i32) -> Option<(i32, i32)> {
 /// is under the CA sweep's control: if it flows out from underneath, that
 /// write dirties the chunk and whatever sat on it is re-examined.
 fn is_anchor(world: &World, x: i32, y: i32) -> bool {
-    NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == super::material::BEDROCK) || rests_on_ground(world, x, y)
+    touches_bedrock(world, x, y) || rests_on_ground(world, x, y)
 }
 
 /// Whether `(x, y)` is sitting on loose material that can hold its weight.
@@ -902,7 +912,17 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     // out of the criterion where it was visible and into a guard where it
     // was not. Measured before this changed: `scene=capped` evaluated 2
     // cells out of 15,840 across 600 frames.
-    if is_anchor(world, x, y) {
+    //
+    // Bedrock adjacency only -- deliberately *not* `is_anchor`. The other
+    // half of that predicate, resting on powder, terminates a support
+    // *chain* (the piece is held, not falling) but must still be
+    // torque-tested against the sliver of capacity a granular prop
+    // actually provides. Routing this guard through `is_anchor` made
+    // `capacity`'s `GRANULAR_CAPACITY_DIVISOR` branch unreachable -- B2 of
+    // `Reports/destruction-plan.md` shipped dead by its own commit, and a
+    // few grains of rubble were still a full anchor for anything above
+    // them. §5.7's vacuous-pass shape, caught by review rather than test.
+    if touches_bedrock(world, x, y) {
         return None; // genuinely held from outside the model
     }
     if !is_structurally_interesting(world, x, y) {
@@ -1417,5 +1437,46 @@ mod tests {
             thick_capacity > thin_capacity * 50,
             "a 9-deep section should carry far more than a 1-deep one, found {thick_capacity} vs {thin_capacity}"
         );
+    }
+
+    #[test]
+    fn a_cell_resting_on_powder_is_evaluated_against_a_granular_capacity() {
+        // B2's actual claim, guarded through `evaluate` rather than through
+        // `capacity` alone — the exemption path is what shipped broken: the
+        // divisor branch existed, and `evaluate_within`'s anchor guard
+        // returned `None` before it could ever run, so a powder-propped
+        // cell was never torque-tested at all. §5.7's vacuous-pass shape,
+        // caught by review rather than by any test; this is that test.
+        let mut w = beam(20);
+        w.set(10, 31, Cell::new(material::SAND, 0));
+        structural::compute_world_distances(&mut w);
+
+        let load = evaluate(&w, 10, 30).expect("a powder-propped cell must be evaluated, not exempt");
+        assert!(load.supported, "powder underneath keeps the chain alive — held is not the same as braced");
+        let full = capacity(&beam(20), 10, 30);
+        assert_eq!(
+            load.capacity,
+            (full / GRANULAR_CAPACITY_DIVISOR).max(1),
+            "a granular prop should provide a sliver of the section's capacity, not all of it"
+        );
+    }
+
+    #[test]
+    fn a_sprinkle_of_sand_under_a_beam_does_not_hold_the_beam_up() {
+        // The symptom named in `Reports/destruction-plan.md` B2: a grain
+        // wedged under a span acted as a permanent anchor, so rock could
+        // hang off it forever. The propped cell is genuinely *held* — the
+        // chain terminates there — and what it carries (both arms of the
+        // beam now route their support through the false zero the prop
+        // puts in the distance field) is far beyond what loose grains can
+        // brace against turning.
+        let mut w = beam(30);
+        w.set(15, 31, Cell::new(material::SAND, 0));
+        structural::compute_world_distances(&mut w);
+
+        let failure = failing_region(&w, 15, 30, &mut Cache::default(), &mut unbounded())
+            .expect("a long span propped on loose grains must fail at the prop");
+        assert_eq!(failure.mode, FailureMode::Overloaded, "the chain is alive — this is an overload, not a detachment");
+        assert!(!failure.region.is_empty(), "the failure must take the rock the prop was carrying with it");
     }
 }
