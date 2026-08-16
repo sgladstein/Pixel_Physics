@@ -25,6 +25,23 @@
 # and moving them into the library to satisfy the test harness would be a
 # real refactor for no gain -- CI can run this directly. Images are written
 # so a failure can be looked at, not just read about.
+#
+# **Frame-cost bars guard catastrophes, not tuning, and that is
+# deliberate.** They are checked against the *minimum* of several runs
+# (`repeat=`), because contention can only make a frame slower and a bar
+# checked against one sample would be permanently flaky -- this machine
+# has produced 18.0 ms twice running on a scene that schedules no
+# structural work at all. They are also set far above what is measured
+# here (3-14 ms) because CI hardware is not this hardware, and a bar tuned
+# to a developer laptop trains everyone to ignore a red build.
+#
+# What they are sized to catch is the class of regression this project has
+# actually shipped: a single change took `scene=capped` to **6,556 ms** and
+# `scene=strike` to 4,456 ms per frame. A 60 ms bar catches that with room
+# to spare, and will not fire on a slow runner having a bad minute. Tighten
+# only alongside a measurement taken on the runner itself.
+BUDGET_MS=60
+
 set -uo pipefail
 
 FILM="cargo run --release --quiet --example filmstrip --"
@@ -44,26 +61,26 @@ run() {
 
 # 1. A worked root gives way. The whole point of the load model: six blows
 #    at the join of a 160-cell shelf used to leave it standing.
-run worked   scene=worked   start=2 every=50 count=6 crop=40,120,220,170 zoom=3 min_overloaded=3
+run worked   scene=worked   start=2 every=50 count=6 crop=40,120,220,170 zoom=3 min_overloaded=3 repeat=2 max_frame_ms=$BUDGET_MS
 
 # 2. The thick column still stands. The regression the change most easily
 #    causes, and the case that was silently vacuous for two commits.
-run capped   scene=capped   start=2 every=90 count=4 crop=150,70,220,190 zoom=3 max_failures=0
+run capped   scene=capped   start=2 every=90 count=4 crop=150,70,220,190 zoom=3 max_failures=0 repeat=2 max_frame_ms=$BUDGET_MS
 
 # 3. An undercut shelf still spalls.
-run undercut scene=undercut start=1 every=45 count=6 crop=0,120,240,190 zoom=2 min_overloaded=1
+run undercut scene=undercut start=1 every=45 count=6 crop=0,120,240,190 zoom=2 min_overloaded=1 repeat=2 max_frame_ms=$BUDGET_MS
 
 # 4. A big overhang on a thin ligament snaps at the neck. The owner's
 #    original case, and the one reach could not get right in principle.
-run ligament scene=ligament start=2 every=70 count=6 crop=60,110,180,120 zoom=3 min_overloaded=1
+run ligament scene=ligament start=2 every=70 count=6 crop=60,110,180,120 zoom=3 min_overloaded=1 repeat=2 max_frame_ms=$BUDGET_MS
 
 # 5. Generated terrain does not move on its own. Not in the handoff's five,
 #    added because it is the failure that would be worst and quietest: the
 #    world eating itself with nobody having touched it.
-run terrain  scene=terrain  start=2 every=90 count=4 crop=0,0,512,320 zoom=1 max_failures=0
+run terrain  scene=terrain  start=2 every=90 count=4 crop=0,0,512,320 zoom=1 max_failures=0 repeat=2 max_frame_ms=$BUDGET_MS
 
 # 6. A struck cliff throws pieces.
-run strike   scene=strike   start=2 every=60 count=4 crop=200,90,120,120 zoom=3 min_overloaded=2
+run strike   scene=strike   start=2 every=60 count=4 crop=200,90,120,120 zoom=3 min_overloaded=2 repeat=2 max_frame_ms=$BUDGET_MS
 
 echo
 if [ "$fails" -gt 0 ]; then

@@ -420,6 +420,18 @@ struct Args {
     /// `check_expectations`.
     min_overloaded: Option<u32>,
     max_failures: Option<u32>,
+    /// `max_frame_ms=N` -- exit non-zero if the **minimum** worst-frame
+    /// across `repeat` runs exceeds N.
+    ///
+    /// Checked against the minimum specifically, and that is what makes it
+    /// safe to gate CI on. A single sample from a contended machine is not
+    /// a measurement -- this session saw 18.0 ms twice running on a scene
+    /// that schedules no structural work at all -- so a bar checked against
+    /// one run, or against a mean, would be permanently flaky and would
+    /// train everyone to ignore it. Contention can only make a frame
+    /// slower, so the fastest of several runs is the closest thing to the
+    /// machine's real cost, and a bar it still fails is a real regression.
+    max_frame_ms: Option<f64>,
     /// `loadmap=1` -- also report the single most-stressed cell in the
     /// world per tile. `CLAUDE.md`: sanity-check a new metric against a
     /// case you know is fine before trusting it about one you don't, and
@@ -447,6 +459,7 @@ fn parse() -> Args {
         repeat: 1,
         min_overloaded: None,
         max_failures: None,
+        max_frame_ms: None,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -473,6 +486,7 @@ fn parse() -> Args {
             "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
+            "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "loadmap" => a.loadmap = v != "false",
             "load" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("load")).collect();
@@ -616,9 +630,15 @@ fn report_loads(world: &World, args: &Args) {
 /// that is supposed to stand must show that nothing fired
 /// (`max_failures`), which is only meaningful once the same binary has
 /// demonstrated it can fire at all on the collapsing scenes.
-fn check_expectations(world: &World, args: &Args) -> bool {
+fn check_expectations(world: &World, args: &Args, best_ms: f64) -> bool {
     let f = world.structural_failures;
     let mut ok = true;
+    if let Some(limit) = args.max_frame_ms {
+        if best_ms > limit {
+            println!("  FAIL: worst frame {best_ms:.2} ms over the {limit:.1} ms budget (best of {} runs)", args.repeat);
+            ok = false;
+        }
+    }
     if let Some(min) = args.min_overloaded {
         if f.overloaded < min {
             println!("  FAIL: expected at least {min} overload failures, got {}", f.overloaded);
@@ -632,7 +652,7 @@ fn check_expectations(world: &World, args: &Args) -> bool {
             ok = false;
         }
     }
-    if ok && (args.min_overloaded.is_some() || args.max_failures.is_some()) {
+    if ok && (args.min_overloaded.is_some() || args.max_failures.is_some() || args.max_frame_ms.is_some()) {
         println!("  OK: scene={} met its expectations", args.scene);
     }
     ok
@@ -651,12 +671,12 @@ fn main() {
     }
     let (last_ms, world) = run_once(&args, true);
     samples.push(last_ms);
+    let best = samples.iter().cloned().fold(f64::INFINITY, f64::min);
     if args.repeat > 1 {
-        let best = samples.iter().cloned().fold(f64::INFINITY, f64::min);
         let worst = samples.iter().cloned().fold(0.0, f64::max);
         println!("worst frame over {} runs: {best:.2} ms (spread {best:.2}-{worst:.2})", args.repeat);
     }
-    if !check_expectations(&world, &args) {
+    if !check_expectations(&world, &args, best) {
         std::process::exit(1);
     }
 }
