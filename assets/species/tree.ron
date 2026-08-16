@@ -77,42 +77,42 @@
                 // stays out rather than curling back up alongside it --
                 // which is what produced the parallel-ropes look.
                 upward_weight: [0.9, 0.35, 0.1, 0.05],
-                // **Twelve times what it was, and it is the only thing
-                // bounding lateral spread.** Measured, 8 trees / 30,000
-                // frames, thickest contiguous run of organism cells above
-                // ground (trees are 57 cells apart, so anything past that
-                // is two crowns fused):
+                // **The only thing bounding lateral spread**, and it has
+                // been re-derived twice because what it opposes got
+                // stronger both times.
                 //
-                //     0.5   136 cells    one continuous slab
-                //     1.5   106
-                //     3.0    82
-                //     6.0    39          eight separate crowns
-                //
-                // **Why it has to be this strong, and why no other knob
-                // substitutes.** Every tree now reaches the turgor height
-                // bound, and at that bound a stand's light-optimal shape
-                // *is* a flat slab: `ambient_light_above` is per-column sky
+                // At any height bound a stand's light-optimal shape *is* a
+                // flat slab: `ambient_light_above` is per-column sky
                 // visibility, so a canopy one cell thick pressed against
                 // the ceiling has every column lit and income grows with
                 // width, which is unbounded. Growth follows light, so
-                // growth finds the slab. Raising `upward_weight` on the
-                // outer tiers (tried at [0.9,0.5,0.4,0.35] and
-                // [0.9,0.7,0.6,0.55]) and branching along the trunk (tried
-                // at 0.09 for order 0) both made it *worse* -- 120, 118 and
-                // 71 cells -- because both push more growth into the
-                // ceiling. Three knobs failing the same way is the signal
-                // that the quantity to change is which one is load-bearing,
-                // not their values.
+                // growth finds the slab. Real forests bound this the same
+                // way -- crown shyness is what stops a closed canopy being
+                // one organism. See `candidate_crowding` for why the term
+                // is deliberately owner-blind.
                 //
-                // Real forests bound this the same way: crown shyness is
-                // what stops a closed canopy being one organism. See
-                // `candidate_crowding` for why the term is owner-blind.
+                // Swept twice, 8 trees / 30,000 frames, thickest contiguous
+                // run of organism cells above ground. Trees sit 57 cells
+                // apart, so anything past that is two crowns fused:
                 //
-                // Costs mass -- 22,058 stand cells to 10,454, leaves 1,250
-                // to 807 -- and three of eight trees stay bare poles. That
-                // is the trade, recorded rather than hidden: eight separate
-                // trees beat one fused canopy with more foliage in it.
-                crowding_weight: 6.0,
+                //   before graded light   0.5 -> 136    1.5 -> 106
+                //                         3.0 ->  82    6.0 ->  39
+                //   after graded light    6.0 ->  78   12.0 ->  51
+                //                        20.0 ->  13   30.0 ->  39
+                //
+                // **Note the cliff, not a curve.** Past 12 the stand does
+                // not merely separate, it collapses -- median tree 2,620
+                // cells at 12.0 against 26 at 20.0. The usable band is
+                // narrow and sits just under the collapse, which is worth
+                // knowing before anyone reaches for this knob again.
+                //
+                // Tried and rejected on the way, both of which made fusion
+                // *worse* by pushing more growth into the ceiling: raising
+                // outer-tier `upward_weight`, and branching along the trunk
+                // at `branch_chance[0] = 0.09`. Three knobs failing the
+                // same way is the signal that the question is which one is
+                // load-bearing, not what values they take.
+                crowding_weight: 12.0,
                 max_active_tips: 14,
                 // Every 3rd growth step along a shoot leaves a Leaf behind.
                 // Untuned -- picked as the smallest interval that still

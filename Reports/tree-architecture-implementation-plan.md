@@ -374,6 +374,70 @@ dormancy.
 
 ---
 
+---
+
+## Where this branch actually stands (2026-08-16) — read this first
+
+Nine commits past the plan's own Phase 4. What follows is the state a
+reviewer should judge, and the queue in priority order.
+
+### Landed since the plan was written
+
+| | |
+|---|---|
+| **Phase 1** branch order | `ByOrder<T>`, per-tier lists that pad with their last value. One value is a mat, two a shrub, four a tree. |
+| **Phase 2** bud bank | `DormantBud` at every node, `break_buds` gated on supportable tip count. Growth no longer stops. |
+| **Phase 3** derived girth | `accumulate_support` — BFS parent ordering, reverse sweep, `q_peak` as a monotone high-water mark. |
+| **Phase 4** allocation | Frontier receives a share of *income*, not of stock. λ still missing. |
+| Genotype | Six per-trait jitter dimensions, widths set from two 1,024-genome studies. |
+| Turgor taper | Extension fades over the top 30% of the range rather than stopping on a line. |
+| Momentum | `OrganismCell::heading` with inertia — stems sweep instead of wandering. |
+| Leaf clusters | Five cells per node; a 2D cross-section shows every twig, so one cell per leaf was under-scaled against wood. |
+| Juvenile stage | `juvenile_size`, because branch order is *position*, not age, and a seedling is order 0. |
+| **Light model** | `FieldTile::occupancy` — transmission graded by how full a block is, and an occluder is lit by what reaches it. |
+
+Measured on the standard harness (8 trees, 30,000 frames, `plant_probe`):
+mean tree **793 → 4,242 → 2,541** cells (the last number after crown
+shyness was re-derived), mean leaves **411 → 1,556 → 1,064**, median trunk
+**7 → 18 → 15**, thickest fused run **78 → 51** against 57-cell spacing.
+
+### The queue, in the order I would take it
+
+1. **Day/night phase sampling (`PLAN.md` 0e).** Now blocking real work
+   rather than merely untidy. `sky_light_amplitude` is a 3,600-frame
+   oscillator, and shade-driven leaf abscission is *impossible* against it:
+   the gate is instantaneous, every leaf reads near zero at night, so any
+   fixed threshold is a nightly extinction event. Measured at 0.25 and 0.6,
+   both taking the stand to exactly zero leaves even after the light fix.
+   Needs a per-cell running mean over at least one cycle. Third quantity on
+   this branch sampled at an arbitrary phase of that oscillator.
+2. **Re-test `light_weight` in the genome.** It measured completely inert
+   across 1,024 genomes against the *old* flat light channel. That channel
+   is gone; phototropism may be a real lever now and nobody has checked.
+3. **Damage response.** A topped tree still does nothing — `break_buds`
+   keys on intercepted light, so losing foliage *lowers* the drive to
+   rebuild it. `q_peak` is the memory that was missing, and it now exists,
+   so the deficit between current and peak support is finally computable.
+4. **Roots run flat.** Momentum fixed "small balls" and replaced it with
+   horizontal sheets along the surface.
+5. **Taper.** Better than it was and still fairly uniform base to top.
+   Partly inherent: `q_peak` is monotone by design, so anything a cell
+   earned early it keeps.
+6. **λ, the excurrent/decurrent control.** Phase 4's remaining half.
+7. **A juvenile/adult axis.** `juvenile_size` is a stopgap for a real
+   developmental clock.
+
+### Things a reviewer should not re-litigate
+
+Each of these cost a measurement and is written up where it lives:
+crowding must be strong and sits just under a collapse cliff; the pipe
+model's denominator is the stem's own run and never the row; buds are
+deposited by extension only; bud break must be a whole-plant decision;
+`upward_weight` and (as of the old light model) `light_weight` measured
+inert; establishment failure is competition rather than genotype.
+
+---
+
 ## Deferred, with reasons
 
 - **Self-pruning / maintenance respiration.** Still wanted for crown
