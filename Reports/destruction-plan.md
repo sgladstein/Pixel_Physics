@@ -349,8 +349,14 @@ already shipped that passed everything and were rejected on sight.
   Progressive was the design intent; sluggish is the risk.
 - **Does the landing impulse read?** D2 added one; it moves smoke and
   grit, and whether that registers has to be seen in motion.
-- **A2's key binding** for the stress overlay, and whether it should be a
-  `GrainMode`-style render selector or a separate toggle.
+- **Does the fragment ladder read?** `stone.ron` now takes 6 rungs
+  (fragments up to 64 cells) on the argument that the top of the ladder is
+  what makes a collapse read as "a piece of the wall came off" rather than
+  "the wall crumbled". That is a taste claim and it is the knob to turn
+  first if debris feels wrong in either direction.
+- **Is the background brush's new restriction annoying?** It now only
+  authors terrain that *touches* terrain. Right for the model; possibly
+  irritating for scene authoring, and easy to relax.
 
 ---
 
@@ -388,11 +394,21 @@ D2         landing feedback                            DONE
 C1         keying from the support parent              DONE
 F1 F2      trustworthy timings, acceptance harness     DONE
 D1         fail the section, not the cell              DONE
-A2         stress overlay (key decided: N)             (small, next)
-C3 C4      locality, and bound the background brush    (small)
-F3 F5      replay a playtest report, guard frame cost  (medium)
-D3 C2      fragment ladder, mortar                     (medium)
+A2         stress overlay (on N)                       DONE
+C3 C4      locality, and bound the background brush    DONE
+F5         guard frame cost in CI                      DONE
+D3         material-scaled fragment ladder             DONE
+-----------------------------------------------------  everything above is built
+C2         mortar as a material (the keying verb)      (medium, next)
+F3         replay a playtest report from a dump        (medium)
 E1         push damage from the break                  (large, subsumes work)
+
+Only three items remain, and none of them is a correctness fix -- the
+model does what it was built to do and all six acceptance cases assert it
+in CI. `C2` and `F3` are affordances; `E1` is a performance and elegance
+change that subsumes the rootward walk. The next thing that should
+actually happen is a **playtest**, not more code: see "Pending owner
+verification", which is now the binding constraint on everything else.
 ```
 
 `D2` is placed early only because it is nearly free and improves every
