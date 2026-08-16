@@ -44,13 +44,24 @@ naturally piles. It is real loose material, so digging into it makes it run.
 
 **Soil** lies over the rock wherever the ground is gentle enough to hold it,
 thinning as the ground steepens and giving out entirely on steep faces, which
-is why cliffs read as bare rock. Where a valley floor is flat, the top of the
-soil turns to sand, as washed sediment would collect there.
+is why cliffs read as bare rock. It also thins near a drop, so the lip of a
+bench is barer than its middle, and where the cover has worn to almost
+nothing the rock breaks through it altogether in patches. Where a valley floor
+is flat, the top of the soil turns to sand, as washed sediment would collect
+there.
 
-**Rock** carries visible layering — bands of slightly different tone, tilted
-and gently folded, running through the whole massif. Every cut you make, every
-tunnel and every blast crater exposes it, so the inside of a hill looks like
-rock rather than like fill.
+Dig into soil and it has a **profile**: dark at the top where it is richest,
+paler further down, and its base is not a clean line but a gradation — earth
+with stones in it, getting stonier until it is simply rock. That profile is
+only visible in a cross-section, which is the one thing this view has that a
+map does not.
+
+**Rock** carries visible layering — beds of slightly different tone, tilted
+and gently folded, running through the whole massif. The beds vary in
+thickness and there is no repeating pattern to them: a distinctly pale or dark
+layer can be followed from one cliff face to another across the world. Every
+cut you make, every tunnel and every blast crater exposes it, so the inside of
+a hill looks like rock rather than like fill.
 
 **Buried pockets** of sand and gravel sit sealed inside the rock. You will not
 see them from outside; you find them by digging, and they pour once opened.

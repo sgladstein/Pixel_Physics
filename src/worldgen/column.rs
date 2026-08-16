@@ -190,6 +190,22 @@ impl Terrain<'_> {
         ((self.elev(x + 1) - self.elev(x - 1)) / 2.0).abs()
     }
 
+    /// The steepest slope seen looking up to three columns either side.
+    ///
+    /// What the soil blanket is thinned by, rather than the immediate slope.
+    /// A terrace tread is perfectly level, so the immediate slope says
+    /// "flat, pile it on" right up to the lip — and a full-depth blanket
+    /// sitting on a narrow bench renders as a brown box with a vertical face,
+    /// which is what a soil slab is and not what a hillside looks like.
+    /// Ground about to fall away should already be losing its cover, which is
+    /// also how it works: soil creeps off a lip long before the lip itself
+    /// goes.
+    pub fn slope_near(&self, x: i32) -> f32 {
+        (1..=3)
+            .map(|k| ((self.elev(x + k) - self.elev(x - k)) / (2 * k) as f32).abs())
+            .fold(0.0f32, f32::max)
+    }
+
     /// Decide one column.
     pub fn plan(&self, x: i32) -> ColumnPlan {
         let p = self.params;
@@ -204,7 +220,12 @@ impl Terrain<'_> {
         // avalanche, so soil placed under this rule never moves. Bare rock on
         // the steep faces is the same rule read as a picture.
         let cutoff = (p.soil_slope_cutoff * self.soil_tan).max(0.0);
-        let soil_depth = if cutoff <= 0.0 || self.slope(x) >= cutoff {
+        // The neighbourhood slope, not the immediate one: a bench is flat at
+        // the exact column and the drop is two cells away. Still an upper
+        // bound on the true local slope, so the at-rest guarantee this gate
+        // provides only gets stricter, never looser.
+        let steepness = self.slope(x).max(self.slope_near(x));
+        let soil_depth = if cutoff <= 0.0 || steepness >= cutoff {
             0
         } else {
             // Quadratic rather than linear taper. A linear one thins soil as
@@ -214,9 +235,23 @@ impl Terrain<'_> {
             // gentle ground and takes it away sharply near the limit, which
             // is both the better picture and the more accurate one — soil
             // creep is negligible until a slope approaches repose.
-            let taper = 1.0 - (self.slope(x) / cutoff).powi(2);
+            let taper = 1.0 - (steepness / cutoff).powi(2);
             let jitter = 3.0 * noise::fbm_1d_c(self.seed, Purpose::Soil, x as f32 / 37.0, 2);
-            (p.soil_depth * taper + jitter).max(0.0).round() as i32
+            let depth = (p.soil_depth * taper + jitter).max(0.0).round() as i32;
+            // Where the blanket has already worn thin, let the rock through
+            // entirely rather than leaving a one- or two-cell skin over it.
+            //
+            // A uniform crust of soil over every surface was the strongest
+            // remaining tell that the ground was generated: real hillsides
+            // are patchy, and the bare rock shows through exactly where the
+            // cover is thinnest. It also costs nothing to be sure of — taking
+            // powder away can never make a world less at rest than leaving it
+            // there.
+            if depth <= 3 && noise::unit(self.seed, Purpose::SoilNoise, x, 0) < 0.45 {
+                0
+            } else {
+                depth
+            }
         };
 
         let table_y = (self.datum() - p.table_damping * self.low_elev(x) + p.table_offset).round() as i32;

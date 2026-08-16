@@ -37,16 +37,70 @@ fn strata_shade(ctx: &Ctx, x: i32, y: i32) -> u8 {
     // it (`column::terraced`).
     let band_y = y as f32 + ctx.terrain.strata_offset(x);
     let band = (band_y / thickness).floor() as i32;
-    // Adjacent bands differ by one tone, not four: strata are a subtle
-    // gradient in real rock, and cycling the full range makes stripes.
-    const TONES: [u8; 4] = [1, 2, 1, 0];
-    let base = TONES[band.rem_euclid(4) as usize];
+    // Each band draws its own tone, rather than the sequence cycling.
+    //
+    // A fixed four-tone cycle was the first version, and at any distance it
+    // reads as wallpaper: the eye picks up the repeat immediately and the
+    // rock stops looking deposited and starts looking tiled. Real
+    // stratigraphy is mostly a run of similar beds with the occasional
+    // markedly lighter or darker marker bed in it, and no period at all. The
+    // weights below say exactly that — about five in six bands sit in the two
+    // middle tones, and the rest are markers.
+    //
+    // Keyed on the band index alone, so a bed holds its tone across the whole
+    // world: a layer you can follow from one cliff face to another is the
+    // entire point of drawing them.
+    //
+    // The four tones are spread roughly evenly rather than concentrated in
+    // the middle two. Stone's palette spans only 110..138 in brightness, so
+    // there is not enough range to spend most of it on near-identical greys —
+    // the first version of this weighting put 86% of bands into tones eight
+    // apart and the banding simply vanished from the render, which is a
+    // reminder that "subtle" and "invisible" are one tuning step apart when
+    // the palette is this tight. Irregular run lengths, not low contrast, are
+    // what stop it reading as wallpaper.
+    let r = noise::unit(ctx.terrain.seed, Purpose::Strata, band, 0);
+    let base = if r < 0.30 {
+        3
+    } else if r < 0.55 {
+        1
+    } else if r < 0.80 {
+        0
+    } else {
+        2
+    };
     // A minority of cells jump a tone, so the bands have grain inside them
     // rather than reading as flat ribbons.
     if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < 0.12 {
         (base + 1).min(3)
     } else {
         base
+    }
+}
+
+/// Shade for a soil cell, darkening toward the surface.
+///
+/// A soil profile is legible in cross-section and nowhere else, which makes
+/// it exactly the kind of detail this view exists to show: dark organic
+/// topsoil over paler mineral subsoil, the thing you see in the side of every
+/// ditch. Drawn with the same four palette entries the brush uses, so it
+/// costs nothing — soil's palette happens to run from `2` (darkest) through
+/// `0` and `1` to `3` (lightest), which is the ramp used here.
+///
+/// `depth` is cells below the top of the blanket.
+fn soil_shade(ctx: &Ctx, x: i32, y: i32, depth: i32, total: i32) -> u8 {
+    // Jitter first, so the horizons are ragged rather than ruled.
+    let jitter = noise::unit(ctx.terrain.seed, Purpose::Shade, x, y);
+    let f = if total <= 1 { 0.0 } else { depth as f32 / (total - 1) as f32 };
+    let f = (f + (jitter - 0.5) * 0.35).clamp(0.0, 1.0);
+    if f < 0.3 {
+        2
+    } else if f < 0.6 {
+        0
+    } else if f < 0.85 {
+        1
+    } else {
+        3
     }
 }
 
@@ -123,19 +177,40 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
             // A dithered band where soil meets stone, rather than a clean
             // horizon. Two materials meeting on an exact line is the single
             // most artificial-looking thing a layered generator can do.
-            let m = if y >= bottom - 2 && noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < 0.25 {
-                ctx.gravel
-            } else if is_valley_floor && y < top + 2 {
-                ctx.sand
+            let depth = y - top;
+            // A gradational contact rather than a horizon.
+            //
+            // Soil does not stop and rock start at a line; the bottom of a
+            // profile is stones in earth, getting stonier down. Drawn as a
+            // clean boundary — which is what a two-row dither at a flat 25%
+            // amounted to — the eye reads it as two materials stacked by a
+            // program, because that is what it is. The odds ramp from nothing
+            // four cells up to near-certain at the base, so the transition
+            // has depth to it and no two columns break at the same row.
+            let into_contact = (bottom - y).max(0);
+            let stony = if into_contact <= CONTACT_DEPTH {
+                1.0 - into_contact as f32 / (CONTACT_DEPTH + 1) as f32
             } else {
-                ctx.soil
+                0.0
             };
-            world.set(x, y, Cell::new(m, loose_shade(ctx, Purpose::Shade, x, y)));
+            let (m, shade) = if noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < stony * 0.85 {
+                (ctx.gravel, loose_shade(ctx, Purpose::Dither, x, y))
+            } else if is_valley_floor && y < top + 2 {
+                (ctx.sand, loose_shade(ctx, Purpose::Shade, x, y))
+            } else {
+                (ctx.soil, soil_shade(ctx, x, y, depth, bottom - top))
+            };
+            world.set(x, y, Cell::new(m, shade));
             n += 1;
         }
     }
     n
 }
+
+/// How many cells of the soil profile's base grade into stony ground. Not a
+/// tunable: it is a property of what a soil profile looks like, not of a
+/// particular world's style (`Reports/design-philosophy.md` §2a).
+const CONTACT_DEPTH: i32 = 4;
 
 /// A drop of at least this many cells counts as a cliff for the brow and
 /// talus passes. Below it the "face" is a slope, and hanging a lip off it
