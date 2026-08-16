@@ -1,11 +1,12 @@
 # Structural Collapse
 
 *Current as of: this build. Where something breaks — at the neck, across
-a section, sharing load between supports — is settled behavior. Two things
-are still in flux and are known to be wrong right now: cutting into a
-structure can unzip far more of it than the cut should reach, and when
-that happens it comes apart as grit rather than as pieces. Both are the
-same underlying problem and are being worked on.*
+a section, sharing load between supports — is settled behavior, and a cut
+into a building now takes the corner it was made in rather than the whole
+building. What is still in flux is **how big a room you can build**: a
+wide, thin-walled one can still fail to hold its own roof up the moment
+you finish it, and the exact width at which that starts is not yet where
+anyone wants it.*
 
 Any solid structure needs an unbroken path of connected material leading
 back down to the ground, or out to the edge of the world, to stay up. Cut
@@ -26,6 +27,15 @@ usually a narrow neck holding up something much bigger than itself.
 Weight can also be shared: a structure resting on two separate legs
 actually splits its load between them, rather than the whole weight
 routing through whichever leg the game happened to pick first.
+
+Walls are not judged the same way as the roof they carry. A wall passes
+weight downward, and it is asked how thick *it* is, not how far the thing
+on top of it reaches — so a wall does not become fragile just because the
+roof above it is ambitious, and a chip taken out of one halfway up does
+not bring the building down. What the roof's reach strains is the roof.
+Wide flat spans are therefore the thing to watch when building: a long
+roof wants to be thick, or to be an arch, or to come down on a wall part
+way along.
 
 Hitting rock scores fissures into it that run well past the material the
 blow actually removes, and they stay. Cracked rock carries less than

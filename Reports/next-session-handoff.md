@@ -1,150 +1,209 @@
-# Next session: fix the unzip, then re-judge everything else
+# Next session: what the unzip actually was, and what is left of it
 
-**Written to be picked up cold.** State, the one live bug, the exact loop
-for working it, what has already been tried and must not be retried, and
-what comes after.
+**Written to be picked up cold.** State, what was measured, what is still
+wrong, and what has already been tried and must not be retried.
 
-**Read first:** `CLAUDE.md`, then `Reports/building-rethink.md` §3a and §6
-(the live edge), then this. `Reports/destruction-plan.md` holds the wider
-backlog and the "Pending owner verification" list.
+**Read first:** `CLAUDE.md`, then `Reports/building-rethink.md` §3a and §6,
+then this. `Reports/destruction-plan.md` holds the wider backlog and the
+"Pending owner verification" list.
 
 ---
 
 ## 0. Where things stand
 
-`master`, pushed, 406 tests, clippy clean, six acceptance cases gating in
-CI via `scripts/acceptance.sh`.
+`master`, 407 tests, clippy clean, **eight** acceptance cases gating in CI
+via `scripts/acceptance.sh`.
 
-The destruction model is **right and working**. Over this session it went
-from reach-vs-span to torque-vs-capacity, gained section failure, load
-flow over parallel supports, crack-driven detachment, a stress view (`N`),
-a rectangle/room/line build tool (`Z`), a precise dig verb (`D`), and an
-acceptance suite that asserts mechanisms rather than outcomes.
+The destruction model is right and working: torque vs capacity, section
+failure, load flow over parallel supports, crack-driven detachment, a
+stress view (`N`), a rectangle/room/line build tool (`Z`), a precise dig
+verb (`D`).
 
 The owner's verdict after the intact reframe was **"big improvement"** —
-building now stands, which was the headline complaint. Then one dig
-unzipped a room into dust, which is where it sits now.
-
-### The one live bug
-
-> One click of `D` collapses an entire room, and it comes down as a
-> uniform field of grit rather than as pieces.
-
-**These are one failure.** A cascade that advances a cell at a time
-necessarily produces dust: each step hands `rigid::fracture` a region
-below `MIN_FRACTURE_CELLS` (6), so it is not fractured at all — it falls
-through to per-cell `break_free`, and per-cell conversion *is* powder.
-
-Corollary worth holding onto: **do not tune the fragment ladder to fix the
-dust.** The ladder never receives a region worth splitting. Fix the
-propagation and the pieces get large for free.
+building stands. Then one dig unzipped a room into grit, which was the
+live bug, and this session found out why.
 
 ---
 
-## 1. The fix, in the order to try it
+## 1. The unzip: the previous diagnosis was wrong
 
-### 1a. Prime suspect: the propagation front
+The version of this file that stood here blamed a **self-propagating
+front**: `is_structurally_interesting` treating an intact cell as evaluable
+when adjacent to empty, so each removal made its neighbours evaluable, one
+cell at a time, handing `rigid::fracture` regions below
+`MIN_FRACTURE_CELLS` that fell through to per-cell conversion — which *is*
+powder.
 
-`load::is_structurally_interesting` treats an intact cell as evaluable
-when it is **adjacent to empty**:
+**Disproved, by measurement, on `scene=room`:**
 
-```rust
-NEIGHBOURS_4.iter().any(|&(dx, dy)| {
-    edge_is_cracked(world, x, y, dx, dy)
-        || world.get(x + dx, y + dy).material == material::EMPTY
-})
+- Material below the cut reads `not evaluated` at every captured frame. The
+  front never runs. It cannot, because those cells are intact and not
+  adjacent to anything empty.
+- Failing regions measured **80–1,573 cells**, not 1–2.
+- 45 chunk bodies formed, mean 27 cells each. The fragment ladder was
+  receiving perfectly reasonable regions all along.
+
+Nothing about region sizes was wrong. Do not go back to the propagation
+front; the reproduction is three commands away and says no.
+
+### What it actually was
+
+`scene=room wall=8 dig=0`, probing straight down the inner face of a wall:
+
+```
+load (148,170): mass 1627 torque 76028 capacity 443904 stress 0.17
+load (148,200): mass 1657 torque 76028 capacity 443904 stress 0.17
+load (148,250): mass 1707 torque 76028 capacity 443904 stress 0.17
+load (148,300): mass 1757 torque 76028 capacity 443904 stress 0.17
 ```
 
-So removing material makes its neighbours evaluable; if they fail they are
-removed, which makes *their* neighbours evaluable. A self-propagating
-front, bounded by nothing to do with how much damage was actually done.
+**Identical torque all the way to the floor**, 140 cells below the roof
+that produced it. `torque = |Sx − x·M|` is the moment of everything a cell
+carries *about that cell*, which is right for a beam reaching sideways and
+charges a column the eccentricity of its roof's centroid — fifty cells
+away. So every cell of every wall in a building sat at exactly the stress
+of the worst point of the roof it carried. Nothing was ever safely deep
+inside a structure, and any one cell that lost its attachment bonus
+(capacity ÷ 12, from `mine`'s detach band) failed wherever it happened to
+stand. One failure, one subtree, the whole upper building.
 
-**Why this only became fatal now.** Under the old model, built material
-was unattached and already evaluated everywhere, so the front had no fresh
-territory to advance into. Making material intact did not create the
-front — it gave it somewhere to go. This is a regression introduced by the
-reframe, not a pre-existing bug that surfaced.
-
-**The change:** an intact cell should be evaluable because it is
-*damaged*, not because it is next to a hole. Drop the empty-adjacency
-clause and keep the crack clause.
-
-**⚠️ This is exemption-shaped, and §3a is the warning.** It must be checked
-against the case it could break: a structure that is genuinely unsound
-must still fall. Specifically —
-
-- `scene=ligament` **must still snap at the neck.** It is the canary: it
-  fails from geometry alone with nothing touching it, so if adjacency is
-  the only thing making its neck evaluable, this change silences it.
-  Acceptance will catch this; if it does, that is the signal 1a is wrong
-  in this form, and 1b is the next move rather than a smaller version
-  of 1a.
-- A blob painted in mid-air must still come down
-  (`an_unsupported_foreground_blob_does_not_hang_in_mid_air`). That one
-  goes through `!supported`, not the interest predicate, so it should be
-  unaffected — confirm rather than assume.
-
-### 1b. The detach footprint
-
-`mine` and `strike` call `structural::detach_exposed_neighbours` for
-**every cell they remove**, at radius `DETACH_DEPTH` (3). A radius-4 dig
-therefore strips protection from a band roughly 13 cells wide. On a wall
-thinner than that, one click un-protects the whole section — which is the
-unzip arriving by a second route even if 1a fixes the first.
-
-That radius was chosen when `attached` meant "part of the background
-massif" and detaching widely was nearly free. It now decides **how much of
-a structure loses its multiplier per click**, which is a completely
-different job for the same number.
-
-Note the tension before changing it: `DETACH_DEPTH` is 3 rather than 1
-because at 1 it "stripped a single-cell skin off the dig face, so
-everything that subsequently broke away was a one-cell sheet". Under the
-current model the piece's thickness comes from the section, not from the
-loosened band, so that rationale may no longer hold — check whether it
-does before treating 3 as load-bearing.
-
-### 1c. Region size at failure
-
-Even a correct cascade should hand `fracture` something worth splitting.
-`filmstrip` already prints `overloaded N (M cells)`; **`M/N` is the number
-that says whether pieces or grit are coming out**, and nothing currently
-reports it directly. Add the mean, or better the max, so a run can be read
-at a glance.
-
-Target to beat, measured on `scene=worked` at its first capture after D1
-landed: 102 bodies / 1,888 cells, i.e. ~18 cells per body. A room coming
-apart should be in that territory. If it is at 1–2, the front is still
-running.
+The fix shipped in `0b5b175`: on a **vertical** support step the arm is
+clamped to the column's own half-thickness. The load enters the column at
+the joint; below the joint the column carries force, not the beam's
+bending. Deliberately a clamp and not an exemption — a column still carries
+`M × half-width`, so a thin wall under a heavy eccentric cap still fails.
 
 ---
 
-## 2. The measurement loop
+## 2. What is still wrong
 
-Fast, and it is the whole loop — do not reach for anything else:
+### 2a. `wall=3 span=200` collapses untouched while 2 and 5 stand
+
+```
+./target/release/examples/filmstrip.exe scene=room span=200 wall=3 dig=0 \
+    start=150 every=1 count=1 out=target/filmstrips/w3.png
+```
+
+1,064 cells, against 0 for `wall=2` and `wall=5`. **Non-monotonic, so
+probably a real defect rather than a threshold** — a thicker wall carrying
+a proportionally thicker roof should be monotonically safer, and
+`CLAUDE.md`'s own advice is that when the same knob moves a number in both
+directions the rule is reading the wrong quantity. Worth one `loadmap=1`
+run to see which cell tops out and what its section is; the suspicion is
+the section walk, which is where the last non-monotonicity lived.
+
+### 2b. Rooms wider than about 200 fail at every thickness
+
+`span=260` loses 890–3,978 cells at wall 2 through 8. That may simply be
+correct — a flat stone roof spanning 260 cells at 17 thick is a 15:1
+span-to-depth ratio and real masonry does not do it either — but nobody has
+decided whether it is the *envelope we want*. It is a design question for
+the owner, not a bug to fix silently. The honest current envelope:
+
+| span | wall 2 | 3 | 5 | 8 |
+|---|---|---|---|---|
+| 100 | ✓ | ✓ | ✓ | ✓ |
+| 140 | ✓ | ✓ | ✓ | ✓ |
+| 200 | ✓ | ✗ | ✓ | ✓ |
+| 260 | ✗ | ✗ | ✗ | ✗ |
+
+### 2c. The dig always cuts clean through a room wall
+
+`Tool::Room` sets wall thickness from `brush_radius` and `App::mine` passes
+the **same** `brush_radius` as the cut radius. A capsule of radius r is
+`2r+1` thick and a dig of radius r is `2r+1` across, so a cut severs the
+wall completely, at any height, at any brush size, and no ligament can
+remain. Two verbs sharing one number where the whole point is that one must
+be smaller than the other.
+
+Not fixed here because the right answer is a design call: a smaller dig, a
+thicker room wall, or a doorway that is dug from the ground up over several
+clicks (which is the *satisfying* answer — it makes cutting a doorway a
+verb rather than a click). Ask.
+
+### 2d. Load still concentrates on one path
+
+The one-pixel stress line the owner reported three times is **not fixed**,
+only made less lethal. Measured on an intact wall: the inner face carries
+mass 1707 and the outer face 307, because the whole roof's shortest path to
+the ground runs down the single innermost column. Capacity happens to
+compensate (it is computed from the full 17-cell section), which is why the
+room stands — but it means damage *on that path* is catastrophic while
+damage anywhere else in the same wall is free. The clamp removed the worst
+consequence; the concentration is still there and is still the largest
+open defect in `load.rs`. Its comment at `evaluate_within` already says so.
+
+---
+
+## 3. What has been tried and must not be retried
+
+Newly added this session, both recorded in `capacity`'s comment:
+
+- **Grading the attachment bonus over the section** — attachment as the
+  mean over the section's cells, so three loosened cells of seventeen cost
+  three seventeenths rather than the whole 12×. The obvious
+  graded-beats-binary fix. It **took `scene=undercut` to zero failures**:
+  undercut spalls precisely because the rows a dig loosened are weak while
+  the rows above them are not, and at a section of 6 with 3 rows loosened
+  the mean reads 6.5× where the old rule read 1×. Weakness being *per cell*
+  is the spalling mechanism, not an artifact of it. It also did not help
+  the case it was written for — at a cut, the entire cross-section is
+  loosened, so the mean equals the minimum and nothing moves.
+- **Narrowing the detach footprint** (`DETACH_DEPTH` 3→1,
+  `CRACK_DETACH_DEPTH` 2→1). Acceptance stayed green and the room was
+  unchanged (2,595 → 2,540 cells lost), because one loosened cell in a load
+  path carrying the roof's whole moment is already fatal. The footprint was
+  never the driver. Both constants are back at 3 and 2.
+
+Carried over, still true:
+
+- **Dividing torque by the section.** Fixed a beefy block, broke
+  `scene=undercut`. Peak bending stress in a section of depth D is `M/D²`,
+  which the model already has right — capacity carries the `D²`, torque the
+  `M`. Dividing again gives `M/D³`, and it double-counts, because a shelf's
+  rows already chain independently.
+- **Intact as an *exemption*.** Broke `scene=ligament`, which fails from
+  geometry alone. A structure standing only by exemption has no answer the
+  moment anything asks, so one chip levels a castle. It must be a
+  multiplier.
+- **Raising `max_unsupported_span` to hold player spans.** 16→40 with
+  `attached_span_bonus` 12→2 holds terrain capacity constant and does make
+  built spans stand — and stops `undercut` spalling entirely.
+- **Scheduling the parent on settle.** 26 pending sites climbing to 4,064,
+  frame cost 2.5 ms to 3,160 ms. The bounded in-tick chain walk replaced it.
+- **Four support models** (confinement, thickness, attachment-as-anchor,
+  reach) — `Reports/load-model-handoff.md` §6.
+
+---
+
+## 4. The measurement loop
 
 ```
 cargo build --release --example filmstrip
-bash scripts/acceptance.sh                     # six cases, mechanism-asserting
-target/release/examples/filmstrip.exe scene=built \
-    start=2 every=40 count=6 crop=0,40,512,280 zoom=2 \
-    out=target/filmstrips/built.png
+bash scripts/acceptance.sh                     # eight cases, mechanism-asserting
+target/release/examples/filmstrip.exe scene=room wall=8 dig=1 \
+    start=2 every=8 count=6 crop=100,120,280,200 zoom=2 loadmap=1 \
+    out=target/filmstrips/room.png
 ```
 
-`scene=built` already exists — it reconstructs the player's shapes
-(a column with arms, a hook, an arch) through the real brush. **It does
-not yet contain a room with a door cut in it, and it should**: add one
-that uses `Tool::Room`'s geometry and then `rigid::mine` at a wall, which
-is the exact reproduction of the report.
+`scene=room` is the reproduction: a hollow room built through
+`paint_capsule_as` and cut with `rigid::mine`, exactly as `Tool::Room` and
+`App::mine` do it. `wall=`, `dig=` and `span=` are separate knobs *because
+the app gives two of them the same number* (§2c). **`dig=0` is the
+control** — it makes no cut at all, and it is what established that the
+room was collapsing untouched, which nobody had checked before assuming the
+dig caused it.
 
-Read `failures: overloaded N (M cells), unsupported N (M cells)` next to
-the image every time. `CLAUDE.md`: a coherent slab and a scatter of grains
-are indistinguishable in a contact sheet.
+Read `failures: overloaded N (M cells)` and `failing region size: mean X,
+largest Y` next to the image every time. The mean alone lies: one 200-cell
+break averaged with fifty 1-cell ones reads as a respectable 5, and 1-cell
+failures are the shape that produces dust. `loadmap=1` prints the single
+most-stressed cell with its mass, torque and capacity, and is the fastest
+way to find *where* something is giving way.
 
-**Timings:** always `repeat=3`, always the minimum. This machine produced
-18.0 ms twice running on a scene that schedules zero structural work, and
-40.5/55.6 ms on scenes that measure 14–19 ms moments later. Three
-near-misses this session where contention was almost read as a regression.
+**Timings:** always `repeat=2` or more, always read the minimum. This
+machine has produced 60.65 ms and 52.72 ms as the slow half of pairs whose
+fast half was 14.86 and 22.57 on the same scene, in the same run.
 
 **Images:** write to `target/filmstrips/` (gitignored) and link them with
 relative markdown paths — the owner's client does not render file-send
@@ -152,86 +211,51 @@ cards.
 
 ---
 
-## 3. What has been tried and must not be retried
-
-- **Dividing torque by the section.** Fixed a beefy block, broke
-  `scene=undercut`. Peak bending stress in a section of depth D is `M/D²`,
-  which the model already has right — capacity carries the `D²`, torque
-  the `M`. Dividing again gives `M/D³`. It also double-counts, because a
-  shelf's rows already chain independently.
-- **Intact as an *exemption*.** Broke `scene=ligament`, which fails from
-  geometry alone. And the owner's own objection is the real argument: a
-  structure standing only by exemption has no answer the moment anything
-  asks, so one chip levels a castle. It must be a multiplier.
-- **Raising `max_unsupported_span` to hold player spans.** 16→40 with
-  `attached_span_bonus` 12→2 holds terrain capacity constant (1536→1600)
-  and does make built spans stand — and stops `undercut` spalling
-  entirely, because an undercut shelf spalls *precisely because* the
-  loosened rock has become foreground.
-- **Scheduling the parent on settle** (to fix load ordering). Every
-  settling cell raised a check on its parent, which raised one on its
-  parent, faster than the queue drained: 26 pending sites climbing to
-  4,064 with frame cost tracking it from 2.5 ms to 3,160 ms. The bounded
-  in-tick chain walk replaced it.
-- **Four support models** (confinement, thickness, attachment-as-anchor,
-  reach) — see `Reports/load-model-handoff.md` §6.
-
----
-
-## 4. After the unzip is fixed
+## 5. After this
 
 In order, and **re-judge each rather than inheriting its justification**:
 
-1. **Tumbling.** Nothing suggests it is broken — `ChunkBody::spin` and the
-   promotion nudge both work. It has had nothing to tumble while regions
-   are one cell. The owner wants "things tilted and fell over more as
-   large pieces"; check whether that is already true once pieces exist,
-   before touching `SPIN_PER_SPEED`.
-2. **Playtest.** `Reports/destruction-plan.md`'s "Pending owner
-   verification" list, plus the two questions this session added: does
-   stone's 6-rung fragment ladder read right, and is the build envelope
-   satisfying.
-3. **E1 (push damage outward from the break).** Its headline
-   justification has already been delivered by other means — the
-   concentration defect was fixed by load flowing over every support, and
-   the cost bound by `ROOTWARD_CHECK_STEPS` 128→48 plus the per-frame
-   budget. **Re-derive whether it is still worth it** rather than
-   inheriting the plan's argument for it.
-4. **F3** (replay a playtest report from a world dump) — still the biggest
-   gap in the loop. Every report this session had to be reconstructed into
-   a scene by hand, and at least one reconstruction was wrong.
-5. **C2** (mortar as a material) and doorway/window cuts on the room tool.
+1. **§2a**, the non-monotonic `wall=3` case. Cheapest, and the one most
+   likely to be a real bug rather than a design question.
+2. **Ask the owner about §2b and §2c** — the build envelope, and whether a
+   doorway should take several clicks. Both are design calls and neither
+   should be decided quietly in a commit.
+3. **Tumbling.** The owner wants "things tilted and fell over more as large
+   pieces". Regions are now large and 45–62 bodies form per collapse, so
+   there is finally something to tumble; check whether it already reads
+   right before touching `SPIN_PER_SPEED`.
+4. **§2d**, load concentration. The largest open defect, and the one the
+   owner has reported most often.
+5. **F3** (replay a playtest report from a world dump) — still the biggest
+   gap in the loop. Every report has had to be reconstructed into a scene by
+   hand, and at least two reconstructions have been wrong.
+6. **C2** (mortar as a material) and doorway/window cuts on the room tool.
 
 ### Known defects not yet confirmed
 
-- **`GRANULAR_CAPACITY_DIVISOR` may be dead code.** Flagged by a
-  concurrent review: `evaluate_within` early-returns on `is_anchor`, which
-  includes `rests_on_ground`, so a cell resting on powder may still be
-  fully exempt from the torque test — contrary to what the B1/B2 commit
-  claims. **Not verified by me.** Check before reasoning about
-  debris-propped structures.
+- **`GRANULAR_CAPACITY_DIVISOR` may be dead code.** Flagged by a concurrent
+  review: `evaluate_within` early-returns on `is_anchor`, which includes
+  `rests_on_ground`. **Not verified.**
 - **`filmstrip` never renders inside its timed loop**, so every worst-frame
   number in this repo's history excludes drawing. The owner found a render
-  regression the harness structurally could not see. Timing a render pass
-  is the highest-value item left in Phase F.
+  regression the harness structurally could not see.
 
 ---
 
-## 5. Repo gotchas this session paid for
+## 6. Repo gotchas these sessions paid for
 
 - **The app locks its exe.** `cargo build` fails with "Access is denied"
-  while it runs; `cargo test` and building `--example filmstrip` still
-  work.
-- **The tree is worked concurrently.** A full `cargo test` failed twice
-  mid-run from another session editing `src/sim/load.rs` under it, and
-  passed on a re-run. Stage explicit paths, never `git add -A`, and check
-  `git status` before committing — `Reports/worldgen-design.md` and
-  `Reports/prior-art-worldgen-slicing.md` are someone else's work in
+  while it runs; `cargo test` and building `--example filmstrip` still work.
+- **The tree is worked concurrently.** Stage explicit paths, never
+  `git add -A`, and check `git status` first — `Reports/worldgen-design.md`
+  and `Reports/prior-art-worldgen-slicing.md` are someone else's work in
   progress.
-- **Frame 0 is not a measurement.** Every scene spikes there, `terrain`
-  included, and it schedules no structural work at all. `filmstrip`
+- **Frame 0 is not a measurement.** Every scene spikes there; `filmstrip`
   excludes it deliberately.
-- **A guard test must be seen to fail.** The acceptance harness was
-  verified in both directions (demanding `capped` collapse exits 1;
-  demanding `worked` stand reports "expected at most 0 structural
-  failures, got 15") before being trusted.
+- **A guard test must be seen to fail.** Both new room cases were verified
+  in the inverted direction (demanding the standing room collapse reports
+  "expected at least 1 overload failures, got 0"; demanding the cut room
+  stand reports "expected at most 0 structural failures, got 30"), and the
+  standing room was verified non-vacuous with `loadmap=1` at frame 300
+  (stress 0.45) — because `scene=capped` once passed for two commits while
+  its entire structure was frozen and had never been evaluated.
