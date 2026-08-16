@@ -105,9 +105,9 @@ difference as data rather than inferring it from shape.**
 
 **Buys:**
 - Building becomes free-form. The stated requirement, directly.
-- The calibration conflict disappears. `max_unsupported_span` no longer
-  has to be small enough to spall an undercut roof *and* large enough to
-  hold a player's lintel, because only damaged rock is ever asked.
+- The calibration conflict narrows to a single number with one job. See
+  §3a -- an earlier draft of this said it "disappears", which was an
+  overclaim.
 - **Performance improves substantially.** The load walks are the expensive
   part of the structural phase and they would run only on damaged
   material, which is a small fraction of a built world. The reported
@@ -158,6 +158,67 @@ None of this touches the simulation. It is `World::paint_capsule` with a
 different gesture in front of it, and the rectangle version is a small
 change to `App`'s input handling plus a preview outline that
 `draw_hud` already has the shape for.
+
+---
+
+## 3a. The cliff-edge objection, and why it changes the design
+
+Raised by the owner before this shipped, and it is correct:
+
+> *"we are deciding structures are solid when built, implying they are not
+> true sound, then any little damage turns off the protection, the whole
+> structure will just collapse, maybe?"*
+
+Follow it through. A span stands because it is *flagged* intact, not
+because it is stable. Chip one corner: that patch loses protection, was
+never sound, and fails. Failing exposes the next ring, which
+`detach_exposed_neighbours` promptly un-attaches, which is also not sound,
+which fails. The wound eats the building. **One chip levels a castle.**
+
+That is a cliff edge, and `CLAUDE.md`'s own ethos section names this exact
+shape as something the project has already paid for twice: *"All-or-
+nothing outcomes ... Real breakage is a distribution."* Binary immunity
+produces binary collapse, and it would read as fake immediately.
+
+**So protection must be a large capacity multiplier, not an exemption.**
+The difference is what happens at the boundary of the damage:
+
+- *Immunity:* an intact cell is never asked. The instant it is asked at
+  all it is asked at bare capacity, and a structure that was only standing
+  by exemption has no answer. Every cell the cascade reaches falls, and it
+  reaches everything.
+- *Multiplier:* an intact cell is always asked and nearly always passes.
+  When the ring behind a wound is exposed, it is evaluated against a real
+  capacity -- so a genuinely chunky wall **holds** and a genuinely
+  over-reaching span does not. The cascade stops where the structure is
+  actually sound, which is the graded outcome §0a demands, and it stops
+  for a reason the player can see in the stress view.
+
+This also keeps the model honest. Under immunity the stress view would
+have to show intact material as *not evaluated*, which hides exactly the
+information that makes the system legible -- and legibility is the thing
+prior art says every disliked stability system got wrong. Under a
+multiplier the overlay keeps working: an intact wall reads deep green, a
+damaged patch flares, and the player can see the wound spreading and stop
+it.
+
+**What this means concretely.** `attached` already *is* a capacity
+multiplier (`attached_span_bonus`, currently 12x for stone). So the change
+is smaller than §1 implies:
+
+1. The brush marks what it places intact, as §1 says.
+2. `is_structurally_interesting` keeps evaluating intact material -- the
+   §1 edit that skips it is **wrong** and should not be made.
+3. The multiplier goes up enough that ordinary construction passes
+   comfortably, and terrain's own figure is held constant by moving
+   `attached_span_bonus` and `max_unsupported_span` in opposite directions
+   (measured earlier: 16/12 -> 40/2 holds terrain at 1536 -> 1600).
+
+The calibration conflict §3 claims disappears is therefore *not* fully
+resolved by this -- it is narrowed to one number, the intact multiplier,
+which now has only one job. That is worth stating plainly rather than
+overclaiming: the previous version of this document said the conflict
+"disappears", and it does not.
 
 ---
 
