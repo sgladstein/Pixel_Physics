@@ -94,6 +94,28 @@ pub enum CellType {
     /// `GrowingTip` instead would anchor a tree on its own canopy, which
     /// is not what "supported by roots" means.
     RootTip = 4,
+    /// An **axillary bud** — a dormant meristem left behind at a node,
+    /// holding the potential to become a `GrowingTip` later.
+    ///
+    /// The unit of shoot construction in real plants is the *metamer*:
+    /// internode + leaf + axillary bud. Extension therefore manufactures
+    /// its own future meristems, one per node, and the reservoir (the *bud
+    /// bank*) grows with the shoot system rather than with the plant's
+    /// volume.
+    ///
+    /// **That asymmetry is the whole point, and it is what the reverted
+    /// bud-break design lacked.** Thickening deposits no buds, so a blob
+    /// generates no new growth potential however large it gets; only
+    /// *extension already performed* does. A rule keyed on "am I idle"
+    /// cannot say that — every mature cell answers yes at once, since
+    /// carbon fills to the cap, crowding decays and conductance relaxes to
+    /// basal the moment growth stops. A depleting stock can.
+    ///
+    /// Structurally this is ordinary stem tissue: same material, carries
+    /// the same `StructuralAnchor`, and `structural.rs` treats it exactly
+    /// as it treats `MatureBody`. The only difference is that it still has
+    /// one thing left it may do, once.
+    DormantBud = 5,
 }
 
 /// One behavior a cell type can carry, composed freely by species data —
@@ -139,6 +161,39 @@ pub enum Behavior {
     /// behavior — `organism-substrate-design.md` §1's own pre-sanctioned
     /// fallback if the two turned out not to share real code, which they
     /// don't.
+    /// A dormant axillary bud flushing into a `GrowingTip` — the only
+    /// mechanism in the engine that *creates* frontier.
+    ///
+    /// **Nothing else ever did, and that was the defect behind both
+    /// failure modes.** A tip that fails to find a candidate for
+    /// `ORGANISM_STALE_LIMIT` ticks retires permanently, so once every
+    /// lineage had retired the organism had no frontier and growth was over
+    /// for good — measured at zero active sites by frame 16,000, with the
+    /// cell count flat from there. The whip is that; the blob is that same
+    /// defect with thickening left as the only process still able to add
+    /// anything.
+    ///
+    /// The gate is **not** local, deliberately. See `plant::break_buds`:
+    /// the decision is made once per organism per tick against the light
+    /// the whole plant is actually intercepting, because every local "am I
+    /// idle" signal saturates simultaneously when growth stops, which is
+    /// exactly how the earlier bud-break attempt ran away.
+    BudBreak {
+        /// Carbon a flushing bud must be holding, and spends, to become a
+        /// tip. A price, not a threshold: it comes out of the same pool
+        /// `Grow` draws on, so flushing competes with extending rather
+        /// than being free.
+        cost: f32,
+        /// Chance a bud that is covered by `SecondaryThicken` survives it.
+        ///
+        /// Literal biology — secondary growth kills the buds the cambium
+        /// outpaces, which is why mature trunks are bare and why epicormic
+        /// resprouting is the *exception* needing its own mechanism. It is
+        /// also how a clear bole arrives for free: the trunk thickens and
+        /// loses its buds, twigs do not thicken and keep theirs, and
+        /// nothing had to know which was which.
+        thickening_survival: f32,
+    },
     Grow {
         /// Resource spent from the growing cell on a successful growth
         /// step — same role as `Divide`'s `cost`, same gate shape
@@ -685,6 +740,7 @@ pub fn cell_type(aux: u16) -> Option<CellType> {
         2 => Some(CellType::MatureBody),
         3 => Some(CellType::Leaf),
         4 => Some(CellType::RootTip),
+        5 => Some(CellType::DormantBud),
         _ => None,
     }
 }
@@ -1527,9 +1583,15 @@ mod tests {
 
     #[test]
     fn an_unrecognized_type_bit_pattern_is_none() {
-        // Bit pattern 5 doesn't correspond to any current CellType variant
-        // (0-4 are Seed/GrowingTip/MatureBody/Leaf/RootTip).
-        assert_eq!(cell_type(5), None);
+        // 0-5 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud, so
+        // the first unassigned pattern is 6. Deliberately the *next* one
+        // rather than a far-away value: what this guards is that adding a
+        // variant does not silently start aliasing a stale bit pattern onto
+        // it, and the pattern that has just become valid is the one that
+        // proves the boundary moved with the enum.
+        assert_eq!(cell_type(5), Some(CellType::DormantBud));
+        assert_eq!(cell_type(6), None);
+        assert_eq!(cell_type(15), None);
     }
 
     // --- diffuse_resource --------------------------------------------------

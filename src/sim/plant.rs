@@ -648,6 +648,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     let mut found_candidate = false;
     for behavior in behavior_buf.into_iter().take(behavior_count).flatten() {
         match behavior {
+            // Evaluated once per organism in `break_buds`, never from the
+            // bud's own tick -- and a `DormantBud` carries no active site
+            // at all, so this arm is unreachable in practice.
+            Behavior::BudBreak { .. } => {}
             Behavior::Divide { cost, damp_chance, dry_chance, shade_sensitive } => {
                 if resource < cost {
                     continue; // temporary resource shortfall -- try again next tick, not a dead end
@@ -974,7 +978,25 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // settled root tissue genuinely does thicken and anchor,
                 // which is exactly the behaviour set `tree.ron` already
                 // attaches to it.
-                let self_type_after_grow = if matches!(cell_type, CellType::GrowingTip | CellType::RootTip) {
+                //
+                // **Except at a node, where it becomes a `DormantBud`.**
+                // The metamer is internode + leaf + axillary bud, so the
+                // same event that places a leaf places the bud that leaf
+                // subtends -- one bud per node, deposited by extension and
+                // by nothing else. `CellType::DormantBud`'s doc has why
+                // that "and by nothing else" is the whole mechanism.
+                //
+                // A bud is stem tissue and stays stem tissue: same
+                // material, same `StructuralAnchor`, load-bearing. It is a
+                // `MatureBody` with one thing left it may do.
+                //
+                // Roots are excluded by `leaf_due` -- `tree.ron` gives the
+                // `RootTip` a plastochron of 0, which disables nodes
+                // entirely, so a root system deposits no buds and cannot
+                // sprout shoots underground.
+                let self_type_after_grow = if cell_type == CellType::GrowingTip && leaf_due {
+                    CellType::DormantBud
+                } else if matches!(cell_type, CellType::GrowingTip | CellType::RootTip) {
                     CellType::MatureBody
                 } else {
                     cell_type
@@ -1362,6 +1384,10 @@ pub fn step_organisms(world: &mut World) {
         // tick's distribution.
         organism::transport(world, organism_id);
         allocate_to_frontier(world, organism_id);
+        // Before upkeep, so a bud that flushes this tick is already a
+        // `GrowingTip` when `thicken` runs and can be counted as frontier
+        // rather than thickened over on the same tick it woke up.
+        break_buds(world, organism_id);
         organism_upkeep(world, organism_id);
     }
 }
@@ -1414,6 +1440,113 @@ pub fn step_organisms(world: &mut World) {
 /// because it has one caller and one species; the moment a second plant
 /// form wants a different foliage economy it belongs in the `.ron`.
 const LEAF_INCOME_PER_TICK: f32 = 0.05;
+
+/// Flush at most one dormant bud into a `GrowingTip`, if the light the
+/// plant is intercepting can support another one.
+///
+/// **This is the only thing in the engine that creates frontier**, and the
+/// gate on it is the whole design. Two properties matter, and the reverted
+/// bud-break attempt had neither:
+///
+/// 1. **The signal is whole-plant, not local.** Every local "am I idle"
+///    quantity saturates at once when a plant stops growing — carbon fills
+///    every cell to `RESOURCE_SCALE` (the transport clamp guarantees it),
+///    crowding decays everywhere within two ticks, and conductance relaxes
+///    to basal everywhere because there is no flux. So a local test fires
+///    on *every* mature cell simultaneously and budding becomes
+///    proportional to volume. Intercepted light does not do that: it is
+///    bounded by foliage that shades itself.
+/// 2. **The bound is a supportable count, not a cap.** `supportable` is
+///    Palubicki's `n = ⌊v⌋` in miniature — income divided by what one tip
+///    costs. Adding a tip does not change income, so each flush moves the
+///    plant one step closer to its own ceiling and the ceiling moves only
+///    when the crown actually catches more light. Capping instead ("one bud
+///    per organism per tick") was considered and is not enough on its own:
+///    it converts exponential growth into linear growth, which still fills
+///    the world.
+///
+/// One per tick on top of that is a *rate* limit, not the bound — it keeps
+/// a plant that has just been shaded from re-flushing its whole bud bank in
+/// a single tick, and it keeps this function's cost at one pass.
+fn break_buds(world: &mut World, organism_id: u16) {
+    let Some(state) = world.organism(organism_id) else { return };
+    let species_id = state.species;
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
+
+    // The price of a flush, and the cost this bud's tip will then pay per
+    // growth step -- both read from the species' own `GrowingTip` `Grow`,
+    // so a species cannot set them inconsistently.
+    let (Some(cost), Some(bud_cost)) = (
+        world.species.get(species_id).behaviors(CellType::GrowingTip).iter().find_map(|b| match b {
+            Behavior::Grow { cost, .. } => Some(*cost),
+            _ => None,
+        }),
+        world.species.get(species_id).behaviors(CellType::DormantBud).iter().find_map(|b| match b {
+            Behavior::BudBreak { cost, .. } => Some(*cost),
+            _ => None,
+        }),
+    ) else {
+        return; // a species with no buds, or none that can break
+    };
+
+    let mut intercepted = 0.0f32;
+    let mut tips = 0usize;
+    let mut buds: Vec<(i32, i32, f32)> = Vec::new();
+    let mut richest: Option<(i32, i32, f32)> = None;
+    for &(x, y) in &cells {
+        let cell = world.get(x, y);
+        if cell.organism_id() != organism_id {
+            continue;
+        }
+        match organism::cell_type(cell.aux()) {
+            Some(CellType::Leaf) => intercepted += ambient_light_above(world, x, y),
+            // Shoot tips only. A root tip is frontier too, but it is fed by
+            // a different economy and does not compete for light.
+            Some(CellType::GrowingTip) => tips += 1,
+            Some(CellType::DormantBud) => buds.push((x, y, ambient_light_above(world, x, y))),
+            _ => {}
+        }
+        let held = world.carbon_at(x, y);
+        if richest.is_none_or(|(_, _, best)| held > best) {
+            richest = Some((x, y, held));
+        }
+    }
+    if buds.is_empty() {
+        return;
+    }
+    let supportable = (intercepted * LEAF_INCOME_PER_TICK / cost).floor() as usize;
+    if tips >= supportable {
+        return;
+    }
+    // Somebody has to pay for it. Drawn from the richest cell, which is
+    // where the carbon actually is: the trunk sits at the cap while the
+    // frontier starves, and that gradient is `organism::transport`'s doing
+    // rather than an accident -- see `supply_direction`.
+    let Some((rx, ry, held)) = richest else { return };
+    if held < bud_cost {
+        return;
+    }
+
+    // The brightest bud, not the highest or the newest. A bud in deep shade
+    // that flushes builds a shoot into shade, which then earns nothing --
+    // and the ties are broken by position so the choice is deterministic.
+    buds.sort_unstable_by(|a, b| b.2.total_cmp(&a.2).then((a.1, a.0).cmp(&(b.1, b.0))));
+    let (bx, by, _) = buds[0];
+
+    let cell = world.get(bx, by);
+    world.set(bx, by, cell.with_aux(organism::pack_cell_type(CellType::GrowingTip)));
+    write_carbon(world, rx, ry, held - bud_cost);
+    write_carbon(world, bx, by, bud_cost);
+    // A flushed bud is an *axillary* meristem -- it is a lateral by
+    // definition, so it starts the next tier exactly as `Grow`'s own branch
+    // child does. Without this a crown rebuilt from buds would inherit
+    // trunk parameters and grow straight up as a second trunk.
+    let order = world.organism_cell(bx, by).map_or(0, |c| c.order);
+    write_order(world, bx, by, order.saturating_add(1));
+    let site = reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL);
+    world.schedule_active_site(site);
+}
 
 fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
@@ -1533,6 +1666,21 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
 
+    // How likely a bud is to survive being thickened past. Read once for
+    // the organism rather than per cell: it belongs to the *bud's* own
+    // `BudBreak`, but it is `thicken` -- running on a `MatureBody` several
+    // cells away -- that consumes it, and a species defines it once.
+    let bud_survival = world
+        .species
+        .get(species_id)
+        .behaviors(CellType::DormantBud)
+        .iter()
+        .find_map(|b| match b {
+            Behavior::BudBreak { thickening_survival, .. } => Some(*thickening_survival),
+            _ => None,
+        })
+        .unwrap_or(1.0);
+
     // Leaves per row, then a running total downward, so every cell can read
     // "how much foliage do I carry" without a traversal of its own.
     let mut leaves_in_row: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
@@ -1629,7 +1777,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 }
                 Behavior::SecondaryThicken { pipe_ratio } => {
                     let carried = leaves_above.get(&cy).copied().unwrap_or(0);
-                    thicken(world, cx, cy, organism_id, pipe_ratio, carried as usize, &mut rng);
+                    thicken(world, cx, cy, organism_id, pipe_ratio, carried as usize, bud_survival, &mut rng);
                 }
                 // Frontier behaviours never run here -- a mature cell has
                 // no growth to do, and `Germinate` belongs to a `Seed`.
@@ -1638,10 +1786,17 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 // `Absorb` is a `RootTip`'s live water uptake (mature root
                 // tissue is suberised and takes up little, which is why
                 // `Transpire` above is what mature roots do instead).
+                // `BudBreak` is here too, and it is the one behaviour that
+                // deliberately does *not* run from the cell that carries
+                // it. Its gate is a whole-organism quantity (income against
+                // frontier), so `break_buds` evaluates it once per organism
+                // per tick instead -- see that function for why a per-cell
+                // version cannot work.
                 Behavior::Grow { .. }
                 | Behavior::Divide { .. }
                 | Behavior::Germinate { .. }
                 | Behavior::Absorb { .. }
+                | Behavior::BudBreak { .. }
                 | Behavior::StructuralAnchor => {}
             }
         }
@@ -1846,7 +2001,8 @@ fn stem_run(world: &World, x: i32, y: i32, organism_id: u16) -> usize {
 /// path that `can_widen`'s early rejection exists to keep out.
 const MAX_STEM_RUN: i32 = 32;
 
-fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, leaf_count: usize, rng: &mut Rng) {
+#[allow(clippy::too_many_arguments)]
+fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, leaf_count: usize, bud_survival: f32, rng: &mut Rng) {
     let axis = cross_section_axis(world, x, y);
     // **Cheapest possible rejection first.** The flood fill below is
     // O(organism size), and it ran for *every* `MatureBody` cell every tick
@@ -1984,6 +2140,24 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
             // every thickened limb read as trunk the moment something does.
             let order = world.organism_cell(x, y).map_or(0, |c| c.order);
             write_order(world, nx, ny, order);
+            // **The cambium kills the buds it outpaces**, and that is
+            // where the clear bole comes from -- for free, with no rule
+            // about height and none about which cells are trunk. The trunk
+            // is what thickens, so the trunk is what loses its buds; a twig
+            // carries too small a downstream leaf count to thicken and
+            // keeps every bud it has. Epicormic resprouting on a mature
+            // trunk is exactly the exception that needs its own mechanism
+            // later, per research/m16-plant-biology.md 5.
+            for (bdx, bdy) in NEIGHBOURS_8 {
+                let (px, py) = (x + bdx, y + bdy);
+                let b = world.get(px, py);
+                if b.organism_id() != organism_id || organism::cell_type(b.aux()) != Some(CellType::DormantBud) {
+                    continue;
+                }
+                if !rng.chance(bud_survival) {
+                    world.set(px, py, b.with_aux(organism::pack_cell_type(CellType::MatureBody)));
+                }
+            }
             // No structural check here either -- same reasoning as `Grow`'s
             // own child creation: thickening only adds material sideways
             // off an already-supported `MatureBody`, never removes support.
@@ -3187,7 +3361,7 @@ mod tests {
         let mut rng = rng::stream(organism_id as u64, 54, 50, 0);
 
         // 30 leaves above, against `tree.ron`'s own pipe_ratio of 10.
-        thicken(&mut w, 54, 50, organism_id, 10.0, 30, &mut rng);
+        thicken(&mut w, 54, 50, organism_id, 10.0, 30, 1.0, &mut rng);
 
         assert_eq!(
             w.get(55, 50).organism_id(),
@@ -3197,7 +3371,7 @@ mod tests {
 
         // ...and it still widens when it genuinely is too thin for its load.
         let mut rng = rng::stream(organism_id as u64, 54, 50, 1);
-        thicken(&mut w, 54, 50, organism_id, 10.0, 300, &mut rng);
+        thicken(&mut w, 54, 50, organism_id, 10.0, 300, 1.0, &mut rng);
         assert_ne!(w.get(55, 50).organism_id(), 0, "300 leaves on a five-wide trunk is under-built and should still thicken");
     }
 
@@ -3234,7 +3408,7 @@ mod tests {
         }
 
         let mut rng = rng::stream(organism_id as u64, 22, 50, 0);
-        thicken(&mut w, 22, 50, organism_id, 10.0, 40, &mut rng);
+        thicken(&mut w, 22, 50, organism_id, 10.0, 40, 1.0, &mut rng);
 
         assert_ne!(
             w.get(23, 50).organism_id(),
@@ -3268,7 +3442,7 @@ mod tests {
         // Called on the trunk's *outer* cell -- the middle of a solid run
         // has no free side, so `can_widen` rejects it before the gate.
         let mut rng = rng::stream(organism_id as u64, 20, 50, 0);
-        thicken(&mut w, 20, 50, organism_id, 10.0, 40, &mut rng);
+        thicken(&mut w, 20, 50, organism_id, 10.0, 40, 1.0, &mut rng);
 
         assert_ne!(
             w.get(19, 50).organism_id(),
@@ -3530,11 +3704,16 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             // leaf itself, which built the stem out of alternating wood and
             // foliage -- see `self_type_after_grow`'s own comment for the
             // three things that broke.
+            // Still wood, never foliage -- but a node retires to
+            // `DormantBud` rather than plain `MatureBody`, which is the
+            // metamer's third part (internode + leaf + bud) and the same
+            // event that placed the leaf.
             let self_type = organism::cell_type(w.get(100, 100).aux());
+            let expected = if expect_leaf { CellType::DormantBud } else { CellType::MatureBody };
             assert_eq!(
                 self_type,
-                Some(CellType::MatureBody),
-                "a retiring tip must always become wood, never a leaf, whatever the plastochron says"
+                Some(expected),
+                "a retiring tip must always become wood, never a leaf, whatever the plastochron says --                  and a node's wood is a bud"
             );
 
             let leaves = NEIGHBOURS_8

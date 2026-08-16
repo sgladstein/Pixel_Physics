@@ -181,6 +181,28 @@
             // Behavior::Transpire.
             Transpire(rate: 1.0),
         ]),
+        // The bud bank -- CellType::DormantBud's own doc has why extension
+        // depositing buds, and nothing else depositing them, is the whole
+        // mechanism. A bud is stem tissue, so it anchors and thickens like
+        // any other MatureBody; the only thing it has that they do not is
+        // one flush.
+        (DormantBud, [
+            BudBreak(
+                // Roughly one growth step's worth. A flush should be a real
+                // decision the plant pays for out of the same pool Grow
+                // draws on, not free potential sitting on the shelf.
+                cost: 0.2,
+                // A one-in-five survival is what leaves a clear bole: a
+                // trunk cell is thickened past many times over a tree's
+                // life, so its buds are gone with near certainty, while a
+                // twig that never thickens keeps all of them. Not 0 --
+                // occasional survivors on a lower limb are what stop the
+                // crown being a single flat layer at the top.
+                thickening_survival: 0.2,
+            ),
+            StructuralAnchor,
+            SecondaryThicken(pipe_ratio: 45.0),
+        ]),
         (Leaf, [
             Photosynthesize(rate: 0.35),
         ]),

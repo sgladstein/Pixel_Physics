@@ -276,6 +276,12 @@ const CELL_TYPE_GROWING_TIP: [f32; 3] = [90.0, 255.0, 120.0];
 const CELL_TYPE_MATURE_BODY: [f32; 3] = [150.0, 110.0, 255.0];
 const CELL_TYPE_LEAF: [f32; 3] = [255.0, 120.0, 220.0];
 const CELL_TYPE_ROOT_TIP: [f32; 3] = [255.0, 150.0, 60.0];
+/// Deliberately loud and unlike wood. A bud is a *decision point* — where
+/// the crown will come from — and it is a handful of cells among thousands
+/// of stem cells, so a subtle colour reads as absent. See this module's own
+/// note on the canopy-density sheet that read as blank because a mid-range
+/// value moved one colour byte from 139 to 155.
+const CELL_TYPE_DORMANT_BUD: [f32; 3] = [80.0, 255.0, 255.0];
 
 /// Flat blend for `OrganismOverlay::CellType`. High, but short of 1.0 on
 /// purpose: keeping a little of the underlying material colour through
@@ -950,6 +956,7 @@ impl Renderer {
                     Some(organism::CellType::MatureBody) => CELL_TYPE_MATURE_BODY,
                     Some(organism::CellType::Leaf) => CELL_TYPE_LEAF,
                     Some(organism::CellType::RootTip) => CELL_TYPE_ROOT_TIP,
+                    Some(organism::CellType::DormantBud) => CELL_TYPE_DORMANT_BUD,
                     None => [255.0, 0.0, 0.0],
                 };
                 (colour, CELL_TYPE_BLEND)
