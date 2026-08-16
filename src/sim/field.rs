@@ -155,7 +155,7 @@ const MAX_TEMPERATURE: f32 = 4000.0;
 /// thermodynamics engine, and something can legitimately overshoot slightly
 /// during a single damped step without that being a bug worth chasing.
 const MIN_TEMPERATURE: f32 = -270.0;
-const MAX_LIGHT: f32 = 4.0;
+pub const MAX_LIGHT: f32 = 4.0;
 /// Architecture report §4. No physical unit — a relative "how much ambient
 /// humidity" scalar, same spirit as `MAX_LIGHT`: not calibrated against a
 /// real quantity, just a fixed ceiling the diffusion/decay constants below
@@ -595,7 +595,7 @@ fn is_converged(old: &HashMap<ChunkCoord, FieldTile>, coords: &[ChunkCoord], nex
 /// for a few thousand frames (the scale of this file's own longer tests,
 /// and of `plant.rs`'s multi-thousand-frame growth runs) sees at least one
 /// full day and one full night, not just a sliver of one.
-const DAY_NIGHT_PERIOD_FRAMES: u64 = 3600;
+pub const DAY_NIGHT_PERIOD_FRAMES: u64 = 3600;
 /// Floor on `sky_light_amplitude` at the darkest point of night — real
 /// moon/starlight, not absolute zero. Keeps night from being a hard on/off
 /// switch for everything reading the light channel (moss shade-seeking,
@@ -626,6 +626,24 @@ fn sky_light_amplitude(frame: u64) -> f32 {
 pub fn sun_elevation(frame: u64) -> f32 {
     let phase = (frame % DAY_NIGHT_PERIOD_FRAMES) as f32 / DAY_NIGHT_PERIOD_FRAMES as f32;
     (phase * std::f32::consts::TAU).cos()
+}
+
+/// How much daylight there is, as `0.0` (deepest night) to `1.0` (noon).
+///
+/// [`sky_light_amplitude`] normalised by its own range. The renderer lights
+/// the world from this rather than from the light *channel*, and the reason
+/// is a measurement: at noon, on open terrain, the channel reads **0.30 of
+/// `MAX_LIGHT` at the ground surface and 0.00 forty cells down**. Light
+/// diffuses through air and is blocked by solids, so it never meaningfully
+/// enters the material it would have to light — the channel is doing its own
+/// job (telling plants and moss what is shaded) perfectly well and simply is
+/// not a description of how lit the *rock* looks.
+///
+/// Making it one is a real feature — light propagating into solids, or a
+/// depth term — and would be what "caves are dark and you need a torch"
+/// requires. It is not what a day/night cycle requires.
+pub fn daylight_fraction(frame: u64) -> f32 {
+    ((sky_light_amplitude(frame) - NIGHT_LIGHT_FLOOR) / (MAX_LIGHT - NIGHT_LIGHT_FLOOR)).clamp(0.0, 1.0)
 }
 
 /// Whether the sun is on its way up. Phase runs noon → sunset → midnight →

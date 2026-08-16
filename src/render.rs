@@ -11,7 +11,7 @@ use crate::sim::cell::AMBIENT_TEMPERATURE;
 use crate::sim::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
 use crate::sim::material;
 use crate::sim::particle::ParticleSystem;
-use crate::sky::Sky;
+use crate::sky::{self, Sky};
 use crate::sim::rng;
 use crate::sim::world::World;
 
@@ -277,7 +277,24 @@ pub struct Renderer {
     /// matches this one would repaint the screen to exactly the same pixels,
     /// so it does not — which is what keeps a day/night sky from costing the
     /// dirty-rect skip. See `sky::Sky::key`.
-    last_sky_key: Option<[i32; 6]>,
+    last_sky_key: Option<[i32; 7]>,
+    /// How lit the world is, `0..=LIGHT_LEVELS`, for this frame.
+    ///
+    /// **From the global daylight, not from the light channel**, and that was
+    /// a correction rather than a shortcut. Measured at noon on open terrain,
+    /// the channel reads 0.30 of `MAX_LIGHT` at the ground surface and 0.00
+    /// forty cells down: light diffuses through air and is stopped by solids,
+    /// so it never meaningfully enters the material it would have to light.
+    /// Driving the ground's brightness from it produced a picture that looked
+    /// right for the wrong reason — every solid pinned at the unlit floor all
+    /// day, with the visible day/night swing coming entirely from the ambient
+    /// tint. Lighting rock by the light channel needs light to propagate into
+    /// rock, which is the "caves are dark, bring a torch" feature and not
+    /// this one.
+    daylight: u8,
+    /// Where the moon was painted last frame, so its old pixels get cleaned
+    /// up. Same device as `last_body_rects`.
+    last_moon_rect: Option<Rect>,
 }
 
 impl Renderer {
@@ -293,8 +310,10 @@ impl Renderer {
             zoom_out_stride: 1,
             field_overlay: FieldOverlay::Off,
             last_zoom_state: None,
-            sky: Sky::at(0, 0, 1),
+            sky: Sky::at(0, 0, 1, 0, 1),
             last_sky_key: None,
+            daylight: sky::LIGHT_LEVELS,
+            last_moon_rect: None,
         }
     }
 
@@ -461,12 +480,16 @@ impl Renderer {
         let bounds = world.bounds();
         self.sky = Sky::at(
             world.frame,
+            bounds.map_or(0, |b| b.min_x),
+            bounds.map_or(1, |b| b.max_x),
             bounds.map_or(0, |b| b.min_y),
             bounds.map_or(1, |b| b.max_y),
         );
+        self.daylight = sky::daylight_level(world.frame);
         let sky_key = self.sky.key();
         let sky_changed = self.last_sky_key != Some(sky_key);
         self.last_sky_key = Some(sky_key);
+
 
         let full = force_full
             || scale_changed
@@ -503,6 +526,20 @@ impl Renderer {
                 });
             }
             self.last_body_rects = body_rects;
+            // The moon, where it is now and where it was. A disc crossing
+            // the sky is a moving sprite as far as the dirty region is
+            // concerned, and leaves a trail behind it without the second
+            // rectangle.
+            let moon_rect = self.sky.moon_rect().and_then(|(x0, y0, x1, y1)| {
+                self.world_rect_to_screen_rect(Rect::new(x0, y0, x1, y1), width, height)
+            });
+            for r in moon_rect.iter().chain(self.last_moon_rect.iter()) {
+                dirty = Some(match dirty {
+                    Some(d) => d.union(*r),
+                    None => *r,
+                });
+            }
+            self.last_moon_rect = moon_rect;
             for coord in touched {
                 if let Some(r) = self.world_rect_to_screen_rect(coord.bounds(), width, height) {
                     dirty = Some(match dirty {
@@ -681,7 +718,7 @@ impl Renderer {
             // Deliberately *inside* the bounds check above, so the void
             // outside the world keeps its own colour and stays
             // distinguishable from a dark night sky.
-            base = self.sky.colour_at(y);
+            base = self.sky.colour_at(x, y);
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
             // temperature very much propagate through vacuum) rather than
@@ -815,6 +852,15 @@ impl Renderer {
         // lesson M5's `ChunkView` already applied to the sweep) before it's
         // safe to turn back on.
 
+        // Lit last, so everything above — fill dimming, grain, heat glow —
+        // is lit rather than competing with the light.
+        //
+        // Fire looks after itself without a special case: a burning cell
+        // floods its own field block with light, so its level comes out at
+        // the top of the range and the darkening barely touches it. The one
+        // thing that emits is the one thing that stays bright, which is the
+        // behaviour a special case would have had to fake.
+        let rgb = sky::apply_light(rgb, self.daylight, self.sky.ambient());
         self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255])
     }
 
