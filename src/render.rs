@@ -843,7 +843,7 @@ impl Renderer {
     /// `zoom_out_stride > 1` and so has no single screen pixel of its own —
     /// distinct from simply being off-screen, which callers already clip
     /// against separately via `put`'s own bounds check.
-    fn world_to_screen(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+    pub fn world_to_screen(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         if self.zoom > 1 {
             Some(((x - self.camera_x) * self.zoom, (y - self.camera_y) * self.zoom))
         } else if self.zoom_out_stride > 1 {

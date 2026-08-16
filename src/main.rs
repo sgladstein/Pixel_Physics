@@ -300,6 +300,7 @@ impl Handler {
             KeyCode::PageUp | KeyCode::PageDown if self.app.show_tunables => self.app.tunables_cycle_group(),
             KeyCode::KeyS if self.app.show_tunables => self.app.save_tunable(),
             KeyCode::KeyI => self.app.toggle_hover_inspector(),
+            KeyCode::KeyN => self.app.toggle_stress_view(),
             KeyCode::Tab => self.app.toggle_palette(),
             KeyCode::Slash => self.app.toggle_help(),
             KeyCode::KeyO => self.app.toggle_tunables(),

@@ -823,6 +823,17 @@ pub fn evaluate(world: &World, x: i32, y: i32) -> Option<Load> {
     evaluate_within(world, x, y, &mut cache, &mut unlimited)
 }
 
+/// `evaluate`, but sharing a caller-owned cache across many cells.
+///
+/// The plain `evaluate` builds a fresh `Cache` per call, which is right
+/// for a single readout and quadratic for a whole screen of them: each
+/// cell would re-walk subtrees its neighbour had just walked. A screen-wide
+/// pass (`App::draw_stress_overlay`) hands one cache to every cell and
+/// pays O(region) instead of O(region x subtree).
+pub fn evaluate_with_cache(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mut u32) -> Option<Load> {
+    evaluate_within(world, x, y, cache, budget)
+}
+
 fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mut u32) -> Option<Load> {
     let cell = world.get(x, y);
     if !is_body_material(world, cell.material) || cell.organism_id() != 0 {

@@ -88,6 +88,11 @@ pub struct App {
     /// itself up. On, the brush authors terrain, which is braced by the mass
     /// behind the slice and behaves like a cliff rather than a structure.
     pub build_background: bool,
+    /// `N` — the stress overlay. Off by default: it repaints the world
+    /// every frame it is up, which is the cost the dirty-rect skip exists
+    /// to avoid, and that is only worth paying while someone is actually
+    /// asking the question.
+    pub show_stress: bool,
     /// A short-lived on-screen line, and the frame it stops being drawn on.
     ///
     /// `message` already existed but is only ever *read* from the window
@@ -167,8 +172,21 @@ impl App {
             pinned: None,
             experiment: false,
             build_background: false,
+            show_stress: false,
             toast: None,
         }
+    }
+
+    /// `N` — show or hide the structural stress overlay.
+    ///
+    /// The key is `N` because that is what Medieval Engineers binds its
+    /// own stress view to, and `Reports/prior-art-destruction.md` is
+    /// emphatic that legibility, not physics, is what every disliked
+    /// stability system in this genre actually got wrong. There is no
+    /// reason to make someone learn a different key for the same idea.
+    pub fn toggle_stress_view(&mut self) {
+        self.show_stress = !self.show_stress;
+        self.show_toast(if self.show_stress { "STRESS VIEW ON - RED IS AT ITS LIMIT" } else { "STRESS VIEW OFF" });
     }
 
     /// Put `text` on screen for `TOAST_FRAMES`. See `App::toast`.
@@ -473,7 +491,8 @@ impl App {
             // the frame it expires on has to redraw or it stays burned in
             // over a settled world -- the exact reason every other overlay
             // is in this list.
-            || self.active_toast().is_some();
+            || self.active_toast().is_some()
+            || self.show_stress;
         let touched = self.world.take_touched_chunks();
         self.renderer.draw(&self.world, &self.particles, &touched, frame, (WIDTH, HEIGHT), force_full);
         self.draw_hud(frame, cursor);
@@ -497,6 +516,11 @@ impl App {
         // Brush label -- always on, bottom-left, the data `status()` above
         // already computes just shown persistently instead of only in the
         // window title bar.
+        // Under the HUD text but over the terrain, so the readouts stay
+        // legible against it.
+        if self.show_stress {
+            self.draw_stress_overlay(frame);
+        }
         let label = format!("{} R{}", self.selected_name(), self.brush_radius);
         hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
         // Directly above the persistent brush label, so a mode change reads
@@ -712,6 +736,56 @@ impl App {
     /// field channel at the world position under the cursor — every
     /// existing data path `I` toggles into view rather than needing a
     /// debugger to inspect.
+    /// Paint every structurally interesting cell by how close it is to
+    /// failing.
+    ///
+    /// # Why this exists at all
+    ///
+    /// `load::Load::stress()` is the exact ratio the failure criterion
+    /// tests, and before Phase A nothing in the running game read it. The
+    /// model decided whether a player's structure stood using quantities
+    /// invisible on screen — `attached` multiplies capacity twelvefold and
+    /// renders identically either way; `section` can differ 1,600x between
+    /// two cells that draw the same. Every shipped stability system in this
+    /// genre that players disliked failed on exactly that, and Rust ships a
+    /// cruder model than ours that players accept because the number is on
+    /// the hammer.
+    ///
+    /// # Why one cache for the whole screen
+    ///
+    /// `load::evaluate` walks a subtree, so a per-cell call would re-walk
+    /// what the neighbour just walked and the pass would be quadratic. One
+    /// shared `load::Cache` makes it O(region). The budget is deliberately
+    /// unbounded here: this is a debug view answering a question the user
+    /// asked *now*, and a half-drawn overlay would be worse than a slow
+    /// one — the honest cost is that it defeats the dirty-rect skip while
+    /// it is up, which is the same trade the animated grain documents and
+    /// is why it is off by default.
+    fn draw_stress_overlay(&self, frame: &mut [u8]) {
+        let mut cache = load::Cache::default();
+        let mut budget = u32::MAX;
+        let (x0, y0) = self.renderer.screen_to_world(0, 0);
+        let (x1, y1) = self.renderer.screen_to_world(WIDTH as i32, HEIGHT as i32);
+        let zoom = self.renderer.zoom.max(1);
+        for wy in y0..=y1 {
+            for wx in x0..=x1 {
+                let Some(l) = load::evaluate_with_cache(&self.world, wx, wy, &mut cache, &mut budget) else { continue };
+                let Some((sx, sy)) = self.renderer.world_to_screen(wx, wy) else { continue };
+                // Green at rest through amber to red at the limit, and
+                // beyond 1.0 it stays saturated rather than wrapping --
+                // "over its limit" is one state, not a gradient, and a cell
+                // that is about to go should not fade back toward green.
+                let ratio = l.stress().clamp(0.0, 1.0);
+                let colour = [(40.0 + 215.0 * ratio) as u8, (220.0 * (1.0 - ratio)) as u8, 60, 255];
+                for dy in 0..zoom {
+                    for dx in 0..zoom {
+                        render::blend(frame, WIDTH, HEIGHT, sx + dx, sy + dy, colour, 0.55);
+                    }
+                }
+            }
+        }
+    }
+
     /// What the structural model thinks of the cell under the cursor.
     ///
     /// # Why this is not a nice-to-have
@@ -835,6 +909,7 @@ impl App {
             "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
             "",
             "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
+            "N STRESS VIEW (GREEN AT REST, RED AT ITS LIMIT)",
             "F1 CHUNK OVERLAY    G WATER GRAIN",
             "",
             "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
@@ -1344,6 +1419,55 @@ mod tests {
         let background = painted(&app, 160, 60);
         assert!(!background.is_empty(), "test setup: the background brush painted no stone at all");
         assert!(background.iter().all(|a| *a), "the background brush should author terrain");
+    }
+
+    #[test]
+    fn the_stress_view_paints_loaded_rock_and_leaves_empty_space_alone() {
+        // Two assertions, because either alone passes against a broken
+        // overlay: one that paints nothing would satisfy "the sky is
+        // untouched", and one that paints the whole screen would satisfy
+        // "the rock changed colour".
+        //
+        // Also writes the frame out, because `CLAUDE.md` is emphatic that
+        // an assertion about pixels is not the same as having looked at
+        // them -- and a colour ramp is exactly the kind of thing that
+        // passes a numeric test while being unreadable on screen.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        // A cantilever off the left cliff: something with a real stress
+        // gradient along it rather than a uniform blob.
+        for x in 0..90 {
+            for y in 120..170 {
+                app.world.set(x, y, Cell::new(stone, 0).with_attached(true));
+            }
+        }
+        for x in 90..250 {
+            for y in 150..162 {
+                app.world.set(x, y, Cell::new(stone, 0));
+            }
+        }
+        crate::sim::structural::compute_world_distances(&mut app.world);
+
+        let mut plain = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        app.draw(&mut plain, None);
+        app.toggle_stress_view();
+        assert!(app.show_stress);
+        let mut tinted = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        app.draw(&mut tinted, None);
+
+        let at = |buf: &[u8], x: i32, y: i32| {
+            let i = ((y * WIDTH as i32 + x) * 4) as usize;
+            [buf[i], buf[i + 1], buf[i + 2]]
+        };
+        // The far end of the cantilever carries the most, so if anything is
+        // tinted it is this.
+        assert_ne!(at(&tinted, 120, 155), at(&plain, 120, 155), "loaded rock was not tinted by the stress view");
+        // Open sky well above the structure has no structural cell at all.
+        assert_eq!(at(&tinted, 300, 40), at(&plain, 300, 40), "the stress view painted empty space");
+
+        let dir = std::env::temp_dir().join("pixel-physics-stress-view");
+        std::fs::create_dir_all(&dir).ok();
+        image::save_buffer(dir.join("stress.png"), &tinted, WIDTH, HEIGHT, image::ColorType::Rgba8).ok();
     }
 
     #[test]
