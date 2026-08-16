@@ -308,8 +308,26 @@ pub enum Behavior {
         /// `0.0` disables it, and that is a real value: moss has no use
         /// for individuality, and a test that wants a reproducible single
         /// tree wants the written numbers and not a draw around them.
+        /// Indexed by trait, in the order `plant::genotype`'s salts run:
+        /// **0 branch chance, 1 upward weight, 2 plastochron, 3 turgor
+        /// cost.** `[0.0, 0.0, 0.0, 0.0]` disables jitter entirely.
+        ///
+        /// **One number for all four was wrong, and it was measured wrong.**
+        /// At a flat ±15%, a 64-genome population showed only turgor doing
+        /// anything at all — correlation with tree height −0.675, against
+        /// |r| ≤ 0.13 for the other three on every outcome. The same ±15%
+        /// means very different things: it moves derived height from 104 to
+        /// 141 rows, and it moves expected lifetime branch count from 2.55
+        /// to 3.45, which is invisible. Worse, the plastochron is an
+        /// integer, so ±15% on the outer orders' base of 2 rounds back to 2
+        /// across the *entire* range — a third of the genome was dead on
+        /// arrival.
+        ///
+        /// So the width has to be set per trait, from what each one
+        /// actually moves, and the inert ones need to be wide enough to
+        /// clear their own quantization.
         #[serde(default)]
-        genotype_variance: f32,
+        genotype_variance: [f32; 4],
         /// Mechanical resistance, in MPa, this cell type can force its way
         /// through — a `RootTip` converts a `Powder` neighbour whose
         /// `Material::penetration_resistance` is *below* this into root

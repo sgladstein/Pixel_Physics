@@ -225,6 +225,47 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         println!("  per-tree sizes     {sizes:?}");
         println!("  per-tree heights   {heights:?}");
         println!("  per-tree thickness {thicks:?}");
+
+        // **One run is a population now, and that is worth more than a
+        // parameter sweep.** `genotype_variance` gives every individual its
+        // own draw on four traits, so a stand of N trees is N genomes
+        // sharing one scene -- which makes a single run a natural
+        // experiment rather than one sample. Printed per tree so the traits
+        // can be regressed against the outcome, which is the only way to
+        // see *interactions* between them; a one-knob-at-a-time sweep
+        // structurally cannot.
+        //
+        // Salts must match `plant::genotype`'s call sites: 1 branch_chance,
+        // 2 upward_weight, 3 plastochron, 4 turgor_per_cell.
+        let variance = w
+            .species
+            .get(w.species.id_of("tree").expect("tree"))
+            .behaviors(organism::CellType::GrowingTip)
+            .iter()
+            .find_map(|b| match b {
+                organism::Behavior::Grow { genotype_variance, .. } => Some(*genotype_variance),
+                _ => None,
+            })
+            .unwrap_or([0.0; 4]);
+        println!("
+  per-tree genotype and outcome (variance {variance:?}):");
+        println!("  {:>4}  {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}", "id", "branch", "up", "plast", "turgor", "cells", "leaves", "height", "stem");
+        let mut ids: Vec<u16> = per_organism.keys().copied().collect();
+        ids.sort_unstable();
+        for id in ids {
+            let g = |salt: u64| pixel_physics::sim::plant::genotype(id, salt, variance[salt as usize - 1]);
+            println!(
+                "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
+                g(1),
+                g(2),
+                g(3),
+                g(4),
+                per_organism.get(&id).map_or(0, |v| v.0),
+                per_organism.get(&id).map_or(0, |v| v.1),
+                per_organism.get(&id).map_or(0, |v| (v.3 - v.2 + 1) as usize),
+                thickest_above_base.get(&id).copied().unwrap_or(0),
+            );
+        }
     }
 
     println!("\n{} organism cells", cells.len());

@@ -312,7 +312,7 @@ fn write_carbon(world: &mut World, x: i32, y: i32, carbon: f32) {
 /// `salt` so traits vary independently. Stateless on purpose: an organism's
 /// genotype is a pure function of its id, so it needs no storage, survives
 /// every cell of the plant being replaced, and cannot drift.
-fn genotype(organism_id: u16, salt: u64, variance: f32) -> f32 {
+pub fn genotype(organism_id: u16, salt: u64, variance: f32) -> f32 {
     if variance <= 0.0 {
         return 1.0;
     }
@@ -742,16 +742,16 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // stable -- two traits sharing a salt move together, which
                 // is the "one tree scaled up" failure `genotype_variance`
                 // exists to avoid.
-                let branch_chance = branch_chance.at(order) * genotype(organism_id, 1, genotype_variance);
+                let branch_chance = branch_chance.at(order) * genotype(organism_id, 1, genotype_variance[0]);
                 let light_weight = light_weight.at(order);
-                let upward_weight = upward_weight.at(order) * genotype(organism_id, 2, genotype_variance);
+                let upward_weight = upward_weight.at(order) * genotype(organism_id, 2, genotype_variance[1]);
                 let plastochron_interval =
-                    ((plastochron_interval.at(order) as f32 * genotype(organism_id, 3, genotype_variance)).round() as u8).max(u8::from(plastochron_interval.at(order) > 0));
+                    ((plastochron_interval.at(order) as f32 * genotype(organism_id, 3, genotype_variance[2])).round() as u8).max(u8::from(plastochron_interval.at(order) > 0));
                 // **Height is the trait the clone look shows up in first**,
                 // because the turgor bound is geometric and every tree
                 // reaches it exactly. Jittering the per-cell cost spreads
                 // the derived ceiling instead of the outcome.
-                let turgor_per_cell = turgor_per_cell * genotype(organism_id, 4, genotype_variance);
+                let turgor_per_cell = turgor_per_cell * genotype(organism_id, 4, genotype_variance[3]);
                 // **These three gates deliberately do *not* set
                 // `found_candidate`, and that is what makes growth
                 // terminate.** The staleness counter is how "temporarily
@@ -3784,7 +3784,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
                     _ => None,
                 })
                 .expect("tree's GrowingTip grows");
-            let interval = ((base.at(order) as f32 * genotype(organism_id, 3, variance)).round() as u8).max(1);
+            let interval = ((base.at(order) as f32 * genotype(organism_id, 3, variance[2])).round() as u8).max(1);
             // Two whole intervals in, then stepped off it by `offset`, so
             // the "due" and "not due" cases are the same distance apart
             // whatever the interval turns out to be.

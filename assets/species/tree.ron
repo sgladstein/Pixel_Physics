@@ -149,7 +149,13 @@
                 // Extension fades over the top 30% of the turgor range
                 // instead of stopping on a line. See Behavior::Grow.
                 turgor_taper: 0.3,
-                genotype_variance: 0.15,
+                // [branch, upward, plastochron, turgor]. Widths set from a
+                // 64-genome study: at a flat 0.15 only turgor correlated
+                // with any outcome (r = -0.675 on height; the rest |r| <=
+                // 0.13), and the plastochron's integer rounding erased its
+                // variation entirely at the outer orders. The first three
+                // are widened to clear that.
+                genotype_variance: (0.6, 0.4, 0.4, 0.18),
                 turgor_source: 1.0,
                 turgor_yield: 0.1,
                 turgor_per_cell: 0.0075,
