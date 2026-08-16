@@ -1,0 +1,1221 @@
+# Prior art: a 2D world cut from a 3D one, and worldgen for a simulated side view
+
+**Status:** research, no code changed. Written to answer a question
+`worldgen-design.md` §0 raises and then defers: *has anyone actually done this
+well, and can you get at the other slices?*
+
+**Read `Reports/worldgen-design.md` first** — especially §0. This document
+assumes that document's decisions and argues about them; it does not restate
+them. Where the two disagree, §8 says so explicitly.
+
+**Evidence discipline**, same tags as `prior-art-destruction.md`:
+
+- **[V]** verified against a primary or near-primary source — a developer
+  statement, a peer-reviewed paper, official documentation, or source code.
+- **[S]** secondary — a write-up of a talk, or a well-maintained community wiki
+  documenting shipped behaviour.
+- **[U]** uncertain — community reconstruction, forum consensus, or a claim
+  found asserted but not sourced. Treat as hypothesis.
+
+Five research passes fed this: falling-sand worldgen; games that are literally
+slices of 3D worlds; the technical and mathematical literature on sampling a
+lower dimension out of a higher one; slice traversal as a mechanic; and the PCG
+literature for 2D side-view worlds. Every load-bearing claim below carries its
+own citation and §10 collects them.
+
+---
+
+## 0. The headline
+
+Four findings, uncomfortable first.
+
+**1. Nobody has shipped the thing §0 is deferring.** No game generates its 2D
+playfield as a cut along a curved route through a coarse planar field. Not one
+was found across shipped titles, devlogs, itch, or forum archives [V — as an
+exhaustive-search result; absence of evidence, not evidence of absence]. The
+real prior art is outside games entirely: hydraulic modelling (HEC-RAS),
+medical volume visualisation (curved planar reformation), and GIS linear
+referencing all do exactly this and have done for decades. **The idea is sound
+and validated elsewhere; it is unattempted here. Read that as risk, not
+endorsement.**
+
+**2. The one project that reached this exact fork chose full 3D over coupled 2D
+planes — because of fluids.** Dwarf Fortress was strictly 2D until
+v0.27.169.32a (29 Oct 2007) [S]. Tarn Adams, on why:
+
+> "the core issue was fluids. It was just getting too muddled with bridges over
+> magma [and] water on bridges and then you can hook them to levers and it's
+> just not possible to have that all make sense without getting some really
+> convoluted logic and data structures. So we made a clean break to the 3D
+> slices." [V]
+
+This engine is a fluid simulator, and §0's "deferred, not rejected: layered
+slices" proposes weakly coupling water between neighbouring planes. That is the
+same problem, and the one developer who hit it at scale concluded coupled
+planes were not the answer. He also says the cost is still unpaid: in 3D "you
+basically can't find points or lines… everything has to be sheets or big
+blocks, etc., which is restrictive" [V] — a content-density warning aimed
+squarely at a project whose stated core value is that everything should feel
+satisfying.
+
+**3. Slicing a 3D field buys coherence and nothing else — and §0 conflates two
+different 3Ds.** For an isotropic fractional Brownian field, the restriction to
+any lower-dimensional affine subspace is *exactly* an fBm of that dimension
+with the *same* Hurst exponent; it follows in one line from the covariance,
+since increment variance depends on points only through ‖t − s‖ [V]. Measured
+on lattice noise: no discernible difference between native 2D Perlin and a 2D
+slice of 3D Perlin [S]. **So no single slice looks better for having been cut
+out of 3D.** The only things 3D buys are that neighbouring slices agree and
+that the cut can move. See §2 — this is not an argument against §0, it is an
+argument that §0's cheap version (a planar (x,z) coarse map, 2D density in the
+slice) does *not* get you coherent slices, and the version that does is a
+different, more expensive thing that §0 never names.
+
+**4. The best answer to "generated terrain must be at rest" is a bit on the
+cell, and half of it already exists here.** Noita's ground is not a stable
+configuration of a powder — it is a *different material class* with no falling
+rule at all: `cell_type="liquid"`, `liquid_sand="1"`, **`liquid_static="1"`**
+[V]. It converts to falling material only on an explicit event. That is
+structurally identical to `Cell::attached` (`cell.rs:110`), which this engine
+already invented independently for support, and which `CLAUDE.md` records as
+the lesson four failed shape-inference models had to converge on.
+
+**And the two are the same mechanism applied to two different rules.** Noita
+exempts generated terrain from the *falling* rule by making it a materially
+distinct thing; `attached` exempts generated terrain from the *load* rule the
+same way. Both are "the generator emits something the runtime rule does not
+apply to," and both were arrived at because inferring the exemption from
+geometry does not work. It turns up a third time in §6.10, as the only affordable
+way to guarantee a route through destructible terrain.
+
+---
+
+## 1. The census: who has actually done this
+
+### 1.1 The curved route — nobody, in games
+
+Searched across shipped titles, devlogs, itch, GameDev.net and forum archives.
+The technique exists as *authoring* tech — spline-stamped rivers,
+spline-length-driven UVs, terrain-following splines — but never as the
+definition of the playfield [U — negative result].
+
+**Barotrauma is the closest game**, and it is a cautionary tale. Its campaign
+is a graph of locations; each edge is a 2D side-view cross-section level the
+crew pilots through, with stable per-edge seeds [S]. Its documented failure,
+filed on the official repo as "The map is misleading and doesn't represent the
+game world" [V]: the map runs left-to-right so players believe they are moving
+sideways when the actual progression is descent, and "you end up at the same
+depth as the start, only to be teleported at a lower depth when leaving an
+outpost."
+
+**That is the exact failure mode a slice model invites.** If the coarse (x,z)
+map makes a spatial claim, the play world has to honour it — including on the
+axis the play world does not have. Players check.
+
+### 1.2 Accessible parallel slices — only degenerate forms
+
+| Case | Slices | Verdict |
+|---|---|---|
+| Terraria background walls | 2, one non-simulated | Shipped to millions; **still cannot communicate one bit per cell** — "there is generally no way to distinguish safe walls from unsafe walls" [S] |
+| LittleBigPlanet 1/2 | 3 thick + 4 thin | Rendered legibly in full 3D. Failed on *which slice is the actor in*; auto-switching was called the game's "principal fault" [S] |
+| LittleBigPlanet 3 | 16 | Documented regression; creators asked for the old 3 back [S] |
+| Mutant Mudds | 3 | Well reviewed — and reviewers credit the **3DS stereoscopic display** for making the planes readable [S] |
+| Guacamelee! | 2 | Best-regarded 2D dual-world swap. Drinkbox **cut a planned third**: "it was just too much" [V] |
+| The Medium | 2, simultaneous | AAA budget, next-gen hardware, fixed cinematic cameras, opposed palettes — reviewers still watched one half [S] |
+
+**No well-received example of 3+ simultaneously-live spatial layers was found.**
+Two studios explicitly cut down from more. §0's "3–5 slices is affordable"
+is true of *compute* and contradicted by every shipped attempt at *legibility*.
+
+### 1.3 Dwarf Fortress — the strongest case, and where it cheats
+
+DF is the one place 3D worldgen demonstrably pays off for the player, and the
+payoff is concentrated in **one screen**: embark. The first decision of the
+game is a query over generated geology — flux stone for steel, shallow metals
+(within the first 2 stone layers), aquifers, river, elevation, drainage — and
+the game ships a **Site Finder** that searches the world for sites matching
+those criteria and will honestly tell you none exists [S].
+
+That is the transferable answer to "does the third dimension earn its keep":
+**give the player a query interface over the generated structure and make a
+real decision depend on reading it.** Adams, on what the z-axis did to
+worldgen's importance: "Before, the world generator seemed to determine climate
+and wildlife and not much else. Now it's an absolutely essential part of the
+game, and determines the entire nature of the fortress to come." [V]
+
+**And DF cheats below that level.** "Veins and clusters do not jump z-levels,
+except by coincidence — a vein or cluster is limited to one z-level." [S] The
+local geology is a *stack of 2D shapes*, not a 3D body. If this engine wants
+ore bodies or caves coherent across slices, it is going further than DF, not
+catching up.
+
+Two more DF numbers worth having: the coarse chain is fixed (one region tile =
+16×16 local blocks = 48×48 play tiles each) [S], and drainage is a **seeded
+primary field alongside elevation and rainfall**, not derived from the river
+network [S]. Toady's own annotation is that geology is generated at step 16 and
+"should really be earlier."
+
+### 1.4 The genre peers shipped without any of it
+
+Noita: biome map PNG + herringbone Wang tiles + hand-authored pixel scenes,
+biomes stacked vertically, no 3D structure anywhere [S]. Oxygen Not Included:
+2D side view, real gas/liquid/thermal sim, 2D worldgen [S]; Klei's announced
+next game is another side-scroller on the same physics, still 2D [S].
+
+**Nobody complains that either world feels shallow.** Whatever 3D worldgen buys
+here, it is not table stakes. That is calibration, not a prohibition — but it
+means the 3D layer has to justify itself on what it *enables*, not on the
+premise that a 2D-generated world would be thin.
+
+---
+
+## 2. What "the worldgen is 3D" actually buys — and the fork §0 does not name
+
+### 2.1 There are two different 3Ds in this design, and they cost differently
+
+`worldgen-design.md` uses "3D" for one thing and needs it for another.
+
+- **3D-A, what §0 describes:** a coarse map planar over (x, z) carrying
+  elevation, drainage, climate; fine detail generated in the slice's own (x, y).
+  §7 explicitly plans caves as a **2D** density function, and gives a good
+  reason ("in 2D the zero-set is already a curve, so channels come from one
+  field"). Cheap. Already the plan.
+- **3D-B, what coherent slices require:** a genuine density field over
+  (x, y, z), evaluated on the cut surface. Only this makes a cave continue into
+  the neighbouring slice, an ore body span slices, or a moving cut not pop.
+
+**3D-A does not give you 3D-B.** A coarse (x,z) map plus per-slice 2D caves
+produces slices that agree about *where the mountain is* and disagree about
+*where the cave is*. §0's deferred layered-slices idea and the whole notion of
+"access different slices" quietly assume 3D-B. Naming the fork now is cheap;
+discovering it after the cave generator ships is not.
+
+### 2.2 The slice theorem, and what it means for the decision
+
+For an isotropic Lévy fractional Brownian field, E[(B_H(t) − B_H(s))²] =
+‖t − s‖^{2H}. Two points in a common affine subspace are the same distance
+apart measured in ℝ³ or within the subspace, so the restriction to any plane is
+an fBm of the lower dimension **with the same H, exactly** [V]. The
+roughness/tribology literature relies on this routinely — measuring a surface's
+Hurst exponent by taking a normal-plane profile would be invalid otherwise —
+and the bookkeeping is D = n + 1 − H, so slicing drops fractal dimension by one
+and leaves H untouched [V]. Isotropy is required; for an anisotropic field the
+measured H depends on the cut's orientation [V].
+
+Empirically for lattice noise: **no discernible difference** between native 2D
+Perlin and a 2D slice of 3D Perlin; simplex loses a little contrast [S].
+
+One red herring to not import: "slices of 3D blue noise are not blue" is a real
+result [V] and does **not** generalise — blue noise has a deliberately shaped
+spectral hole that integrating out a dimension fills. fBm has nothing to
+destroy.
+
+**The testable consequence:** render one slice of a 3D fBm and one 2D fBm at
+matched H, and you should not be able to tell them apart. If you can, something
+else is wrong. That is a cheap experiment worth running before paying for 3D-B.
+
+### 2.3 Minecraft ships a literal `slice` density function
+
+The official density-function reference lists `slice`: "Removes a dimension
+from the input domain by taking a 'slice' along an axis with a specific
+coordinate." [V — wiki reference; the version attribution to a 26.3 snapshot is
+[U]]. It sits alongside `flat_cache` and `cache_2d`.
+
+So "author a higher-dimensional field, then freeze one axis" is now a
+first-class primitive in a shipping AAA worldgen system, and the shipped
+rationale is exactly the cheap-composable one. Direct precedent for the
+architecture.
+
+### 2.4 Also worth stealing from that graph
+
+Minecraft's `final_density` is a good model for §7's cave work, and three
+details are directly on-point:
+
+- **World floor and ceiling are defended by additive gradient bias, not by a
+  branch.** Bottom: a gradient from Y −64 to −40 pushes density toward a fixed
+  0.1171875. Top: a gradient from Y 240 to 256 falling 1 → 0 [V]. That is
+  exactly `CLAUDE.md`'s "a size cap must bound work, never gate whether
+  something happens," arrived at independently. Geiss's `hard_floor` in GPU Gems
+  3 is the same shape [V].
+- **The coarse fields do not shape terrain.** Minecraft's `temperature`,
+  `vegetation`, `continents`, `erosion`, `depth` and `ridges` "do not affect
+  terrain shape, as terrain generation is defined in final_density" — they place
+  biomes and feed aquifer logic [V]. Clean separation worth copying.
+- **The caching nodes are the affordability story.** `flat_cache` evaluates once
+  per 4×4 column; `cache_2d` once per horizontal position; `interpolated`
+  evaluates on a coarse lattice and interpolates within it [V]. The structural
+  point is counter-intuitive: **the expensive low-frequency terms are the ones
+  you can afford on a coarse lattice; cheap high-frequency terms are the ones
+  you must evaluate per cell.**
+
+---
+
+## 3. The curved route, re-argued from outside games
+
+§0 argues for the curve on grounds of legibility (you see a river instead of
+river cross-sections) and topology (a drainage tree cannot self-cross). Both
+hold. The outside literature adds one argument that is stronger than either,
+and three warnings §0 does not have.
+
+### 3.1 The physics case is stronger than the aesthetic one
+
+Hydrogeology has built 2D vertical cross-section groundwater models for sixty
+years, and the standing assumption is that the section must be **aligned with
+the flow direction** — intersecting head contours at right angles — so that
+transverse flow is negligible [V].
+
+Gholami et al. (2025, *Groundwater*, DOI 10.1111/gwat.70017) tested that
+assumption on ten real cross-sections against full 3D models [V]:
+
+- Concordance was "generally poor." Head RMSE peaked at 3.7 m in the headline
+  case; worst-case errors reached 27 m.
+- The fix is to inject the out-of-plane flux as a **per-cell scalar
+  source/sink**, extracted from the 3D model's cell-by-cell budget.
+- RMSE fell from **7.6 m to 0.022 m** — a factor of ~350.
+
+**This settles §0's open question about off-plane flux, and it settles it
+against the lazy option.** There are two defensible designs and "ignore it on an
+arbitrary straight cut" is not one of them:
+
+1. **Compute it.** The out-of-plane term is a scalar per-cell source/sink. It
+   is *not* a new dimension, needs no z velocity, and costs one field lookup per
+   cell that has one. That is the cheapest possible shape, and it is what the
+   profession does. Note the coarse (x,z) map **is** the "3D model" the
+   correction needs, so the term is available by construction — a concrete job
+   for the coarse layer beyond terrain shape.
+2. **Align the cut so the term is small.** Which is the curved route, arrived at
+   for a physics reason with nothing to do with looks.
+
+Terminology to adopt, since it is standard: a 2D vertical model is a
+**cross-sectional** or **profile model**; it represents a **unit width**; the
+neglected flow is **transverse flow**; boundaries are **no-flow**, **specified
+head**, or **specified flux** [V].
+
+### 3.2 The medical warning: the feature you follow becomes invisible
+
+Curved Planar Reformation is the direct prior art — unroll a curved centreline
+through a volume into a flat 2D image. Kanitsar et al. (IEEE Vis 2002) compare
+three variants, and their own table grades **straightened CPR "spatial
+perception: low"** [V/S — the comparison table is reproduced in the paper's own
+slide deck; the PDF has no extractable text layer].
+
+The reason is structural, not a tuning failure: unrolling a vessel's centreline
+makes the vessel straight *by construction*, so its curvature — the diagnostic
+quantity — is destroyed. **Unroll a river valley and the valley reads flat for
+the entire world.**
+
+That is a real design fork, not a knob:
+
+- A cut that **crosses** valleys shows valleys, and the player perceives relief.
+- A cut that **follows** one shows a corridor, and the player perceives length.
+
+§0 wants the second for water-has-somewhere-to-go reasons and implicitly hopes
+for the first. It cannot have both from one cut.
+
+Named CPR failure modes that transfer: **pseudo-stenosis** — an inaccurate
+centreline manufactures a narrowing that is not in the data, i.e. a drainage
+path extracted with error will manufacture terrain the coarse model never
+contained; and distortion of surrounding structure such that it is "difficult
+to immediately recognise portions of a vessel tree actually displayed" [V].
+
+The 2003 follow-up adds **untangled CPR** — laying out a branching tree so
+branches do not overlap, explicitly trading spatial coherence for feature
+perception [V]. That is an answer to a question §0 has not asked: *what happens
+when the network branches and one unrolled path cannot show it.*
+
+### 3.3 The curvature bound is exact and cheap to assert
+
+Not a CPR question — a classical offset-curve one, with an exact answer [V]:
+
+- **Cusps** occur exactly where κ(t) = −1/D; the cusp locus is the evolute.
+- **Local self-intersection** occurs where |offset| exceeds the minimum radius
+  of curvature in a concave region.
+- **Global self-intersection** is a separate failure with a separate cause — two
+  far-apart parts of the curve coming within 2D of each other — and the standard
+  detection machinery is the medial axis transform.
+
+Actionable form, for a sheet of half-thickness `d` over a planform curve:
+
+```
+valid  ⟺  d < 1 / max|κ(s)| over the sampled arc        (local)
+       ∧  min distance between non-adjacent arc segments > 2d   (global)
+```
+
+The local condition is one scalar pass over the curve and belongs in a debug
+assertion. **The global one is the one that fires on meanders** — a mature
+river loop comes back within a few channel widths of itself, and an oxbow is
+the case where the curve literally self-intersects.
+
+### 3.4 Gravity survives a curved cut exactly; area does not
+
+CPR reformats for viewing, so the medical literature says nothing about
+simulating in the reformatted frame. Reasoning it through, the answer is
+favourable **if and only if the sheet is ruled vertically** — S(s, y) =
+(C(s).x, y, C(s).z), vertical generating lines over a horizontal directrix:
+
+- **Vertical lines map to vertical lines.** Gravity in slice space is exactly
+  −y everywhere, with zero error. Not a given: a general tilted curved sheet
+  would make "down" vary across the image, and every rule in `update.rs` assumes
+  it does not.
+- **All distortion is horizontal**, and it is a pure 1D reparameterisation. Arc
+  length along the directrix is preserved, so cell width is constant.
+- **But area is not preserved off the centreline.** Anything sampled at a
+  lateral offset — material "into the screen", a coarse lookup at a neighbouring
+  z — is compressed on the concave side of a bend and stretched on the convex
+  side by (1 − κd). That is the same factor that hits zero at the cusp
+  condition. Since this engine conserves *cells*, not area, any off-plane
+  sampling across a bend is a mass-conservation hazard.
+
+**Consequence, and it is a clean design rule: keep the slice geometrically
+infinitesimally thin.** All off-plane information enters as scalar source/sink
+terms from the coarse map (§3.1), never as material sampled at a lateral
+offset. That removes (1 − κd) from the simulation entirely and reduces the
+whole curvature constraint to "the path must not self-intersect within one
+cell."
+
+### 3.5 Conventions to steal from hydraulic modelling
+
+HEC-RAS represents a river as an ordered sequence of cross-sections
+perpendicular to flow, indexed by **river station** — the arc-length
+coordinate §0 proposes, under its standard name. Four things fall out [V]:
+
+1. **The idea is not exotic.** Arc-length-along-the-channel is the discipline's
+   standard indexing scheme.
+2. **Fix handedness.** Sections are entered left-to-right *looking downstream*.
+   Without a fixed convention the world mirrors itself when the route bends.
+3. **A single reach length is wrong on a bend.** HEC-RAS carries three per gap —
+   left overbank, main channel, right overbank — because the outside of a curve
+   is longer. A naive constant-step march along the spline will compress terrain
+   on the inside of bends and stretch it on the outside, and **a metric written
+   on straight sections will never see it.**
+4. **Confluences are first-class objects**, and sections should be *densified*
+   around them because that is where the model is least accurate. Also: sections
+   bounding a junction whose bed elevations differ sharply cause model
+   instability — the game analogue is a terrain discontinuity at the junction,
+   which is precisely where the player will be looking.
+
+The GIS analogue is worth one line too: **linear referencing** stores features
+as (route_id, m_start, m_end, attributes) against a measure along the route, so
+a coarse feature is placed by a 1D interval lookup with no geometry
+intersection at all, and refining the path does not force re-deriving anything
+[V]. That is a direct answer to "how do I attach the coarse map to the fine
+world."
+
+### 3.6 And the cartographic ancestors say people read these images fine
+
+Ogilby's *Britannia* (1675) road strips vary north between strips so the
+traveller is always oriented along travel [S]. The "Ribbon Map of the Father of
+Waters" (1866) put the Mississippi's full length on an 11-foot strip in a
+hand-cranked spool so steamboat passengers could wind to their current reach
+[S] — which is §0's mental model, shipped, 160 years ago.
+
+---
+
+## 4. Travelling between slices
+
+### 4.1 Nobody ships it free or diegetic
+
+The most consistent finding in the whole survey. Every shipped answer makes the
+transition expensive and authored:
+
+| Game | Transition |
+|---|---|
+| Fez | **Pauses time and movement entirely** during rotation; silhouettes and disables the player if they land behind geometry ("Background Mode") [V] |
+| Mutant Mudds, VB Wario Land | Only at designated platforms/points [S] |
+| Super Paper Mario | Metered — one segment per 2 s, 1 HP when empty, borders flash as warning [S] |
+| Dwarf Fortress | A travel *mode* (press T), not a walk [S] |
+| Metroid Prime 2 | Walk to a portal — and this is the named difference in reception [S] |
+
+§0's "walking to a confluence and taking the other branch" is more ambitious
+than anything that has shipped. A pause is not a cop-out; it is what the IGF
+Grand Prize winner did, and it buys the frame needed to fix up positions and
+visibility.
+
+### 4.2 The design rules, each with evidence behind it
+
+Distilled from the traversal pass. These are the ones with the strongest
+support:
+
+1. **Instant, player-owned, usable mid-action.** Titanfall 2's time shift is a
+   button press mid-jump with no load, and is the most praised implementation
+   found [S]. Prime 2's portal walk is the named contrast.
+2. **Fix the spatial frame; change contents, not layout.** Guacamelee
+   deliberately does not move geometry on swap; Titanfall 2's two maps are
+   "perfectly aligned — any misalignment would make the mechanic not function"
+   [S]. The player must not re-solve *where am I* as well as *what changed*.
+3. **The other layer must be predictable from this one.** Titanfall 2's
+   past→present relation is decay (*Life After People*); ALTTP's is corruption.
+   Predictability is what turns switching from a gamble into a plan [S].
+4. **Peek before commit, through a small aperture.** Dishonored 2's Timepiece is
+   a hand-held lens onto the other era [S]. The Medium gave the other world half
+   the screen permanently and reviewers ignored it [S]. **Aperture beats
+   split-screen.**
+5. **Mark the return anchor as an object in the world.** ALTTP's Magic Mirror
+   and Oracle of Ages' warp tunes both leave a sparkling gate where you left
+   [S]. Thirty years old and still the answer — place a thing, don't ask the
+   player to remember coordinates.
+6. **Charge for switching, never for looking.** Dark Aether's damage-over-time
+   is the named cause of "you're constantly stressed out trying not to lose
+   health" — which defeats the point of doubling the map [S].
+7. **The second slice needs a reason the first cannot supply.** The Nether is
+   8:1 — it is a *shortcut through the overworld*, and that alone justifies it
+   [V]. A neighbouring slice that is only "more terrain" is Dark Aether.
+8. **Two. Three is where shipped teams cut.** Drinkbox cut Guacamelee's third
+   dimension; Arkane built exactly one stacked-map level because permanent time
+   powers "would mean designing more stacked maps"; Bloober needed next-gen
+   hardware for two [V/S].
+
+Two smaller ones worth keeping: **progression on the switch itself** (Oracle of
+Ages ladders fixed portals → warp-to-present → warp-to-either), and **reserve
+spaces where switching is off** (the same game forbids it inside dungeons).
+
+### 4.3 Junctions: the answer is Klonoa
+
+§0 calls junction representation "the real unsolved cost." It is not unsolved —
+it shipped in 1997.
+
+Klonoa's play path is a **curve through 3D space** that "may often curve,
+overlap itself, or branch into different directions"; the camera rides an
+authored 3D spline that tilts, pans and zooms as the path bends; and crucially
+**paths you will traverse later are visible in the background from where you
+are now** [S].
+
+Assembled with Itay Keren's *Scroll Back* vocabulary, the junction reads as:
+**camera-path foreshadowing** (the far branch is visible as background before
+you reach the fork) → **gesture-focus** (the camera shift is attached to a
+thing the player did, which is Klonoa's own rule) → **eased rotation** (Fez
+animates the whole world swinging around a fixed player; a reimplementation
+uses a quintic ease) → **region-anchor** on the new route [S].
+
+Also: **Fez needed a separate 3D map for orientation** [V], and DF players scrub
+z-levels up and down "to form an image in their mind" [U]. Plan an out-of-slice
+overview. §0's proposed top-down map view is that, and it is load-bearing
+rather than a nice-to-have.
+
+---
+
+## 5. Rendering more than one slice
+
+### 5.1 Do not render N slices. Render the differences into one
+
+The Medium is the proof by counter-example, and it is expensive evidence: true
+simultaneous rendering of two worlds, split-screen, one character in both.
+Bloober's own account of the cost — "much more demanding in terms of memory,
+storage, and the rendering cost," effects "calculated and rendered twice," the
+concept shelved in 2012 because previous-gen hardware could not do it [V].
+
+**The design cost was larger than the technical one** [V]: player-controlled
+cameras plus dual worlds caused motion sickness, so they went to fixed cinematic
+angles; "players weren't able to focus. During playtesting they'd enter a room
+and just start walking around in circles"; they reframed it deliberately as a
+"find the difference" exercise with opposed palettes. And reviewers still
+reported eyes staying on one half [S].
+
+With a AAA budget, next-gen hardware, fixed cameras and deliberately opposed
+palettes, two simultaneous worlds did not reliably read as two worlds. **Do not
+plan on 3–5 rendering legibly.**
+
+The better shape is 4D Golf's, which shipped and is 98% positive across ~772
+Steam reviews. Its open-source Engine4D renders **one slice solid**, plus
+separate **ghost-projection** and **wireframe** cameras for off-slice geometry,
+with **per-material alpha explicitly tuned against expected overlap** — very low
+alpha where projections pile up, higher where geometry is sparse [V].
+
+### 5.2 DF's dimming ramp is the wrong shape, and the fix is precise
+
+DF stacks one translucent fog tile per z-level down, so obscuration accumulates
+geometrically. The documented complaint: "the amount of fog between Z0 and Z−1
+is so slight, that most of the time I can't tell what is on this z level and
+what is one below without mousing over." The popular fix mod uses a *lower*
+per-layer alpha in a different colour and reports reading eight levels down [S].
+
+**Rule: a uniform per-layer ramp fails exactly where it matters.** What is
+needed is a **large discontinuity at the first step, then a gentle ramp** —
+active slice at full value, the immediate neighbour dropped hard, further
+slices falling slowly so they stay legible instead of crushing to black. The DF
+default gets both halves wrong.
+
+### 5.3 The failure will be authority, not pixels
+
+LittleBigPlanet rendered three layers with full 3D perspective and lighting, so
+depth was *visually* legible. The failure was **which layer is the actor in**,
+and the automatic resolution of that ambiguity — reviewed as the game's
+principal fault, with a named example of a cliff the player kept failing to
+climb because the engine pushed him backwards [S].
+
+Terraria's is the same lesson at the easiest possible difficulty: two layers,
+one completely non-interactive, and it still cannot convey one bit per cell
+about the back layer [S].
+
+**This is `CLAUDE.md`'s own rule arriving from outside**: when a rule must tell
+apart two things that can look identical, state the difference as data. "Which
+slice does this cell belong to" must be answered by a field, never inferred —
+the same conclusion four support models reached the expensive way.
+
+### 5.4 What to actually do, if this is ever built
+
+- **Atmospheric perspective is one transform with four components** — reduce
+  contrast, reduce saturation, shift hue toward the background, **and cut
+  detail**. Tinting alone leaves the background competing for the eye [S].
+- **The Dan Fessler chain** is a directly implementable per-layer shader:
+  posterize → value-compress → 50% checkerboard dither at Overlay → gradient-map
+  to a narrow palette [S].
+- **Ordered-dither / screen-door over alpha.** No sort step, no blend overhead,
+  pixel-art-native, and the standard technique for distance fade and LOD
+  blending. Use a **different dither phase per slice** so slices interleave
+  rather than average into soup [S].
+- **Reserve a value band for the active slice.** Ori is a pure white silhouette
+  against detailed backgrounds; value and saturation guide the eye before detail
+  does [S]. Here that means the active slice keeps the full material palette and
+  every other slice is remapped through a compressed gradient map, so no
+  inactive cell can be confused for an active one.
+- **Silhouette alone will not separate layers** — DKC Returns' silhouette stages
+  are a deliberate demonstration that stripping familiar visual tells destroys
+  readability [S].
+- **Watch parallax "depth deception"** — mismatched scroll rates make players
+  misjudge distance and collision points [S]. In a physics slice that means
+  misjudging which falling debris can hit them.
+- **Ship it as a runtime selector**, which is this repo's own rule for "does
+  this look right": dim-only / desaturate / dither / value-compress+gradient-map
+  / hide, named on screen with its frame cost. Terraria ships four lighting
+  modes from the video menu as precedent [S].
+
+---
+
+## 6. Worldgen for a material-simulating side view — the non-slice half
+
+This half is more immediately actionable than the slice question, because it
+bears on `build_terrain` today.
+
+### 6.1 "Terrain must be at rest": six shipped strategies, and we have half of the best one
+
+§6a of `worldgen-design.md` lists three options and recommends "generate only
+`Solid`." The prior art has six, and the recommendation should be sharpened.
+
+**There is essentially no academic literature on this.** The PCG field — the
+Shaker/Togelius/Nelson book, the Mario AI championship, Launchpad/Tanagra,
+GVGAI — treats level geometry as static tiles throughout, and uses cellular
+automata *only as a generation-time smoothing operator that then stops running*,
+never as a simulation that keeps running under the generated result [V]. That
+distinction is the entire problem here and the literature does not have it.
+`worldgen-design.md` §6a appears to be the only written statement of it
+anywhere.
+
+**A — Don't simulate the terrain (Noita).** Ground is a static material class
+with no falling rule: `liquid_sand="1" liquid_static="1"`. Named examples are
+`sand_static`, `sand_static_bright`, `sand_static_red` [V]. Conversion to a
+falling material is an explicit gated event — Purho: "when there's an explosion
+large enough the game looks at the pixels the explosion collided with, and if
+they are 'good candidates', will turn those into collapsing sand materials" [V].
+The `Ground to Sand` spell does the same on demand and is described as one of
+the best digging methods in the game [S].
+
+At-rest is then **provably** free rather than measured, and the whole world is
+skipped by default rather than tested and found stable.
+
+**This engine already has the mechanism and has not connected it to worldgen.**
+`Cell::attached` (`cell.rs:110`) is a bit on the cell saying "this is background
+mass"; `structural.rs` treats an attached cell as an anchor outright; attachment
+is **lost by destruction** so mining produces debris. That is Noita's
+static/dynamic pair with the conversion predicate already written. The gap is
+that `attached` currently buys *support*, not *immobility* — and a generated
+powder slope would still slump. Worth deciding deliberately whether generated
+loose material gets a static class of its own, rather than dodging it by
+generating only `Solid`.
+
+**B — Never ask the question (Minecraft), and this engine has already made the
+choice without noticing.** Minecraft's gravity blocks do not check support
+continuously; they check **on block update**. "Gravity blocks do not fall when
+placed but will fall if updated" [S] — which is why worldgen-produced floating
+sand hangs indefinitely until something delivers an update, and why draining the
+water under a sand column with a sponge leaves the sand in the air until you
+break the sponge.
+
+A chunked engine with dirty rects already has that machinery. **The single
+decision that determines whether generated terrain slumps on frame one is
+whether a freshly generated chunk is marked dirty or clean.**
+
+`app.rs::build_terrain_only` currently ends with:
+
+> "The world is left dirty on purpose. The first sweep examines the terrain,
+> finds that none of it moves, and settles from the second frame onward."
+
+That is the *opposite* choice from Minecraft's, made deliberately and correctly
+for hand-placed stone that genuinely cannot move — and it is exactly the line
+that will have to be revisited the first time worldgen emits a powder. Marking a
+fresh chunk clean is strictly more expressive (you get overhangs and cliffs the
+movement rules would never produce) and costs nothing, but it is **a lie the
+simulation tells until touched**: nudge one cell of a large out-of-repose mass
+and the mountain avalanches. Noita's static class (A) is the version with no
+seam, because waking the terrain changes nothing.
+
+**C — Settle as an explicit named pass (Terraria).** Generate freely, then run
+physics to convergence as a build step, repeatedly: "Gravitating Sand", "Settle
+Liquids", "Settle Liquids Again", plus settling folded into the Underworld pass
+[S]. Re-run on **every world load**, slow enough to be a visible loading screen
+and a well-known place for loading to appear to hang [S].
+
+Two things worth quoting here. First, that is exactly the "advance N frames on
+chunk reload" catch-up scheme, shipped, with a measured visible cost. Second,
+its termination guarantee is brutal and precedented: "all remaining liquid
+trapped in blocks will be deleted" [S] — explicit mass non-conservation to
+guarantee the pass ends, which is `CLAUDE.md`'s "stopping work early is a
+legitimate optimisation" taken further than this engine has been willing to.
+
+**D — Generate sealed pockets (ONI).** Every biome is bounded by
+granite/abyssalite borders, so the gas/liquid/thermal sim has no connectivity to
+act on, and liquids are placed at their **default mass per tile** so there is no
+compression transient either [S]. Equalisation becomes a player-triggered
+gameplay event rather than a start-of-game transient.
+
+Also from ONI, and directly relevant to §6b: **neutronium sits not only at the
+world edge but in a row of four tiles under each geyser** [S]. Rather than
+proving a structure is supported, they declare a small patch of it
+indestructible. That is the same move as `attached`, applied locally as an
+anchor.
+
+**E — Generate inside the simulation's own invariant.** The classical answer is
+**thermal erosion** (Musgrave et al., SIGGRAPH 1989): compare each cell to its
+neighbours and transfer material downslope wherever the difference exceeds the
+talus angle, then iterate [S]. **Do not port the iteration** — it operates on a
+heightmap, which is the top-down literature this project keeps being burned by;
+a vertical section has overhangs and multiple surfaces per column and no height
+function to erode.
+
+**The transferable part is the invariant, not the CA.** You do not need to
+iterate to satisfy an invariant — you can construct within it. Perlin-style
+gradient noise has an analytically bounded derivative, so **the
+amplitude-to-frequency ratio of each octave directly controls the maximum slope
+the surface can exhibit** [S]. Choose the ratio so the summed gradient stays
+under `tan(repose)` and the generated surface is at rest by construction, per
+chunk, with no iteration and no neighbour consultation. The generator can use
+the *same constant* as `material.rs`, and a test can assert it before a frame is
+stepped.
+
+Two caveats. From this repo's own metric-traps list: it is a slope criterion on
+a *surface* and says nothing about interior voids, overhangs, or a column
+resting on something that later fails. And more damningly — a slope limit
+forbids precisely the shapes a side-view world wants. This is a fallback for the
+one case where you specifically want a dune whose face is genuinely sand;
+strategy A is better everywhere else.
+
+**F — Static bit with wake-on-neighbour.** The general machinery any of the
+above needs; the dirty-rect chunks already do the coarse version.
+
+**Nobody has written this up as a named problem.** Searches across falling-sand
+devlogs, r/proceduralgeneration, TIGSource and itch found nothing articulating
+"generated terrain must be at rest" [U — negative result]. The solutions are
+visible in shipped games; the problem statement is not. `worldgen-design.md`
+§6a is, as far as this survey can tell, the only written statement of it.
+
+### 6.2 Two chunk sizes, doing two different jobs
+
+Noita's *simulation* chunk is 64×64 with a dirty rect and checkerboard
+threading — identical to this engine [V, from the dev interview and GDC talk].
+Its *worldgen and persistence* chunk is **512×512**: one biome-map PNG pixel is
+one 512×512 chunk, saved as `world_[x]_[y].png_petri` [S].
+
+**These are not the same number and not the same concept, and this engine
+currently has one doing both jobs.** A 512×512 worldgen chunk would be exactly
+8×8 sim chunks — and, note, exactly 64×64 field cells at `FIELD_SCALE = 8`.
+
+Noita's per-cell save is 1 byte (7-bit material index + a custom-colour bit)
+into a per-chunk name table [S], against this engine's 12-byte cell. Relevant to
+§8's persistence taxonomy: the derived/accumulated split is what makes that
+ratio achievable.
+
+### 6.3 Position-indexed RNG, not stream-indexed
+
+The single most transferable idea for streaming plus determinism. Noita's
+`SetRandomSeed(x, y)` addresses randomness as a lattice: the generator's state
+moves to (x, y, 0) and `Next()` advances z; calling it again on the same
+coordinates returns the same sequence [V]. **Generation order therefore cannot
+affect the result** — which is why Noita seeds are shareable and seed-search
+tools work.
+
+Two shipped bugs came from omitting a purpose-discriminating third input:
+reusing the same (x,y) for two purposes resets z and makes part of the second
+loot table unreachable, and an extreme-value correlation in the Park–Miller LCG
+made an orb spawn at ~1/168 instead of the intended 1/1000 [S].
+
+**Recommendation: hash (chunk_x, chunk_y, purpose_tag, world_seed).** This
+engine is already halfway there — `Chunk` seeds its RNG from its own coordinate
+(`chunk.rs:193`) — and `emergent-world-architecture.md` §8a already notes that
+the decision made *because* determinism didn't matter is the one that preserved
+it. Adding the purpose tag now is nearly free and is the part Noita got wrong.
+
+### 6.4 Herringbone Wang tiles are the one tiling method that already satisfies the constraint
+
+Two apparently conflicting facts, which turn out to be about two different
+things:
+
+- stb's **reference implementation** (`stbhw_generate_image`) is explicitly *not*
+  streamable — it "generates the complete map as a monolithic operation" with
+  global colour-constraint arrays and `rand()` [V]. Noita links this file [V] yet
+  generates lazily on camera approach; the likely resolution is
+  `BIOME_USE_BIG_WANG` — tile *choices* computed once for the whole world, pixels
+  rasterised lazily [U — inference from two magic numbers, undocumented anywhere].
+- Barrett's **2014 corner-colouring variant** is order-independent by
+  construction. His own index page lists "Levels can be generated in arbitrary
+  order (Minecraft-style)" as an advantage, and the mechanism is that each
+  corner's colour is a pseudo-random function of its *position* — "1
+  pseudo-random bit and 2 non-random bits which are structured in a way to
+  guarantee an appropriately-colored tile exists" [V].
+
+**The second is precisely the `worldgen(seed, coord)` contract**, and it comes
+with something noise cannot give: **connectivity is structural, not checked**.
+The guarantee is inductive — "any two adjacent vertices must be (at least
+indirectly) connected because a nearby corner guarantees it" — so "full map
+connectivity emerges structurally, without needing to examine neighboring tiles
+during generation" [V]. There is a catalogue of 227 connectivity patterns and an
+open-source library [V].
+
+That is a direct answer to §7's "noise gives no connectivity guarantee," and it
+is what a shipped side-view simulated-material game actually uses.
+
+**Two caveats, and the second matters a lot here.** Barrett's own 2011 paper
+admits that in his implementation "it looked ok at this resolution to allow the
+wrong types to match each other, so the constraints are actually ignored" [V] —
+strictness is a choice. And the connectivity guarantee is **undirected**:
+whether you can walk the tile graph. In a side-view world with in-plane gravity,
+**reachability is directional** — a vertically-connected pair is connected for a
+falling player and not for a climbing one. The catalogue does not model that.
+
+The alternative streamable scheme, if corner-colouring is not adopted, is a
+**checkerboard two-phase rule**: hash each tile from its own coordinates plus
+the global seed; white tiles generate first with no neighbour constraints, black
+tiles only once all four neighbours exist [S]. That is this engine's own 4-pass
+checkerboard applied to generation instead of simulation.
+
+### 6.5 The CA cave method needs one rewrite, and then it is exact
+
+Johnson, Yannakakis & Togelius (PCGames 2010) is the canonical CA cave
+generator: sprinkle `r = 50%` rock at random, then iterate `n = 4` times with the
+rule "a cell is rock if its Moore-`M` neighbourhood rock-count ≥ `T = 5`" [V].
+Content is fully determined by `(r, n, T, M, seed)`.
+
+**As published it fails the constraint.** Its connectivity step runs "an
+additional n CA iterations… on the whole 5-base grid together," and each new base
+grid gets "two more iterations… on the new and its adjacent base grid" [V]. A
+chunk's contents therefore depend on which neighbours had already been generated
+when it was reached — i.e. on the player's path. That is the same disqualifier
+that ruled out WFC in §7. It is also top-down, and its notion of "floor" is the
+top-down floor plane.
+
+**But the CA is a finite-reach local operator**, so there is an exact rewrite:
+
+> Sprinkle deterministically over the chunk **plus a halo of `n·M` cells**, run
+> `n` iterations over the padded region, discard the halo.
+
+Because the sprinkle is a pure function of position, every chunk computes an
+identical result for shared cells and no chunk reads a neighbour's *output*.
+This is exact, not an approximation, and the halo at `n=4, M=1` is 4 cells [V —
+derivation, from the paper's stated reach]. What is lost is the tunnel-drilling
+connectivity guarantee, which was the global flood-fill part — hence §6.4.
+
+One flag: `MAX_REACH == CHUNK_SIZE / 2` is load-bearing in `parallel.rs`. A
+generation-time halo is a different thing from simulation reach and must not get
+wired into the same assumption.
+
+### 6.6 Passes, and the decision/realisation split
+
+Every shipped generator in this survey is a **linear sequence of named passes
+where later passes overwrite earlier ones**: Terraria ~110 [S], ONI a layered
+YAML cascade where "worldgen reads these linearly, so subworlds generated later
+will always override" [S], Vintage Story five [S], DF eighteen [S].
+
+Vintage Story's is the cleanest, because each pass declares **whether it
+requires neighbours** [S] — and that is the answer to `worldgen-design.md`'s
+strict-locality constraint.
+
+Minecraft's is the fuller version. The chunk statuses run `empty` →
+`structure_starts` → `structure_references` → `biomes` → `noise` → `surface` →
+`carvers` → `features` → … → `full`, and the key move is **decoupling decision
+from realisation** [V]:
+
+- At `structure_starts`, whether a structure begins here and its piece layout
+  are decided **from the seed and this chunk's coordinates alone** — the pure
+  function this engine wants.
+- At `features`, much later, a bounded neighbourhood has reached the prior
+  stage, and the stored pieces are placed. Each status carries an explicit
+  `taskMargin` — the neighbour radius required at the prior status [V; the
+  per-status values are [U]].
+
+**Nobody ships strict no-neighbour worldgen, and the price of trying is that no
+feature can span a chunk.** Adopt the staging and the *declared radius* — this
+engine already has a load-bearing constant of exactly that kind in
+`MAX_REACH == CHUNK_SIZE / 2`.
+
+### 6.7 The terrain image is the level data
+
+Noita, Cortex Command, Starbound dungeons and Terraria structures all encode
+terrain as pixels or tiles whose colour is a material index, hand-authored in a
+paint program and stamped in [S]. **Nobody in this genre generates side-view
+terrain from pure noise alone.**
+
+Noita's scheme is worth copying in detail because it is two-level: every
+material carries a unique `wang_color`; in a Wang tile image, **greys are filled
+with the biome's declared materials (indirection) while other colours place that
+material directly (absolute)** [S]. One tileset, many biomes. And certain
+colours are not materials at all but **function calls** — `wang_scripts.csv`
+maps a colour to a spawn callback, so the tile image carries geometry, material
+*and* events in one artifact [S]. Starbound's dungeons do the same with
+biome-relative marker tiles (`Sv`, `BI`, `BT`) and **anchor tiles** that only
+place where the generator has already produced the required terrain [S].
+
+This is not in tension with "no hardcoded outcomes" (`design-philosophy.md`
+§2b) as long as what is authored is a *palette of pieces* and the composition is
+mechanical — which is exactly the herringbone argument: Purho chose herringbone
+because it "disguises the edge of the pieces better than the usual square
+pieces in which you can easily see the 'seam'" [V].
+
+### 6.8 Cap the per-frame work rather than hoping
+
+From Noita's `magic_numbers.xml`: `GRID_MIN_UPDATES_PER_FRAME = 40`,
+`GRID_MAX_UPDATES_PER_FRAME = 128` [S]. Frame cost is bounded **by
+construction**, not by hoping dirty rects stay small.
+
+Against this engine's hard 16.6 ms budget and 9.1 ms for
+`compute_world_distances` on a 512×320 world, that is a pattern worth having in
+mind before generation runs per-chunk under streaming.
+
+Also from that file: `STREAMING_CHUNK_TARGET = 12`, `STREAMING_FREQUENCY = 1`,
+`STREAMING_AUTOSAVE_PERIOD_SECONDS = 180`, and a
+`BIOME_PATH_FIND_HEIGHT_LIMIT` / `_WORLD_POS_MIN_X` / `_MAX_X` triple that is
+almost certainly the playability-connectivity guarantee — **and whose algorithm
+is documented nowhere** [U].
+
+### 6.9 Collapse into an ungenerated chunk is unsolved everywhere
+
+`worldgen-design.md` §6a raises this: a slump propagates into a chunk that does
+not exist yet, `World::set` creates it on demand, and worldgen later has to
+overwrite or merge.
+
+**No source was found addressing this for a falling-sand engine** [U — negative
+result]. The closest documented analogue is Minecraft's **cascading worldgen
+lag** — a feature writes outside its chunk, forcing the neighbour to generate,
+whose features write outside *their* bounds, and so on [S]. Its two mitigations
+transfer:
+
+1. **Only place what is inside your own bounds**, with large structures
+   re-derived deterministically from position by every chunk they touch — which
+   works *only* if generation is a pure function of position, i.e. it requires
+   §6.3.
+2. **Offset the placement grid by half a chunk** so features are centred and
+   have a buffer.
+
+For a *physical* collapse rather than a generation feature, the shipped answers
+dodge it: Noita generates on camera approach so material never reaches unloaded
+space during play; ONI's world is fixed-size and fully resident. The nearest
+usable idea is ONI's neutronium — **declare a small patch indestructible so the
+question cannot be asked at the boundary.**
+
+### 6.10 Spelunky's guaranteed path is free for Spelunky and does not transfer here
+
+Worth stating before anyone plans a guaranteed route through generated terrain.
+
+Spelunky generates a 4×4 room grid with a guaranteed solution path, then
+decorates; rooms are "80% hand crafted and 20% randomly generated" from ~50
+layouts per tileset [S]. The interesting question is how that guarantee survives
+bombs, and the answer is that **it survives for free, because Spelunky's
+destruction is purely subtractive.** Bombs remove solid tiles; removing solid
+tiles can only *add* traversable space, never sever a path that ran through open
+air. The invariant is preserved by every destructive operation in the game
+without the generator knowing bombs exist [V for the mechanism, [U] for the
+framing — no developer statement addresses it directly].
+
+The generator then uses the *inverse* of the property as licence to
+under-connect: "not all the rooms are necessarily connected… In order to reach
+these rooms, the player needs to use bombs" [V]. And where monotonicity would
+break, it places indestructible tiles — there is always an invincible block
+under the exit [S].
+
+**This engine's destruction is not subtractive.** Powder slumps, liquids flow,
+structures collapse and *deposit* material. A collapse can fill a corridor;
+slumping sand can bury an opening. **Traversability here is not monotone**, so:
+
+- Any guaranteed path can be destroyed by the *simulation*, not just the player.
+- Dynamic re-verification costs a reachability solve per collapse, which the
+  frame budget will not carry.
+- The cheap mitigations are the ones Spelunky already uses at its edges:
+  **material that does not participate** along a guaranteed route — which is
+  strategy A again, arriving from a third direction — or **generous vertical
+  clearance** so a slump cannot fully close a passage.
+
+The honest options are "make the route out of material that does not
+participate" or "accept that routes are not guaranteed and design for it." The
+second is closer to the sandbox framing and closer to this project's ethos of
+graded, physical outcomes — but it should be chosen, not discovered.
+
+---
+
+## 7. Free wins for making the underground read as real
+
+Hydrogeologists have drawn believable vertical sections for a century and the
+conventions are codified. Four of them are cheap here and directly serve §2's
+water table.
+
+**The water table is a subdued replica of the surface topography** — it mimics
+the hills with much less relief (Freeze & Cherry ch. 6) [V]. **This is the most
+useful single fact in the survey for this engine**: initialise groundwater as a
+smoothed copy of the surface profile and it loads near equilibrium. Initialise
+it flat and the whole underground pumps for minutes of wall-clock time buying
+nothing — which is exactly the cost `CLAUDE.md` names ("a pool that is visually
+flat but still shuffling fill for another quarter of an hour").
+
+**A perched aquifer has dry rock beneath it.** The low-permeability lens becomes
+partly saturated, then material returns to unsaturated conditions below, forming
+an *inverted* water table at the base of the lens; where the lens outcrops on a
+hillside, groundwater discharges as spring flow [V]. That is §7's
+dry-cave-next-to-wet-cave gradient with a real mechanism behind it.
+
+**A confined aquifer's signature is a well whose water stands above the rock it
+taps** [V]. Legible, and free once aquifers have their own levels.
+
+**Streams gain and lose.** A gaining reach has the water table sloping toward
+the channel; a losing reach slopes away; a disconnected losing stream sits above
+an unsaturated wedge entirely (USGS Circular 1139) [V].
+
+Tóth's 1963 nested-flow-systems analysis adds two rules that vary the
+underground with the surface for free [V]: **"the higher the topographic relief,
+the greater is the importance of the local systems"** — flat terrain gives deep
+regional circulation, rugged terrain shallow local cells; and recharge and
+discharge areas alternate, with the hinge line sitting closer to the valley than
+the ridge in asymmetric topography. Also directly visual: a two-order
+conductivity contrast makes flow nearly rectilinear — **horizontal along
+permeable beds, vertical across aquitards.**
+
+Tóth's standard boundary conditions are worth copying verbatim, because they are
+what a fixed-width 2D slice needs: impermeable base, **vertical impermeable
+divides at both ends placed beneath a topographic high and a topographic low**,
+water table on top as specified head [V]. Cutting the world's edges under a
+ridge and a valley bottom is what makes a no-flow side boundary physically
+honest.
+
+From structural geology, two more: **unconformities are used as the datum** for
+hanging a cross-section, because they are near-uniform time horizons [S] —
+which inverts nicely into "generate the unconformity surface first as the
+coarse-map datum." And **apparent dip depends on the angle between section and
+strike**, so a *curved* section shows the same bed at continuously varying
+apparent dip [S/U on the exact formula]. On a meandering route a
+horizontal-in-reality bed will appear to roll gently as the path swings. Not a
+bug — real geologists account for it — but a thing the coarse→fine mapping has
+to decide about rather than discover.
+
+---
+
+## 8. What this suggests changing in `worldgen-design.md`
+
+Nothing here overturns a settled decision. Five sharpenings:
+
+1. **§0 should name the 3D-A / 3D-B fork** (§2.1 above). "The worldgen is 3D"
+   currently covers both a planar (x,z) coarse map and a genuine (x,y,z) density
+   field, and only the second gives coherent or movable slices. The cave section
+   (§7) plans 2D density, which is right for a fixed cut and wrong for anything
+   §0's "layered slices" or slice travel would need.
+2. **§5a's off-plane flux question is settled by the literature, against the
+   lazy option** (§3.1). Compute it as a per-cell scalar source/sink from the
+   coarse map, or align the cut so it is small. Ignoring it on an arbitrary
+   straight cut is the option that was measured and failed.
+3. **§0's curved-route case should carry the CPR warning** (§3.2): the followed
+   feature reads flat. Crossing valleys and following one are different
+   products, not tunings, and §0 currently wants the benefits of both.
+4. **§0's "junction representation is unsolved" is too pessimistic** (§4.3).
+   Klonoa shipped a branching curved path in side view in 1997, and the
+   foreshadow → gesture-focus → eased rotation → region-anchor sequence is
+   assembled entirely from shipped techniques.
+5. **§6a's "generate only `Solid`" should be re-examined against Noita's static
+   class** (§6.1). The engine already has the bit (`Cell::attached`) and the
+   conversion event (destruction clears it); the static/dynamic material pair is
+   a smaller step than it looks and buys loose material in generated terrain
+   without the slump.
+
+6. **§7's "does the density function guarantee surface connectivity" has an
+   answer that is not noise** (§6.4). Barrett's corner-coloured herringbone
+   tiles get full connectivity *structurally*, from position alone, with no
+   neighbour consultation — which is exactly the property §7 says noise cannot
+   provide and WFC cannot provide deterministically. The caveat is that the
+   guarantee is undirected, and in a gravity world reachability is directional.
+7. **§7's CA-flavoured options should carry the halo rewrite** (§6.5). The
+   published CA cave method is order-dependent and disqualified; a
+   halo-padded version is exact, order-independent, and costs 4 cells of
+   padding.
+
+And one to keep: §0's insistence on **reserving a generic slice id rather than a
+`z`** survives, but note the tension — coherent neighbouring slices need an
+*adjacency relation*, which a bare `u32` does not have. A route graph supplies
+one (confluences); a straight-cut z supplies one arithmetically. An opaque id
+with no accompanying graph supplies neither.
+
+---
+
+## 9. Open questions this did not settle
+
+- **Is the cut fixed forever?** If yes, §2.2 says the 3D field is pure cost and
+  the cheap 3D-A plan is correct. Everything about slice travel and layered
+  slices hangs off this one answer, and it is currently deferred rather than
+  decided.
+- **What is the second slice *for*?** §4.2 rule 7 is the strongest single
+  finding in the traversal pass and there is currently no answer. The Nether
+  earns its existence by being 8:1. "More terrain behind the terrain" does not.
+- **Does anything player-facing ever read the coarse map?** DF's embark screen
+  is the only case where 3D worldgen demonstrably paid off, and it paid off as a
+  *query interface*. Without an equivalent, the coarse layer is invisible
+  authoring machinery — which is fine, but should be a choice.
+- **Noita's big-wang map and its worldgen pathfinding validation** are both
+  undocumented [U]. The second is the playability guarantee and would be the
+  most valuable thing to know.
+- **The cheap experiment nobody has run:** render one slice of a 3D fBm against
+  a 2D fBm at matched H and compare by eye. The literature predicts
+  indistinguishable. Worth confirming before paying for 3D-B.
+- **DF's fluid argument, applied here.** Adams found water crossing planes
+  unrepresentable and went to a full 3D grid. If layered slices are ever
+  attempted, that quote is where the design argument starts, not a footnote.
+- **Does a guaranteed route ever need to exist?** §6.10 says the two honest
+  options are a non-participating material along the route, or accepting that
+  routes are not guaranteed. Nothing in the current plan chooses, and the choice
+  becomes expensive once caves and streaming both exist.
+- **Dirty or clean on generation?** §6.1's strategy B. `build_terrain_only`
+  currently answers "dirty," correctly, for material that cannot move. The
+  answer for a generated powder is a one-line change with very different
+  consequences, and it should be made deliberately.
+
+---
+
+## 10. Sources
+
+The four research passes carry every URL. These are the load-bearing ones.
+
+**Dwarf Fortress** — [Tarn Adams on the 2D→3D transition and its cost, *Game
+Developer*, John Harris, 14 Mar
+2023](https://www.gamedeveloper.com/programming/how-tarn-adams-upgraded-and-optimized-dwarf-fortress-for-its-official-steam-release)
+[V]; [Harris interview, 27 Feb
+2008](https://www.gamedeveloper.com/design/interview-the-making-of-dwarf-fortress)
+[V]; [40d release
+info](https://dwarffortresswiki.org/index.php/40d:Release_information) [S];
+[veins do not span
+z-levels](https://dwarffortresswiki.org/index.php/DF2014:Vein) [S]; [Site
+Finder](https://dwarffortresswiki.org/index.php/DF2014:Site_finder) [S]; [world
+generation stage order](https://dwarffortresswiki.org/index.php/World_generation)
+[S].
+
+**Noita** — [Purho, 80.lv interview](https://80.lv/articles/noita-a-game-based-on-falling-sand-simulation)
+[V]; ["Exploring the Tech and Design of Noita", GDC
+2019](https://www.gdcvault.com/play/1025695/Exploring-the-Tech-and-Design) [V];
+[custom material — `liquid_static`](https://noita.wiki.gg/wiki/Modding:_Making_a_custom_material)
+[S]; [custom environment — biome map, Wang templates, pixel
+scenes](https://noita.wiki.gg/wiki/Modding:_Making_a_custom_environment) [S];
+[Noita PRNG — `SetRandomSeed(x,y)`](https://noita.wiki.gg/wiki/Technical:_Noita_PRNG)
+[S]; [magic numbers](https://noita.wiki.gg/wiki/Modding:_Magic_Numbers) [S];
+[parallel worlds](https://noita.wiki.gg/wiki/Parallel_Worlds) [S];
+[stb_herringbone_wang_tile.h](https://github.com/nothings/stb/blob/master/stb_herringbone_wang_tile.h)
+and [Barrett on herringbone
+tiles](https://nothings.org/gamedev/herringbone/herringbone_tiles.html) [V];
+["Seeded Exploration of Wang Tiled
+Environments"](https://www.gamedeveloper.com/design/seeded-exploration-of-wang-tiled-environments)
+[S].
+
+**Terraria / ONI / Vintage Story** — [Terraria world generation
+passes](https://terraria.wiki.gg/wiki/World_generation) [S];
+[Liquids — settling on load, trapped liquid
+deleted](https://terraria.wiki.gg/wiki/Liquids) [S]; [ONI worldgen modding
+guide](https://steamcommunity.com/sharedfiles/filedetails/?id=1883272681) [S];
+[Neutronium](https://oxygennotincluded.wiki.gg/wiki/Neutronium) [S]; [Vintage
+Story worldgen concept — the `Requires neighbours`
+column](https://wiki.vintagestory.at/Modding:WorldGen_Concept) [S].
+
+**Density fields and the slice theorem** — [Geiss, GPU Gems 3 ch.
+1](https://developer.nvidia.com/gpugems/gpugems3/part-i-geometry/chapter-1-generating-complex-procedural-terrains-using-gpu)
+[V]; [Minecraft density
+functions](https://minecraft.wiki/w/Density_function) and [noise
+router](https://minecraft.wiki/w/Noise_router) [V]; [Minecraft world generation
+stages](https://minecraft.wiki/w/World_generation) [V]; [Lévy fBf covariance,
+arXiv:1410.2523](https://arxiv.org/pdf/1410.2523) [V]; [BIT-101, 2D vs 3D Perlin
+and simplex, measured](https://bit-101.com/2017/2021/07/noise-2d-vs-3d-perlin-and-simplex/)
+[S]; [the 3D blue noise result that does *not*
+generalise](https://momentsingraphics.de/3DBlueNoise.html) [V].
+
+**Curved slices** — [Kanitsar et al., "CPR — Curved Planar Reformation", IEEE
+Vis 2002](https://www.cg.tuwien.ac.at/research/vis/adapt/Vis2002/index.html) [V];
+[Advanced CPR, IEEE Vis
+2003](https://www.cg.tuwien.ac.at/research/vis/adapt/Vis2003_03/) [V];
+[Patrikalakis & Maekawa on offset singularities — cusps at κ =
+−1/D](https://web.mit.edu/hyperbook/Patrikalakis-Maekawa-Cho/node225.html) [V];
+[HEC-RAS cross-section
+data](https://www.hec.usace.army.mil/confluence/rasdocs/rasum/latest/entering-and-editing-geometric-data/cross-section-data)
+and [stream
+junctions](https://www.hec.usace.army.mil/confluence/rasdocs/rasum/latest/entering-and-editing-geometric-data/stream-junctions)
+[V]; [Esri, linear
+referencing](https://pro.arcgis.com/en/pro-app/latest/help/data/linear-referencing/introduction-to-linear-referencing.htm)
+[V].
+
+**Hydrogeology and geology in section** — [Gholami et al. 2025, "Cross-Sectional
+Models of Groundwater Flow: Review and Correction for Transverse Flow",
+*Groundwater*](https://ngwa.onlinelibrary.wiley.com/doi/10.1111/gwat.70017)
+([open access](https://pmc.ncbi.nlm.nih.gov/articles/PMC12435104/)) [V];
+[Freeze & Cherry ch. 6 — the water table as a subdued replica of
+topography](https://fc79.gw-project.org/english/chapter-6/) [V]; [Tóth 1963,
+*JGR* 68(16)](https://agupubs.onlinelibrary.wiley.com/doi/abs/10.1029/jz068i016p04795)
+[V]; [Groundwater Project, perched
+aquifers](https://books.gw-project.org/hydrogeologic-properties-of-earth-materials-and-principles-of-groundwater-flow/chapter/perched-aquifers/)
+[V]; [USGS Circular 1139](https://pubs.usgs.gov/circ/circ1139/) [V]; [AAPG,
+cross section](https://wiki.aapg.org/Cross_section) [S].
+
+**Slices as a game mechanic** — [Barotrauma, "The map is misleading and doesn't
+represent the game
+world"](https://github.com/FakeFishGames/Barotrauma/discussions/10684) [V];
+[Engine4D (4D Golf)](https://github.com/HackerPoet/Engine4D) [V]; [Fez engine
+algorithms](https://veeenu.github.io/blog/fez-world/) [S]; ["Cubes All the Way
+Down", GDC 2012](https://gdcvault.com/play/1015731/Cubes-All-the-Way-Down) [V];
+[Keren, "Scroll Back: The Theory and Practice of Cameras in
+Side-Scrollers"](https://www.gamedeveloper.com/design/scroll-back-the-theory-and-practice-of-cameras-in-side-scrollers)
+[V]; [Klonoa's 2.5D camera](https://bassemtodary.wordpress.com/2013/10/21/klonoa-and-its-distinct-2-5d-camera-system/)
+[S]; [Xbox Wire, The Medium's dual
+reality](https://news.xbox.com/en-us/2021/01/28/the-mediums-dual-reality-gameplay/)
+[V]; [Game Developer, how camerawork enabled The Medium's two
+worlds](https://www.gamedeveloper.com/design/how-good-camerawork-enabled-i-the-medium-s-i-two-simultaneous-worlds)
+[V]; [Drinkbox cut Guacamelee's third
+dimension](https://www.siliconera.com/melding-platforming-dimension-swapping-and-dia-de-los-muertos-in-guacamelee/)
+[V]; [LittleBigPlanet's auto-layer-switching as "the game's principal
+fault"](https://www.psu.com/reviews/littlebigplanet-review/) [S]; [Terraria,
+safe vs unsafe walls are visually
+indistinguishable](https://terraria.wiki.gg/wiki/Background_walls) [S];
+[Minecraft Nether portal, 8:1](https://minecraft.wiki/w/Nether_portal) [V];
+[Wikipedia, "Effect and
+Cause"](https://en.wikipedia.org/wiki/Effect_and_Cause) [S]; [Miegakure — GDC
+EGW 2009, still unreleased](https://en.wikipedia.org/wiki/Miegakure) [S].
+
+**PCG literature and shipped generators** — [Shaker, Togelius & Nelson,
+*Procedural Content Generation in Games*](http://pcgbook.com/) [V]; [Johnson,
+Yannakakis & Togelius, "Cellular automata for real-time generation of infinite
+cave levels", PCGames
+2010](https://www.um.edu.mt/library/oar/bitstream/123456789/22895/1/Cellular_automata_for_real-time_generation_of.pdf)
+[V]; [Barrett, herringbone Wang tiles — "arbitrary order
+(Minecraft-style)"](https://nothings.org/gamedev/herringbone/) and [the 2014
+corner-colouring
+follow-up](https://nothings.org/gamedev/herringbone/more_herringbone_tiles.html)
+[V]; [Kazemi, "Spelunky's Procedural
+Space"](http://tinysubversions.com/2009/09/spelunkys-procedural-space/) [S];
+[Spelunky level
+generation](https://spelunky.fandom.com/wiki/Level_Generation/2) [S];
+[Minecraft floating gravity blocks — update
+semantics](https://mcdf.wiki.gg/wiki/Java_Edition:Floating_Gravity_Block) [S];
+[Bénard, the level design of Dead
+Cells](https://deepnight.net/tutorial/the-level-design-of-dead-cells-a-hybrid-approach/)
+[V]; [Paris, terrain erosion on the
+GPU](https://aparis69.github.io/public_html/posts/terrain_erosion.html) [S];
+[Kleineberg, infinite WFC](https://marian42.de/article/infinite-wfc/) [V];
+[Gustave, static structural-integrity analysis for voxel
+games](https://github.com/vsaulue/Gustave) [V];
+[PieKing1215/FallingSandEngine](https://github.com/PieKing1215/FallingSandEngine)
+[S].
+
+**Rendering layered pixel art** — [Dan Fessler
+method](https://2dwillneverdie.com/tutorial/instant-pixel-art-backgrounds-with-the-dan-fessler-method/)
+[S]; [SLYNYRD on atmospheric
+perspective](https://www.slynyrd.com/blog/2018/11/16/pixelblog-11-landscape-pixeling)
+[S]; [DigitalRune, screen-door
+transparency](https://digitalrune.github.io/DigitalRune-Documentation/html/fa431d48-b457-4c70-a590-d44b0840ab1e.htm)
+[S]; [DF z-fog mod, and the "can't tell Z0 from Z−1"
+complaint](https://steamcommunity.com/sharedfiles/filedetails/?id=2899337501)
+[S].
