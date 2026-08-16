@@ -31,6 +31,15 @@
     attached_span_bonus: 12,
     breaks_into: "rubble",
 
+    // How coarsely stone comes apart: rungs on `rigid::fracture`'s
+    // power-of-two ladder, so 6 means fragments of 2, 4, 8, 16, 32 or 64
+    // cells. One rung more than the engine default, because stone is the
+    // material a player spends the most time breaking and the top of the
+    // ladder is what reads as "a piece of the wall came off" rather than
+    // "the wall crumbled". Raise it for rock that should calve slabs;
+    // lower it for anything that should shatter into grit.
+    fragment_rungs: 6,
+
 
     // Rock is strong in compression, weak in bending, weakest in tension.
     // Leaning out costs the full step; hanging costs triple, so nothing

@@ -539,15 +539,24 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
         if !left.contains(&seed) {
             continue;
         }
-        // 2, 4, 8, 16 or 32 cells. Uniform over the exponent means each
+        // A power-of-two ladder. Uniform over the exponent means each
         // doubling is half as likely per cell of material consumed, which
         // is the heavy-tailed shape fragmentation actually has.
+        //
+        // How many rungs is the *material's* business now
+        // (`MaterialDef::fragment_rungs`), not a constant: slate shears
+        // into plates where a brittle crust shatters into grit, and
+        // "different materials should break differently" is an explicit
+        // near-term goal. Read from the seed cell, since a mixed region
+        // should break the way the rock at each seed does.
+        //
         // A wider blow takes bigger pieces off. `size_bias` shifts the
         // whole ladder up, so a heavy swing or a large blast calves slabs
         // where a light tap produces chips -- without flattening the
         // distribution, which is what stops it reading as all-or-nothing
         // again.
-        let target = (1usize << (1 + world.rng.below(5) as usize + size_bias as usize)).min(MAX_BODY_CELLS);
+        let rungs = world.materials.get(world.get(seed.0, seed.1).material).fragment_rungs;
+        let target = (1usize << (1 + world.rng.below(rungs) as usize + size_bias as usize)).min(MAX_BODY_CELLS);
         let fragment = take_fragment(&mut left, seed, target);
         if fragment.len() >= MIN_BODY_CELLS {
             promote(world, &fragment, impulse);

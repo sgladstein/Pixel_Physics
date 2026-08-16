@@ -1080,8 +1080,21 @@ mod tests {
         w.schedule_structural_check(tip, 30);
         run(&mut w, 400);
 
+        // Not "did the tip become rubble" -- that pins *which* of two
+        // outcomes happened rather than the claim. A failing region is
+        // handed to `rigid::fracture`, which promotes anything at or above
+        // `MIN_BODY_CELLS` to a falling body (leaving `EMPTY` behind) and
+        // converts the rest to debris in place; which one a given cell gets
+        // depends on the material's own fragment ladder, so this assertion
+        // broke the moment stone got a rung added. What the test is about
+        // is that an over-reaching cantilever gives way and its anchored
+        // root does not.
         let debris = stone_debris(&w);
-        assert_eq!(w.get(tip, 30).material, debris, "a cantilever cell past stone's span should have broken into stone's debris material");
+        let tip_material = w.get(tip, 30).material;
+        assert!(
+            tip_material == debris || tip_material == material::EMPTY,
+            "a cantilever cell past stone's reach should have given way, found {tip_material:?}"
+        );
         assert_eq!(w.get(0, 30).material, material::STONE, "the anchored root of the cantilever should still be standing");
     }
 

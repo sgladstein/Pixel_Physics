@@ -79,8 +79,12 @@ run ligament scene=ligament start=2 every=70 count=6 crop=60,110,180,120 zoom=3 
 #    world eating itself with nobody having touched it.
 run terrain  scene=terrain  start=2 every=90 count=4 crop=0,0,512,320 zoom=1 max_failures=0 repeat=2 max_frame_ms=$BUDGET_MS
 
-# 6. A struck cliff throws pieces.
-run strike   scene=strike   start=2 every=60 count=4 crop=200,90,120,120 zoom=3 min_overloaded=2 repeat=2 max_frame_ms=$BUDGET_MS
+# 6. A struck cliff throws pieces. Asserted as *bodies in flight*, not as
+#    overload failures: the mechanism here is the blow's own fracture, and
+#    an earlier bar on overload failures duly broke when an unrelated
+#    change to the fragment ladder shifted how many separate events the
+#    same material came away in. Measure what the scene is about.
+run strike   scene=strike   start=2 every=60 count=4 crop=200,90,120,120 zoom=3 min_bodies=2 repeat=2 max_frame_ms=$BUDGET_MS
 
 echo
 if [ "$fails" -gt 0 ]; then

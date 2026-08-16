@@ -432,6 +432,18 @@ struct Args {
     /// slower, so the fastest of several runs is the closest thing to the
     /// machine's real cost, and a bar it still fails is a real regression.
     max_frame_ms: Option<f64>,
+    /// `min_bodies=N` -- exit non-zero unless at least N coherent chunk
+    /// bodies were in flight at once at some point in the run.
+    ///
+    /// A different question from `min_overloaded`, and the `strike` scene
+    /// is why both exist. That scene is about a *blow throwing pieces*,
+    /// and the mechanism there is `rigid::strike`'s own fracture, not the
+    /// load criterion -- so asserting overload failures tested something
+    /// the scene is not about, and duly broke when an unrelated change to
+    /// the fragment ladder shifted how many separate events the same
+    /// material came away in. Peak concurrent bodies is the quantity that
+    /// actually says "it threw pieces".
+    min_bodies: Option<usize>,
     /// `loadmap=1` -- also report the single most-stressed cell in the
     /// world per tile. `CLAUDE.md`: sanity-check a new metric against a
     /// case you know is fine before trusting it about one you don't, and
@@ -460,6 +472,7 @@ fn parse() -> Args {
         min_overloaded: None,
         max_failures: None,
         max_frame_ms: None,
+        min_bodies: None,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -487,6 +500,7 @@ fn parse() -> Args {
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
+            "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
             "loadmap" => a.loadmap = v != "false",
             "load" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("load")).collect();
@@ -630,12 +644,18 @@ fn report_loads(world: &World, args: &Args) {
 /// that is supposed to stand must show that nothing fired
 /// (`max_failures`), which is only meaningful once the same binary has
 /// demonstrated it can fire at all on the collapsing scenes.
-fn check_expectations(world: &World, args: &Args, best_ms: f64) -> bool {
+fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usize) -> bool {
     let f = world.structural_failures;
     let mut ok = true;
     if let Some(limit) = args.max_frame_ms {
         if best_ms > limit {
             println!("  FAIL: worst frame {best_ms:.2} ms over the {limit:.1} ms budget (best of {} runs)", args.repeat);
+            ok = false;
+        }
+    }
+    if let Some(min) = args.min_bodies {
+        if peak_bodies < min {
+            println!("  FAIL: expected at least {min} chunk bodies in flight at once, peaked at {peak_bodies}");
             ok = false;
         }
     }
@@ -652,7 +672,7 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64) -> bool {
             ok = false;
         }
     }
-    if ok && (args.min_overloaded.is_some() || args.max_failures.is_some() || args.max_frame_ms.is_some()) {
+    if ok && (args.min_overloaded.is_some() || args.max_failures.is_some() || args.max_frame_ms.is_some() || args.min_bodies.is_some()) {
         println!("  OK: scene={} met its expectations", args.scene);
     }
     ok
@@ -669,14 +689,14 @@ fn main() {
     for _ in 1..args.repeat {
         samples.push(run_once(&args, false).0);
     }
-    let (last_ms, world) = run_once(&args, true);
+    let (last_ms, world, peak_bodies) = run_once(&args, true);
     samples.push(last_ms);
     let best = samples.iter().cloned().fold(f64::INFINITY, f64::min);
     if args.repeat > 1 {
         let worst = samples.iter().cloned().fold(0.0, f64::max);
         println!("worst frame over {} runs: {best:.2} ms (spread {best:.2}-{worst:.2})", args.repeat);
     }
-    if !check_expectations(&world, &args, best) {
+    if !check_expectations(&world, &args, best, peak_bodies) {
         std::process::exit(1);
     }
 }
@@ -684,7 +704,7 @@ fn main() {
 /// One full run. Returns its worst frame in ms and the finished world.
 /// `render` is false for the extra timing samples, which do not need an
 /// image and should not pay for one.
-fn run_once(args: &Args, render: bool) -> (f64, World) {
+fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
     let mut world = build(&args.scene);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
@@ -761,7 +781,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World) {
         // The gif branch is for watching motion, not for measuring; it has
         // no per-frame timing of its own and `repeat`/expectations do not
         // apply to it.
-        return (0.0, world);
+        // The gif branch is for watching motion, not measuring: no
+        // per-frame timing and no body sampling, so it reports neither.
+        return (0.0, world, 0);
     }
 
     let mut captured = 0usize;
@@ -774,6 +796,11 @@ fn run_once(args: &Args, render: bool) -> (f64, World) {
     // phase of the scene instead of just proving one happened.
     let mut worst_ms = 0.0f64;
     let mut worst_frame = 0usize;
+    // Sampled every frame, not just at capture: a body's whole life can
+    // fall between two tiles, and "bodies 0" in every tile of a scene that
+    // visibly threw rock is exactly the confusion this harness exists to
+    // prevent.
+    let mut peak_bodies = 0usize;
     while captured < args.count {
         let target = args.start + captured * args.every;
         while step_no < target {
@@ -787,6 +814,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World) {
             // first-touch page faults, paid once at startup, and leaving it
             // in made all seven scenes report the same ~70-110 ms and hid
             // the differences between them entirely.
+            peak_bodies = peak_bodies.max(world.chunk_bodies.len());
             if ms > worst_ms && step_no > 0 {
                 worst_ms = ms;
                 worst_frame = step_no;
@@ -861,5 +889,5 @@ fn run_once(args: &Args, render: bool) -> (f64, World) {
             .expect("writing the contact sheet");
         println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
     }
-    (worst_ms, world)
+    (worst_ms, world, peak_bodies)
 }

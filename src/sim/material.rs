@@ -387,6 +387,25 @@ pub struct MaterialDef {
     #[serde(default = "default_attached_span_bonus")]
     pub attached_span_bonus: u16,
 
+    /// How coarsely this material breaks: the number of rungs on
+    /// `rigid::fracture`'s power-of-two fragment ladder.
+    ///
+    /// **Nobody derives debris size from physics, and that is not a gap.**
+    /// `Reports/prior-art-destruction.md`: Red Faction authors shard scale
+    /// per material, and UE5's Chaos uses a cluster hierarchy with a
+    /// damage threshold per level. The ladder here is already the right
+    /// *shape* -- uniform over the exponent, so each doubling is half as
+    /// likely per cell consumed, which is the heavy-tailed distribution
+    /// fragmentation actually has. What it lacked was any way for one rock
+    /// to break differently from another.
+    ///
+    /// Higher means a wider spread and larger top-end pieces: slate shears
+    /// into plates, granite calves blocks, a brittle crust shatters into
+    /// grit. 5 is the ladder that shipped before this field existed (2, 4,
+    /// 8, 16, 32 cells), so leaving it unset changes nothing.
+    #[serde(default = "default_fragment_rungs")]
+    pub fragment_rungs: u32,
+
 
     /// What one step of `max_unsupported_span` costs, per direction the
     /// support comes *from*: standing on the cell below, leaning on the one
@@ -425,6 +444,11 @@ fn default_support_cost() -> u16 {
 
 /// 1 — attachment buys no extra span unless a material asks for it, so a
 /// `.ron` that says nothing behaves exactly as it did before this existed.
+/// The ladder that shipped before the field existed: 2, 4, 8, 16, 32.
+fn default_fragment_rungs() -> u32 {
+    5
+}
+
 fn default_attached_span_bonus() -> u16 {
     1
 }
@@ -533,6 +557,8 @@ pub struct Material {
     pub max_unsupported_span: u16,
     /// See `MaterialDef::attached_span_bonus`. Always >= 1.
     pub attached_span_bonus: u16,
+    /// See `MaterialDef::fragment_rungs`. Always >= 1.
+    pub fragment_rungs: u32,
     /// See `MaterialDef::support_cost_below` and its siblings.
     pub support_cost_below: u16,
     pub support_cost_beside: u16,
@@ -771,6 +797,9 @@ impl From<MaterialDef> for Material {
             // than loose material, which is never what a content author
             // means by leaving a field small.
             attached_span_bonus: def.attached_span_bonus.max(1),
+            // At least one rung, or the ladder has no rungs to draw from
+            // and `Rng::below(0)` is meaningless.
+            fragment_rungs: def.fragment_rungs.max(1),
             // Clamped to at least 1 so a lateral or upward step always costs
             // *something*. All three at 0 would let a distance propagate
             // arbitrarily far without ever growing, silently disabling
@@ -900,6 +929,7 @@ impl MaterialRegistry {
             max_unsupported_span: u16::MAX,
             breaks_into: String::new(),
             attached_span_bonus: 1,
+            fragment_rungs: 5,
             support_cost_below: 1,
             support_cost_beside: 1,
             support_cost_above: 1,
@@ -933,6 +963,7 @@ impl MaterialRegistry {
             max_unsupported_span: u16::MAX,
             breaks_into: String::new(),
             attached_span_bonus: 1,
+            fragment_rungs: 5,
             support_cost_below: 1,
             support_cost_beside: 1,
             support_cost_above: 1,
