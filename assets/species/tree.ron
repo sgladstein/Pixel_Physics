@@ -155,7 +155,20 @@
                 // 0.13), and the plastochron's integer rounding erased its
                 // variation entirely at the outer orders. The first three
                 // are widened to clear that.
-                genotype_variance: (0.6, 0.4, 0.4, 0.18),
+                // [branch, upward, plastochron, turgor, pipe_ratio, light].
+                // Widths from a 1,024-genome study. Quintile spread in tree
+                // size, low draw -> high draw:
+                //   branch    823 -> 2078   (2.5x, live)
+                //   plast    2443 ->  767   (3.2x, live, inverted)
+                //   turgor   1709 -> 1162   (1.5x, and r = -0.75 on height)
+                //   upward   1310 -> 1457   (flat -- INERT even at +/-40%)
+                // Upward is held at 0.0 rather than removed: salts are
+                // positional and renumbering rewrites every genome. The two
+                // new slots are the traits with the most silhouette left in
+                // them -- girth per unit foliage (stocky vs slender, until
+                // now identical on every tree) and phototropic gain
+                // (straight vs wandering).
+                genotype_variance: (0.6, 0.0, 0.4, 0.18, 0.4, 0.5),
                 turgor_source: 1.0,
                 turgor_yield: 0.1,
                 turgor_per_cell: 0.0075,

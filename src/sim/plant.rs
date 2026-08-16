@@ -743,7 +743,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // is the "one tree scaled up" failure `genotype_variance`
                 // exists to avoid.
                 let branch_chance = branch_chance.at(order) * genotype(organism_id, 1, genotype_variance[0]);
-                let light_weight = light_weight.at(order);
+                let light_weight = light_weight.at(order) * genotype(organism_id, 6, genotype_variance[5]);
                 let upward_weight = upward_weight.at(order) * genotype(organism_id, 2, genotype_variance[1]);
                 let plastochron_interval =
                     ((plastochron_interval.at(order) as f32 * genotype(organism_id, 3, genotype_variance[2])).round() as u8).max(u8::from(plastochron_interval.at(order) > 0));
@@ -1741,6 +1741,21 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // the organism rather than per cell: it belongs to the *bud's* own
     // `BudBreak`, but it is `thicken` -- running on a `MatureBody` several
     // cells away -- that consumes it, and a species defines it once.
+    // Slot 4 of the genome. `pipe_ratio` lives on `SecondaryThicken` but
+    // the genome lives on `Grow`, so it is read from the species' own
+    // `GrowingTip` here rather than duplicated onto a second behaviour --
+    // one plant, one genotype.
+    let pipe_variance = world
+        .species
+        .get(species_id)
+        .behaviors(CellType::GrowingTip)
+        .iter()
+        .find_map(|b| match b {
+            Behavior::Grow { genotype_variance, .. } => Some(genotype_variance[4]),
+            _ => None,
+        })
+        .unwrap_or(0.0);
+
     let bud_survival = world
         .species
         .get(species_id)
@@ -1848,7 +1863,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 }
                 Behavior::SecondaryThicken { pipe_ratio } => {
                     let carried = leaves_above.get(&cy).copied().unwrap_or(0);
-                    thicken(world, cx, cy, organism_id, pipe_ratio, carried as usize, bud_survival, &mut rng);
+                    thicken(world, cx, cy, organism_id, pipe_ratio * genotype(organism_id, 5, pipe_variance), carried as usize, bud_survival, &mut rng);
                 }
                 // Frontier behaviours never run here -- a mature cell has
                 // no growth to do, and `Germinate` belongs to a `Seed`.

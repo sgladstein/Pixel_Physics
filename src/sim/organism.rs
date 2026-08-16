@@ -310,7 +310,16 @@ pub enum Behavior {
         /// tree wants the written numbers and not a draw around them.
         /// Indexed by trait, in the order `plant::genotype`'s salts run:
         /// **0 branch chance, 1 upward weight, 2 plastochron, 3 turgor
-        /// cost.** `[0.0, 0.0, 0.0, 0.0]` disables jitter entirely.
+        /// cost, 4 pipe ratio, 5 light weight.** All zeroes disables jitter.
+        ///
+        /// **Slots are positional and must never be renumbered** — a salt
+        /// is what makes an individual's draw reproducible, so moving a
+        /// trait to a different index silently rewrites every genome ever
+        /// measured. Retire a dead trait by setting its width to `0.0`, not
+        /// by removing its slot. Slot 1 is exactly that case: upward weight
+        /// measured inert across 1,024 genomes even at ±40% (quintile means
+        /// 1310, 1460, 1396, 1388, 1457 cells — flat), so it is held at 0.0
+        /// rather than deleted.
         ///
         /// **One number for all four was wrong, and it was measured wrong.**
         /// At a flat ±15%, a 64-genome population showed only turgor doing
@@ -327,7 +336,7 @@ pub enum Behavior {
         /// actually moves, and the inert ones need to be wide enough to
         /// clear their own quantization.
         #[serde(default)]
-        genotype_variance: [f32; 4],
+        genotype_variance: [f32; 6],
         /// Mechanical resistance, in MPa, this cell type can force its way
         /// through — a `RootTip` converts a `Powder` neighbour whose
         /// `Material::penetration_resistance` is *below* this into root
