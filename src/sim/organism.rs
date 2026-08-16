@@ -262,6 +262,27 @@ pub enum Behavior {
         /// non-programmer would plausibly tune it, and it is one of the
         /// clearest silhouette levers a species file has.
         plastochron: ByOrder<u8>,
+        /// The fraction of the turgor range over which extension **fades
+        /// out** rather than stopping dead.
+        ///
+        /// `0.3` means a shoot grows at full rate until it has spent 70% of
+        /// its available turgor, then its per-tick chance of extending
+        /// falls linearly to zero over the last 30%. `0.0` restores the
+        /// hard cutoff and is the value every species had before this
+        /// existed.
+        ///
+        /// **Grounded, and load-bearing for the silhouette.** Lockhart's
+        /// equation gives wall extension rate as proportional to `(P − Y)`;
+        /// a step function at `P = Y` is the one part of the turgor model
+        /// that was not taken from it. The cost of that shortcut was
+        /// visible in every render: with a step, every lineage in the plant
+        /// runs at full speed right up to one row and terminates there, so
+        /// each crown is a flat horizontal plate with growth trailing
+        /// below it. Slowing the last stretch lets `ORGANISM_STALE_LIMIT`
+        /// retire some lineages before others, and the top becomes a band
+        /// instead of a line.
+        #[serde(default)]
+        turgor_taper: f32,
         /// **Genotype jitter** — the fraction by which this species' own
         /// numbers vary from one individual to the next. `0.15` means every
         /// organism draws its parameters somewhere in ±15% of the values

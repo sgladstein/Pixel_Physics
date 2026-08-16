@@ -730,6 +730,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 turgor_source,
                 turgor_yield,
                 turgor_per_cell,
+                turgor_taper,
                 genotype_variance,
             } => {
                 // Per-order parameters resolved once, against *this cell's*
@@ -793,8 +794,36 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     if let Some(collar) = collar {
                         // Rows *above* the collar; y grows downward.
                         let height = (collar - y).max(0) as f32;
-                        if turgor_source - turgor_per_cell * height <= turgor_yield {
+                        let margin = turgor_source - turgor_per_cell * height - turgor_yield;
+                        if margin <= 0.0 {
                             continue;
+                        }
+                        // **The taper, and why the hard cutoff alone was
+                        // not enough.** Lockhart's equation makes wall
+                        // extension rate proportional to `(P - Y)`, not a
+                        // step at zero, and the difference is the whole
+                        // silhouette: with a step, every lineage in the
+                        // plant runs at full speed right up to one row and
+                        // terminates there, so growth piles up under the
+                        // bound like sediment and each crown reads as a
+                        // flat horizontal plate. Measured on eight trees:
+                        // separated crowns, staggered heights, clear boles
+                        // -- and every one of them capped with a straight
+                        // edge.
+                        //
+                        // Tapering makes the last stretch stochastic
+                        // instead. A lineage near the bound grows slowly,
+                        // and slow growth accumulates `stale_ticks`, so
+                        // some lineages retire before others -- the top
+                        // fades out over a band rather than stopping on a
+                        // line. `genotype_variance` then offsets that band
+                        // per individual, which is why the two changes
+                        // belong together.
+                        if turgor_taper > 0.0 {
+                            let full = (turgor_source - turgor_yield).max(f32::EPSILON);
+                            if !rng.chance((margin / full / turgor_taper).min(1.0)) {
+                                continue;
+                            }
                         }
                     }
                 }
