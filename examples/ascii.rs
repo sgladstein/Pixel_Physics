@@ -516,11 +516,46 @@ fn terrain_generation_cost() {
 
     let solid = (0..512).map(|x| (0..320).filter(|&y| world.get(x, y).material != material::EMPTY).count()).sum::<usize>();
     println!(
-        "512x320 terrain, {solid} solid cells: {:.2} ms to build and relax, {:.2} ms to build alone \
+        "512x320 hand-authored terrain, {solid} solid cells: {:.2} ms to build and relax, {:.2} ms to build alone \
          -- the structural pass itself is {:.2} ms, paid once at generation",
         with_pass.as_secs_f64() * 1000.0,
         without_pass.as_secs_f64() * 1000.0,
         (with_pass.saturating_sub(without_pass)).as_secs_f64() * 1000.0,
+    );
+
+    // The same attribution for a *generated* world, which is what the app
+    // actually builds now. Worth measuring separately rather than assuming
+    // it tracks the figure above: the generated massif fills most of the
+    // world instead of a floor and three ledges, and the structural pass
+    // scales with how much solid there is to relax.
+    let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
+    if let Some(e) = err {
+        println!("worldgen presets unavailable ({e}); skipping generated-terrain timing");
+        return;
+    }
+    let name = presets.default_name();
+    let Some(params) = presets.get(&name) else { return };
+    let spec = || pixel_physics::worldgen::Spec::Generated { params, seed: 1 };
+
+    let mut gen = World::new(Rect::new(0, 0, 511, 319));
+    let start = std::time::Instant::now();
+    pixel_physics::worldgen::generate(&mut gen, spec());
+    let gen_with_pass = start.elapsed();
+
+    let mut gen_bare = World::new(Rect::new(0, 0, 511, 319));
+    let start = std::time::Instant::now();
+    pixel_physics::worldgen::generate_only(&mut gen_bare, spec());
+    let gen_without_pass = start.elapsed();
+
+    let gen_solid =
+        (0..512).map(|x| (0..320).filter(|&y| gen.get(x, y).material != material::EMPTY).count()).sum::<usize>();
+    println!(
+        "512x320 generated terrain ({name}, seed 1), {gen_solid} solid cells: {:.2} ms to build and relax, \
+         {:.2} ms to place alone -- the structural pass itself is {:.2} ms, paid once at generation \
+         (and again on every F6 reroll)",
+        gen_with_pass.as_secs_f64() * 1000.0,
+        gen_without_pass.as_secs_f64() * 1000.0,
+        (gen_with_pass.saturating_sub(gen_without_pass)).as_secs_f64() * 1000.0,
     );
 }
 

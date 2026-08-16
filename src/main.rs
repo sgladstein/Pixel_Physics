@@ -58,9 +58,12 @@ struct Handler {
 
     /// Kept alive for as long as we want notifications; dropping it stops them.
     _watcher: Option<RecommendedWatcher>,
-    material_events: Option<Receiver<()>>,
+    /// `true` on the event means the change was to `assets/worldgen.ron`.
+    material_events: Option<Receiver<bool>>,
     /// When a change was last noticed, for debouncing a burst of writes.
     pending_reload: Option<Instant>,
+    /// Whether anything in the debounced burst was a worldgen edit.
+    pending_worldgen: bool,
 
     /// Counts down real rendered frames until a one-shot framebuffer PNG
     /// dump, set from `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES`; `None` means
@@ -108,6 +111,7 @@ impl Handler {
             _watcher: watcher,
             material_events,
             pending_reload: None,
+            pending_worldgen: false,
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES")
                 .ok()
                 .and_then(|s| s.parse().ok()),
@@ -130,8 +134,9 @@ impl Handler {
             // Drain the burst; the timer restarts on each one, so the reload
             // happens once the writes have stopped.
             let mut saw_change = false;
-            while rx.try_recv().is_ok() {
+            while let Ok(is_worldgen) = rx.try_recv() {
                 saw_change = true;
+                self.pending_worldgen |= is_worldgen;
             }
             if saw_change {
                 self.pending_reload = Some(Instant::now());
@@ -141,7 +146,15 @@ impl Handler {
         if let Some(at) = self.pending_reload {
             if at.elapsed() >= RELOAD_DEBOUNCE {
                 self.pending_reload = None;
-                self.app.reload_materials();
+                // Worldgen edits are tracked separately from material edits
+                // because reloading worldgen *rebuilds the world*, and doing
+                // that on every material save would throw away whatever the
+                // player had built since the last one.
+                if std::mem::take(&mut self.pending_worldgen) {
+                    self.app.reload_worldgen();
+                } else {
+                    self.app.reload_materials();
+                }
             }
         }
     }
@@ -266,6 +279,12 @@ impl Handler {
             KeyCode::KeyR => self.app.reset(),
             KeyCode::F1 => self.app.toggle_overlay(),
             KeyCode::F5 => self.app.reload_materials(),
+            // Worldgen lives on F6-F8: reroll, cycle preset, step back a
+            // seed. Judging generated terrain means seeing a lot of it, so
+            // the reroll is a single key rather than anything to navigate.
+            KeyCode::F6 => self.app.next_seed(),
+            KeyCode::F7 => self.app.cycle_preset(),
+            KeyCode::F8 => self.app.previous_seed(),
             KeyCode::KeyF => {
                 if let Some((x, y)) = self.cursor {
                     self.app.ignite(x, y);
@@ -504,12 +523,19 @@ impl ApplicationHandler for Handler {
 /// churning every call site for a rename that doesn't fix anything) already
 /// reloads species alongside materials on every call, so a single "reload
 /// everything" signal is all either watched directory needs to produce.
-fn watch_materials() -> (Option<RecommendedWatcher>, Option<Receiver<()>>) {
+fn watch_materials() -> (Option<RecommendedWatcher>, Option<Receiver<bool>>) {
     let (tx, rx) = channel();
     let mut watcher = match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        if res.is_ok() {
+        if let Ok(event) = res {
+            // Which file it was matters for exactly one case: a worldgen
+            // edit rebuilds the world, so it must not be triggered by a
+            // material save. Everything else still reduces to "reload".
+            let worldgen = event
+                .paths
+                .iter()
+                .any(|p| p.file_name().is_some_and(|n| n == "worldgen.ron"));
             // The receiver is gone only during shutdown.
-            let _ = tx.send(());
+            let _ = tx.send(worldgen);
         }
     }) {
         Ok(w) => w,
@@ -526,8 +552,12 @@ fn watch_materials() -> (Option<RecommendedWatcher>, Option<Receiver<()>>) {
     // directory is no more fatal than a missing materials one (the
     // compiled-in set already loaded, per `SpeciesRegistry::builtin`).
     let species_watched = watcher.watch(Path::new(organism::ASSET_DIR), RecursiveMode::NonRecursive).is_ok();
+    // The worldgen presets live directly in `assets/`, not in a directory of
+    // their own, so this watch covers the parent. Non-recursive, so it does
+    // not duplicate the two directory watches above.
+    let worldgen_watched = watcher.watch(Path::new("assets"), RecursiveMode::NonRecursive).is_ok();
 
-    if materials_watched || species_watched {
+    if materials_watched || species_watched || worldgen_watched {
         (Some(watcher), Some(rx))
     } else {
         // Neither assets directory exists beside the binary. The compiled-in

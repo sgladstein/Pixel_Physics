@@ -1,0 +1,381 @@
+//! The **realise** half of worldgen: named passes that write cells, each
+//! reading only its own column plus a declared margin either side.
+//!
+//! Split from `column.rs` on the decision/realisation line every shipped
+//! generator uses (`Reports/prior-art-worldgen-slicing.md` §6.6: Terraria's
+//! ~110 passes, Dwarf Fortress's 18, Minecraft's decision/realisation split
+//! with a declared task margin). Nobody ships strict no-neighbour worldgen,
+//! so the honest design is not to pretend passes are independent but to say
+//! *how far* each one reaches — which is what `Pass::margin` in the parent
+//! module records, and what a later per-chunk generator will use to decide
+//! how many columns either side of a chunk it must plan before it can fill
+//! that chunk.
+//!
+//! Order matters: later passes overwrite earlier ones, and several of them
+//! deliberately only write into cells that are still empty.
+
+use super::column::ColumnPlan;
+use super::noise::{self, Purpose};
+use super::Ctx;
+use crate::sim::material;
+use crate::sim::world::World;
+use crate::sim::Cell;
+
+/// Sedimentary banding, written into the shade byte.
+///
+/// The whole visual argument for cut rock. Stone's four shades cost nothing
+/// at runtime — the byte is written once here and read by the renderer — but
+/// arranged as tilted, gently folded bands they turn every cliff face, mine
+/// shaft and (later) cave wall into readable geology instead of flat grey.
+/// The legacy terrain used `x % 4`, which produces vertical pinstripes: the
+/// one arrangement that reads as a rendering bug rather than as rock.
+fn strata_shade(ctx: &Ctx, x: i32, y: i32) -> u8 {
+    let p = ctx.terrain.params;
+    let thickness = p.strata_thickness.max(1.0);
+    // The same displacement the surface benches are snapped to, so a terrace
+    // edge always sits on a band boundary that is visible in the rock below
+    // it (`column::terraced`).
+    let band_y = y as f32 + ctx.terrain.strata_offset(x);
+    let band = (band_y / thickness).floor() as i32;
+    // Adjacent bands differ by one tone, not four: strata are a subtle
+    // gradient in real rock, and cycling the full range makes stripes.
+    const TONES: [u8; 4] = [1, 2, 1, 0];
+    let base = TONES[band.rem_euclid(4) as usize];
+    // A minority of cells jump a tone, so the bands have grain inside them
+    // rather than reading as flat ribbons.
+    if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < 0.12 {
+        (base + 1).min(3)
+    } else {
+        base
+    }
+}
+
+/// A varied shade for loose material, matching what the brush lays down.
+///
+/// Not optional decoration: `render.rs`'s per-cell grain mode keys entirely
+/// off this byte, so material created with a uniform shade renders visibly
+/// flat under it (`examples/filmstrip.rs` documents the same trap for water).
+fn loose_shade(ctx: &Ctx, purpose: Purpose, x: i32, y: i32) -> u8 {
+    ((noise::unit(ctx.terrain.seed, purpose, x, y) * 4.0) as u8).min(3)
+}
+
+/// Everything from the soil line down to bedrock.
+///
+/// Attached solid, like the legacy terrain and for the same reason: attached
+/// cells are structural anchors (`sim/cell.rs`), so the massif holds itself
+/// up by construction and can carry overhangs, terraces and (later) cave
+/// roofs without any of it being at risk of collapsing the moment the world
+/// loads. It is also the at-rest guarantee for all of the rock: a `Solid` has
+/// no movement rule at all, so it cannot settle however steep the face is.
+pub fn stone_massif(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    for x in 0..ctx.terrain.w {
+        let c = ctx.plans[x as usize];
+        for y in (c.surface_y + c.soil_depth).max(0)..c.bedrock_top_y {
+            world.set(x, y, Cell::new(ctx.stone, strata_shade(ctx, x, y)).with_attached(true));
+            n += 1;
+        }
+    }
+    n
+}
+
+/// The world floor: literal bedrock, the anchor every structural check
+/// terminates at. Its top edge undulates because nothing in this world is
+/// allowed to be a ruler line except a water surface.
+pub fn bedrock_floor(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    for x in 0..ctx.terrain.w {
+        let c = ctx.plans[x as usize];
+        for y in c.bedrock_top_y..ctx.terrain.h {
+            world.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Soil over the rock, thinning to nothing on steep ground.
+///
+/// Real `Powder`, not attached — this is material the player can dig, and
+/// that plants will root in. It stays put because of *where* it is placed,
+/// never because it is exempted from the rules: `column::plan` already
+/// refused to put soil on anything steeper than its angle of repose.
+pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    let p = ctx.terrain.params;
+    for x in 0..ctx.terrain.w {
+        let c = ctx.plans[x as usize];
+        if c.soil_depth <= 0 {
+            continue;
+        }
+        let top = c.surface_y.max(0);
+        // Never past the bedrock: this pass runs after `bedrock_floor`, so an
+        // unclamped blanket on a deep-soil preset would replace the world's
+        // anchor with powder and drop the whole massif.
+        let bottom = (c.surface_y + c.soil_depth).min(c.bedrock_top_y);
+        // Flat low ground collects washed sediment. Judged from the column's
+        // own elevation rather than from the world's lowest point, so the
+        // pass stays local to its declared margin and survives the move to
+        // per-chunk generation unchanged.
+        let is_valley_floor =
+            ctx.terrain.slope(x) < 0.1 && ctx.terrain.elev(x) < -0.45 * p.relief_amplitude;
+        for y in top..bottom {
+            // A dithered band where soil meets stone, rather than a clean
+            // horizon. Two materials meeting on an exact line is the single
+            // most artificial-looking thing a layered generator can do.
+            let m = if y >= bottom - 2 && noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < 0.25 {
+                ctx.gravel
+            } else if is_valley_floor && y < top + 2 {
+                ctx.sand
+            } else {
+                ctx.soil
+            };
+            world.set(x, y, Cell::new(m, loose_shade(ctx, Purpose::Shade, x, y)));
+            n += 1;
+        }
+    }
+    n
+}
+
+/// A drop of at least this many cells counts as a cliff for the brow and
+/// talus passes. Below it the "face" is a slope, and hanging a lip off it
+/// would read as a mistake rather than as an overhang.
+const CLIFF_DROP: i32 = 6;
+
+/// Cliff edges as `(edge_x, direction, drop)`, where `direction` is +1 when
+/// the ground falls away to the right and -1 when it falls to the left.
+fn cliff_edges(plans: &[ColumnPlan], w: i32) -> Vec<(i32, i32, i32)> {
+    let mut edges = Vec::new();
+    for x in 0..w {
+        let here = plans[x as usize].surface_y;
+        if x + 1 < w {
+            let drop = plans[(x + 1) as usize].surface_y - here;
+            if drop >= CLIFF_DROP {
+                edges.push((x, 1, drop));
+            }
+        }
+        if x > 0 {
+            let drop = plans[(x - 1) as usize].surface_y - here;
+            if drop >= CLIFF_DROP {
+                edges.push((x, -1, drop));
+            }
+        }
+    }
+    edges
+}
+
+/// Overhanging lips at the top of cliffs.
+///
+/// The uniqueness deliverable of this pass list. A heightfield alone can only
+/// produce a function of x — no overhang, no undercut, nothing to stand under
+/// — and a world made only of graph-of-a-function terrain is exactly what
+/// every side-view generator in this genre looks like. A brow is attached
+/// solid, so it stands until something hits it, at which point the load model
+/// already in the engine decides what happens. Neither Terraria nor Noita
+/// generates terrain that participates in a structural model, because neither
+/// has one.
+pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    let p = ctx.terrain.params;
+    if p.brow_chance <= 0.0 {
+        return n;
+    }
+    for (x, dir, drop) in cliff_edges(&ctx.plans, ctx.terrain.w) {
+        if noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir) >= p.brow_chance {
+            continue;
+        }
+        let top = ctx.plans[x as usize].surface_y;
+        // Scaled to the face it hangs off. A fixed three-to-five cells was
+        // the first version, and at the handful of genuine cliffs a world
+        // contains it produced a lip too small to read as an overhang at all
+        // — the pass ran and the picture could not tell. Never longer than
+        // the drop is deep, though: a lip that outreaches its own face reads
+        // as a shelf floating in the air.
+        let reach = (3 + (noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir * 7) * 3.0) as i32 + drop / 4)
+            .min(drop - 1);
+        let thick = 2 + (noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir * 13) * 2.0) as i32;
+        for row in 0..thick {
+            let y = top + row;
+            // Tapered underside, so the lip is a wedge rather than a slab.
+            for step in 1..=(reach - row).max(0) {
+                let lx = x + dir * step;
+                if lx < 0 || lx >= ctx.terrain.w {
+                    break;
+                }
+                // Only into open air: a brow must never overwrite the ground
+                // it is hanging over.
+                if world.get(lx, y).material != material::EMPTY {
+                    break;
+                }
+                world.set(lx, y, Cell::new(ctx.stone, strata_shade(ctx, lx, y)).with_attached(true));
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// Gravel aprons heaped at the foot of cliffs.
+///
+/// Bare vertical rock meeting flat ground reads as computer graphics; real
+/// faces shed, and the shed material piles against them. It is also the
+/// first loose material the player meets — a cliff with a scree slope under
+/// it is something to dig into, not just something to look at.
+///
+/// The wedge recedes one cell of height per two cells out, a slope of 0.5
+/// against gravel's 45° repose, so it is comfortably at rest by construction.
+pub fn talus(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    let p = ctx.terrain.params;
+    if p.talus_max_height <= 0.0 {
+        return n;
+    }
+    for (x, dir, drop) in cliff_edges(&ctx.plans, ctx.terrain.w) {
+        let peak = (p.talus_max_height as i32).min(drop / 2);
+        if peak <= 0 {
+            continue;
+        }
+        // The apron is planned in full and validated before a single cell is
+        // written, because the only shape that stays put is one whose toe
+        // tapers to nothing.
+        //
+        // Two earlier versions avalanched, both for the same underlying
+        // reason and neither visible in a render. Following each column's own
+        // ground gave the wedge the ground's slope on top of its own, coming
+        // out steeper than gravel's repose. Cutting the wedge short where the
+        // footing got steep replaced that with a five-cell vertical face at
+        // the toe, which simply moved the free surface rather than removing
+        // it. The honest answer is that below a *continuously* steep face —
+        // a canyon wall — there is nowhere for scree to accumulate at all,
+        // and the pass should decline rather than approximate.
+        let foot = x + dir;
+        if foot < 0 || foot >= ctx.terrain.w {
+            continue;
+        }
+        let base_y = ctx.plans[foot as usize].surface_y;
+        // The apron's top surface: one cell of fall per two cells out, a
+        // slope of 0.5 against gravel's 45° repose.
+        let top_at = |step: i32| base_y - (peak - step / 2);
+        let mut plan: Vec<(i32, i32, i32)> = Vec::new(); // (tx, top_y, ground)
+        let mut prev_ground = base_y;
+        let mut tapered = false;
+        for step in 0..=(peak * 2) {
+            let tx = x + dir * (step + 1);
+            if tx < 0 || tx >= ctx.terrain.w {
+                break;
+            }
+            let ground = ctx.plans[tx as usize].surface_y;
+            // A further drop inside the footprint would leave the apron
+            // hanging over it.
+            if (ground - prev_ground).abs() > 1 {
+                break;
+            }
+            prev_ground = ground;
+            let top_y = top_at(step);
+            if top_y >= ground {
+                // The apron's surface has met the ground: it has thinned to
+                // nothing of its own accord, which is the only ending that
+                // leaves no free face.
+                tapered = true;
+                break;
+            }
+            plan.push((tx, top_y, ground));
+        }
+        // No taper means the ground fell away as fast as the apron did and
+        // the two never met. Scree there would end in a cliff of its own.
+        if !tapered {
+            continue;
+        }
+        for (tx, top_y, ground) in plan {
+            for y in top_y.max(0)..ground {
+                // Open air only. The apron heaps *against* the face and on
+                // top of the ground; it never eats into either, so every
+                // cell it writes is resting on something solid.
+                if world.get(tx, y).material != material::EMPTY {
+                    continue;
+                }
+                world.set(tx, y, Cell::new(ctx.gravel, loose_shade(ctx, Purpose::Pocket, tx, y)));
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// Sand and gravel lenses sealed inside the rock.
+///
+/// Loose material the player only finds by digging, and which behaves the
+/// moment it is exposed — cut into one and it pours. Fully enclosed, so it is
+/// trivially at rest until something opens it, which is why this is the one
+/// place generated powder can sit at any shape at all.
+pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    let p = ctx.terrain.params;
+    if p.pocket_density <= 0.0 {
+        return n;
+    }
+    const REGION: i32 = 64;
+    let seed = ctx.terrain.seed;
+    for ry in 0..ctx.terrain.h.div_euclid(REGION) + 1 {
+        for rx in 0..ctx.terrain.w.div_euclid(REGION) + 1 {
+            // A fractional density means "sometimes one": the whole number is
+            // guaranteed and the remainder is a per-region coin flip.
+            let whole = p.pocket_density.floor() as i32;
+            let extra = i32::from(noise::unit(seed, Purpose::Pocket, rx, ry) < p.pocket_density.fract());
+            for k in 0..whole + extra {
+                let cx = rx * REGION + (noise::unit(seed, Purpose::Pocket, rx * 31 + k, ry) * REGION as f32) as i32;
+                let cy = ry * REGION + (noise::unit(seed, Purpose::Pocket, rx, ry * 31 + k) * REGION as f32) as i32;
+                if cx < 0 || cx >= ctx.terrain.w {
+                    continue;
+                }
+                let a = 4.0 + noise::unit(seed, Purpose::Pocket, cx, cy) * 6.0;
+                let b = 2.0 + noise::unit(seed, Purpose::Pocket, cy, cx) * 2.0;
+                let m = if noise::unit(seed, Purpose::Pocket, cx + 1, cy + 1) < 0.5 { ctx.sand } else { ctx.gravel };
+
+                // Collect first, write only if the whole lens plus a one-cell
+                // rind is solid stone.
+                //
+                // Skipping non-stone cells individually was the first version
+                // and it is not the same thing: a lens clipping the surface
+                // simply lost the cells that stuck out and kept the rest,
+                // leaving loose powder outcropping on a slope, which promptly
+                // ran. "Sealed" is the property the whole pass relies on for
+                // its cells to be at rest, so it has to be checked before any
+                // of them is written, not approximated per cell.
+                let mut lens = Vec::new();
+                let mut sealed = true;
+                'lens: for dy in -(b as i32) - 1..=(b as i32) + 1 {
+                    for dx in -(a as i32) - 1..=(a as i32) + 1 {
+                        let (px, py) = (cx + dx, cy + dy);
+                        let d = (dx as f32 / a).powi(2) + (dy as f32 / b).powi(2);
+                        // The rind: one cell beyond the lens must also be
+                        // stone, so the lens is never flush with a free face.
+                        let rind = (dx.abs() as f32 / (a + 1.0)).powi(2) + (dy.abs() as f32 / (b + 1.0)).powi(2);
+                        if rind > 1.0 {
+                            continue;
+                        }
+                        if px < 0 || px >= ctx.terrain.w || py < 0 || py >= ctx.terrain.h {
+                            sealed = false;
+                            break 'lens;
+                        }
+                        if world.get(px, py).material != ctx.stone {
+                            sealed = false;
+                            break 'lens;
+                        }
+                        if d <= 1.0 {
+                            lens.push((px, py));
+                        }
+                    }
+                }
+                if !sealed {
+                    continue;
+                }
+                for (px, py) in lens {
+                    world.set(px, py, Cell::new(m, loose_shade(ctx, Purpose::Pocket, px, py)));
+                    n += 1;
+                }
+            }
+        }
+    }
+    n
+}

@@ -10,6 +10,8 @@ Each page describes only what's actually in the game today, not what's
 planned. Pages carry a short freshness note at the top; if something reads
 as wrong, the game has moved past this page, not the other way round.
 
+- [**The World**](the-world.md) — how a world is generated, what it is made
+  of from the sky down to bedrock, and how to roll a different one.
 - [**Powders**](powders.md) — sand, gravel, ash, soil, corpse, and the loose
   debris that falls and piles up rather than spreading flat.
 - [**Liquids & Gases**](liquids-and-gases.md) — water, oil, and smoke: what

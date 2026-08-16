@@ -15,8 +15,8 @@ use crate::sim::parallel;
 use crate::sim::particle::ParticleSystem;
 use crate::sim::structural;
 use crate::sim::world::World;
-use crate::sim::Cell;
 use crate::tunables::{self, Tunable, TunableGroup};
+use crate::worldgen::{self, WorldgenPresets};
 
 /// Simulation resolution, in cells. The window is larger; `pixels` scales the
 /// framebuffer up, which is what gives the chunky pixel look.
@@ -33,6 +33,24 @@ const STREAM_DENSITY: f32 = 0.3;
 /// player's sense of "how big a hit is this", so it drives the force rather
 /// than a second hidden number.
 const STRIKE_FORCE_PER_RADIUS: f32 = 0.9;
+
+/// The seed a fresh session starts on, so that launching the sandbox twice
+/// gives the same world and a bug report has something to name.
+const INITIAL_SEED: u64 = 0x5EED;
+
+/// Build `world` from a named preset, falling back to the hand-authored
+/// terrain.
+///
+/// The fallback covers both `worldgen::LEGACY` (which is deliberately not in
+/// the presets file) and a name that no longer resolves because the file was
+/// edited while the app was running — neither is worth failing over when
+/// there is a working world one branch away.
+fn build_world_with(world: &mut World, presets: &WorldgenPresets, preset: &str, seed: u64) {
+    match presets.get(preset) {
+        Some(params) => worldgen::generate(world, worldgen::Spec::Generated { params, seed }),
+        None => worldgen::generate(world, worldgen::Spec::Legacy),
+    }
+}
 
 /// The reference room `B` stamps, in cells. See `stamp_reference_room`.
 ///
@@ -145,6 +163,22 @@ pub struct App {
     /// once and worth nothing a second later, unlike the persistent brush
     /// label beneath it.
     toast: Option<(String, u64)>,
+    /// Every worldgen preset, reloaded whenever `assets/worldgen.ron` changes.
+    pub worldgen: WorldgenPresets,
+    /// Which preset a new world is built from. May be `worldgen::LEGACY`,
+    /// which selects the hand-authored terrain instead of generating.
+    pub worldgen_preset: String,
+    /// The seed the current world was generated from. `F6` rolls a new one.
+    ///
+    /// On screen in the status line at all times, so that a world worth
+    /// keeping can be written down and a screenshot always says which world
+    /// it is. A generator whose output cannot be named is one whose bugs
+    /// cannot be reported.
+    pub worldgen_seed: u64,
+    /// Seeds already visited, so `F8` can walk back to one that looked good.
+    /// Rolling forward past a promising world and having no way back is the
+    /// obvious failure of a single-key reroll.
+    seed_history: Vec<u64>,
 }
 
 /// Which gesture the mouse lays material with. See `App::tool`.
@@ -220,9 +254,22 @@ impl App {
         // actually wired up: `SpeciesRegistry::reload` existed and was
         // tested, but nothing called it, so editing `assets/species/*.ron`
         // silently did nothing, unlike every material file.
-        let message = reload_assets(&mut world);
+        let mut message = reload_assets(&mut world);
 
-        build_terrain(&mut world);
+        let (worldgen_presets, worldgen_error) = WorldgenPresets::load();
+        // A broken `worldgen.ron` falls back to compiled-in defaults, which
+        // still builds a world -- so without this the only symptom of a typo
+        // would be that a tuning session silently stopped having any effect.
+        if let Some(e) = worldgen_error {
+            message = Some(match message {
+                Some(m) => format!("{m}; {e}"),
+                None => e,
+            });
+        }
+        let worldgen_preset = worldgen_presets.default_name();
+        let worldgen_seed = INITIAL_SEED;
+        build_world_with(&mut world, &worldgen_presets, &worldgen_preset, worldgen_seed);
+
         let paintable = world.materials.paintable();
         // Start on sand: the material that most obviously shows whether the
         // simulation is behaving.
@@ -256,7 +303,79 @@ impl App {
             drag_from: None,
             show_stress: false,
             toast: None,
+            worldgen: worldgen_presets,
+            worldgen_preset,
+            worldgen_seed,
+            seed_history: Vec::new(),
         }
+    }
+
+    /// `F6` — generate a fresh world from a new seed.
+    ///
+    /// The reroll key, and the reason the generator is judged by eye rather
+    /// than argued about: a parameter change is worth nothing until it has
+    /// been seen across a dozen seeds, and any workflow where that costs a
+    /// recompile means it does not happen.
+    pub fn next_seed(&mut self) {
+        self.seed_history.push(self.worldgen_seed);
+        // Advancing the seed through the same hash the generator uses, rather
+        // than incrementing: adjacent integer seeds are perfectly fine inputs
+        // to a hashed generator, but consecutive worlds looking related --
+        // even once, even by coincidence -- would be read as the generator
+        // being broken.
+        self.worldgen_seed = worldgen::noise::hash(self.worldgen_seed, worldgen::noise::Purpose::Height, 0, 0);
+        self.reset();
+        self.announce_world();
+    }
+
+    /// `F8` — back to the previous seed.
+    pub fn previous_seed(&mut self) {
+        match self.seed_history.pop() {
+            Some(seed) => {
+                self.worldgen_seed = seed;
+                self.reset();
+                self.announce_world();
+            }
+            None => self.show_toast("NO PREVIOUS SEED"),
+        }
+    }
+
+    /// `F7` — cycle worldgen preset, keeping the seed.
+    ///
+    /// Same seed on purpose: comparing two presets is only meaningful on the
+    /// same underlying world, and a preset switch that also rerolled would
+    /// confound every comparison it was reached for.
+    pub fn cycle_preset(&mut self) {
+        let order = self.worldgen.cycle_order();
+        let at = order.iter().position(|n| *n == self.worldgen_preset).unwrap_or(0);
+        self.worldgen_preset = order[(at + 1) % order.len()].clone();
+        self.reset();
+        self.announce_world();
+    }
+
+    /// Re-read `assets/worldgen.ron` and rebuild on the current seed.
+    ///
+    /// The tuning loop: edit a number, save, look. Reached from the file
+    /// watcher, so no keypress is needed at all.
+    pub fn reload_worldgen(&mut self) {
+        let (presets, error) = WorldgenPresets::load();
+        self.worldgen = presets;
+        // A preset can be deleted out from under the current selection.
+        if self.worldgen_preset != worldgen::LEGACY && self.worldgen.get(&self.worldgen_preset).is_none() {
+            self.worldgen_preset = self.worldgen.default_name();
+        }
+        self.reset();
+        self.assets_dirty = dirty_asset_count();
+        match error {
+            Some(e) => self.show_toast(e),
+            None => self.announce_world(),
+        }
+    }
+
+    /// Put the current seed and preset on screen.
+    fn announce_world(&mut self) {
+        let text = format!("{} — SEED {:#018X}", self.worldgen_preset.to_uppercase(), self.worldgen_seed);
+        self.show_toast(text);
     }
 
     /// `Z` — cycle the build gesture. See `App::tool`.
@@ -1367,7 +1486,7 @@ impl App {
         // Carry the loaded materials across rather than dropping back to the
         // compiled-in set.
         std::mem::swap(&mut world.materials, &mut self.world.materials);
-        build_terrain(&mut world);
+        build_world_with(&mut world, &self.worldgen, &self.worldgen_preset, self.worldgen_seed);
         self.world = world;
     }
 
@@ -1379,12 +1498,17 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
             self.world.active_chunk_count(),
             self.world.chunk_count(),
+            // Always shown, never elided. A screenshot of a generated world
+            // that does not say which world it is cannot be reproduced, and
+            // this generator will be judged almost entirely from screenshots.
+            self.worldgen_preset,
+            self.worldgen_seed,
             if self.paused { " — PAUSED" } else { "" },
             // Only shown once it has been changed, so the ordinary status
             // line is untouched until someone is actually comparing modes.
@@ -1421,75 +1545,59 @@ impl Default for App {
 /// real thing to check that structural integrity leaves it standing, which
 /// is a claim about the terrain players actually see, not about a replica.
 pub fn build_terrain(world: &mut World) {
-    build_terrain_only(world);
-    // Terrain is structurally real from frame one, not exempt from checking
-    // until something disturbs it -- see `compute_world_distances` for why
-    // this is a direct converged pass rather than a scheduled one.
-    structural::compute_world_distances(world);
+    worldgen::generate(world, worldgen::Spec::Legacy);
 }
 
 /// Just the material placement, without the structural pass `build_terrain`
 /// runs after it. Split out so `examples/ascii.rs` can time the two halves
 /// separately and attribute the generation cost rather than just stating it.
 pub fn build_terrain_only(world: &mut World) {
-    let w = WIDTH as i32;
-    let h = HEIGHT as i32;
-    // Always present: `reload` only ever adds or updates, so the compiled-in
-    // stone cannot be removed by editing the assets directory.
-    let stone = world
-        .materials
-        .id_of("stone")
-        .expect("stone is a compiled-in material");
-
-    // The bottom two rows are literal bedrock, the world's structural
-    // anchor (`structural.rs`) and the deepest of the six vertical zones
-    // `Reports/worldgen-design.md` §2 defines. Nothing placed bedrock
-    // anywhere before this, which meant the only anchor in the entire world
-    // was the floor's bottom row happening to touch the out-of-bounds
-    // sentinel -- true, but by accident rather than by construction, and
-    // not something generated terrain could rely on.
-    for x in 0..w {
-        for y in (h - 2)..h {
-            world.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
-        }
-    }
-    for x in 0..w {
-        for y in (h - 8)..(h - 2) {
-            world.set(x, y, Cell::new(stone, (x % 4) as u8).with_attached(true));
-        }
-    }
-
-    // 6 cells deep, which is deliberately more than stone's confinement
-    // diameter (5): each ledge contains genuinely confined rock and so holds
-    // itself up, with no support pillar and no exemption from checking. Thin
-    // these below 5 and they will come down, which is the mechanic working
-    // rather than a regression.
-    let mut ledge = |x0: i32, x1: i32, y: i32| {
-        for x in x0..x1 {
-            for dy in 0..6 {
-                world.set(x, y + dy, Cell::new(stone, (x % 4) as u8).with_attached(true));
-            }
-        }
-    };
-    ledge(0, 110, 200); // cut into the left wall
-    ledge(402, w, 150); // cut into the right wall
-    ledge(180, 320, 260);
-    for y in 266..(h - 8) {
-        for x in 244..256 {
-            world.set(x, y, Cell::new(stone, (x % 4) as u8).with_attached(true)); // the middle platform's pillar
-        }
-    }
-
-    // The world is left dirty on purpose. The first sweep examines the terrain,
-    // finds that none of it moves, and settles from the second frame onward.
+    worldgen::generate_only(world, worldgen::Spec::Legacy);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Only the tests build cells directly now that the terrain moved to
+    // `worldgen`.
+    use crate::sim::Cell;
 
     fn id(app: &App, name: &str) -> MaterialId {
         app.world.materials.id_of(name).expect(name)
+    }
+
+    /// An app on the hand-authored terrain.
+    ///
+    /// `App::new` builds a *generated* world now, so any test written against
+    /// the sandbox terrain's exact coordinates — its ledges, its eight-row
+    /// floor — has to ask for that terrain by name. Kept pointed at the real
+    /// layout rather than relaxed into "some stone somewhere": these tests
+    /// are about a known shape standing up, and a version that passed against
+    /// any terrain would have stopped testing the thing it was written for.
+    fn legacy_app() -> App {
+        let mut app = App::new();
+        app.worldgen_preset = worldgen::LEGACY.to_string();
+        app.reset();
+        app
+    }
+
+    /// Step until every chunk is asleep, asserting that it happens quickly.
+    ///
+    /// Two frames used to be enough anywhere, because the starting world was
+    /// stone and bedrock — solids, which have no movement rule to run. A
+    /// generated world contains real powder (soil blankets, scree, buried
+    /// lenses), and powder cannot be known to be at rest until it has been
+    /// examined, so settling now takes a few frames rather than exactly one.
+    /// The claim worth testing is unchanged and is still asserted here: the
+    /// world goes quiet promptly and does not keep waking itself.
+    fn settle(app: &mut App) {
+        for frame in 0..20 {
+            app.update();
+            if app.world.active_chunk_count() == 0 {
+                return;
+            }
+            assert!(frame < 19, "world never went quiet");
+        }
     }
 
     /// Cells of `id` inside a square window around a point.
@@ -1551,9 +1659,7 @@ mod tests {
         // Changed friction or dispersion can unstick material that had settled,
         // so everything must be re-examined.
         let mut app = App::new();
-        app.update();
-        app.update();
-        assert_eq!(app.world.active_chunk_count(), 0);
+        settle(&mut app);
         app.reload_materials();
         assert!(app.world.active_chunk_count() > 0, "reload left the world asleep");
     }
@@ -1600,17 +1706,13 @@ mod tests {
     #[test]
     fn static_terrain_settles_and_stays_settled() {
         let mut app = App::new();
-        // Two sweeps, because dirty regions are double buffered: the terrain
-        // writes made before the first frame are only promoted into the swept
-        // region by the end of it, so the second frame is the one that examines
-        // the stone and concludes it does not move.
-        app.update();
-        app.update();
-        assert_eq!(
-            app.world.active_chunk_count(),
-            0,
-            "static starting terrain kept chunks awake"
-        );
+        // Dirty regions are double buffered, so the terrain writes made
+        // before the first frame are only promoted into the swept region by
+        // the end of it -- the second frame is the earliest that can examine
+        // the terrain and conclude it does not move. Generated worlds carry
+        // powder as well as stone and take a few frames more; `settle`
+        // asserts it still happens promptly.
+        settle(&mut app);
 
         for _ in 0..10 {
             app.update();
@@ -1629,7 +1731,7 @@ mod tests {
         // this asserts both halves: the distances are genuinely computed
         // (not left at a default that merely looks anchored), and the
         // terrain nonetheless stands.
-        let mut app = App::new();
+        let mut app = legacy_app();
         let stone = id(&app, "stone");
         let h = HEIGHT as i32;
 
@@ -1658,7 +1760,10 @@ mod tests {
         // "everything the player builds is indestructible" failure two
         // inferred-support models had: damage revokes it, and every
         // destructive verb already does.
-        let mut probe = App::new();
+        // Legacy terrain too, so (40, 40) is open sky: painting into
+        // generated rock would assert that pre-existing terrain is attached,
+        // which is a different claim that happens to pass.
+        let mut probe = legacy_app();
         probe.world.paint_capsule((40, 40), (40, 40), 3, stone, 1.0);
         assert!(probe.world.get(40, 40).attached(), "brushed stone should be laid down intact");
 
@@ -1977,7 +2082,8 @@ mod tests {
 
     #[test]
     fn reset_clears_painted_material_but_keeps_terrain_and_materials() {
-        let mut app = App::new();
+        // Legacy terrain: the assertions below name the floor's exact rows.
+        let mut app = legacy_app();
         let sand = id(&app, "sand");
         let stone = id(&app, "stone");
         app.paint(100, 20, false);

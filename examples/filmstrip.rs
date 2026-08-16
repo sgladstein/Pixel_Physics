@@ -200,6 +200,37 @@ fn build(args: &Args) -> World {
             app.stamp_reference_room(WIDTH / 2, 40);
             w = app.world;
         }
+        // Generated terrain, the thing worldgen is judged on. Reads
+        // `assets/worldgen.ron` rather than a replica of it, for the same
+        // reason `terrain` calls the real `build_terrain`: a scene that
+        // approximated the generator would stop being evidence about the
+        // generator the first time either drifted.
+        //
+        // `seed=` and `preset=` pick the world; a run with `count=1` is a
+        // single still, which is what the seed sweep in the worldgen plan
+        // uses. Stepping it at all is also the at-rest check in visual form
+        // — generated terrain that settles is terrain that moved.
+        "worldgen" => {
+            let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
+            if let Some(e) = err {
+                panic!("{e}");
+            }
+            let name = if args.preset.is_empty() { presets.default_name() } else { args.preset.clone() };
+            let Some(params) = presets.get(&name) else { panic!("unknown preset {name:?}") };
+            let report = pixel_physics::worldgen::generate_reported(
+                &mut w,
+                pixel_physics::worldgen::Spec::Generated { params, seed: args.seed },
+            );
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            // Printed next to the image on purpose. A contact sheet cannot
+            // show whether a feature pass ran -- a terrace and an overhang
+            // read the same at this zoom -- so a pass reporting zero here is
+            // the only way to catch one that silently never fires.
+            println!("worldgen {name} seed {}", args.seed);
+            for (pass, cells) in &report {
+                println!("  {pass:<14} {cells:>7} cells");
+            }
+        }
         // The payoff mechanic, and the one M17 "was built for and has never
         // had a real test case" (`Reports/worldgen-design.md` §7): mine
         // upward into a ledge until the roof left above the excavation is
@@ -468,7 +499,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom"
         ),
     }
     w
@@ -476,6 +507,11 @@ fn build(args: &Args) -> World {
 
 struct Args {
     scene: String,
+    /// `seed=N` -- which generated world `scene=worldgen` builds.
+    seed: u64,
+    /// `preset=NAME` -- which entry of `assets/worldgen.ron` it uses. Empty
+    /// means that file's own `default`.
+    preset: String,
     /// `wall=N` / `dig=N` -- capsule radii for `scene=room`'s walls and for
     /// the cut made into them. Both default to 3, which is what the app
     /// itself does, because the app has only one number for both.
@@ -563,6 +599,8 @@ struct Args {
 fn parse() -> Args {
     let mut a = Args {
         scene: "pour".into(),
+        seed: 1,
+        preset: String::new(),
         start: 100,
         every: 60,
         count: 6,
@@ -589,6 +627,8 @@ fn parse() -> Args {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
             "scene" => a.scene = v.into(),
+            "seed" => a.seed = v.parse().expect("seed"),
+            "preset" => a.preset = v.into(),
             "start" => a.start = v.parse().expect("start"),
             "every" => a.every = v.parse().expect("every"),
             "count" => a.count = v.parse().expect("count"),
