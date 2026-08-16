@@ -1,9 +1,17 @@
 //! A tiny xorshift64* generator.
 //!
 //! The simulation calls this several times per cell per frame, so it needs to be
-//! trivially cheap. It is deliberately not a dependency: the sim does not require
-//! reproducibility (see the plan's determinism decision), so quality beyond "looks
-//! unbiased" buys nothing, and owning it avoids churn in `rand`'s API.
+//! trivially cheap. It is deliberately not a dependency: statistical quality
+//! beyond "looks unbiased" buys nothing here, and owning it avoids churn in
+//! `rand`'s API.
+//!
+//! An earlier version of this doc said the sim "does not require
+//! reproducibility" — that decision was **reversed** (`PLAN.md`: same-build
+//! deterministic replay is required), and this module is now load-bearing for
+//! it: every seed is fixed (`Rng::default`) or position-derived
+//! (`Chunk::rng`, `jitter`), never drawn from time or OS entropy, so two
+//! identical runs draw identical streams. `tests/determinism.rs` asserts
+//! this end to end; do not add an entropy-seeded constructor.
 
 pub struct Rng(u64);
 

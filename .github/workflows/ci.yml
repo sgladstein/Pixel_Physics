@@ -18,6 +18,15 @@ jobs:
       - name: cargo test
         run: cargo test --release --locked
 
+      # The release profile compiles `debug_assert!` out, and this codebase
+      # uses debug asserts as real invariant guards (organism/creature index
+      # overflow, `clear_moved` ownership, `tick_burn` on a non-burning
+      # cell, `set_aux` during a burn). Until this step existed, no CI
+      # configuration ever compiled a single one of them — a guard that is
+      # never built protects nothing.
+      - name: cargo test (debug, compiles the debug_assert guards)
+        run: cargo test --locked
+
       - name: cargo clippy
         run: cargo clippy --all-targets --release --locked -- -D warnings
 
