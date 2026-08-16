@@ -1522,6 +1522,25 @@ const LEAF_INCOME_PER_TICK: f32 = 0.05;
 ///    it converts exponential growth into linear growth, which still fills
 ///    the world.
 ///
+/// **Known defect: this gate is backwards for recovery, and it is why a
+/// damaged plant does nothing.** Measured with `filmstrip`'s `cut=`: topping
+/// two grown trees removed 1,344 living cells, and over the next 7,400
+/// frames neither rebuilt a crown -- they sat flat-topped, with a faint
+/// greening at the cut face and nothing more. The reason is right here.
+/// `supportable` is driven by *intercepted light*, so losing foliage lowers
+/// it: the event that should most urgently drive rebuilding instead reduces
+/// the drive to rebuild. It is a rich-get-richer economy with no reserve.
+///
+/// Real plants resprout from **stored** reserves, and this one is holding
+/// them -- a grown trunk sits at `RESOURCE_SCALE` throughout. The obvious
+/// fix, adding stock to the numerator, is the exact mistake
+/// `allocate_to_frontier` documents: stock grows with mass, so every tip's
+/// share stays high forever and the stand fuses into a slab (38,605 cells
+/// against 1,723). What separates the two cases is *memory* -- a plant that
+/// has lost foliage should mobilise, a plant that never had any should not,
+/// and only a high-water mark can tell them apart. That is Phase 3's
+/// monotone girth memory, which is the prerequisite and is not built yet.
+///
 /// One per tick on top of that is a *rate* limit, not the bound — it keeps
 /// a plant that has just been shaded from re-flushing its whole bud bank in
 /// a single tick, and it keeps this function's cost at one pass.

@@ -325,6 +325,19 @@ struct Args {
     /// `explode=x,y,radius,strength,frame` -- fire one `explosion::trigger`
     /// at the given frame. Repeatable, for several blasts in one run.
     explosions: Vec<(i32, i32, i32, f32, usize)>,
+    /// `cut=x,y,w,h,frame` -- erase a rectangle at the given frame.
+    ///
+    /// **A surgical alternative to `explode`, and it exists because the
+    /// blast was the wrong instrument for the question.** Asking "does a
+    /// damaged tree respond" with `explode=224,175,6,2.0` vaporised the
+    /// whole tree: a trunk here is two or three cells wide, so any blast
+    /// big enough to reach across it is big enough to remove everything
+    /// nearby, and what the sheet showed was a debris pile rather than a
+    /// severed stem. A rectangle removes exactly what is named, delivers no
+    /// impulse and no heat, and leaves the rest of the plant untouched --
+    /// which is what isolates the *physiological* response from the
+    /// mechanical one.
+    cuts: Vec<(i32, i32, i32, i32, usize)>,
 }
 
 fn parse() -> Args {
@@ -343,6 +356,7 @@ fn parse() -> Args {
         field_overlay: FieldOverlay::Off,
         gif: false,
         explosions: Vec::new(),
+        cuts: Vec::new(),
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -390,6 +404,11 @@ fn parse() -> Args {
                 assert_eq!(n.len(), 5, "explode=x,y,radius,strength,frame");
                 a.explosions.push((n[0] as i32, n[1] as i32, n[2] as i32, n[3], n[4] as usize));
             }
+            "cut" => {
+                let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("cut")).collect();
+                assert_eq!(n.len(), 5, "cut=x,y,w,h,frame");
+                a.cuts.push((n[0], n[1], n[2], n[3], n[4] as usize));
+            }
             "crop" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
                 assert_eq!(n.len(), 4, "crop=x,y,w,h");
@@ -406,6 +425,43 @@ fn parse() -> Args {
 /// index-matching makes this safe to call both inside the stepping loop and
 /// immediately before a capture, which is what lets `frame=0` work at all
 /// (with `start=0` the loop body never runs before the first tile).
+/// Erase every scheduled cut whose frame has arrived, draining it so it
+/// cannot fire twice -- same shape as `fire_due_explosions`, and called
+/// from the same three places for the same reason.
+///
+/// Reports what it actually removed rather than what it was asked to
+/// remove. "Did the cut land on the tree" is a counter question, not a
+/// picture question: a rectangle a few cells off the trunk looks identical
+/// on a contact sheet to one that severed it, and this branch has already
+/// spent a session reading a collapse as a feature that had never once
+/// executed.
+fn fire_due_cuts(world: &mut World, pending: &mut Vec<(i32, i32, i32, i32, usize)>, now: usize) {
+    let mut i = 0;
+    while i < pending.len() {
+        if pending[i].4 <= now {
+            let (x, y, w, h, _) = pending.remove(i);
+            let mut removed = 0;
+            let mut organism_cells = 0;
+            for cy in y..y + h {
+                for cx in x..x + w {
+                    let cell = world.get(cx, cy);
+                    if cell.material == material::EMPTY {
+                        continue;
+                    }
+                    removed += 1;
+                    if cell.organism_id() != 0 {
+                        organism_cells += 1;
+                    }
+                    world.set(cx, cy, Cell::EMPTY);
+                }
+            }
+            println!("  cut: ({x}, {y}) {w}x{h} at frame {now} -- removed {removed} cells, {organism_cells} of them living tissue");
+        } else {
+            i += 1;
+        }
+    }
+}
+
 fn fire_due_explosions(
     world: &mut World,
     particles: &mut ParticleSystem,
@@ -455,6 +511,7 @@ fn main() {
     renderer.field_overlay = args.field_overlay;
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
+    let mut pending_cuts = args.cuts.clone();
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
     let (cw, ch) = (args.crop.width(), args.crop.height());
@@ -482,10 +539,12 @@ fn main() {
             let target = args.start + i * args.every;
             while step_no < target {
                 fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
+            fire_due_cuts(&mut world, &mut pending_cuts, step_no);
                 advance(&mut world, &mut particles, args.parallel_driver);
                 step_no += 1;
             }
             fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
+            fire_due_cuts(&mut world, &mut pending_cuts, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
 
@@ -531,10 +590,12 @@ fn main() {
         let target = args.start + captured * args.every;
         while step_no < target {
             fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
+            fire_due_cuts(&mut world, &mut pending_cuts, step_no);
             advance(&mut world, &mut particles, args.parallel_driver);
             step_no += 1;
         }
         fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
+            fire_due_cuts(&mut world, &mut pending_cuts, step_no);
         // `force_full`, not the dirty-rect path: this must draw the whole
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.
