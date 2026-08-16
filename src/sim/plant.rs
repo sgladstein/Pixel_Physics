@@ -1320,7 +1320,153 @@ pub fn step_organisms(world: &mut World) {
         // after would hand `Photosynthesize`/`Absorb`/decay the previous
         // tick's distribution.
         organism::transport(world, organism_id);
+        allocate_to_frontier(world, organism_id);
         organism_upkeep(world, organism_id);
+    }
+}
+
+/// Hand every growing tip a **share** of the plant's carbon, rather than
+/// leaving it to whatever diffusion happened to deliver.
+///
+/// **This is the measured defect it exists for.** Instrumenting tip deaths
+/// across 8 trees / 14,000 frames: 78.6% of tips died on the resource gate,
+/// and at the moment of death the dying tip held 0.051 carbon while its
+/// best neighbour held 0.971 — nearly 5x the growth cost. **88% of tips
+/// died beside a cell that could have paid for them**, with the trunk
+/// pinned at the `RESOURCE_SCALE` cap. The plant was never out of carbon.
+/// Only the frontier was.
+///
+/// The cause is structural and it is polarity's doing.
+/// `organism::transport` settles a face at `carbon[j] = carbon[i] ·
+/// c_ij/c_ji`, and a fresh tip has basal conductance on every face while
+/// the established strand beside it points *back down the plant*, toward
+/// the sinks that earlier flux canalized. So the newest tissue sits at the
+/// poorest end of a gradient built before it existed — measured at roughly
+/// 1:19.
+///
+/// **A share, not a reserve — and that distinction is the whole point.**
+/// `Reports/tree-procedural-prior-art.md` records that every published
+/// model recomputes the plant's income and re-divides it among the
+/// surviving frontier each cycle; none gives a bud a reserve it owns and
+/// must defend. A share also cannot saturate everywhere at once, which is
+/// the failure that killed the reverted bud break: shares sum to income by
+/// construction, so adding tips lowers every tip's share and the system
+/// self-throttles instead of running away.
+///
+/// Deliberately *not* a top-up from nowhere: carbon is moved out of the
+/// richest cells, so the pass conserves. A plant with nothing to spare
+/// gives its tips nothing, and starvation still kills — it just stops
+/// killing tips that the plant could easily have fed.
+/// Carbon contributed to the frontier's pool per unit of light a `Leaf`
+/// intercepts, each organism tick.
+///
+/// This sets the exchange rate between *intercepted light* and
+/// *extension*, which is the ratio that bounds a plant's size. Weighting by
+/// light rather than by leaf count is the load-bearing part: leaf count
+/// grows with the plant, so dividing it gave every tip a share that never
+/// fell and the stand fused into a slab. Intercepted light does not grow
+/// with the plant, because a canopy shades its own interior — which is
+/// what makes the bound close.
+///
+/// Not yet a per-species value, and it should become one — see
+/// `Reports/tree-architecture-research.md` §0b. Left as a constant only
+/// because it has one caller and one species; the moment a second plant
+/// form wants a different foliage economy it belongs in the `.ron`.
+const LEAF_INCOME_PER_TICK: f32 = 0.05;
+
+fn allocate_to_frontier(world: &mut World, organism_id: u16) {
+    let Some(state) = world.organism(organism_id) else { return };
+    if state.cells.is_empty() {
+        return;
+    }
+    // Sorted for the same determinism reason `transport` sorts: `cells` is
+    // a `HashMap` and `f32` addition is not associative.
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
+
+    let mut frontier: Vec<(i32, i32)> = Vec::new();
+    let mut donors: Vec<(i32, i32)> = Vec::new();
+    let mut intercepted = 0.0f32;
+    for &(x, y) in &cells {
+        let cell = world.get(x, y);
+        if cell.organism_id() != organism_id {
+            continue;
+        }
+        match organism::cell_type(cell.aux()) {
+            Some(t) if is_frontier(t) => frontier.push((x, y)),
+            Some(CellType::Leaf) => {
+                // **Intercepted light, not leaf count** -- Palubicki's `Q`.
+                // A leaf buried inside the canopy sits under blocked field
+                // blocks and reads almost nothing, so it contributes almost
+                // nothing. Counting leaves equally made income grow with
+                // mass and the stand fused into a slab; weighting by light
+                // is what makes self-shading bound the plant.
+                intercepted += ambient_light_above(world, x, y);
+                donors.push((x, y));
+            }
+            Some(_) => donors.push((x, y)),
+            None => {}
+        }
+    }
+    if frontier.is_empty() || donors.is_empty() {
+        return;
+    }
+
+    // **The pool is bounded by foliage, not by the stock — and getting
+    // this wrong is what turns the mechanism into a blob.**
+    //
+    // The first version divided everything the plant was *holding*. Stored
+    // carbon grows with mass (every mature cell sits near
+    // `RESOURCE_SCALE`), so the share per tip stayed high no matter how
+    // many tips there were, growth compounded, and the stand fused into a
+    // solid canopy — 38,605 cells against 1,723, with every tree merged
+    // into its neighbours. That is precisely the failure
+    // `Reports/tree-procedural-prior-art.md` warns of: *"the failure mode
+    // is that `Q_base` grows in proportion to bud count, so every bud's
+    // share stays above 1 forever."*
+    //
+    // In the literature the quantity divided is **income**, and income is
+    // bounded by intercepted light. Leaf count is this engine's stand-in
+    // for that: it is what actually earns carbon, and it is already limited
+    // by self-shading, since a leaf buried in canopy sits under blocked
+    // field blocks and reads almost no light.
+    //
+    // So the feedback that bounds growth is a ratio of two things the plant
+    // itself changes: **foliage over frontier.** Adding tips without adding
+    // leaves shrinks every tip's share until none can afford `cost`, and
+    // extension stops without anything being killed or capped. Shed a limb
+    // and the survivors' share rises again.
+    let income = intercepted * LEAF_INCOME_PER_TICK;
+    let stock: f32 = donors.iter().map(|&(x, y)| world.carbon_at(x, y)).sum();
+    let pool = income.min(stock);
+    let share = pool / frontier.len() as f32;
+    if share <= 0.0 {
+        return;
+    }
+
+    for &(fx, fy) in &frontier {
+        let held = world.carbon_at(fx, fy);
+        let mut wanted = (share - held).min(organism::RESOURCE_SCALE - held);
+        if wanted <= 0.0 {
+            continue;
+        }
+        // Drawn from the richest donors first, which is where the carbon
+        // actually is -- the trunk sits at the cap while the tip starves.
+        let mut order: Vec<(i32, i32)> = donors.clone();
+        order.sort_unstable_by(|a, b| world.carbon_at(b.0, b.1).total_cmp(&world.carbon_at(a.0, a.1)));
+        for (dx, dy) in order {
+            if wanted <= 0.0 {
+                break;
+            }
+            let available = world.carbon_at(dx, dy);
+            let moved = wanted.min(available);
+            if moved <= 0.0 {
+                continue;
+            }
+            write_carbon(world, dx, dy, available - moved);
+            wanted -= moved;
+        }
+        write_carbon(world, fx, fy, share.min(organism::RESOURCE_SCALE).max(held));
     }
 }
 
