@@ -7,7 +7,7 @@
     shockwave_multiplier: 1.8,
     fireball_fraction: 0.5,
     flash_temperature: 900.0,
-    smoke_fraction: 0.18,
+    smoke_fraction: 0.0,
     heat_fraction: 3.0,
     speed_per_strength: 0.05,
     debris_jitter: 0.4,
