@@ -253,6 +253,43 @@ not disturb the damage-driven half.
 
 ---
 
+## 4b. The multiplier version, validated and not yet landed
+
+Tried after §3a corrected the design, and it is **smaller than §1 says**.
+Marking placed material intact is the *only* code change needed: `attached`
+already carries `attached_span_bonus`, so a construction goes from 128
+capacity to 1536 the moment the brush marks it -- a twelvefold buff with
+no constant touched, and no exemption anywhere.
+
+**All six acceptance cases passed**, including `ligament`, which the
+exemption version broke. That is the evidence §3a was right: with a
+multiplier, geometry can still fail a structure, so a scene that snaps a
+neck from geometry alone still snaps it.
+
+It was reverted only because three unit tests and two clippy lints stand
+in the way and the session ran out of room to do them properly. **All
+three tests assert the same thing, which is exactly the claim being
+changed:**
+
+- `structural::brushed_stone_is_foreground_and_unattached_terrain_is_not`
+- `app::the_background_brush_authors_terrain_and_the_default_brush_does_not`
+- `app::generated_terrain_is_structurally_real_and_still_stands`
+
+They pin "brushed stone must be foreground, not attached". Under the
+reframe that is no longer true, and their real claims -- that the brush
+does not silently author *terrain*, and that generated terrain stands --
+survive intact and should be restated rather than deleted.
+
+The two lints are `paint_capsule_as`'s `attached: bool` parameter and
+`NEIGHBOURS_4_PAINT` becoming unused. That is a genuine open question, not
+tidying: if everything placed is intact, **what does the background brush
+still mean?** The honest answer is probably "authors terrain for worldgen
+purposes", which is a narrower claim than it makes today, and `B` may
+deserve to become a worldgen-only tool or disappear from play entirely.
+Decide that rather than silencing the warning.
+
+---
+
 ## 5. Suggested order
 
 1. **Click-drag rectangle build tool.** Independent of everything else,
