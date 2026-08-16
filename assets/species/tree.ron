@@ -114,7 +114,40 @@
             ),
         ]),
         (MatureBody, [
-            SecondaryThicken(pipe_ratio: 10.0),
+            // **Re-derived when the gate's denominator was corrected**, and
+            // the old 10.0 is not comparable. `thicken` used to divide the
+            // foliage above by the *whole row's* organism cells; it now
+            // divides by this stem's own contiguous run of woody cells,
+            // which is what the pipe model names. A branched tree has
+            // several runs across 53% of its occupied rows, so the old
+            // denominator over-read by roughly the run count and 10.0 was
+            // absorbing that factor. Left unchanged, the correction alone
+            // took the stand from 4,624 cells to 12,985 -- ropy columns.
+            //
+            // Swept, 8 trees / 30,000 frames, mean cells / stand leaves /
+            // median stem thickness above the base:
+            //
+            //     row-total 10   578   393    9    (the old baseline)
+            //     per-stem  10  1623   299   19    blob
+            //     per-stem  20   780   353    9
+            //     per-stem  30   657   455    9
+            //     per-stem  45   635   521    8    <-- here
+            //     per-stem  60   514   555    7
+            //     per-stem  90   450   626    7
+            //
+            // Monotone -- there is no interior optimum, so this is a shape
+            // knob picked by eye against the baseline it replaces. 45 is
+            // the value that reproduces the old stand's mass and trunk
+            // width (635 against 578; 48% of rows wider than one cell
+            // against 45%) while carrying a third more foliage, and it is
+            // the first setting to produce a tree with a bare bole, a
+            // clear fork and spreading limbs rather than a tapered spike.
+            //
+            // Girth is now bounded by crown size, which is the coupling the
+            // pipe model exists for: trunks look thin because the crown is
+            // sparse, and they will thicken on their own when it fills.
+            // Do not chase trunk width by lowering this.
+            SecondaryThicken(pipe_ratio: 45.0),
             StructuralAnchor,
             // Mature root tissue transpires. Harmless on canopy MatureBody
             // cells, which never have a soil neighbour to draw from -- see
