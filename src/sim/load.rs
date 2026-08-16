@@ -694,24 +694,34 @@ fn detached_piece(world: &World, x: i32, y: i32, memo: &mut AnchorMemo, budget: 
 /// "perpendicular to the parent direction" agrees with the old rule on
 /// every case it was written for.
 fn section(world: &World, x: i32, y: i32, parent: Option<(i32, i32)>) -> i64 {
+    section_cells(world, x, y, parent).len() as i64
+}
+
+/// The cells that make up `(x, y)`'s resisting section, including it.
+///
+/// The same walk `section` measures, kept as a list because a failure
+/// needs the cells and not only the count — see `failing_region`. Ordered
+/// outward from `(x, y)` and capped at `MAX_SECTION`.
+fn section_cells(world: &World, x: i32, y: i32, parent: Option<(i32, i32)>) -> Vec<(i32, i32)> {
     // Support from below/above travels vertically, so the resisting section
     // is horizontal, and vice versa. No parent (an anchor, or mid-
     // convergence) keeps the old vertical reading.
     let vertical_path = parent.is_some_and(|(px, _)| px == x);
     let (sx, sy) = if vertical_path { (1, 0) } else { (0, 1) };
-    let mut extent = 1i64;
+    let mut out = vec![(x, y)];
     for dir in [-1, 1] {
         let mut step = 1;
-        while extent < MAX_SECTION {
-            let probe = world.get(x + dir * sx * step, y + dir * sy * step);
+        while (out.len() as i64) < MAX_SECTION {
+            let (px, py) = (x + dir * sx * step, y + dir * sy * step);
+            let probe = world.get(px, py);
             if !is_body_material(world, probe.material) || probe.material == super::material::EMPTY {
                 break;
             }
-            extent += 1;
+            out.push((px, py));
             step += 1;
         }
     }
-    extent
+    out
 }
 
 /// How much of `(x, y)`'s cross-section a fracture has taken away, as a
@@ -857,9 +867,44 @@ pub fn failing_region(world: &World, x: i32, y: i32, cache: &mut Cache, budget: 
         let region = detached_piece(world, x, y, &mut cache.anchors, budget);
         return Some(Failure { at: (x, y), mode: FailureMode::Unsupported, region });
     }
-    let (mut subtree, _) = supported_subtree(world, x, y, budget);
-    subtree.sort_unstable();
-    Some(Failure { at: (x, y), mode: FailureMode::Overloaded, region: subtree })
+    // **The section fails, not the cell.**
+    //
+    // Rock does not part one lamina at a time; it breaks across its
+    // section. And the model's own arithmetic makes that more than a
+    // cosmetic point: because `NEIGHBOURS_4` breaks ties toward horizontal
+    // parents, a slab decomposes into *independent single-row chains*
+    // (measured: `mass 115 torque 6555` on a 12-deep shelf is one row,
+    // exactly 114*115/2). So one cell's subtree is a **one-cell-thick
+    // strip**, and handing that to `rigid::fracture` produced three of the
+    // symptoms on the bug list at once:
+    //
+    // - a collapse delivered sticks and grit. `take_fragment` was changed
+    //   to BFS specifically so fragments would be blocky rather than "thin
+    //   individual pixel lines", and it cannot help when its input is
+    //   already one cell wide.
+    // - a 1-cell skin survived on a collapsed shelf -- the top row is a
+    //   separate chain that has to fail on its own account.
+    // - `DETACH_DEPTH`/`CRACK_DETACH_DEPTH` were both sized so "pieces can
+    //   only be as thick as the loosened rock they came from", a rationale
+    //   the load model had silently invalidated since the piece's thickness
+    //   was set by the subtree and was 1 regardless.
+    //
+    // So the region is the union of the subtrees hanging off every cell of
+    // the failing section. Bounded by `MAX_SECTION`, on a path that only
+    // runs once something has already been judged to fail, and every walk
+    // after the first is close to free because `Cache::subtrees` already
+    // holds it.
+    let mut region: HashSet<(i32, i32)> = HashSet::new();
+    for (cx, cy) in section_cells(world, x, y, support_parent(world, x, y)) {
+        let (sub, _) = supported_subtree(world, cx, cy, budget);
+        region.extend(sub);
+    }
+    let mut region: Vec<(i32, i32)> = region.into_iter().collect();
+    // Sorted, not merely collected: a `HashSet`'s iteration order is
+    // randomized per process, and this feeds `rigid::fracture`'s fragment
+    // seeding. Issue #7's determinism trap in a new place.
+    region.sort_unstable();
+    Some(Failure { at: (x, y), mode: FailureMode::Overloaded, region })
 }
 
 /// Ancestors a settling cell re-checks on its way to the anchor.
