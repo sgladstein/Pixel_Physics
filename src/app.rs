@@ -88,6 +88,26 @@ pub struct App {
     /// itself up. On, the brush authors terrain, which is braced by the mass
     /// behind the slice and behaves like a cliff rather than a structure.
     pub build_background: bool,
+    /// Which gesture the mouse lays material with. `Z` cycles it.
+    ///
+    /// Reported from play: *"using a paint brush type tool to build is not
+    /// satisfying."* A freehand round brush is a **drawing** tool -- right
+    /// for sand, water and terrain, wrong for building, and for reasons
+    /// that have nothing to do with the simulation: no straight lines, no
+    /// right angles, no repeatable dimensions, and no sense of *placing*
+    /// anything. Every structure comes out wobbly. Prior art is unanimous
+    /// that building games use placement rather than painting
+    /// (`Reports/prior-art-destruction.md`).
+    ///
+    /// A mode rather than a held modifier, deliberately. A modifier is
+    /// invisible, and this project has already learned that an invisible
+    /// rule is the failure mode of the whole genre; a mode can be named in
+    /// the brush label and announced when it changes.
+    pub tool: Tool,
+    /// Where a drag-out gesture started, in screen space, while the button
+    /// is still held. `None` for the freehand brush, which paints as it
+    /// goes rather than on release.
+    pub drag_from: Option<(i32, i32)>,
     /// `N` — the stress overlay. Off by default: it repaints the world
     /// every frame it is up, which is the cost the dirty-rect skip exists
     /// to avoid, and that is only worth paying while someone is actually
@@ -105,6 +125,19 @@ pub struct App {
     /// once and worth nothing a second later, unlike the persistent brush
     /// label beneath it.
     toast: Option<(String, u64)>,
+}
+
+/// Which gesture the mouse lays material with. See `App::tool`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tool {
+    /// Freehand, painting as the cursor moves. The original behaviour, and
+    /// still the right one for sand, water and terrain.
+    Brush,
+    /// Drag out a filled rectangle. Walls, floors, columns.
+    Rect,
+    /// Drag out a straight run of the current brush width. Beams,
+    /// diagonals, bracing.
+    Line,
 }
 
 /// Frames a `toast` stays up — two seconds at the sandbox's fixed 60 Hz.
@@ -172,8 +205,68 @@ impl App {
             pinned: None,
             experiment: false,
             build_background: false,
+            tool: Tool::Brush,
+            drag_from: None,
             show_stress: false,
             toast: None,
+        }
+    }
+
+    /// `Z` — cycle the build gesture. See `App::tool`.
+    pub fn cycle_tool(&mut self) {
+        self.tool = match self.tool {
+            Tool::Brush => Tool::Rect,
+            Tool::Rect => Tool::Line,
+            Tool::Line => Tool::Brush,
+        };
+        self.drag_from = None;
+        self.show_toast(match self.tool {
+            Tool::Brush => "TOOL: BRUSH - FREEHAND",
+            Tool::Rect => "TOOL: RECTANGLE - DRAG OUT A WALL",
+            Tool::Line => "TOOL: LINE - DRAG OUT A BEAM",
+        });
+    }
+
+    /// Begin a drag-out gesture, for the tools that commit on release.
+    pub fn begin_drag(&mut self, screen_x: i32, screen_y: i32) {
+        if self.tool != Tool::Brush {
+            self.drag_from = Some((screen_x, screen_y));
+        }
+    }
+
+    /// Finish a drag-out gesture, laying the shape down. A no-op for the
+    /// freehand brush, which has already painted everything it is going to.
+    pub fn end_drag(&mut self, screen_x: i32, screen_y: i32, erase: bool) {
+        let Some(from) = self.drag_from.take() else { return };
+        let m = if erase { material::EMPTY } else { self.selected_material() };
+        let density = self.emission_density(m, erase);
+        let a = self.renderer.screen_to_world(from.0, from.1);
+        let b = self.renderer.screen_to_world(screen_x, screen_y);
+        match self.tool {
+            // Filled by sweeping capsules row by row rather than by a
+            // dedicated rectangle primitive: `paint_capsule_as` already
+            // carries every rule that matters -- density, the
+            // do-not-overwrite-solid guard, structural scheduling, the
+            // background-must-join-background test and the converged
+            // relaxation at the end -- and a second path into the grid
+            // would have to reimplement all of it to stay consistent.
+            Tool::Rect => {
+                let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
+                let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
+                let step = (self.brush_radius).max(1);
+                let mut y = y0;
+                loop {
+                    self.world.paint_capsule_as((x0, y), (x1, y), self.brush_radius, m, density, self.build_background);
+                    if y >= y1 {
+                        break;
+                    }
+                    y = (y + step).min(y1);
+                }
+            }
+            Tool::Line => {
+                self.world.paint_capsule_as(a, b, self.brush_radius, m, density, self.build_background);
+            }
+            Tool::Brush => {}
         }
     }
 
@@ -492,7 +585,8 @@ impl App {
             // over a settled world -- the exact reason every other overlay
             // is in this list.
             || self.active_toast().is_some()
-            || self.show_stress;
+            || self.show_stress
+            || self.drag_from.is_some();
         let touched = self.world.take_touched_chunks();
         self.renderer.draw(&self.world, &self.particles, &touched, frame, (WIDTH, HEIGHT), force_full);
         self.draw_hud(frame, cursor);
@@ -521,7 +615,14 @@ impl App {
         if self.show_stress {
             self.draw_stress_overlay(frame);
         }
-        let label = format!("{} R{}", self.selected_name(), self.brush_radius);
+        // The tool is named in the persistent label, not only announced
+        // when it changes: a mode you cannot see is the failure this whole
+        // subsystem keeps relearning.
+        let label = match self.tool {
+            Tool::Brush => format!("{} R{}", self.selected_name(), self.brush_radius),
+            Tool::Rect => format!("{} R{} - RECT", self.selected_name(), self.brush_radius),
+            Tool::Line => format!("{} R{} - LINE", self.selected_name(), self.brush_radius),
+        };
         hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
         // Directly above the persistent brush label, so a mode change reads
         // as a line about the brush rather than as an unrelated notice
@@ -534,6 +635,39 @@ impl App {
         // only while help itself is open, where it would be redundant.
         if !self.show_help {
             hud::draw_text(frame, WIDTH, HEIGHT, WIDTH as i32 - 56, HEIGHT as i32 - 10, "? HELP", WHITE);
+        }
+
+        // The shape being dragged out, so the player can see what they are
+        // about to commit before they release.
+        if let (Some(from), Some(to)) = (self.drag_from, cursor) {
+            match self.tool {
+                Tool::Rect => {
+                    let (x0, x1) = (from.0.min(to.0), from.0.max(to.0));
+                    let (y0, y1) = (from.1.min(to.1), from.1.max(to.1));
+                    for x in x0..=x1 {
+                        render::put(frame, WIDTH, HEIGHT, x, y0, YELLOW);
+                        render::put(frame, WIDTH, HEIGHT, x, y1, YELLOW);
+                    }
+                    for y in y0..=y1 {
+                        render::put(frame, WIDTH, HEIGHT, x0, y, YELLOW);
+                        render::put(frame, WIDTH, HEIGHT, x1, y, YELLOW);
+                    }
+                }
+                Tool::Line => {
+                    // A straight run of dots between the two ends. Enough
+                    // to show what will be laid down; the real stroke is
+                    // `paint_capsule_as`, which is a capsule of the
+                    // current brush width rather than a hairline.
+                    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+                    let steps = dx.abs().max(dy.abs()).max(1);
+                    for i in 0..=steps {
+                        let x = from.0 + dx * i / steps;
+                        let y = from.1 + dy * i / steps;
+                        render::put(frame, WIDTH, HEIGHT, x, y, YELLOW);
+                    }
+                }
+                Tool::Brush => {}
+            }
         }
 
         if let Some((sx, sy)) = cursor {
@@ -910,6 +1044,7 @@ impl App {
             "",
             "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
             "N STRESS VIEW (GREEN AT REST, RED AT ITS LIMIT)",
+            "Z TOOL: BRUSH / RECTANGLE / LINE  (DRAG OUT A SHAPE)",
             "F1 CHUNK OVERLAY    G WATER GRAIN",
             "",
             "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
@@ -1488,6 +1623,46 @@ mod tests {
         let dir = std::env::temp_dir().join("pixel-physics-stress-view");
         std::fs::create_dir_all(&dir).ok();
         image::save_buffer(dir.join("stress.png"), &tinted, WIDTH, HEIGHT, image::ColorType::Rgba8).ok();
+    }
+
+    #[test]
+    fn the_rectangle_tool_lays_down_a_filled_rectangle() {
+        // Reported from play: "using a paint brush type tool to build is
+        // not satisfying." A freehand round brush cannot make a straight
+        // wall, and every structure came out wobbly. Asserts the corners
+        // and the middle are filled and that the gesture commits on
+        // *release*, not on press -- pressing alone must not leave a blob
+        // at the corner.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        app.select_material(app.paintable.iter().position(|&m| m == stone).unwrap() + 1);
+        app.cycle_tool();
+        assert_eq!(app.tool, Tool::Rect);
+
+        let (ax, ay) = (60, 60);
+        let (bx, by) = (140, 110);
+        app.begin_drag(ax, ay);
+        let (wx0, wy0) = app.renderer.screen_to_world(ax, ay);
+        let (wx1, wy1) = app.renderer.screen_to_world(bx, by);
+        assert_ne!(app.world.get(wx0, wy0).material, stone, "pressing alone must not paint anything");
+
+        app.end_drag(bx, by, false);
+
+        // Sampled rather than tested cell by cell: painting rolls a
+        // per-cell density, so no single cell is guaranteed.
+        let filled = |cx: i32, cy: i32| {
+            (-2..=2).flat_map(|dy| (-2..=2).map(move |dx| (dx, dy))).any(|(dx, dy)| app.world.get(cx + dx, cy + dy).material == stone)
+        };
+        assert!(filled(wx0, wy0), "the rectangle's first corner is empty");
+        assert!(filled(wx1, wy1), "the rectangle's opposite corner is empty");
+        assert!(filled((wx0 + wx1) / 2, (wy0 + wy1) / 2), "the rectangle's middle is empty -- it drew an outline, not a wall");
+        // And the interior really is continuous, which is the whole point
+        // of the tool: a row of capsules that missed each other would leave
+        // gaps between them.
+        for cy in (wy0 + 2)..(wy1 - 2) {
+            assert!(filled((wx0 + wx1) / 2, cy), "gap in the rectangle at y={cy} -- the row sweep does not overlap");
+        }
+        assert!(app.drag_from.is_none(), "the gesture should be finished after release");
     }
 
     #[test]

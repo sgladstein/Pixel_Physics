@@ -301,6 +301,7 @@ impl Handler {
             KeyCode::KeyS if self.app.show_tunables => self.app.save_tunable(),
             KeyCode::KeyI => self.app.toggle_hover_inspector(),
             KeyCode::KeyN => self.app.toggle_stress_view(),
+            KeyCode::KeyZ => self.app.cycle_tool(),
             KeyCode::Tab => self.app.toggle_palette(),
             KeyCode::Slash => self.app.toggle_help(),
             KeyCode::KeyO => self.app.toggle_tunables(),
@@ -418,12 +419,25 @@ impl ApplicationHandler for Handler {
                     MouseButton::Right => self.erasing = pressed,
                     _ => {}
                 }
+                let erase = button == MouseButton::Right;
                 if pressed {
                     // Start a fresh stroke rather than joining the last one.
                     self.last_paint = None;
-                    self.paint_now();
-                } else if !self.painting && !self.erasing {
-                    self.last_paint = None;
+                    // The drag-out tools commit on *release*, so a press
+                    // only records where the gesture began; `paint_now`
+                    // would lay a blob at the corner.
+                    if self.app.tool == pixel_physics::app::Tool::Brush {
+                        self.paint_now();
+                    } else if let Some((x, y)) = self.cursor {
+                        self.app.begin_drag(x, y);
+                    }
+                } else {
+                    if let Some((x, y)) = self.cursor {
+                        self.app.end_drag(x, y, erase);
+                    }
+                    if !self.painting && !self.erasing {
+                        self.last_paint = None;
+                    }
                 }
             }
 
