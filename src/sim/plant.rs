@@ -299,6 +299,18 @@ fn write_carbon(world: &mut World, x: i32, y: i32, carbon: f32) {
     }
 }
 
+/// Stamp a freshly created cell's branch order.
+///
+/// Like `deposit_canopy`, must follow the `World::set` that creates the
+/// cell — `set` registers the `OrganismCell` this writes into, so calling
+/// it first is a silent no-op that would leave every cell at order 0, which
+/// looks exactly like "the species file has no tiers".
+fn write_order(world: &mut World, x: i32, y: i32, order: u8) {
+    if let Some(slot) = world.organism_cell_mut(x, y) {
+        slot.order = order;
+    }
+}
+
 /// Stamp a freshly created cell's canopy-density deposit.
 ///
 /// Must be called *after* the `World::set` that creates the cell: `set` is
@@ -575,6 +587,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     // back through `world.organism_cell_mut` at each point the old code
     // re-packed it, so the shape of this dispatch is unchanged.
     let mut resource = world.carbon_at(x, y);
+    // **Branch order**, read once here for the same reason `resource` is:
+    // every `Grow` parameter that varies by tier indexes on it, and every
+    // cell this tick creates is stamped from it. See
+    // `organism::OrganismCell::order` and `organism::ByOrder`.
+    let order = world.organism_cell(x, y).map_or(0, |c| c.order);
     // Copied out of the registry rather than held as a borrow: the behavior
     // loop below needs `&mut World` (to paint a new cell, roll the RNG),
     // which a live borrow of `world.species` would conflict with.
@@ -668,6 +685,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     // inheriting any" the old explicit `pack_aux(_, 0.0)`
                     // spelled out.
                     world.set(tx, ty, new_cell);
+                    write_order(world, tx, ty, order);
                     resource -= cost;
                     write_carbon(world, x, y, resource);
                     next.push(reschedule_organism(tx, ty, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
@@ -693,6 +711,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 turgor_yield,
                 turgor_per_cell,
             } => {
+                // Per-order parameters resolved once, against *this cell's*
+                // own order. A tip reads only its own tier -- no traversal,
+                // no whole-plant query -- which is what keeps architecture
+                // local; see `organism::ByOrder`.
+                let branch_chance = branch_chance.at(order);
+                let light_weight = light_weight.at(order);
+                let upward_weight = upward_weight.at(order);
+                let plastochron_interval = plastochron_interval.at(order);
                 // **These three gates deliberately do *not* set
                 // `found_candidate`, and that is what makes growth
                 // terminate.** The staleness counter is how "temporarily
@@ -977,6 +1003,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(cell_type));
                 displace_soil_water(world, tx, ty);
                 world.set(tx, ty, new_cell);
+                // Straight continuation of this shoot, so the child keeps
+                // the parent's order. The lateral below is what increments.
+                write_order(world, tx, ty, order);
                 // The deposit has to follow `set`, not ride along with it:
                 // `set` is what registers the cell's `OrganismCell`, so
                 // there is nothing to write into until it has run.
@@ -1027,6 +1056,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                                 Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(cell_type));
                             displace_soil_water(world, bx, by);
                             world.set(bx, by, branch_cell);
+                            // **The only place order increases.** A lateral
+                            // is one branching further from the seed, so it
+                            // starts the next tier: rarer branching becomes
+                            // more frequent branching, a bare shoot becomes
+                            // a leafy one, and the trunk/limb/twig
+                            // distinction exists without any cell having to
+                            // work out which of those it is.
+                            write_order(world, bx, by, order.saturating_add(1));
                             deposit_canopy(world, bx, by, GROW_CANOPY_DEPOSIT);
                             // No structural check here either -- see the
                             // primary child's identical case above.
@@ -1078,6 +1115,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         let leaf_cell =
                             Cell::new(leaf_material, leaf_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::Leaf));
                         world.set(lx, ly, leaf_cell);
+                        // A leaf belongs to the shoot that bore it, not to
+                        // a new tier -- it never grows, so this only
+                        // matters to anything reading order off foliage.
+                        write_order(world, lx, ly, order);
                         deposit_canopy(world, lx, ly, GROW_CANOPY_DEPOSIT);
                         next.push(reschedule_organism(lx, ly, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
                     }
@@ -1937,6 +1978,12 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
             let shade = rng.below(shades) as u8;
             let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::MatureBody));
             world.set(nx, ny, new_cell);
+            // Wood laid beside a trunk cell is that trunk, so it inherits
+            // the order rather than starting a tier. Nothing reads order
+            // off a `MatureBody` today, but leaving it 0 would quietly make
+            // every thickened limb read as trunk the moment something does.
+            let order = world.organism_cell(x, y).map_or(0, |c| c.order);
+            write_order(world, nx, ny, order);
             // No structural check here either -- same reasoning as `Grow`'s
             // own child creation: thickening only adds material sideways
             // off an already-supported `MatureBody`, never removes support.
@@ -3455,17 +3502,27 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
     /// `MatureBody`. Driven through `organism_tick`'s real dispatch rather
     /// than by calling a helper, since the whole mechanism is the
     /// parent→child hand-off of a counter that lives on the `ActiveSite`.
+    ///
+    /// **Also the guard on `ByOrder` reaching the plastochron at all.** The
+    /// interval is per branch order now (`tree.ron` runs `[12, 5, 2, 2]`),
+    /// so the same lineage step leafs at one order and not at another. A
+    /// version that read order 0 for every cell -- which is what a missing
+    /// `write_order` after a `World::set` silently produces -- passes the
+    /// order-0 rows below and fails the order-2 ones.
     #[test]
     fn a_retiring_tip_becomes_a_leaf_once_per_plastochron() {
         let wood = material::MaterialId(11);
-        // `tree.ron` ships `plastochron: 3`, so lineage steps 3, 6, 9 ...
-        // leaf and the rest mature. Entering a tick with `plastochron = 2`
-        // makes this the third step.
-        for (entering, expect_leaf) in [(2u8, true), (0u8, false), (1u8, false)] {
+        // `tree.ron` ships `plastochron: [12, 5, 2, 2]`. Entering a tick
+        // with `plastochron = n` makes this lineage step `n + 1`, and a
+        // leaf is due when that is a multiple of the tier's interval.
+        for (order, entering, expect_leaf) in
+            [(0u8, 11u8, true), (0, 0, false), (0, 4, false), (2, 1, true), (2, 3, true), (2, 0, false), (3, 1, true)]
+        {
             let mut w = test_world();
             let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
             let organism_id = w.push_organism(tree);
             place(&mut w, (100, 100), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
+            write_order(&mut w, 100, 100, order);
 
             organism_tick(&mut w, 100, 100, organism_id, 0, entering);
 
@@ -3491,10 +3548,61 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             assert_eq!(
                 leaves,
                 usize::from(expect_leaf),
-                "entering a growth step with plastochron={entering} against tree.ron's interval of 3 should have produced {} lateral leaf, got {leaves}",
+                "order {order} entering a growth step with plastochron={entering}: tree.ron's interval for that order should have produced {} lateral leaf, got {leaves}",
                 usize::from(expect_leaf)
             );
         }
+    }
+
+    /// Order is inherited straight ahead and incremented sideways.
+    ///
+    /// The whole architecture mechanism in one assertion: without the
+    /// increment every cell is a trunk and `ByOrder` is an expensive way to
+    /// write a scalar. Driven through a real `Grow` in a scene arranged so
+    /// a branch is forced (`branch_chance` is a roll, so this hunts for the
+    /// tick where it lands rather than assuming the first one does).
+    #[test]
+    fn a_lateral_starts_the_next_branch_order_and_a_continuation_does_not() {
+        let wood = material::MaterialId(11);
+        let mut w = test_world();
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+        let organism_id = w.push_organism(tree);
+        place(&mut w, (100, 100), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
+
+        // Grow repeatedly until a tick creates two children at once -- that
+        // second one is the lateral.
+        let mut seen_orders: Vec<u8> = Vec::new();
+        for frame in 0..400 {
+            w.frame = frame;
+            let tips: Vec<(i32, i32)> = w
+                .organism(organism_id)
+                .expect("organism")
+                .cells
+                .keys()
+                .copied()
+                .filter(|&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::GrowingTip))
+                .collect();
+            for (x, y) in tips {
+                write_carbon(&mut w, x, y, 2.0);
+                organism_tick(&mut w, x, y, organism_id, 0, 0);
+            }
+            seen_orders = w
+                .organism(organism_id)
+                .expect("organism")
+                .cells
+                .keys()
+                .filter_map(|&(x, y)| w.organism_cell(x, y).map(|c| c.order))
+                .collect();
+            if seen_orders.iter().any(|&o| o > 0) {
+                break;
+            }
+        }
+
+        assert!(seen_orders.contains(&0), "the original shoot must stay at order 0, got {seen_orders:?}");
+        assert!(
+            seen_orders.contains(&1),
+            "a lateral branch must start order 1 -- every cell reading 0 means `write_order` never ran on the branch child,              which looks exactly like a species file with no tiers, got {seen_orders:?}"
+        );
     }
 
     /// The point of the whole change, asserted end to end rather than as a
@@ -3525,6 +3633,16 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
     /// repo's own convention. They exist to catch the mechanism going inert
     /// again (baseline: exactly 0 leaves, run of 1), not to pin a shape
     /// that is expected to keep moving as later phases land.
+    ///
+    /// **The leaf bar dropped from 6 to 2 when the plastochron became
+    /// per-branch-order**, and that is the mechanism working rather than
+    /// regressing. `tree.ron` runs `[12, 5, 2, 2]`: the trunk tier leafs a
+    /// quarter as often as the old flat 3 did, which is what clears the
+    /// bole. This scene is 20 rows of sky, so its trees are almost entirely
+    /// order 0 and see the sparsest tier and nothing else — it measured 4
+    /// here against 663 stand-wide leaves in the 200-row harness scene
+    /// (`plant_probe -- trees=8`, up from 521). A 20-row scene is the wrong
+    /// place to judge foliage; it is still the right place to catch zero.
     #[test]
     fn grown_trees_produce_leaves_and_a_trunk_thicker_than_one_cell() {
         let mut w = test_world();
@@ -3542,7 +3660,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
                 }
             }
         }
-        assert!(leaves >= 6, "three grown trees should carry real Leaf cells; got {leaves} across all three (baseline before the plastochron: 0)");
+        assert!(leaves >= 2, "three grown trees should carry real Leaf cells; got {leaves} across all three (baseline before the plastochron: 0, measured here: 4)");
 
         let thickest = (b.min_y..=b.max_y)
             .map(|y| {

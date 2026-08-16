@@ -53,11 +53,30 @@
         (GrowingTip, [
             Grow(
                 cost: 0.2,
-                branch_chance: 0.1,
+                // **Per branch order** -- trunk, limb, branch, twig. See
+                // organism::ByOrder: the list pads with its last value, so
+                // a one-value list is a species with no tiers and a
+                // two-value list is a shrub.
+                //
+                // A trunk that branches rarely under twigs that branch
+                // often is what makes a bole with a crown on it, and it
+                // costs no rule that has to decide which cells are trunk
+                // -- a cell cannot know that locally, which is why four
+                // successive support models failed trying to infer it from
+                // shape.
+                branch_chance: [0.03, 0.12, 0.2, 0.25],
                 continuation_weight: 0.7,
-                light_weight: 0.4,
+                // Twigs chase light hardest; the trunk mostly ignores it
+                // and goes up. Phototropism on the trunk is what made
+                // early stems wander toward whichever side happened to be
+                // brighter instead of standing up.
+                light_weight: [0.15, 0.3, 0.5, 0.6],
                 wind_weight: 0.2,
-                upward_weight: 0.1,
+                // The trunk's straightness comes from here. Laterals get
+                // progressively less of it, so a limb leaves the trunk and
+                // stays out rather than curling back up alongside it --
+                // which is what produced the parallel-ropes look.
+                upward_weight: [0.9, 0.35, 0.1, 0.05],
                 crowding_weight: 0.5,
                 max_active_tips: 14,
                 // Every 3rd growth step along a shoot leaves a Leaf behind.
@@ -68,7 +87,13 @@
                 // (Reports/plant-substrate-v2-design.md §10 step 3), and
                 // tuning it twice is exactly what that sequencing exists to
                 // avoid.
-                plastochron: 3,
+                // **A bare bole falls out of this line.** The trunk leafs
+                // every 12th step and a twig every other one, so foliage
+                // ends up on the outside of the crown without any rule
+                // about height or about what a "trunk" is. Not 0 on the
+                // trunk: a seedling is order 0 and nothing else, so a
+                // leafless trunk tier starves it before it can ever branch.
+                plastochron: [12, 5, 2, 2],
                 // A shoot only grows into open air. Reports/tree-rewrite-
                 // design.md §5 scopes growing-into-material to roots.
                 penetration_force: 0.0,
@@ -94,18 +119,20 @@
             Transpire(rate: 1.0),
             Grow(
                 cost: 0.25,
-                branch_chance: 0.04,
+                branch_chance: [0.04],
                 continuation_weight: 0.7,
-                light_weight: 0.0,
+                light_weight: [0.0],
                 wind_weight: 0.0,
-                upward_weight: 0.6,
+                upward_weight: [0.6],
                 crowding_weight: 0.0,
                 max_active_tips: 10,
                 // Roots grow by the same rule and must never leaf
                 // underground -- 0 disables the mechanism entirely, which is
                 // a real value here rather than "unset". See the field's own
                 // doc in organism.rs.
-                plastochron: 0,
+                // Roots grow by the same rule and must never leaf
+                // underground. One value, so every order agrees.
+                plastochron: [0],
                 // Real root axial growth pressure is on the order of
                 // 0.2-1.5 MPa; 1.2 puts this tree through loose soil (0.8)
                 // and sand (1.4 -- refused), and never through gravel

@@ -149,7 +149,7 @@ pub enum Behavior {
         /// rewrite-design.md` §3's branching mechanism, gated by the same
         /// resource economy as everything else rather than a separate
         /// mechanic.
-        branch_chance: f32,
+        branch_chance: ByOrder<f32>,
         /// Weight on continuing this tip's own established direction
         /// (`Reports/tree-rewrite-design.md` §2a: the vector average of
         /// every same-organism 8-neighbour's direction *from* this cell,
@@ -159,7 +159,7 @@ pub enum Behavior {
         /// Weight on phototropism (`organism::phototropism_dir`, ported
         /// from `plant.rs`'s `tree_tip_tick` unchanged). `0.0` for a
         /// species/cell type with no reason to chase light (roots).
-        light_weight: f32,
+        light_weight: ByOrder<f32>,
         /// Weight on wind lean (`organism::wind_lean_dir`, ported
         /// unchanged, including its existing direction-only/magnitude-
         /// clamped fix). `0.0` for roots.
@@ -170,7 +170,7 @@ pub enum Behavior {
         /// default gravitropism (strongly positive-y, i.e. negative
         /// `upward_weight`) before `Reports/tree-rewrite-design.md` §2's
         /// MIZ1 hydrotropism switch overrides it.
-        upward_weight: f32,
+        upward_weight: ByOrder<f32>,
         /// Weight subtracting `canopy_density` (`with_canopy_density`/
         /// `canopy_density` below) at each candidate — `Reports/tree-
         /// rewrite-design.md` §2b's self-avoidance term, the deposit-
@@ -206,7 +206,7 @@ pub enum Behavior {
         /// graduates to data immediately — it is gameplay-facing, a
         /// non-programmer would plausibly tune it, and it is one of the
         /// clearest silhouette levers a species file has.
-        plastochron: u8,
+        plastochron: ByOrder<u8>,
         /// Mechanical resistance, in MPa, this cell type can force its way
         /// through — a `RootTip` converts a `Powder` neighbour whose
         /// `Material::penetration_resistance` is *below* this into root
@@ -568,6 +568,79 @@ impl SpeciesRegistry {
 // meaning instead. `Cell` itself stays agnostic to this distinction —
 // these are free functions over the raw `u16`, not methods on `Cell`.
 
+/// How many branch orders a species may parameterise separately.
+///
+/// Four is trunk / limb / branch / twig, which is as many tiers as any of
+/// the classical architectural models distinguishes by name. It is a cap on
+/// *distinct parameter sets*, not on depth — order saturates here, so a
+/// tenth-order twig behaves like a fourth-order one.
+pub const BRANCH_ORDERS: usize = 4;
+
+/// A `Grow` parameter that varies with **branch order** — the number of
+/// lateral branchings between a tip and the seed.
+///
+/// **This is where architecture comes from.** Fourteen tips drew a whip
+/// because they were fourteen copies of one rule; the classical tree
+/// grammars are all parameterised by arrays indexed exactly like this, and
+/// `Reports/tree-architecture-research.md` §0b asks for it by name. A trunk
+/// that branches rarely and leafs rarely, under twigs that do both often,
+/// is a bare bole with a crown on it — and it comes out of the data rather
+/// than out of a rule that has to guess which cells are "trunk", which a
+/// cell cannot know locally.
+///
+/// **A short list is a short plant.** Deserializes from a RON list of one
+/// to `BRANCH_ORDERS` values and pads with the *last* one, so `[0.05]` is a
+/// species that does not distinguish orders at all, `[0.02, 0.3]` is a
+/// shrub — one trunk tier and everything above it identical — and four
+/// values is a tree. Padding with the last value rather than a default is
+/// what makes the short form mean "and so on", instead of silently
+/// zeroing the orders the author did not write.
+///
+/// `Copy`, because `Behavior` is copied out of the species table into a
+/// fixed dispatch buffer once per cell per tick (see `plant.rs`'s
+/// `behavior_buf` and the allocation count in its comment). A `Vec` here
+/// would put ~350,000 allocations back into a 6,000-frame run.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ByOrder<T> {
+    values: [T; BRANCH_ORDERS],
+}
+
+impl<T: Copy> ByOrder<T> {
+    /// The value for `order`, saturating at the last tier.
+    pub fn at(&self, order: u8) -> T {
+        self.values[(order as usize).min(BRANCH_ORDERS - 1)]
+    }
+
+    /// Every tier the same — for a caller building one in code rather than
+    /// reading it from a species file (tests, and `Default`).
+    pub fn uniform(value: T) -> Self {
+        Self { values: [value; BRANCH_ORDERS] }
+    }
+}
+
+impl<'de, T> Deserialize<'de> for ByOrder<T>
+where
+    T: Deserialize<'de> + Copy,
+{
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let listed = Vec::<T>::deserialize(d)?;
+        // An empty list is an author error, not "use the default": there is
+        // no value to pad from, and silently picking one would be the same
+        // class of mistake as a bit budget deciding a constant.
+        let Some(&last) = listed.last() else {
+            return Err(serde::de::Error::custom(format!("a per-branch-order list needs 1 to {BRANCH_ORDERS} values, not 0")));
+        };
+        if listed.len() > BRANCH_ORDERS {
+            return Err(serde::de::Error::custom(format!("a per-branch-order list holds at most {BRANCH_ORDERS} values, got {}", listed.len())));
+        }
+        let mut values = [last; BRANCH_ORDERS];
+        for (slot, &listed) in values.iter_mut().zip(&listed) {
+            *slot = listed;
+        }
+        Ok(Self { values })
+    }
+}
+
 /// Behavioural cap on how much carbon one cell may hold.
 ///
 /// **Was an encoding parameter; is now only a clamp.** Until Decision 2
@@ -691,6 +764,21 @@ pub struct OrganismCell {
     /// deciding apical dominance in the data structure before the update
     /// rule ever ran.
     pub carbon_conductance: [f32; 4],
+    /// **Branch order** — how many lateral branchings separate this cell
+    /// from the seed. 0 is the trunk.
+    ///
+    /// Inherited unchanged when a tip continues its own shoot, incremented
+    /// when a tip throws a lateral. Purely local: a tip reads its own value
+    /// and nothing else, and every cell a tip creates is stamped from it.
+    ///
+    /// In the sidecar rather than in `Cell::aux`'s free bits 4-15, which
+    /// `pack_cell_type`'s doc offers, because `design-philosophy.md` §2b's
+    /// objection to re-packing is precisely what this branch has already
+    /// been bitten by twice: a 4-bit canopy density had a fixed point at
+    /// one quantum and never decayed. An order would survive 4 bits fine
+    /// today, but the rule "the next per-cell scalar goes in the sidecar"
+    /// is worth more than the two bytes.
+    pub order: u8,
 }
 
 impl Default for OrganismCell {
@@ -703,7 +791,7 @@ impl Default for OrganismCell {
     /// therefore perfectly isotropic and differentiates only from flux it
     /// actually carried.
     fn default() -> Self {
-        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4] }
+        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4], order: 0 }
     }
 }
 
