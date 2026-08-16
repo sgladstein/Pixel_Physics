@@ -103,6 +103,11 @@ pub struct World {
     /// `HashMap`. Distinct from `bodies` below, which is the liquid
     /// heightfield's own unrelated arena.
     pub chunk_bodies: Vec<crate::sim::rigid::ChunkBody>,
+    /// M9: the summoned character, if any — off-grid like `chunk_bodies`
+    /// and stepped in the same serial phase (`player::step`). On `World`
+    /// rather than `App` so the renderer (which takes `&World`) can draw
+    /// it and so the sim step stays a pure function of (world, input).
+    pub player: Option<crate::sim::player::Player>,
     /// M16: growing plant tips (and M17/M18's structural checks and
     /// creature ticks), due soonest at the top -- a min-heap keyed on
     /// `ActiveSite::next_frame`, see `scheduler::step`'s own doc for why
@@ -295,6 +300,7 @@ impl World {
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
             chunk_bodies: Vec::new(),
+            player: None,
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             bodies: Vec::new(),

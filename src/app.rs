@@ -13,6 +13,7 @@ use crate::sim::material::{self, MaterialId, MaterialKind};
 use crate::sim::organism;
 use crate::sim::parallel;
 use crate::sim::particle::ParticleSystem;
+use crate::sim::player;
 use crate::sim::structural;
 use crate::sim::world::World;
 use crate::tunables::{self, Tunable, TunableGroup};
@@ -77,6 +78,15 @@ pub struct App {
     /// no longer a single-frame event (`sim::explosion`'s own module doc has
     /// the measurements), so it needs somewhere to live between frames.
     pub blasts: explosion::Blasts,
+    /// M9 character feel, alongside `blasts.tuning` for the same reason:
+    /// engine-struct tunables live on `App`, and the sim step receives
+    /// them by reference. The character itself lives on `World::player`.
+    pub player_tuning: player::Tuning,
+    /// This tick's held/pressed movement intent, written by `main.rs`
+    /// once per frame and consumed by `update` — the edge-triggered
+    /// `jump_pressed` is cleared after the first simulated tick so a
+    /// catch-up burst cannot fire one press several times.
+    pub player_input: player::PlayerInput,
     pub renderer: Renderer,
     pub brush_radius: i32,
     /// Index into `paintable`, not a `MaterialId`, so cycling wraps cleanly.
@@ -283,6 +293,8 @@ impl App {
             world,
             particles: ParticleSystem::new(),
             blasts: explosion::Blasts::with_tuning(explosion::Tuning::load()),
+            player_tuning: player::Tuning::load(),
+            player_input: player::PlayerInput::default(),
             renderer: Renderer::new(),
             brush_radius: 6,
             selected,
@@ -576,6 +588,7 @@ impl App {
     fn all_tunables(&self) -> Vec<Tunable> {
         let mut out = tunables::from_materials(&self.world.materials);
         out.extend(tunables::from_explosion(&self.blasts.tuning));
+        out.extend(tunables::from_player(&self.player_tuning));
         out
     }
 
@@ -639,6 +652,11 @@ impl App {
         let new_value = (t.value + sign as f32 * t.step).clamp(t.min, t.max);
         if t.group == TunableGroup::Explosion {
             tunables::apply_explosion(&mut self.blasts.tuning, &t.name, new_value);
+            self.message = Some(format!("{}.{} = {new_value:.3}", t.category, t.name));
+            return;
+        }
+        if t.group == TunableGroup::Player {
+            tunables::apply_player(&mut self.player_tuning, &t.name, new_value);
             self.message = Some(format!("{}.{} = {new_value:.3}", t.category, t.name));
             return;
         }
@@ -735,6 +753,14 @@ impl App {
             self.assets_dirty = dirty_asset_count();
             return;
         }
+        if t.group == TunableGroup::Player {
+            self.message = Some(match self.player_tuning.save() {
+                Ok(()) => format!("saved {}", player::Tuning::ASSET_PATH),
+                Err(e) => format!("{}: {e}", player::Tuning::ASSET_PATH),
+            });
+            self.assets_dirty = dirty_asset_count();
+            return;
+        }
         let path = tunables::material_file_path(material::ASSET_DIR, &t.category);
         let result = (|| -> Result<(), String> {
             let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
@@ -779,6 +805,14 @@ impl App {
         // check this frame sees a landed chunk's cells already in the grid
         // rather than a frame-old hole where they used to be.
         crate::sim::rigid::step_chunk_bodies(&mut self.world);
+        // M9: the character in the same serial slot as the bodies, right
+        // after them — so standing on a body that settled this frame sees
+        // its cells already in the grid, not a frame-old gap. The
+        // edge-triggered press is consumed here so that when `main.rs`'s
+        // catch-up loop runs several ticks in one frame, one press means
+        // one jump.
+        player::step(&mut self.world, self.player_input, &self.player_tuning);
+        self.player_input.jump_pressed = false;
         // M16 active sites after the CA sweep too, for the same reason as
         // particles below: a root deciding whether to drink an adjacent
         // water cell needs this frame's settled position, not last frame's.
@@ -1284,9 +1318,10 @@ impl App {
             "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
             "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
             "",
-            "C STRIKE ROCK    D DIG (PRECISE CUT)",
+            "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
+            "C STRIKE ROCK    H DIG (PRECISE CUT)",
             "F IGNITE    P BURST    X EXPLODE",
-            "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
+            "T PLANT TREE    M PLANT MOSS    J PLANT WORM",
             "",
             "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
             "N STRESS VIEW (GREEN AT REST, RED AT ITS LIMIT)",
@@ -1464,6 +1499,20 @@ impl App {
     pub fn plant_worm(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         self.world.plant_worm(x, y);
+    }
+
+    /// Summon the gnome at a screen position, or dismiss him if already
+    /// present — `U`. Opt-in by design: the sandbox stays a pure tool
+    /// until a character is asked for, and everything character-shaped
+    /// (held-key movement, the PLAYER tunables) is inert without one.
+    pub fn summon_player(&mut self, screen_x: i32, screen_y: i32) {
+        if self.world.player.take().is_some() {
+            self.message = Some("gnome dismissed".into());
+            return;
+        }
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        self.world.player = Some(player::Player::at(x, y));
+        self.message = Some("gnome summoned — A/D run, W jump, U dismiss".into());
     }
 
     /// How much of the brush to fill per application.

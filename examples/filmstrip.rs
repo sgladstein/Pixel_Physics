@@ -203,6 +203,25 @@ fn build(args: &Args) -> World {
         // rather than assumed -- generated terrain puts the surface
         // wherever it likes, and a dig into open air would reproduce
         // nothing while looking like it had.
+        // M9: the gnome on an obstacle course -- flat floor, a 2-cell curb
+        // the step-up should climb without a jump, and a 10-cell platform
+        // the scripted full jump (`gnome_script`) should clear. Judged on
+        // the contact sheet: is the arc an arc, does the landing look like
+        // a landing, does he climb the curb without stuttering.
+        "gnome" => {
+            stone_floor(&mut w);
+            for x in 150..170 {
+                for y in (floor_y - 2)..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for x in 280..420 {
+                for y in (floor_y - 10)..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            w.player = Some(pixel_physics::sim::player::Player::at(40, floor_y - 4));
+        }
         "worldcrack" => {
             let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
             if let Some(e) = err {
@@ -528,7 +547,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome"
         ),
     }
     w
@@ -740,7 +759,7 @@ fn fire_due_explosions(
 /// scenes (nothing promotes a liquid body, nothing schedules an active site,
 /// and no liquid rule reads the field), so they do not move the measurements
 /// already recorded against those.
-fn advance(world: &mut World, particles: &mut ParticleSystem, blasts: &mut explosion::Blasts, parallel_driver: bool) {
+fn advance(world: &mut World, particles: &mut ParticleSystem, blasts: &mut explosion::Blasts, parallel_driver: bool, step_no: usize) {
     if parallel_driver {
         parallel::step(world);
     } else {
@@ -752,10 +771,32 @@ fn advance(world: &mut World, particles: &mut ParticleSystem, blasts: &mut explo
     // would render as material simply disappearing, which is exactly the
     // kind of thing this harness exists to catch by eye.
     pixel_physics::sim::rigid::step_chunk_bodies(world);
+    // M9: the gnome, in his `App::update` slot too. Input is scripted --
+    // run right, jump once a second -- because a filmstrip's job is to
+    // show the arc, not to be played. A no-op for every scene that
+    // summons no player.
+    if world.player.is_some() {
+        pixel_physics::sim::player::step(world, gnome_script(step_no), &pixel_physics::sim::player::Tuning::default());
+    }
     world.step_active_sites();
     blasts.step(world, particles);
     particles.step(world);
     world.step_fields();
+}
+
+/// The `scene=gnome` input script: run right the whole time, with a
+/// full-height (held) jump starting at tick 30 of every second. Fixed
+/// rather than argued from: the contact sheet it exists for is judged on
+/// the arc's shape, and a script that changed per run would make two
+/// sheets incomparable.
+fn gnome_script(step_no: usize) -> pixel_physics::sim::player::PlayerInput {
+    let phase = step_no % 60;
+    pixel_physics::sim::player::PlayerInput {
+        right: true,
+        jump_pressed: phase == 30,
+        jump_held: (30..48).contains(&phase),
+        ..Default::default()
+    }
 }
 
 /// Print whatever structural probes were asked for. Separate from the tile
@@ -921,7 +962,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
             let target = args.start + i * args.every;
             while step_no < target {
                 fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
-                advance(&mut world, &mut particles, &mut blasts, args.parallel_driver);
+                advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no);
                 step_no += 1;
             }
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
@@ -989,7 +1030,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
         while step_no < target {
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
             let began = std::time::Instant::now();
-            advance(&mut world, &mut particles, &mut blasts, args.parallel_driver);
+            advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no);
             let ms = began.elapsed().as_secs_f64() * 1000.0;
             // Frame 0 is excluded, and not to flatter the number: every
             // scene spikes there, including `terrain`, which runs no

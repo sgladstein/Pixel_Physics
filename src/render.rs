@@ -220,6 +220,24 @@ const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 /// rock rather than a hole.
 const CRACK_DARKEN: u16 = 110;
 
+/// The gnome's colored-cell sprite, `PLAYER_HEIGHT` rows of
+/// `PLAYER_WIDTH`, top to bottom: hat tip, hat brim, face, tunic x2,
+/// boots with a gap between them. `None` cells are transparent — the
+/// world shows through, which is what keeps a 3x6 block reading as a
+/// figure rather than a crate.
+const GNOME_HAT: [u8; 4] = [204, 62, 48, 255];
+const GNOME_FACE: [u8; 4] = [232, 186, 148, 255];
+const GNOME_TUNIC: [u8; 4] = [74, 138, 70, 255];
+const GNOME_BOOT: [u8; 4] = [108, 76, 46, 255];
+const GNOME_SPRITE: [[Option<[u8; 4]>; 3]; 6] = [
+    [None, Some(GNOME_HAT), None],
+    [Some(GNOME_HAT), Some(GNOME_HAT), Some(GNOME_HAT)],
+    [Some(GNOME_FACE), Some(GNOME_FACE), Some(GNOME_FACE)],
+    [Some(GNOME_TUNIC), Some(GNOME_TUNIC), Some(GNOME_TUNIC)],
+    [Some(GNOME_TUNIC), Some(GNOME_TUNIC), Some(GNOME_TUNIC)],
+    [Some(GNOME_BOOT), None, Some(GNOME_BOOT)],
+];
+
 pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
     /// Prototype switch — see the enum's own doc.
@@ -234,6 +252,12 @@ pub struct Renderer {
     /// smear without falling back to redrawing the whole screen -- which is
     /// what this did before, for the entire duration of every collapse.
     last_body_rects: Vec<Rect>,
+    /// Screen rect the gnome occupied on the previous `draw` — the same
+    /// smear-repaint reasoning as `last_body_rects`. Kept separately, and
+    /// compared before unioning: a gnome standing still contributes
+    /// *nothing* to the dirty region, which is what keeps a settled
+    /// world's zero-cost frames zero-cost with a character idle in them.
+    last_player_rect: Option<Rect>,
     /// World coordinate displayed at the top-left pixel. Fixed at the origin
     /// for M2; M10 moves it with the player.
     pub camera_x: i32,
@@ -275,6 +299,7 @@ impl Renderer {
             grain: GrainMode::default(),
             frame: 0,
             last_body_rects: Vec::new(),
+            last_player_rect: None,
             camera_x: 0,
             camera_y: 0,
             show_chunk_overlay: false,
@@ -444,6 +469,17 @@ impl Renderer {
             || self.show_chunk_overlay
             || !particles.is_empty();
 
+        // Where the gnome is on screen this frame. Tracked through *both*
+        // branches below: a full redraw repaints everything anyway, but if
+        // it didn't also record the sprite's position, a run of full
+        // frames (particles in flight, say) with the player moving would
+        // leave the dirty path comparing against a rect from before the
+        // run — and the sprite's last full-frame position would smear.
+        let player_rect = world.player.as_ref().and_then(|p| {
+            let (x0, y0, x1, y1) = p.bounds();
+            self.world_rect_to_screen_rect(Rect::new(x0, y0, x1, y1), width, height)
+        });
+
         let recomputed = if full {
             for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
                 let sx = (i % width as usize) as i32;
@@ -452,6 +488,7 @@ impl Renderer {
                 let colour = self.cell_colour(world, wx, wy);
                 pixel.copy_from_slice(&colour);
             }
+            self.last_player_rect = player_rect;
             (width as usize) * (height as usize)
         } else {
             let mut dirty: Option<Rect> = None;
@@ -472,6 +509,19 @@ impl Renderer {
                 });
             }
             self.last_body_rects = body_rects;
+            // The gnome, same treatment as the bodies — but only when the
+            // rect actually changed. An idle character repaints on top of
+            // identical pixels for free; a moving one owes both where it
+            // is and the smear where it was.
+            if player_rect != self.last_player_rect {
+                for r in player_rect.iter().chain(self.last_player_rect.iter()) {
+                    dirty = Some(match dirty {
+                        Some(d) => d.union(*r),
+                        None => *r,
+                    });
+                }
+                self.last_player_rect = player_rect;
+            }
             for coord in touched {
                 if let Some(r) = self.world_rect_to_screen_rect(coord.bounds(), width, height) {
                     dirty = Some(match dirty {
@@ -514,6 +564,7 @@ impl Renderer {
 
         self.draw_particles(world, particles, frame, width, height);
         self.draw_chunk_bodies(world, frame, width, height);
+        self.draw_player(world, frame, width, height);
 
         if self.show_chunk_overlay {
             self.draw_chunk_overlay(world, frame, width, height);
@@ -597,6 +648,29 @@ impl Renderer {
                 for dy in 0..block {
                     for dx in 0..block {
                         put(frame, width, height, sx + dx, sy + dy, colour);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The M9 character, drawn last of the off-grid passes so he reads in
+    /// front of debris. A hardcoded colored-cell sprite for now — pointed
+    /// hat, face, tunic, boots — which is enough to judge movement feel;
+    /// a real sprite is later polish, not a phase-1 question.
+    fn draw_player(&self, world: &World, frame: &mut [u8], width: u32, height: u32) {
+        let Some(player) = &world.player else { return };
+        let (ox, oy) = player.rect_origin();
+        let block = self.zoom.max(1);
+        for (dy, row) in GNOME_SPRITE.iter().enumerate() {
+            for (dx, colour) in row.iter().enumerate() {
+                let Some(colour) = colour else { continue };
+                let Some((sx, sy)) = self.world_to_screen(ox + dx as i32, oy + dy as i32) else {
+                    continue;
+                };
+                for by in 0..block {
+                    for bx in 0..block {
+                        put(frame, width, height, sx + bx, sy + by, *colour);
                     }
                 }
             }

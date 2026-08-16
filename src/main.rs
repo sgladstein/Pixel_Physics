@@ -94,7 +94,28 @@ struct Handler {
     painting: bool,
     erasing: bool,
 
+    /// Held movement keys for the M9 character — the same held-boolean
+    /// shape `painting`/`erasing` established, because winit only delivers
+    /// edges and the sim wants state. Tracked whether or not a gnome is
+    /// summoned; `player::step` is a no-op without one.
+    held: HeldKeys,
+    /// A jump press seen since the last frame's input assembly — the one
+    /// edge (as opposed to held state) the character cares about, kept
+    /// separately so a press and release faster than a frame still jumps.
+    jump_pressed: bool,
+
     result: Result<(), Box<dyn std::error::Error>>,
+}
+
+/// WASD state for the character. `S` is tracked now but only means
+/// something from phase 3 (crouch/swim-down); tracking it from the start
+/// keeps the input arm complete rather than grown a key at a time.
+#[derive(Default)]
+struct HeldKeys {
+    left: bool,
+    right: bool,
+    jump: bool,
+    down: bool,
 }
 
 impl Handler {
@@ -120,6 +141,8 @@ impl Handler {
             last_paint: None,
             painting: false,
             erasing: false,
+            held: HeldKeys::default(),
+            jump_pressed: false,
             result: Ok(()),
         }
     }
@@ -177,6 +200,17 @@ impl Handler {
         } else {
             self.fps * 0.9 + instant_fps * 0.1
         };
+
+        // Character intent for this frame's ticks. Held state is copied
+        // fresh; the jump press ORs in rather than assigning, so a press
+        // made while paused (or on a frame that ran zero ticks) survives
+        // until a tick actually consumes it in `App::update`.
+        self.app.player_input.left = self.held.left;
+        self.app.player_input.right = self.held.right;
+        self.app.player_input.jump_held = self.held.jump;
+        self.app.player_input.down = self.held.down;
+        self.app.player_input.jump_pressed |= std::mem::take(&mut self.jump_pressed);
+        self.app.player_input.aim = self.cursor.map(|(x, y)| self.app.renderer.screen_to_world(x, y));
 
         self.accumulator += elapsed;
         let mut ticks = 0;
@@ -305,7 +339,10 @@ impl Handler {
                     self.app.strike(x, y);
                 }
             }
-            KeyCode::KeyD => {
+            // `H`, not `D` — `D` runs the gnome right. Moved (with `W`
+            // below) when WASD movement landed; both rebinds and the
+            // held-key tracking shipped in the same change on purpose.
+            KeyCode::KeyH => {
                 if let Some((x, y)) = self.cursor {
                     self.app.mine(x, y);
                 }
@@ -328,9 +365,15 @@ impl Handler {
                     self.app.plant_moss(x, y);
                 }
             }
-            KeyCode::KeyW => {
+            // `J`, not `W` — `W` is the gnome's jump. See `H` above.
+            KeyCode::KeyJ => {
                 if let Some((x, y)) = self.cursor {
                     self.app.plant_worm(x, y);
+                }
+            }
+            KeyCode::KeyU => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.summon_player(x, y);
                 }
             }
             KeyCode::BracketLeft => self.app.adjust_brush(-2),
@@ -431,8 +474,26 @@ impl ApplicationHandler for Handler {
             }
 
             WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == ElementState::Pressed && !event.repeat {
-                    if let PhysicalKey::Code(code) = event.physical_key {
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    // Held state first, on both edges — the only consumer
+                    // of `Released` events in the app. The same keys then
+                    // fall through to `key()` on press as ever, which is
+                    // deliberate: `S` still saves while the tunables
+                    // panel is open, held or not.
+                    let pressed = event.state == ElementState::Pressed;
+                    match code {
+                        KeyCode::KeyA => self.held.left = pressed,
+                        KeyCode::KeyD => self.held.right = pressed,
+                        KeyCode::KeyW => {
+                            self.held.jump = pressed;
+                            if pressed && !event.repeat {
+                                self.jump_pressed = true;
+                            }
+                        }
+                        KeyCode::KeyS => self.held.down = pressed,
+                        _ => {}
+                    }
+                    if pressed && !event.repeat {
                         self.key(code, event_loop);
                     }
                 }

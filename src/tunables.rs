@@ -29,6 +29,7 @@
 
 use crate::sim::explosion::Tuning as Explosion;
 use crate::sim::material::{MaterialKind, MaterialRegistry};
+use crate::sim::player::Tuning as Player;
 
 /// Which menu the tunables panel shows an entry in.
 ///
@@ -48,6 +49,10 @@ pub enum TunableGroup {
     /// why the save path has to branch on the group rather than assuming
     /// every entry has a `.ron` file named after its category.
     Explosion,
+    /// The character (M9). Engine-struct entries like `Explosion`'s, from
+    /// `sim::player::Tuning` — how the gnome runs, jumps and falls, all
+    /// judged in the hand and therefore all sweepable live.
+    Player,
 }
 
 impl TunableGroup {
@@ -56,6 +61,7 @@ impl TunableGroup {
             TunableGroup::Physics => "PHYSICS",
             TunableGroup::Visual => "VISUAL",
             TunableGroup::Explosion => "EXPLOSION",
+            TunableGroup::Player => "PLAYER",
         }
     }
 
@@ -63,26 +69,31 @@ impl TunableGroup {
         match self {
             TunableGroup::Physics => TunableGroup::Visual,
             TunableGroup::Visual => TunableGroup::Explosion,
-            TunableGroup::Explosion => TunableGroup::Physics,
+            TunableGroup::Explosion => TunableGroup::Player,
+            TunableGroup::Player => TunableGroup::Physics,
         }
     }
 
     pub fn prev(self) -> Self {
         match self {
-            TunableGroup::Physics => TunableGroup::Explosion,
+            TunableGroup::Physics => TunableGroup::Player,
             TunableGroup::Visual => TunableGroup::Physics,
             TunableGroup::Explosion => TunableGroup::Visual,
+            TunableGroup::Player => TunableGroup::Explosion,
         }
     }
 
-    pub fn all() -> [TunableGroup; 3] {
-        [TunableGroup::Physics, TunableGroup::Visual, TunableGroup::Explosion]
+    pub fn all() -> [TunableGroup; 4] {
+        [TunableGroup::Physics, TunableGroup::Visual, TunableGroup::Explosion, TunableGroup::Player]
     }
 }
 
 /// The one category name every [`TunableGroup::Explosion`] entry uses.
 /// Not a material — see that variant's own doc.
 pub const EXPLOSION_CATEGORY: &str = "explosion";
+
+/// Likewise for [`TunableGroup::Player`].
+pub const PLAYER_CATEGORY: &str = "player";
 
 /// One live-adjustable value. `value` is a live snapshot at the moment
 /// the registry was built, not a handle back into the registry it came
@@ -212,6 +223,44 @@ pub fn from_explosion(t: &Explosion) -> Vec<Tunable> {
         Tunable::float(g, c, "debris_jitter", t.debris_jitter, 0.0, 2.0, 0.05),
         Tunable::float(g, c, "heat_fraction", t.heat_fraction, 0.5, 20.0, 0.5),
     ]
+}
+
+/// Every character-feel parameter, roughly running first, then jumping,
+/// then the forgiveness windows. Same matched-pair contract with
+/// `apply_player` that `from_explosion`/`apply_explosion` document.
+pub fn from_player(t: &Player) -> Vec<Tunable> {
+    let g = TunableGroup::Player;
+    let c = PLAYER_CATEGORY;
+    vec![
+        Tunable::float(g, c, "run_accel", t.run_accel, 0.02, 0.5, 0.01),
+        Tunable::float(g, c, "run_max", t.run_max, 0.4, 2.5, 0.1),
+        Tunable::float(g, c, "ground_decel", t.ground_decel, 0.02, 1.0, 0.02),
+        Tunable::float(g, c, "air_control", t.air_control, 0.0, 1.0, 0.05),
+        Tunable::float(g, c, "jump_impulse", t.jump_impulse, 1.0, 3.0, 0.05),
+        Tunable::float(g, c, "gravity", t.gravity, 0.05, 0.4, 0.01),
+        Tunable::float(g, c, "fall_clamp", t.fall_clamp, 1.0, 6.0, 0.25),
+        Tunable::integer(g, c, "coyote_frames", t.coyote_frames as f32, 0.0, 15.0, 1.0),
+        Tunable::integer(g, c, "jump_buffer_frames", t.jump_buffer_frames as f32, 0.0, 10.0, 1.0),
+        Tunable::integer(g, c, "step_up", t.step_up as f32, 0.0, 3.0, 1.0),
+    ]
+}
+
+/// Apply one adjusted player value back onto the live tuning struct —
+/// `from_player`'s other half; keep the two name lists together.
+pub fn apply_player(t: &mut Player, name: &str, value: f32) {
+    match name {
+        "run_accel" => t.run_accel = value,
+        "run_max" => t.run_max = value,
+        "ground_decel" => t.ground_decel = value,
+        "air_control" => t.air_control = value,
+        "jump_impulse" => t.jump_impulse = value,
+        "gravity" => t.gravity = value,
+        "fall_clamp" => t.fall_clamp = value,
+        "coyote_frames" => t.coyote_frames = value.max(0.0).round() as u8,
+        "jump_buffer_frames" => t.jump_buffer_frames = value.max(0.0).round() as u8,
+        "step_up" => t.step_up = value.max(0.0).round() as u8,
+        _ => {}
+    }
 }
 
 /// Apply one adjusted explosion value back onto the live tuning struct.
@@ -411,6 +460,7 @@ mod tests {
         // empty, which is precisely what it exists to catch.
         let mut all = from_materials(&registry);
         all.extend(from_explosion(&Explosion::default()));
+        all.extend(from_player(&Player::default()));
         for group in TunableGroup::all() {
             assert!(
                 all.iter().any(|t| t.group == group),
@@ -445,6 +495,22 @@ mod tests {
             assert_ne!(probe, base, "adjusting explosion.{} changed nothing -- name mismatch?", t.name);
             let written = from_explosion(&probe).into_iter().find(|x| x.name == t.name).expect("entry still listed");
             assert_eq!(written.value, target, "explosion.{} wrote to the wrong field", t.name);
+        }
+    }
+
+    /// Same two-hand-maintained-lists contract as the explosion test
+    /// above, same failure mode guarded: a row that displays fine and
+    /// does nothing when adjusted.
+    #[test]
+    fn every_player_tunable_can_actually_be_written_back() {
+        let base = Player::default();
+        for t in from_player(&base) {
+            let mut probe = base;
+            let target = if (t.value - t.max).abs() > f32::EPSILON { t.max } else { t.min };
+            apply_player(&mut probe, &t.name, target);
+            assert_ne!(probe, base, "adjusting player.{} changed nothing -- name mismatch?", t.name);
+            let written = from_player(&probe).into_iter().find(|x| x.name == t.name).expect("entry still listed");
+            assert_eq!(written.value, target, "player.{} wrote to the wrong field", t.name);
         }
     }
 

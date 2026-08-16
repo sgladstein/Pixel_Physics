@@ -24,6 +24,8 @@ as wrong, the game has moved past this page, not the other way round.
   standing, what makes it give way, and how to build one on purpose.
 - [**Day, Night, and Decay**](world-cycles.md) — the day/night cycle, and
   how burnt ground slowly turns back into something that can support life.
+- [**The Gnome**](the-gnome.md) — the summonable character: running,
+  jumping, what holds him up, and what happens when the world falls on him.
 
 Not covered yet: plants (trees, moss) and creatures (the worm) — both are
 still being actively redesigned, so a page here would go stale within a
