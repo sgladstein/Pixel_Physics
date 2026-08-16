@@ -21,7 +21,12 @@ the blast, while solid rock stays put. Beyond that, a ring of heat lights
 up whatever's actually flammable nearby — a real ignition, not a blanket
 effect, so stone never catches fire from it but oil will.
 
-The crater wall itself doesn't crumble to uniform dust — cracked rock
-breaks away in chunky pieces (see [Structural Collapse](structural-collapse.md)
-for why). Once the dust and glow settle, the crater is left open and
-empty — nothing currently fills it back in.
+The crater wall itself doesn't crumble to uniform dust — the rock the
+blast reaches is left cracked and unbraced, and breaks away in pieces (see
+[Structural Collapse](structural-collapse.md) for why). That loosening is
+the point: a blast through a wall doesn't just leave a hole, it leaves the
+structure around the hole having to hold itself up without the part that's
+now missing, so what happens next is often bigger than the crater.
+
+Once the dust and glow settle, the crater is left open and empty —
+nothing currently fills it back in.
