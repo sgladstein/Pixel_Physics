@@ -157,7 +157,7 @@ impl Default for WorldgenParams {
             pond_min_depth: 2.0,
             pond_min_width: 4.0,
             moss_density: 0.10,
-            tree_density: 0.015,
+            tree_density: 0.26,
             life_cluster_wavelength: 70.0,
         }
     }

@@ -36,7 +36,7 @@
 //!
 //! # What is not here yet
 //!
-//! Plant scatter, caves, erosion, world age and streaming.
+//! Caves, erosion, world age and streaming.
 
 pub mod column;
 pub mod legacy;
@@ -99,6 +99,9 @@ const PASSES: &[Pass] = &[
     // the coarse map is for.
     Pass { name: "ponds", margin: GLOBAL, run: passes::ponds },
     Pass { name: "moisture_init", margin: GLOBAL, run: passes::moisture_init },
+    // Last, so it can see the finished ground -- including whether a column
+    // ended up under water.
+    Pass { name: "life_scatter", margin: 0, run: passes::life_scatter },
 ];
 
 /// Everything the passes share: the decided columns, and the material ids

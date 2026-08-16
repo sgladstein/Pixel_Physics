@@ -382,6 +382,74 @@ fn switching_water_off_switches_all_of_it_off() {
 }
 
 #[test]
+fn the_world_arrives_with_both_moss_and_trees_in_it() {
+    // Counts each *kind*, not the pass's total, and that distinction is the
+    // whole test. The pass reported a healthy 13 cells while planting zero
+    // trees: `last_tree` started at `i32::MIN`, so the spacing check
+    // `x - last_tree` overflowed, wrapped negative, and rejected every tree
+    // in every world forever. The total looked fine, the render looked like
+    // a world where trees are rare, and only splitting the count by species
+    // said otherwise.
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let (mut trees, mut moss_cells) = (0, 0);
+    for seed in SEEDS {
+        let world = build(params, seed);
+        let wood = world.materials.id_of("wood").unwrap();
+        let moss = world.materials.id_of("moss").unwrap();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                match world.get(x, y).material {
+                    m if m == wood => trees += 1,
+                    m if m == moss => moss_cells += 1,
+                    _ => {}
+                }
+            }
+        }
+    }
+    assert!(trees > 0, "no tree was planted in any of {} worlds", SEEDS.len());
+    assert!(moss_cells > 0, "no moss was planted in any of {} worlds", SEEDS.len());
+}
+
+#[test]
+fn planted_life_is_clustered_rather_than_evenly_spaced() {
+    // The claim the squared cluster field exists to make. Evenly spaced
+    // vegetation is the tell that a world was populated by a loop, and a
+    // uniform random scatter is only slightly better — what reads as natural
+    // is stands with clearings between them.
+    //
+    // Measured as the spread of gaps between neighbouring plants: clustered
+    // placement produces both very small gaps (inside a stand) and very large
+    // ones (between stands), so the largest gap is many times the smallest.
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let mut widest_ratio = 0.0f32;
+    for seed in SEEDS {
+        let world = build(params, seed);
+        let wood = world.materials.id_of("wood").unwrap();
+        let moss = world.materials.id_of("moss").unwrap();
+        let columns: Vec<i32> = (0..=BOUNDS.0)
+            .filter(|&x| {
+                (0..=BOUNDS.1).any(|y| {
+                    let m = world.get(x, y).material;
+                    m == wood || m == moss
+                })
+            })
+            .collect();
+        if columns.len() < 4 {
+            continue;
+        }
+        let gaps: Vec<i32> = columns.windows(2).map(|w| w[1] - w[0]).collect();
+        let (smallest, largest) = (*gaps.iter().min().unwrap(), *gaps.iter().max().unwrap());
+        widest_ratio = widest_ratio.max(largest as f32 / smallest.max(1) as f32);
+    }
+    assert!(
+        widest_ratio >= 8.0,
+        "plants are too evenly spread: widest gap is only {widest_ratio:.1}x the narrowest"
+    );
+}
+
+#[test]
 fn the_legacy_terrain_is_unchanged_by_the_move() {
     // `worldgen::legacy` is a verbatim move of what `app::build_terrain_only`
     // used to contain. Several filmstrip scenes and app tests erase or probe

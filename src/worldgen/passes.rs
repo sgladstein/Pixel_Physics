@@ -551,6 +551,86 @@ pub fn moisture_init(ctx: &Ctx, world: &mut World) -> usize {
     n
 }
 
+/// Moss and tree seeds on ground that will support them.
+///
+/// The world arrives with life in it rather than waiting for the player to
+/// plant every blade — which matters for a reason beyond decoration. A world
+/// whose only vegetation is hand-placed grows *evenly spaced* vegetation,
+/// because that is how a person places things, and evenly spaced plants are
+/// the single most artificial-looking thing a side-view world can do.
+///
+/// So placement is **clustered, not uniform**: the density is multiplied by a
+/// low-frequency field that is then *squared*. Squaring is the whole device —
+/// it pushes most of the world below the planting threshold and concentrates
+/// the rest into stands, giving thickets and clearings instead of a scatter.
+/// Removing that square gives a uniform sprinkle, which is exactly the look
+/// this exists to avoid.
+///
+/// Seeds, not grown plants. What comes up, how tall it gets and how it leans
+/// are the organism substrate's business, and a generator that placed finished
+/// trees would be authoring an outcome the simulation is meant to produce.
+pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
+    let p = ctx.terrain.params;
+    if p.moss_density <= 0.0 && p.tree_density <= 0.0 {
+        return 0;
+    }
+    let mut n = 0;
+    // `Option`, not a sentinel. The first version used `i32::MIN` and never
+    // planted a single tree in any world: `x - i32::MIN` overflows, wraps
+    // negative in release, and fails the spacing test for every column
+    // forever. The counter found it -- the render just looked like a world
+    // where trees are rare.
+    let mut last_tree: Option<i32> = None;
+    for x in 0..ctx.terrain.w {
+        let ground = ctx.plans[x as usize].surface_y;
+        let above = ground - 1;
+        if above < 0 {
+            continue;
+        }
+        // Somewhere to stand, and space to stand in. The emptiness check
+        // also keeps anything from being planted in a pond, which is what
+        // should happen without a rule saying so.
+        let footing = world.get(x, ground).material;
+        if world.get(x, above).material != material::EMPTY {
+            continue;
+        }
+        let cluster = noise::fbm_1d(
+            ctx.terrain.seed,
+            Purpose::Life,
+            x as f32 / p.life_cluster_wavelength.max(1.0),
+            2,
+        );
+        let cluster = cluster * cluster;
+
+        // Trees want soil to root in; moss will take bare rock as well, which
+        // is what puts green on a cliff face where nothing else grows.
+        let on_soil = footing == ctx.soil || footing == ctx.sand;
+        if on_soil
+            && last_tree.is_none_or(|last| x - last >= TREE_SPACING)
+            && noise::unit(ctx.terrain.seed, Purpose::Life, x, 7) < p.tree_density * cluster
+            && world.plant_tree_species(x, above, "tree")
+        {
+            last_tree = Some(x);
+            n += 1;
+            continue;
+        }
+        if noise::unit(ctx.terrain.seed, Purpose::Life, x, 9) < p.moss_density * cluster {
+            world.plant_moss_seed(x, above);
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Closest two tree seeds may be planted, in columns.
+///
+/// Not an aesthetic rule so much as an admission about the substrate: two
+/// seedlings a couple of cells apart compete for the same light and water and
+/// one of them simply fails, so planting them is spending generation on a
+/// plant that will not be there. Far enough apart to both have a chance, near
+/// enough that a stand still reads as a stand.
+const TREE_SPACING: i32 = 7;
+
 /// Sand and gravel lenses sealed inside the rock.
 ///
 /// Loose material the player only finds by digging, and which behaves the

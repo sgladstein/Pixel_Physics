@@ -90,6 +90,29 @@ How much water a world gets is a property of its preset. **Arid** has none at
 all: its table sits below the floor of the world, so there are no pools and no
 damp ground anywhere. **Wetland** is the other extreme.
 
+## Life arrives with the world
+
+A new world already has moss and tree seeds in it, so it grows in on its own
+rather than staying bare until you plant something. They are **seeds**, not
+finished plants: what comes up, how tall it gets and where it leans are the
+plant's own business, so a world looks sparse at first and fills in as it
+runs.
+
+Placement is **clustered, not scattered** — stands with clearings between
+them, rather than one plant every so often. Even spacing is what a world
+populated by a loop looks like, and it is the thing this most carefully
+avoids. Trees want soil to root in, so bare rock and steep faces stay bare;
+moss will take rock as well, and spreads where the ground is damp and shaded,
+which in practice means it favours the ground near standing water.
+
+How much life a world starts with is a preset property. **Wetland** is
+thickest, **arid** has none at all, and **flat** — the structural test bed —
+is deliberately empty so that nothing is standing on it.
+
+Trees currently grow as thin stems rather than filling out into trunks. That
+is a known limit of how plants grow, not of where they were planted, and it
+is why a grown world still looks sparser than it should.
+
 ## Worlds arrive settled
 
 A newly generated world is already at rest. Nothing slumps, avalanches or
