@@ -155,6 +155,12 @@ const SNAP_PRESSURE_FACTOR: f32 = 0.75;
 const LANDING_PRESSURE: f32 = 1.5;
 const LANDING_MIN_SPEED: f32 = 1.5;
 
+/// Smallest swing a strike can be, whatever the brush is set to. Sized so
+/// the smallest possible blow still takes a visible bite out of a cliff
+/// and throws something: at 6 the core is 2 and the chip is 4, which is
+/// ~50 cells loosened against `MIN_FRACTURE_CELLS`, and cracks run 18.
+const MIN_STRIKE_RADIUS: i32 = 6;
+
 /// How far past a blow's own radius its fractures run. Cracks reaching
 /// further than the damage is what lets a player work a fissure across a
 /// span rather than having to chew through it.
@@ -412,6 +418,24 @@ impl ChunkBody {
             cell.dx = -dy;
             cell.dy = dx;
         }
+    }
+
+    /// The body's current extent in world space, as
+    /// `(min_x, min_y, max_x, max_y)`.
+    ///
+    /// Exists for the renderer: a body is drawn off-grid on top of the
+    /// per-cell pass, so the dirty-rect machinery has no idea it moved and
+    /// needs to be told which pixels to repaint.
+    pub fn bounds(&self) -> (i32, i32, i32, i32) {
+        let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        for cell in &self.cells {
+            let (x, y) = self.cell_position(cell);
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        }
+        (x0, y0, x1, y1)
     }
 
     /// Where `cell` currently sits in world coordinates.
@@ -757,6 +781,23 @@ fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, ray
 /// ordinary structural cascade afterwards, so hitting the base of an
 /// overhang both throws chips *and* brings the overhang down a moment later.
 pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
+    // A blow has a floor, and the brush does not.
+    //
+    // Reported from play as "striking a cliff does nothing", with the
+    // brush at R2 -- which is a perfectly good size for *drawing* and an
+    // absurd one for *hitting*. At radius 2 the arithmetic below gives a
+    // core of 1 and a chip of 2: about five cells pulverized, eight
+    // loosened, and cracks reaching six cells. All of that is correct, and
+    // on the face of a cliff it is invisible.
+    //
+    // Scaling the swing off the brush was a deliberate choice -- "the tool
+    // the player is already sizing is the tool that decides how hard they
+    // hit, rather than introducing a second invisible number" -- and it is
+    // still right at the top end, where a wide brush should calve slabs.
+    // It was wrong to let it go all the way down, because the two tools
+    // want different sizes: you draw with a pencil and you swing a hammer.
+    // So the brush still scales the blow, from a floor that always lands.
+    let radius = radius.max(MIN_STRIKE_RADIUS);
     // Three zones, and the split is what makes a blow read as a blow rather
     // than as a hole appearing. The core is pulverized -- that is the bite.
     // A thin shell around it chips off immediately, so every hit produces
@@ -1468,6 +1509,29 @@ mod tests {
         // Somewhere along the floor, where it actually came down.
         let felt = (0..64).any(|x| (55..64).any(|y| w.field_at(x, y).pressure.abs() > 0.5));
         assert!(felt, "a slab fell the height of the world, landed, and shoved no air at all");
+    }
+
+    #[test]
+    fn even_the_smallest_brush_lands_a_blow_worth_seeing() {
+        // Reported from play: "striking a cliff does nothing", with the
+        // brush at R2. The swing scales off the brush, and at radius 2 that
+        // is a core of 1 and a chip of 2 -- about five cells removed on the
+        // face of a cliff, which is invisible. Asserts the floor: the
+        // smallest possible brush still takes a real bite and throws
+        // something.
+        let mut w = test_world();
+        for y in 10..60 {
+            for x in 10..60 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        let before = count_material(&w, material::STONE);
+
+        strike(&mut w, 35, 35, 1, 6.0);
+
+        let removed = before - count_material(&w, material::STONE);
+        assert!(removed >= 20, "the smallest brush should still take a real bite out of a cliff, removed {removed}");
+        assert!(!w.chunk_bodies.is_empty(), "a blow should throw pieces, not just make a hole");
     }
 
     #[test]

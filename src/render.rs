@@ -226,6 +226,14 @@ pub struct Renderer {
     pub grain: GrainMode,
     /// Frame counter, advanced by `draw`, read only by `GrainMode::Animated`.
     frame: u64,
+    /// Screen rectangles the chunk bodies occupied on the previous `draw`.
+    ///
+    /// A body is painted on top of the per-cell pass, so when it moves it
+    /// leaves stale pixels behind that nothing else will repaint. Keeping
+    /// last frame's rectangles is what lets the dirty region cover the
+    /// smear without falling back to redrawing the whole screen -- which is
+    /// what this did before, for the entire duration of every collapse.
+    last_body_rects: Vec<Rect>,
     /// World coordinate displayed at the top-left pixel. Fixed at the origin
     /// for M2; M10 moves it with the player.
     pub camera_x: i32,
@@ -266,6 +274,7 @@ impl Renderer {
         Self {
             grain: GrainMode::default(),
             frame: 0,
+            last_body_rects: Vec::new(),
             camera_x: 0,
             camera_y: 0,
             show_chunk_overlay: false,
@@ -412,16 +421,28 @@ impl Renderer {
             GrainMode::AnimatedSmooth => true,
             _ => false,
         };
-        // `chunk_bodies` joins `particles` in forcing a full redraw for the
-        // identical reason: both are drawn off-grid on top of the per-cell
-        // pass, so the dirty-rect skip has no idea they moved and would
-        // leave a smear of stale body pixels behind a falling chunk.
+        // Particles still force a full redraw: they are drawn off-grid on
+        // top of the per-cell pass, so the dirty-rect skip has no idea they
+        // moved and would leave a smear behind them.
+        //
+        // **Chunk bodies used to be in this list and are not any more.**
+        // Reported from play: "when something big breaks into lots of
+        // little pieces, the performance gets bad." That is this, and the
+        // fracture work made it much worse -- a collapse that used to
+        // promote 13 bodies now promotes over 100, and *any* body at all
+        // meant repainting the entire screen every frame for the whole
+        // duration of the fall. The dirty-rect skip was doing nothing
+        // during exactly the events with the most on screen.
+        //
+        // They still need repainting, so their rectangles are unioned into
+        // the dirty region below -- both where they are now and where they
+        // were last frame, since the stale pixels are the reason this was a
+        // full redraw in the first place.
         let full = force_full
             || scale_changed
             || self.field_overlay != FieldOverlay::Off
             || self.show_chunk_overlay
-            || !particles.is_empty()
-            || !world.chunk_bodies.is_empty();
+            || !particles.is_empty();
 
         let recomputed = if full {
             for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
@@ -434,6 +455,23 @@ impl Renderer {
             (width as usize) * (height as usize)
         } else {
             let mut dirty: Option<Rect> = None;
+            // Where the bodies are now, and where they were when this last
+            // ran. Both, because a body that moved leaves stale pixels
+            // behind it and nothing else will repaint them.
+            let mut body_rects: Vec<Rect> = Vec::with_capacity(world.chunk_bodies.len());
+            for body in &world.chunk_bodies {
+                let (x0, y0, x1, y1) = body.bounds();
+                if let Some(r) = self.world_rect_to_screen_rect(Rect::new(x0, y0, x1, y1), width, height) {
+                    body_rects.push(r);
+                }
+            }
+            for r in body_rects.iter().chain(self.last_body_rects.iter()) {
+                dirty = Some(match dirty {
+                    Some(d) => d.union(*r),
+                    None => *r,
+                });
+            }
+            self.last_body_rects = body_rects;
             for coord in touched {
                 if let Some(r) = self.world_rect_to_screen_rect(coord.bounds(), width, height) {
                     dirty = Some(match dirty {

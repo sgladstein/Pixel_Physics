@@ -329,6 +329,43 @@ fn build(scene: &str) -> World {
             // would do. Nothing is removed, nothing is struck.
             w.schedule_structural_check_around(105, 152);
         }
+        // What a player actually builds, painted through the ordinary
+        // brush at the radius they use (R2, so 5 cells thick).
+        //
+        // Reconstructed from a playtest screenshot after the report "most
+        // things are still falling apart": a column with two arms, a tall
+        // hook, and a wide arch, all foreground, all standing on the floor.
+        // The screenshot's stress view read almost entirely *green* -- so
+        // whatever is bringing these down is not the torque criterion, and
+        // guessing which of the two failure paths it is from a picture is
+        // exactly what the failure counters exist to stop.
+        "built" => {
+            stone_floor(&mut w);
+            let paint = |w: &mut World, a: (i32, i32), b: (i32, i32)| {
+                w.paint_capsule(a, b, 2, material::STONE, 1.0);
+            };
+            // The "F": a column off the floor with two short arms.
+            paint(&mut w, (60, floor_y - 1), (60, 120));
+            paint(&mut w, (60, 150), (110, 150));
+            paint(&mut w, (60, 190), (105, 190));
+            // The hook: up, then a long arm back over open air.
+            paint(&mut w, (300, floor_y - 1), (300, 70));
+            paint(&mut w, (300, 70), (210, 60));
+            // The arch: two feet and a span, the case the model has the
+            // most trouble with because an arch carries its load in
+            // compression along its curve and this model only knows about
+            // bending moment.
+            let arch: Vec<(i32, i32)> = (0..=20)
+                .map(|i| {
+                    let t = i as f32 / 20.0;
+                    let angle = std::f32::consts::PI * t;
+                    (360 + (angle.cos() * -110.0) as i32, floor_y - 1 - (angle.sin() * 120.0) as i32)
+                })
+                .collect();
+            for pair in arch.windows(2) {
+                paint(&mut w, pair[0], pair[1]);
+            }
+        }
         // A thin shelf cantilevered off a thick pillar, with the join then
         // cut so the shelf detaches whole.
         //
@@ -371,7 +408,7 @@ fn build(scene: &str) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked, capped, ligament"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked, capped, ligament, built"
         ),
     }
     w
