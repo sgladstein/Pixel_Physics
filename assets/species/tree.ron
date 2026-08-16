@@ -149,6 +149,21 @@
                 // Extension fades over the top 30% of the turgor range
                 // instead of stopping on a line. See Behavior::Grow.
                 turgor_taper: 0.3,
+                // A seedling is order 0 and sees only the trunk tier, which
+                // is the sparsest one by design. See Behavior::Grow's
+                // juvenile_size: without this a seedling is handed the
+                // bole's economy and starves before it can branch.
+                // Momentum, so a stem sweeps instead of zig-zagging. See
+                // OrganismCell::heading -- scoring continuation against a
+                // one-cell local read is why growth looked erratic.
+                heading_inertia: 0.85,
+                // A 2D cross-section shows every twig, so one leaf cell per
+                // node renders as a bare skeleton with green specks. See
+                // Behavior::Grow::leaf_cluster.
+                leaf_cluster: 5,
+                juvenile_size: 60,
+                juvenile_plastochron: 0.25,
+                juvenile_branch: 1.5,
                 // [branch, upward, plastochron, turgor]. Widths set from a
                 // 64-genome study: at a flat 0.15 only turgor correlated
                 // with any outcome (r = -0.675 on height; the rest |r| <=
@@ -272,7 +287,7 @@
             // pipe model exists for: trunks look thin because the crown is
             // sparse, and they will thicken on their own when it fills.
             // Do not chase trunk width by lowering this.
-            SecondaryThicken(pipe_ratio: 22.0),
+            SecondaryThicken(pipe_ratio: 110.0),
             StructuralAnchor,
             // Mature root tissue transpires. Harmless on canopy MatureBody
             // cells, which never have a soil neighbour to draw from -- see
@@ -299,7 +314,7 @@
                 thickening_survival: 0.2,
             ),
             StructuralAnchor,
-            SecondaryThicken(pipe_ratio: 22.0),
+            SecondaryThicken(pipe_ratio: 110.0),
         ]),
         (Leaf, [
             Photosynthesize(rate: 0.35),

@@ -262,6 +262,68 @@ pub enum Behavior {
         /// non-programmer would plausibly tune it, and it is one of the
         /// clearest silhouette levers a species file has.
         plastochron: ByOrder<u8>,
+        /// How strongly a shoot keeps its existing heading, `0.0`..`1.0`.
+        ///
+        /// The child's heading is `normalize(parent * inertia + step *
+        /// (1 - inertia))`, so `0.0` reproduces the old behaviour exactly
+        /// (heading is whatever the last step was, i.e. no memory) and
+        /// values near `1.0` give a stem that can barely turn. See
+        /// `OrganismCell::heading` for why a local read was not enough.
+        ///
+        /// A per-species value because it *is* the difference between a
+        /// habit that reads as woody and one that reads as a creeper —
+        /// a vine should be near `0.0`, a mature trunk near `0.9`.
+        #[serde(default)]
+        heading_inertia: f32,
+        /// Leaf cells placed per plastochron node, as a cluster rather than
+        /// singly.
+        ///
+        /// **A concession to 2D, and an honest one.** A real canopy is a
+        /// dense volume of foliage that hides the wood inside it; a 2D
+        /// cross-section of the same tree shows every twig, so a
+        /// one-cell-per-node canopy renders as a bare skeleton with green
+        /// specks on it. The scale argument runs the other way from the
+        /// obvious one: at this cell size a leaf *spray* is genuinely
+        /// larger than the twig bearing it, so one cell per leaf is
+        /// **under**-scaled relative to wood, not over-scaled. Clustering
+        /// corrects the ratio rather than faking mass.
+        ///
+        /// Clusters also concentrate `q` where the foliage actually is,
+        /// which sharpens the pipe model's taper — a trunk is only thicker
+        /// than its branches to the extent that the foliage is above it.
+        #[serde(default = "one_u8")]
+        leaf_cluster: u8,
+        /// Shoot cells below which this plant is **juvenile**. `0` disables
+        /// the whole juvenile stage.
+        ///
+        /// **`ByOrder` cannot express this, and the gap was measured.**
+        /// Branch order is *position in the plant*, not age: a seedling is
+        /// order 0 and nothing else, so it sees the trunk tier and only the
+        /// trunk tier. That tier is deliberately the sparsest — leafing
+        /// every twelfth step is what clears a bole — and a seedling given
+        /// the bole's economy has almost no income exactly when it needs it
+        /// most. Six of eight trees in the harness scene failed to
+        /// establish, against 35% stand-wide in a 1,016-plant study, and
+        /// narrowing `branch_chance`'s genotype width made it worse because
+        /// *branching is how a small plant builds leaf area*.
+        ///
+        /// Size stands in for age deliberately. A real seedling's transition
+        /// is driven by accumulated resource, not by a clock, and shoot cell
+        /// count is what the organism already maintains — no new state, no
+        /// per-cell counter, and a plant knocked back by damage correctly
+        /// becomes juvenile again.
+        #[serde(default)]
+        juvenile_size: u32,
+        /// Multiplier on `plastochron` while juvenile. Below 1 leafs more
+        /// often — a seedling is nearly all foliage, and it has to be:
+        /// foliage is the entire income.
+        #[serde(default = "one")]
+        juvenile_plastochron: f32,
+        /// Multiplier on `branch_chance` while juvenile. Above 1 branches
+        /// more freely, which is both what real saplings do and the only
+        /// way a small plant multiplies its shoots.
+        #[serde(default = "one")]
+        juvenile_branch: f32,
         /// The fraction of the turgor range over which extension **fades
         /// out** rather than stopping dead.
         ///
@@ -706,6 +768,19 @@ impl SpeciesRegistry {
 /// tenth-order twig behaves like a fourth-order one.
 pub const BRANCH_ORDERS: usize = 4;
 
+/// `serde` default for a multiplier that means "unchanged". Needed because
+/// `0.0` — what `Default` would give — silently disables the field it
+/// guards instead of leaving it alone.
+fn one() -> f32 {
+    1.0
+}
+
+/// `serde` default for `leaf_cluster`: one cell per node, the behaviour
+/// before clustering existed.
+fn one_u8() -> u8 {
+    1
+}
+
 /// A `Grow` parameter that varies with **branch order** — the number of
 /// lateral branchings between a tip and the seed.
 ///
@@ -931,6 +1006,23 @@ pub struct OrganismCell {
     /// mobilising reserves instead of quietly giving up (see
     /// `plant::break_buds`).
     pub q_peak: f32,
+    /// The direction this shoot is **actually travelling**, carried forward
+    /// with inertia rather than re-derived from the immediate
+    /// neighbourhood each step.
+    ///
+    /// **This is why growth looked erratic.** `continuation_weight` scored
+    /// against `supply_direction`, which is a read of the cells *touching*
+    /// this one — a one-cell baseline, quantized to eight directions, on a
+    /// stem that is itself only one or two cells wide. Its estimate of
+    /// "where am I heading" is therefore mostly noise, and every step
+    /// re-rolled it, so a trunk wandered instead of rising and a limb
+    /// zig-zagged instead of sweeping. Real shoots have momentum: a stem
+    /// already lignified behind the apex physically cannot turn sharply.
+    ///
+    /// `(0.0, 0.0)` means "no heading yet" and falls back to the old local
+    /// read, which is correct for a cell that has just germinated and has
+    /// no history to carry.
+    pub heading: (f32, f32),
 }
 
 impl Default for OrganismCell {
@@ -943,7 +1035,7 @@ impl Default for OrganismCell {
     /// therefore perfectly isotropic and differentiates only from flux it
     /// actually carried.
     fn default() -> Self {
-        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4], order: 0, q_peak: 0.0 }
+        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4], order: 0, q_peak: 0.0, heading: (0.0, 0.0) }
     }
 }
 
