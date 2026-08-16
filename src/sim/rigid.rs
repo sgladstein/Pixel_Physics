@@ -880,8 +880,30 @@ pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: 
                 continue;
             }
             let cell = world.get(x, y);
-            if cell.attached() || !is_body_material(world, x, y) || cell.organism_id() != 0 {
+            if !is_body_material(world, x, y) || cell.organism_id() != 0 {
                 continue;
+            }
+            // **A blast loosens what it fractures**, exactly as a blow
+            // does -- `strike` unattaches its whole chip zone before
+            // handing it to `fracture`, and this had no equivalent.
+            //
+            // This used to skip `cell.attached()` outright, on the
+            // reasoning that the rim "has already been through
+            // `detach_exposed_neighbours` and is genuinely no longer
+            // braced". That was true only while everything a player built
+            // was unattached to begin with. Now that undamaged material is
+            // *intact* by default (`Reports/building-rethink.md`), the only
+            // cells that predicate accepted were the narrow
+            // `DETACH_DEPTH` band around the crater -- so a blast against a
+            // solid structure cleared its hole and threw almost nothing.
+            // Reported from play as "explosions don't work well with these
+            // more solid structures".
+            //
+            // Being inside a blast shell *is* the damage. Loosening here
+            // says so, and leaves the rest of the structure intact to be
+            // judged on its own merits by the load model afterwards.
+            if cell.attached() {
+                world.set(x, y, cell.with_attached(false));
             }
             loosened.push((x, y));
         }
