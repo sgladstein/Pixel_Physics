@@ -948,6 +948,35 @@ impl World {
         self.fields_settled
     }
 
+    /// Set the moisture floor covering the field block containing `(x, y)`.
+    ///
+    /// For `worldgen` only: this is how the saturated zone below the water
+    /// table is laid down. Saturated *ground* cannot be liquid cells — a cell
+    /// holds one material and there is no porosity — so the aquifer is a
+    /// property of the field rather than of the grid, and this is the seam
+    /// that writes it. See `field::FieldTile::moisture_floor`.
+    ///
+    /// Silently skips positions whose chunk is not resident, exactly as CA
+    /// writes outside a loaded chunk are not materialised.
+    pub(crate) fn set_field_moisture_floor(&mut self, x: i32, y: i32, floor: f32) {
+        let (fx, fy) = field::field_coord_of(x, y);
+        let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+        if let Some(tile) = self.fields.get_mut(&tile_coord) {
+            tile.set_moisture_floor_local(lx, ly, floor);
+            // A write from outside the solve, so the solve has to run at
+            // least once more even if it had converged -- the same reason
+            // `paint_field` clears this.
+            self.fields_settled = false;
+        }
+    }
+
+    /// The moisture floor at a world position, for tests and the inspector.
+    pub fn field_moisture_floor(&self, x: i32, y: i32) -> f32 {
+        let (fx, fy) = field::field_coord_of(x, y);
+        let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+        self.fields.get(&tile_coord).map_or(0.0, |t| t.moisture_floor_local(lx, ly))
+    }
+
     pub(crate) fn set_fields_settled(&mut self, settled: bool) {
         self.fields_settled = settled;
     }

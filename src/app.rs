@@ -1847,11 +1847,24 @@ mod tests {
         let sand = id(&app, "sand");
         assert_eq!(app.selected_material(), sand, "test setup: the app is expected to start on sand");
 
-        // Terrain is *generated*, so the surface height is not something
-        // this test may assume -- an earlier version hardcoded the middle
-        // of the screen and broke the day worldgen became the default,
-        // which is the right kind of breakage but not what this test is
-        // about. Find a column with the headroom the room actually needs.
+        // On the `flat` preset, which is the structural test bed and exists
+        // precisely because a 160-tall room needs 200 rows of sky.
+        //
+        // This used to run on the default preset and passed on a margin of
+        // about five cells: only the very deepest columns of `rolling` had
+        // the headroom, and the day standing water landed it filled exactly
+        // those hollows and the test could not find a column at all. It was
+        // never really testing the default world -- it was testing whichever
+        // world happened to have one deep enough spot -- so pointing it at
+        // the preset built for the job is what it always meant.
+        app.worldgen_preset = "flat".to_string();
+        app.reset();
+
+        // The surface height is still not something this test may assume --
+        // an earlier version hardcoded the middle of the screen and broke the
+        // day worldgen became the default, which is the right kind of
+        // breakage but not what this test is about. Find a column with the
+        // headroom the room actually needs.
         let half = REFERENCE_ROOM_SPAN / 2;
         let need = REFERENCE_ROOM_HEIGHT + app.brush_radius;
         let ground_at = |app: &App, x: i32| (0..HEIGHT as i32).find(|&y| app.world.get(x, y).material != material::EMPTY);

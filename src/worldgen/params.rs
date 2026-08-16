@@ -152,7 +152,7 @@ impl Default for WorldgenParams {
             talus_max_height: 12.0,
             brow_chance: 0.8,
             table_damping: 0.35,
-            table_offset: 26.0,
+            table_offset: 12.0,
             capillary_fringe: 24.0,
             pond_min_depth: 2.0,
             pond_min_width: 4.0,

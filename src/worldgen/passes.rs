@@ -377,6 +377,180 @@ pub fn talus(ctx: &Ctx, world: &mut World) -> usize {
     n
 }
 
+/// Standing water in every hollow the table reaches.
+///
+/// The only pass so far that has to see the whole world, and it is worth
+/// being precise about why: whether water stands at a column depends on the
+/// height of the *lowest rim* enclosing it, which can be any distance away.
+/// That is the classic trapped-water scan, and it is exactly the reasoning
+/// the coarse `(x, z)` map exists to take over (design doc §5) — until then
+/// this pass is honest debt rather than a solved problem, which is what its
+/// `GLOBAL` margin records.
+///
+/// Water is *born at its own level*, full, and flat. That is not an
+/// optimisation, it is the whole difference between a world that opens
+/// settled and one the player watches slosh for a minute: a flat, full pool
+/// is already at equilibrium, so no levelling transfer fires and the chunks
+/// sleep on the first sweep.
+pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    let w = ctx.terrain.w as usize;
+    if w == 0 {
+        return n;
+    }
+    // Rim heights sweeping in from each edge. Remember y-down: a *smaller*
+    // y is a taller barrier, so the running extreme is a minimum.
+    let mut left_rim = vec![i32::MAX; w];
+    let mut right_rim = vec![i32::MAX; w];
+    let mut running = i32::MAX;
+    for (x, rim) in left_rim.iter_mut().enumerate() {
+        running = running.min(ctx.plans[x].surface_y);
+        *rim = running;
+    }
+    running = i32::MAX;
+    for x in (0..w).rev() {
+        running = running.min(ctx.plans[x].surface_y);
+        right_rim[x] = running;
+    }
+
+    // Plan first, write second: the minimum-size rule below has to be able to
+    // reject a pool *before* any of it exists, and a film deleted after the
+    // fact would leave the chunks it touched awake for nothing.
+    //
+    // **Basins are grouped by topography, not by where water ends up.** That
+    // distinction is the whole correctness of this pass and it cost a
+    // debugging session to find. Grouping contiguous *wet* columns splits a
+    // basin in two wherever a submerged ridge pokes up between two deeper
+    // parts: each half then gets its own level, and since a hollow's two
+    // halves generally have different water tables, the two levels differ —
+    // so the first sweep flowed one into the other and 686 cells of water
+    // redistributed themselves. On screen that is a world that opens by
+    // visibly draining its own lake.
+    //
+    // A column is in a basin when its spill level is genuinely below its
+    // ground, and a submerged ridge satisfies that too, so grouping this way
+    // keeps the whole hollow together.
+    let spill: Vec<i32> = (0..w).map(|x| left_rim[x].max(right_rim[x])).collect();
+
+    let min_depth = ctx.terrain.params.pond_min_depth.max(0.0) as i32;
+    let min_width = ctx.terrain.params.pond_min_width.max(0.0) as i32;
+    let mut level = vec![i32::MAX; w];
+    let mut x = 0usize;
+    while x < w {
+        if spill[x] >= ctx.plans[x].surface_y {
+            x += 1;
+            continue;
+        }
+        let start = x;
+        // One level for the whole basin. A free surface is level; a sloped
+        // one is a head difference, and head differences flow.
+        //
+        // The level is the lower in elevation — the larger y — of the two
+        // constraints: the most restrictive rim anywhere on the basin, and
+        // the highest the table reaches inside it. Groundwater fills a hollow
+        // to the top of its table and no further than the rim.
+        let mut rim = i32::MIN;
+        let mut table_top = i32::MAX;
+        while x < w && spill[x] < ctx.plans[x].surface_y {
+            rim = rim.max(spill[x]);
+            table_top = table_top.min(ctx.plans[x].table_y);
+            x += 1;
+        }
+        let pool = rim.max(table_top);
+
+        // Reject pools too small to read as water. A one-cell film renders as
+        // a black line rather than as a pool, because `render.rs` dims a
+        // liquid toward black by fill -- so the thin ones do not look like
+        // shallow water, they look like a bug.
+        let deepest = (start..x).map(|i| ctx.plans[i].surface_y - pool).max().unwrap_or(0);
+        let wet_columns = (start..x).filter(|&i| pool < ctx.plans[i].surface_y).count() as i32;
+        if wet_columns < min_width || deepest < min_depth {
+            continue;
+        }
+        for (i, slot) in level.iter_mut().enumerate().take(x).skip(start) {
+            if pool < ctx.plans[i].surface_y {
+                *slot = pool;
+            }
+        }
+    }
+
+    for (x, &pool) in level.iter().enumerate() {
+        if pool == i32::MAX {
+            continue;
+        }
+        let plan = ctx.plans[x];
+        for y in pool.max(0)..plan.surface_y {
+            if world.get(x as i32, y).material != material::EMPTY {
+                continue;
+            }
+            // `aux` is left alone deliberately: on a `Liquid` cell `aux == 0`
+            // means **full**, and writing a literal fill here would be the
+            // documented way to manufacture a full cell out of nothing. The
+            // shade is varied because uniform-shade water renders visibly
+            // flat under the per-cell grain mode.
+            world.set(x as i32, y, Cell::new(ctx.water, loose_shade(ctx, Purpose::Shade, x as i32, y)));
+            n += 1;
+        }
+    }
+    n
+}
+
+/// The saturated zone: a moisture floor under the water table, ramping up
+/// through the capillary fringe above it.
+///
+/// **No liquid cells are placed inside the ground, ever.** A cell holds one
+/// material and there is no porosity, so saturated rock is rock whose field
+/// says it is wet — which is also why the underground cannot "fill with
+/// water" however high the table is set. The fear that a water table floods
+/// the world is answered by this pass's existence: the aquifer is a number
+/// per field block, and the only liquid anywhere is standing in open hollows.
+pub fn moisture_init(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    let fringe = ctx.terrain.params.capillary_fringe.max(0.0);
+    // One write per field block rather than per cell: the field grid is
+    // 1/FIELD_SCALE resolution and writing every cell would do the same work
+    // sixty-four times.
+    let step = crate::sim::field::FIELD_SCALE;
+    let mut y = 0;
+    while y < ctx.terrain.h {
+        let mut x = 0;
+        while x < ctx.terrain.w {
+            let plan = ctx.plans[x as usize];
+            let floor = if y >= plan.table_y {
+                1.0
+            } else if fringe > 0.0 && (plan.table_y - y) as f32 <= fringe {
+                // Linear ramp up to saturation: the capillary fringe, where
+                // ground is damp above the table because water wicks up into
+                // it. This is the band roots should be able to find without
+                // growing into standing water and drowning.
+                let above = (plan.table_y - y) as f32;
+                0.15 + (1.0 - 0.15) * (1.0 - above / fringe)
+            } else if plan.table_y < ctx.terrain.h
+                && y >= plan.surface_y
+                && plan.soil_depth > 0
+                && y < plan.surface_y + plan.soil_depth
+            {
+                // Soil holds a little damp of its own, but only in a world
+                // that has groundwater to hold. Gated on the table being
+                // inside the world so that a preset which switches water off
+                // switches *all* of it off — `arid` reporting a few hundred
+                // damp cells would make the pivot lever a half-measure, and
+                // the whole point of that lever is that it is total.
+                0.15
+            } else {
+                0.0
+            };
+            if floor > 0.0 {
+                world.set_field_moisture_floor(x, y, floor);
+                n += 1;
+            }
+            x += step;
+        }
+        y += step;
+    }
+    n
+}
+
 /// Sand and gravel lenses sealed inside the rock.
 ///
 /// Loose material the player only finds by digging, and which behaves the

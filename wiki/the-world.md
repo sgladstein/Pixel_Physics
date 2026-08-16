@@ -69,6 +69,27 @@ see them from outside; you find them by digging, and they pour once opened.
 **Bedrock** lines the bottom of the world. It is the thing everything else is
 ultimately anchored to.
 
+## Water, and the water table
+
+Below a certain depth the ground is **saturated** — not full of water you can
+see, but damp: rock and soil are still rock and soil, and there is no cavity
+for water to sit in. What the water table changes is how *wet* the ground is,
+which is what roots and burrowing things read. It follows the shape of the
+land above it but far more gently: high under hills, low under valleys, and
+much flatter than either. Above it is a band of damp ground where water wicks
+upward, and above that the ground is dry.
+
+Where the land dips below that level, you get **standing water**: a pool in
+the hollow, filled to a level surface, already at rest when the world opens.
+Pools too shallow or too narrow to read as water are not generated at all.
+Because the saturated zone is a property of the ground rather than water
+sitting in it, a high water table makes the world *damp*, never flooded — you
+cannot drown the underground by raising it.
+
+How much water a world gets is a property of its preset. **Arid** has none at
+all: its table sits below the floor of the world, so there are no pools and no
+damp ground anywhere. **Wetland** is the other extreme.
+
 ## Worlds arrive settled
 
 A newly generated world is already at rest. Nothing slumps, avalanches or
@@ -91,6 +112,7 @@ scree only heaps where there is level ground beneath it to heap on.
 
 ## What is not here yet
 
-Rivers, lakes and springs, caves, and plant cover that arrives with the world
-rather than being planted by hand. Worlds are also currently a fixed size —
-one screen wide — rather than continuing as you travel.
+Rivers, springs, rain and evaporation — water currently sits where it was
+generated and does not cycle. Caves, and plant cover that arrives with the
+world rather than being planted by hand. Worlds are also currently a fixed
+size — one screen wide — rather than continuing as you travel.

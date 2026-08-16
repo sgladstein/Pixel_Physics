@@ -219,6 +219,25 @@ pub struct FieldTile {
     /// fresh every active frame, don't try to track it incrementally"
     /// approach `blocked` itself already uses.
     moisture_source: Box<[bool]>,
+    /// A lower bound on moisture that evaporation may not take a cell below.
+    ///
+    /// The saturated ground beneath the water table. Worldgen writes it once
+    /// (`worldgen::passes::moisture_init`) and it does not change again,
+    /// which makes it categorically different from every other array on this
+    /// tile: `blocked` and `moisture_source` are *recomputed from the CA
+    /// grid* every step, whereas this is **authored** and has no CA state to
+    /// be recomputed from. That is why `step` has to carry it forward
+    /// explicitly rather than getting it for free — see the copy in `step`.
+    ///
+    /// It exists because the aquifer cannot be liquid cells. A cell holds one
+    /// material and there is no porosity, so "saturated rock" is rock whose
+    /// *field* says it is wet; without a floor, evaporation would dry the
+    /// deep world out within a few hundred frames and the water table would
+    /// quietly cease to exist. Moisture above the floor still decays
+    /// normally, so surface humidity, puddles and rain all behave as before —
+    /// this is the hybrid persistence `Reports/worldgen-design.md` §8 asks
+    /// for, not a second moisture channel.
+    moisture_floor: Box<[f32]>,
 }
 
 impl FieldTile {
@@ -229,6 +248,7 @@ impl FieldTile {
             cells: vec![FieldCell::AMBIENT; FIELD_TILE_AREA].into_boxed_slice(),
             blocked: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
             moisture_source: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
+            moisture_floor: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
         }
     }
 
@@ -265,6 +285,26 @@ impl FieldTile {
     #[inline]
     fn set_moisture_source_local(&mut self, lx: i32, ly: i32, source: bool) {
         self.moisture_source[Self::local_index(lx, ly)] = source;
+    }
+
+    #[inline]
+    pub fn moisture_floor_local(&self, lx: i32, ly: i32) -> f32 {
+        self.moisture_floor[Self::local_index(lx, ly)]
+    }
+
+    #[inline]
+    pub(crate) fn set_moisture_floor_local(&mut self, lx: i32, ly: i32, floor: f32) {
+        self.moisture_floor[Self::local_index(lx, ly)] = floor.clamp(0.0, MAX_MOISTURE);
+    }
+
+    /// Carry the authored floor across into a freshly built tile.
+    ///
+    /// `step` rebuilds every tile from scratch each frame, which is right for
+    /// the two arrays derived from the CA grid and wrong for this one: it has
+    /// no source to be derived from, so without this the floor would survive
+    /// exactly one frame and the aquifer would evaporate.
+    fn inherit_moisture_floor(&mut self, previous: &FieldTile) {
+        self.moisture_floor.copy_from_slice(&previous.moisture_floor);
     }
 }
 
@@ -479,7 +519,14 @@ pub fn step(world: &mut World) {
     // `next` — no aliasing, because nothing is shared.
     let mut next: HashMap<ChunkCoord, FieldTile> = HashMap::with_capacity(coords.len());
     for &coord in &coords {
-        next.insert(coord, FieldTile::new());
+        let mut tile = FieldTile::new();
+        // The one array on a tile that is authored rather than derived, so
+        // the only one a fresh tile cannot reconstruct. See
+        // `FieldTile::moisture_floor`.
+        if let Some(previous) = world.fields_ref().get(&coord) {
+            tile.inherit_moisture_floor(previous);
+        }
+        next.insert(coord, tile);
     }
 
     rebuild_blocked(world, &coords, &mut next);
@@ -646,10 +693,23 @@ fn apply_moisture_sources(coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, 
         let tile = next.get_mut(&coord).expect("next was pre-populated with every coord in coords");
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
+                let floor = tile.moisture_floor_local(lx, ly);
                 if tile.is_moisture_source_local(lx, ly) {
                     let mut cell = tile.get_local(lx, ly);
                     cell.moisture = MAX_MOISTURE;
                     tile.set_local(lx, ly, cell);
+                } else if floor > 0.0 {
+                    // Ground below the water table. A floor, not a source:
+                    // moisture *above* it still diffuses and evaporates
+                    // normally, so rain and puddles behave exactly as before
+                    // and only the drying-out is bounded. Applied here rather
+                    // than inside the diffusion loop so it lands after
+                    // advection too — wind may not blow the aquifer away.
+                    let mut cell = tile.get_local(lx, ly);
+                    if cell.moisture < floor {
+                        cell.moisture = floor;
+                        tile.set_local(lx, ly, cell);
+                    }
                 }
             }
         }
