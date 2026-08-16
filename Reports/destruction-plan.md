@@ -360,6 +360,39 @@ already shipped that passed everything and were rejected on sight.
 
 ---
 
+## The open tension, stated precisely
+
+Playtesting resolved the routing defect and exposed a **calibration
+conflict that data alone cannot settle**, because one number is being
+asked to do two opposite jobs.
+
+- A player's span wants to be **strong**. A ~400-long table at ~20 thick
+  is a 20:1 stone lintel. Real stone does not do that, and this is a game
+  about building castles, so it should.
+- An undercut shelf wants to be **weak**, and it spalls *precisely
+  because the loosened rock has become foreground*. `DETACH_DEPTH` strips
+  attachment from the rows under a cut, and those rows failing is the
+  spall.
+
+Both are foreground stone, so `max_unsupported_span` moves them together.
+Measured: raising it 16 -> 40 while dropping `attached_span_bonus` 12 -> 2
+(which holds *terrain* capacity almost exactly constant, 1536 -> 1600) made
+built spans hold and stopped `scene=undercut` spalling entirely. Reverted.
+
+**The fix is to stop conflating "not part of the massif" with "damaged".**
+Rock the player stacked and rock that has just been cut loose are both
+`attached == false` and are not the same thing. A third state -- or a
+capacity penalty that decays with distance from the cut, rather than a
+binary flag -- would let built stone be generous while freshly-undercut
+rock stays fragile. That is a model change, not a constant, and it is the
+next real piece of work on this subsystem.
+
+Until then the honest position is that the shipped numbers favour
+destruction over building, which is the safer half to get wrong while the
+other half is being designed.
+
+---
+
 ## What we are explicitly not doing
 
 - **A real stiffness solver, at any point on the roadmap.** Category
