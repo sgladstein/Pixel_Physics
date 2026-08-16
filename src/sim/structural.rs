@@ -1455,34 +1455,42 @@ mod tests {
     }
 
     #[test]
-    fn brushed_stone_is_foreground_and_unattached_terrain_is_not() {
-        // The distinction the whole model now rests on, asserted directly
-        // rather than through its consequences: material the player places
-        // is foreground and has to earn its support, while terrain says of
-        // itself that it is backed by the mass behind the slice.
+    fn brushed_stone_is_laid_down_intact_and_attachment_is_a_bonus_not_immunity() {
+        // Was `brushed_stone_is_foreground_and_unattached_terrain_is_not`,
+        // which pinned the opposite claim. Restated rather than deleted,
+        // because the thing it was really guarding is still live and still
+        // the crux: **attachment must buy capacity, never immunity.**
         //
-        // This replaces `a_blob_of_brushed_stone_does_not_crumble_in_mid_air`,
-        // whose claim was reversed on purpose. That test pinned a mid-air
-        // blob hanging there forever, which was the *symptom* of inferring
-        // support from geometry -- the same rule that made every built
-        // structure indestructible, reported from play. A rock painted in
-        // open air with nothing under it should come down.
+        // What changed is only which material starts with it. Reported from
+        // play: "I don't want my constructions to just immediately fall
+        // down or to have to work at all to make sure they are structurally
+        // stable, but I do want it to break realistically." So undamaged
+        // material -- terrain and construction alike -- is held, and damage
+        // is what makes it answerable to physics.
+        //
+        // The failure this must keep catching is the one four earlier
+        // support models died of: if attachment were an *exemption* rather
+        // than a multiplier, one chip would level a castle, because a
+        // structure standing only by exemption has no answer the moment
+        // anything asks. See `Reports/building-rethink.md` §3a.
         let mut w = test_world();
         w.paint_capsule((32, 32), (32, 32), 6, material::STONE, 1.0);
-        assert!(!w.get(32, 32).attached(), "brushed stone must be foreground");
+        assert!(w.get(32, 32).attached(), "brushed stone should be laid down intact");
 
-        // Attachment buys *reach*, not immunity -- an attached cell that
-        // cannot find an anchor at all still fails, which is what lets an
-        // undercut shelf come down. Asserted as the span it gets rather than
-        // as anchoring, because anchoring is exactly what made shelves
-        // unfallable.
         let m = w.materials.get(material::STONE);
-        assert!(m.attached_span_bonus > 1, "stone should get a real bonus from being part of the massif");
-        let attached = Cell::new(material::STONE, 0).with_attached(true);
-        let loose = Cell::new(material::STONE, 0);
-        assert!(attached.attached() && !loose.attached(), "attachment must be carried on the cell, not inferred");
-    }
+        assert!(m.attached_span_bonus > 1, "intact rock should get a real bonus, or being undamaged buys nothing");
+        assert!(m.attached_span_bonus < u16::MAX, "the bonus must stay finite -- immunity is the failure mode, not the goal");
 
+        // And it is genuinely a multiplier: the same cell damaged carries
+        // strictly less, which is what makes a wound spread only as far as
+        // the damage actually reached.
+        let intact = crate::sim::load::capacity(&w, 32, 32);
+        let damaged = w.get(32, 32).with_attached(false);
+        w.set(32, 32, damaged);
+        let loosened = crate::sim::load::capacity(&w, 32, 32);
+        assert!(loosened < intact, "damage must cost real capacity, found {loosened} against {intact}");
+        assert!(loosened > 0, "damaged rock must still carry something, or a chip cascades through the whole structure");
+    }
     #[test]
     fn an_unsupported_foreground_blob_does_not_hang_in_mid_air() {
         // The reversal above, stated as behaviour. Known gap it does *not*

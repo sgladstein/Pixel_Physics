@@ -281,7 +281,6 @@ impl Handler {
                     self.app.explode(x, y);
                 }
             }
-            KeyCode::KeyB => self.app.toggle_build_background(),
             KeyCode::KeyC => {
                 if let Some((x, y)) = self.cursor {
                     self.app.strike(x, y);

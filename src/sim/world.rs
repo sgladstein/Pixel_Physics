@@ -274,11 +274,6 @@ impl FailureCounts {
     }
 }
 
-/// The four-neighbourhood, for the background brush's "must join the
-/// massif" test. Local rather than imported so `world` does not depend on
-/// `structural` for a constant.
-const NEIGHBOURS_4_PAINT: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
-
 impl World {
     pub fn new(bounds: Rect) -> Self {
         let mut world = Self {
@@ -1276,7 +1271,7 @@ impl World {
         material: MaterialId,
         density: f32,
     ) {
-        self.paint_capsule_as(a, b, radius, material, density, false)
+        self.paint_capsule_as(a, b, radius, material, density)
     }
 
     /// As `paint_capsule`, but places material as part of the **background
@@ -1299,7 +1294,6 @@ impl World {
         radius: i32,
         material: MaterialId,
         density: f32,
-        attached: bool,
     ) {
         let shades = self.materials.get(material).palette.len().max(1) as u32;
         let r = radius.max(0);
@@ -1361,12 +1355,37 @@ impl World {
                 // Cheap now that C1 exists: material keyed into terrain
                 // gets the bonus at its joint anyway, so the case this
                 // used to be needed for is already served.
-                let keyed_to_massif = attached
-                    && NEIGHBOURS_4_PAINT.iter().any(|&(dx, dy)| {
-                        let n = self.get(x + dx, y + dy);
-                        n.attached() || n.material == material::BEDROCK
-                    });
-                self.set(x, y, Cell::new(material, shade).with_attached(keyed_to_massif && material != material::EMPTY));
+                // **Everything placed is intact.**
+                //
+                // `Cell::attached` used to mean "part of the background
+                // massif", authorable only through a separate brush mode.
+                // It now means *undamaged*, which is what a construction is
+                // until something happens to it. Reported from play: "I
+                // don't want my constructions to just immediately fall down
+                // or to have to work at all to make sure they are
+                // structurally stable, but I do want it to break
+                // realistically."
+                //
+                // A **multiplier, never an exemption**, and that is the
+                // whole design (`Reports/building-rethink.md` §3a). Intact
+                // rock is still evaluated and can still fail; it carries
+                // `attached_span_bonus` while it does. Exempting it instead
+                // would make one chip level a castle -- a structure
+                // standing only by exemption has no answer the moment
+                // anything asks, so the cascade reaches everything. With a
+                // multiplier the ring behind a wound is judged against a
+                // real capacity, so a chunky wall holds and an
+                // over-reaching span does not, and a collapse stops where
+                // the structure is genuinely sound.
+                //
+                // Damage revokes it, and every destructive verb already
+                // does: `structural::detach_exposed_neighbours` for digging
+                // and blasts, `detach_around_crack` for every crack a blow
+                // scores, `rigid::strike` over its chip zone. That is why
+                // this is not the "everything the player builds is
+                // indestructible" failure that killed four earlier support
+                // models -- in each of those, nothing ever revoked it.
+                self.set(x, y, Cell::new(material, shade).with_attached(material != material::EMPTY));
                 // M17: either side of this write might be a `Solid`/`Plant`
                 // (architecture item 9) that just gained or lost a neighbour
                 // it was relying on -- placing new stone, or erasing existing

@@ -83,11 +83,6 @@ pub struct App {
     pinned: Option<(TunableGroup, String, String)>,
     /// `K` — whether the current A/B experiment is on. See `toggle_experiment`.
     pub experiment: bool,
-    /// `B` — whether the brush lays down *background* rock rather than
-    /// foreground. Off by default: what a player builds should have to hold
-    /// itself up. On, the brush authors terrain, which is braced by the mass
-    /// behind the slice and behaves like a cliff rather than a structure.
-    pub build_background: bool,
     /// Which gesture the mouse lays material with. `Z` cycles it.
     ///
     /// Reported from play: *"using a paint brush type tool to build is not
@@ -204,7 +199,6 @@ impl App {
             tunables_group: TunableGroup::Physics,
             pinned: None,
             experiment: false,
-            build_background: false,
             tool: Tool::Brush,
             drag_from: None,
             show_stress: false,
@@ -256,7 +250,7 @@ impl App {
                 let step = (self.brush_radius).max(1);
                 let mut y = y0;
                 loop {
-                    self.world.paint_capsule_as((x0, y), (x1, y), self.brush_radius, m, density, self.build_background);
+                    self.world.paint_capsule_as((x0, y), (x1, y), self.brush_radius, m, density);
                     if y >= y1 {
                         break;
                     }
@@ -264,7 +258,7 @@ impl App {
                 }
             }
             Tool::Line => {
-                self.world.paint_capsule_as(a, b, self.brush_radius, m, density, self.build_background);
+                self.world.paint_capsule_as(a, b, self.brush_radius, m, density);
             }
             Tool::Brush => {}
         }
@@ -287,15 +281,6 @@ impl App {
         self.toast = Some((text.into(), self.world.frame + TOAST_FRAMES));
     }
 
-    /// `B` — swap the brush between building structures and authoring
-    /// terrain. See `build_background`.
-    pub fn toggle_build_background(&mut self) {
-        self.build_background = !self.build_background;
-        // Names the mode being *entered* and what it means, not just the
-        // key that was pressed: "background" alone does not say that the
-        // difference is whether what you paint has to hold itself up.
-        self.show_toast(if self.build_background { "BRUSH: BACKGROUND — TERRAIN, BRACED" } else { "BRUSH: FOREGROUND — MUST HOLD ITSELF UP" });
-    }
 
     pub fn toggle_hover_inspector(&mut self) {
         self.show_hover_inspector = !self.show_hover_inspector;
@@ -1039,7 +1024,6 @@ impl App {
             "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
             "",
             "C STRIKE ROCK    F IGNITE    P BURST    X EXPLODE",
-            "B BRUSH LAYS BACKGROUND ROCK (TERRAIN) VS FOREGROUND",
             "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
             "",
             "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
@@ -1128,7 +1112,7 @@ impl App {
         let to = self.renderer.screen_to_world(to.0, to.1);
         let density = self.emission_density(m, erase);
         self.world
-            .paint_capsule_as(from, to, self.brush_radius, m, density, self.build_background);
+            .paint_capsule_as(from, to, self.brush_radius, m, density);
     }
 
     /// Force-ignite the brush area at a screen position. See
@@ -1491,12 +1475,16 @@ mod tests {
             app.world.get(ledge_probe.0, ledge_probe.1).attached(),
             "generated terrain must mark itself attached, or it is anchored only by never having been asked"
         );
-        // Freshly brushed material is foreground and must NOT inherit it,
-        // or everything the player builds becomes indestructible -- the
-        // exact failure two inferred-support models both had.
+        // Freshly brushed material is now laid down *intact* as well.
+        // Undamaged material is held, which is what a construction is until
+        // something happens to it (`Reports/building-rethink.md`). It is a
+        // capacity multiplier and not an exemption, so this is not the
+        // "everything the player builds is indestructible" failure two
+        // inferred-support models had: damage revokes it, and every
+        // destructive verb already does.
         let mut probe = App::new();
         probe.world.paint_capsule((40, 40), (40, 40), 3, stone, 1.0);
-        assert!(!probe.world.get(40, 40).attached(), "brushed stone must be foreground, not attached");
+        assert!(probe.world.get(40, 40).attached(), "brushed stone should be laid down intact");
 
         for _ in 0..400 {
             app.update();
@@ -1517,63 +1505,6 @@ mod tests {
         let debris = app.world.materials.get(stone).breaks_into.expect("stone must define a breaks_into");
         let crumbled = (0..WIDTH as i32).any(|x| (0..h).any(|y| app.world.get(x, y).material == debris));
         assert!(!crumbled, "some terrain broke free despite nothing disturbing it");
-    }
-
-    #[test]
-    fn the_background_brush_authors_terrain_and_the_default_brush_does_not() {
-        // The distinction the whole support model rests on, exposed as a
-        // tool. Default off, because material a player stacks should have to
-        // hold itself up -- but a hand-authored cave wall is terrain and has
-        // to be able to say so, or every built cavern behaves like a
-        // free-standing structure.
-        let mut app = App::new();
-        let stone = id(&app, "stone");
-        // `select_material` is 1-based (it is driven by the number keys).
-        app.select_material(app.paintable.iter().position(|&m| m == stone).unwrap() + 1);
-
-        // Sampled over the brush rather than at its exact centre: painting
-        // rolls a per-cell density, so no single cell is guaranteed.
-        let painted = |app: &App, sx: i32, sy: i32| -> Vec<bool> {
-            let (wx, wy) = app.renderer.screen_to_world(sx, sy);
-            (-6..=6)
-                .flat_map(|dy| (-6..=6).map(move |dx| (dx, dy)))
-                .filter(|&(dx, dy)| app.world.get(wx + dx, wy + dy).material == stone)
-                .map(|(dx, dy)| app.world.get(wx + dx, wy + dy).attached())
-                .collect()
-        };
-
-        assert!(!app.build_background, "the brush should lay foreground by default");
-        app.paint(60, 60, false);
-        let foreground = painted(&app, 60, 60);
-        assert!(!foreground.is_empty(), "test setup: the brush painted no stone at all");
-        assert!(foreground.iter().all(|a| !a), "the default brush must not author background");
-
-        app.toggle_build_background();
-        assert!(app.build_background);
-
-        // Background rock has to *join* background rock. Painted in open
-        // air, with nothing of the massif to key into, it lands as ordinary
-        // foreground -- because `attached` means "backed by mass the slice
-        // cannot show", and a floating island of it is a claim the model
-        // cannot check and every way to be ruined by: it would carry stone's
-        // twelvefold capacity bonus while hanging in mid-air.
-        app.paint(160, 60, false);
-        let midair = painted(&app, 160, 60);
-        assert!(!midair.is_empty(), "test setup: the background brush painted no stone at all");
-        assert!(midair.iter().all(|a| !a), "background painted in open air must fall back to foreground");
-
-        // Against the terrain floor it does what it is for: extends the
-        // massif. Painted low enough that the brush overlaps the floor
-        // `build_terrain` lays along the bottom of the world.
-        let (fx, fy) = (300, HEIGHT as i32 - 12);
-        app.world.paint_capsule_as((fx, fy), (fx, fy), 5, stone, 1.0, true);
-        let joined = (-5..=5)
-            .flat_map(|dy| (-5..=5).map(move |dx| (dx, dy)))
-            .filter(|&(dx, dy)| app.world.get(fx + dx, fy + dy).material == stone)
-            .map(|(dx, dy)| app.world.get(fx + dx, fy + dy).attached())
-            .collect::<Vec<_>>();
-        assert!(!joined.is_empty(), "test setup: nothing was painted against the floor");
-        assert!(joined.iter().any(|a| *a), "background painted against terrain should extend the massif");
     }
 
     #[test]
@@ -1663,38 +1594,6 @@ mod tests {
             assert!(filled((wx0 + wx1) / 2, cy), "gap in the rectangle at y={cy} -- the row sweep does not overlap");
         }
         assert!(app.drag_from.is_none(), "the gesture should be finished after release");
-    }
-
-    #[test]
-    fn toggling_the_background_brush_says_which_mode_it_is_now_in() {
-        // Reported from play: `B` changes what the brush authors and
-        // nothing on the world says so, so the mode had to be inferred
-        // from whether what you painted then fell down. Asserts the
-        // *transient* specifically -- that it names the new mode, and that
-        // it stops being drawn on its own rather than sitting there
-        // forever.
-        let mut app = App::new();
-        assert!(app.active_toast().is_none(), "nothing should be announced before anything is toggled");
-
-        app.toggle_build_background();
-        let entering = app.active_toast().expect("toggling the brush mode should announce it").to_string();
-        assert!(entering.contains("BACKGROUND"), "the toast should name the mode being entered, found {entering:?}");
-
-        app.toggle_build_background();
-        let leaving = app.active_toast().expect("toggling back should announce that too").to_string();
-        assert!(leaving.contains("FOREGROUND"), "toggling back should name foreground, found {leaving:?}");
-
-        // Expiry is measured in simulation frames, so run past it. Fewer
-        // than `TOAST_FRAMES` first, to check it is still up -- otherwise
-        // this would pass just as happily against a toast that never drew.
-        for _ in 0..(TOAST_FRAMES / 2) {
-            app.update();
-        }
-        assert!(app.active_toast().is_some(), "the toast expired well before TOAST_FRAMES");
-        for _ in 0..TOAST_FRAMES {
-            app.update();
-        }
-        assert!(app.active_toast().is_none(), "the toast never expired");
     }
 
     #[test]
