@@ -647,9 +647,12 @@ within one worker's own sweep still see that worker's own earlier writes,
 the same way a direct `World::set` always has — before it could be trusted,
 and it does not visibly announce itself as missing; it would have shipped
 as a subtle, load-bearing gap. What's in `parallel.rs` instead needs **no
-`unsafe` anywhere** (`grep -rn unsafe src/` returns nothing but the doc
-comments describing why there's none), at the cost of one extra serial
-merge step per pass.
+`unsafe` anywhere** in the simulation, at the cost of one extra serial merge
+step per pass. (This section used to claim `grep -rn unsafe src/` returned
+nothing but doc comments — stale: `main.rs` has since gained test-only
+`unsafe { std::env::set_var }` blocks, which Rust 2024 makes unsafe and
+`ENV_LOCK` serializes. Nothing in the sweep, the rules, or any simulation
+path uses `unsafe`.)
 
 **The proof, worked out by hand and then checked exhaustively by a test.**
 Movement only ever moves a cell by `MAX_REACH` (32, exactly half of
@@ -1338,8 +1341,12 @@ reachability computed forward instead of read from the cached distance,
 and are deliberately not attempted.
 
 **Still not built, in pipeline order:** Douglas-Peucker simplification,
-`earcutr` triangulation, a `rapier2d` collider, and rotation. Bodies
-translate but do not tumble. No new dependency (`rapier2d`, `earcutr`,
+`earcutr` triangulation, a `rapier2d` collider, and *continuous* rotation.
+Bodies translate and tumble in **quarter turns** — deliberately right-angle
+only, since a cell grid cannot hold a slab at 37° without the resampling
+leaks the re-rasterization pitfall below describes, while a 90° transform is
+exact and can never gain or lose a cell (`rigid::ChunkBody::spin`'s own doc).
+No new dependency (`rapier2d`, `earcutr`,
 `glam`) has been added to `Cargo.toml`, deliberately: what a falling chunk
 needs is gravity, a grid fit test and a settle rule, not a constraint
 solver, and everything except the integration step is shared with a rapier
@@ -1466,17 +1473,16 @@ headroom left to spend carelessly.
 
 So a completely full screen of moving material, with something actively
 disturbing the field at the same time, is close to budget with little headroom
-serial and comfortable parallel. **Correction to a claim this section used to
-make**: "a quiet field costs almost nothing since nothing in it is changing"
-is not true of the current implementation and should not have been stated as
-fact — `field::step` runs all five whole-world passes every frame
-unconditionally, with no check for whether anything in a given tile actually
-changed (`pixel-physics-issues.md` issue #4, not yet fixed). A quiet field
-today costs the *same* as a busy one; the sentence above described intended
-future behaviour, not present behaviour. Multithreading is the intended
-answer for the saturated case, and this is the measurement that says when it
-stops being optional. Run the example while nothing else is compiling —
-concurrent cargo processes skew the figure badly.
+serial and comfortable parallel. An earlier "correction" paragraph here said a
+quiet field costs the same as a busy one because `field::step` ran all five
+whole-world passes unconditionally (issue #4, then unfixed) — that correction
+itself went stale when field sleeping landed, and stood in this file for some
+time alongside the Issue #4 entry above describing the fix. The current truth
+is the one that entry measures: a converged, quiet field skips its whole solve
+(~0.0001–0.01 ms against ~2–4 ms while propagating). Multithreading remains
+the intended answer for the saturated case, and this is the measurement that
+says when it stops being optional. Run the example while nothing else is
+compiling — concurrent cargo processes skew the figure badly.
 
 ## Status
 

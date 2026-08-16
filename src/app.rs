@@ -52,6 +52,13 @@ pub struct App {
     /// Feedback from the last material/species reload — the only place a
     /// typo in a `.ron` file shows up.
     pub message: Option<String>,
+    /// Files under `assets/` that differ from the committed tree, or `None`
+    /// where git cannot answer (not installed, not a repository). Shown in
+    /// the title bar so a value saved through the tunables panel cannot sit
+    /// invisibly uncommitted across sessions — refreshed only on the events
+    /// that can change it (startup, a tunables save, a reload), never per
+    /// frame.
+    pub assets_dirty: Option<usize>,
     /// `I` — material/temperature/field readout for whatever's under the
     /// cursor. Off by default (§9 of `PLAN.md`'s UI-improvement pass).
     pub show_hover_inspector: bool,
@@ -163,6 +170,25 @@ fn reload_assets(world: &mut World) -> Option<String> {
     }
 }
 
+/// How many files under `assets/` differ from the committed tree, per
+/// `git status --porcelain`, or `None` when git cannot answer (not
+/// installed, not a repository, subprocess failure — all silently fine,
+/// this is an affordance, not a dependency).
+///
+/// Exists because the tunables panel saves straight back into the `.ron`
+/// files — right for iteration, and it quietly accumulates unrecorded
+/// balance changes: a `smoke_fraction` saved mid-playtest sat invisible in
+/// the working tree for a whole session before a review caught it, having
+/// silently removed SMOKE's only producer. One subprocess per call, so
+/// callers refresh it on the events that can change it, never per frame.
+fn dirty_asset_count() -> Option<usize> {
+    let out = std::process::Command::new("git").args(["status", "--porcelain", "--", "assets"]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).lines().filter(|l| !l.trim().is_empty()).count())
+}
+
 impl App {
     pub fn new() -> Self {
         let mut world = World::new(Rect::new(0, 0, WIDTH as i32 - 1, HEIGHT as i32 - 1));
@@ -199,6 +225,7 @@ impl App {
             paused: false,
             step_once: false,
             message,
+            assets_dirty: dirty_asset_count(),
             show_hover_inspector: false,
             show_palette: false,
             show_help: false,
@@ -497,6 +524,7 @@ impl App {
                 Ok(()) => format!("saved {}", explosion::Tuning::ASSET_PATH),
                 Err(e) => format!("{}: {e}", explosion::Tuning::ASSET_PATH),
             });
+            self.assets_dirty = dirty_asset_count();
             return;
         }
         let path = tunables::material_file_path(material::ASSET_DIR, &t.category);
@@ -511,6 +539,7 @@ impl App {
             Ok(()) => format!("saved {}.{} = {}", t.category, t.name, t.value),
             Err(e) => format!("{}: {e}", path.display()),
         });
+        self.assets_dirty = dirty_asset_count();
     }
 
     pub fn update(&mut self) {
@@ -1073,6 +1102,9 @@ impl App {
     /// start behaving differently.
     pub fn reload_materials(&mut self) {
         self.message = reload_assets(&mut self.world).map(|s| format!("reloaded {s}"));
+        // The watcher lands here on any external edit to the asset files,
+        // so the marker tracks hand-edits as well as panel saves.
+        self.assets_dirty = dirty_asset_count();
         // A new material file adds an id, so the picker has to be rebuilt.
         let current = self.selected_material();
         self.paintable = self.world.materials.paintable();
@@ -1257,7 +1289,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1270,6 +1302,12 @@ impl App {
                 String::new()
             } else {
                 format!(" — grain {}", self.renderer.grain.label())
+            },
+            // Uncommitted asset edits, so a value saved mid-playtest is a
+            // glance rather than an audit. Silent when git can't answer.
+            match self.assets_dirty {
+                Some(n) if n > 0 => format!(" — ASSETS EDITED ({n})"),
+                _ => String::new(),
             },
             match &self.message {
                 Some(m) => format!(" — {m}"),
@@ -1401,6 +1439,21 @@ mod tests {
         let before = app.selected_material();
         app.reload_materials();
         assert_eq!(app.selected_material(), before);
+    }
+
+    #[test]
+    fn the_status_line_shows_uncommitted_asset_edits_and_stays_quiet_otherwise() {
+        // The field is set directly rather than through `dirty_asset_count`
+        // — what the working tree actually contains while the suite runs is
+        // not this test's to assert. What is: a real count reaches the eye,
+        // and both "clean" and "git couldn't answer" stay silent.
+        let mut app = App::new();
+        app.assets_dirty = Some(2);
+        assert!(app.status(60.0).contains("ASSETS EDITED (2)"), "a dirty asset count must be visible in the title");
+        app.assets_dirty = Some(0);
+        assert!(!app.status(60.0).contains("ASSETS EDITED"), "a clean tree must not add noise to the title");
+        app.assets_dirty = None;
+        assert!(!app.status(60.0).contains("ASSETS EDITED"), "git being unavailable is silence, not a warning");
     }
 
     #[test]
