@@ -168,7 +168,44 @@
                 // them -- girth per unit foliage (stocky vs slender, until
                 // now identical on every tree) and phototropic gain
                 // (straight vs wandering).
-                genotype_variance: (0.6, 0.0, 0.4, 0.18, 0.4, 0.5),
+                // Widths from two 1,024-genome studies. Quintile spread in
+                // tree size, low draw -> high draw:
+                //   plast    2459 ->  634   3.9x, the strongest trait
+                //   branch    808 -> 2018   2.5x
+                //   turgor   1477 -> 1176   1.3x on size, r = -0.74 height
+                //   pipe     1537 -> 1247   weak, but stem 16.1 -> 12.7,
+                //                           correctly signed -- so widened
+                //   light    1386 1463 1369 1272 1394   DEAD at +/-50%
+                //   upward   1310 1460 1396 1388 1457   DEAD at +/-40%
+                //
+                // Both dead traits are held at 0.0 rather than removed:
+                // salts are positional and renumbering one rewrites every
+                // genome ever measured.
+                //
+                // **Phototropism being inert is a finding, not a tuning
+                // miss.** Since `field.rs` became a per-column sky cast the
+                // light field is very nearly uniform above the canopy, so a
+                // phototropic gradient has almost nothing to grab and
+                // light_weight steers by noise. Worth fixing at the field,
+                // not by widening this.
+                //
+                // branch is a genuine trade and 0.5 is the middle of it,
+                // measured at both ends. At 0.6 the stand establishes well
+                // and individuals drawing 1.6x fork near the ground, losing
+                // the bole-then-crown silhouette. At 0.35 the survivors look
+                // the best this branch has produced -- clean bole, rounded
+                // crown -- and six of eight failed to establish at all,
+                // against 35% failure stand-wide at 0.6.
+                //
+                // **The cause is worth writing down: a seedling branches to
+                // build leaf area.** Branching is how a small plant gets
+                // more shoots, more shoots is more foliage, and foliage is
+                // the whole income -- so narrowing the trait removes exactly
+                // the individuals that could establish. The real fix is not
+                // a width: branch_chance should be high while juvenile and
+                // low once established, which ByOrder cannot express,
+                // because order is position in the plant and not age.
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0),
                 turgor_source: 1.0,
                 turgor_yield: 0.1,
                 turgor_per_cell: 0.0075,
