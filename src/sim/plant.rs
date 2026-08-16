@@ -1441,6 +1441,8 @@ pub fn step_organisms(world: &mut World) {
         // tick's distribution.
         organism::transport(world, organism_id);
         allocate_to_frontier(world, organism_id);
+        // Before both of the passes that read it.
+        accumulate_support(world, organism_id);
         // Before upkeep, so a bud that flushes this tick is already a
         // `GrowingTip` when `thicken` runs and can be counted as frontier
         // rather than thickened over on the same tick it woke up.
@@ -1544,6 +1546,86 @@ const LEAF_INCOME_PER_TICK: f32 = 0.05;
 /// One per tick on top of that is a *rate* limit, not the bound — it keeps
 /// a plant that has just been shaded from re-flushing its whole bud bank in
 /// a single tick, and it keeps this function's cost at one pass.
+/// Accumulate, basipetally, how much foliage each cell supports — the
+/// **basipetal pass** of `Reports/tree-architecture-implementation-plan.md`
+/// Phase 3, and Palubicki's `Q`.
+///
+/// One breadth-first walk rooted at the plant's below-ground tissue gives a
+/// parent ordering; running that order in reverse sums each cell's own
+/// intercepted light plus every child's total into its parent. Two linear
+/// passes over a vector the organism already materialises each tick.
+///
+/// **Eight-neighbour, because `Grow` writes at eight.** A four-neighbour
+/// walk sees a diagonally-grown shoot as a disconnected fragment, which is
+/// a mistake this repo has already made once and recorded in `CLAUDE.md`.
+///
+/// A 2D thickened trunk is a *blob* of cells rather than a tree graph, so
+/// the walk yields a spanning tree rather than the true topology; the
+/// row-major sort makes which spanning tree deterministic, which is all
+/// that is required.
+fn accumulate_support(world: &mut World, organism_id: u16) {
+    let Some(state) = world.organism(organism_id) else { return };
+    let Some(collar) = state.collar_y else { return };
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+
+    // Roots first: everything at or below the collar is the anchor, so the
+    // accumulation flows toward the ground the way sap pressure does.
+    let mut order: Vec<usize> = Vec::with_capacity(cells.len());
+    let mut parent: Vec<Option<usize>> = vec![None; cells.len()];
+    let mut seen = vec![false; cells.len()];
+    let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+    for (i, &(_, y)) in cells.iter().enumerate() {
+        if y >= collar {
+            seen[i] = true;
+            queue.push_back(i);
+        }
+    }
+    while let Some(i) = queue.pop_front() {
+        order.push(i);
+        let (x, y) = cells[i];
+        for (dx, dy) in NEIGHBOURS_8 {
+            let Some(&j) = index.get(&(x + dx, y + dy)) else { continue };
+            if seen[j] {
+                continue;
+            }
+            seen[j] = true;
+            parent[j] = Some(i);
+            queue.push_back(j);
+        }
+    }
+
+    // Each cell's own contribution, then the reverse sweep. A leaf is worth
+    // what it actually earns -- `ambient_light_above`, the same quantity
+    // `allocate_to_frontier` divides -- rather than 1, so a leaf buried in
+    // canopy thickens nothing. Counting leaves equally is what made income
+    // grow with mass and fused the stand into a slab.
+    let mut q: Vec<f32> = cells
+        .iter()
+        .map(|&(x, y)| {
+            let c = world.get(x, y);
+            if c.organism_id() == organism_id && organism::cell_type(c.aux()) == Some(CellType::Leaf) {
+                ambient_light_above(world, x, y)
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    for &i in order.iter().rev() {
+        if let Some(p) = parent[i] {
+            q[p] += q[i];
+        }
+    }
+    for (i, &(x, y)) in cells.iter().enumerate() {
+        if let Some(slot) = world.organism_cell_mut(x, y) {
+            // Max-accumulate: the high-water mark never falls. See
+            // `OrganismCell::q_peak`.
+            slot.q_peak = slot.q_peak.max(q[i]);
+        }
+    }
+}
+
 fn break_buds(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
     let species_id = state.species;
@@ -1881,8 +1963,13 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     transpire(world, cx, cy, rate);
                 }
                 Behavior::SecondaryThicken { pipe_ratio } => {
-                    let carried = leaves_above.get(&cy).copied().unwrap_or(0);
-                    thicken(world, cx, cy, organism_id, pipe_ratio * genotype(organism_id, 5, pipe_variance), carried as usize, bud_survival, &mut rng);
+                    // **The support this cell actually carries**, from the
+                    // basipetal pass, replacing "leaves in the rows above
+                    // me". The row scan was a geometric filter standing in
+                    // for a topological one: a limb on the far side of the
+                    // plant counted toward a stem it does not supply.
+                    let carried = world.organism_cell(cx, cy).map_or(0.0, |c| c.q_peak);
+                    thicken(world, cx, cy, organism_id, pipe_ratio * genotype(organism_id, 5, pipe_variance), carried, bud_survival, &mut rng);
                 }
                 // Frontier behaviours never run here -- a mature cell has
                 // no growth to do, and `Germinate` belongs to a `Seed`.
@@ -2107,7 +2194,7 @@ fn stem_run(world: &World, x: i32, y: i32, organism_id: u16) -> usize {
 const MAX_STEM_RUN: i32 = 32;
 
 #[allow(clippy::too_many_arguments)]
-fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, leaf_count: usize, bud_survival: f32, rng: &mut Rng) {
+fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, leaf_count: f32, bud_survival: f32, rng: &mut Rng) {
     let axis = cross_section_axis(world, x, y);
     // **Cheapest possible rejection first.** The flood fill below is
     // O(organism size), and it ran for *every* `MatureBody` cell every tick
@@ -2179,7 +2266,7 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     // here looks like runaway thickening, and the guard below is aimed at
     // exactly that.
     let stem_width = stem_run(world, x, y, organism_id);
-    if (leaf_count as f32 / stem_width as f32) <= pipe_ratio {
+    if (leaf_count / stem_width as f32) <= pipe_ratio {
         return;
     }
     // Which side to try first is a coin flip, not always left.
@@ -3481,7 +3568,7 @@ mod tests {
         let mut rng = rng::stream(organism_id as u64, 54, 50, 0);
 
         // 30 leaves above, against `tree.ron`'s own pipe_ratio of 10.
-        thicken(&mut w, 54, 50, organism_id, 10.0, 30, 1.0, &mut rng);
+        thicken(&mut w, 54, 50, organism_id, 10.0, 30.0, 1.0, &mut rng);
 
         assert_eq!(
             w.get(55, 50).organism_id(),
@@ -3491,7 +3578,7 @@ mod tests {
 
         // ...and it still widens when it genuinely is too thin for its load.
         let mut rng = rng::stream(organism_id as u64, 54, 50, 1);
-        thicken(&mut w, 54, 50, organism_id, 10.0, 300, 1.0, &mut rng);
+        thicken(&mut w, 54, 50, organism_id, 10.0, 300.0, 1.0, &mut rng);
         assert_ne!(w.get(55, 50).organism_id(), 0, "300 leaves on a five-wide trunk is under-built and should still thicken");
     }
 
@@ -3528,7 +3615,7 @@ mod tests {
         }
 
         let mut rng = rng::stream(organism_id as u64, 22, 50, 0);
-        thicken(&mut w, 22, 50, organism_id, 10.0, 40, 1.0, &mut rng);
+        thicken(&mut w, 22, 50, organism_id, 10.0, 40.0, 1.0, &mut rng);
 
         assert_ne!(
             w.get(23, 50).organism_id(),
@@ -3562,7 +3649,7 @@ mod tests {
         // Called on the trunk's *outer* cell -- the middle of a solid run
         // has no free side, so `can_widen` rejects it before the gate.
         let mut rng = rng::stream(organism_id as u64, 20, 50, 0);
-        thicken(&mut w, 20, 50, organism_id, 10.0, 40, 1.0, &mut rng);
+        thicken(&mut w, 20, 50, organism_id, 10.0, 40.0, 1.0, &mut rng);
 
         assert_ne!(
             w.get(19, 50).organism_id(),

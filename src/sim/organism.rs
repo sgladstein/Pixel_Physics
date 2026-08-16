@@ -910,6 +910,27 @@ pub struct OrganismCell {
     /// today, but the rule "the next per-cell scalar goes in the sidecar"
     /// is worth more than the two bytes.
     pub order: u8,
+    /// **The support this cell carries, as a monotone high-water mark** —
+    /// the intercepted light of every leaf above it in the plant's own
+    /// topology, accumulated basipetally, and never allowed to fall.
+    ///
+    /// Two things needed this and neither could be had from the row scan it
+    /// replaces. `plant::thicken`'s pipe-model gate used "leaves in rows
+    /// above me", which is a *geometric* filter: a limb on one side of the
+    /// plant counted toward a stem on the other side that does not supply
+    /// it, and a leaf below a cell it feeds counted for nothing. Support is
+    /// a property of the vascular graph, not of the y coordinate.
+    ///
+    /// **Monotone on purpose**, and Palubicki is explicit about why:
+    /// *"branch width is not decreased when leaves and branches are shed…
+    /// the model requires a memory of past leaves and branches."* A trunk
+    /// does not get thinner in autumn. The memory is also what
+    /// distinguishes a plant that has *lost* foliage from one that never
+    /// had any — the two are identical in every instantaneous signal, and
+    /// telling them apart is the prerequisite for a damaged plant
+    /// mobilising reserves instead of quietly giving up (see
+    /// `plant::break_buds`).
+    pub q_peak: f32,
 }
 
 impl Default for OrganismCell {
@@ -922,7 +943,7 @@ impl Default for OrganismCell {
     /// therefore perfectly isotropic and differentiates only from flux it
     /// actually carried.
     fn default() -> Self {
-        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4], order: 0 }
+        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4], order: 0, q_peak: 0.0 }
     }
 }
 

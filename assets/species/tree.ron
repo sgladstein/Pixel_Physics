@@ -272,7 +272,7 @@
             // pipe model exists for: trunks look thin because the crown is
             // sparse, and they will thicken on their own when it fills.
             // Do not chase trunk width by lowering this.
-            SecondaryThicken(pipe_ratio: 45.0),
+            SecondaryThicken(pipe_ratio: 22.0),
             StructuralAnchor,
             // Mature root tissue transpires. Harmless on canopy MatureBody
             // cells, which never have a soil neighbour to draw from -- see
@@ -299,7 +299,7 @@
                 thickening_survival: 0.2,
             ),
             StructuralAnchor,
-            SecondaryThicken(pipe_ratio: 45.0),
+            SecondaryThicken(pipe_ratio: 22.0),
         ]),
         (Leaf, [
             Photosynthesize(rate: 0.35),
