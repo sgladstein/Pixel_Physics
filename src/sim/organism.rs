@@ -262,6 +262,33 @@ pub enum Behavior {
         /// non-programmer would plausibly tune it, and it is one of the
         /// clearest silhouette levers a species file has.
         plastochron: ByOrder<u8>,
+        /// **Genotype jitter** — the fraction by which this species' own
+        /// numbers vary from one individual to the next. `0.15` means every
+        /// organism draws its parameters somewhere in ±15% of the values
+        /// written here.
+        ///
+        /// **Every plant in a stand running identical constants is the
+        /// L-system symmetry failure, and this branch has watched it arrive
+        /// three times through three different doors.** Each global bound
+        /// became a visible artifact the moment growth reached it: the
+        /// world ceiling, then the turgor ceiling, then a canopy slab lying
+        /// along exactly one row. A stand of eight trees measuring 127, 128,
+        /// 128, 129, 129, 130, 130, 131 rows tall is not eight trees; it is
+        /// one tree drawn eight times, and it reads that way instantly.
+        ///
+        /// Drawn from the organism id, so it is free: no storage, no
+        /// inheritance, deterministic per individual, and stable for that
+        /// individual's whole life. Each parameter gets its own draw
+        /// (`plant::genotype`'s salt), because an individual that is
+        /// simultaneously *more* branchy, *more* upright and *taller* is
+        /// just the average tree scaled up — variation has to be
+        /// independent per trait to read as variety rather than as size.
+        ///
+        /// `0.0` disables it, and that is a real value: moss has no use
+        /// for individuality, and a test that wants a reproducible single
+        /// tree wants the written numbers and not a draw around them.
+        #[serde(default)]
+        genotype_variance: f32,
         /// Mechanical resistance, in MPa, this cell type can force its way
         /// through — a `RootTip` converts a `Powder` neighbour whose
         /// `Material::penetration_resistance` is *below* this into root

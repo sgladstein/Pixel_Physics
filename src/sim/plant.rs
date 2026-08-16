@@ -305,6 +305,22 @@ fn write_carbon(world: &mut World, x: i32, y: i32, carbon: f32) {
 /// cell — `set` registers the `OrganismCell` this writes into, so calling
 /// it first is a silent no-op that would leave every cell at order 0, which
 /// looks exactly like "the species file has no tiers".
+/// One individual's multiplier on one species parameter — the genotype
+/// jitter described on `organism::Behavior::Grow::genotype_variance`.
+///
+/// Uniform in `1 ± variance`, drawn from the organism id and a per-trait
+/// `salt` so traits vary independently. Stateless on purpose: an organism's
+/// genotype is a pure function of its id, so it needs no storage, survives
+/// every cell of the plant being replaced, and cannot drift.
+fn genotype(organism_id: u16, salt: u64, variance: f32) -> f32 {
+    if variance <= 0.0 {
+        return 1.0;
+    }
+    let mut rng = rng::stream(organism_id as u64, salt, 0, 0);
+    let unit = rng.below(10_000) as f32 / 10_000.0 * 2.0 - 1.0;
+    (1.0 + unit * variance).max(0.0)
+}
+
 fn write_order(world: &mut World, x: i32, y: i32, order: u8) {
     if let Some(slot) = world.organism_cell_mut(x, y) {
         slot.order = order;
@@ -714,15 +730,27 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 turgor_source,
                 turgor_yield,
                 turgor_per_cell,
+                genotype_variance,
             } => {
                 // Per-order parameters resolved once, against *this cell's*
                 // own order. A tip reads only its own tier -- no traversal,
                 // no whole-plant query -- which is what keeps architecture
                 // local; see `organism::ByOrder`.
-                let branch_chance = branch_chance.at(order);
+                // Per-order first, then this individual's own genotype on
+                // top. The salts are arbitrary but must stay distinct and
+                // stable -- two traits sharing a salt move together, which
+                // is the "one tree scaled up" failure `genotype_variance`
+                // exists to avoid.
+                let branch_chance = branch_chance.at(order) * genotype(organism_id, 1, genotype_variance);
                 let light_weight = light_weight.at(order);
-                let upward_weight = upward_weight.at(order);
-                let plastochron_interval = plastochron_interval.at(order);
+                let upward_weight = upward_weight.at(order) * genotype(organism_id, 2, genotype_variance);
+                let plastochron_interval =
+                    ((plastochron_interval.at(order) as f32 * genotype(organism_id, 3, genotype_variance)).round() as u8).max(u8::from(plastochron_interval.at(order) > 0));
+                // **Height is the trait the clone look shows up in first**,
+                // because the turgor bound is geometric and every tree
+                // reaches it exactly. Jittering the per-cell cost spreads
+                // the derived ceiling instead of the outcome.
+                let turgor_per_cell = turgor_per_cell * genotype(organism_id, 4, genotype_variance);
                 // **These three gates deliberately do *not* set
                 // `found_candidate`, and that is what makes growth
                 // terminate.** The staleness counter is how "temporarily
@@ -1504,7 +1532,20 @@ fn break_buds(world: &mut World, organism_id: u16) {
             // Shoot tips only. A root tip is frontier too, but it is fed by
             // a different economy and does not compete for light.
             Some(CellType::GrowingTip) => tips += 1,
-            Some(CellType::DormantBud) => buds.push((x, y, ambient_light_above(world, x, y))),
+            // **Light discounted by how crowded the bud already is.**
+            // Brightest-wins alone builds a flat cap: the brightest bud is
+            // always the one on top of whatever the plant has already
+            // built, so every flush lands on the same row and the crown
+            // spreads sideways into a plate at exactly the turgor bound.
+            // Dividing by local foliage moves the choice to buds with room
+            // -- a dim bud on a bare stretch of stem beats a bright one
+            // buried in canopy -- which is the same far-red reading
+            // `candidate_crowding` uses, applied to *where to start* a
+            // shoot rather than to where to extend one.
+            Some(CellType::DormantBud) => {
+                let light = ambient_light_above(world, x, y);
+                buds.push((x, y, light / (1.0 + candidate_crowding(world, x, y))));
+            }
             _ => {}
         }
         let held = world.carbon_at(x, y);
@@ -1528,9 +1569,10 @@ fn break_buds(world: &mut World, organism_id: u16) {
         return;
     }
 
-    // The brightest bud, not the highest or the newest. A bud in deep shade
-    // that flushes builds a shoot into shade, which then earns nothing --
-    // and the ties are broken by position so the choice is deterministic.
+    // Best light-per-crowding, not the highest or the newest. A bud in deep
+    // shade that flushes builds a shoot into shade, which then earns
+    // nothing; a bud with no room builds a plate. Ties break by position so
+    // the choice is deterministic.
     buds.sort_unstable_by(|a, b| b.2.total_cmp(&a.2).then((a.1, a.0).cmp(&(b.1, b.0))));
     let (bx, by, _) = buds[0];
 
@@ -3686,15 +3728,40 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
     #[test]
     fn a_retiring_tip_becomes_a_leaf_once_per_plastochron() {
         let wood = material::MaterialId(11);
-        // `tree.ron` ships `plastochron: [12, 5, 2, 2]`. Entering a tick
-        // with `plastochron = n` makes this lineage step `n + 1`, and a
-        // leaf is due when that is a multiple of the tier's interval.
-        for (order, entering, expect_leaf) in
-            [(0u8, 11u8, true), (0, 0, false), (0, 4, false), (2, 1, true), (2, 3, true), (2, 0, false), (3, 1, true)]
+        // **The interval is read from the species rather than written
+        // here**, because it is now two things composed: the per-order list
+        // *and* this individual's `genotype_variance` draw. Hard-coding
+        // `tree.ron`'s numbers made this test fail the moment jitter landed
+        // -- correctly, but uselessly, since what it is guarding is that
+        // `ByOrder` reaches the plastochron at all, not what the species
+        // file happens to say today.
+        //
+        // Entering a tick with `plastochron = n` makes this lineage step
+        // `n + 1`, and a leaf is due when that is a multiple of the
+        // interval for this cell's order.
+        for (order, offset, expect_leaf) in
+            [(0u8, 0i32, true), (0, 1, false), (0, -1, false), (2, 0, true), (2, 1, false), (3, 0, true), (3, -1, false)]
         {
             let mut w = test_world();
             let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
             let organism_id = w.push_organism(tree);
+            let (base, variance) = w
+                .species
+                .get(tree)
+                .behaviors(CellType::GrowingTip)
+                .iter()
+                .find_map(|b| match b {
+                    Behavior::Grow { plastochron, genotype_variance, .. } => Some((*plastochron, *genotype_variance)),
+                    _ => None,
+                })
+                .expect("tree's GrowingTip grows");
+            let interval = ((base.at(order) as f32 * genotype(organism_id, 3, variance)).round() as u8).max(1);
+            // Two whole intervals in, then stepped off it by `offset`, so
+            // the "due" and "not due" cases are the same distance apart
+            // whatever the interval turns out to be.
+            let Some(entering) = (interval as i32 * 2 - 1 + offset).try_into().ok().filter(|&e: &u8| e < u8::MAX) else {
+                continue;
+            };
             place(&mut w, (100, 100), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
             write_order(&mut w, 100, 100, order);
 
@@ -3710,6 +3777,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             // event that placed the leaf.
             let self_type = organism::cell_type(w.get(100, 100).aux());
             let expected = if expect_leaf { CellType::DormantBud } else { CellType::MatureBody };
+            assert!(interval > 1, "order {order}'s interval collapsed to {interval}; the offsets below stop discriminating");
             assert_eq!(
                 self_type,
                 Some(expected),
@@ -3727,7 +3795,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             assert_eq!(
                 leaves,
                 usize::from(expect_leaf),
-                "order {order} entering a growth step with plastochron={entering}: tree.ron's interval for that order should have produced {} lateral leaf, got {leaves}",
+                "order {order} entering a growth step with plastochron={entering} against its own interval of {interval}: should have produced {} lateral leaf, got {leaves}",
                 usize::from(expect_leaf)
             );
         }
@@ -3737,50 +3805,71 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
     ///
     /// The whole architecture mechanism in one assertion: without the
     /// increment every cell is a trunk and `ByOrder` is an expensive way to
-    /// write a scalar. Driven through a real `Grow` in a scene arranged so
-    /// a branch is forced (`branch_chance` is a roll, so this hunts for the
-    /// tick where it lands rather than assuming the first one does).
+    /// write a scalar.
+    ///
+    /// **Run over several individuals, not one, and the reason is
+    /// measured.** Branching is a roll at `branch_chance[0] = 0.03`, and a
+    /// lineage only gets as many rolls as it gets growth steps before the
+    /// turgor bound stops it — about a hundred. `genotype_variance` then
+    /// moves both numbers per individual, so a single tree branching inside
+    /// any fixed budget is a coin flip. An earlier version ran one organism
+    /// for 400 ticks and passed until jitter landed, at which point that
+    /// organism drew a low branch chance and a high per-cell turgor cost
+    /// and never branched at all. Twelve individuals is a test of the rule;
+    /// one is a test of one draw.
     #[test]
     fn a_lateral_starts_the_next_branch_order_and_a_continuation_does_not() {
         let wood = material::MaterialId(11);
-        let mut w = test_world();
-        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
-        let organism_id = w.push_organism(tree);
-        place(&mut w, (100, 100), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
+        let mut branched = 0;
+        let mut trunk_seen = false;
+        for individual in 0..12u16 {
+            let mut w = test_world();
+            let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+            // Burn ids so each pass is a genuinely different genotype --
+            // `genotype` is keyed on the organism id and nothing else.
+            let mut organism_id = w.push_organism(tree);
+            for _ in 0..individual {
+                organism_id = w.push_organism(tree);
+            }
+            place(&mut w, (100, 100), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
 
-        // Grow repeatedly until a tick creates two children at once -- that
-        // second one is the lateral.
-        let mut seen_orders: Vec<u8> = Vec::new();
-        for frame in 0..400 {
-            w.frame = frame;
-            let tips: Vec<(i32, i32)> = w
-                .organism(organism_id)
-                .expect("organism")
-                .cells
-                .keys()
-                .copied()
-                .filter(|&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::GrowingTip))
-                .collect();
-            for (x, y) in tips {
-                write_carbon(&mut w, x, y, 2.0);
-                organism_tick(&mut w, x, y, organism_id, 0, 0);
+            let mut orders: Vec<u8> = Vec::new();
+            for frame in 0..600 {
+                w.frame = frame;
+                let tips: Vec<(i32, i32)> = w
+                    .organism(organism_id)
+                    .expect("organism")
+                    .cells
+                    .keys()
+                    .copied()
+                    .filter(|&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::GrowingTip))
+                    .collect();
+                if tips.is_empty() {
+                    break; // every lineage retired -- nothing left to roll
+                }
+                for (x, y) in tips {
+                    write_carbon(&mut w, x, y, 2.0);
+                    organism_tick(&mut w, x, y, organism_id, 0, 0);
+                }
+                orders = w
+                    .organism(organism_id)
+                    .expect("organism")
+                    .cells
+                    .keys()
+                    .filter_map(|&(x, y)| w.organism_cell(x, y).map(|c| c.order))
+                    .collect();
+                if orders.contains(&1) {
+                    break;
+                }
             }
-            seen_orders = w
-                .organism(organism_id)
-                .expect("organism")
-                .cells
-                .keys()
-                .filter_map(|&(x, y)| w.organism_cell(x, y).map(|c| c.order))
-                .collect();
-            if seen_orders.iter().any(|&o| o > 0) {
-                break;
-            }
+            trunk_seen |= orders.contains(&0);
+            branched += usize::from(orders.contains(&1));
         }
 
-        assert!(seen_orders.contains(&0), "the original shoot must stay at order 0, got {seen_orders:?}");
+        assert!(trunk_seen, "the original shoot must stay at order 0");
         assert!(
-            seen_orders.contains(&1),
-            "a lateral branch must start order 1 -- every cell reading 0 means `write_order` never ran on the branch child,              which looks exactly like a species file with no tiers, got {seen_orders:?}"
+            branched > 0,
+            "not one of twelve individuals produced an order-1 cell -- every cell reading 0 means `write_order` never ran              on the branch child, which looks exactly like a species file with no tiers"
         );
     }
 

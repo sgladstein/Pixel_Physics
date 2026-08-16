@@ -143,6 +143,10 @@
                 // (200 rows) instead of pinning against the world's top
                 // edge, which every scene has done so far and which voids
                 // any shape number taken from it.
+                // No two trees in a stand are the same tree. See
+                // Behavior::Grow::genotype_variance -- 8 trees measuring
+                // 127..131 rows tall was one tree drawn eight times.
+                genotype_variance: 0.15,
                 turgor_source: 1.0,
                 turgor_yield: 0.1,
                 turgor_per_cell: 0.0075,

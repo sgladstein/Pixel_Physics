@@ -43,7 +43,21 @@ fn main() {
     let trees: usize = std::env::args()
         .find_map(|a| a.strip_prefix("trees=").map(|v| v.parse().expect("trees")))
         .unwrap_or(1);
-    let scene = common::PlantScene { ground_y: ground_y(), trees, ..Default::default() };
+    // **Widen the world rather than crowding more trees into it.** Tree
+    // count is nearly free (measured: 8 trees and 32 trees both run 30,000
+    // frames in ~101 s, because rayon parallelises across chunks and a
+    // sparse stand leaves most cores idle), but packing 32 trees into the
+    // default 512 columns puts them 15 cells apart instead of 57, which is
+    // a different experiment -- crown shyness is exactly what that spacing
+    // decides. Scaling width with tree count keeps the spacing fixed and
+    // buys the extra samples honestly.
+    let width: i32 = std::env::args()
+        .find_map(|a| a.strip_prefix("width=").map(|v| v.parse().expect("width")))
+        .unwrap_or_else(|| {
+            let d = common::PlantScene::default();
+            d.width * (trees as i32).max(1) / d.trees as i32
+        });
+    let scene = common::PlantScene { ground_y: ground_y(), trees, width, ..Default::default() };
     let (width, height) = (scene.width, scene.height);
     let mut w = scene.build();
 
