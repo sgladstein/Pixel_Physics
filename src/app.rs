@@ -1909,6 +1909,39 @@ mod tests {
     }
 
     #[test]
+    fn the_flat_preset_is_somewhere_a_reference_room_can_actually_be_stamped() {
+        // The two halves of the test bed, joined. `tests/worldgen.rs` says
+        // the `flat` preset has 200 rows of sky; `stamp_reference_room`
+        // refuses when it has less than the room needs. Neither knows about
+        // the other, so nothing until now said the combination works -- and
+        // "the preset is fine" plus "the key is fine" adding up to a key
+        // that refuses everywhere on the preset built for it is exactly the
+        // shape of failure this repo keeps shipping.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        let count_stone = |app: &App| {
+            (0..WIDTH as i32).flat_map(|x| (0..HEIGHT as i32).map(move |y| (x, y))).filter(|&(x, y)| app.world.get(x, y).material == stone).count()
+        };
+
+        // Cycle to `flat` the way F7 does rather than reaching past the
+        // key, so a preset renamed or dropped from the cycle fails here.
+        let mut guard = 0;
+        while app.worldgen_preset != "flat" {
+            app.cycle_preset();
+            guard += 1;
+            assert!(guard < 32, "`flat` is not in the preset cycle -- F7 cannot reach the structural test bed");
+        }
+
+        let before = count_stone(&app);
+        app.stamp_reference_room(WIDTH as i32 / 2, 0);
+        assert!(
+            count_stone(&app) > before,
+            "B refused on the one preset built for it: {}",
+            app.toast.as_ref().map(|(m, _)| m.as_str()).unwrap_or("no toast")
+        );
+    }
+
+    #[test]
     fn the_stress_view_paints_loaded_rock_and_leaves_empty_space_alone() {
         // Two assertions, because either alone passes against a broken
         // overlay: one that paints nothing would satisfy "the sky is

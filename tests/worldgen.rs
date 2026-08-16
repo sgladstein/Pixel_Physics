@@ -277,3 +277,47 @@ fn structural_distances_are_computed_once_and_hold() {
     structural::compute_world_distances(&mut placed);
     assert_ne!(placed_hash, world_hash(&placed), "the structural pass changed nothing — distances were already set?");
 }
+
+#[test]
+fn the_flat_preset_is_a_usable_structural_test_bed() {
+    // `flat` exists so that "does this building stand" can be asked without
+    // the world's own shape being part of the answer, and it is a *preset*
+    // rather than a code path precisely so it cannot drift away from how a
+    // real world is built. That only pays off if it actually delivers what
+    // the structural work needs, which is four things -- and each one is a
+    // way it could look fine on screen and quietly ruin a measurement.
+    let presets = presets();
+    let params = presets.get("flat").expect("assets/worldgen.ron must ship a `flat` preset");
+    let world = build(params, 7);
+
+    let surface = |x: i32| (0..=BOUNDS.1).find(|&y| world.get(x, y).material != material::EMPTY);
+    let heights: Vec<i32> = (0..=BOUNDS.0).filter_map(surface).collect();
+    assert_eq!(heights.len() as i32, BOUNDS.0 + 1, "some column has no ground at all");
+
+    // 1. Flat. A one-cell step is still a step: a wall stamped across it
+    //    stands on two different heights and the load path is not the one
+    //    being tested.
+    let (lo, hi) = (*heights.iter().min().unwrap(), *heights.iter().max().unwrap());
+    assert_eq!(hi - lo, 0, "the flat preset's surface varies by {} cells (from y={lo} to y={hi})", hi - lo);
+
+    // 2. Bare rock, not soil. A cell resting on loose grain keeps a
+    //    sixty-fourth of its bending capacity (`GRANULAR_CAPACITY_DIVISOR`),
+    //    so a test bed with a skin of sand on it measures something else
+    //    entirely and gives no sign that it did.
+    let sand = world.materials.id_of("sand").expect("sand is compiled in");
+    let grains = (0..=BOUNDS.0).filter(|&x| world.get(x, lo).material == sand).count();
+    assert_eq!(grains, 0, "{grains} columns have sand at the surface — structures would be standing on powder");
+
+    // 3. Headroom for the reference room `B` stamps. At the shipped
+    //    `sky_rows` of 95 there is not enough air and the key correctly
+    //    refuses, which would make the test bed useless for the one thing
+    //    it was added for.
+    assert!(lo > 160 + 8, "only {lo} cells of sky — `B` cannot stamp a 200x160 reference room here");
+
+    // 4. Nothing standing on it. A tree or a boulder in the middle of the
+    //    bed is something a structure can lean on, and load arriving by a
+    //    route nobody intended is this engine's most expensive recurring
+    //    bug.
+    let clutter = (0..=BOUNDS.0).filter(|&x| surface(x).is_some_and(|y| y < lo)).count();
+    assert_eq!(clutter, 0, "{clutter} columns have something standing above the ground line");
+}

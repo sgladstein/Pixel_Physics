@@ -194,5 +194,61 @@
             tree_density: 0.0,
             life_cluster_wavelength: 70.0,
         ),
+        // **The structural test bed.** Dead flat bare rock under a tall sky:
+        // the world for judging whether something a player *built* stands,
+        // as opposed to whether the world itself does.
+        //
+        // It is a preset rather than a code path on purpose. The question
+        // "does this room hold" needs a ground with no slope, no soil to
+        // sink into, no talus to prop things up and no trees in the way --
+        // and every one of those is already a number here, so a whole
+        // parallel "test world" mode would be a second way to build a world
+        // that could drift out of step with the real one. F7 reaches it.
+        //
+        // Every amplitude is zero and every wavelength is left alone: a
+        // wavelength is a divisor in places, and zeroing the thing that
+        // multiplies is what makes the surface flat without asking whether
+        // any of them is load-bearing.
+        //
+        //   sky_rows 200   Room for the 200x160 reference room `B` stamps,
+        //                  with margin. At the shipped 95 there is not
+        //                  enough air and `B` correctly refuses.
+        //   soil_depth 0   Bare stone. Building on sand is a different
+        //                  structural question -- `GRANULAR_CAPACITY_DIVISOR`
+        //                  cuts a cell's capacity by 64x when what is under
+        //                  it is loose grain -- and mixing the two is how a
+        //                  test bed stops telling you which one you measured.
+        //   table_offset   Past the world floor, as `arid` does, so no pond
+        //                  fills the room while you are watching it.
+        "flat": (
+            sky_rows: 200.0,
+            relief_amplitude: 0.0,
+            hill_amplitude: 0.0,
+            hill_wavelength: 150.0,
+            detail_amplitude: 0.0,
+            detail_wavelength: 28.0,
+            warp_strength: 0.0,
+            warp_wavelength: 130.0,
+            terrace_step: 26.0,
+            terrace_strength: 0.0,
+            mask_wavelength: 150.0,
+            soil_depth: 0.0,
+            soil_slope_cutoff: 0.8,
+            bedrock_band: 4.0,
+            strata_thickness: 9.0,
+            strata_tilt: 0.0,
+            strata_fold: 0.0,
+            pocket_density: 0.0,
+            talus_max_height: 0.0,
+            brow_chance: 0.0,
+            table_damping: 0.35,
+            table_offset: 400.0,
+            capillary_fringe: 24.0,
+            pond_min_depth: 2.0,
+            pond_min_width: 4.0,
+            moss_density: 0.0,
+            tree_density: 0.0,
+            life_cluster_wavelength: 70.0,
+        ),
     },
 )
