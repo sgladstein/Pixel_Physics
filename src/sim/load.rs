@@ -893,6 +893,23 @@ pub fn capacity(world: &World, x: i32, y: i32) -> i64 {
     // resting on powder keeps the chain alive (see `rests_on_ground`) and
     // costs almost all of the section's capacity, which is what stops a
     // handful of rubble propping up a slab.
+    //
+    // **Tried and reverted: gating this on `parent.is_none()`**, so that
+    // only a cell with no solid support at all takes the granular cut. The
+    // reasoning was good and the measurement said no: not one cell moved,
+    // across six presets and three seeds. `scene=worldcrack preset=flat`
+    // stayed at 599/637/338 cells lost to one hole, to the cell.
+    //
+    // Why it changed nothing is the useful part, and it redirects the
+    // search. The cells taking the cut read `capacity 2`, `8`, `18` --
+    // `base` over 64 at sections of one, two and three -- with
+    // `attachment 1`, and `attachment` is 1 exactly when neither the cell
+    // nor its parent is attached. They have **no solid parent to begin
+    // with**: they are already loose fragments at the rubble face, not slab
+    // rock that a grain happened to undercut. So the divisor is a symptom
+    // of their state, not the cause of it, and the question worth asking is
+    // why a homogeneous slab produces six hundred parentless section-1
+    // cells around one hole at all.
     if rests_on_ground(world, x, y) {
         return (capacity / GRANULAR_CAPACITY_DIVISOR).max(1);
     }
