@@ -66,6 +66,7 @@ already changed decisions:
 | File | Holds |
 |---|---|
 | `README.md` | Architecture, and per-milestone status |
+| `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*. |
 | `PLAN.md` | Roadmap, settled decisions, the issues backlog |
 | `Reports/*.md` | Design records and research, one per subsystem |
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions, what has been ruled out *by measurement*, and what was tried and reverted. Read this before touching a listed area. |
@@ -194,6 +195,13 @@ consider it at all.
   it now fails), and record what the withdrawn fix was, what it improved, and
   why it went. A reverted fix's genuine improvements become the bar its
   replacement must meet — not the pre-fix baseline.
+- **A session that makes a significant change affecting a `wiki/` page must
+  update that page (and its freshness note) in the same change.** This is a
+  cheap backstop, not the real defence against `wiki/*.md` going stale the
+  way early design Reports did — the real defence is that each page
+  describes coarse, player-visible behavior, not implementation, which is
+  inherently more stable. This rule just shortens the gap on whatever does
+  drift.
 - **Commit messages carry the measurement**, not just the intent: the number
   before, the number after, and what was tried and rejected on the way.
 - **Determinism is required** (same-build, per `PLAN.md`) — it was reversed
