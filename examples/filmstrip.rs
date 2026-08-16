@@ -68,22 +68,6 @@ const FLOOR_THICKNESS: i32 = 8;
 /// without re-reading `LIGHT_DECAY`'s own doc; a scene where nothing
 /// germinates looks identical to a scene where growth is broken.
 const TREE_GROUND_Y: i32 = 40;
-/// Ground level for the `grove` scene — deliberately deep in the world, so
-/// there is real sky above it.
-///
-/// The number is a compromise between two constraints that pull opposite
-/// ways, and naming them is the point: a plant needs **headroom**, which
-/// wants ground low in the world, and it needs **light**, which
-/// `field.rs` seeds only on the topmost chunk's top row and then diffuses
-/// downward with `LIGHT_DECAY` — so depth costs illumination. At the
-/// shipped decay, light crosses `Germinate`'s 0.1 gate around 75 cells
-/// below open sky, which is a hard ceiling on how deep this can sit.
-///
-/// 96 leaves ~96 rows of sky, comfortably more than the ~21 rows trees
-/// currently use, so the scene stops being the limit and the plant starts
-/// being it. If trees are ever tuned taller than that, raise this before
-/// concluding anything about canopy shape.
-const GROVE_GROUND_Y: i32 = 96;
 
 /// Water with a varied `shade`, the way the brush lays it down
 /// (`World::paint_capsule` rolls a random shade per cell). The scenes below

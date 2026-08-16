@@ -12,6 +12,10 @@
 //! `Reports/tree-architecture-implementation-plan.md` Phase 0a. Anything
 //! that measures plants builds its world from here.
 
+// Shared by several harness binaries, and Rust compiles each example as
+// its own crate -- so anything only one of them uses reads as dead here.
+#![allow(dead_code)]
+
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material;
