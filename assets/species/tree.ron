@@ -72,6 +72,20 @@
                 // A shoot only grows into open air. Reports/tree-rewrite-
                 // design.md §5 scopes growing-into-material to roots.
                 penetration_force: 0.0,
+                // Turgor-limited height. See Behavior::Grow's own docs and
+                // Reports/tree-extension-biology.md §2c: a shoot apex is
+                // limited by water potential falling with height, not by
+                // age or by running out of carbon.
+                //
+                // These three give a DERIVED ceiling rather than a cap:
+                //   h_max = (source - yield) / per_cell = 0.9 / 0.0075 = 120 rows
+                // Chosen so a mature tree sits well inside the harness sky
+                // (200 rows) instead of pinning against the world's top
+                // edge, which every scene has done so far and which voids
+                // any shape number taken from it.
+                turgor_source: 1.0,
+                turgor_yield: 0.1,
+                turgor_per_cell: 0.0075,
             ),
             Photosynthesize(rate: 0.5),
         ]),

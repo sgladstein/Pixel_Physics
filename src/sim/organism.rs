@@ -224,6 +224,38 @@ pub enum Behavior {
         /// Real root growth pressures are on the order of 0.2-1.5 MPa,
         /// which is what `tree.ron`'s value is set against.
         penetration_force: f32,
+        /// **Turgor at the root collar**, in the units the other two share.
+        /// Growth is driven by turgor pressure `P` exceeding a yield
+        /// threshold, and `P` falls with height above the collar — so this
+        /// is the budget the whole shoot draws its height from.
+        ///
+        /// `Reports/tree-extension-biology.md` §2c. Real apices are limited
+        /// by a *positional* quantity, not a physiological one: water
+        /// potential falls **0.01 MPa per metre from gravity alone**,
+        /// unconditionally, and Koch et al. derive redwood's 122–130 m
+        /// ceiling from exactly that. Potkay et al. turn it into the growth
+        /// law used here, `max(P − Γ, 0)`.
+        ///
+        /// **The ceiling this produces is derived, not imposed:**
+        /// `h_max = (turgor_source − turgor_yield) / turgor_per_cell`.
+        /// Three numbers give a height, rather than a "stop at N cells" cap
+        /// — which is what `Reports/tree-shape-problem-statement.md` §5
+        /// asks for and what every previous attempt failed to supply.
+        #[serde(default)]
+        turgor_source: f32,
+        /// Yield threshold `Γ`. Below this, cell walls do not extend at all.
+        #[serde(default)]
+        turgor_yield: f32,
+        /// Potential lost per cell of height above the collar — the
+        /// gravitational term, and the reason this gate cannot saturate
+        /// uniformly the way every resource signal does.
+        ///
+        /// **`0.0` disables the gate entirely and is a legitimate value**,
+        /// not a misconfiguration: a moss mat or a vine has no meaningful
+        /// height limit, and `RootTip` growth heads *downward* where the
+        /// term would be negative. Same convention as `plastochron: 0`.
+        #[serde(default)]
+        turgor_per_cell: f32,
     },
     /// Reads the light field, credits the resource scalar — a `Leaf`
     /// cell's own contribution to the resource economy `Grow`/`Divide`
@@ -402,6 +434,21 @@ pub struct OrganismState {
     /// own threshold.
     pub root_cells: u32,
     pub shoot_cells: u32,
+    /// The **root collar** — the lowest row this organism's *shoot* tissue
+    /// occupies, refreshed once per organism tick in the walk
+    /// `plant::organism_upkeep` is already doing.
+    ///
+    /// This is the reference height for `Grow`'s turgor gate. Height above
+    /// the collar is the one signal in the whole system that does **not**
+    /// equalize when growth stops: carbon fills every cell to its cap,
+    /// crowding decays everywhere within two ticks, and conductance relaxes
+    /// to basal everywhere because there is no flux — but the apex is still
+    /// at the top and the collar still at the bottom, permanently. That
+    /// property is why the bound is built out of geometry rather than out
+    /// of resource state (`Reports/tree-extension-biology.md` §2c).
+    ///
+    /// `None` until the first upkeep pass, or for an organism with no shoot.
+    pub collar_y: Option<i32>,
 }
 
 pub struct SpeciesRegistry {

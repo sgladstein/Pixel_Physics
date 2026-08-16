@@ -484,7 +484,7 @@ impl World {
     /// moment a future caller needs it. Returns the encoded `organism_id`
     /// to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
-        let state = OrganismState { species, cells: std::collections::HashMap::new(), root_cells: 0, shoot_cells: 0 };
+        let state = OrganismState { species, cells: std::collections::HashMap::new(), root_cells: 0, shoot_cells: 0, collar_y: None };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];
             // Wraps at 16 generations (4 bits) rather than growing further

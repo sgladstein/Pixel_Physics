@@ -689,6 +689,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 max_active_tips,
                 plastochron: plastochron_interval,
                 penetration_force,
+                turgor_source,
+                turgor_yield,
+                turgor_per_cell,
             } => {
                 // **These three gates deliberately do *not* set
                 // `found_candidate`, and that is what makes growth
@@ -705,6 +708,37 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // below: see the stale-limit retirement.
                 if resource < cost {
                     continue;
+                }
+                // **The height bound** -- `organism::Behavior::Grow`'s
+                // turgor fields, and `Reports/tree-extension-biology.md`
+                // §2c. Turgor at the apex is the collar's turgor less the
+                // gravitational cost of lifting water to this row, and a
+                // cell wall only extends while that exceeds the yield
+                // threshold.
+                //
+                // **This is the only gate in the system built from geometry
+                // rather than resource state**, and that is the whole point.
+                // Every resource signal equalizes when growth stops -- carbon
+                // fills every cell to its cap, crowding decays everywhere,
+                // conductance relaxes to basal everywhere -- so a rule keyed
+                // on any of them fires on every cell at once, which is
+                // exactly how the reverted bud break ran away. Height cannot
+                // do that: the apex stays at the top and the collar at the
+                // bottom, permanently.
+                //
+                // Skipped entirely when `turgor_per_cell` is 0, which is a
+                // real species value meaning "this plant has no height
+                // limit" -- a moss mat, a vine -- and is also why `RootTip`
+                // growth is unaffected without a special case.
+                if turgor_per_cell > 0.0 {
+                    let collar = world.organism(organism_id).and_then(|s| s.collar_y);
+                    if let Some(collar) = collar {
+                        // Rows *above* the collar; y grows downward.
+                        let height = (collar - y).max(0) as f32;
+                        if turgor_source - turgor_per_cell * height <= turgor_yield {
+                            continue;
+                        }
+                    }
                 }
                 // Allometry: a root system is bounded by the canopy that
                 // funds it. Reads the counts `step_organisms` refreshed --
@@ -1319,6 +1353,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // Counted in the walk that is already happening, so it is free.
     let mut cells_in_row: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let (mut root_cells, mut shoot_cells) = (0u32, 0u32);
+    let mut collar_y: Option<i32> = None;
     let mut min_y = i32::MAX;
     let mut max_y = i32::MIN;
     for &(cx, cy) in &cells {
@@ -1340,11 +1375,18 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             root_cells += 1;
         } else {
             shoot_cells += 1;
+            // The collar is the *lowest* shoot cell -- where the shoot
+            // meets the root system. Taken from shoot tissue rather than
+            // from the organism's overall extent, which would sit at the
+            // bottom of the root system and make every shoot cell read as
+            // implausibly high.
+            collar_y = Some(collar_y.map_or(cy, |c: i32| c.max(cy)));
         }
     }
     if let Some(state) = world.organism_mut(organism_id) {
         state.root_cells = root_cells;
         state.shoot_cells = shoot_cells;
+        state.collar_y = collar_y;
     }
     let mut leaves_above: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let mut running = 0u32;
@@ -2770,6 +2812,84 @@ mod tests {
             moved_out < material::SOIL_FIELD_CAPACITY as u32,
             "the cell about to be overwritten should have handed its water on, still holds {moved_out}"
         );
+    }
+
+    /// The turgor gate gives a **derived** height ceiling that does not
+    /// depend on the scene.
+    ///
+    /// `h_max = (turgor_source − turgor_yield) / turgor_per_cell`. Every
+    /// bound tried before this one was either an arbitrary cap or a ratio,
+    /// and ratios bound *proportions* rather than size — a fact that cost a
+    /// session to establish. This one falls out of three species numbers.
+    ///
+    /// **Scene-independence is the property under test**, not the exact
+    /// value. Every plant conclusion on this branch until now was taken in
+    /// a world where trees grew until they hit the top edge, so shape
+    /// numbers measured the scene rather than the plant. A bound that moves
+    /// when the sky gets deeper is not a bound.
+    #[test]
+    fn the_turgor_gate_caps_height_independently_of_how_much_sky_there_is() {
+        let heights: Vec<i32> = [140, 220]
+            .iter()
+            .map(|&ground| {
+                let scene = common_scene(ground);
+                let mut w = scene;
+                for _ in 0..30_000 {
+                    super::super::parallel::step(&mut w);
+                    w.step_active_sites();
+                    field::step(&mut w);
+                }
+                let b = w.bounds().expect("world has bounds");
+                // The *tallest* tree, because the claim under test is a
+                // ceiling: no tree may exceed it, and at least one should
+                // approach it. A mean would be dominated by the
+                // establishment failures instead.
+                let top = (b.min_y..=b.max_y)
+                    .find(|&y| (b.min_x..=b.max_x).any(|x| w.get(x, y).organism_id() != 0))
+                    .unwrap_or(ground);
+                ground - top
+            })
+            .collect();
+
+        // `tree.ron`'s own numbers give 0.9 / 0.0075 = 120 rows. Allow
+        // slack for the tip that crosses the threshold mid-step and for
+        // ordinary run-to-run spread, but not enough to let a
+        // scene-dependent result through.
+        for &h in &heights {
+            assert!(h < 160, "turgor should cap height near 120 rows, got {h}");
+        }
+        // The scene-independence claim: 80 extra rows of sky must not buy
+        // 80 extra rows of tree. Before the turgor gate it bought all of
+        // them, every time, in every scene tried.
+        let spread = (heights[0] - heights[1]).abs();
+        assert!(
+            spread < 45,
+            "height must not track available sky -- 80 extra rows of it changed the tallest tree by {spread} rows: {heights:?}"
+        );
+    }
+
+    /// Builds the same soil/stone/seed geometry `examples/common` does, so
+    /// the guard above is asking about the harness scene rather than a
+    /// bespoke one.
+    fn common_scene(ground: i32) -> World {
+        let mut w = World::new(Rect::new(0, 0, 255, ground + 60));
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+        for x in 0..256 {
+            for y in (ground + 34)..(ground + 40) {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+            for y in ground..(ground + 34) {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        // Four trees, not one. Per-tree spread on this branch measures
+        // 53x and 2-3 in 8 fail to establish at all, so a single draw
+        // cannot say whether a *cap* was reached -- only whether that one
+        // tree happened to reach it.
+        for i in 1..=4 {
+            w.plant_tree(i * 51, ground - 25);
+        }
+        w
     }
 
     /// A `RootTip` that ages out must retire, not vanish.
