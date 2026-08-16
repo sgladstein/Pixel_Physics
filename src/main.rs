@@ -291,6 +291,14 @@ impl Handler {
                     self.app.mine(x, y);
                 }
             }
+            // A known-size room in one keystroke, so "is this big enough to
+            // want to build?" is judged in the hand rather than argued from
+            // a contact sheet. See `App::stamp_reference_room`.
+            KeyCode::KeyB => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.stamp_reference_room(x, y);
+                }
+            }
             KeyCode::KeyT => {
                 if let Some((x, y)) = self.cursor {
                     self.app.plant_tree(x, y);

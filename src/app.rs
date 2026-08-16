@@ -34,6 +34,24 @@ const STREAM_DENSITY: f32 = 0.3;
 /// than a second hidden number.
 const STRIKE_FORCE_PER_RADIUS: f32 = 0.9;
 
+/// The reference room `B` stamps, in cells. See `stamp_reference_room`.
+///
+/// **Set to the measured edge of what the structural model will hold, not
+/// to a round number that looks nice.** A 200-cell span with 5- to
+/// 17-cell walls stands untouched; 260 fails at every thickness tested
+/// (`Reports/next-session-handoff.md` §2b). Stamping the *limit* is the
+/// point — a room comfortably inside it would show that rooms work, which
+/// nobody doubts, rather than whether the ceiling is in a sensible place.
+///
+/// 200 wide against a 512-wide world is 39% of it, which is the number the
+/// eye is actually being asked to judge.
+const REFERENCE_ROOM_SPAN: i32 = 200;
+
+/// Tall enough to stand a structure up rather than draw a lintel: the roof
+/// has to be carried by walls doing real work, or the span is not being
+/// tested. 160 is half the world's height.
+const REFERENCE_ROOM_HEIGHT: i32 = 160;
+
 pub struct App {
     pub world: World,
     pub particles: ParticleSystem,
@@ -299,19 +317,76 @@ impl App {
             // as four independent segments would leak at every corner,
             // which for a structure means the roof is not actually carried
             // by the walls.
-            Tool::Room => {
-                let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
-                let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
-                let r = self.brush_radius;
-                for (from, to) in [((x0, y0), (x1, y0)), ((x0, y1), (x1, y1)), ((x0, y0), (x0, y1)), ((x1, y0), (x1, y1))] {
-                    self.world.paint_capsule_as(from, to, r, m, density);
-                }
-            }
+            Tool::Room => self.paint_room(a, b, self.brush_radius, m, density),
             Tool::Line => {
                 self.world.paint_capsule_as(a, b, self.brush_radius, m, density);
             }
             Tool::Brush => {}
         }
+    }
+
+    /// Four walls around an empty middle, with `a` and `b` as opposite
+    /// corners.
+    ///
+    /// Each wall is a capsule *run*, so the corners are covered twice and
+    /// join properly — a room drawn as four independent segments leaks at
+    /// every corner, which for a structure means the roof is not actually
+    /// carried by the walls.
+    ///
+    /// Shared by the drag-out room tool and `stamp_reference_room` on
+    /// purpose. A reference room that was not built by the same code as a
+    /// player's room would be measuring a replica, which is the mistake
+    /// `build_terrain` is public to avoid.
+    fn paint_room(&mut self, a: (i32, i32), b: (i32, i32), r: i32, m: material::MaterialId, density: f32) {
+        let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
+        let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
+        for (from, to) in [((x0, y0), (x1, y0)), ((x0, y1), (x1, y1)), ((x0, y0), (x0, y1)), ((x1, y0), (x1, y1))] {
+            self.world.paint_capsule_as(from, to, r, m, density);
+        }
+    }
+
+    /// `B` — drop a **reference room** of a known size at the cursor, sitting
+    /// on whatever ground is under it.
+    ///
+    /// This exists to answer a question that only the eye can answer and
+    /// that no contact sheet has managed to: *is a room this size a
+    /// reasonable thing to want to build?* The structural model's measured
+    /// envelope is that a room holds its own roof up to about
+    /// `REFERENCE_ROOM_SPAN` cells wide and fails above it
+    /// (`Reports/next-session-handoff.md` §2b), and whether that is a
+    /// generous allowance or a cramped one is a judgement about play, not
+    /// about statics. Dragging one out by hand gives a different size every
+    /// time and so cannot settle it.
+    ///
+    /// Wall thickness is the brush radius, deliberately, so the same key at
+    /// different brush sizes walks the other axis of that envelope.
+    ///
+    /// **Always stone, ignoring the palette.** The app starts on sand, so
+    /// keying to the selection would hand a first-time press a room made of
+    /// powder — which answers no question about structure and looks like the
+    /// feature is broken. A reference is a fixed known thing or it is not a
+    /// reference; the ordinary room tool on `Z` is there for building out of
+    /// whatever you like.
+    pub fn stamp_reference_room(&mut self, screen_x: i32, screen_y: i32) {
+        let Some(stone) = self.world.materials.id_of("stone") else { return };
+        let (cx, cy) = self.renderer.screen_to_world(screen_x, screen_y);
+        // Sit it on the ground rather than at the cursor's height: a room
+        // floating in mid-air is a different structural question (and a
+        // much easier one) than a room standing on something.
+        let mut floor = cy;
+        while floor < HEIGHT as i32 - 1 && self.world.get(cx, floor + 1).material == material::EMPTY {
+            floor += 1;
+        }
+        let half = REFERENCE_ROOM_SPAN / 2;
+        let a = (cx - half, floor - REFERENCE_ROOM_HEIGHT);
+        let b = (cx + half, floor);
+        self.paint_room(a, b, self.brush_radius, stone, 1.0);
+        self.show_toast(format!(
+            "REFERENCE ROOM {}x{} STONE - WALLS {} THICK",
+            REFERENCE_ROOM_SPAN,
+            REFERENCE_ROOM_HEIGHT,
+            self.brush_radius * 2 + 1
+        ));
     }
 
     /// `N` — show or hide the structural stress overlay.
@@ -1083,6 +1158,7 @@ impl App {
             "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
             "N STRESS VIEW (GREEN AT REST, RED AT ITS LIMIT)",
             "Z TOOL: BRUSH / RECT / ROOM / LINE  (DRAG OUT A SHAPE)",
+            "B STAMP A 200x160 REFERENCE ROOM (BRUSH = WALL THICKNESS)",
             "F1 CHUNK OVERLAY    G WATER GRAIN",
             "",
             "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
@@ -1628,6 +1704,54 @@ mod tests {
         // The interior is the whole point: a fill would pass every wall
         // check above and still be a solid block.
         assert!(!stone_near(cx, cy), "the room is solid -- there is nothing to go inside");
+    }
+
+    #[test]
+    fn the_reference_room_is_stone_and_stands_on_the_ground() {
+        // Three claims, and each one is a way the key could look like it
+        // worked while answering nothing.
+        //
+        // It must be **stone**: the app starts on sand, so a version keyed
+        // to the palette would hand a first press a powder room, which
+        // reads as a broken feature rather than as a structure to judge.
+        //
+        // It must **sit on the ground**: a room dropped in mid-air is a
+        // much easier structural question than one standing on something,
+        // so stamping at the cursor's own height would quietly measure the
+        // wrong thing.
+        //
+        // And it must be **the size it claims**, because the whole point of
+        // a reference is that its dimensions are known -- this is the
+        // measured edge of the model's envelope, not a round number.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        let sand = id(&app, "sand");
+        assert_eq!(app.selected_material(), sand, "test setup: the app is expected to start on sand");
+
+        let (sx, sy) = (256, 40);
+        let (cx, cy) = app.renderer.screen_to_world(sx, sy);
+        // Read the terrain surface *before* stamping. Afterwards the first
+        // solid cell down this line is the room's own roof, which is how
+        // the first version of this test managed to look for a wall a
+        // hundred and sixty cells above where one was.
+        let ground = (cy..HEIGHT as i32).find(|&y| app.world.get(cx, y).material != material::EMPTY).expect("terrain under the cursor");
+        app.stamp_reference_room(sx, sy);
+        let stone_near = |x: i32, y: i32| {
+            (-4..=4).flat_map(|dy| (-4..=4).map(move |dx| (dx, dy))).any(|(dx, dy)| app.world.get(x + dx, y + dy).material == stone)
+        };
+
+        let half = REFERENCE_ROOM_SPAN / 2;
+        let top = ground - 1 - REFERENCE_ROOM_HEIGHT;
+        assert!(stone_near(cx - half, ground - REFERENCE_ROOM_HEIGHT / 2), "no left wall at the stated span");
+        assert!(stone_near(cx + half, ground - REFERENCE_ROOM_HEIGHT / 2), "no right wall at the stated span");
+        assert!(stone_near(cx, top), "no roof at the stated height");
+        assert!(!stone_near(cx, ground - REFERENCE_ROOM_HEIGHT / 2), "the reference room is solid, not a room");
+        // Nothing was painted in the material the app happened to be
+        // holding -- the reference is fixed, not a palette shortcut.
+        assert!(
+            !(0..HEIGHT as i32).any(|y| app.world.get(cx, y).material == sand),
+            "the reference room was built from the selected material instead of stone"
+        );
     }
 
     #[test]

@@ -189,6 +189,17 @@ fn build(args: &Args) -> World {
         "terrain" => {
             pixel_physics::app::build_terrain(&mut w);
         }
+        // The reference room `B` stamps, standing on the app's real terrain
+        // rather than on a flat test floor. `scene=room` answers "does it
+        // hold"; this answers "is it a sensible size", which is a different
+        // question and needs the actual world in frame for scale. Render it
+        // whole-world at zoom 1 -- the moment it is cropped or magnified the
+        // only comparison it exists to make is gone.
+        "refroom" => {
+            let mut app = pixel_physics::app::App::new();
+            app.stamp_reference_room(WIDTH / 2, 40);
+            w = app.world;
+        }
         // The payoff mechanic, and the one M17 "was built for and has never
         // had a real test case" (`Reports/worldgen-design.md` §7): mine
         // upward into a ledge until the roof left above the excavation is
@@ -457,7 +468,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked, capped, ligament, built, room"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom"
         ),
     }
     w
