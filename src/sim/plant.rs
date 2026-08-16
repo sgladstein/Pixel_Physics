@@ -2823,7 +2823,18 @@ mod tests {
         // grown_from_the_same_seed_differ`'s own doc on why. Needs
         // `run_with_fields`, not plain `run` -- growth depends on a real
         // light field.
+        for individual in 0..8u16 {
+        // **Several individuals, not one.** `genotype_variance` gives each
+        // organism its own branch chance at +/-60%, so a single tree either
+        // branching or not is a test of one draw rather than of the rule --
+        // and organism 1 draws low enough to never fork. Same correction as
+        // `a_lateral_starts_the_next_branch_order_and_a_continuation_does_
+        // not`, which was bitten by this first.
         let mut w = test_world();
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+        for _ in 0..individual {
+            w.push_organism(tree);
+        }
         plant_tree_on_ground(&mut w, 100, 20);
         let organism_id = w.get(100, 20).organism_id();
         // Generous but not unbounded -- empirically enough for real
@@ -2842,7 +2853,11 @@ mod tests {
                 NEIGHBOURS_8.iter().filter(|&&(dx, dy)| w.get(x + dx, y + dy).organism_id() == organism_id).count() >= 3
             })
         });
-        assert!(branched, "a tree grown to completion in open sky never produced a branch point (3+ same-organism neighbours)");
+        if branched {
+            return;
+        }
+        }
+        panic!("not one of eight individuals grown to completion in open sky produced a branch point (3+ same-organism neighbours)");
     }
 
     #[test]
@@ -3648,17 +3663,37 @@ mod tests {
     /// doc's own §6a forbids.
     #[test]
     fn shedding_every_leaf_does_not_disconnect_the_stem() {
-        let mut w = test_world();
-        plant_tree_on_ground(&mut w, 100, 20);
-        run_with_fields(&mut w, 8000);
+        // **The setup has to hunt for an individual that grew leaves.**
+        // The plastochron is jittered at +/-40% per organism, and in a
+        // 20-row sky a tree that draws a long interval finishes with none
+        // at all -- organism 1 does exactly that. Searching for a suitable
+        // individual is honest here in a way that widening the assertion
+        // would not be: what is under test is what happens *after* leaves
+        // are shed, so a tree with no leaves is not a weaker case, it is
+        // not the case at all.
+        let (mut w, organism_id) = (0..8u16)
+            .find_map(|individual| {
+                let mut w = test_world();
+                let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+                for _ in 0..individual {
+                    w.push_organism(tree);
+                }
+                plant_tree_on_ground(&mut w, 100, 20);
+                run_with_fields(&mut w, 8000);
+                let b = w.bounds()?;
+                let id = (b.min_y..=b.max_y)
+                    .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                    .map(|(x, y)| w.get(x, y).organism_id())
+                    .find(|&id| id != 0)?;
+                let any_leaf = (b.min_y..=b.max_y).flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y))).any(|(x, y)| {
+                    let c = w.get(x, y);
+                    c.organism_id() == id && organism::cell_type(c.aux()) == Some(CellType::Leaf)
+                });
+                any_leaf.then_some((w, id))
+            })
+            .expect("test setup: none of eight individuals grew a leaf to shed");
 
         let b = w.bounds().unwrap();
-        let organism_id = (b.min_y..=b.max_y)
-            .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
-            .map(|(x, y)| w.get(x, y).organism_id())
-            .find(|&id| id != 0)
-            .expect("test setup: the tree should own at least one cell");
-
         // Abscise everything, the way a lifespan eventually will.
         let leaves: Vec<(i32, i32)> = (b.min_y..=b.max_y)
             .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
