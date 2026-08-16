@@ -828,6 +828,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World) {
             "    failures: overloaded {} ({} cells), unsupported {} ({} cells)",
             f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
         );
+        println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
         if render {
             println!("    worst frame so far: {worst_ms:.2} ms (frame {worst_frame})");
             report_loads(&world, args);

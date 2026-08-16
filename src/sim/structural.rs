@@ -338,6 +338,8 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // The forest this describes is about to change out from under it.
         world.load_cache.clear();
         world.structural_failures.record(failure.mode, failure.region.len());
+        let reach = (failure.at.0 - x).unsigned_abs() + (failure.at.1 - y).unsigned_abs();
+        world.structural_failures.record_reach(reach);
         let region = failure.region;
         // M8: a failure big enough to read as a *chunk* leaves as coherent
         // falling pieces rather than dissolving into loose grains one cell

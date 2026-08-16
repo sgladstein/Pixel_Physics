@@ -1415,10 +1415,30 @@ mod tests {
 
         app.toggle_build_background();
         assert!(app.build_background);
+
+        // Background rock has to *join* background rock. Painted in open
+        // air, with nothing of the massif to key into, it lands as ordinary
+        // foreground -- because `attached` means "backed by mass the slice
+        // cannot show", and a floating island of it is a claim the model
+        // cannot check and every way to be ruined by: it would carry stone's
+        // twelvefold capacity bonus while hanging in mid-air.
         app.paint(160, 60, false);
-        let background = painted(&app, 160, 60);
-        assert!(!background.is_empty(), "test setup: the background brush painted no stone at all");
-        assert!(background.iter().all(|a| *a), "the background brush should author terrain");
+        let midair = painted(&app, 160, 60);
+        assert!(!midair.is_empty(), "test setup: the background brush painted no stone at all");
+        assert!(midair.iter().all(|a| !a), "background painted in open air must fall back to foreground");
+
+        // Against the terrain floor it does what it is for: extends the
+        // massif. Painted low enough that the brush overlaps the floor
+        // `build_terrain` lays along the bottom of the world.
+        let (fx, fy) = (300, HEIGHT as i32 - 12);
+        app.world.paint_capsule_as((fx, fy), (fx, fy), 5, stone, 1.0, true);
+        let joined = (-5..=5)
+            .flat_map(|dy| (-5..=5).map(move |dx| (dx, dy)))
+            .filter(|&(dx, dy)| app.world.get(fx + dx, fy + dy).material == stone)
+            .map(|(dx, dy)| app.world.get(fx + dx, fy + dy).attached())
+            .collect::<Vec<_>>();
+        assert!(!joined.is_empty(), "test setup: nothing was painted against the floor");
+        assert!(joined.iter().any(|a| *a), "background painted against terrain should extend the massif");
     }
 
     #[test]

@@ -920,20 +920,35 @@ pub fn failing_region(world: &World, x: i32, y: i32, cache: &mut Cache, budget: 
 
 /// Ancestors a settling cell re-checks on its way to the anchor.
 ///
-/// **Set from the geometry it has to cover, not picked round.** A structure
-/// converges outward from its anchor, so the *last* cell to settle is the
-/// one furthest along the span — and it is the one whose settling completes
-/// the load that the neck behind it has to carry. The walk therefore has to
-/// reach from the far tip back to the neck, or the neck is only ever judged
-/// while the span beyond it is still half-converged.
+/// **Set from measurement, and the measurement overturned the previous
+/// reasoning here.** This was 128, justified by `scene=ligament`: at 16
+/// its neck stood at a stress ratio of 1.87, because the overhang's far
+/// end settles last and the walk had to reach back from there to the neck.
 ///
-/// Measured at 16: `scene=ligament`'s overhang is 110 cells long, its far
-/// end settles last, and the neck sat at a stress ratio of 1.87 — visibly
-/// overloaded, never re-checked, holding a 4,400-cell slab in the air.
-/// 128 covers any span this world can hold; the per-frame cell budget
-/// bounds the cost regardless, and `Cache::subtrees` makes every ancestor
-/// after the first walk close to free.
-const ROOTWARD_CHECK_STEPS: usize = 128;
+/// That is no longer true, and instrumenting it is what showed so. With
+/// the section failing rather than the cell (`failing_region`) and
+/// budget exhaustion reported rather than swallowed (`ChainVerdict`), the
+/// furthest any failure lands from the check that found it, across every
+/// scene, is:
+///
+/// ```text
+/// ligament 0    undercut 0    mine 0    snap 0    worked 29    strike 34
+/// ```
+///
+/// `ligament` is **zero** — the neck now fails on its own check, and the
+/// walk contributes nothing to the scene it was raised for. 48 is the
+/// measured maximum plus headroom, per `CLAUDE.md`'s "set bars from
+/// measurement with headroom, never from an aspiration and never sitting
+/// on the measured value".
+///
+/// The reduction matters beyond cost. `Reports/prior-art-destruction.md`
+/// flags a long walk as having 7 Days to Die's exact bug shape — a blow
+/// bringing down rock a hundred cells away, frames later, which players
+/// experienced as bases collapsing for no visible reason. A collapse the
+/// player did not cause is worse than one that does not happen, and this
+/// bounds how far a consequence can travel from its cause without needing
+/// the disturbance-anchored rework that idea originally called for.
+const ROOTWARD_CHECK_STEPS: usize = 48;
 
 /// `failing_region` for `(x, y)` **and its ancestors**, returning the first
 /// piece that comes away.

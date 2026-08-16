@@ -239,9 +239,27 @@ pub struct FailureCounts {
     pub overloaded_cells: u32,
     pub unsupported: u32,
     pub unsupported_cells: u32,
+    /// Furthest a failure has ever been found from the cell whose check
+    /// found it, in cells.
+    ///
+    /// Instrumentation for a decision, not a metric anyone needs at
+    /// runtime. `Reports/prior-art-destruction.md` flags
+    /// `ROOTWARD_CHECK_STEPS = 128` as having 7 Days to Die's exact bug
+    /// shape -- a blow bringing down rock a hundred cells away, frames
+    /// later, which players experienced as bases collapsing for no visible
+    /// reason. The proposed fix (bound the walk by distance from what
+    /// actually changed) contradicts that constant's own doc comment,
+    /// which records that 16 was too small and left `scene=ligament`'s neck
+    /// standing at a stress ratio of 1.87. So the question is empirical:
+    /// how far do failures *actually* land from their trigger here?
+    pub max_chain_reach: u32,
 }
 
 impl FailureCounts {
+    pub fn record_reach(&mut self, reach: u32) {
+        self.max_chain_reach = self.max_chain_reach.max(reach);
+    }
+
     pub fn record(&mut self, mode: crate::sim::load::FailureMode, cells: usize) {
         match mode {
             crate::sim::load::FailureMode::Overloaded => {
@@ -255,6 +273,11 @@ impl FailureCounts {
         }
     }
 }
+
+/// The four-neighbourhood, for the background brush's "must join the
+/// massif" test. Local rather than imported so `world` does not depend on
+/// `structural` for a constant.
+const NEIGHBOURS_4_PAINT: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
 impl World {
     pub fn new(bounds: Rect) -> Self {
@@ -1315,7 +1338,35 @@ impl World {
                 // therefore the only thing `render::GrainMode::Cell` can
                 // key grain on so the texture travels with the material.
                 let shade = (self.rng.below(shades) + shades * self.rng.below(256 / shades.max(1))) as u8;
-                self.set(x, y, Cell::new(material, shade).with_attached(attached && material != material::EMPTY));
+                // Background rock has to *join* background rock.
+                //
+                // `Cell::attached` means "backed by mass the slice cannot
+                // show". A floating island of it is a claim the model has
+                // no way to check and every way to be ruined by: attached
+                // rock carries a twelvefold capacity bonus, so a detached
+                // blob of it is very nearly indestructible terrain hanging
+                // in mid-air. "Paint indestructible terrain anywhere,
+                // unlimited" is the right tool for authoring a test scene
+                // and the wrong one for a game about building things that
+                // can fall down.
+                //
+                // So the brush extends the massif rather than conjuring
+                // it: a cell becomes background only if it touches
+                // background, bedrock, or the world edge (which reads as
+                // bedrock via `Cell::OUT_OF_BOUNDS`). Anything else lands
+                // as ordinary foreground and has to hold itself up. Terrain
+                // grows from terrain, which is the same statement
+                // `attached` was always making.
+                //
+                // Cheap now that C1 exists: material keyed into terrain
+                // gets the bonus at its joint anyway, so the case this
+                // used to be needed for is already served.
+                let keyed_to_massif = attached
+                    && NEIGHBOURS_4_PAINT.iter().any(|&(dx, dy)| {
+                        let n = self.get(x + dx, y + dy);
+                        n.attached() || n.material == material::BEDROCK
+                    });
+                self.set(x, y, Cell::new(material, shade).with_attached(keyed_to_massif && material != material::EMPTY));
                 // M17: either side of this write might be a `Solid`/`Plant`
                 // (architecture item 9) that just gained or lost a neighbour
                 // it was relying on -- placing new stone, or erasing existing
