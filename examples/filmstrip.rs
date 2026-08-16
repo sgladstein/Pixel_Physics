@@ -43,6 +43,8 @@
 use std::collections::HashSet;
 
 use pixel_physics::render::{FieldOverlay, GrainMode, OrganismOverlay, Renderer};
+mod common;
+
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::particle::ParticleSystem;
@@ -298,22 +300,11 @@ fn build(scene: &str) -> World {
         // to judge plant *shape* in. `forest` is kept as it is: it is
         // still the right scene for root/soil work, and every earlier
         // sheet was shot in it.
+        // Built from `common::PlantScene`, the same code `plant_probe`
+        // uses -- see that module for why these two harnesses may not build
+        // their own worlds any more.
         "grove" => {
-            let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
-            for x in 0..WIDTH {
-                for y in (GROVE_GROUND_Y + 34)..(GROVE_GROUND_Y + 40) {
-                    w.set(x, y, Cell::new(material::STONE, 0));
-                }
-                for y in GROVE_GROUND_Y..(GROVE_GROUND_Y + 34) {
-                    w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8).with_aux(material::SOIL_FIELD_CAPACITY));
-                }
-            }
-            // Spaced far enough apart to grow into each other only late,
-            // so early shape is the plant's own and late shape shows
-            // competition -- which is what a stand is for.
-            for x in [110, 250, 390] {
-                w.plant_tree(x, GROVE_GROUND_Y - 25);
-            }
+            return common::PlantScene::default().build();
         }
         other => panic!(
             "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove"
