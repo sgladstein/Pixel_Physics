@@ -130,6 +130,14 @@ pub enum Tool {
     Brush,
     /// Drag out a filled rectangle. Walls, floors, columns.
     Rect,
+    /// Drag out a **hollow** rectangle: four walls of the brush's width
+    /// around an empty middle. The tool for anything you can go inside.
+    ///
+    /// Worth its own mode rather than being a modifier on `Rect`, because
+    /// it is the one a player reaches for most once they are building
+    /// rather than sculpting -- and because it gives `brush_radius` a
+    /// second, better meaning here: wall thickness.
+    Room,
     /// Drag out a straight run of the current brush width. Beams,
     /// diagonals, bracing.
     Line,
@@ -210,13 +218,15 @@ impl App {
     pub fn cycle_tool(&mut self) {
         self.tool = match self.tool {
             Tool::Brush => Tool::Rect,
-            Tool::Rect => Tool::Line,
+            Tool::Rect => Tool::Room,
+            Tool::Room => Tool::Line,
             Tool::Line => Tool::Brush,
         };
         self.drag_from = None;
         self.show_toast(match self.tool {
             Tool::Brush => "TOOL: BRUSH - FREEHAND",
-            Tool::Rect => "TOOL: RECTANGLE - DRAG OUT A WALL",
+            Tool::Rect => "TOOL: RECTANGLE - DRAG OUT A SOLID BLOCK",
+            Tool::Room => "TOOL: ROOM - HOLLOW, BRUSH SETS WALL THICKNESS",
             Tool::Line => "TOOL: LINE - DRAG OUT A BEAM",
         });
     }
@@ -255,6 +265,19 @@ impl App {
                         break;
                     }
                     y = (y + step).min(y1);
+                }
+            }
+            // Four walls rather than a fill. Each is a capsule run, so the
+            // corners are covered twice and join properly -- a room drawn
+            // as four independent segments would leak at every corner,
+            // which for a structure means the roof is not actually carried
+            // by the walls.
+            Tool::Room => {
+                let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
+                let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
+                let r = self.brush_radius;
+                for (from, to) in [((x0, y0), (x1, y0)), ((x0, y1), (x1, y1)), ((x0, y0), (x0, y1)), ((x1, y0), (x1, y1))] {
+                    self.world.paint_capsule_as(from, to, r, m, density);
                 }
             }
             Tool::Line => {
@@ -606,6 +629,7 @@ impl App {
         let label = match self.tool {
             Tool::Brush => format!("{} R{}", self.selected_name(), self.brush_radius),
             Tool::Rect => format!("{} R{} - RECT", self.selected_name(), self.brush_radius),
+            Tool::Room => format!("{} R{} - ROOM", self.selected_name(), self.brush_radius),
             Tool::Line => format!("{} R{} - LINE", self.selected_name(), self.brush_radius),
         };
         hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
@@ -626,7 +650,7 @@ impl App {
         // about to commit before they release.
         if let (Some(from), Some(to)) = (self.drag_from, cursor) {
             match self.tool {
-                Tool::Rect => {
+                Tool::Rect | Tool::Room => {
                     let (x0, x1) = (from.0.min(to.0), from.0.max(to.0));
                     let (y0, y1) = (from.1.min(to.1), from.1.max(to.1));
                     for x in x0..=x1 {
@@ -1023,12 +1047,13 @@ impl App {
             "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
             "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
             "",
-            "C STRIKE ROCK    F IGNITE    P BURST    X EXPLODE",
+            "C STRIKE ROCK    D DIG (PRECISE CUT)",
+            "F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
             "",
             "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
             "N STRESS VIEW (GREEN AT REST, RED AT ITS LIMIT)",
-            "Z TOOL: BRUSH / RECTANGLE / LINE  (DRAG OUT A SHAPE)",
+            "Z TOOL: BRUSH / RECT / ROOM / LINE  (DRAG OUT A SHAPE)",
             "F1 CHUNK OVERLAY    G WATER GRAIN",
             "",
             "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
@@ -1171,6 +1196,14 @@ impl App {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         let force = self.brush_radius as f32 * STRIKE_FORCE_PER_RADIUS;
         crate::sim::rigid::strike(&mut self.world, x, y, self.brush_radius, force);
+    }
+
+    /// Cut rock away precisely under the cursor — the *mining* verb, as
+    /// distinct from the eraser, which deletes matter and tells the
+    /// structural model nothing. See `rigid::mine`.
+    pub fn mine(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        crate::sim::rigid::mine(&mut self.world, x, y, self.brush_radius);
     }
 
     /// Plant a tree seed at a screen position — M16 debug tool. See
@@ -1505,6 +1538,43 @@ mod tests {
         let debris = app.world.materials.get(stone).breaks_into.expect("stone must define a breaks_into");
         let crumbled = (0..WIDTH as i32).any(|x| (0..h).any(|y| app.world.get(x, y).material == debris));
         assert!(!crumbled, "some terrain broke free despite nothing disturbing it");
+    }
+
+    #[test]
+    fn the_room_tool_leaves_an_interior_you_could_walk_into() {
+        // Reported from play: "right now we are just building a solid
+        // block, but we will want interiors of an external structure ...
+        // like you can go inside." Asserts both halves, because either
+        // alone passes against a broken tool: walls all round, and a middle
+        // that is genuinely empty. A hollow rectangle that leaked at a
+        // corner would also fail the wall checks, which is the failure mode
+        // worth catching -- for a structure, a corner gap means the roof is
+        // not actually carried by the walls.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        app.select_material(app.paintable.iter().position(|&m| m == stone).unwrap() + 1);
+        app.cycle_tool(); // Rect
+        app.cycle_tool(); // Room
+        assert_eq!(app.tool, Tool::Room);
+
+        let (ax, ay, bx, by) = (60, 50, 200, 140);
+        app.begin_drag(ax, ay);
+        app.end_drag(bx, by, false);
+
+        let (wx0, wy0) = app.renderer.screen_to_world(ax, ay);
+        let (wx1, wy1) = app.renderer.screen_to_world(bx, by);
+        let (cx, cy) = ((wx0 + wx1) / 2, (wy0 + wy1) / 2);
+        let stone_near = |x: i32, y: i32| {
+            (-3..=3).flat_map(|dy| (-3..=3).map(move |dx| (dx, dy))).any(|(dx, dy)| app.world.get(x + dx, y + dy).material == stone)
+        };
+
+        assert!(stone_near(cx, wy0), "the room has no top wall");
+        assert!(stone_near(cx, wy1), "the room has no bottom wall");
+        assert!(stone_near(wx0, cy), "the room has no left wall");
+        assert!(stone_near(wx1, cy), "the room has no right wall");
+        // The interior is the whole point: a fill would pass every wall
+        // check above and still be a solid block.
+        assert!(!stone_near(cx, cy), "the room is solid -- there is nothing to go inside");
     }
 
     #[test]

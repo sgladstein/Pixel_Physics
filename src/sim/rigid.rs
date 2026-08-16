@@ -780,6 +780,70 @@ fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, ray
 /// Struck rock that was already unsupported still gets picked up by the
 /// ordinary structural cascade afterwards, so hitting the base of an
 /// overhang both throws chips *and* brings the overhang down a moment later.
+/// Cut rock away precisely, and *tell the structure about it*.
+///
+/// # Why the eraser is not this
+///
+/// `Reports/design-philosophy.md` §0a records the original sin of this
+/// whole subsystem: destruction could only be provoked by **erasing**
+/// support, and "an eraser delivers no load and no impulse, so nothing
+/// ever failed from being struck." `strike` fixed that for blunt force
+/// and nothing fixed it for *precise removal* -- so the eraser is still a
+/// magic wand that deletes matter with no consequence, which is the one
+/// destructive verb in the engine that a player can use without the
+/// structural model noticing.
+///
+/// That gap became urgent the moment rooms did: carving a doorway through
+/// a wall is precise removal, and doing it with the eraser means the
+/// lintel above never learns it is now spanning a gap.
+///
+/// So this is `strike`'s pipeline at a smaller, aimed scale: it takes the
+/// bite, it loosens the rock around the wound, it scores short cracks, it
+/// shoves the air, and what it frees is handed to `fracture` rather than
+/// deleted. Deliberately *not* a blast -- no minimum radius, no thrown
+/// slabs, no cracks running twenty cells. A chisel, not a hammer.
+pub fn mine(world: &mut World, cx: i32, cy: i32, radius: i32) {
+    let radius = radius.max(1);
+    let mut loosened = Vec::new();
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let (x, y) = (cx + dx, cy + dy);
+            let d2 = dx * dx + dy * dy;
+            if d2 > radius * radius || !world.in_bounds(x, y) {
+                continue;
+            }
+            if !is_body_material(world, x, y) || world.get(x, y).organism_id() != 0 {
+                continue;
+            }
+            shatter_to_rubble(world, x, y); // the cut itself: material, not vacuum
+            loosened.push((x, y));
+        }
+    }
+    if loosened.is_empty() {
+        return;
+    }
+    // Short, so a chisel weakens what it is cutting through without
+    // fissuring the whole wall the way a swing does.
+    score_cracks(world, cx, cy, radius, radius + MINE_CRACK_REACH, MINE_CRACK_RAYS);
+    // The rock around the cut stops being braced, which is what makes a
+    // doorway's lintel notice the doorway.
+    for &(x, y) in &loosened {
+        super::structural::detach_exposed_neighbours(world, x, y);
+        world.schedule_structural_check_around(x, y);
+    }
+    world.add_pressure_impulse(cx, cy, radius.max(2), loosened.len() as f32 * MINE_PRESSURE);
+}
+
+/// How far a chisel's fissures run past its own bite, and how many. Both
+/// small: this is the precise verb, and cracks that ran like a blow's
+/// would make careful work impossible.
+const MINE_CRACK_REACH: i32 = 2;
+const MINE_CRACK_RAYS: u32 = 3;
+
+/// Pressure a cut writes, per cell removed. Enough that smoke and grit
+/// react, far below a blow.
+const MINE_PRESSURE: f32 = 0.4;
+
 pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     // A blow has a floor, and the brush does not.
     //
@@ -1541,6 +1605,38 @@ mod tests {
         // Somewhere along the floor, where it actually came down.
         let felt = (0..64).any(|x| (55..64).any(|y| w.field_at(x, y).pressure.abs() > 0.5));
         assert!(felt, "a slab fell the height of the world, landed, and shoved no air at all");
+    }
+
+    #[test]
+    fn digging_a_doorway_tells_the_wall_above_it() {
+        // The verb gap `Reports/design-philosophy.md` §0a names as this
+        // subsystem's original sin, closed for precise removal: "an eraser
+        // delivers no load and no impulse, so nothing ever failed from
+        // being struck." Carving a doorway with the eraser leaves the
+        // lintel above it unaware it is now spanning a gap; carving it with
+        // `mine` must not.
+        let mut w = test_world();
+        for y in 20..50 {
+            for x in 10..50 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        crate::sim::structural::compute_world_distances(&mut w);
+        let before = count_material(&w, material::STONE);
+        assert_eq!(w.field_at(30, 45).pressure, 0.0, "test setup: starts at ambient pressure");
+
+        mine(&mut w, 30, 45, 4);
+
+        assert!(count_material(&w, material::STONE) < before, "digging removed nothing");
+        // The three things the eraser does not do, which are the whole
+        // point of this being a verb rather than a deletion.
+        assert!(w.field_at(30, 45).pressure.abs() > 0.0, "a cut should shove the air");
+        assert!(w.active_site_count() > 0, "the structure was never told anything was cut out of it");
+        let loosened = (25..36).any(|x| (40..50).any(|y| {
+            let c = w.get(x, y);
+            c.material == material::STONE && !c.attached()
+        }));
+        assert!(loosened, "the rock around the cut is still claiming to be intact");
     }
 
     #[test]

@@ -286,6 +286,11 @@ impl Handler {
                     self.app.strike(x, y);
                 }
             }
+            KeyCode::KeyD => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.mine(x, y);
+                }
+            }
             KeyCode::KeyT => {
                 if let Some((x, y)) = self.cursor {
                     self.app.plant_tree(x, y);

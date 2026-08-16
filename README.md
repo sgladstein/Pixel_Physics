@@ -32,7 +32,8 @@ cargo test
 | `W` | Plant a worm under the brush (M18 debug tool) |
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
 | `N` | Toggle the structural stress view — every load-bearing cell tinted green at rest through red at its limit |
-| `Z` | Cycle the build tool — freehand brush, drag-out rectangle, drag-out line |
+| `D` | Dig — a precise cut that loosens and cracks the rock around it, unlike the eraser |
+| `Z` | Cycle the build tool — freehand brush, solid rectangle, hollow room, line |
 | `V` | Cycle the field overlay: off → pressure → temperature → light → moisture → off |
 | `G` | Cycle how a liquid's brightness grain is generated: position (default) → cell → muted → animated → motion → animated-muted → animated-smooth. Kept as a live selector so the look can keep being iterated on. The animated variants have to redraw liquid chunks the sweep never touched, so they are the only ones that cost anything: measured on a fully settled world with water across 92% of the width, animated-muted costs 1.45 ms and animated-smooth 7.5 ms, against 0.000 ms for every other mode and for any of them with no water on screen. Exists so the variants can be judged on real moving water rather than argued about; the active one is shown in the title bar. See `render::GrainMode`, and expect this key and the enum to disappear together once one is chosen. |
 | `K` | **A/B key.** Flips whatever is being evaluated right now between its baseline and candidate value, so a comparison is one keypress rather than a scroll through a panel. Deliberately reassigned whenever the question changes, with the previous experiment deleted rather than accumulated — see `App::toggle_experiment` for what it currently does. |
