@@ -860,6 +860,31 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
 
     let supported = is_supported(world, x, y, &mut cache.anchors, budget);
     let (mass, moment, truncated) = subtree_sum(world, x, y, &mut cache.subtrees, budget);
+    // **Load concentrates through a single path, and that is the open
+    // defect this model has left.** Reported from play: a beefy block with
+    // holes in it broke immediately while a thin arch beside it stood, and
+    // the stress view showed a **one-pixel red line** through an otherwise
+    // green structure. The line is not a display artifact -- it is the
+    // whole building's weight routed through one cell.
+    //
+    // The cause is that the support forest is a shortest-path *tree*: where
+    // several parallel routes exist it picks exactly one, so material above
+    // a hole is carried entirely by whichever side the `NEIGHBOURS_4`
+    // tie-break chose, however thick the other side is.
+    //
+    // **Dividing the moment by the section was tried here and reverted.**
+    // It fixed the block and broke `scene=undercut`, and the reason is
+    // worth keeping: peak bending stress in a section of depth D is M/D²,
+    // which this model already had right (capacity carries the D², torque
+    // carries the M). Dividing again makes it M/D³ -- over-strong, so an
+    // undercut shelf stops spalling. Worse, it double-counts: in a shelf
+    // the rows *already* chain independently to the cliff, so that sharing
+    // is present in the tree and must not be applied twice.
+    //
+    // The real fix is load sharing between genuinely parallel supports,
+    // which is a flow problem rather than a tree one, and is what
+    // `Reports/destruction-plan.md`'s E1 (push damage outward from the
+    // break) is shaped to address. Recorded rather than bodged.
     let torque = (moment - x as i64 * mass as i64).abs();
     Some(Load { mass, moment, torque, capacity: capacity(world, x, y), supported, truncated })
 }

@@ -1005,6 +1005,17 @@ fn blocked_axis(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32) -
     let (ox, oy) = (next_x.round() as i32, next_y.round() as i32);
     let mut horizontal = false;
     let mut vertical = false;
+    // Built once per call and lent downward, rather than rebuilt inside
+    // `displace` for every cell that needs shoving.
+    //
+    // Reported from play: "when something big breaks into lots of little
+    // pieces, the performance gets bad." This was one of the reasons. The
+    // set is the body's own cells, so building it per displaced cell made
+    // a single substep O(cells²) in hashing *and* allocated a fresh
+    // `HashSet` each time -- and the fracture work multiplied how many
+    // bodies are in flight at once by roughly eight, so a collapse paid
+    // that cost a hundred times a frame.
+    let occupied: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
 
     for cell in &body.cells {
         let (tx, ty) = (ox + cell.dx, oy + cell.dy);
@@ -1012,7 +1023,7 @@ fn blocked_axis(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32) -
         if (tx, ty) == (cx, cy) {
             continue; // this cell is not actually changing position this substep
         }
-        if !world.in_bounds(tx, ty) || !clear_or_displaceable(world, body, tx, ty) {
+        if !world.in_bounds(tx, ty) || !clear_or_displaceable(world, &occupied, tx, ty) {
             // Attribute the block to the axis this cell was moving along.
             if tx != cx {
                 horizontal = true;
@@ -1034,7 +1045,7 @@ fn blocked_axis(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32) -
 /// Whether `(x, y)` is available for a body cell to occupy — either already
 /// empty, or holding loose material that could be shoved aside. Actually
 /// performs the shove when it can, which is why this takes `&mut World`.
-fn clear_or_displaceable(world: &mut World, body: &ChunkBody, x: i32, y: i32) -> bool {
+fn clear_or_displaceable(world: &mut World, occupied: &HashSet<(i32, i32)>, x: i32, y: i32) -> bool {
     // A cell the body itself currently occupies is not an obstacle: bodies
     // are lifted out of the grid on promotion, so anything found here
     // belongs to the world, not to this body -- but a *neighbouring* body
@@ -1046,7 +1057,7 @@ fn clear_or_displaceable(world: &mut World, body: &ChunkBody, x: i32, y: i32) ->
     if !matches!(kind, MaterialKind::Powder | MaterialKind::Liquid) {
         return false; // solid, plant, creature -- a real obstruction
     }
-    displace(world, body, x, y)
+    displace(world, occupied, x, y)
 }
 
 /// Shove the loose cell at `(x, y)` to the nearest empty cell that the body
@@ -1056,8 +1067,7 @@ fn clear_or_displaceable(world: &mut World, body: &ChunkBody, x: i32, y: i32) ->
 /// teleporting to whichever cell scan order happened to reach first — the
 /// same shape, and the same reasoning, as `particle::land`'s own
 /// nearest-empty search.
-fn displace(world: &mut World, body: &ChunkBody, x: i32, y: i32) -> bool {
-    let occupied: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+fn displace(world: &mut World, occupied: &HashSet<(i32, i32)>, x: i32, y: i32) -> bool {
     for ring in 1..=DISPLACE_SEARCH {
         for dy in -ring..=ring {
             for dx in -ring..=ring {
