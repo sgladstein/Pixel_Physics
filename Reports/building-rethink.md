@@ -306,3 +306,67 @@ Decide that rather than silencing the warning.
 Step 2 should keep the stress view honest: intact material should read as
 *not evaluated* rather than green, or the overlay will claim a stress
 number for cells the model is no longer asking about.
+
+
+---
+
+## 6. Playtest after the reframe: one dig unzips a room, and it comes down as dust
+
+**Reported:** *"one click of D and the room collapses, unzips"*, and
+separately *"when structures break, I wish things tilted and fell over
+more as large pieces. It seems structures still mostly crumble instead of
+breaking into pieces and falling over."* The screenshot settles it: a room
+cut once is a uniform field of grit with two wall stubs left standing.
+There is not one coherent slab in it.
+
+**These are one failure, not two.** A cascade that advances one cell at a
+time necessarily produces dust, because the region handed to
+`rigid::fracture` at each step is tiny -- below `MIN_FRACTURE_CELLS` (6)
+it is not fractured at all, it falls through to per-cell `break_free`, and
+per-cell conversion *is* powder. Fix the unzip and the pieces get large
+for free; tune the fragment ladder without fixing the unzip and nothing
+changes, because the ladder never gets a region worth splitting.
+
+### The mechanism to check first
+
+`load::is_structurally_interesting` returns true for an intact cell that
+is **adjacent to empty**. So removing material makes its neighbours
+evaluable, and if they fail they are removed, which makes *their*
+neighbours evaluable. That is a self-propagating front, and nothing about
+it is bounded by how much damage was actually done -- one dig can walk it
+across an entire structure.
+
+Under the old model this was survivable because built material was
+unattached and *already* being evaluated everywhere, so the front had
+nowhere new to spread. Making material intact did not remove the front; it
+just meant the front now has fresh territory to advance into.
+
+Three candidates, in the order worth measuring:
+
+1. **The front itself.** Adjacency to empty should probably not be what
+   makes an intact cell evaluable -- damage should be. If only *cracked*
+   or *loosened* cells are evaluated, a cut is judged where it was cut and
+   the front cannot advance into intact rock at all. This is the smallest
+   change and the most likely fix; it is also the exemption-shaped move
+   that §3a warns about, so it must be checked against "does a genuinely
+   unsound structure still fall".
+2. **The detach footprint.** `mine` calls `detach_exposed_neighbours`
+   (radius `DETACH_DEPTH`, 3) for *every* cell it removes, so a radius-4
+   cut strips protection from a band roughly 13 cells wide. On a wall
+   thinner than that, one dig un-protects the entire section. `strike`
+   does the same over its chip zone. That radius was chosen when
+   `attached` meant "background" and detaching wide was nearly free; it
+   now sets how much of a structure loses its multiplier per click.
+3. **The region size at failure.** Even a correct cascade should hand
+   `fracture` something worth splitting. Worth printing the *size
+   distribution* of failing regions, not just the count -- `filmstrip`
+   already reports `overloaded N (M cells)`, and `M/N` is the number that
+   says whether pieces or grit are coming out.
+
+### On "tilted and fell over"
+
+Chunk bodies already tumble (`ChunkBody::spin`, quarter-turns) and already
+get a sideways nudge on promotion. None of that is visible while the
+regions are one cell, because a single cell has no orientation to show.
+Nothing suggests the tumbling is broken -- it has had nothing to tumble.
+Re-judge it only after the region sizes are fixed.
