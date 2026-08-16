@@ -184,10 +184,21 @@ organism per tick. Thickening kills the buds it covers at
 273 dormant buds, against 0 and 0 before), and buds track extension rather
 than volume.
 
-**And the shape is worse, for a reason worth having found.** Every tree
-reaches the turgor bound, buds keep flushing, up is forbidden, so growth
-goes sideways: the eight crowns fuse into one slab 136 cells across at
-exactly that row, with limbs drooping off it. Nothing bounds lateral
+**And the shape regressed, for a reason worth having found — now fixed by
+`crowding_weight: 0.5 -> 6.0`.** Every tree reaches the turgor bound, buds
+keep flushing, up is forbidden, so growth went sideways: the eight crowns
+fused into one slab 136 cells across at exactly that row.
+
+**At the turgor bound a stand's light-optimal shape *is* a flat slab.**
+`ambient_light_above` is per-column sky visibility, so a canopy one cell
+thick pressed against the ceiling has every column lit and income grows
+with width, which nothing bounds. Growth follows light, so growth finds the
+slab — the light model rewards the artifact. Lateral crowding is the only
+term that opposes it, which is exactly how real forests bound a closed
+canopy. Swept: 0.5 -> 136 cells, 1.5 -> 106, 3.0 -> 82, 6.0 -> 39 against a
+57-cell tree spacing. Raising outer-tier `upward_weight` and branching along
+the trunk both made it worse (120, 118, 71) by pushing more growth into the
+ceiling. Nothing bounds lateral
 spread — and the mechanism that was supposed to has never run.
 `crowding_weight` is 0.5 in `tree.ron` and `canopy_density` measures
 **0.000 max** on a grown stand, because decay erases the deposit before
