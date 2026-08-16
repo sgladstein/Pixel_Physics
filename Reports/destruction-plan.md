@@ -84,8 +84,21 @@ the handoff asked for. Show mass, torque, capacity, stress ratio, and
 which of the two failure modes would fire. Near zero cost — the inspector
 already forces a full redraw while open.
 
-**A2. A stress overlay behind a key.** Colour every structurally
-interesting cell by stress ratio. This is Poly Bridge's primary UI and
+**A2. A stress overlay behind a key. Key decided: `N`** -- free
+(`main.rs` uses B C E F G I K M O P Q R S T V W X plus punctuation),
+and the same key Medieval Engineers binds its stress view to, so nobody
+has to learn a different one.
+
+*Not yet built, and the reason is worth recording.* `load::evaluate`
+walks a subtree, so colouring every visible cell every frame is not
+viable at 512x320: the pass has to share one `load::Cache` across the
+whole screen (making it O(region) rather than O(region x subtree)), needs
+a public cached entry point -- `evaluate_within` is private and the
+unbudgeted `evaluate` deliberately builds a fresh cache per call -- and
+needs a world-to-screen mapping when only `screen_to_world` exists. None
+of that is hard; all of it is more than the item's stated size implied.
+
+Colour every structurally interesting cell by stress ratio. This is Poly Bridge's primary UI and
 Medieval Engineers' `N` view. Costs the dirty-rect skip *only while
 enabled*, which is the animated-grain lesson and is acceptable on the same
 terms.
@@ -196,7 +209,13 @@ that can fall down.
 
 ## Phase D — Make destruction eager and chunky
 
-**D1. Fail the *section*, not the cell.** The highest-value change
+**D1. Fail the *section*, not the cell. BUILT.** Measured on
+`scene=worked`: bodies at the first capture went from 13 (255 cells) to
+102 (1,888 cells), debris that dissolved rather than calving fell from
+277 cells to 30, and the surviving 1-cell skin is gone -- the shelf comes
+down completely for the first time since this work began.
+
+The highest-value change
 available, and one fix for three separate symptoms.
 
 Because the `NEIGHBOURS_4` tie-break makes horizontal parents win, a slab
@@ -367,10 +386,11 @@ A1 A3 A4   legibility + the neck reading as the neck   DONE
 B1 B2 B3   turn the model on for built structures      DONE
 D2         landing feedback                            DONE
 C1         keying from the support parent              DONE
-F1 F2      trustworthy timings, acceptance harness     (small, next)
-D1         fail the section, not the cell              (medium, highest value)
-A2         stress overlay                              (small)
+F1 F2      trustworthy timings, acceptance harness     DONE
+D1         fail the section, not the cell              DONE
+A2         stress overlay (key decided: N)             (small, next)
 C3 C4      locality, and bound the background brush    (small)
+F3 F5      replay a playtest report, guard frame cost  (medium)
 D3 C2      fragment ladder, mortar                     (medium)
 E1         push damage from the break                  (large, subsumes work)
 ```
