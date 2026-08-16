@@ -378,9 +378,23 @@ impl App {
             floor += 1;
         }
         let half = REFERENCE_ROOM_SPAN / 2;
-        let a = (cx - half, floor - REFERENCE_ROOM_HEIGHT);
-        let b = (cx + half, floor);
-        self.paint_room(a, b, self.brush_radius, stone, 1.0);
+        let top = floor - REFERENCE_ROOM_HEIGHT;
+        // **Refuse rather than build a smaller one.** Generated terrain
+        // (M10) puts the surface anywhere, and on a hilltop there is not
+        // 160 cells of headroom -- a room clipped by the top of the world
+        // is not the reference size, and silently stamping one would be a
+        // measuring stick that changes length depending where you stand.
+        // Say so instead: the whole value of this key is that its answer
+        // means the same thing every time.
+        let margin = self.brush_radius;
+        if top - margin < 0 || cx - half - margin < 0 || cx + half + margin >= WIDTH as i32 {
+            self.show_toast(format!(
+                "NO ROOM FOR A {}x{} REFERENCE HERE - NEEDS CLEAR SKY AND SIDES",
+                REFERENCE_ROOM_SPAN, REFERENCE_ROOM_HEIGHT
+            ));
+            return;
+        }
+        self.paint_room((cx - half, top), (cx + half, floor), self.brush_radius, stone, 1.0);
         self.show_toast(format!(
             "REFERENCE ROOM {}x{} STONE - WALLS {} THICK",
             REFERENCE_ROOM_SPAN,
@@ -1728,29 +1742,64 @@ mod tests {
         let sand = id(&app, "sand");
         assert_eq!(app.selected_material(), sand, "test setup: the app is expected to start on sand");
 
-        let (sx, sy) = (256, 40);
-        let (cx, cy) = app.renderer.screen_to_world(sx, sy);
-        // Read the terrain surface *before* stamping. Afterwards the first
-        // solid cell down this line is the room's own roof, which is how
-        // the first version of this test managed to look for a wall a
-        // hundred and sixty cells above where one was.
-        let ground = (cy..HEIGHT as i32).find(|&y| app.world.get(cx, y).material != material::EMPTY).expect("terrain under the cursor");
+        // Terrain is *generated*, so the surface height is not something
+        // this test may assume -- an earlier version hardcoded the middle
+        // of the screen and broke the day worldgen became the default,
+        // which is the right kind of breakage but not what this test is
+        // about. Find a column with the headroom the room actually needs.
+        let half = REFERENCE_ROOM_SPAN / 2;
+        let need = REFERENCE_ROOM_HEIGHT + app.brush_radius;
+        let ground_at = |app: &App, x: i32| (0..HEIGHT as i32).find(|&y| app.world.get(x, y).material != material::EMPTY);
+        let cx = (half + app.brush_radius..WIDTH as i32 - half - app.brush_radius)
+            .find(|&x| ground_at(&app, x).is_some_and(|g| g > need))
+            .expect("no column in the generated world has room for a reference room");
+        let ground = ground_at(&app, cx).expect("ground at the chosen column");
+
+        let (sx, sy) = (cx, 0);
         app.stamp_reference_room(sx, sy);
         let stone_near = |x: i32, y: i32| {
             (-4..=4).flat_map(|dy| (-4..=4).map(move |dx| (dx, dy))).any(|(dx, dy)| app.world.get(x + dx, y + dy).material == stone)
         };
 
-        let half = REFERENCE_ROOM_SPAN / 2;
-        let top = ground - 1 - REFERENCE_ROOM_HEIGHT;
-        assert!(stone_near(cx - half, ground - REFERENCE_ROOM_HEIGHT / 2), "no left wall at the stated span");
-        assert!(stone_near(cx + half, ground - REFERENCE_ROOM_HEIGHT / 2), "no right wall at the stated span");
-        assert!(stone_near(cx, top), "no roof at the stated height");
-        assert!(!stone_near(cx, ground - REFERENCE_ROOM_HEIGHT / 2), "the reference room is solid, not a room");
-        // Nothing was painted in the material the app happened to be
-        // holding -- the reference is fixed, not a palette shortcut.
+        let mid = ground - 1 - REFERENCE_ROOM_HEIGHT / 2;
+        assert!(stone_near(cx - half, mid), "no left wall at the stated span");
+        assert!(stone_near(cx + half, mid), "no right wall at the stated span");
+        // The roof is the assertion that carries the "always stone" claim
+        // as well as the height one: it sits 160 cells above the ground in
+        // open air, so stone there cannot have come from the terrain and
+        // can only have been stamped. A version keyed to the palette would
+        // have put sand there and this would fail.
+        //
+        // Deliberately *not* a world-wide sand count, which is what the
+        // first attempt used and which fails for an honest reason -- the
+        // walls displace sand the generator placed, so the count legitimately
+        // drops. A metric that moves when the feature is working is worse
+        // than no metric.
+        assert!(stone_near(cx, ground - 1 - REFERENCE_ROOM_HEIGHT), "no roof at the stated height, or it was not built from stone");
+        assert!(!stone_near(cx, mid), "the reference room is solid, not a room");
+    }
+
+    #[test]
+    fn a_reference_room_with_nowhere_to_stand_is_refused_rather_than_shrunk() {
+        // The other half of "the size it claims". Generated terrain puts
+        // the surface anywhere, so a hilltop or a world edge can leave less
+        // than the room needs -- and a measuring stick that quietly comes
+        // out shorter when there is less space is worse than no measuring
+        // stick. Asserts the refusal changes *nothing*, not merely that it
+        // does not crash.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        let count_stone =
+            |app: &App| (0..WIDTH as i32).flat_map(|x| (0..HEIGHT as i32).map(move |y| (x, y))).filter(|&(x, y)| app.world.get(x, y).material == stone).count();
+
+        let before = count_stone(&app);
+        // Hard against the left edge: the room's own span cannot fit
+        // beside it whatever the terrain is doing.
+        app.stamp_reference_room(1, 0);
+        assert_eq!(count_stone(&app), before, "a reference room was stamped where its full span does not fit");
         assert!(
-            !(0..HEIGHT as i32).any(|y| app.world.get(cx, y).material == sand),
-            "the reference room was built from the selected material instead of stone"
+            app.toast.as_ref().is_some_and(|(m, _)| m.contains("NO ROOM")),
+            "the refusal was silent -- a key that does nothing reads as broken"
         );
     }
 
