@@ -794,6 +794,32 @@ permanently.
   a reachable multiplayer architecture).
 - The light field was never wired up (`add_light` has exactly one caller, a
   test) — **this is unbuilt work, not a regression.**
+- **Appearance should eventually be a readout of physical state, and
+  heritable — later goal, stated by the owner.** Colour today is authored
+  data: a species declares a palette band range and an individual draws one
+  band inside it (`Reports/plant-appearance-design.md` §3). The end state is
+  that what a plant *looks* like is derived from what is true of it —
+  foliage hue from nitrogen/chlorophyll status and light history, autumn
+  colour from the temperature channel, bark from age and thickness, pallor
+  from drought — so a sick plant looks sick without a rule that says so.
+  **Two concrete blockers, recorded now because they are cheap to fix early
+  and expensive later:**
+  1. The individual's band is keyed on `(world seed, germination
+     coordinate)`, exactly like the genotype. That is **positional, not
+     inherited** — offspring of a dark-leaved parent draw whatever their
+     landing spot dictates — so colour as it stands *cannot evolve*. It has
+     to move onto the heritable genome before selection can act on it, and
+     the genotype slots are positional forever, so widening
+     `GENOTYPE_TRAITS` for it should ride along with the root-trait
+     widening already queued for slots 6+ rather than happening twice.
+  2. A derived colour has to stay *legible* — the same trap
+     `CLAUDE.md`'s debug-overlay rule records. A hue that is a continuous
+     function of four physical channels converges on mud across a stand;
+     the band structure exists precisely so variation is visible, and a
+     physical derivation should pick a band and modulate *within* it rather
+     than replacing it with a free-floating colour.
+  Not scheduled. Wants the light/temperature economy and a real heritable
+  genome under it first.
 
 ### Priority order (`Reports/emergent-world-architecture.md` §11, folded with the issues backlog below)
 

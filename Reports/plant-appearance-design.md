@@ -281,3 +281,52 @@ first time (§4a). Flagged rather than claimed either way.
 - There is no `wiki/plants.md`. Every other subsystem has a page describing
   what it looks like when it is right; plants do not, and the appearance work
   is exactly the kind this repo's own convention says should have one.
+
+## 7. The end state: colour as a readout, and heritable
+
+Stated by the owner as a later goal, recorded here and in `PLAN.md`'s settled
+decisions so the intermediate steps do not build away from it.
+
+**Today's colour is authored data.** A species declares a band range; an
+individual draws a band inside it. That is the right *first* move — it is
+what separates three species that were previously identical, and it costs
+nothing — but it says nothing true about the plant. The end state is that
+appearance is **derived from physical state**: foliage hue from nitrogen and
+chlorophyll status and light history, autumn colour from the temperature
+channel (which oscillates and would need `noon_equivalent_light`'s treatment
+— see `CLAUDE.md`), bark from age and accumulated thickening, pallor from
+drought. A sick plant should look sick because it *is* sick, not because a
+rule paints it.
+
+Two blockers are worth stating now rather than discovering later.
+
+**1. The current draw is positional, so it cannot evolve.** The band is keyed
+on `(world seed, germination coordinate)` — deliberately, matching the
+genotype, so a plant's colour survives planting order and save/load. But that
+key is the *place*, not the *parent*. Offspring of a dark-leaved individual
+draw whatever their landing spot dictates, so selection has nothing to act
+on. Colour has to move onto the heritable genome before "do they change with
+evolution" is even a question the engine can answer.
+
+Because genotype slots are positional forever (renumbering one rewrites every
+genome ever measured), that widening should ride along with the root-trait
+widening already queued for slots 6+ in the handoff, not happen as a second
+pass.
+
+**2. A derived colour must stay legible.** This is `CLAUDE.md`'s
+debug-overlay lesson in a new costume. A hue computed as a continuous
+function of four physical channels converges on the same muddy average across
+a whole stand — every plant sits near the population mean on most channels,
+so the differences that survive are a few colour bytes and read as no
+variation at all, which is the exact complaint this work started from.
+
+The band structure is the defence: a physical derivation should **select a
+band and modulate within it**, keeping the coarse, legible separation while
+the fine variation carries the physiology. Bands are already four tonal steps
+wide with room to grow, and `Cell::shade` is a full byte, so there is space
+for this without another engine change.
+
+Not scheduled. It wants the light and temperature economy and a real
+heritable genome under it first — and, on the evidence of §5, it wants the
+foliage to be a large enough fraction of the plant that a hue change is
+visible at all.
