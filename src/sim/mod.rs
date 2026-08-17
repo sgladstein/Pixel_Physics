@@ -73,6 +73,7 @@ pub mod scheduler;
 pub mod structural;
 pub mod surface;
 pub mod update;
+pub mod weather;
 pub mod world;
 
 pub use cell::Cell;
