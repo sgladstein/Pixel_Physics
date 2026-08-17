@@ -455,7 +455,22 @@ fn build(args: &Args) -> World {
             // than merely weakening it, so it manufactures pieces that have
             // to find a new way to the ground.  is the quiet cut. The
             // owner plays with the hammer, and nothing here covered it.
-            if args.strike > 0 {
+            // Can a tunnel be dug and stay open? The question the whole
+            // milestone is about, and nothing here has ever asked it: every
+            // scene cut *once*. A tunnel is the case where each bite stands
+            // on the last one's spoil and under the last one's roof, so it
+            // is the one that compounds.
+            //
+            // Driven in one burst rather than over time, deliberately: a
+            // player digging at their own pace lets each bite settle before
+            // the next, so this is the harsher reading of the same verb.
+            if args.tunnel > 0 {
+                let step = args.dig * 2 + 1;
+                let depth = surface + args.dig * 3;
+                for i in 0..args.tunnel {
+                    pixel_physics::sim::rigid::mine(&mut w, x + i * step, depth, args.dig);
+                }
+            } else if args.strike > 0 {
                 let force = args.strike as f32 * 0.9;
                 pixel_physics::sim::rigid::strike(&mut w, x, surface + args.strike, args.strike, force);
             } else if args.dig > 0 {
@@ -801,6 +816,8 @@ struct Args {
     dig: i32,
     /// Strike radius for scene=worldcrack. Zero means dig instead.
     strike: i32,
+    /// Number of dig bites driven horizontally into the hill, as a tunnel.
+    tunnel: i32,
     /// `relax=1` -- run a **converged** distance pass straight after the
     /// dig, instead of letting the scheduled relaxation reconverge over the
     /// following frames.
@@ -943,6 +960,7 @@ fn parse() -> Args {
         wall: 3,
         dig: 3,
         strike: 0,
+        tunnel: 0,
         relax: false,
         span: 200,
     };
@@ -994,6 +1012,7 @@ fn parse() -> Args {
             "wall" => a.wall = v.parse().expect("wall"),
             "dig" => a.dig = v.parse().expect("dig"),
             "strike" => a.strike = v.parse().expect("strike"),
+            "tunnel" => a.tunnel = v.parse().expect("tunnel"),
             "relax" => a.relax = v != "false",
             "span" => a.span = v.parse().expect("span"),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
