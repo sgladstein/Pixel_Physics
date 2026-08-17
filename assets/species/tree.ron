@@ -426,7 +426,7 @@
             // (target/filmstrips/p13-shed-grove.png): bare boles, foliage
             // tufted at the crown, the first sheet where wood reads as
             // wood.
-            Photosynthesize(rate: 0.35, shade_death: 0.03),
+            Photosynthesize(rate: 0.35, shade_death: 0.003),
         ]),
     ],
 )

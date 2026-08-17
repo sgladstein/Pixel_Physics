@@ -1343,6 +1343,35 @@ pub struct OrganismCell {
     /// read, which is correct for a cell that has just germinated and has
     /// no history to carry.
     pub heading: (f32, f32),
+    /// **Hydraulic path length from the collar, in cells** — how far sap has
+    /// actually had to travel to reach here, not how high up it is.
+    ///
+    /// This replaces `collar - y` in `Grow`'s turgor gate, and the reason is
+    /// a measured gap rather than a preference for realism. The vertical
+    /// form bounds *height* and bounds width not at all: a cell two hundred
+    /// columns sideways at collar height reads `height = 0` and full margin.
+    /// A single tree planted with twenty rows of sky therefore never stops
+    /// growing — 24,946 cells and still climbing at frame 295,000 — because
+    /// it cannot go up, so it goes sideways forever. With 190 rows it
+    /// plateaus at frame 180,000. Self-shading was the only thing bounding
+    /// width, and it is enough in a tall scene and nothing in a shallow one.
+    /// See `Reports/branch-angle-and-the-width-bound.md`.
+    ///
+    /// Path length bounds both axes with the mechanism already there, and it
+    /// is what the biology says anyway: water potential falls with the
+    /// hydraulic path the xylem has to push through, not with altitude, so a
+    /// 200-cell horizontal limb is under the same constraint as a 200-cell
+    /// trunk (`Reports/tree-extension-biology.md` §2c's own source is about
+    /// path resistance).
+    ///
+    /// **Propagated at creation — parent + 1 — not recomputed.** A plant is
+    /// acyclic and does not move, so a cell's distance from the collar is
+    /// fixed the moment it exists; there is no pass and no per-tick cost. It
+    /// also strictly improves on the property that made height attractive
+    /// (`collar_y`'s doc: the one signal that does not equalize when growth
+    /// stops) — height is recomputed against a collar that can move, and
+    /// this never changes at all.
+    pub path_len: u16,
 }
 
 impl Default for OrganismCell {
@@ -1355,7 +1384,7 @@ impl Default for OrganismCell {
     /// therefore perfectly isotropic and differentiates only from flux it
     /// actually carried.
     fn default() -> Self {
-        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4], order: 0, q_peak: 0.0, heading: (0.0, 0.0) }
+        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4], order: 0, q_peak: 0.0, heading: (0.0, 0.0), path_len: 0 }
     }
 }
 

@@ -119,7 +119,7 @@
             SecondaryThicken(pipe_ratio: 5.5),
         ]),
         (Leaf, [
-            Photosynthesize(rate: 0.35, shade_death: 0.03),
+            Photosynthesize(rate: 0.35, shade_death: 0.003),
         ]),
     ],
 )

@@ -434,6 +434,23 @@ fn banded_shade(world: &World, organism_id: u16, material: material::MaterialId,
     }
 }
 
+/// Stamp a fresh cell's hydraulic path length as one step further from the
+/// collar than the cell it grew from — see `OrganismCell::path_len`.
+///
+/// Must be called *after* the `World::set` that creates the cell, for the
+/// same reason `deposit_canopy` must: `set` is what registers the
+/// `OrganismCell` this writes into.
+fn write_path_len(world: &mut World, x: i32, y: i32, parent: u16) {
+    if let Some(slot) = world.organism_cell_mut(x, y) {
+        slot.path_len = parent.saturating_add(1);
+    }
+}
+
+/// This cell's own path length, or 0 if it has no sidecar yet.
+fn path_len_at(world: &World, x: i32, y: i32) -> u16 {
+    world.organism_cell(x, y).map_or(0, |c| c.path_len)
+}
+
 fn write_order(world: &mut World, x: i32, y: i32, order: u8) {
     if let Some(slot) = world.organism_cell_mut(x, y) {
         slot.order = order;
@@ -845,8 +862,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     // which is exactly the "starts at 0 resource, not
                     // inheriting any" the old explicit `pack_aux(_, 0.0)`
                     // spelled out.
+                    let own_path = path_len_at(world, x, y);
                     world.set(tx, ty, new_cell);
                     write_order(world, tx, ty, order);
+                    write_path_len(world, tx, ty, own_path);
                     resource -= cost;
                     write_carbon(world, x, y, resource);
                     next.push(reschedule_organism(tx, ty, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
@@ -891,6 +910,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // top. Each trait reads its own slot -- two traits sharing
                 // one would move together, which is the "one tree scaled
                 // up" failure `genotype_variance` exists to avoid.
+                // This cell's own distance from the collar, read once:
+                // the turgor gate below reads it, and every child
+                // created further down is one step further out.
+                let own_path = path_len_at(world, x, y);
                 let branch_chance = branch_chance.at(order) * genotype(world, organism_id, 0, genotype_variance[0]);
                 let light_weight = light_weight.at(order) * genotype(world, organism_id, 5, genotype_variance[5]);
                 let upward_weight = upward_weight.at(order) * genotype(world, organism_id, 1, genotype_variance[1]);
@@ -951,11 +974,21 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // limit" -- a moss mat, a vine -- and is also why `RootTip`
                 // growth is unaffected without a special case.
                 if turgor_per_cell > 0.0 {
-                    let collar = world.organism(organism_id).and_then(|s| s.collar_y);
-                    if let Some(collar) = collar {
-                        // Rows *above* the collar; y grows downward.
-                        let height = (collar - y).max(0) as f32;
-                        let margin = turgor_source - turgor_per_cell * height - turgor_yield;
+                    {
+                        // **Hydraulic path length, not height** — see
+                        // `OrganismCell::path_len` for the measurement that
+                        // forced this. The vertical form bounded height and
+                        // bounded width not at all, so a tree that could not
+                        // grow up grew sideways forever; path length bounds
+                        // both with the same term, and is what the biology
+                        // says anyway.
+                        //
+                        // No `collar_y` read any more: the distance is
+                        // stamped at creation and never moves, which is
+                        // strictly better than recomputing against a collar
+                        // that can.
+                        let path = own_path as f32;
+                        let margin = turgor_source - turgor_per_cell * path - turgor_yield;
                         if margin <= 0.0 {
                             continue;
                         }
@@ -1350,6 +1383,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // Straight continuation of this shoot, so the child keeps
                 // the parent's order. The lateral below is what increments.
                 write_order(world, tx, ty, order);
+                write_path_len(world, tx, ty, own_path);
                 // Momentum. A stem already lignified behind the apex cannot
                 // turn sharply, so the child leaves with most of its
                 // parent's heading and only a little of the step it just
@@ -1537,6 +1571,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // distinction exists without any cell having to
                             // work out which of those it is.
                             write_order(world, bx, by, order.saturating_add(1));
+                            write_path_len(world, bx, by, own_path);
                             // A lateral is a *new* axis, so it leaves along
                             // the step it took rather than inheriting the
                             // parent's momentum -- otherwise every branch
@@ -1704,6 +1739,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // to a new tier -- it never grows, so this only
                             // matters to anything reading order off foliage.
                             write_order(world, cx, cy, order);
+                            write_path_len(world, cx, cy, own_path);
                             deposit_canopy(world, cx, cy, GROW_CANOPY_DEPOSIT);
                             next.push(reschedule_organism(cx, cy, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
                         }
@@ -2296,6 +2332,11 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // trunk parameters and grow straight up as a second trunk.
     let order = world.organism_cell(bx, by).map_or(0, |c| c.order);
     write_order(world, bx, by, order.saturating_add(1));
+    // `path_len` is deliberately **not** touched here. A flushing bud is
+    // not a new cell -- it is a stem node that already sits at its own
+    // distance from the collar, and the axis it launches continues from
+    // exactly there. Re-stamping it would reset a lateral high in the crown
+    // to path zero and hand it the full turgor budget a second time.
     // A flushed bud launches with **no inherited heading**. The bud cell
     // is a retired stem node, so its stored heading is the stem's own
     // (near-vertical on a trunk) -- and a lateral that starts life
@@ -2904,25 +2945,48 @@ fn cross_section_axis(world: &World, x: i32, y: i32) -> [(i32, i32); 2] {
 
 #[allow(clippy::too_many_arguments)]
 /// The contiguous run of *woody* same-organism cells through `(x, y)`
-/// along the row — this stem's cross-section at this height.
+/// **along `axis`** — this stem's true cross-section.
+///
+/// **`axis`, not the row, and that is the whole point.** This walked the
+/// row (`y` fixed) while `thicken` placed its new cell along
+/// `cross_section_axis` — so the function deciding *whether* a stem is wide
+/// enough and the function deciding *where* to widen it used different
+/// geometry. For a vertical trunk they agree; for any stem that leans, the
+/// row-walk runs *lengthwise down the stem* and swallows every limb it
+/// touches on the way.
+///
+/// The consequence was the whole "plants look like felt" problem. A trunk
+/// measured itself at 30-70 cells wide, `leaf_count / stem_width` fell far
+/// below `pipe_ratio`, and `thicken` returned without widening — every
+/// time, forever. Nothing was ever more than about four cells thick, so
+/// there was no trunk/limb/twig hierarchy and every species rendered as the
+/// same mat of one-cell strands with a green crust.
+///
+/// **This is the third time this denominator has been wrong, and the first
+/// two fixes changed its scope rather than its axis.** `pipe_ratio`'s own
+/// history records value 10 "dividing by the whole row's cells — a limb
+/// elsewhere on the row suppressed the trunk", replaced by a contiguous-run
+/// denominator. A contiguous run is still a *row* run: it still merges any
+/// limb that happens to touch, and on a diagonal stem it still measures
+/// length. Narrowing the scope hid how wrong the axis was.
 ///
 /// **Leaves are excluded on purpose.** The pipe model's cross-section is
 /// xylem, and foliage is not xylem. Counting leaves inflated the
 /// denominator by roughly 10% of all cells, and worse, `leaf_count` on the
 /// numerator counts `Leaf | GrowingTip` — so the same cell appeared on both
 /// sides of the ratio.
-fn stem_run(world: &World, x: i32, y: i32, organism_id: u16) -> usize {
-    let woody = |wx: i32| {
-        let c = world.get(wx, y);
+fn stem_run(world: &World, x: i32, y: i32, organism_id: u16, axis: [(i32, i32); 2]) -> usize {
+    let woody = |wx: i32, wy: i32| {
+        let c = world.get(wx, wy);
         c.organism_id() == organism_id && organism::cell_type(c.aux()) != Some(CellType::Leaf)
     };
-    if !woody(x) {
+    if !woody(x, y) {
         return 1;
     }
     let mut run = 1usize;
-    for dir in [-1i32, 1] {
+    for (dx, dy) in axis {
         let mut k = 1;
-        while woody(x + dir * k) && k <= MAX_STEM_RUN {
+        while woody(x + dx * k, y + dy * k) && k <= MAX_STEM_RUN {
             run += 1;
             k += 1;
         }
@@ -3007,7 +3071,7 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     // If blobs ever return, this reverts to under-reading -- so a failure
     // here looks like runaway thickening, and the guard below is aimed at
     // exactly that.
-    let stem_width = stem_run(world, x, y, organism_id);
+    let stem_width = stem_run(world, x, y, organism_id, axis);
     if (leaf_count / stem_width as f32) <= pipe_ratio {
         return;
     }
@@ -3078,6 +3142,15 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
             // every thickened limb read as trunk the moment something does.
             let order = world.organism_cell(x, y).map_or(0, |c| c.order);
             write_order(world, nx, ny, order);
+            // Secondary thickening lays wood *beside* an existing cell, not
+            // beyond it, so the new cell is the same distance from the
+            // collar rather than one step further -- it inherits, it does
+            // not increment. Getting this wrong would make a fat trunk read
+            // as hydraulically remote and throttle its own growth.
+            let parent_path = path_len_at(world, x, y);
+            if let Some(slot) = world.organism_cell_mut(nx, ny) {
+                slot.path_len = parent_path;
+            }
             // **The cambium kills the buds it outpaces**, and that is
             // where the clear bole comes from -- for free, with no rule
             // about height and none about which cells are trunk. The trunk
