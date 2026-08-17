@@ -1000,31 +1000,61 @@ impl Renderer {
             Precipitation::Snow => sky::Fall::Snow,
         };
         for drop in sky::drops(world_frame, fall, weather.intensity, weather.wind, (vx0, vy0), (vx1, vy1)) {
-            // `world_to_screen` returns `None` off-screen. A streak with
-            // one end just outside the view is common and must still draw
-            // its visible half, so both ends are projected by hand here and
-            // `blend` does the clipping per pixel.
+            // Walked in **world** space from tail to head -- downward, the
+            // way it falls -- so the walk can stop at the ground. Drawn in
+            // screen space by projecting each sample, rather than walking
+            // screen pixels, because the question "has this hit anything
+            // yet" is a world question and only the world has an answer.
+            //
+            // `world_to_screen` returns `None` off-screen and a streak with
+            // one end just outside the view is ordinary, so the projection
+            // is done by hand and `blend` clips per pixel.
             let project = |wx: f32, wy: f32| {
                 (
                     (wx.round() as i32 - self.camera_x) / self.zoom_out_stride * self.zoom,
                     (wy.round() as i32 - self.camera_y) / self.zoom_out_stride * self.zoom,
                 )
             };
-            let (sx0, sy0) = project(drop.from.0, drop.from.1);
-            let (sx1, sy1) = project(drop.to.0, drop.to.1);
+            let (hx, hy) = (drop.from.0 - drop.to.0, drop.from.1 - drop.to.1);
+            let (px, py) = project(drop.from.0, drop.from.1);
+            let (qx, qy) = project(drop.to.0, drop.to.1);
+            let steps = (px - qx).abs().max((py - qy).abs()).max(1);
             let colour = [drop.colour[0] as u8, drop.colour[1] as u8, drop.colour[2] as u8, 255];
-            // A short Bresenham-free walk: streaks are a few cells long, so
-            // stepping the longer axis is both simpler and bounded.
-            let (dx, dy) = (sx1 - sx0, sy1 - sy0);
-            let steps = dx.abs().max(dy.abs()).max(1);
+            let mut landed = None;
             for i in 0..=steps {
-                let x = sx0 + dx * i / steps;
-                let y = sy0 + dy * i / steps;
-                // Fades along its length, so a streak has a head and a tail
-                // rather than being a rigid dash. This is most of what makes
-                // rain read as moving rather than as hatching.
-                let along = 1.0 - i as f32 / steps as f32;
-                blend(frame, width, height, x, y, colour, drop.alpha * (0.35 + along * 0.65));
+                let t = i as f32 / steps as f32;
+                let (wx, wy) = (drop.to.0 + hx * t, drop.to.1 + hy * t);
+                // **Precipitation stops at the ground.** Without this every
+                // streak is drawn straight down through the rock, so it
+                // rains at the bottom of a mine -- reported from play as the
+                // first thing wrong with it. The horizon cache this asks is
+                // the same one that stopped sky being drawn behind dug rock,
+                // which is the same question in the other direction: what
+                // can the sky reach?
+                if !self.under_sky(wx.round() as i32, wy.round() as i32) {
+                    landed = Some((wx, wy));
+                    break;
+                }
+                let (sx, sy) = project(wx, wy);
+                // Brightest at the head and fading up the tail, so a streak
+                // reads as moving rather than as a rigid dash.
+                blend(frame, width, height, sx, sy, colour, drop.alpha * (0.35 + t * 0.65));
+            }
+
+            // What it looks like when it arrives. A drop that simply stopped
+            // would read as rain being erased by the ground rather than
+            // meeting it -- and the ethos here is that an effect with no
+            // visible consequence is not finished. Snow settles instead of
+            // splashing, so it gets none.
+            if let (Some((wx, wy)), sky::Fall::Rain) = (landed, fall) {
+                let spread = self.zoom.max(1);
+                for dx in -spread..=spread {
+                    let (sx, sy) = project(wx + dx as f32, wy - 1.0);
+                    // Falls off from the centre, so a splash is a small burst
+                    // and not a dash of the same width as the streak.
+                    let fade = 1.0 - (dx.abs() as f32 / (spread + 1) as f32);
+                    blend(frame, width, height, sx, sy, colour, drop.alpha * 0.85 * fade);
+                }
             }
         }
     }
