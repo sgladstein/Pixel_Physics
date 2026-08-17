@@ -179,10 +179,17 @@ pub enum Behavior {
     /// idle" signal saturates simultaneously when growth stops, which is
     /// exactly how the earlier bud-break attempt ran away.
     BudBreak {
-        /// Carbon a flushing bud must be holding, and spends, to become a
-        /// tip. A price, not a threshold: it comes out of the same pool
-        /// `Grow` draws on, so flushing competes with extending rather
-        /// than being free.
+        /// Carbon a flush spends to turn the bud into a tip. A price, not
+        /// a threshold: it comes out of the same pool `Grow` draws on, so
+        /// flushing competes with extending rather than being free.
+        ///
+        /// Paid by the plant's *richest* cell — usually the trunk sitting
+        /// at the resource cap — because that is where the carbon actually
+        /// is; the bud itself keeps whatever stake it was holding, floored
+        /// at this cost so the new tip can afford its first growth step.
+        /// (An earlier version overwrote the bud's stake with the cost,
+        /// which destroyed carbon on every flush; `plant::break_buds` has
+        /// the correction.)
         cost: f32,
         /// Chance a bud that is covered by `SecondaryThicken` survives it.
         ///

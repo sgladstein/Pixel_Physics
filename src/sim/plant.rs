@@ -1823,8 +1823,21 @@ fn break_buds(world: &mut World, organism_id: u16) {
 
     let cell = world.get(bx, by);
     world.set(bx, by, cell.with_aux(organism::pack_cell_type(CellType::GrowingTip)));
+    // The richest cell pays the flush price; the bud keeps its own stake.
+    //
+    // This used to `write_carbon(bx, by, bud_cost)` -- an assignment, which
+    // silently destroyed whatever the bud was already holding on every
+    // flush (a bud near the 4.0 cap lost ~3.8, unaccounted), and disagreed
+    // with `Behavior::BudBreak`'s own doc. The floor at `bud_cost` is kept:
+    // a fresh tip must afford at least one growth step or it starves on its
+    // first tick, and the price the richest cell just paid is what funds
+    // the top-up when the bud itself was poor. Re-reading the bud's carbon
+    // after paying the richest cell is what makes the self-pay case (the
+    // bud *is* the richest cell) come out right with no special case: it
+    // pays, then keeps the remainder, floored.
     write_carbon(world, rx, ry, held - bud_cost);
-    write_carbon(world, bx, by, bud_cost);
+    let bud_stake = world.carbon_at(bx, by);
+    write_carbon(world, bx, by, bud_stake.max(bud_cost));
     // A flushed bud is an *axillary* meristem -- it is a lateral by
     // definition, so it starts the next tier exactly as `Grow`'s own branch
     // child does. Without this a crown rebuilt from buds would inherit
@@ -2810,6 +2823,53 @@ mod tests {
     // number" claim) are preserved; only the mechanism under test moved
     // from a whole simulated growth tick to the function that actually
     // does the work.
+
+    #[test]
+    fn a_flushing_bud_keeps_its_standing_carbon_and_the_richest_cell_pays() {
+        // The exact leak the second review found: `break_buds` used to
+        // *assign* `bud_cost` onto the flushing bud, silently destroying
+        // whatever the bud already held (up to ~3.8 at the cap, every
+        // flush) — and the behavior doc claimed the bud itself paid. The
+        // fixed contract, asserted here: the richest cell pays the price,
+        // and the bud keeps its own stake.
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").unwrap();
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let organism_id = w.push_organism(tree);
+
+        // A trunk cell at the cap (the richest), a bud holding real
+        // carbon, and enough sunlit foliage that the whole-plant gate
+        // supports one more tip than the zero that exist. `supportable`
+        // is ⌊intercepted · LEAF_INCOME_PER_TICK / cost⌋ = ⌊intercepted/50⌋
+        // at tree.ron's numbers, so fifteen leaves under a noon sky
+        // (~4.0 each) clear it with margin.
+        place(&mut w, (100, 20), wood, organism_id, CellType::MatureBody, (4.0, 0.0));
+        place(&mut w, (101, 20), wood, organism_id, CellType::DormantBud, (3.0, 0.0));
+        for i in 0..15 {
+            place(&mut w, (90 + i, 18), wood, organism_id, CellType::Leaf, (0.0, 0.0));
+        }
+        for _ in 0..30 {
+            field::step(&mut w); // converge the sky so the leaves read real light
+        }
+
+        break_buds(&mut w, organism_id);
+
+        assert_eq!(
+            organism::cell_type(w.get(101, 20).aux()),
+            Some(CellType::GrowingTip),
+            "test setup should have let the bud flush at all"
+        );
+        assert!(
+            (w.carbon_at(100, 20) - 3.8).abs() < 1e-3,
+            "the richest cell should have paid the 0.2 flush price: {}",
+            w.carbon_at(100, 20)
+        );
+        assert!(
+            (w.carbon_at(101, 20) - 3.0).abs() < 1e-3,
+            "the flushing bud's standing carbon must survive the flush, not be overwritten by the price: {}",
+            w.carbon_at(101, 20)
+        );
+    }
 
     #[test]
     fn phototropism_dir_leans_upward_only_when_lit_from_above() {
