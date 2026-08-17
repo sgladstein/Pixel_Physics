@@ -1229,3 +1229,38 @@ looking for the band where foraging pays *and* food is still scarce. That
 band may be narrow and it may not exist at the current numbers; either
 answer is worth having, and it is cheap. The genome sweep goes after it,
 in an environment that can tell strategies apart.
+
+### 13j. The synapse tax was 80% of a life, and it invalidated a sweep
+
+The economy sweep of §13i was set running and its first rows said something
+that could not be about foraging: at `move_cost` 0.02 -- twelve times
+cheaper than shipped -- and fourteen trees, foraging was *still* 0.17 worse
+than doing nothing. If movement costs almost nothing and food is
+everywhere, movement cost is not what is killing foragers.
+
+It was the **synapse tax**. `ant.ron` sets `synapse_cost: 0.002` per active
+connection per tick, calibrated in its own comment against `start_energy:
+900` -- "a dense brain costs about as much as standing still". §13i cut the
+budget to 90 to make starvation reachable and left the tax alone:
+
+    0.002 x ~24 active synapses x 1500 ticks = 72 of 90 starting energy
+
+**80% of a life, spent on having a brain.** And the zero genome pays none
+of it, because it has no active connections at all -- so "forager versus
+immobile" was really "thinks versus does not think", with thinking the
+larger term by a wide margin. The sweep was varying three knobs while a
+bigger unvaried one dominated the outcome.
+
+This is `CLAUDE.md`'s rule in its usual disguise: **when a fix changes what
+a number means, re-deriving the constants that read it is part of the fix.**
+Cutting `start_energy` by 10x silently made every brain ten times as
+expensive relative to a life.
+
+Held at ant.ron's authored ratio (`0.002 * start_energy / 900`), the
+forager immediately improved from 0.287 to 0.428 at the same settings. The
+sweep was stopped and restarted.
+
+Standing implication beyond this harness: `synapse_cost` is expressed in
+absolute energy but only means anything relative to `start_energy`. Any
+species whose budget differs from the ant's needs it re-derived, and a
+future body-size or metabolism parameter will hit this again.

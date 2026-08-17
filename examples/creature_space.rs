@@ -82,6 +82,7 @@ fn main() {
     let mut seeds = 2u64;
     let mut frames = 6000usize;
     let mut bins = 3usize;
+    let mut mode = String::from("genomes");
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -89,10 +90,15 @@ fn main() {
             "seeds" => seeds = v.parse().expect("seeds"),
             "frames" => frames = v.parse().expect("frames"),
             "bins" => bins = v.parse().expect("bins"),
-            other => panic!("unknown arg {other:?}; known: genomes, seeds, frames, bins"),
+            "mode" => mode = v.to_string(),
+            other => panic!("unknown arg {other:?}; known: genomes, seeds, frames, bins, mode"),
         }
     }
 
+    if mode == "economy" {
+        economy_sweep(seeds, frames);
+        return;
+    }
     println!("creature space: {genomes} random genomes + 2 references, {seeds} seeds x {frames} frames each");
     println!("scene: scarce food (2 trees), 52 ants, 4 beetles, generated terrain\n");
 
@@ -102,11 +108,11 @@ fn main() {
     // be read against. A zero genome cannot move at all, which makes it the
     // floor rather than a competitor.
     for (label, genome) in [("zero".to_string(), vec![0.0; GENOME_LEN]), ("authored".to_string(), authored_genome())] {
-        labelled.push((label, mean_of((0..seeds).map(|s| run_one(&genome, frames, 0xC0DE + s)).collect())));
+        labelled.push((label, mean_of((0..seeds).map(|s| run_one(&genome, frames, 0xC0DE + s, DEFAULT_ECONOMY)).collect())));
     }
     for g in 0..genomes {
         let genome = random_genome(0x5EED + g as u64);
-        let s = mean_of((0..seeds).map(|s| run_one(&genome, frames, 0xC0DE + s)).collect());
+        let s = mean_of((0..seeds).map(|s| run_one(&genome, frames, 0xC0DE + s, DEFAULT_ECONOMY)).collect());
         labelled.push((format!("r{g:03}"), s));
     }
 
@@ -175,6 +181,57 @@ fn main() {
     );
 }
 
+
+/// **Does foraging pay, and is food still scarce?** Those two have to be
+/// true at once, and the readiness check found they currently are not:
+/// immobility beat the authored forager 0.554 to 0.237, because movement is
+/// a pure cost whose payoff is an unreliable trip to a distant tree.
+///
+/// Reported as `advantage` = the forager's survival minus the immobile
+/// genome's. Positive means a creature is better off doing something than
+/// nothing. `zero` is the null strategy and it is the right control: it
+/// cannot move, so its survival is exactly what the environment hands out
+/// for free.
+///
+/// Scarcity is the second column: if the forager approaches 1.0 the food is
+/// simply abundant, and a genome sweep there would measure nothing again.
+/// The band worth having is **advantage clearly positive while survival is
+/// well short of 1.0**.
+fn economy_sweep(seeds: u64, frames: usize) {
+    println!("energy economy sweep: does foraging pay, and is food still scarce?
+");
+    println!("{:<10} {:>10} {:>7} {:>10} {:>9} {:>11}", "eat", "move_cost", "trees", "forager", "immobile", "advantage");
+    let zero = vec![0.0; GENOME_LEN];
+    let authored = authored_genome();
+    let mut best: Option<(f32, String)> = None;
+    for &eat_energy in &[120.0f32, 300.0, 700.0] {
+        for &move_cost in &[0.25f32, 0.08, 0.02] {
+            for &trees in &[2i32, 6, 14] {
+                let econ = Economy { eat_energy, move_cost, trees };
+                let f = mean_of((0..seeds).map(|s| run_one(&authored, frames, 0xC0DE + s, econ)).collect()).survival;
+                let z = mean_of((0..seeds).map(|s| run_one(&zero, frames, 0xC0DE + s, econ)).collect()).survival;
+                let adv = f - z;
+                println!("{eat_energy:<10.0} {move_cost:>10.2} {trees:>7} {f:>10.3} {z:>9.3} {adv:>11.3}");
+                // Scarcity guard: an advantage bought by making food
+                // abundant is not the band we are looking for.
+                if f < 0.9 {
+                    if best.as_ref().is_none_or(|(b, _)| adv > *b) {
+                        best = Some((adv, format!("eat {eat_energy:.0}, move {move_cost:.2}, {trees} trees (forager {f:.3})")));
+                    }
+                }
+            }
+        }
+    }
+    match best {
+        Some((adv, what)) if adv > 0.0 => println!("
+best band with food still scarce: {what} -- advantage {adv:+.3}"),
+        Some((adv, what)) => println!("
+no setting made foraging pay. Least bad: {what} -- advantage {adv:+.3}"),
+        None => println!("
+every setting made food abundant; scarcity was never tested"),
+    }
+}
+
 fn report_spread(name: &str, samples: &[Sample], f: impl Fn(&Sample) -> f32) {
     let mut v: Vec<f32> = samples.iter().map(&f).collect();
     v.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -215,10 +272,20 @@ fn random_genome(seed: u64) -> Vec<f32> {
         .collect()
 }
 
+const DEFAULT_ECONOMY: Economy = Economy { eat_energy: 120.0, move_cost: 0.25, trees: 2 };
+
 const ANTS: usize = 52;
 const BEETLES: usize = 9;
 
-fn run_one(genome: &[f32], frames: usize, seed: u64) -> Sample {
+/// The three knobs that decide whether foraging is worth doing.
+#[derive(Clone, Copy)]
+struct Economy {
+    eat_energy: f32,
+    move_cost: f32,
+    trees: i32,
+}
+
+fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
     let (w, h) = (512i32, 160i32);
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     world.seed = seed;
@@ -250,6 +317,22 @@ fn run_one(genome: &[f32], frames: usize, seed: u64) -> Sample {
     // which is the one worth asking.
     let mut def = world.species.get(species).creature.as_ref().expect("ant is a creature").clone();
     def.start_energy = 90.0;
+    def.eat_energy = econ.eat_energy;
+    def.move_cost = econ.move_cost;
+    // **Scale the synapse tax with the budget, or the control is not a
+    // control.** `ant.ron` sets 0.002 per active synapse against a starting
+    // energy of 900 -- "a dense brain costs about as much as standing
+    // still". Cutting the budget to 90 to create scarcity, and leaving this
+    // alone, made a brain cost **72 of 90 starting energy over a run: 80%
+    // of a life, just for thinking**. The zero genome pays none of it,
+    // because it has no active synapses at all -- so "forager versus
+    // immobile" was really "thinks versus does not think", and the thinking
+    // was the larger term by far.
+    //
+    // That is `CLAUDE.md`'s rule arriving in the usual disguise: when a fix
+    // changes what a number *means*, re-deriving the constants that read it
+    // is part of the fix. Held at the ratio ant.ron actually authored.
+    def.synapse_cost = 0.002 * (def.start_energy / 900.0);
     // **Corpses are off the menu here, and finding that out was the point
     // of the readiness check.** With "corpse" in the food list, a starved
     // ant feeds the ants around it, so a colony sustains itself on its own
@@ -280,8 +363,8 @@ fn run_one(genome: &[f32], frames: usize, seed: u64) -> Sample {
     }
     // **Scarce**: two trees, not six. Food that runs short is what makes
     // one way of living better than another.
-    for i in 0..2 {
-        let x = 250 + i * 70;
+    for i in 0..econ.trees {
+        let x = 150 + i * (300 / econ.trees.max(1));
         world.plant_tree(x, surface_at[x as usize] - 1);
     }
     for _ in 0..2400 {
