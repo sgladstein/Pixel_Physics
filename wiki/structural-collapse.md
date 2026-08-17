@@ -3,10 +3,13 @@
 *Current as of: this build. Where something breaks — at the neck, across
 a section, sharing load between supports — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
-building. What is still in flux is **how big a room you can build**: a
-wide, thin-walled one can still fail to hold its own roof up the moment
-you finish it, and the exact width at which that starts is not yet where
-anyone wants it.*
+building. Digging into open ground no longer spreads: a hole is a hole,
+and the rock around it stops where the damage stops. What is still in flux
+is **how big a room you can build**: a wide, thin-walled one can still
+fail to hold its own roof up the moment you finish it, and the exact width
+at which that starts is not yet where anyone wants it. Also unsettled, and
+the thing to watch when playing: whether collapse now happens **too
+rarely** on open terrain, having spent a long time happening far too much.*
 
 Any solid structure needs an unbroken path of connected material leading
 back down to the ground, or out to the edge of the world, to stay up. Cut
@@ -76,6 +79,22 @@ splitting toward both of them.
 Broken stone leaves rubble behind in stone's own colour (see
 [Powders](powders.md)), so a collapsed span visibly reads as "this used to
 be part of the structure" rather than a material swap.
+
+Rubble is something rock can stand *on*, and that is all. Loose material
+holds a piece up the way a gravel bed holds up a paving slab — it takes
+weight, and it takes it wherever the piece actually touches down — but it
+cannot hold anything *steady*. A piece whose weight sits over its footing
+rests on rubble indefinitely, however heavy it is; one reaching out past
+the edge of what it's standing on tips off, however light. Nothing in
+between is special-cased, and the same rule covers a boulder settling into
+a scree slope and a ledge that overhangs the pile beneath it.
+
+What that rules out is the thing rubble used to do: a slab lying on debris
+from its own collapse was treated as though the debris were what held it
+together, not merely what it rested on, so each piece that came down
+weakened its neighbours and a single dig could eat outward across the
+world. Digging a cave and dropping the spoil on the floor is now simply
+digging a cave.
 
 Building precisely is its own thing, separate from simply painting
 material in a loose freehand stream. There's a way to drag out a shape
