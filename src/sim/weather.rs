@@ -28,7 +28,7 @@
 //! answer is usually `Precipitation::None`, and a test that wants rain has to
 //! go looking for a frame that has some (see `first_frame_with`).
 
-use super::cell::Cell;
+use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::field::DAY_NIGHT_PERIOD_FRAMES;
 use super::material::{self, MaterialKind};
 use super::rng;
@@ -211,6 +211,29 @@ const WATER_CELL_CHANCE: f32 = 0.06;
 /// rather than going instantly black under the first drop.
 const SOIL_SOAK_PER_DROP: u16 = material::SOIL_SATURATED / 10;
 
+/// Chance a landing flake becomes a snow cell, at full intensity.
+///
+/// Far higher than rain's, because the two are doing opposite things: rain
+/// soaks in and is *seen* as darker ground, snow does not soak at all and is
+/// seen only as the drift it builds. Snow that mostly failed to land would
+/// be a snowstorm that leaves no snow.
+const SNOW_CELL_CHANCE: f32 = 0.55;
+
+/// How cold a snowfall makes the ground it is falling on, in degrees below
+/// ambient, at full intensity.
+///
+/// Snow's melting point is *below* ambient, so without this every flake
+/// melts the instant it lands and a blizzard produces a damp hillside. The
+/// cold is delivered as a negative `add_heat`, which already existed and
+/// needed no new mechanism -- and the thaw needs none either, because when
+/// the front passes this stops being applied, the field warms back to
+/// ambient, and the existing upward phase change turns every drift to
+/// meltwater on its own.
+const SNOW_CHILL: f32 = 26.0;
+
+/// How deep into an existing drift a snowfall keeps the cold going.
+const SNOW_CHILL_DEPTH: i32 = 6;
+
 /// How far down a drop soaks, in cells.
 ///
 /// Rain wet only the single topmost cell in the first version, which is
@@ -244,11 +267,6 @@ pub fn step(world: &mut World) {
         return;
     }
     let Some(bounds) = world.bounds() else { return };
-    // Snow is a separate material and lands differently; until it exists,
-    // a cold front simply produces nothing rather than quietly raining.
-    if w.kind != Precipitation::Rain {
-        return;
-    }
 
     let width = bounds.max_x - bounds.min_x + 1;
     // Fractional columns are resolved by chance rather than rounded up: at
@@ -265,6 +283,7 @@ pub fn step(world: &mut World) {
     // drop. `None` means this world has no water material at all, in which
     // case rain still wets the ground and simply never puddles.
     let water = world.materials.id_of("water");
+    let snow = world.materials.id_of("snow");
     let soak = (SOIL_SOAK_PER_DROP as f32 * w.intensity) as u16;
 
     for i in 0..columns {
@@ -277,7 +296,13 @@ pub fn step(world: &mut World) {
         let Some(surface_y) = surface_under_sky(world, x, bounds.min_y, bounds.max_y) else {
             continue;
         };
-        world.add_moisture(x, surface_y, 1, MOISTURE_PER_DROP * w.intensity);
+        // Rain only. Snow sits on the surface and wets nothing until it
+        // melts -- at which point it becomes water and the ordinary
+        // infiltration path takes over, which is both correct and one less
+        // mechanism to write.
+        if w.kind == Precipitation::Rain {
+            world.add_moisture(x, surface_y, 1, MOISTURE_PER_DROP * w.intensity);
+        }
         // ...and the *cell's own* saturation, which is a different channel
         // from the field's humidity and is the one that matters twice over:
         // roots read it (`update::soil_moisture`), and it is what makes wet
@@ -288,7 +313,7 @@ pub fn step(world: &mut World) {
         // convention on a Liquid, where 0 means full. Getting this backwards
         // does not merely mis-shade a cell, it hands every root in the world
         // a full drink.
-        for d in 0..SOAK_DEPTH {
+        for d in 0..if w.kind == Precipitation::Rain { SOAK_DEPTH } else { 0 } {
             let y = surface_y + d;
             if y > bounds.max_y {
                 break;
@@ -313,6 +338,43 @@ pub fn step(world: &mut World) {
         // measured at 2232 cells in a 128-wide world, which is seventeen rows
         // of flood. Rain landing in a lake making the lake deeper is
         // technically true and is not what anyone wants to look at.
+        if w.kind == Precipitation::Snow {
+            // The field's temperature channel *and* the cells' own. Only the
+            // second one decides melting -- `fire::update` compares
+            // `cell.temperature` against `melting_point`, and the field is a
+            // separate coarse channel that does not feed it. Writing only
+            // the field was the first version and every flake melted on the
+            // frame it landed, flooding the surface with meltwater: a
+            // snowstorm that produced a lake.
+            world.add_heat(x, surface_y, 2, -SNOW_CHILL * w.intensity * w.chill);
+            let cold = (AMBIENT_TEMPERATURE as f32 - SNOW_CHILL * w.intensity.max(0.4)) as i16;
+            // The drift itself is re-chilled, not just the arriving flake.
+            // A pile kept cold only at the moment of landing warms from the
+            // ground up between flakes and rots away underneath, so the
+            // storm has to hold the whole column it is falling on.
+            for d in 0..SNOW_CHILL_DEPTH {
+                let y = surface_y + d;
+                if y > bounds.max_y {
+                    break;
+                }
+                let cell = world.get(x, y);
+                if cell.material != snow.unwrap_or(material::EMPTY) {
+                    break;
+                }
+                if cell.temperature() > cold {
+                    world.set(x, y, cell.with_temperature(cold));
+                }
+            }
+            if let Some(snow) = snow {
+                if r.chance(SNOW_CELL_CHANCE * w.intensity) && surface_y > bounds.min_y {
+                    let above = surface_y - 1;
+                    if world.get(x, above).material == material::EMPTY {
+                        world.set(x, above, Cell::new(snow, 0).with_temperature(cold));
+                    }
+                }
+            }
+            continue;
+        }
         let is_liquid = world.materials.kind(world.get(x, surface_y).material) == MaterialKind::Liquid;
         if let Some(water) = water {
             if !is_liquid && r.chance(WATER_CELL_CHANCE * w.intensity) && surface_y > bounds.min_y {

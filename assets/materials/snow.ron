@@ -1,0 +1,35 @@
+// Snow exists to be temporary. It is the only material in the set whose
+// melting point sits *below* ambient (20 degrees), which is not a mistake:
+// snow does not survive in a temperate world on its own, it survives while
+// the cold front that brought it is overhead. Weather lays a band of cold
+// over the ground it is falling on; when the front passes, that cold lifts,
+// every flake is instantly above its melting point, and the drift turns to
+// meltwater over the following seconds.
+//
+// That gets thaw for free from the existing upward phase change and needs no
+// freezing code at all -- water does not become snow, weather simply makes
+// more of it while it is cold.
+(
+    name: "snow",
+    display: "Snow",
+    kind: Powder,
+    // Trivially diggable. Snow should never be an obstacle you have to
+    // work at; walking through a drift is the intended experience.
+    penetration_resistance: 0.2,
+    // Light -- fresh snow is roughly a tenth the density of the rock it
+    // lands on, and this is what makes a drift sit *on* terrain rather
+    // than behaving like another kind of sand.
+    density: 0.3,
+    // A high angle of repose, so drifts hold a steep face and pile into
+    // banks against anything upright instead of spreading out flat. This
+    // is the single number that decides whether snow reads as snow.
+    friction_angle: 42.0,
+    melting_point: 2.0,
+    melts_into: "water",
+    colors: [
+        (246, 248, 253),
+        (232, 237, 246),
+        (252, 253, 255),
+        (220, 228, 240),
+    ],
+)
