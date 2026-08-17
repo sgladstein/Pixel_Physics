@@ -77,42 +77,39 @@
                 // stays out rather than curling back up alongside it --
                 // which is what produced the parallel-ropes look.
                 upward_weight: [0.9, 0.35, 0.1, 0.05],
-                // **The only thing bounding lateral spread**, and it has
-                // been re-derived twice because what it opposes got
-                // stronger both times.
+                // Crown shyness -- keeps neighbouring crowns (and a crown's
+                // own limbs) from merging. Owner-blind on purpose: see
+                // `candidate_crowding` for the far-red reading.
                 //
-                // At any height bound a stand's light-optimal shape *is* a
-                // flat slab: `ambient_light_above` is per-column sky
-                // visibility, so a canopy one cell thick pressed against
-                // the ceiling has every column lit and income grows with
-                // width, which is unbounded. Growth follows light, so
-                // growth finds the slab. Real forests bound this the same
-                // way -- crown shyness is what stops a closed canopy being
-                // one organism. See `candidate_crowding` for why the term
-                // is deliberately owner-blind.
+                // **The famous cliff is gone, and it was never ecology.**
+                // This knob's history was "a narrow usable band one step
+                // under a collapse" (median tree 2,620 cells at 12.0
+                // against 26 at 20.0), which turned out to be arithmetic:
+                // crowding was *subtracted* from the candidate score and
+                // the score then filtered on `> 0`, so a strong weight did
+                // not bias a crowded tip's choice, it emptied the choice --
+                // and an emptied choice banks the stale ticks that retire a
+                // lineage. Crowding *divides* the score now
+                // (`plant.rs`, the candidate loop), so it reorders at any
+                // strength and a crowded tip takes its least-bad direction.
                 //
-                // Swept twice, 8 trees / 30,000 frames, thickest contiguous
-                // run of organism cells above ground. Trees sit 57 cells
-                // apart, so anything past that is two crowns fused:
+                // Swept on the divide form, 8 trees / 30,000 frames, cells /
+                // thickest contiguous run above ground (57-cell spacing) --
+                // shoot line only, roots pinned at 0.0:
                 //
-                //   before graded light   0.5 -> 136    1.5 -> 106
-                //                         3.0 ->  82    6.0 ->  39
-                //   after graded light    6.0 ->  78   12.0 ->  51
-                //                        20.0 ->  13   30.0 ->  39
+                //     6.0    36,307   76
+                //    12.0    33,411   64
+                //    20.0    36,303   52    <-- here
+                //    30.0    34,976   61
                 //
-                // **Note the cliff, not a curve.** Past 12 the stand does
-                // not merely separate, it collapses -- median tree 2,620
-                // cells at 12.0 against 26 at 20.0. The usable band is
-                // narrow and sits just under the collapse, which is worth
-                // knowing before anyone reaches for this knob again.
-                //
-                // Tried and rejected on the way, both of which made fusion
-                // *worse* by pushing more growth into the ceiling: raising
-                // outer-tier `upward_weight`, and branching along the trunk
-                // at `branch_chance[0] = 0.09`. Three knobs failing the
-                // same way is the signal that the question is which one is
-                // load-bearing, not what values they take.
-                crowding_weight: 12.0,
+                // Stand mass is flat across the whole range -- the knob no
+                // longer costs trees, it only moves separation -- and the
+                // smallest tree at 20.0 is 2,811 cells where the subtract
+                // form's was 26. Separation bottoms at 20.0 and drifts back
+                // up at 30.0; nothing anywhere collapses. Interim value
+                // pending P1.5's normalisation pass, which re-scales this
+                // term into [0,1] alongside the other economy constants.
+                crowding_weight: 20.0,
                 max_active_tips: 14,
                 // Every 3rd growth step along a shoot leaves a Leaf behind.
                 // Untuned -- picked as the smallest interval that still
@@ -243,6 +240,19 @@
                 light_weight: [0.0],
                 wind_weight: 0.0,
                 upward_weight: [0.6],
+                // 0.0 by design (no citation for root-root avoidance), and
+                // **this is the file's second crowding line -- sweeps have
+                // hit it twice.** First a blind sed on the field name
+                // dragged this along with the shoot's value, so a whole
+                // "shoot crowding" sweep silently varied root behaviour and
+                // was thrown away. Then the occurrence-index script that
+                // replaced the sed matched the *warning comment about the
+                // first incident* (it contained the literal field-and-colon
+                // text) while the sweep and a doc edit ran concurrently,
+                // and mangled it. So, three rules with scars: a pattern
+                // edit must prove it touched only its target; a comment
+                // near a swept field must not contain the swept pattern;
+                // and never edit a file a running sweep owns.
                 crowding_weight: 0.0,
                 max_active_tips: 10,
                 // Roots grow by the same rule and must never leaf

@@ -237,8 +237,13 @@ mechanism is part of every data point. Before condemning an approach, run
 the control that isolates it — the mechanism at its gentlest setting with
 every rider stripped out.
 
-And identical *outputs* across a sweep mean the knob was never connected
-at all — see the `include_str!` gotcha below.
+And two more ways a sweep lies, both of which have produced whole invalid
+sweeps: identical *outputs* across settings mean the knob was never
+connected at all (see the `include_str!` gotcha below), and a pattern edit
+can vary more than its knob — `tree.ron` holds two `crowding_weight`
+lines, and a blind `sed` on the field name dragged the root's deliberate
+`0.0` along with the shoot's through every data point. Prove the edit
+touched only its target before trusting anything downstream of it.
 
 ### A channel that oscillates by design must be divided out of decisions
 

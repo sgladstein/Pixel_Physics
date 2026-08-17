@@ -233,14 +233,28 @@ pub enum Behavior {
         /// `upward_weight`) before `Reports/tree-rewrite-design.md` §2's
         /// MIZ1 hydrotropism switch overrides it.
         upward_weight: ByOrder<f32>,
-        /// Weight subtracting `canopy_density` (`with_canopy_density`/
-        /// `canopy_density` below) at each candidate — `Reports/tree-
+        /// Weight on `canopy_density` at each candidate — `Reports/tree-
         /// rewrite-design.md` §2b's self-avoidance term, the deposit-
         /// diffuse-decay-follow replacement for the old space-colonization
-        /// algorithm's private attractor point cloud. `0.0` disables
-        /// self-avoidance entirely (a root system has no citation in this
-        /// engine's own research for root-root avoidance, so `tree.ron`'s
-        /// `RootTip` sets this to `0.0` rather than inventing one).
+        /// algorithm's private attractor point cloud.
+        ///
+        /// **Divides the candidate's score (`preference / (1 + density *
+        /// weight)`), and used to subtract from it — the difference is
+        /// whether crowding can kill.** Subtraction plus the positive-score
+        /// filter meant a strong weight did not bias a crowded tip's
+        /// choice, it emptied the choice, and an emptied choice banks the
+        /// stale ticks that retire a lineage. That was the measured
+        /// collapse cliff the old `tree.ron` sweep warns about (median
+        /// tree 2,620 cells at 12.0 against 26 at 20.0) — arithmetic, not
+        /// ecology. As a divisor, crowding reorders at any strength and a
+        /// fully crowded tip takes its least-bad direction; the guard test
+        /// `a_crowded_tip_takes_its_least_bad_direction_instead_of_dying`
+        /// fails on the subtractive form, verified by putting it back.
+        ///
+        /// `0.0` disables self-avoidance entirely (a root system has no
+        /// citation in this engine's own research for root-root avoidance,
+        /// so `tree.ron`'s `RootTip` sets this to `0.0` rather than
+        /// inventing one).
         crowding_weight: f32,
         /// Cap on simultaneously-scheduled `GrowingTip`/`RootTip` active
         /// sites this organism may have of *this* cell type at once —

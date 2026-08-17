@@ -1010,11 +1010,34 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     }
                     let dir = normalize((dx as f32, dy as f32));
                     let density = candidate_crowding(world, nx, ny);
-                    let score = dot(dir, heading) * continuation_weight
+                    // **Crowding divides; it does not subtract.** The
+                    // subtractive form had a cliff that was arithmetic, not
+                    // ecology: crowding was taken off the score and the
+                    // score then filtered on `> 0.0`, so past a threshold
+                    // the term stopped biasing the choice and started
+                    // *emptying the candidate set* — the tip banked a stale
+                    // tick, and four of those is permanent retirement. The
+                    // positive terms sum to ~1.15 at the outer orders, so
+                    // `crowding_weight: 20` needed only `density > 0.058`
+                    // to zero every direction at once; that is the measured
+                    // collapse in tree.ron's old sweep (median tree 2,620
+                    // cells at 12.0 against 26 at 20.0), and why the usable
+                    // band sat one step under a cliff.
+                    //
+                    // Dividing makes crowding a preference at any weight: a
+                    // fully crowded tip takes its least-bad direction
+                    // instead of dying, the knob becomes monotone with no
+                    // collapse to sit under, and what *stops* growth is
+                    // what should stop it — the light economy (self-shading
+                    // has real teeth now) and the turgor bound, not a
+                    // side-effect of score arithmetic. A candidate with no
+                    // positively-preferred direction still fails the filter
+                    // and that is correct: boxed in is a real dead end.
+                    let preference = dot(dir, heading) * continuation_weight
                         + dot(dir, photo) * light_weight
                         + dot(dir, wind) * wind_weight
-                        + dot(dir, gravity_or_water) * upward_weight
-                        - density * crowding_weight;
+                        + dot(dir, gravity_or_water) * upward_weight;
+                    let score = preference / (1.0 + density * crowding_weight);
                     if score > 0.0 {
                         candidates.push((nx, ny, score));
                     }
@@ -1811,12 +1834,13 @@ fn break_buds(world: &mut World, organism_id: u16) {
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
 
-    // The price of a flush, and the cost this bud's tip will then pay per
-    // growth step -- both read from the species' own `GrowingTip` `Grow`,
-    // so a species cannot set them inconsistently.
-    let (Some(cost), Some(bud_cost)) = (
+    // The price of a flush, the cost this bud's tip will then pay per
+    // growth step, and the species' tip-concurrency cap -- all read from
+    // the species' own `GrowingTip` `Grow`, so a species cannot set them
+    // inconsistently.
+    let (Some((cost, max_active_tips)), Some(bud_cost)) = (
         world.species.get(species_id).behaviors(CellType::GrowingTip).iter().find_map(|b| match b {
-            Behavior::Grow { cost, .. } => Some(*cost),
+            Behavior::Grow { cost, max_active_tips, .. } => Some((*cost, *max_active_tips)),
             _ => None,
         }),
         world.species.get(species_id).behaviors(CellType::DormantBud).iter().find_map(|b| match b {
@@ -1865,7 +1889,12 @@ fn break_buds(world: &mut World, organism_id: u16) {
     if buds.is_empty() {
         return;
     }
-    let supportable = (intercepted * LEAF_INCOME_PER_TICK / cost).floor() as usize;
+    // The economic bound, throttled by the species' own concurrency cap.
+    // The cap used to bind only in `Grow`, so a flush could push a plant
+    // past it — under-enforcement the tripwire test caught (16 against 14)
+    // the moment multiplicative crowding let crowded tips live long enough
+    // for the cap to matter at all. One gate, both creators of frontier.
+    let supportable = ((intercepted * LEAF_INCOME_PER_TICK / cost).floor() as usize).min(max_active_tips as usize);
     if tips >= supportable {
         return;
     }
@@ -3074,6 +3103,39 @@ mod tests {
 
         let other_world = draws_at_100(&[], 999);
         assert_ne!(alone, other_world, "a different world seed should grow a different individual at the same spot");
+    }
+
+    /// **Crowding must reorder choices, never veto all of them.** Under
+    /// the subtractive score this tip had no candidates at all — every
+    /// direction's score went negative against the ring's density, the tip
+    /// banked stale ticks, and four of those is permanent retirement. That
+    /// is the measured collapse cliff (median tree 26 cells at
+    /// `crowding_weight: 20`), reproduced here at unit scale: this test
+    /// fails on the subtractive form and must keep failing for any future
+    /// form that lets crowding empty the candidate set.
+    #[test]
+    fn a_crowded_tip_takes_its_least_bad_direction_instead_of_dying() {
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").unwrap();
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let organism_id = w.push_organism(tree);
+
+        // A tip walled in by its own maximum-density tissue on seven of
+        // eight sides. The one opening's own neighbourhood still reads the
+        // ring's density, so under tree.ron's `crowding_weight: 12` the
+        // subtractive score was negative in every direction.
+        place(&mut w, (100, 100), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
+        for (dx, dy) in NEIGHBOURS_8 {
+            if (dx, dy) == (1, -1) {
+                continue; // the one way out
+            }
+            place(&mut w, (100 + dx, 100 + dy), wood, organism_id, CellType::MatureBody, (0.0, organism::CANOPY_DENSITY_SCALE));
+        }
+
+        organism_tick(&mut w, 100, 100, organism_id, 0, 0);
+
+        let grew = w.get(101, 99).organism_id() == organism_id;
+        assert!(grew, "a tip with one open direction should grow into it however crowded it is, not stall toward retirement");
     }
 
     #[test]
