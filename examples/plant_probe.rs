@@ -57,9 +57,17 @@ fn main() {
             let d = common::PlantScene::default();
             d.width * (trees as i32).max(1) / d.trees as i32
         });
-    let scene = common::PlantScene { ground_y: ground_y(), trees, width, ..Default::default() };
+    let species: String = std::env::args().find_map(|a| a.strip_prefix("species=").map(str::to_string)).unwrap_or_else(|| "tree".to_string());
+    let scene = common::PlantScene { ground_y: ground_y(), trees, width, species, ..Default::default() };
     let (width, height) = (scene.width, scene.height);
     let mut w = scene.build();
+    // Different worlds grow different individuals: genotypes are drawn
+    // from (world seed, germination coordinate), so a genetic-variability
+    // study replicates by varying this. Applied before any stepping --
+    // germination, where draws happen, has not run yet.
+    if let Some(seed) = std::env::args().find_map(|a| a.strip_prefix("worldseed=").map(|v| v.parse().expect("worldseed"))) {
+        w.seed = seed;
+    }
 
     let mut awake_frames = 0u64;
     for _ in 0..frames {
@@ -269,6 +277,19 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
                 thickest_above_base.get(&id).copied().unwrap_or(0),
             );
         }
+
+        // The architectural event counters, printed beside the picture
+        // because a sheet cannot show whether a mechanism fired -- a
+        // sympodial run whose counter reads zero is a monopodial tree that
+        // happened to fork, and a "conifer" with zero plagiotropic steps
+        // is a mislabelled poplar.
+        let mut ids: Vec<u16> = per_organism.keys().copied().collect();
+        ids.sort_unstable();
+        let counters: Vec<String> = ids
+            .iter()
+            .filter_map(|&id| w.organism_state(id).map(|s| format!("{id}: forks {} plag {}", s.sympodial_forks, s.plagiotropic_steps)))
+            .collect();
+        println!("  architecture events  [{}]", counters.join(", "));
     }
 
     println!("\n{} organism cells", cells.len());

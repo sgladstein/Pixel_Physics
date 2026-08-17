@@ -373,6 +373,16 @@ impl World {
         super::plant::step_organisms(self);
     }
 
+    /// Read-only view of one organism's whole-plant state, for probes.
+    ///
+    /// The crate-internal `organism()` stays the working accessor; this
+    /// exists because `examples/plant_probe.rs` prints the architectural
+    /// event counters (`sympodial_forks`, `plagiotropic_steps`) beside the
+    /// per-tree table, and an example crate cannot see `pub(crate)`.
+    pub fn organism_state(&self, organism_id: u16) -> Option<&organism::OrganismState> {
+        self.organism(organism_id)
+    }
+
     /// Every live organism's encoded id.
     ///
     /// Collected rather than iterated in place because the caller needs
@@ -619,6 +629,9 @@ impl World {
             // The species mean until something germinates and draws — see
             // `OrganismState::genotype_draws`.
             genotype_draws: [0.0; organism::GENOTYPE_TRAITS],
+            shoot_top_y: None,
+            sympodial_forks: 0,
+            plagiotropic_steps: 0,
         };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];

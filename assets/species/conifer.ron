@@ -1,0 +1,105 @@
+// A Massart-model conifer: monopodial orthotropic trunk under plagiotropic
+// branch tiers -- the fir/spruce silhouette, and the first species to
+// exercise `Tropism` at all. Everything economic (cost, income, pipe
+// ratio, shedding) is inherited from tree.ron's derivations in the
+// normalised node units, so this file is *architecture*, not a re-tune:
+// what differs from `tree` is which way each tier points, how straight it
+// grows, and how its buds renew.
+//
+// Judged by sheet against `tree` in the same scene (see the Phase 2
+// commit): the discriminating look is horizontal branch tiers off a
+// single straight bole. The `plagiotropic_steps` counter in `plant_probe`
+// is the proof the tiers actually ran -- a conifer whose counter reads
+// zero is a mislabelled poplar.
+(
+    name: "conifer",
+    cell_types: [
+        (Seed, [
+            Germinate(
+                light_threshold: 0.1,
+                moisture_threshold: 0.0,
+                instant: false,
+            ),
+        ]),
+        (GrowingTip, [
+            Grow(
+                cost: 0.2,
+                // The trunk almost never forks; tiers branch densely --
+                // needle sprays off limbs.
+                branch_chance: [0.07, 0.09, 0.12, 0.14],
+                continuation_weight: 0.7,
+                // Branch tiers hold their plane rather than chasing light
+                // upward -- phototropism stays modest on purpose, or every
+                // tier curls skyward and the silhouette is a poplar again.
+                light_weight: [0.1, 0.1, 0.15, 0.2],
+                wind_weight: 0.15,
+                // For the orthotropic trunk this is "up"; for the
+                // plagiotropic tiers the same weight pulls *outward* along
+                // the tier's own departure direction (see
+                // organism::Tropism). Strong on both: a fir is straight in
+                // every axis it has.
+                upward_weight: [1.0, 0.5, 0.4, 0.3],
+                crowding_weight: 30.0,
+                max_active_tips: 14,
+                // Trunk bare by plastochron, tiers needle-dense.
+                plastochron: [14, 3, 2, 2],
+                penetration_force: 0.0,
+                // Taller and slimmer than tree.ron: h_max = (1.0 - 0.1) /
+                // 0.006 = 150 rows.
+                turgor_source: 1.0,
+                turgor_yield: 0.1,
+                turgor_per_cell: 0.006,
+                turgor_taper: 0.25,
+                // A conifer leader barely wanders.
+                heading_inertia: 0.8,
+                // Needle sprays read smaller than broadleaf clusters.
+                leaf_cluster: 3,
+                juvenile_size: 60,
+                juvenile_plastochron: 0.25,
+                juvenile_branch: 1.5,
+                genotype_variance: (0.4, 0.0, 0.3, 0.15, 0.5, 0.0),
+                sympodial: [false],
+                // The lever this species exists for: an orthotropic trunk
+                // under plagiotropic everything-else.
+                tropism: [Orthotropic, Plagiotropic, Plagiotropic, Plagiotropic],
+            ),
+            Photosynthesize(rate: 0.5, shade_death: 0.0),
+        ]),
+        (RootTip, [
+            Absorb(rate: 1.5),
+            Transpire(rate: 1.0),
+            Grow(
+                cost: 0.25,
+                branch_chance: [0.04],
+                continuation_weight: 0.7,
+                light_weight: [0.0],
+                wind_weight: 0.0,
+                upward_weight: [0.6],
+                crowding_weight: 0.0,
+                max_active_tips: 10,
+                plastochron: [0],
+                heading_inertia: 0.75,
+                penetration_force: 1.2,
+            ),
+        ]),
+        (MatureBody, [
+            SecondaryThicken(pipe_ratio: 5.5),
+            StructuralAnchor,
+            Transpire(rate: 1.0),
+        ]),
+        (DormantBud, [
+            BudBreak(
+                cost: 0.2,
+                thickening_survival: 0.2,
+                // Mildly acrotonous: renewal stays in the crown, the way a
+                // conifer keeps its leader.
+                acrotony: 0.8,
+            ),
+            StructuralAnchor,
+            SecondaryThicken(pipe_ratio: 5.5),
+        ]),
+        (Leaf, [
+            Photosynthesize(rate: 0.35, shade_death: 0.03),
+        ]),
+    ],
+)

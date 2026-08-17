@@ -77,13 +77,17 @@ pub struct PlantScene {
     pub height: i32,
     pub ground_y: i32,
     pub trees: usize,
+    /// Which species the stand plants -- Phase 2 grew real architectural
+    /// alternatives (`conifer`, `shrub`), and a harness that can only grow
+    /// `tree` cannot show them.
+    pub species: String,
 }
 
 impl Default for PlantScene {
     fn default() -> Self {
-        // 200 is the best available compromise and is **not** a good one --
-        // see `PlantScene`'s doc. It leaves about 3 rows of clearance.
-        Self { width: 512, height: 320, ground_y: 200, trees: 8 }
+        // 200 leaves the turgor bound, not the world edge, as the limit --
+        // see `PlantScene`'s doc.
+        Self { width: 512, height: 320, ground_y: 200, trees: 8, species: "tree".to_string() }
     }
 }
 
@@ -106,7 +110,7 @@ impl PlantScene {
         let spacing = self.width / (self.trees as i32 + 1);
         for i in 0..self.trees {
             let x = spacing * (i as i32 + 1);
-            w.plant_tree(x, self.ground_y - SEED_DROP);
+            w.plant_tree_species(x, self.ground_y - SEED_DROP, &self.species);
         }
         w
     }

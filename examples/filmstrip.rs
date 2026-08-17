@@ -292,7 +292,7 @@ fn build(args: &Args) -> World {
         // uses -- see that module for why these two harnesses may not build
         // their own worlds any more.
         "grove" => {
-            return common::PlantScene::default().build();
+            return common::PlantScene { species: args.species.clone(), ..Default::default() }.build();
         }
         // The sandbox's *real* starting terrain, built by the same
         // `app::build_terrain` the running game calls -- not a replica, so
@@ -658,6 +658,10 @@ struct Args {
     scene: String,
     /// `seed=N` -- which generated world `scene=worldgen` builds.
     seed: u64,
+    /// `species=` -- which species `scene=grove` plants (tree, conifer,
+    /// shrub). The grove is the shape harness, and Phase 2's whole point
+    /// is that different species are different *shapes*.
+    species: String,
     /// `preset=NAME` -- which entry of `assets/worldgen.ron` it uses. Empty
     /// means that file's own `default`.
     preset: String,
@@ -782,6 +786,7 @@ fn parse() -> Args {
     let mut a = Args {
         scene: "pour".into(),
         seed: 1,
+        species: "tree".into(),
         preset: String::new(),
         start: 100,
         every: 60,
@@ -814,6 +819,7 @@ fn parse() -> Args {
         match k {
             "scene" => a.scene = v.into(),
             "seed" => a.seed = v.parse().expect("seed"),
+            "species" => a.species = v.into(),
             "preset" => a.preset = v.into(),
             "start" => a.start = v.parse().expect("start"),
             "every" => a.every = v.parse().expect("every"),

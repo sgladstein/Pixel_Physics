@@ -806,6 +806,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 juvenile_plastochron,
                 juvenile_branch,
                 genotype_variance,
+                sympodial,
+                tropism,
             } => {
                 // Per-order parameters resolved once, against *this cell's*
                 // own order. A tip reads only its own tier -- no traversal,
@@ -995,16 +997,64 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // override -- `RootTip`'s own branch is untouched from
                 // before this fix, so its already-tuned resource economy
                 // doesn't need re-verifying.
+                let heading = if stored_heading == (0.0, 0.0) { away_from_supply } else { stored_heading };
+
                 let gravity_or_water = if cell_type == CellType::RootTip {
                     match organism::moisture_pull(world, x as f32, y as f32) {
                         Some((dir, strength)) if strength >= MIZ_THRESHOLD => dir,
                         _ => (0.0, 1.0), // down
                     }
                 } else {
-                    (0.0, -1.0) // up
+                    // **The tier's own reference, not a hardcoded up.**
+                    // Every axis of every species was orthotropic by
+                    // construction until `Tropism` landed — the reference
+                    // was the literal `(0.0, -1.0)` this arm still uses
+                    // for orthotropic tiers. A plagiotropic tier instead
+                    // holds the *horizontal sense of its own heading*: the
+                    // direction it left its parent in, which momentum has
+                    // carried since the lateral departed. That is what
+                    // makes a fir's branch a tier and much of the
+                    // temperate broadleaf flora (Troll's model) buildable
+                    // at all. Exactly-vertical headings take +x,
+                    // deterministically — rare (laterals leave sideways),
+                    // and a coin would make replay diverge.
+                    match tropism.at(order) {
+                        organism::Tropism::Orthotropic => (0.0, -1.0),
+                        organism::Tropism::Plagiotropic => {
+                            // Outward with a droop, not pure horizontal —
+                            // (±0.91, +0.41) normalized. Real plagiotropic
+                            // branches angle down-and-out before levelling
+                            // (a spruce tier's silhouette), and the first
+                            // pure-horizontal version read as nothing of
+                            // the kind: a lateral leaves diagonally upward,
+                            // and under high heading inertia a level
+                            // reference only bent that launch into a long
+                            // upward-sweeping arc — the whole stand read as
+                            // leaning candelabras (p2-conifer.png, first
+                            // cut). The droop pulls the arc back through
+                            // horizontal instead of letting it keep its
+                            // climb.
+                            // The side comes from the axis's own travel,
+                            // with a real dead zone: sign-of-heading alone
+                            // sent every near-vertical axis RIGHT (the
+                            // sign of an epsilon), and bud-flushed laterals
+                            // inherited the trunk's near-vertical heading,
+                            // so whole stands swept rightward in unison
+                            // (first two conifer sheets). Inside the dead
+                            // zone the coin is the per-(organism, cell,
+                            // frame) stream, so replay holds; one sideways
+                            // step later the sign locks and the coin never
+                            // fires again.
+                            if heading.0.abs() > 0.05 {
+                                if heading.0 < 0.0 { (-0.912, 0.410) } else { (0.912, 0.410) }
+                            } else if rng.flip() {
+                                (0.912, 0.410)
+                            } else {
+                                (-0.912, 0.410)
+                            }
+                        }
+                    }
                 };
-
-                let heading = if stored_heading == (0.0, 0.0) { away_from_supply } else { stored_heading };
 
                 // §2b: score every open 8-neighbour, weighted-random
                 // *sample* from the positive-scoring set -- never a
@@ -1286,7 +1336,41 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                             write_carbon(world, x, y, resource);
                             next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
+
+                            // **A sympodial tier forks instead of
+                            // decorating: the fork replaces the axis.** The
+                            // apex already dies every step (it just retired
+                            // to `self_type_after_grow` above), so
+                            // monopodiality was only ever the labelling --
+                            // the primary child inheriting order and
+                            // heading. On a sympodial tier's fork, the
+                            // primary is re-labelled a lateral too: next
+                            // tier, its own fresh heading, no inherited
+                            // momentum. Both children are now equals and
+                            // the axis is a stack of modules, which is
+                            // Leeuwenberg's model once `ByOrder` saturates.
+                            // Counted, because a sympodial run whose
+                            // counter reads zero is a monopodial tree that
+                            // happened to fork.
+                            if sympodial.at(order) {
+                                write_order(world, tx, ty, order.saturating_add(1));
+                                if let Some(slot) = world.organism_cell_mut(tx, ty) {
+                                    slot.heading = step;
+                                }
+                                if let Some(state) = world.organism_mut(organism_id) {
+                                    state.sympodial_forks += 1;
+                                }
+                            }
                         }
+                    }
+                }
+
+                // The tropism counter -- a plagiotropic tier that never
+                // grew is invisible on a sheet, and "did it fire" needs a
+                // number.
+                if cell_type == CellType::GrowingTip && tropism.at(order) == organism::Tropism::Plagiotropic {
+                    if let Some(state) = world.organism_mut(organism_id) {
+                        state.plagiotropic_steps += 1;
                     }
                 }
 
@@ -1865,12 +1949,17 @@ fn break_buds(world: &mut World, organism_id: u16) {
             _ => None,
         }),
         world.species.get(species_id).behaviors(CellType::DormantBud).iter().find_map(|b| match b {
-            Behavior::BudBreak { cost, .. } => Some(*cost),
+            Behavior::BudBreak { cost, acrotony, .. } => Some((*cost, *acrotony)),
             _ => None,
         }),
     ) else {
         return; // a species with no buds, or none that can break
     };
+    let (bud_cost, acrotony) = bud_cost;
+    // The shoot's vertical span, for acrotony's positional term. Both ends
+    // come from the last upkeep walk; a plant that has not had one yet (or
+    // has no shoot) scores every bud as position 1.0.
+    let (collar, shoot_top) = (state.collar_y, state.shoot_top_y);
 
     let mut intercepted = 0.0f32;
     let mut tips = 0usize;
@@ -1898,7 +1987,24 @@ fn break_buds(world: &mut World, organism_id: u16) {
             // shoot rather than to where to extend one.
             Some(CellType::DormantBud) => {
                 let light = ambient_light_above(world, x, y);
-                buds.push((x, y, light / (1.0 + candidate_crowding(world, x, y))));
+                // **Acrotony's positional preference** -- elevation runs 0
+                // at the collar to 1 at the shoot's top, and the species'
+                // signed `acrotony` scales the bud's score by
+                // `1 + acrotony * (elevation - 0.5)`. Positive renews at
+                // the top (a tree keeps crowning); negative feeds the base
+                // (a shrub keeps throwing new axes from its foot) -- the
+                // whole-plant-scale habit flip the botany review verified.
+                // Floored so extreme values reorder buds without zeroing
+                // any of them; light-per-crowding still decides among buds
+                // at the same height.
+                let position = match (acrotony != 0.0, collar, shoot_top) {
+                    (true, Some(collar), Some(top)) if collar > top => {
+                        let elevation = (collar - y) as f32 / (collar - top) as f32;
+                        (1.0 + acrotony * (elevation.clamp(0.0, 1.0) - 0.5)).max(0.05)
+                    }
+                    _ => 1.0,
+                };
+                buds.push((x, y, light / (1.0 + candidate_crowding(world, x, y)) * position));
             }
             _ => {}
         }
@@ -1959,6 +2065,18 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // trunk parameters and grow straight up as a second trunk.
     let order = world.organism_cell(bx, by).map_or(0, |c| c.order);
     write_order(world, bx, by, order.saturating_add(1));
+    // A flushed bud launches with **no inherited heading**. The bud cell
+    // is a retired stem node, so its stored heading is the stem's own
+    // (near-vertical on a trunk) -- and a lateral that starts life
+    // believing it is travelling straight up steers by that belief:
+    // measured as whole conifer stands sweeping one direction, because
+    // every trunk-bud tier fed the vertical case of the plagiotropic side
+    // pick. Zeroed, the first Grow falls back to away-from-supply, which
+    // points away from the stem that bears the bud -- where a real
+    // axillary shoot goes.
+    if let Some(slot) = world.organism_cell_mut(bx, by) {
+        slot.heading = (0.0, 0.0);
+    }
     let site = reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL);
     world.schedule_active_site(site);
 }
@@ -2129,6 +2247,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     let mut leaves_in_row: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let (mut root_cells, mut shoot_cells) = (0u32, 0u32);
     let mut collar_y: Option<i32> = None;
+    let mut shoot_top_y: Option<i32> = None;
     let mut min_y = i32::MAX;
     let mut max_y = i32::MIN;
     for &(cx, cy) in &cells {
@@ -2155,12 +2274,16 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             // bottom of the root system and make every shoot cell read as
             // implausibly high.
             collar_y = Some(collar_y.map_or(cy, |c: i32| c.max(cy)));
+            // And the shoot's top, so `acrotony` can place a bud on the
+            // 0..1 span between the two.
+            shoot_top_y = Some(shoot_top_y.map_or(cy, |c: i32| c.min(cy)));
         }
     }
     if let Some(state) = world.organism_mut(organism_id) {
         state.root_cells = root_cells;
         state.shoot_cells = shoot_cells;
         state.collar_y = collar_y;
+        state.shoot_top_y = shoot_top_y;
     }
     let mut leaves_above: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let mut running = 0u32;

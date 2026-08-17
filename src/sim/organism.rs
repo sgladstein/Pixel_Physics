@@ -179,6 +179,26 @@ pub enum Behavior {
     /// idle" signal saturates simultaneously when growth stops, which is
     /// exactly how the earlier bud-break attempt ran away.
     BudBreak {
+        /// Where along the plant buds preferentially break — **acrotony
+        /// against basitony**, the single scalar the botany review found
+        /// flips a plant between tree and shrub *habit* at whole-plant
+        /// scale (Barthélémy & Caraglio 2007: "two fundamental phenomena
+        /// underlying, respectively, the arborescent or bushy growth
+        /// habit").
+        ///
+        /// Scales a bud's flush score by `1 + acrotony * (elevation − 0.5)`
+        /// where elevation runs 0 at the root collar to 1 at the shoot's
+        /// top. Positive prefers high buds (acrotony — crowns keep
+        /// renewing at the top, a tree), negative prefers basal ones
+        /// (basitony — the base keeps throwing new axes, a thicket).
+        /// `0.0` is indifferent and is the old behaviour.
+        ///
+        /// A basitonous species should also raise `thickening_survival`:
+        /// its preferred buds sit on the oldest, most-thickened wood, and
+        /// the literature's resprouters are exactly the plants whose
+        /// epicormic buds track the cambium for decades.
+        #[serde(default)]
+        acrotony: f32,
         /// Carbon a flush spends to turn the bud into a tip. A price, not
         /// a threshold: it comes out of the same pool `Grow` draws on, so
         /// flushing competes with extending rather than being free.
@@ -423,6 +443,28 @@ pub enum Behavior {
         /// clear their own quantization.
         #[serde(default)]
         genotype_variance: [f32; GENOTYPE_TRAITS],
+        /// Whether a **fork on this tier replaces the axis instead of
+        /// decorating it** — monopodial vs sympodial branching, another of
+        /// the Hallé–Oldeman–Tomlinson discriminating axes, and nearly
+        /// free here because `Grow` already retires its apex every step:
+        /// monopodiality was only ever the *labelling* (the primary child
+        /// inherits order and heading, the lateral starts a new tier).
+        ///
+        /// `true` on a tier means a branch event there makes *both*
+        /// children laterals — both take `order + 1` and a fresh heading —
+        /// so the axis is built of stacked equivalent modules. `ByOrder`'s
+        /// saturation then gives Leeuwenberg's model for free: after a few
+        /// forks everything runs on the last tier's parameters, a plant of
+        /// repeated equal modules, which is what a lilac or a frangipani
+        /// is. A `false` trunk under `true` outer tiers is Scarrone's
+        /// (mango); all-`false` is the monopodial tree this engine has
+        /// always grown.
+        #[serde(default = "all_monopodial")]
+        sympodial: ByOrder<bool>,
+        /// Which way each tier's axes want to point — see [`Tropism`].
+        /// Orthotropic everywhere reproduces the old hardcoded `(0, -1)`.
+        #[serde(default = "all_orthotropic")]
+        tropism: ByOrder<Tropism>,
         /// Mechanical resistance, in MPa, this cell type can force its way
         /// through — a `RootTip` converts a `Powder` neighbour whose
         /// `Material::penetration_resistance` is *below* this into root
@@ -733,6 +775,21 @@ pub struct OrganismState {
     /// All-zero is "exactly the species mean", which is what an organism
     /// that has not germinated yet reads as, and what moss stays at.
     pub genotype_draws: [f32; GENOTYPE_TRAITS],
+    /// The highest row this organism's shoot tissue reaches, refreshed in
+    /// the same upkeep walk as `collar_y`. With the collar it gives the
+    /// shoot's vertical span, which is what `acrotony` positions a bud
+    /// against. `None` until the first upkeep pass.
+    pub shoot_top_y: Option<i32>,
+    /// **Event counters, because a contact sheet cannot show whether a
+    /// mechanism fired.** A collapse was once read as "chunks are working"
+    /// while the body counter said zero for the whole run; every discrete
+    /// architectural event gets a counter printed beside the picture for
+    /// exactly that reason. Stored, not derived — events cannot be
+    /// reconstructed from world state after the fact.
+    pub sympodial_forks: u32,
+    /// Growth steps taken under a plagiotropic reference — says whether a
+    /// species' `tropism` tiers ever actually ran.
+    pub plagiotropic_steps: u32,
 }
 
 /// How many independently-jittered traits a genotype carries — the width of
@@ -746,7 +803,12 @@ pub struct SpeciesRegistry {
     by_name: HashMap<String, SpeciesId>,
 }
 
-const EMBEDDED: &[&str] = &[include_str!("../../assets/species/moss.ron"), include_str!("../../assets/species/tree.ron")];
+const EMBEDDED: &[&str] = &[
+    include_str!("../../assets/species/moss.ron"),
+    include_str!("../../assets/species/tree.ron"),
+    include_str!("../../assets/species/conifer.ron"),
+    include_str!("../../assets/species/shrub.ron"),
+];
 
 /// Where the loader looks for species files, relative to the working
 /// directory — mirrors `material::ASSET_DIR`.
@@ -877,6 +939,43 @@ fn one() -> f32 {
 /// before clustering existed.
 fn one_u8() -> u8 {
     1
+}
+
+/// Which way an axis of a given branch order wants to point — the
+/// orthotropic/plagiotropic distinction, which is one of the four
+/// discriminating axes of the Hallé–Oldeman–Tomlinson architectural
+/// models and the single biggest silhouette lever the engine had no way
+/// to express.
+///
+/// **Orthotropic** axes grow toward the vertical (a poplar's everything, a
+/// fir's trunk). **Plagiotropic** axes grow *outward*, holding the
+/// direction they left their parent in — a fir's branch tiers, and the
+/// building block of Troll's model, which the literature calls the
+/// commonest architecture of the temperate broadleaf flora. The reference
+/// direction a plagiotropic axis holds is its own stored `heading`'s
+/// horizontal sense, so the data this needs has existed since momentum
+/// landed; this enum only lets a species point different tiers different
+/// ways.
+///
+/// `upward_weight` weights the pull toward whichever reference the tier
+/// selects — for a plagiotropic tier it is an *outward* weight, the name
+/// notwithstanding; renaming a field every genome salt table references
+/// was judged worse than one doc line here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Deserialize)]
+pub enum Tropism {
+    Orthotropic,
+    Plagiotropic,
+}
+
+/// `serde` default: every tier orthotropic, which is exactly the old
+/// hardcoded behaviour.
+fn all_orthotropic() -> ByOrder<Tropism> {
+    ByOrder::uniform(Tropism::Orthotropic)
+}
+
+/// `serde` default: no tier forks sympodially — the old behaviour.
+fn all_monopodial() -> ByOrder<bool> {
+    ByOrder::uniform(false)
 }
 
 /// A `Grow` parameter that varies with **branch order** — the number of
