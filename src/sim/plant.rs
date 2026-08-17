@@ -308,17 +308,51 @@ fn write_carbon(world: &mut World, x: i32, y: i32, carbon: f32) {
 /// One individual's multiplier on one species parameter — the genotype
 /// jitter described on `organism::Behavior::Grow::genotype_variance`.
 ///
-/// Uniform in `1 ± variance`, drawn from the organism id and a per-trait
-/// `salt` so traits vary independently. Stateless on purpose: an organism's
-/// genotype is a pure function of its id, so it needs no storage, survives
-/// every cell of the plant being replaced, and cannot drift.
-pub fn genotype(organism_id: u16, salt: u64, variance: f32) -> f32 {
+/// `1 ± variance`, from the unit draw this individual took at germination
+/// (`seed_genotype`). `slot` indexes both the draw and the variance array,
+/// so the two cannot drift apart.
+pub fn genotype(world: &World, organism_id: u16, slot: usize, variance: f32) -> f32 {
     if variance <= 0.0 {
         return 1.0;
     }
-    let mut rng = rng::stream(organism_id as u64, salt, 0, 0);
-    let unit = rng.below(10_000) as f32 / 10_000.0 * 2.0 - 1.0;
-    (1.0 + unit * variance).max(0.0)
+    let draw = world.organism(organism_id).map_or(0.0, |s| s.genotype_draws[slot]);
+    (1.0 + draw * variance).max(0.0)
+}
+
+/// Draw this individual's genotype, once, from **where it germinated**.
+///
+/// Keyed on the germination coordinate and the world seed rather than on
+/// `organism_id`, and the difference is not cosmetic. Ids are handed out in
+/// planting order, so an id-keyed genotype makes a plant's character a
+/// property of the world's whole event history: plant one extra sapling
+/// anywhere earlier and every plant after it becomes a different
+/// individual. Worldgen edits, player planting and (once `free_organism`
+/// exists) slot reuse all shift it. Position keying survives all three,
+/// costs six floats, and is stable across a save/load that restores the
+/// grid — which is worth having *before* a serialiser exists, since the
+/// alternative constrains one that does not.
+///
+/// The **germination** coordinate specifically, not the planting one: a
+/// seed is a `Powder`, so it falls and rolls, and where it comes to rest is
+/// where the plant actually lives.
+///
+/// Two individuals germinating at the same cell in a long-lived world draw
+/// the same genotype. Mixing the frame in would fix that and would break
+/// save/load stability, so it is deliberately not done — a repeat in the
+/// same spot, seasons apart, is not a visible defect.
+pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
+    let world_seed = world.seed;
+    let mut draws = [0.0f32; organism::GENOTYPE_TRAITS];
+    for (slot, draw) in draws.iter_mut().enumerate() {
+        // One stream per (world, position, trait), so traits vary
+        // independently and neither the plant's id nor its planting order
+        // appears anywhere in the key.
+        let mut rng = rng::stream(world_seed, x as u64, y as u64, slot as u64);
+        *draw = rng.below(10_000) as f32 / 10_000.0 * 2.0 - 1.0;
+    }
+    if let Some(state) = world.organism_mut(organism_id) {
+        state.genotype_draws = draws;
+    }
 }
 
 fn write_order(world: &mut World, x: i32, y: i32, order: u8) {
@@ -751,15 +785,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // no whole-plant query -- which is what keeps architecture
                 // local; see `organism::ByOrder`.
                 // Per-order first, then this individual's own genotype on
-                // top. The salts are arbitrary but must stay distinct and
-                // stable -- two traits sharing a salt move together, which
-                // is the "one tree scaled up" failure `genotype_variance`
-                // exists to avoid.
-                let branch_chance = branch_chance.at(order) * genotype(organism_id, 1, genotype_variance[0]);
-                let light_weight = light_weight.at(order) * genotype(organism_id, 6, genotype_variance[5]);
-                let upward_weight = upward_weight.at(order) * genotype(organism_id, 2, genotype_variance[1]);
-                let mut plastochron_interval =
-                    ((plastochron_interval.at(order) as f32 * genotype(organism_id, 3, genotype_variance[2])).round() as u8).max(u8::from(plastochron_interval.at(order) > 0));
+                // top. Each trait reads its own slot -- two traits sharing
+                // one would move together, which is the "one tree scaled
+                // up" failure `genotype_variance` exists to avoid.
+                let branch_chance = branch_chance.at(order) * genotype(world, organism_id, 0, genotype_variance[0]);
+                let light_weight = light_weight.at(order) * genotype(world, organism_id, 5, genotype_variance[5]);
+                let upward_weight = upward_weight.at(order) * genotype(world, organism_id, 1, genotype_variance[1]);
+                let mut plastochron_interval = ((plastochron_interval.at(order) as f32 * genotype(world, organism_id, 2, genotype_variance[2])).round()
+                    as u8)
+                    .max(u8::from(plastochron_interval.at(order) > 0));
                 // **The juvenile stage.** See `juvenile_size` for why branch
                 // order cannot carry this: order is position, age is not.
                 // Applied after the genotype so an individual keeps its own
@@ -775,7 +809,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // because the turgor bound is geometric and every tree
                 // reaches it exactly. Jittering the per-cell cost spreads
                 // the derived ceiling instead of the outcome.
-                let turgor_per_cell = turgor_per_cell * genotype(organism_id, 4, genotype_variance[3]);
+                let turgor_per_cell = turgor_per_cell * genotype(world, organism_id, 3, genotype_variance[3]);
                 // **These three gates deliberately do *not* set
                 // `found_candidate`, and that is what makes growth
                 // terminate.** The staleness counter is how "temporarily
@@ -2120,7 +2154,10 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // for a topological one: a limb on the far side of the
                     // plant counted toward a stem it does not supply.
                     let carried = world.organism_cell(cx, cy).map_or(0.0, |c| c.q_peak);
-                    thicken(world, cx, cy, organism_id, pipe_ratio * genotype(organism_id, 5, pipe_variance), carried, bud_survival, &mut rng);
+                    // Hoisted out of the call: `genotype` borrows the world
+                    // and `thicken` takes it mutably.
+                    let jittered_ratio = pipe_ratio * genotype(world, organism_id, 4, pipe_variance);
+                    thicken(world, cx, cy, organism_id, jittered_ratio, carried, bud_survival, &mut rng);
                 }
                 // Frontier behaviours never run here -- a mature cell has
                 // no growth to do, and `Germinate` belongs to a `Seed`.
@@ -2204,6 +2241,12 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // creation above. A freshly germinated seed is not yet connected to any
     // ground and is not expected to be; checking it here would destroy
     // every seedling before its root ever gets the chance to reach soil.
+    // **The genotype is drawn here, and here is the only place it can be
+    // drawn**: this is where the plant's real position is finally known. A
+    // seed is a `Powder`, so it falls and rolls from wherever it was
+    // planted, and the coordinate it comes to rest at is the one that
+    // should decide what kind of individual grows. See `seed_genotype`.
+    seed_genotype(world, organism_id, x, y);
     // The seed cell is `seed` material; the shoot it becomes is wood.
     let wood = world.materials.id_of("wood").unwrap_or(cell.material);
     let shades = world.materials.get(wood).palette.len().max(1) as u32;
@@ -2544,6 +2587,11 @@ impl World {
         let organism_id = self.push_organism(moss_species);
         let aux = organism::pack_cell_type(CellType::GrowingTip);
         self.set(x, y, Cell::new(moss_material, shade).with_organism_id(organism_id).with_aux(aux));
+        // Moss skips the `Seed` stage entirely, so it has no germination to
+        // draw at -- this is the equivalent moment. Inert while moss's own
+        // `genotype_variance` is all zeroes, and correct the moment a
+        // species with a `Divide` economy wants individuality.
+        seed_genotype(self, organism_id, x, y);
         let site = reschedule_organism(x, y, organism_id, 0, 0, self.frame + ORGANISM_TICK_INTERVAL);
         self.schedule_active_site(site);
     }
@@ -2835,6 +2883,66 @@ mod tests {
     // from a whole simulated growth tick to the function that actually
     // does the work.
 
+    /// The genotype belongs to the *plant*, not to the world's event
+    /// history — which is exactly what keying on `organism_id` could not
+    /// give, since ids are handed out in planting order.
+    ///
+    /// The middle case is the one that fails against id keying: planting
+    /// three saplings elsewhere *first* shifts the tree at (100, 60) from
+    /// organism 1 to organism 4, so an id-keyed draw makes it a different
+    /// individual for a reason that has nothing to do with it.
+    /// Scratch: prints the single-tree growth curve `a_tree_eventually_
+    /// stops_growing` asserts a plateau on. `#[ignore]`d, kept because that
+    /// test's bar is a claim about a curve and the curve is what says
+    /// whether the bar is set right.
+    ///
+    /// ```text
+    /// cargo test --release --lib print_single_tree_growth_curve -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn print_single_tree_growth_curve() {
+        let mut w = test_world();
+        plant_tree_on_ground(&mut w, 50, 20);
+        let wood = w.materials.id_of("wood").unwrap();
+        let mut last = 0;
+        for step in 1..=12 {
+            run_with_fields(&mut w, 5000);
+            let n = count(&w, wood);
+            println!("frame {:>6}: {:>5} wood (+{})", step * 5000, n, n - last);
+            last = n;
+        }
+    }
+
+    #[test]
+    fn genotype_follows_position_and_world_seed_not_planting_order() {
+        fn draws_at_100(planted_first: &[i32], seed: u64) -> [f32; organism::GENOTYPE_TRAITS] {
+            let mut w = test_world();
+            w.seed = seed;
+            for &x in planted_first {
+                plant_tree_on_ground(&mut w, x, 60);
+            }
+            plant_tree_on_ground(&mut w, 100, 60);
+            run_with_fields(&mut w, 400);
+            let organism_id = w.get(100, 60).organism_id();
+            assert_ne!(organism_id, 0, "the tree at (100, 60) should still own its own base cell");
+            assert_ne!(
+                organism::cell_type(w.get(100, 60).aux()),
+                Some(CellType::Seed),
+                "test setup needs the seed to have germinated -- nothing draws a genotype before that"
+            );
+            w.organism(organism_id).expect("live organism").genotype_draws
+        }
+
+        let alone = draws_at_100(&[], 12345);
+        let crowded = draws_at_100(&[40, 60, 80], 12345);
+        assert_eq!(alone, crowded, "planting order must not change who a plant is");
+        assert!(alone.iter().any(|&d| d != 0.0), "a germinated plant should have drawn a real genotype, not the species mean");
+
+        let other_world = draws_at_100(&[], 999);
+        assert_ne!(alone, other_world, "a different world seed should grow a different individual at the same spot");
+    }
+
     #[test]
     fn a_flushing_bud_keeps_its_standing_carbon_and_the_richest_cell_pays() {
         // The exact leak the second review found: `break_buds` used to
@@ -2992,16 +3100,45 @@ mod tests {
         // never actually reaches zero. What "eventually stops growing"
         // means here instead: the wood *count* stops changing -- no new
         // cells, even though the schedule itself stays alive.
+        // **Asserts that growth terminates, not that it has terminated by
+        // frame N**, and the difference is what this test just cost.
+        //
+        // It used to run 3,000 frames, take a count, run 24,000 more, and
+        // require the two to be equal — a bar fitted to one individual's
+        // growth curve. Genotypes are drawn from position now, so the tree
+        // at (50, 20) became a different individual and was simply still
+        // growing at 3,000 (14 cells, reaching 295 by 27,000). The
+        // mechanism was fine; the number was a fossil. Measured with
+        // `print_single_tree_growth_curve` above: this individual plateaus
+        // at 565 cells around frame 50,000.
+        //
+        // So: step in windows until the count holds still across two of
+        // them, with a budget more than twice the measured plateau. That
+        // survives a genotype redraw, and it will survive Phase 1's light
+        // work, because it asks the question the test is named for.
         let mut w = test_world();
         plant_tree_on_ground(&mut w, 50, 20);
-        run_with_fields(&mut w, 3000);
         let wood = w.materials.id_of("wood").unwrap();
-        let count_at_3000 = count(&w, wood);
-        assert!(count_at_3000 > 1, "the tree should have grown at least beyond its single seed cell");
 
-        run_with_fields(&mut w, 24000);
-        let count_at_9000 = count(&w, wood);
-        assert_eq!(count_at_3000, count_at_9000, "a tree should eventually exhaust its resource economy and stop producing new wood cells");
+        const WINDOW: usize = 5_000;
+        const BUDGET: usize = 120_000;
+        let (mut previous, mut stable_windows, mut frames) = (0usize, 0u8, 0usize);
+        let mut peak = 0usize;
+        while frames < BUDGET && stable_windows < 2 {
+            run_with_fields(&mut w, WINDOW);
+            frames += WINDOW;
+            let n = count(&w, wood);
+            peak = peak.max(n);
+            stable_windows = if n == previous { stable_windows + 1 } else { 0 };
+            previous = n;
+        }
+
+        assert!(peak > 1, "the tree should have grown at least beyond its single seed cell");
+        assert!(
+            stable_windows >= 2,
+            "a tree should eventually exhaust its resource economy and stop producing new wood cells -- \
+             still growing after {frames} frames at {previous} cells"
+        );
     }
 
     #[test]
@@ -4146,7 +4283,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             // A one-cell test plant is always below `juvenile_size`, so
             // the juvenile multiplier applies -- and hard-coding around
             // that is how this test broke when the stage landed.
-            let jittered = (base.at(order) as f32 * genotype(organism_id, 3, variance[2])).round().max(1.0);
+            let jittered = (base.at(order) as f32 * genotype(&w, organism_id, 2, variance[2])).round().max(1.0);
             let interval = ((jittered * juvenile_plastochron).round() as u8).max(1);
             // Two whole intervals in, then stepped off it by `offset`, so
             // the "due" and "not due" cases are the same distance apart
@@ -4352,3 +4489,4 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         );
     }
 }
+

@@ -166,6 +166,12 @@ pub fn generate_reported(world: &mut World, spec: Spec) -> Vec<(&'static str, us
             Vec::new()
         }
         Spec::Generated { params, seed } => {
+            // The world keeps its own seed, because generation is not the
+            // only thing that needs to know which world this is: a plant's
+            // genotype is drawn from it (`plant::seed_genotype`), so two
+            // worlds grown from different seeds must not produce the same
+            // individual at the same coordinate.
+            world.seed = seed;
             let ctx = Ctx::new(world, params, seed);
             PASSES.iter().map(|pass| (pass.name, (pass.run)(&ctx, world))).collect()
         }

@@ -229,7 +229,31 @@ pub struct World {
     /// `structural::tick` the instant a break mutates the grid, since both
     /// invalidate the support forest it summarises.
     pub load_cache: crate::sim::load::Cache,
+    /// **This world's identity**, mixed into anything that should differ
+    /// between worlds but be stable within one.
+    ///
+    /// Set by `worldgen::generate` from the spec's own seed; left at
+    /// `DEFAULT_WORLD_SEED` for a hand-built world (every test, every
+    /// harness scene), which is what keeps those reproducible without any
+    /// of them having to think about it.
+    ///
+    /// Its first consumer is `plant::seed_genotype`. An individual plant's
+    /// genotype is drawn from *this* plus the coordinate it germinated at,
+    /// rather than from its `organism_id` — ids are assigned in planting
+    /// order, so an id-keyed genotype makes a tree's character a property
+    /// of the world's event history: plant one extra sapling anywhere
+    /// earlier and every later plant in the world redraws. Position keying
+    /// is stable under that, stable under save/load by construction (a save
+    /// that restores the grid restores the genotypes), and still gives
+    /// "same world, same trees", which `PLAN.md`'s determinism requirement
+    /// wants.
+    pub seed: u64,
 }
+
+/// The seed a world has when nothing has given it one. Arbitrary, fixed,
+/// and deliberately not zero — a zero seed mixed into a hash tends to make
+/// the first few draws correlate with the position alone.
+pub const DEFAULT_WORLD_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 
 /// How many structural failures of each kind have fired, and how much
 /// material each took. See `World::structural_failures`.
@@ -309,6 +333,7 @@ impl World {
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
+            seed: DEFAULT_WORLD_SEED,
         };
         world.ensure_chunks_for(bounds);
         world
@@ -570,7 +595,16 @@ impl World {
     /// moment a future caller needs it. Returns the encoded `organism_id`
     /// to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
-        let state = OrganismState { species, cells: std::collections::HashMap::new(), root_cells: 0, shoot_cells: 0, collar_y: None };
+        let state = OrganismState {
+            species,
+            cells: std::collections::HashMap::new(),
+            root_cells: 0,
+            shoot_cells: 0,
+            collar_y: None,
+            // The species mean until something germinates and draws — see
+            // `OrganismState::genotype_draws`.
+            genotype_draws: [0.0; organism::GENOTYPE_TRAITS],
+        };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];
             // Wraps at 16 generations (4 bits) rather than growing further

@@ -366,29 +366,32 @@ pub enum Behavior {
         /// 128, 129, 129, 130, 130, 131 rows tall is not eight trees; it is
         /// one tree drawn eight times, and it reads that way instantly.
         ///
-        /// Drawn from the organism id, so it is free: no storage, no
-        /// inheritance, deterministic per individual, and stable for that
-        /// individual's whole life. Each parameter gets its own draw
-        /// (`plant::genotype`'s salt), because an individual that is
-        /// simultaneously *more* branchy, *more* upright and *taller* is
-        /// just the average tree scaled up — variation has to be
-        /// independent per trait to read as variety rather than as size.
+        /// Each parameter gets its own draw
+        /// (`OrganismState::genotype_draws`, one slot per trait), because an
+        /// individual that is simultaneously *more* branchy, *more* upright
+        /// and *taller* is just the average tree scaled up — variation has
+        /// to be independent per trait to read as variety rather than as
+        /// size.
+        ///
+        /// This width is read *live*, at every use, while the draw it
+        /// multiplies is fixed at germination. So editing a width (or
+        /// pulling it in the tunables panel) re-scales the variation an
+        /// existing stand shows without redrawing who anybody is.
         ///
         /// `0.0` disables it, and that is a real value: moss has no use
         /// for individuality, and a test that wants a reproducible single
         /// tree wants the written numbers and not a draw around them.
-        /// Indexed by trait, in the order `plant::genotype`'s salts run:
-        /// **0 branch chance, 1 upward weight, 2 plastochron, 3 turgor
-        /// cost, 4 pipe ratio, 5 light weight.** All zeroes disables jitter.
+        /// Indexed by trait: **0 branch chance, 1 upward weight, 2
+        /// plastochron, 3 turgor cost, 4 pipe ratio, 5 light weight.** All
+        /// zeroes disables jitter.
         ///
-        /// **Slots are positional and must never be renumbered** — a salt
-        /// is what makes an individual's draw reproducible, so moving a
-        /// trait to a different index silently rewrites every genome ever
-        /// measured. Retire a dead trait by setting its width to `0.0`, not
-        /// by removing its slot. Slot 1 is exactly that case: upward weight
-        /// measured inert across 1,024 genomes even at ±40% (quintile means
-        /// 1310, 1460, 1396, 1388, 1457 cells — flat), so it is held at 0.0
-        /// rather than deleted.
+        /// **Slots are positional and must never be renumbered** — the slot
+        /// index selects which stored draw a trait reads, so moving a trait
+        /// silently rewrites every genome ever measured. Retire a dead trait
+        /// by setting its width to `0.0`, not by removing its slot. Slot 1
+        /// is exactly that case: upward weight measured inert across 1,024
+        /// genomes even at ±40% (quintile means 1310, 1460, 1396, 1388,
+        /// 1457 cells — flat), so it is held at 0.0 rather than deleted.
         ///
         /// **One number for all four was wrong, and it was measured wrong.**
         /// At a flat ±15%, a 64-genome population showed only turgor doing
@@ -405,7 +408,7 @@ pub enum Behavior {
         /// actually moves, and the inert ones need to be wide enough to
         /// clear their own quantization.
         #[serde(default)]
-        genotype_variance: [f32; 6],
+        genotype_variance: [f32; GENOTYPE_TRAITS],
         /// Mechanical resistance, in MPa, this cell type can force its way
         /// through — a `RootTip` converts a `Powder` neighbour whose
         /// `Material::penetration_resistance` is *below* this into root
@@ -672,7 +675,36 @@ pub struct OrganismState {
     ///
     /// `None` until the first upkeep pass, or for an organism with no shoot.
     pub collar_y: Option<i32>,
+    /// **This individual's genotype**, as one unit draw in `-1..=1` per
+    /// trait — drawn once, from where it germinated, by
+    /// `plant::seed_genotype`.
+    ///
+    /// The draws are stored and the *widths* are not, so a species file
+    /// edit (or the tunables panel) still moves how much variation there
+    /// is, while an individual keeps its own character. `plant::genotype`
+    /// is the read: `1 + draw * variance`.
+    ///
+    /// **Why stored at all, when the previous version needed no storage.**
+    /// The genotype used to be a pure function of `organism_id`, which is
+    /// free but makes a plant's character a property of the world's event
+    /// history rather than of the plant: ids come from planting order, so
+    /// inserting one sapling anywhere earlier redraws every organism after
+    /// it, and slot reuse (once `free_organism` exists) wraps its
+    /// generation at 16 and hands out bit-identical ids — repeats that
+    /// would cluster spatially, exactly where they read as wrong. Keying on
+    /// the germination coordinate costs these six floats and makes the
+    /// genotype survive every one of those.
+    ///
+    /// All-zero is "exactly the species mean", which is what an organism
+    /// that has not germinated yet reads as, and what moss stays at.
+    pub genotype_draws: [f32; GENOTYPE_TRAITS],
 }
+
+/// How many independently-jittered traits a genotype carries — the width of
+/// both `Behavior::Grow::genotype_variance` and
+/// `OrganismState::genotype_draws`, which must agree because one indexes
+/// the other.
+pub const GENOTYPE_TRAITS: usize = 6;
 
 pub struct SpeciesRegistry {
     species: Vec<Species>,

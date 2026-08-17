@@ -235,8 +235,9 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         // see *interactions* between them; a one-knob-at-a-time sweep
         // structurally cannot.
         //
-        // Salts must match `plant::genotype`'s call sites: 1 branch_chance,
-        // 2 upward_weight, 3 plastochron, 4 turgor_per_cell.
+        // Slots match `genotype_variance`'s own order: 0 branch_chance,
+        // 1 upward_weight, 2 plastochron, 3 turgor_per_cell, 4 pipe_ratio,
+        // 5 light_weight.
         let variance = w
             .species
             .get(w.species.id_of("tree").expect("tree"))
@@ -253,15 +254,15 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         let mut ids: Vec<u16> = per_organism.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
-            let g = |salt: u64| pixel_physics::sim::plant::genotype(id, salt, variance[salt as usize - 1]);
+            let g = |slot: usize| pixel_physics::sim::plant::genotype(&w, id, slot, variance[slot]);
             println!(
                 "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
+                g(0),
                 g(1),
                 g(2),
                 g(3),
                 g(4),
                 g(5),
-                g(6),
                 per_organism.get(&id).map_or(0, |v| v.0),
                 per_organism.get(&id).map_or(0, |v| v.1),
                 per_organism.get(&id).map_or(0, |v| (v.3 - v.2 + 1) as usize),
