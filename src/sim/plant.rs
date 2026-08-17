@@ -12,7 +12,6 @@
 //! file before touching the constants below; they're not arbitrary.
 
 use super::cell::Cell;
-use super::field::FIELD_SCALE;
 use super::material::{self, MaterialKind};
 use super::organism::{self, Behavior, CellType};
 use super::rng::{self, Rng};
@@ -199,7 +198,15 @@ fn candidate_crowding(world: &World, x: i32, y: i32) -> f32 {
     if count == 0 {
         0.0
     } else {
-        sum / count as f32
+        // Normalised so 1.0 means "beside a fresh deposit" — the same
+        // move as `INCOME_PER_NODE`'s `L_node`, applied to the crowding
+        // currency. Raw `canopy_density` is denominated in
+        // `GROW_CANOPY_DEPOSIT`s and decay steps, so `crowding_weight` had
+        // to be an order of magnitude larger than its sibling weights to
+        // mean anything, and moved whenever the deposit or the decay
+        // cadence did. In deposit units the weight reads beside
+        // `continuation_weight` and friends, and survives both.
+        sum / count as f32 / GROW_CANOPY_DEPOSIT
     }
 }
 
@@ -535,25 +542,45 @@ fn is_damp(world: &World, x: i32, y: i32) -> bool {
     world.field_at(x, y).moisture > DAMP_MOISTURE_THRESHOLD
 }
 
-/// Light reaching a plant-owned or plant-adjacent cell, read from just
-/// outside the cell's own position rather than at it. `rebuild_blocked`
-/// marks a whole `FIELD_SCALE`-sided block opaque the moment *any* `Solid`
-/// or `Plant` cell sits inside it (deliberately, so a canopy shades what's
-/// beneath it) — which means a plant cell reading `field_at` at its own
-/// exact position always lands inside a block its own material just made
-/// opaque, and reads a permanent `0.0` regardless of how bright the sky
-/// is one cell away. Never surfaced before this: moss's own light read
-/// (`shade_factor`, below) only ever multiplies a probability that fires
-/// either way, so a silently-always-shaded reading still looked plausible;
-/// the tree rewrite's `Germinate`/`Photosynthesize` are the first behaviors
-/// to treat a light reading as a hard gate, which is what turned this from
-/// a quiet skew into a permanent deadlock (a seed that can never see
-/// enough light to germinate, in open sky, forever). Offsetting the sample
-/// upward by one field block is the same trick `phototropism_dir` already
-/// uses (`light_above`, in this same file) for exactly this reason, just
-/// applied to an absolute reading instead of a relative comparison.
+/// Light reaching a plant-owned or plant-adjacent cell, **at its own
+/// position**.
+///
+/// **This used to sample one field block up, and that offset is now a
+/// bug.** It existed because `rebuild_blocked` marked a whole block opaque
+/// the moment any `Solid` or `Plant` cell sat inside it, and `apply_sky`
+/// then skipped opaque blocks entirely — so a plant cell reading its own
+/// position landed inside a block its own material had just made opaque
+/// and read a permanent `0.0`, however bright the sky was one cell away.
+/// That was a real deadlock (a seed that could never see enough light to
+/// germinate, in open sky, forever), and reading one block up dodged it.
+///
+/// `apply_sky` writes the light *arriving at* a block now, occupied or
+/// not, precisely so an occluder can read what it intercepts — a leaf is
+/// the thing doing the intercepting, and its own reading is the arriving
+/// light. So the workaround's premise is gone, and what the offset does
+/// instead is make every leaf read the light one block **above** itself,
+/// i.e. before its own block's attenuation. Every plant in the world
+/// over-reads its income by one block of self-shading, which is the
+/// strongest term in the feedback that is supposed to bound it.
+///
+/// `CLAUDE.md`'s "fixing a bug often exposes a constant that was
+/// compensating for it", one level up: it exposed a whole mechanism.
+///
+/// **Noon-equivalent, not raw** — `field::noon_equivalent_light`, which
+/// rescales the reading by the sky's current output so the same occlusion
+/// reads the same number at any hour. Every economic decision routes
+/// through this function (income, the bud-break gate, bud siting, `q`,
+/// germination, moss's shade preference), and every one of them was
+/// sampling a 20:1 day/night oscillator: the live frontier measured 71
+/// tips at noon against 28 at night on the same stand, and shade
+/// abscission was unusable at any fixed threshold because every leaf in
+/// the world reads near zero at midnight. What a plant should respond to
+/// is *how shaded it is*, not *what time it is* — the day/night cycle
+/// stays real in the field and on screen, and stops aliasing into the
+/// economy. `phototropism_dir` deliberately stays raw: it compares two
+/// readings, so the phase factor cancels.
 pub fn ambient_light_above(world: &World, x: i32, y: i32) -> f32 {
-    world.field_at(x, y - FIELD_SCALE).light
+    super::field::noon_equivalent_light(world.field_at(x, y).light, world.frame)
 }
 
 /// Lower ambient light reads as more shaded, which favours spreading —
@@ -991,11 +1018,34 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     }
                     let dir = normalize((dx as f32, dy as f32));
                     let density = candidate_crowding(world, nx, ny);
-                    let score = dot(dir, heading) * continuation_weight
+                    // **Crowding divides; it does not subtract.** The
+                    // subtractive form had a cliff that was arithmetic, not
+                    // ecology: crowding was taken off the score and the
+                    // score then filtered on `> 0.0`, so past a threshold
+                    // the term stopped biasing the choice and started
+                    // *emptying the candidate set* — the tip banked a stale
+                    // tick, and four of those is permanent retirement. The
+                    // positive terms sum to ~1.15 at the outer orders, so
+                    // `crowding_weight: 20` needed only `density > 0.058`
+                    // to zero every direction at once; that is the measured
+                    // collapse in tree.ron's old sweep (median tree 2,620
+                    // cells at 12.0 against 26 at 20.0), and why the usable
+                    // band sat one step under a cliff.
+                    //
+                    // Dividing makes crowding a preference at any weight: a
+                    // fully crowded tip takes its least-bad direction
+                    // instead of dying, the knob becomes monotone with no
+                    // collapse to sit under, and what *stops* growth is
+                    // what should stop it — the light economy (self-shading
+                    // has real teeth now) and the turgor bound, not a
+                    // side-effect of score arithmetic. A candidate with no
+                    // positively-preferred direction still fails the filter
+                    // and that is correct: boxed in is a real dead end.
+                    let preference = dot(dir, heading) * continuation_weight
                         + dot(dir, photo) * light_weight
                         + dot(dir, wind) * wind_weight
-                        + dot(dir, gravity_or_water) * upward_weight
-                        - density * crowding_weight;
+                        + dot(dir, gravity_or_water) * upward_weight;
+                    let score = preference / (1.0 + density * crowding_weight);
                     if score > 0.0 {
                         candidates.push((nx, ny, score));
                     }
@@ -1645,20 +1695,33 @@ pub fn step_organisms(world: &mut World) {
 /// `Reports/tree-architecture-research.md` §0b. Left as a constant only
 /// because it has one caller and one species; the moment a second plant
 /// form wants a different foliage economy it belongs in the `.ron`.
-/// **Per leaf *cell*, so it must move when `leaf_cluster` does — and when
-/// the light model changes.** Cut again, 0.01 -> 0.004, when
-/// `FieldTile::occupancy` made sky transmission graded: a canopy that used
-/// to read as a solid wall now passes light in proportion to how full it
-/// is, so the same foliage earns far more. Left alone, mean tree size went
-/// 793 -> 4,983 cells and the stand fused.
-/// A cluster
-/// is a correction to the visual scale of foliage against wood, not a
-/// change to the plant's economy: one plastochron node is still one leaf
-/// spray and should still earn one spray's worth. Left at 0.05 while
-/// `tree.ron` went to five cells per node, the stand's income went up
-/// fivefold and eight trees fused into a hedge (median tree 280 leaves ->
-/// 1,556, and every crown touching its neighbours).
-const LEAF_INCOME_PER_TICK: f32 = 0.004;
+///
+/// **Denominated per NODE, and that unit is the end of a treadmill.** Its
+/// predecessor (`LEAF_INCOME_PER_TICK`, per leaf *cell* of raw field
+/// light) was re-derived every time anything upstream moved: 0.05 → 0.01
+/// when `leaf_cluster` went to five cells per node (income quintupled and
+/// eight trees fused into a hedge), 0.01 → 0.004 when occupancy made sky
+/// transmission graded (the same foliage earned far more, mean tree
+/// 793 → 4,983 and the stand fused). Neither change was a change to the
+/// plant's biology, and both invalidated the constant anyway — a units
+/// problem, not a coupling problem.
+///
+/// So the currency is now `L_node = MAX_LIGHT × leaf_cluster`: what one
+/// healthy node's spray intercepts in open sky at noon. Income is
+/// `intercepted / L_node × INCOME_PER_NODE`, which is invariant under
+/// `MAX_LIGHT`, `leaf_cluster`, and the light model — a node still earns
+/// one node's worth through all of them — and the number is readable:
+/// carbon per fully-lit node per tick. 0.08 is the old operating point
+/// expressed in the new unit (0.004 × 20), not a re-tune.
+const INCOME_PER_NODE: f32 = 0.08;
+
+/// The canonical light unit: what one node's spray intercepts in open sky
+/// at noon. See `INCOME_PER_NODE` — every constant that used to be
+/// denominated in raw summed field light divides by this instead, which is
+/// what makes them survive light-model and cluster-size changes.
+fn l_node(leaf_cluster: u8) -> f32 {
+    crate::sim::field::MAX_LIGHT * leaf_cluster.max(1) as f32
+}
 
 /// Flush at most one dormant bud into a `GrowingTip`, if the light the
 /// plant is intercepting can support another one.
@@ -1792,12 +1855,13 @@ fn break_buds(world: &mut World, organism_id: u16) {
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
 
-    // The price of a flush, and the cost this bud's tip will then pay per
-    // growth step -- both read from the species' own `GrowingTip` `Grow`,
-    // so a species cannot set them inconsistently.
-    let (Some(cost), Some(bud_cost)) = (
+    // The price of a flush, the cost this bud's tip will then pay per
+    // growth step, and the species' tip-concurrency cap -- all read from
+    // the species' own `GrowingTip` `Grow`, so a species cannot set them
+    // inconsistently.
+    let (Some((cost, max_active_tips, leaf_cluster)), Some(bud_cost)) = (
         world.species.get(species_id).behaviors(CellType::GrowingTip).iter().find_map(|b| match b {
-            Behavior::Grow { cost, .. } => Some(*cost),
+            Behavior::Grow { cost, max_active_tips, leaf_cluster, .. } => Some((*cost, *max_active_tips, *leaf_cluster)),
             _ => None,
         }),
         world.species.get(species_id).behaviors(CellType::DormantBud).iter().find_map(|b| match b {
@@ -1846,7 +1910,13 @@ fn break_buds(world: &mut World, organism_id: u16) {
     if buds.is_empty() {
         return;
     }
-    let supportable = (intercepted * LEAF_INCOME_PER_TICK / cost).floor() as usize;
+    // The economic bound, throttled by the species' own concurrency cap.
+    // The cap used to bind only in `Grow`, so a flush could push a plant
+    // past it — under-enforcement the tripwire test caught (16 against 14)
+    // the moment multiplicative crowding let crowded tips live long enough
+    // for the cap to matter at all. One gate, both creators of frontier.
+    let supportable =
+        ((intercepted / l_node(leaf_cluster) * INCOME_PER_NODE / cost).floor() as usize).min(max_active_tips as usize);
     if tips >= supportable {
         return;
     }
@@ -1898,6 +1968,19 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     if state.cells.is_empty() {
         return;
     }
+    // The species' own node size, for the income currency — see
+    // `INCOME_PER_NODE`. A species with no shoot `Grow` has no light
+    // economy to allocate.
+    let leaf_cluster = world
+        .species
+        .get(state.species)
+        .behaviors(CellType::GrowingTip)
+        .iter()
+        .find_map(|b| match b {
+            Behavior::Grow { leaf_cluster, .. } => Some(*leaf_cluster),
+            _ => None,
+        })
+        .unwrap_or(1);
     // Sorted for the same determinism reason `transport` sorts: `cells` is
     // a `HashMap` and `f32` addition is not associative.
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
@@ -1955,7 +2038,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     // leaves shrinks every tip's share until none can afford `cost`, and
     // extension stops without anything being killed or capped. Shed a limb
     // and the survivors' share rises again.
-    let income = intercepted * LEAF_INCOME_PER_TICK;
+    let income = intercepted / l_node(leaf_cluster) * INCOME_PER_NODE;
     let stock: f32 = donors.iter().map(|&(x, y)| world.carbon_at(x, y)).sum();
     let pool = income.min(stock);
     let share = pool / frontier.len() as f32;
@@ -2019,16 +2102,16 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // the genome lives on `Grow`, so it is read from the species' own
     // `GrowingTip` here rather than duplicated onto a second behaviour --
     // one plant, one genotype.
-    let pipe_variance = world
+    let (pipe_variance, upkeep_leaf_cluster) = world
         .species
         .get(species_id)
         .behaviors(CellType::GrowingTip)
         .iter()
         .find_map(|b| match b {
-            Behavior::Grow { genotype_variance, .. } => Some(genotype_variance[4]),
+            Behavior::Grow { genotype_variance, leaf_cluster, .. } => Some((genotype_variance[4], *leaf_cluster)),
             _ => None,
         })
-        .unwrap_or(0.0);
+        .unwrap_or((0.0, 1));
 
     let bud_survival = world
         .species
@@ -2130,17 +2213,44 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             match behavior {
                 Behavior::Photosynthesize { rate, shade_death } => {
                     let light = ambient_light_above(world, cx, cy);
-                    // Abscission. Checked before the credit, so a leaf that
-                    // is being shed does not also earn on the tick it dies.
+                    // Abscission — **a graded pressure, not a threshold**,
+                    // chosen on a fair paired measurement and not on the
+                    // first one. The first sweep read as "any setting
+                    // collapses the stand", which was a confound: the shed
+                    // used to schedule a structural check, and mid-crown
+                    // checks amputate (see `shed_stranded_leaves`). With
+                    // the check out, a hard threshold works too — 20,044
+                    // cells at cutoff 0.5 against 20,213 graded — and
+                    // graded wins on the things a threshold cannot do:
+                    // better crown separation (fused run 37 vs 55; the
+                    // culled-on-a-line canopy re-spreads), a better-lit
+                    // standing canopy (median 2.68 vs 2.15), no
+                    // synchronized culls when a shadow arrives (a shading
+                    // event thins over ~a thousand frames — leaves going,
+                    // not a shelf being swept), and robustness to
+                    // transient dips (dusk lag, a passing occluder) that a
+                    // line converts into same-tick loss. The cube keeps
+                    // anything better than half-lit effectively permanent.
+                    // `shade_death` is the chance per tick at total
+                    // darkness; 0.0 stays off.
                     //
-                    // The cell is emptied rather than turned to wood: a
-                    // shed leaf is gone, and leaving `MatureBody` behind
-                    // would have shading foliage silently thicken the stem
-                    // it hung from -- the pipe model reading a leaf as
-                    // xylem, which this branch already fixed once.
-                    if shade_death > 0.0 && light < shade_death && organism::cell_type(world.get(cx, cy).aux()) == Some(CellType::Leaf) {
-                        world.set(cx, cy, Cell::EMPTY);
-                        continue;
+                    // Checked before the credit, so a leaf being shed does
+                    // not also earn on the tick it dies. The cell is
+                    // emptied rather than turned to wood: leaving
+                    // `MatureBody` behind would have shading foliage
+                    // silently thicken the stem it hung from — the pipe
+                    // model reading a leaf as xylem, fixed once already.
+                    if shade_death > 0.0 && organism::cell_type(world.get(cx, cy).aux()) == Some(CellType::Leaf) {
+                        let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
+                        if rng.chance(shade_death * darkness * darkness * darkness) {
+                            world.set(cx, cy, Cell::EMPTY);
+                            // Reclaim any spray this stranded. NOT a
+                            // structural check -- see
+                            // `shed_stranded_leaves` for the measured 26x
+                            // reason.
+                            shed_stranded_leaves(world, cx, cy, organism_id);
+                            continue;
+                        }
                     }
                     resource = (resource + rate * light).min(organism::RESOURCE_SCALE);
                 }
@@ -2153,7 +2263,14 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // me". The row scan was a geometric filter standing in
                     // for a topological one: a limb on the far side of the
                     // plant counted toward a stem it does not supply.
-                    let carried = world.organism_cell(cx, cy).map_or(0.0, |c| c.q_peak);
+                    //
+                    // In **nodes**, not raw summed light — `q_peak / L_node`
+                    // — so `pipe_ratio` reads as "nodes of foliage per cell
+                    // of stem width", a number with a literature analogue
+                    // (a Huber-value cousin), and survives the changes that
+                    // forced its four historical re-derivations (10 → 45 →
+                    // 22 → 110), two of which were pure unit conversions.
+                    let carried = world.organism_cell(cx, cy).map_or(0.0, |c| c.q_peak) / l_node(upkeep_leaf_cluster);
                     // Hoisted out of the call: `genotype` borrows the world
                     // and `thicken` takes it mutably.
                     let jittered_ratio = pipe_ratio * genotype(world, organism_id, 4, pipe_variance);
@@ -2193,6 +2310,83 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
 /// Everything else is upkeep, and runs from `step_organisms`.
 fn is_frontier(cell_type: CellType) -> bool {
     matches!(cell_type, CellType::Seed | CellType::GrowingTip | CellType::RootTip)
+}
+
+/// After a leaf is shed, drop any of its neighbouring leaves that no
+/// longer connect to the plant.
+///
+/// A cluster is several cells and only the first touches the stem
+/// (deliberately — `Grow`'s cluster placement keeps foliage off the
+/// apex), so shedding a stem-adjacent leaf can strand the rest of its
+/// spray in the air. Structural checks are reactive and will never look
+/// at them, so without this they float forever.
+///
+/// **Not `schedule_structural_check_around`, and the difference was
+/// measured at 26x.** The organism support search is hop-bounded, so a
+/// structural check fired mid-crown reads any branch further than the
+/// span limit from the roots as unsupported and converts it to deadwood —
+/// scheduling checks from abscission amputated every tree's upper crown,
+/// and the whole shedding mechanism measured as "collapses the stand at
+/// any setting" (772 cells against 20,213 at the same rate, the only
+/// difference being the check). Recorded here because Phase 3's damage
+/// work will meet the same landmine: any mid-crown disturbance today
+/// over-amputates, and that is the support model's bound, not the
+/// disturbance's size.
+///
+/// A bounded component walk over *leaves only* asks exactly the question
+/// shedding raises — "does this spray still hang from anything" — and
+/// cannot touch wood. The cap is generous against the cluster size and
+/// conservative on overflow: a component too big to survey completely is
+/// left standing, not deleted.
+fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_id: u16) {
+    const COMPONENT_CAP: usize = 32;
+    let mut visited: Vec<(i32, i32)> = Vec::new();
+    for (sdx, sdy) in NEIGHBOURS_8 {
+        let start = (x + sdx, y + sdy);
+        if visited.contains(&start) {
+            continue;
+        }
+        let c = world.get(start.0, start.1);
+        if c.organism_id() != organism_id || organism::cell_type(c.aux()) != Some(CellType::Leaf) {
+            continue;
+        }
+        let mut component = vec![start];
+        let mut queue = vec![start];
+        let mut anchored = false;
+        let mut overflowed = false;
+        while let Some((qx, qy)) = queue.pop() {
+            for (dx, dy) in NEIGHBOURS_8 {
+                let pos = (qx + dx, qy + dy);
+                let n = world.get(pos.0, pos.1);
+                if n.organism_id() != organism_id {
+                    continue;
+                }
+                if organism::cell_type(n.aux()) == Some(CellType::Leaf) {
+                    if !component.contains(&pos) {
+                        if component.len() >= COMPONENT_CAP {
+                            overflowed = true;
+                            continue;
+                        }
+                        component.push(pos);
+                        queue.push(pos);
+                    }
+                } else {
+                    // Wood, a tip, a bud: the spray still hangs from the
+                    // plant.
+                    anchored = true;
+                }
+            }
+            if anchored {
+                break;
+            }
+        }
+        if !anchored && !overflowed {
+            for &(lx, ly) in &component {
+                world.set(lx, ly, Cell::EMPTY);
+            }
+        }
+        visited.extend(component);
+    }
 }
 
 /// Draw water from adjacent soil and lose it to the air.
@@ -2778,29 +2972,33 @@ mod tests {
         // stone) reads as having nowhere to grow from, and a colony can
         // only ever be a single-cell-wide line hugging the original rock,
         // never thickening into a real patch.
+        // **The scene is aligned so the upward step under test is a *damp*
+        // step.** `FIELD_SCALE` is 8, so field blocks span rows 40..47 and
+        // 48..55; the puddle at row 50 keeps the whole 48..55 block damp,
+        // and the seed at 49 grows its first upward cell into row 48 --
+        // same damp block, `damp_chance` territory. Two earlier layouts sat
+        // one row higher, which put the first upward step across the block
+        // boundary into dry readings, so the mechanism this test names
+        // (growing over one's own cells) was gated behind a `dry_chance`
+        // x `shade_factor` lottery at ~2e-4 per check. That made the test a
+        // coin flip twice: once when an unrelated change shifted the RNG
+        // stream, and again when phase-free light removed the nightly
+        // darkness boost the 24,000-frame version had silently relied on
+        // (measured: topmost row 47 of a 40..48 assertion, 31 cells --
+        // passing on the boundary). The lottery was never the point; the
+        // traversal was. Measured on this layout: topmost row 48 with 25
+        // cells at 6,000 frames, via the damp path -- a rate, not a roll.
         let mut w = test_world();
         for x in 5..35 {
-            w.set(x, 50, Cell::new(material::STONE, 0));
+            w.set(x, 51, Cell::new(material::STONE, 0));
         }
-        w.set(5, 49, Cell::new(material::STONE, 0)); // walls -- keep the
-        w.set(34, 49, Cell::new(material::STONE, 0)); // puddle from draining off the sides
+        w.set(5, 50, Cell::new(material::STONE, 0)); // walls -- keep the
+        w.set(34, 50, Cell::new(material::STONE, 0)); // puddle from draining off the sides
         for x in 10..30 {
-            w.set(x, 49, Cell::new(material::WATER, 0));
+            w.set(x, 50, Cell::new(material::WATER, 0));
         }
-        w.plant_moss_seed(20, 48);
-        // 24000 frames, not the 6000 this originally used. Growing *up* off
-        // the water's own row is only reachable via `moss.ron`'s
-        // `dry_chance` (0.002), further multiplied by `shade_factor` (down
-        // to 0.1) -- rows 47 and up sit in a different 8-cell field block
-        // than the water at row 49, so they are never `is_damp`. That makes
-        // the effective per-check chance as low as 2e-4, and at 6000 frames
-        // the expected number of successful upward divisions is around 1:
-        // the test was a coin flip on the RNG stream rather than a real
-        // check, and it duly flipped the first time an unrelated change
-        // (liquid's wider `sweep_reach`) shifted that stream. Verified at
-        // 24000 the colony reaches row 46 with ~313 cells, comfortably
-        // clear of the boundary rather than sitting on it.
-        run_with_fields(&mut w, 24000);
+        w.plant_moss_seed(20, 49);
+        run_with_fields(&mut w, 6000);
 
         let moss = w.materials.id_of("moss").unwrap();
         // The seed sits at row 48; nothing above row 48 has a stone
@@ -2809,7 +3007,13 @@ mod tests {
         // growing over another moss cell of its own organism. Any moss
         // found there is proof the patch thickened, not just spread
         // sideways hugging the water's own row.
-        let thickened = (5..35).any(|x| (40..48).any(|y| w.get(x, y).material == moss));
+        // The seed sits at row 49; nothing above row 49 has a stone
+        // neighbour at all (stone is only at 51 and the wall tops at 50,
+        // water fills 50) -- the *only* way moss reaches row 48 or higher
+        // is by growing over another cell of its own organism. Any moss
+        // there is proof the patch thickened rather than only hugging the
+        // water's own row.
+        let thickened = (5..35).any(|x| (42..49).any(|y| w.get(x, y).material == moss));
         assert!(thickened, "moss never thickened into a 2D patch, only ever grew along the original rock");
     }
 
@@ -2943,6 +3147,39 @@ mod tests {
         assert_ne!(alone, other_world, "a different world seed should grow a different individual at the same spot");
     }
 
+    /// **Crowding must reorder choices, never veto all of them.** Under
+    /// the subtractive score this tip had no candidates at all — every
+    /// direction's score went negative against the ring's density, the tip
+    /// banked stale ticks, and four of those is permanent retirement. That
+    /// is the measured collapse cliff (median tree 26 cells at
+    /// `crowding_weight: 20`), reproduced here at unit scale: this test
+    /// fails on the subtractive form and must keep failing for any future
+    /// form that lets crowding empty the candidate set.
+    #[test]
+    fn a_crowded_tip_takes_its_least_bad_direction_instead_of_dying() {
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").unwrap();
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let organism_id = w.push_organism(tree);
+
+        // A tip walled in by its own maximum-density tissue on seven of
+        // eight sides. The one opening's own neighbourhood still reads the
+        // ring's density, so under tree.ron's `crowding_weight: 12` the
+        // subtractive score was negative in every direction.
+        place(&mut w, (100, 100), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
+        for (dx, dy) in NEIGHBOURS_8 {
+            if (dx, dy) == (1, -1) {
+                continue; // the one way out
+            }
+            place(&mut w, (100 + dx, 100 + dy), wood, organism_id, CellType::MatureBody, (0.0, organism::CANOPY_DENSITY_SCALE));
+        }
+
+        organism_tick(&mut w, 100, 100, organism_id, 0, 0);
+
+        let grew = w.get(101, 99).organism_id() == organism_id;
+        assert!(grew, "a tip with one open direction should grow into it however crowded it is, not stall toward retirement");
+    }
+
     #[test]
     fn a_flushing_bud_keeps_its_standing_carbon_and_the_richest_cell_pays() {
         // The exact leak the second review found: `break_buds` used to
@@ -2959,9 +3196,9 @@ mod tests {
         // A trunk cell at the cap (the richest), a bud holding real
         // carbon, and enough sunlit foliage that the whole-plant gate
         // supports one more tip than the zero that exist. `supportable`
-        // is ⌊intercepted · LEAF_INCOME_PER_TICK / cost⌋ = ⌊intercepted/50⌋
-        // at tree.ron's numbers, so fifteen leaves under a noon sky
-        // (~4.0 each) clear it with margin.
+        // is ⌊intercepted / L_node · INCOME_PER_NODE / cost⌋ =
+        // ⌊intercepted / 50⌋ at tree.ron's numbers, so fifteen leaves
+        // under a noon sky (~4.0 each) clear it with margin.
         place(&mut w, (100, 20), wood, organism_id, CellType::MatureBody, (4.0, 0.0));
         place(&mut w, (101, 20), wood, organism_id, CellType::DormantBud, (3.0, 0.0));
         for i in 0..15 {
@@ -3366,31 +3603,33 @@ mod tests {
     // roots liveness check like `organism-substrate-design.md` §6
     // describes, which is genuine future work, not a one-line port.
 
-    // --- Self-blocking light regression (`ambient_light_above`) ----------
+    // --- A plant reads real light at its own position --------------------
     //
-    // `rebuild_blocked` marks a whole field block opaque the instant any
-    // `Solid`/`Plant` cell sits inside it, so a plant cell reading
-    // `field_at` at its own exact position always reads a self-blocked
-    // `0.0`, forever, regardless of how bright the sky is one cell away.
-    // Never caught before this: moss's own light read only ever scales a
-    // probability that fires either way, so a silently-always-shaded
-    // reading still looked plausible. `Germinate`/`Photosynthesize` are the
-    // first behaviors to treat a light reading as a hard gate/income
-    // source, which turns the same self-blocking into a permanent deadlock.
-    // These tests plant close enough to the sky (`field.rs`'s light model
-    // decays hard within a few field rows) that light genuinely reaches the
-    // cell from outside, and would fail if either behavior went back to
-    // reading `world.field_at(x, y)` directly at its own position.
+    // **These guarded a workaround, and now guard the invariant that
+    // replaced it.** `rebuild_blocked` used to mark a whole field block
+    // opaque the instant any `Solid`/`Plant` cell sat inside it, and
+    // `apply_sky` skipped opaque blocks, so a plant cell reading `field_at`
+    // at its own exact position read a self-blocked `0.0` forever, however
+    // bright the sky was one cell away. `ambient_light_above` dodged that
+    // by sampling one field block up.
+    //
+    // `apply_sky` writes the light *arriving at* a block now, occupied or
+    // not — a leaf is the thing intercepting, so its own reading is what
+    // reaches it — and the offset went with the premise. What these tests
+    // assert is unchanged and is the point either way: **a plant in open
+    // sky earns real light.** They failed under the old rule without the
+    // offset, and they pass under the new one without it, which is the
+    // difference between a workaround and a fix.
 
     #[test]
-    fn a_seed_germinates_in_open_sky_despite_its_own_position_self_blocking_light() {
+    fn a_seed_germinates_in_open_sky_reading_light_at_its_own_position() {
         let mut w = test_world();
-        // `ambient_light_above` reads `FIELD_SCALE` (8) world units above
-        // its own position -- y=20 keeps that offset read (y=12) safely
-        // in-bounds and within light's real reach, unlike a too-shallow
-        // planting depth (y < FIELD_SCALE) whose offset read would go
-        // negative and land out of the world entirely, which reads as
-        // blocked/zero regardless of the fix under test.
+        // y=20 is arbitrary now and used to be load-bearing: while
+        // `ambient_light_above` sampled a block *above* itself, a shallower
+        // planting depth sent that read out of the world, which is opaque,
+        // and the test would have failed for the geometry rather than for
+        // the mechanism. The read is at the cell's own position now, so
+        // there is no offset to keep in bounds.
         plant_tree_on_ground(&mut w, 100, 20);
         run_with_fields(&mut w, 400); // several germination checks (ORGANISM_TICK_INTERVAL apart)
 
@@ -3399,7 +3638,7 @@ mod tests {
     }
 
     #[test]
-    fn photosynthesize_gains_resource_in_open_sky_despite_its_own_position_self_blocking_light() {
+    fn photosynthesize_gains_resource_in_open_sky_reading_light_at_its_own_position() {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();

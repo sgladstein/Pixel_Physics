@@ -77,42 +77,47 @@
                 // stays out rather than curling back up alongside it --
                 // which is what produced the parallel-ropes look.
                 upward_weight: [0.9, 0.35, 0.1, 0.05],
-                // **The only thing bounding lateral spread**, and it has
-                // been re-derived twice because what it opposes got
-                // stronger both times.
+                // Crown shyness -- keeps neighbouring crowns (and a crown's
+                // own limbs) from merging. Owner-blind on purpose: see
+                // `candidate_crowding` for the far-red reading.
                 //
-                // At any height bound a stand's light-optimal shape *is* a
-                // flat slab: `ambient_light_above` is per-column sky
-                // visibility, so a canopy one cell thick pressed against
-                // the ceiling has every column lit and income grows with
-                // width, which is unbounded. Growth follows light, so
-                // growth finds the slab. Real forests bound this the same
-                // way -- crown shyness is what stops a closed canopy being
-                // one organism. See `candidate_crowding` for why the term
-                // is deliberately owner-blind.
+                // **The famous cliff is gone, and it was never ecology.**
+                // This knob's history was "a narrow usable band one step
+                // under a collapse" (median tree 2,620 cells at 12.0
+                // against 26 at 20.0), which turned out to be arithmetic:
+                // crowding was *subtracted* from the candidate score and
+                // the score then filtered on `> 0`, so a strong weight did
+                // not bias a crowded tip's choice, it emptied the choice --
+                // and an emptied choice banks the stale ticks that retire a
+                // lineage. Crowding *divides* the score now
+                // (`plant.rs`, the candidate loop), so it reorders at any
+                // strength and a crowded tip takes its least-bad direction.
                 //
-                // Swept twice, 8 trees / 30,000 frames, thickest contiguous
-                // run of organism cells above ground. Trees sit 57 cells
-                // apart, so anything past that is two crowns fused:
+                // Swept on the divide form, 8 trees / 30,000 frames, cells /
+                // thickest contiguous run above ground (57-cell spacing) --
+                // shoot line only, roots pinned at 0.0:
                 //
-                //   before graded light   0.5 -> 136    1.5 -> 106
-                //                         3.0 ->  82    6.0 ->  39
-                //   after graded light    6.0 ->  78   12.0 ->  51
-                //                        20.0 ->  13   30.0 ->  39
+                //     6.0    36,307   76
+                //    12.0    33,411   64
+                //    20.0    36,303   52    <-- here
+                //    30.0    34,976   61
                 //
-                // **Note the cliff, not a curve.** Past 12 the stand does
-                // not merely separate, it collapses -- median tree 2,620
-                // cells at 12.0 against 26 at 20.0. The usable band is
-                // narrow and sits just under the collapse, which is worth
-                // knowing before anyone reaches for this knob again.
+                // Stand mass is flat across the whole range -- the knob no
+                // longer costs trees, it only moves separation -- and the
+                // smallest tree at 20.0-equivalent is 2,811 cells where the
+                // subtract form's was 26. Separation bottoms at
+                // 20.0-equivalent and drifts back up at 30.0-equivalent;
+                // nothing anywhere collapses.
                 //
-                // Tried and rejected on the way, both of which made fusion
-                // *worse* by pushing more growth into the ceiling: raising
-                // outer-tier `upward_weight`, and branching along the trunk
-                // at `branch_chance[0] = 0.09`. Three knobs failing the
-                // same way is the signal that the question is which one is
-                // load-bearing, not what values they take.
-                crowding_weight: 12.0,
+                // **30.0 here is the sweep's chosen 20.0, converted.**
+                // `candidate_crowding` now reports density in fresh-deposit
+                // units (divided by `GROW_CANOPY_DEPOSIT`, 1.5), so the
+                // weight scales by 1.5 to hold the same behaviour; the
+                // sweep table above is in the old raw unit. In deposit
+                // units this weight survives changes to the deposit size
+                // and the decay cadence, which are exactly what forced its
+                // three historical re-derivations.
+                crowding_weight: 30.0,
                 max_active_tips: 14,
                 // Every 3rd growth step along a shoot leaves a Leaf behind.
                 // Untuned -- picked as the smallest interval that still
@@ -227,38 +232,9 @@
             ),
             Photosynthesize(
                 rate: 0.5,
-                // **OFF, and the measurement is why.** Shade abscission is
-                // the right mechanism for "too many leaves on the lower
-                // trunk" -- it is what makes a real bole bare, and it beats
-                // seasonality for the job. It does not work against *this*
-                // light channel, because the range of light a leaf sees is
-                // far too compressed to tell a buried leaf from a
-                // crown-edge one. Swept, 8 trees / 30,000 frames, mean
-                // leaves per tree:
-                //
-                //     off     411
-                //     0.05     50    -88%
-                //     0.12     38
-                //     0.25      0    every leaf in the world
-                //
-                // **Widening the light channel did not rescue it, and the
-                // second measurement found the real reason.** After
-                // `FieldTile::occupancy` made sky transmission graded --
-                // which genuinely did open the channel up, and roughly
-                // quintupled every tree -- 0.25 and even 0.6 still took the
-                // stand to exactly zero leaves.
-                //
-                // The gate is instantaneous, and `sky_light_amplitude` is a
-                // **day/night oscillator**. Every leaf in the world reads
-                // near zero at night, so any fixed threshold is a nightly
-                // extinction event. What abscission needs is light averaged
-                // over at least a full cycle -- a slow per-cell running mean
-                // -- and that is real work rather than a constant.
-                //
-                // Recorded on `PLAN.md` issue 0e (day/night phase sampling)
-                // rather than tuned: this is the third quantity on this
-                // branch to be sampled at an arbitrary phase of a 3,600-
-                // frame oscillator whose relaxation exceeds its own period.
+                // A live tip photosynthesises but is not foliage to shed --
+                // shedding pressure belongs to the Leaf entry below, and a
+                // GrowingTip is the frontier itself.
                 shade_death: 0.0,
             ),
         ]),
@@ -272,6 +248,19 @@
                 light_weight: [0.0],
                 wind_weight: 0.0,
                 upward_weight: [0.6],
+                // 0.0 by design (no citation for root-root avoidance), and
+                // **this is the file's second crowding line -- sweeps have
+                // hit it twice.** First a blind sed on the field name
+                // dragged this along with the shoot's value, so a whole
+                // "shoot crowding" sweep silently varied root behaviour and
+                // was thrown away. Then the occurrence-index script that
+                // replaced the sed matched the *warning comment about the
+                // first incident* (it contained the literal field-and-colon
+                // text) while the sweep and a doc edit ran concurrently,
+                // and mangled it. So, three rules with scars: a pattern
+                // edit must prove it touched only its target; a comment
+                // near a swept field must not contain the swept pattern;
+                // and never edit a file a running sweep owns.
                 crowding_weight: 0.0,
                 max_active_tips: 10,
                 // Roots grow by the same rule and must never leaf
@@ -298,40 +287,31 @@
             ),
         ]),
         (MatureBody, [
-            // **Re-derived when the gate's denominator was corrected**, and
-            // the old 10.0 is not comparable. `thicken` used to divide the
-            // foliage above by the *whole row's* organism cells; it now
-            // divides by this stem's own contiguous run of woody cells,
-            // which is what the pipe model names. A branched tree has
-            // several runs across 53% of its occupied rows, so the old
-            // denominator over-read by roughly the run count and 10.0 was
-            // absorbing that factor. Left unchanged, the correction alone
-            // took the stand from 4,624 cells to 12,985 -- ropy columns.
+            // **Nodes of foliage per cell of stem width** -- the pipe model
+            // gate, in the `L_node` currency (`plant::INCOME_PER_NODE`'s
+            // doc has the unit). 5.5 is the previous operating point
+            // converted, not a re-tune: the gate compared `q_peak` in raw
+            // summed light against 110, and `110 / L_node(=4.0 x 5)` is
+            // 5.5 -- "a stem widens once it carries about five and a half
+            // fully-lit nodes per cell of width", which is finally a
+            // sentence a person can check against a picture.
             //
-            // Swept, 8 trees / 30,000 frames, mean cells / stand leaves /
-            // median stem thickness above the base:
+            // The number's history is the treadmill the unit ends, four
+            // values through three meaning-changes: 10 (dividing by the
+            // whole row's cells -- a limb elsewhere on the row suppressed
+            // the trunk, 53% of rows had several runs), 45 (per-stem run
+            // denominator, the first setting with a bare bole and a clear
+            // fork; its sweep lived here for a long time), 22 (the
+            // numerator became summed intercepted light when girth went
+            // topological -- git 1874f3c has that sweep), 110 (leaf_cluster
+            // quintupled the same light). The last two were pure unit
+            // conversions; in nodes they never happen.
             //
-            //     row-total 10   578   393    9    (the old baseline)
-            //     per-stem  10  1623   299   19    blob
-            //     per-stem  20   780   353    9
-            //     per-stem  30   657   455    9
-            //     per-stem  45   635   521    8    <-- here
-            //     per-stem  60   514   555    7
-            //     per-stem  90   450   626    7
-            //
-            // Monotone -- there is no interior optimum, so this is a shape
-            // knob picked by eye against the baseline it replaces. 45 is
-            // the value that reproduces the old stand's mass and trunk
-            // width (635 against 578; 48% of rows wider than one cell
-            // against 45%) while carrying a third more foliage, and it is
-            // the first setting to produce a tree with a bare bole, a
-            // clear fork and spreading limbs rather than a tapered spike.
-            //
-            // Girth is now bounded by crown size, which is the coupling the
+            // Girth is bounded by crown size, which is the coupling the
             // pipe model exists for: trunks look thin because the crown is
-            // sparse, and they will thicken on their own when it fills.
-            // Do not chase trunk width by lowering this.
-            SecondaryThicken(pipe_ratio: 110.0),
+            // sparse, and thicken on their own when it fills. Do not chase
+            // trunk width by lowering this.
+            SecondaryThicken(pipe_ratio: 5.5),
             StructuralAnchor,
             // Mature root tissue transpires. Harmless on canopy MatureBody
             // cells, which never have a soil neighbour to draw from -- see
@@ -358,10 +338,54 @@
                 thickening_survival: 0.2,
             ),
             StructuralAnchor,
-            SecondaryThicken(pipe_ratio: 110.0),
+            SecondaryThicken(pipe_ratio: 5.5),
         ]),
         (Leaf, [
-            Photosynthesize(rate: 0.35, shade_death: 0.0),
+            // **Crown lift, finally on.** shade_death spent this branch's
+            // whole history disabled, and the road to 0.03 is three
+            // separate findings, each of which changed what the number
+            // means:
+            //
+            // 1. As a threshold on raw light it was a nightly extinction
+            //    event -- the light channel oscillates 20:1 over each day,
+            //    every leaf reads near zero at midnight, and any fixed
+            //    cutoff sheds the world. Fixed by the economy reading
+            //    noon-equivalent light (phase-free by construction).
+            // 2. The first sweeps of the phase-free gate read "any setting
+            //    collapses the stand" -- a confound. Shedding used to
+            //    schedule a structural check, and mid-crown checks amputate
+            //    (the organism support search is hop-bounded, so high
+            //    branches read as unsupported): 772 cells against 20,213 at
+            //    the same rate, from that one line. Stranded sprays are now
+            //    reclaimed by a leaves-only component walk instead
+            //    (`plant::shed_stranded_leaves`).
+            // 3. This is a **pressure, not a threshold**: the chance per
+            //    organism tick that a leaf in total darkness is shed,
+            //    falling with the cube of its light. A threshold on the
+            //    phase-free reading genuinely works too (20,044 cells at
+            //    cutoff 0.5); graded kept better crown separation (fused
+            //    run 37 vs 55), a better-lit canopy, and thins a darkening
+            //    region over ~a thousand frames instead of culling it on a
+            //    line -- leaves going, not a shelf being swept.
+            //
+            // Swept with the full mechanism, 8 trees / 30,000 frames:
+            // cells / leaves / median leaf light / thickest fused run
+            // (57-cell spacing):
+            //
+            //     off     29,258   11,179   0.09   83
+            //     0.01    21,964    3,614   1.64   51
+            //     0.03    23,593    2,336   2.93   40    <-- here
+            //     0.1     16,021    1,467   3.75   58
+            //
+            // 0.03 is a genuine interior optimum -- most mass AND best
+            // separation AND a lit canopy -- which almost no sweep on this
+            // branch has ever had. Off, two-thirds of all foliage sits
+            // below 0.5 noon-equivalent light earning nothing, and that
+            // dead interior mass is what re-fused the crowns. By eye
+            // (target/filmstrips/p13-shed-grove.png): bare boles, foliage
+            // tufted at the crown, the first sheet where wood reads as
+            // wood.
+            Photosynthesize(rate: 0.35, shade_death: 0.03),
         ]),
     ],
 )
