@@ -236,7 +236,7 @@ const GNOME_BEARD: [u8; 4] = [226, 226, 226, 255];
 const GNOME_TUNIC: [u8; 4] = [74, 138, 70, 255];
 const GNOME_BELT: [u8; 4] = [82, 54, 34, 255];
 const GNOME_BOOT: [u8; 4] = [108, 76, 46, 255];
-const GNOME_SPRITE: [[Option<[u8; 4]>; 5]; 10] = {
+const GNOME_SPRITE: [[Option<[u8; 4]>; 7]; 14] = {
     // Local aliases, so the table below stays a picture you can read.
     const H: Option<[u8; 4]> = Some(GNOME_HAT);
     const F: Option<[u8; 4]> = Some(GNOME_FACE);
@@ -246,16 +246,20 @@ const GNOME_SPRITE: [[Option<[u8; 4]>; 5]; 10] = {
     const B: Option<[u8; 4]> = Some(GNOME_BOOT);
     const X: Option<[u8; 4]> = None;
     [
-        [X, X, H, X, X],
-        [X, H, H, H, X],
-        [H, H, H, H, H],
-        [X, F, F, F, X],
-        [X, W, W, W, X],
-        [T, T, T, T, T],
-        [T, T, L, T, T],
-        [X, T, T, T, X],
-        [X, B, X, B, X],
-        [B, B, X, B, B],
+        [X, X, X, H, X, X, X],
+        [X, X, H, H, H, X, X],
+        [X, H, H, H, H, H, X],
+        [H, H, H, H, H, H, H],
+        [X, X, F, F, F, X, X],
+        [X, F, F, F, F, F, X],
+        [X, F, W, W, W, F, X],
+        [X, X, W, W, W, X, X],
+        [T, T, T, T, T, T, T],
+        [T, T, T, T, T, T, T],
+        [X, T, T, L, T, T, X],
+        [X, T, T, T, T, T, X],
+        [X, B, B, X, B, B, X],
+        [B, B, B, X, B, B, B],
     ]
 };
 

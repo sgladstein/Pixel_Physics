@@ -24,20 +24,23 @@
 use super::material::MaterialKind;
 use super::world::World;
 
-/// Character extent in cells. 5x10 on a 512x320 world reads gnome-scale
-/// (a worm is 1 cell, trees are tens) while still being large enough to
-/// have a silhouette, and fits upright through the 11-cell bore a
-/// radius-5 `rigid::mine` carves — `dig_radius` and this are a pair, and
-/// a bore narrower than he is tall is a tunnel he has to be shoved
-/// through by depenetration.
+/// Character extent in cells. 7x14 on a 512x320 world puts him at about a
+/// twenty-third of the world's height — gnome-scale beside trees that are
+/// tens of cells, and large enough to carry a silhouette with a face,
+/// arms and legs rather than three coloured bands. He fits upright
+/// through the 15-cell bore a radius-7 `rigid::mine` carves;
+/// `dig_radius` and this are a pair, and a bore narrower than he is tall
+/// is a tunnel he has to be shoved along by depenetration.
 ///
-/// Was 3x6, grown on the first playtest ("can we make the gnome a little
-/// bigger"). Everything scaled with it rather than only the constants:
+/// Was 3x6, then 5x10, now this — grown twice on playtest notes ("can we
+/// make the gnome a little bigger", then "a little bigger still").
+/// Everything proportional scaled with it rather than only the extent:
 /// `step_up` and `wade_rows` are fractions of his height, not absolute
-/// distances, so leaving them alone would have made a bigger gnome trip
-/// on smaller things and wade shallower.
-pub const PLAYER_WIDTH: i32 = 5;
-pub const PLAYER_HEIGHT: i32 = 10;
+/// distances, so leaving them alone would make a bigger gnome trip on
+/// smaller things and wade shallower. The movement presets scale too —
+/// see `MOVEMENT_FEELS`.
+pub const PLAYER_WIDTH: i32 = 7;
+pub const PLAYER_HEIGHT: i32 = 14;
 
 /// How far the depenetration pass will push to free an invaded rectangle
 /// before giving up and declaring the player buried. Small on purpose: a
@@ -108,8 +111,8 @@ pub struct Tuning {
     /// across the map digs at arm's length toward the cursor rather than
     /// doing nothing.
     pub dig_reach: u8,
-    /// Radius of one dig bite. 5 bores an 11-cell hole — clearance for a
-    /// 10-tall gnome to walk through his own tunnel upright rather than
+    /// Radius of one dig bite. 7 bores a 15-cell hole — clearance for a
+    /// 14-tall gnome to walk through his own tunnel upright rather than
     /// being shoved along it by the depenetration pass.
     pub dig_radius: u8,
     /// Ticks between bites while the button is held. 8 is ~7 bites a
@@ -117,7 +120,7 @@ pub struct Tuning {
     /// bite's crack/impulse feedback reads individually.
     pub dig_cooldown: u8,
     /// How many rows of him may be buried in loose powder before it stops
-    /// counting as wading and starts counting as being stuck. 3 of his 10
+    /// counting as wading and starts counting as being stuck. 4 of his 14
     /// rows — about knee-deep — so a drift slows him without swallowing
     /// him, and a pile deeper than that pushes back.
     pub wade_rows: u8,
@@ -137,33 +140,84 @@ pub struct Tuning {
     /// Ticks between strokes. Long enough that swimming reads as a series
     /// of pulls rather than a thruster.
     pub stroke_cooldown: u8,
+    /// What fraction of freshly mined rock stays behind as rubble. The
+    /// rest leaves the world as dust.
+    ///
+    /// **This is the number that decides whether caves are possible at
+    /// all**, and it is arithmetic rather than taste. Breaking rock into
+    /// rubble *conserves cells* — `shatter_to_rubble` swaps one material
+    /// for another in place — so a bore can never open by breaking alone,
+    /// however hard you hit it. Shoving the pieces aside only works while
+    /// there is somewhere to shove them, and inside a massif there is
+    /// not. Reported from the second playtest exactly that way: "the
+    /// material breaks but goes nowhere, so you cannot really make a
+    /// cave."
+    ///
+    /// So some volume has to leave, and the only question is how much. At
+    /// 1.0 nothing leaves and you cannot dig; at 0.0 rock simply vanishes
+    /// and destruction stops producing debris, which this project has
+    /// already rejected once on the same grounds. The default keeps
+    /// enough to pile at his feet and walk over, and the removed fraction
+    /// is the natural hook if mined stone ever becomes something you
+    /// carry — that is where it would go. Cycle the named presets with
+    /// `F2`; see `SPOIL_MODES`.
+    pub dig_yield: f32,
 }
 
 impl Default for Tuning {
     fn default() -> Self {
         Self {
-            gravity: 0.15,
-            run_accel: 0.13,
-            run_max: 1.3,
+            // These five mirror MOVEMENT_FEELS[0] (FLOATY) and the four
+            // swim fields mirror WATER_FEELS[0] (DIVER) -- both chosen by
+            // playtest. Kept in sync by `the_defaults_are_the_first_feel`.
+            gravity: 0.10,
+            run_accel: 0.12,
+            run_max: 1.5,
             ground_decel: 0.25,
-            air_control: 0.5,
-            jump_impulse: 2.0,
-            fall_clamp: 4.0,
+            air_control: 0.8,
+            jump_impulse: 2.1,
+            fall_clamp: 2.8,
             coyote_frames: 6,
             jump_buffer_frames: 4,
-            step_up: 3,
-            dig_reach: 22,
-            dig_radius: 5,
+            step_up: 4,
+            dig_reach: 30,
+            dig_radius: 7,
             dig_cooldown: 8,
-            wade_rows: 3,
+            wade_rows: 4,
             wade_slowdown: 0.4,
-            buoyancy: -0.3,
-            swim_damp: 0.9,
-            stroke_impulse: 0.8,
-            stroke_cooldown: 10,
+            buoyancy: 0.18,
+            swim_damp: 0.84,
+            stroke_impulse: 1.3,
+            stroke_cooldown: 7,
+            dig_yield: 0.35,
         }
     }
 }
+
+/// Named settings for `Tuning::dig_yield`, cycled with `F2`.
+///
+/// A selector rather than a decision, because the owner is genuinely
+/// undecided and said so: "the easiest thing is probably just to remove
+/// material when mining. Although there is a part of me that wants to
+/// make collecting the stone dust/rubble part of the game mechanic. Not
+/// sure if that will be more annoying than fun." Those two wishes want
+/// opposite ends of this number, and which is more fun is not something
+/// argument settles -- it is the grain-mode situation again.
+///
+/// Ordered from the built default outward, so cycling is a tour from
+/// "some of it stays" to each extreme.
+pub struct SpoilMode {
+    pub name: &'static str,
+    pub note: &'static str,
+    pub dig_yield: f32,
+}
+
+pub const SPOIL_MODES: [SpoilMode; 4] = [
+    SpoilMode { name: "DUST", note: "a third stays as rubble, the rest blows away", dig_yield: 0.35 },
+    SpoilMode { name: "SPOIL", note: "half stays - tunnels silt up behind you", dig_yield: 0.55 },
+    SpoilMode { name: "CLEAN", note: "rock simply goes; no rubble at all", dig_yield: 0.0 },
+    SpoilMode { name: "HOARD", note: "nothing is lost - you cannot dig far", dig_yield: 1.0 },
+];
 
 /// A named set of movement numbers, cycled live with `L`.
 ///
@@ -210,54 +264,60 @@ impl MovementFeel {
 }
 
 pub const MOVEMENT_FEELS: [MovementFeel; 5] = [
-    MovementFeel {
-        name: "PLANNED",
-        note: "the built default",
-        gravity: 0.15,
-        jump_impulse: 2.0,
-        fall_clamp: 4.0,
-        run_accel: 0.13,
-        run_max: 1.3,
-        air_control: 0.5,
-    },
+    // FLOATY first: chosen by playtest ("definitely diver and floaty"), so
+    // it is what `Tuning::default` holds and what a fresh gnome arrives
+    // with. Its *distances* were rescaled when he grew from 10 to 14 tall
+    // -- the character of a feel is the relationship between the jump and
+    // the body, not an absolute cell count, and leaving 18 cells alone
+    // would have quietly made the approved feel a lower jump.
     MovementFeel {
         name: "FLOATY",
         note: "long hang, slow fall, easy to steer in the air",
         gravity: 0.10,
-        jump_impulse: 1.9,
-        fall_clamp: 2.6,
-        run_accel: 0.10,
-        run_max: 1.2,
+        jump_impulse: 2.1,
+        fall_clamp: 2.8,
+        run_accel: 0.12,
+        run_max: 1.5,
         air_control: 0.8,
+    },
+    MovementFeel {
+        name: "PLANNED",
+        note: "the original default: brisker, drops harder",
+        gravity: 0.15,
+        jump_impulse: 2.4,
+        fall_clamp: 4.5,
+        run_accel: 0.16,
+        run_max: 1.6,
+        air_control: 0.5,
     },
     MovementFeel {
         name: "SNAPPY",
         note: "quick up, quick down, little hang",
         gravity: 0.24,
-        jump_impulse: 2.6,
-        fall_clamp: 5.5,
-        run_accel: 0.22,
-        run_max: 1.6,
+        jump_impulse: 3.0,
+        fall_clamp: 6.0,
+        run_accel: 0.26,
+        run_max: 1.9,
         air_control: 0.45,
     },
     MovementFeel {
         name: "HEAVY",
         note: "weighty: slow to start, hard to stop, drops like rock",
         gravity: 0.34,
-        jump_impulse: 2.6,
+        jump_impulse: 3.1,
         fall_clamp: 6.0,
-        run_accel: 0.10,
-        run_max: 1.5,
+        run_accel: 0.12,
+        run_max: 1.8,
         air_control: 0.25,
     },
     MovementFeel {
         name: "BOUNDER",
-        note: "big arcs — clears two of his own heights",
+        note: "big arcs - clears two of his own heights",
         gravity: 0.16,
-        jump_impulse: 2.6,
-        fall_clamp: 4.5,
-        run_accel: 0.16,
-        run_max: 1.5,
+        jump_impulse: 3.0,
+        fall_clamp: 5.0,
+        run_accel: 0.19,
+        run_max: 1.8,
         air_control: 0.6,
     },
 ];
@@ -292,22 +352,11 @@ impl WaterFeel {
 }
 
 pub const WATER_FEELS: [WaterFeel; 4] = [
-    WaterFeel {
-        name: "PLANNED",
-        note: "the built default: floats up on its own",
-        buoyancy: -0.3,
-        swim_damp: 0.9,
-        stroke_impulse: 0.8,
-        stroke_cooldown: 10,
-    },
-    WaterFeel {
-        name: "TREAD",
-        note: "no automatic rise or sink — he stays where you leave him",
-        buoyancy: 0.0,
-        swim_damp: 0.86,
-        stroke_impulse: 1.1,
-        stroke_cooldown: 8,
-    },
+    // DIVER first, for the same reason FLOATY is: chosen by playtest. The
+    // report was "I didn't like the buoyancy", and of the four this is
+    // the one that hands the vertical axis back to the player entirely --
+    // he sinks unless you swim, which is what "didn't like it lifting me"
+    // resolves to.
     WaterFeel {
         name: "DIVER",
         note: "sinks slowly; staying up is something you do",
@@ -315,6 +364,22 @@ pub const WATER_FEELS: [WaterFeel; 4] = [
         swim_damp: 0.84,
         stroke_impulse: 1.3,
         stroke_cooldown: 7,
+    },
+    WaterFeel {
+        name: "TREAD",
+        note: "no automatic rise or sink - he stays where you leave him",
+        buoyancy: 0.0,
+        swim_damp: 0.86,
+        stroke_impulse: 1.1,
+        stroke_cooldown: 8,
+    },
+    WaterFeel {
+        name: "PLANNED",
+        note: "the original default: floats up on its own",
+        buoyancy: -0.3,
+        swim_damp: 0.9,
+        stroke_impulse: 0.8,
+        stroke_cooldown: 10,
     },
     WaterFeel {
         name: "CORK",
@@ -534,12 +599,6 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
         MaterialKind::Powder => Footing::Soft,
         _ => Footing::Free,
     }
-}
-
-/// Anything at all here, wadeable or not — the predicate for aiming a
-/// dig, where sand is every bit as much a face to cut as rock is.
-fn blocks_dig(world: &World, x: i32, y: i32) -> bool {
-    footing(world, &Bodies::none(), x, y) != Footing::Free
 }
 
 /// Whether the rectangle with top-left `(x, y)` is somewhere the gnome may
@@ -826,13 +885,18 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
 ///   scheduling, a pressure impulse — everything that makes a cut *felt*.
 ///   It converts rock to rubble in place, though, so on its own a dig
 ///   loosens a bore without opening one.
-/// - **Displacement** then shoves the loose material (the fresh rubble,
-///   sand, water) out of the bite to the nearest free cells beyond it —
+/// - **Thinning** is what actually opens the hole. `mine` conserves cells,
+///   so a bore full of rubble occupies exactly the volume the rock did and
+///   nothing has been dug at all. A `dig_yield` fraction of the freshly
+///   broken rock stays as rubble and falls to the floor of the bore as
+///   spoil; the rest leaves as dust, thrown as particles so the material
+///   is seen going rather than blinking out. See `Tuning::dig_yield` for
+///   why this is arithmetic rather than a preference.
+/// - **Displacement** then shoves whatever loose material remains (spoil,
+///   sand, water) out of the bite to the nearest resting place beyond it —
 ///   the same shove-don't-delete contract `rigid::displace` keeps for
-///   bodies, so digging conserves every cell. Spoil surfaces at the bore
-///   mouth or along the tunnel behind, which is where dug material should
-///   end up. In a sealed pocket with nowhere free, material stays put and
-///   the dig genuinely cannot advance — a full pocket is full.
+///   bodies. In a sealed pocket with nowhere free, material stays put and
+///   the dig advances only by what thinning removed.
 ///
 /// While `buried`, the bite auto-aims at the gnome's own centre whatever
 /// `aim` says: the M9 "buried and dig out" escape. The displacement is
@@ -856,7 +920,13 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
         // a few cells per bite.
         let at = bite_point(world, &p, aim, tuning);
         let radius = tuning.dig_radius as i32;
+        // Which cells are about to become rubble, recorded before the cut
+        // so the thinning below can tell *fresh* spoil from sand that was
+        // already lying in the bore. Thinning old spoil too would delete
+        // material the player poured there themselves.
+        let fresh = solid_cells_in_disc(world, at.0, at.1, radius);
         crate::sim::rigid::mine(world, at.0, at.1, radius);
+        let dusted = thin_to_dust(world, &fresh, tuning.dig_yield);
         // How far spoil may be thrown, and the two cases genuinely differ.
         //
         // A bite at a rock face only ever needs to shove material a cell or
@@ -877,12 +947,84 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
         // answer rather than a missing feature.
         let search = if p.buried { radius + BURIED_THROW } else { radius + SPOIL_THROW };
         let displaced = displace_disc(world, &p, at.0, at.1, radius, search);
-        Some(Bite { at, displaced })
+        Some(Bite { at, displaced, dusted })
     } else {
         None
     };
     world.player = Some(p);
     bite
+}
+
+/// Cells in the bite disc that `mine` is about to turn into rubble —
+/// solid, and not the bedrock it refuses to break.
+fn solid_cells_in_disc(world: &World, cx: i32, cy: i32, radius: i32) -> Vec<(i32, i32)> {
+    let mut out = Vec::new();
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            if dx * dx + dy * dy > radius * radius {
+                continue;
+            }
+            let (x, y) = (cx + dx, cy + dy);
+            if !world.in_bounds(x, y) {
+                continue;
+            }
+            let cell = world.get(x, y);
+            if world.materials.kind(cell.material) == MaterialKind::Solid
+                && cell.material != super::material::BEDROCK
+            {
+                out.push((x, y));
+            }
+        }
+    }
+    out
+}
+
+/// Keep a `yield_fraction` of the freshly broken cells and blow the rest
+/// away as dust.
+///
+/// The kept cells are picked by an evenly spread stride rather than at
+/// random. Two reasons, and the second is the one that matters: a random
+/// subset clumps, so a bore comes out with lumps of surviving rubble in
+/// some places and clean holes in others, which reads as the cut having
+/// missed; and a stride consumes no RNG at all, keeping the dig out of
+/// `world.rng`'s draw order entirely so a replayed input sequence cannot
+/// diverge here.
+///
+/// The removed cells are **not** thrown as particles, and that was tried
+/// first for exactly the right reason — material blinking out of
+/// existence is the "no debris, no consequence" failure this project has
+/// rejected before. It does not work: `ParticleSystem` particles *land*,
+/// writing themselves back into the grid, so the puff quietly undid the
+/// removal. Measured on `scene=tunnel`: 941 cells dusted, 119 actually
+/// gone from the world. The debris requirement is met by the kept
+/// fraction instead, which is real rubble at his feet, plus the pressure
+/// impulse `mine` already writes for smoke and grit to react to.
+fn thin_to_dust(world: &mut World, fresh: &[(i32, i32)], yield_fraction: f32) -> usize {
+    if fresh.is_empty() {
+        return 0;
+    }
+    let total = fresh.len();
+    let keep = ((total as f32) * yield_fraction.clamp(0.0, 1.0)).round() as usize;
+    if keep >= total {
+        return 0;
+    }
+    let mut dusted = 0usize;
+    let mut kept_so_far = 0usize;
+    for (i, &(x, y)) in fresh.iter().enumerate() {
+        // Bresenham-style: keep this one if the running quota crosses an
+        // integer here. Spreads `keep` survivors evenly across `total`.
+        let quota = (i + 1) * keep / total;
+        if quota > kept_so_far {
+            kept_so_far = quota;
+            continue;
+        }
+        if world.materials.kind(world.get(x, y).material) != MaterialKind::Powder {
+            continue; // `mine` declined this one (no `breaks_into`)
+        }
+        world.set(x, y, super::cell::Cell::EMPTY);
+        dusted += 1;
+    }
+    dusted
 }
 
 /// Where a bite aimed at `aim` would land, without digging anything.
@@ -917,6 +1059,10 @@ pub struct Bite {
     /// Loose cells shoved clear of the bore. Zero with a non-zero bite is
     /// meaningful, not a bug: it is what a dig into open air looks like.
     pub displaced: usize,
+    /// Cells that left the world as dust. This is the number that decides
+    /// whether a cave is opening at all — see `Tuning::dig_yield` — so it
+    /// is reported beside the image rather than inferred from it.
+    pub dusted: usize,
 }
 
 /// Where a bite aimed at `aim` actually lands: the **first blocking cell
@@ -951,15 +1097,37 @@ fn face_toward(world: &World, from: (i32, i32), aim: (i32, i32), reach: i32) -> 
     let steps = limit.ceil() as i32;
     let (sx, sy) = (dx / dist, dy / dist);
     let mut last = from;
+    // Loose material does not stop the aim; rock does.
+    //
+    // This is the second half of "the material breaks but goes nowhere,
+    // so you cannot really make a cave", and the half no amount of
+    // tuning `dig_yield` could fix. Stopping at the first *blocking*
+    // cell meant a gnome's own spoil shielded the face he was cutting:
+    // after two bites the bore held rubble, rubble blocks, so every
+    // later bite landed on the muck instead of the rock behind it and
+    // re-broke material that was already broken. Measured over 63 bites
+    // into a solid massif, the world lost 77 cells — a tunnel that could
+    // not advance because the pick never reached stone again.
+    //
+    // So the ray reaches *past* powder to the first hard cell, which is
+    // what swinging a pick over a muck pile actually does. Loose
+    // material is still a valid target when there is no rock in reach —
+    // otherwise digging into a dune or a drift would do nothing at all —
+    // it is just never preferred over stone.
+    let mut first_loose = None;
     for i in 1..=steps {
         let t = (i as f32).min(limit);
         let cell = (from.0 + (sx * t).round() as i32, from.1 + (sy * t).round() as i32);
-        if blocks_dig(world, cell.0, cell.1) {
-            return cell;
+        match footing(world, &Bodies::none(), cell.0, cell.1) {
+            Footing::Hard => return cell,
+            Footing::Soft => {
+                first_loose.get_or_insert(cell);
+            }
+            Footing::Free => {}
         }
         last = cell;
     }
-    last
+    first_loose.unwrap_or(last)
 }
 
 /// Shove every loose cell in the dig disc to the nearest empty cell
@@ -1159,7 +1327,7 @@ mod tests {
     }
 
     #[test]
-    fn jump_rises_roughly_thirteen_cells_and_returns() {
+    fn a_full_jump_clears_well_over_his_own_height() {
         let mut world = world_with_floor();
         world.player = Some(Player::at(64, 84));
         // Settle onto the floor first so coyote/grounded are real.
@@ -1174,7 +1342,10 @@ mod tests {
             apex = apex.min(world.player.as_ref().unwrap().y);
         }
         let rise = rest_y - apex;
-        assert!((10.0..=16.0).contains(&rise), "expected a 10-16 cell jump, got {rise:.1}");
+        // FLOATY at gravity 0.10 and impulse 2.1 is v^2/2g ~= 22 cells,
+        // about 1.6 of his 14. The band is wide because the exact figure
+        // is a live tunable and a preset away from changing.
+        assert!((16.0..=28.0).contains(&rise), "expected a 16-28 cell jump, got {rise:.1}");
         let p = world.player.as_ref().unwrap();
         assert!(p.grounded, "should be back on the floor");
     }
@@ -1198,21 +1369,22 @@ mod tests {
             apex = apex.min(world.player.as_ref().unwrap().y);
         }
         let rise = rest_y - apex;
-        assert!(rise < 10.0, "a tapped jump should rise well short of a held one, got {rise:.1}");
-        assert!(rise >= 2.0, "but it should still leave the ground, got {rise:.1}");
+        assert!(rise < 16.0, "a tapped jump should rise well short of a held one, got {rise:.1}");
+        assert!(rise >= 3.0, "but it should still leave the ground, got {rise:.1}");
     }
 
     #[test]
-    fn steps_up_a_two_cell_ledge_but_not_a_four_cell_wall() {
+    fn steps_up_a_low_ledge_but_not_a_wall_taller_than_his_stride() {
         let mut world = world_with_floor();
-        // A 2-cell-high ledge ahead, then further along a 4-cell wall.
+        // A ledge his stride clears, then a wall well over it.
+        let step = Tuning::default().step_up as i32;
         for x in 70..=127 {
-            for y in 86..88 {
+            for y in (88 - step)..88 {
                 world.set(x, y, Cell::new(material::STONE, 0));
             }
         }
         for x in 100..=127 {
-            for y in 82..86 {
+            for y in (88 - step * 3)..(88 - step) {
                 world.set(x, y, Cell::new(material::STONE, 0));
             }
         }
@@ -1222,8 +1394,8 @@ mod tests {
         }
         let p = world.player.as_ref().unwrap();
         let (x, _) = p.rect_origin();
-        assert!(x >= 70, "should have climbed the 2-cell ledge, stuck at x={x}");
-        assert!(x < 100, "should be stopped by the 4-cell wall, got past to x={x}");
+        assert!(x >= 70, "should have climbed the {step}-cell ledge, stuck at x={x}");
+        assert!(x < 100, "should be stopped by the taller wall, got past to x={x}");
     }
 
     #[test]
@@ -1288,18 +1460,44 @@ mod tests {
     }
 
     #[test]
-    fn a_bite_opens_a_bore_and_loses_no_material() {
+    fn a_bite_opens_a_bore_and_removes_only_what_it_broke() {
         let mut world = world_with_cliff();
         world.player = Some(Player::at(66, 84));
+        let tuning = Tuning::default();
         let before = occupied_cells(&world);
-        let bite = dig(&mut world, (76, 84), &Tuning::default()).expect("a fresh gnome digs immediately");
+        let bite_at = bite_point(&world, world.player.as_ref().unwrap(), (76, 78), &tuning);
+        let broken = solid_cells_in_disc(&world, bite_at.0, bite_at.1, tuning.dig_radius as i32).len();
+        let bite = dig(&mut world, (76, 78), &tuning).expect("a fresh gnome digs immediately");
         assert_eq!(bite.at.0, 70, "the bite lands on the near face, not behind it at the cursor");
         assert!(bite.displaced > 0, "biting into solid stone should shove spoil clear");
         // The bore is actually open, not merely loosened: `mine` alone
         // turns stone into rubble in place and would leave this full.
         let open = (-2..=2).filter(|dy| world.get(71, 84 + dy).material == material::EMPTY).count();
         assert!(open >= 4, "the bite should leave a hole, found {open} empty cells through its middle");
-        assert_eq!(before, occupied_cells(&world), "digging must move material, never delete it");
+        // Conservation is deliberately gone — see `Tuning::dig_yield`.
+        // What must hold instead: the only cells that left are ones the
+        // bite broke, and roughly `1 - dig_yield` of them did.
+        let after = occupied_cells(&world);
+        let lost = before - after;
+        let expected = (broken as f32 * (1.0 - tuning.dig_yield)).round() as usize;
+        assert!(lost > 0, "a bite must actually remove volume, or no cave can ever open");
+        assert!(
+            lost.abs_diff(expected) <= 2,
+            "expected to lose about {expected} of {broken} broken cells, lost {lost}"
+        );
+    }
+
+    #[test]
+    fn at_full_yield_nothing_leaves_the_world() {
+        // The other end of `dig_yield`, and the guard on the promise that
+        // only *thinning* removes material: with nothing thinned, the dig
+        // is back to the shove-don't-delete contract exactly.
+        let mut world = world_with_cliff();
+        world.player = Some(Player::at(66, 78));
+        let tuning = Tuning { dig_yield: 1.0, ..Tuning::default() };
+        let before = occupied_cells(&world);
+        dig(&mut world, (76, 78), &tuning).expect("digs");
+        assert_eq!(before, occupied_cells(&world), "at yield 1.0 a dig may move material but never delete it");
     }
 
     #[test]
@@ -1483,7 +1681,7 @@ mod tests {
     }
 
     #[test]
-    fn he_floats_up_to_the_surface_rather_than_sinking() {
+    fn he_sinks_in_water_and_strokes_bring_him_back_up() {
         let mut world = world_with_pool(60);
         // Dropped in from above, so he arrives with real downward speed
         // and the damping has something to eat.
@@ -1493,16 +1691,19 @@ mod tests {
             tick(&mut world, PlayerInput::default());
             deepest = deepest.max(world.player.as_ref().unwrap().y);
         }
-        let p = world.player.as_ref().unwrap();
         assert!(deepest > 60.0, "he should actually get into the water, deepest {deepest:.1}");
+        // The DIVER default: left alone he keeps sinking, so the vertical
+        // axis is the player's job. Holding W must undo that.
+        let sank_to = world.player.as_ref().unwrap().y;
+        for _ in 0..200 {
+            tick(&mut world, PlayerInput { jump_held: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().unwrap();
         assert!(
-            p.y < deepest - 3.0,
-            "buoyancy should carry him back up: sank to {deepest:.1}, resting at {:.1}",
+            p.y < sank_to - 6.0,
+            "strokes should climb against a sinking default: {sank_to:.1} -> {:.1}",
             p.y
         );
-        // At rest he floats with his head at the surface, not on the
-        // bottom of an 88-deep basin.
-        assert!(p.y < 66.0, "expected to settle near the surface, at y={:.1}", p.y);
     }
 
     #[test]
@@ -1635,6 +1836,22 @@ mod tests {
             let (_, _, _, feet) = p.bounds();
             assert!((feet - top).abs() <= 2, "expected his feet at the slab top {top}, found {feet}");
         }
+    }
+
+    /// The presets and `Tuning::default` are two copies of the same
+    /// numbers, and a drift between them would mean a fresh gnome
+    /// silently differs from the feel named on screen — the exact class
+    /// of bug the status line exists to prevent.
+    #[test]
+    fn the_defaults_are_the_first_feel_of_each_list() {
+        let d = Tuning::default();
+        let m = &MOVEMENT_FEELS[0];
+        let w = &WATER_FEELS[0];
+        let mut from_presets = d;
+        m.apply(&mut from_presets);
+        w.apply(&mut from_presets);
+        assert_eq!(d, from_presets, "Tuning::default must equal MOVEMENT_FEELS[0] + WATER_FEELS[0]");
+        assert_eq!(d.dig_yield, SPOIL_MODES[0].dig_yield, "and dig_yield must equal SPOIL_MODES[0]");
     }
 
     #[test]

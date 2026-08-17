@@ -656,6 +656,12 @@ struct Args {
     scene: String,
     /// `seed=N` -- which generated world `scene=worldgen` builds.
     seed: u64,
+    /// `yield=F` -- the gnome's `dig_yield`, for comparing the spoil
+    /// modes the app cycles with `F2`. Whether a bore actually opens is
+    /// decided entirely by this number (see `player::Tuning::dig_yield`),
+    /// so a harness that could not vary it could not show the difference
+    /// between "you cannot dig" and "rock simply goes".
+    dig_yield: f32,
     /// `preset=NAME` -- which entry of `assets/worldgen.ron` it uses. Empty
     /// means that file's own `default`.
     preset: String,
@@ -746,6 +752,7 @@ struct Args {
 fn parse() -> Args {
     let mut a = Args {
         scene: "pour".into(),
+        dig_yield: pixel_physics::sim::player::Tuning::default().dig_yield,
         seed: 1,
         preset: String::new(),
         start: 100,
@@ -775,6 +782,7 @@ fn parse() -> Args {
         match k {
             "scene" => a.scene = v.into(),
             "seed" => a.seed = v.parse().expect("seed"),
+            "yield" => a.dig_yield = v.parse().expect("yield"),
             "preset" => a.preset = v.into(),
             "start" => a.start = v.parse().expect("start"),
             "every" => a.every = v.parse().expect("every"),
@@ -899,8 +907,10 @@ fn advance(
 /// counter". A bore full of loose rubble and a bore the dig never touched
 /// are the same picture at the zoom these are read at, and `buried` is a
 /// flag no picture shows at all.
-#[derive(Default)]
 struct Gnome {
+    /// The tuning this run digs with — `Tuning::default` except for
+    /// whatever `yield=` overrode.
+    tuning: pixel_physics::sim::player::Tuning,
     /// Which script — set from the scene name, since the M9 scenes each
     /// exist to show a different verb.
     script: Script,
@@ -908,6 +918,7 @@ struct Gnome {
     bites: usize,
     /// Loose cells shoved clear of a bore, summed over every bite.
     displaced: usize,
+    dusted: usize,
     /// First tick he read as buried, and the first tick he was free
     /// again after that — the two numbers `scene=bury` exists to produce.
     went_under: Option<usize>,
@@ -931,7 +942,7 @@ enum Script {
 }
 
 impl Gnome {
-    fn for_scene(scene: &str) -> Self {
+    fn for_scene(scene: &str, dig_yield: f32) -> Self {
         let script = match scene {
             "tunnel" => Script::Tunnel,
             "bury" => Script::Bury,
@@ -939,7 +950,15 @@ impl Gnome {
             "ride" => Script::Ride,
             _ => Script::Course,
         };
-        Self { script, ..Default::default() }
+        Self {
+            script,
+            tuning: pixel_physics::sim::player::Tuning { dig_yield, ..Default::default() },
+            bites: 0,
+            displaced: 0,
+            dusted: 0,
+            went_under: None,
+            came_back: None,
+        }
     }
 
     /// One tick of scripted input, plus the dig the scripts that dig ask
@@ -949,7 +968,7 @@ impl Gnome {
     /// can stand him up in them on the same frame.
     fn act(&mut self, world: &mut World, step_no: usize) {
         use pixel_physics::sim::player::{self, PlayerInput};
-        let tuning = player::Tuning::default();
+        let tuning = self.tuning;
         let phase = step_no % 60;
         let input = match self.script {
             Script::Course => PlayerInput {
@@ -958,10 +977,14 @@ impl Gnome {
                 jump_held: (30..48).contains(&phase),
                 ..Default::default()
             },
-            // Walking into the face while digging is the point: the bore
-            // must open faster than he walks or he simply stands still
-            // against rock, which is itself worth seeing on the sheet.
-            Script::Tunnel => PlayerInput { right: true, ..Default::default() },
+            // Dig standing still, then walk in — alternating, rather
+            // than holding `right` the whole time as this first did.
+            // Walking constantly into the face makes him climb his own
+            // spoil, and the sheet then measures *ramp* rather than
+            // *cave*: at `yield=1.0`, where by construction no volume
+            // leaves and no cave can exist, he travelled furthest of any
+            // setting purely by walking up rubble.
+            Script::Tunnel => PlayerInput { right: step_no % 90 >= 60, ..Default::default() },
             Script::Bury => PlayerInput::default(),
             // Three acts, on a fixed clock so two sheets compare: fall in
             // and float (to 150), pull under (to 260), then stroke up and
@@ -982,10 +1005,19 @@ impl Gnome {
             Script::Bury => step_no > 90,
         };
         if digging {
+            // Aimed past his reach, not at a fixed 20 cells ahead, which
+            // is what this did first. The aim ray is clipped to
+            // `dig_reach`, so a cursor closer than the working face makes
+            // the bite land in the open bore behind it — the tunnel
+            // stopped advancing once it grew past the aim point, and the
+            // dust count collapsed to a handful of cells a bite while
+            // looking like the mechanism had failed.
             let (cx, cy) = world.player.as_ref().expect("scene summoned one").center();
-            if let Some(bite) = player::dig(world, (cx + 20, cy), &tuning) {
+            let far = cx + tuning.dig_reach as i32 * 2;
+            if let Some(bite) = player::dig(world, (far, cy), &tuning) {
                 self.bites += 1;
                 self.displaced += bite.displaced;
+                self.dusted += bite.dusted;
             }
         }
         player::step(world, input, &tuning);
@@ -1020,6 +1052,15 @@ impl Gnome {
             self.bites,
             self.displaced
         );
+        s.push_str(&format!(", {} dusted", self.dusted));
+        // How much material is left in the world at all. The one number
+        // that says whether a bore can exist: `mine` conserves cells, so
+        // without thinning this never moves and no cave is possible
+        // however much rubble is thrown about.
+        let held: usize = (0..HEIGHT)
+            .map(|y| (0..WIDTH).filter(|&x| world.get(x, y).material != material::EMPTY).count())
+            .sum();
+        s.push_str(&format!(", world holds {held} cells"));
         if let Some(under) = self.went_under {
             s.push_str(&format!(", went under at {under}"));
             match self.came_back {
@@ -1167,7 +1208,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
     let mut blasts = explosion::Blasts::new();
-    let mut gnome = Gnome::for_scene(&args.scene);
+    let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield);
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
     let (cw, ch) = (args.crop.width(), args.crop.height());

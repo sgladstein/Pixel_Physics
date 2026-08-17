@@ -394,6 +394,7 @@ impl Handler {
             KeyCode::KeyZ => self.app.cycle_tool(),
             KeyCode::KeyL => self.app.cycle_movement_feel(),
             KeyCode::KeyY => self.app.cycle_water_feel(),
+            KeyCode::F2 => self.app.cycle_spoil_mode(),
             KeyCode::Tab => self.app.toggle_palette(),
             KeyCode::Slash => self.app.toggle_help(),
             KeyCode::KeyO => self.app.toggle_tunables(),

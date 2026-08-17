@@ -94,6 +94,7 @@ pub struct App {
     /// worse, since the whole point is reporting back which one won.
     pub movement_feel: usize,
     pub water_feel: usize,
+    pub spoil_mode: usize,
     pub renderer: Renderer,
     pub brush_radius: i32,
     /// Index into `paintable`, not a `MaterialId`, so cycling wraps cleanly.
@@ -325,6 +326,7 @@ impl App {
             player_input: player::PlayerInput::default(),
             movement_feel: 0,
             water_feel: 0,
+            spoil_mode: 0,
             renderer: Renderer::new(),
             brush_radius: 6,
             selected,
@@ -446,6 +448,17 @@ impl App {
         let feel = &player::WATER_FEELS[self.water_feel];
         feel.apply(&mut self.player_tuning);
         let line = format!("WATER FEEL: {} - {}", feel.name, feel.note.to_uppercase());
+        self.show_toast(&line);
+    }
+
+    /// `F2` — cycle what happens to mined rock. See `player::SpoilMode`
+    /// for why this is a selector: the owner wants both "just remove it"
+    /// and "make collecting it a mechanic", and those pull opposite ways.
+    pub fn cycle_spoil_mode(&mut self) {
+        self.spoil_mode = (self.spoil_mode + 1) % player::SPOIL_MODES.len();
+        let mode = &player::SPOIL_MODES[self.spoil_mode];
+        self.player_tuning.dig_yield = mode.dig_yield;
+        let line = format!("SPOIL: {} - {}", mode.name, mode.note.to_uppercase());
         self.show_toast(&line);
     }
 
@@ -1408,7 +1421,7 @@ impl App {
             "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
             "  CLICK NEAR THE GNOME: HE DIGS (FURTHER AWAY: BRUSH AS EVER)",
             "  IN WATER: W STROKE UP    S SWIM DOWN",
-            "  L JUMP FEEL    Y WATER FEEL  (CYCLE AND SAY WHICH IS BEST)",
+            "  L JUMP FEEL   Y WATER FEEL   F2 SPOIL  (CYCLE, SAY WHICH IS BEST)",
             "C STRIKE ROCK    H DIG (PRECISE CUT)",
             "F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    J PLANT WORM",
@@ -1666,7 +1679,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1697,6 +1710,11 @@ impl App {
                     player::MOVEMENT_FEELS[m].name,
                     player::WATER_FEELS[w].name
                 ),
+            },
+            if self.spoil_mode == 0 {
+                String::new()
+            } else {
+                format!(" — spoil {}", player::SPOIL_MODES[self.spoil_mode].name)
             },
             // Uncommitted asset edits, so a value saved mid-playtest is a
             // glance rather than an audit. Silent when git can't answer.

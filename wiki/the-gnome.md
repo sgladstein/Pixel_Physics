@@ -44,22 +44,26 @@ he comes off it like anything else would.
 
 ## Digging
 
-Left-click anywhere near him and he digs instead of painting. He works
-the **first face along the line you point at** — not the spot under the
-cursor — so pointing deep into a hillside cuts into the near wall of it,
-the way swinging a pick would. Click somewhere with nothing between him
-and it, and he digs there; click past what his arms can reach and he
-digs at arm's length. Beyond that reach the brush paints as it always
-did, so he can share the screen with the sandbox tools.
+Summoning him puts you in his dig tool, and a yellow ring shows exactly
+where the next bite will land and how big it will be. Left-click to cut.
+He works the **first rock face along the line you point at** — not the
+spot under the cursor — so pointing deep into a hillside cuts the near
+wall of it, the way swinging a pick would, and pointing past what his
+arms reach cuts at arm's length in that direction. Loose material doesn't
+stop the aim: he'll reach over a heap of his own spoil to the stone
+behind it rather than chewing the muck again.
 
-What comes out of the hole is the point. A bite doesn't erase rock, it
-breaks it: the stone cracks, comes apart into rubble, and the loose
-material is shoved out of the bore to whatever opening is nearest —
-usually the mouth of the tunnel he is standing in. Nothing is deleted, so
-the spoil builds up behind him and he ends up wading through his own
-diggings, which is as slow as it sounds. He bites at a steady rate rather
-than continuously, so holding the button reads as a series of blows
-rather than a beam.
+A bite doesn't erase rock, it breaks it: the stone cracks, comes apart,
+throws an impulse, and leaves rubble. But breaking alone can never open a
+cave — broken rock takes up the same room the solid rock did — so some of
+what he cuts is pulverised to dust and gone, and the rest stays as spoil
+underfoot. Roughly a third stays by default. You can change that balance
+while playing, from "nothing is lost, and you can barely dig" to "the
+rock simply goes"; the middle settings are the ones that leave you
+walking over your own diggings in a tunnel that still opens.
+
+He bites at a steady rate rather than continuously, so holding the button
+reads as a series of blows rather than a beam.
 
 Tunnelling has consequences. Rock that was holding up an overhang stops
 holding it up, and enough of it will bring the roof down — undermine a
@@ -86,10 +90,21 @@ tunnel, since he can't yet cut through growing things, and spoil that has
 nowhere solid to land stays in the bore rather than being thrown into the
 air.
 
-How he *feels* — run speed, jump height, how floaty a fall is, how tall a
-step he clears, how far and how fast he digs, how deep he wades and how
-buoyant he is — is all adjustable live in the tunables panel (`O`, then
-page to PLAYER), the same way explosions are tuned.
+## Changing how he feels
+
+Three things are hard to judge except by playing, so each is a named set
+you can cycle mid-game, with the active one shown in the title bar:
+
+- **Jump feel** — how heavy he is in the air, from long floating hangs to
+  short sharp hops.
+- **Water feel** — whether the water lifts him, holds him where he is, or
+  lets him sink so that staying up is something you do.
+- **Spoil** — how much of the rock he cuts survives as rubble.
+
+Underneath, every individual number — run speed, jump height, fall speed,
+step height, dig reach, bite size, wade depth, buoyancy — is adjustable
+live in the tunables panel (`O`, then page to PLAYER), the same way
+explosions are tuned.
 
 One housekeeping note: the gnome took over the movement keys, so two
 older debug tools moved — dig is now `H` (it was `D`), and planting a

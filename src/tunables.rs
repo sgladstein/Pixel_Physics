@@ -254,6 +254,7 @@ pub fn from_player(t: &Player) -> Vec<Tunable> {
         Tunable::float(g, c, "swim_damp", t.swim_damp, 0.5, 1.0, 0.01),
         Tunable::float(g, c, "stroke_impulse", t.stroke_impulse, 0.1, 2.5, 0.05),
         Tunable::integer(g, c, "stroke_cooldown", t.stroke_cooldown as f32, 1.0, 40.0, 1.0),
+        Tunable::float(g, c, "dig_yield", t.dig_yield, 0.0, 1.0, 0.05),
     ]
 }
 
@@ -283,6 +284,7 @@ pub fn apply_player(t: &mut Player, name: &str, value: f32) {
         "swim_damp" => t.swim_damp = value,
         "stroke_impulse" => t.stroke_impulse = value,
         "stroke_cooldown" => t.stroke_cooldown = value.max(1.0).round() as u8,
+        "dig_yield" => t.dig_yield = value.clamp(0.0, 1.0),
         _ => {}
     }
 }
