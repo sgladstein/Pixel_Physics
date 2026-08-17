@@ -286,8 +286,21 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
                 if id == 0 || organism::cell_type(c.aux()) != Some(organism::CellType::Leaf) {
                     continue;
                 }
-                let Some(&(_, _, min_y, max_y)) = per_organism.get(&id) else { continue };
-                let span = (max_y - min_y + 1).max(1);
+                // **The span is the *shoot*, collar to apex -- not the whole
+                // organism.** `per_organism`'s max_y is taken over every cell
+                // the organism owns, which includes its roots, so the five
+                // bands used to run from canopy top to root tip and the
+                // bottom one or two were underground. That is why every
+                // species reported exactly 0 in the last band: a constant
+                // across three species with different habits was the tell,
+                // and it was the metric measuring the wrong object rather
+                // than a shared bare bole.
+                let Some(&(_, _, min_y, _)) = per_organism.get(&id) else { continue };
+                let Some(collar) = w.organism_state(id).and_then(|s| s.collar_y) else { continue };
+                if y > collar {
+                    continue;
+                }
+                let span = (collar - min_y + 1).max(1);
                 // y grows downward, so band 0 is the top of the plant.
                 let band = (((y - min_y) * BANDS as i32) / span).clamp(0, BANDS as i32 - 1) as usize;
                 let slot = profile.entry(id).or_insert([(i32::MAX, i32::MIN, 0); BANDS]);
@@ -295,7 +308,7 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
                 slot[band].1 = slot[band].1.max(x);
                 slot[band].2 += 1;
                 let centre = leaf_centre.entry(id).or_insert((0, 0));
-                centre.0 += (max_y - y) as i64;
+                centre.0 += (collar - y) as i64;
                 centre.1 += 1;
             }
         }
@@ -319,8 +332,9 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
             .keys()
             .map(|k| {
                 let Some(&(sum, n)) = leaf_centre.get(k) else { return 0 };
-                let Some(&(_, _, min_y, max_y)) = per_organism.get(k) else { return 0 };
-                let span = (max_y - min_y + 1).max(1) as i64;
+                let Some(&(_, _, min_y, _)) = per_organism.get(k) else { return 0 };
+                let Some(collar) = w.organism_state(*k).and_then(|s| s.collar_y) else { return 0 };
+                let span = (collar - min_y + 1).max(1) as i64;
                 if n == 0 { 0 } else { (100 * sum / (n as i64 * span)) as usize }
             })
             .collect();
@@ -382,7 +396,20 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         ids.sort_unstable();
         let counters: Vec<String> = ids
             .iter()
-            .filter_map(|&id| w.organism_state(id).map(|s| format!("{id}: forks {} plag {}", s.sympodial_forks, s.plagiotropic_steps)))
+            .filter_map(|&id| {
+                w.organism_state(id).map(|s| {
+                    // The *achieved* mean departure angle, not a count of
+                    // how often the scoring ran -- see
+                    // `OrganismState::departure_angle_sum`. An 8-neighbour
+                    // lattice cannot always give a species the angle it
+                    // asked for, and this is the number that says so.
+                    let mean_angle = if s.lateral_departures > 0 { s.departure_angle_sum / s.lateral_departures as f32 } else { 0.0 };
+                    format!(
+                        "{id}: forks {} plag {} rigid {} lat {} angle {mean_angle:.0}deg",
+                        s.sympodial_forks, s.plagiotropic_steps, s.rigid_steps, s.lateral_departures
+                    )
+                })
+            })
             .collect();
         println!("  architecture events  [{}]", counters.join(", "));
     }

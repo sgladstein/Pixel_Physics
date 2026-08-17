@@ -434,6 +434,23 @@ fn banded_shade(world: &World, organism_id: u16, material: material::MaterialId,
     }
 }
 
+/// Stamp a fresh cell's hydraulic path length as one step further from the
+/// collar than the cell it grew from — see `OrganismCell::path_len`.
+///
+/// Must be called *after* the `World::set` that creates the cell, for the
+/// same reason `deposit_canopy` must: `set` is what registers the
+/// `OrganismCell` this writes into.
+fn write_path_len(world: &mut World, x: i32, y: i32, parent: u16) {
+    if let Some(slot) = world.organism_cell_mut(x, y) {
+        slot.path_len = parent.saturating_add(1);
+    }
+}
+
+/// This cell's own path length, or 0 if it has no sidecar yet.
+fn path_len_at(world: &World, x: i32, y: i32) -> u16 {
+    world.organism_cell(x, y).map_or(0, |c| c.path_len)
+}
+
 fn write_order(world: &mut World, x: i32, y: i32, order: u8) {
     if let Some(slot) = world.organism_cell_mut(x, y) {
         slot.order = order;
@@ -845,8 +862,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     // which is exactly the "starts at 0 resource, not
                     // inheriting any" the old explicit `pack_aux(_, 0.0)`
                     // spelled out.
+                    let own_path = path_len_at(world, x, y);
                     world.set(tx, ty, new_cell);
                     write_order(world, tx, ty, order);
+                    write_path_len(world, tx, ty, own_path);
                     resource -= cost;
                     write_carbon(world, x, y, resource);
                     next.push(reschedule_organism(tx, ty, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
@@ -880,6 +899,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 genotype_variance,
                 sympodial,
                 tropism,
+                branch_angle,
+                internode,
             } => {
                 // Per-order parameters resolved once, against *this cell's*
                 // own order. A tip reads only its own tier -- no traversal,
@@ -889,6 +910,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // top. Each trait reads its own slot -- two traits sharing
                 // one would move together, which is the "one tree scaled
                 // up" failure `genotype_variance` exists to avoid.
+                // This cell's own distance from the collar, read once:
+                // the turgor gate below reads it, and every child
+                // created further down is one step further out.
+                let own_path = path_len_at(world, x, y);
                 let branch_chance = branch_chance.at(order) * genotype(world, organism_id, 0, genotype_variance[0]);
                 let light_weight = light_weight.at(order) * genotype(world, organism_id, 5, genotype_variance[5]);
                 let upward_weight = upward_weight.at(order) * genotype(world, organism_id, 1, genotype_variance[1]);
@@ -949,11 +974,21 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // limit" -- a moss mat, a vine -- and is also why `RootTip`
                 // growth is unaffected without a special case.
                 if turgor_per_cell > 0.0 {
-                    let collar = world.organism(organism_id).and_then(|s| s.collar_y);
-                    if let Some(collar) = collar {
-                        // Rows *above* the collar; y grows downward.
-                        let height = (collar - y).max(0) as f32;
-                        let margin = turgor_source - turgor_per_cell * height - turgor_yield;
+                    {
+                        // **Hydraulic path length, not height** — see
+                        // `OrganismCell::path_len` for the measurement that
+                        // forced this. The vertical form bounded height and
+                        // bounded width not at all, so a tree that could not
+                        // grow up grew sideways forever; path length bounds
+                        // both with the same term, and is what the biology
+                        // says anyway.
+                        //
+                        // No `collar_y` read any more: the distance is
+                        // stamped at creation and never moves, which is
+                        // strictly better than recomputing against a collar
+                        // that can.
+                        let path = own_path as f32;
+                        let margin = turgor_source - turgor_per_cell * path - turgor_yield;
                         if margin <= 0.0 {
                             continue;
                         }
@@ -1132,6 +1167,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // *sample* from the positive-scoring set -- never a
                 // deterministic best-direction pick, which is what would
                 // actually curve-fit a silhouette.
+                // Hoisted out of the candidate loop: this is a property of
+                // the cell's own age, not of the direction being scored.
+                let rigid_step = internode.at(order) > 0 && (plastochron as u32) < internode.at(order) as u32;
                 let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
                 for (dx, dy) in NEIGHBOURS_8 {
                     let (nx, ny) = (x + dx, y + dy);
@@ -1163,10 +1201,34 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     // side-effect of score arithmetic. A candidate with no
                     // positively-preferred direction still fails the filter
                     // and that is correct: boxed in is a real dead end.
-                    let preference = dot(dir, heading) * continuation_weight
-                        + dot(dir, photo) * light_weight
-                        + dot(dir, wind) * wind_weight
-                        + dot(dir, gravity_or_water) * upward_weight;
+                    // **The straightness budget.** Inside its first
+                    // `internode` steps a fresh lateral scores on
+                    // continuation *alone* -- the light, wind and tropism
+                    // terms get no vote -- so it leaves along its departure
+                    // direction and stays there for a set run before the
+                    // environment starts steering it.
+                    //
+                    // This is the missing shape primitive, and `branch_angle`
+                    // is inert without it: the engine models a branch as a
+                    // biased random walk, so a lateral that departed at 90
+                    // degrees was re-scored against `upward_weight` and the
+                    // tier reference on its very next step and bent straight
+                    // back alongside the trunk. That is the parallel-ropes
+                    // look, and it is why these two landed as one change
+                    // rather than as two independently-judgeable ones
+                    // (`Reports/plant-appearance-design.md` §2.3-2.4).
+                    //
+                    // Costs no per-cell state: a lateral is rescheduled with
+                    // `plastochron: 0`, so the lineage step the active site
+                    // already carries *is* its age in cells.
+                    let preference = if rigid_step {
+                        dot(dir, heading) * continuation_weight
+                    } else {
+                        dot(dir, heading) * continuation_weight
+                            + dot(dir, photo) * light_weight
+                            + dot(dir, wind) * wind_weight
+                            + dot(dir, gravity_or_water) * upward_weight
+                    };
                     let score = preference / (1.0 + density * crowding_weight);
                     if score > 0.0 {
                         candidates.push((nx, ny, score));
@@ -1321,6 +1383,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // Straight continuation of this shoot, so the child keeps
                 // the parent's order. The lateral below is what increments.
                 write_order(world, tx, ty, order);
+                write_path_len(world, tx, ty, own_path);
                 // Momentum. A stem already lignified behind the apex cannot
                 // turn sharply, so the child leaves with most of its
                 // parent's heading and only a little of the step it just
@@ -1374,9 +1437,126 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     && rng.chance(branch_chance)
                     && world.organism_active_tip_count(organism_id, cell_type) + 1 < max_active_tips as usize
                 {
-                    let alt: Vec<(i32, i32, f32)> = candidates.into_iter().filter(|&(nx, ny, _)| (nx, ny) != (tx, ty)).collect();
+                    // **A lateral gets its own candidate set, and this is
+                    // the third and deepest layer of the branch-angle
+                    // problem.** It used to reuse `candidates`, which is
+                    // the *primary* scoring's survivors -- and that set is
+                    // filtered on `score > 0` against a preference carrying
+                    // `upward_weight` (0.9 on a trunk). A near-horizontal
+                    // step off a vertical axis scores about zero on every
+                    // term and does not survive the filter, so a wide
+                    // departure was not merely unlikely, it was **not in
+                    // the set at all**.
+                    //
+                    // Two measured attempts landed before this was found,
+                    // both of which "worked" and neither of which moved the
+                    // number: weighting the primary score by angular
+                    // closeness gave a mean achieved departure of 40
+                    // degrees against a 70 degree target, and discarding
+                    // the score entirely in favour of closeness gave 48.
+                    // The set was the constraint, not the weighting --
+                    // `CLAUDE.md`'s "two fixes failing the same way means
+                    // the approach is wrong, not the tuning", and the
+                    // achieved-angle counter is the only reason it was
+                    // visible.
+                    //
+                    // So an angled lateral scores over every growable
+                    // neighbour. Only for the angled path: a species with
+                    // no `branch_angle` keeps the old set and the old
+                    // uniform draw exactly.
+                    let target = branch_angle.at(order);
+                    let alt: Vec<(i32, i32, f32)> = if target > 0.0 {
+                        NEIGHBOURS_8
+                            .iter()
+                            .map(|&(dx, dy)| (x + dx, y + dy))
+                            .filter(|&(nx, ny)| (nx, ny) != (tx, ty) && growable(world, nx, ny, penetration_force))
+                            .map(|(nx, ny)| (nx, ny, 1.0))
+                            .collect()
+                    } else {
+                        candidates.into_iter().filter(|&(nx, ny, _)| (nx, ny) != (tx, ty)).collect()
+                    };
                     if !alt.is_empty() {
-                        let (bx, by, _) = alt[rng.below(alt.len() as u32) as usize];
+                        // **The departure angle.** This used to be
+                        // `alt[rng.below(alt.len())]` -- a uniform draw over
+                        // whatever open neighbours were left, so branching
+                        // *rate* was per-order species data and branching
+                        // *angle* was noise, in an engine whose whole
+                        // silhouette is made of branches. See
+                        // `Behavior::Grow::branch_angle`.
+                        //
+                        // Scored, then sampled -- never an argmax. A
+                        // deterministic best-direction pick is exactly what
+                        // would curve-fit a silhouette, which is the
+                        // objection the primary candidate loop above raises
+                        // about itself, and it applies just as much here.
+                        //
+                        // The 8-neighbourhood quantises the achievable
+                        // angles to multiples of 45 degrees, so this is a
+                        // target the candidates are ranked against and not a
+                        // value that can be hit; the weight falls off with
+                        // the angular error rather than selecting on it.
+                        let (bx, by, _) = if target <= 0.0 {
+                            alt[rng.below(alt.len() as u32) as usize]
+                        } else {
+                            let weighted: Vec<(i32, i32, f32)> = alt
+                                .iter()
+                                .map(|&(nx, ny, _)| {
+                                    let dir = normalize(((nx - x) as f32, (ny - y) as f32));
+                                    // Angle between this step and the axis
+                                    // it is leaving, in degrees.
+                                    let cos = dot(dir, heading).clamp(-1.0, 1.0);
+                                    let degrees = cos.acos().to_degrees();
+                                    // Falls off over 45 degrees, one
+                                    // neighbourhood step, so the preferred
+                                    // direction is clearly favoured and its
+                                    // neighbours stay reachable.
+                                    let closeness = 1.0 / (1.0 + ((degrees - target).abs() / 45.0));
+                                    // **The primary candidate score is
+                                    // deliberately discarded here, and
+                                    // measurement is why.** Multiplying by
+                                    // it gave a mean achieved departure of
+                                    // 40 degrees against a 70 degree
+                                    // target: that score carries
+                                    // `upward_weight` (0.9 on a trunk), so
+                                    // a near-horizontal candidate is
+                                    // already heavily penalised by it and
+                                    // the closeness term could not lift it
+                                    // back. The lever fired -- the counter
+                                    // proved that -- and did almost
+                                    // nothing, which is this project's
+                                    // signature failure.
+                                    //
+                                    // A branch's departure angle is a
+                                    // *developmental* property, not an
+                                    // environmental one: the primary child
+                                    // is what continues the axis by
+                                    // scoring light and gravity, and the
+                                    // lateral is what the architecture
+                                    // places. So the lateral scores on
+                                    // angle, and only crowding still gets a
+                                    // vote -- it must not be pushed into a
+                                    // wall. Recomputed rather than
+                                    // recovered from the score, which costs
+                                    // up to seven reads on a branch event;
+                                    // branching is rare (about 200 events
+                                    // per plant per 30,000 frames) so this
+                                    // is not on the hot path.
+                                    let density = candidate_crowding(world, nx, ny);
+                                    (nx, ny, closeness / (1.0 + density * crowding_weight))
+                                })
+                                .collect();
+                            let total: f32 = weighted.iter().map(|&(_, _, s)| s).sum();
+                            let mut pick = (rng.below(10_000) as f32 / 10_000.0) * total;
+                            let mut chosen = weighted[0];
+                            for &c in &weighted {
+                                if pick < c.2 {
+                                    chosen = c;
+                                    break;
+                                }
+                                pick -= c.2;
+                            }
+                            chosen
+                        };
                         if growable(world, bx, by, penetration_force) {
                             let branch_shade = banded_shade(world, organism_id, cell.material, Band::Bark, &mut rng);
                             let branch_cell =
@@ -1391,14 +1571,22 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // distinction exists without any cell having to
                             // work out which of those it is.
                             write_order(world, bx, by, order.saturating_add(1));
+                            write_path_len(world, bx, by, own_path);
                             // A lateral is a *new* axis, so it leaves along
                             // the step it took rather than inheriting the
                             // parent's momentum -- otherwise every branch
                             // curls back parallel to the trunk, which is
                             // the parallel-ropes look this branch already
                             // fixed once through `upward_weight`.
+                            let departure = normalize(((bx - x) as f32, (by - y) as f32));
                             if let Some(slot) = world.organism_cell_mut(bx, by) {
-                                slot.heading = normalize(((bx - x) as f32, (by - y) as f32));
+                                slot.heading = departure;
+                            }
+                            // The achieved angle, not a count of attempts --
+                            // see `OrganismState::departure_angle_sum`.
+                            if let Some(state) = world.organism_mut(organism_id) {
+                                state.lateral_departures += 1;
+                                state.departure_angle_sum += dot(departure, heading).clamp(-1.0, 1.0).acos().to_degrees();
                             }
                             deposit_canopy(world, bx, by, GROW_CANOPY_DEPOSIT);
                             // No structural check here either -- see the
@@ -1442,6 +1630,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 if cell_type == CellType::GrowingTip && tropism.at(order) == organism::Tropism::Plagiotropic {
                     if let Some(state) = world.organism_mut(organism_id) {
                         state.plagiotropic_steps += 1;
+                    }
+                }
+                // Same for the straightness budget: a species can declare
+                // an `internode` that never binds, and the sheet cannot
+                // tell that apart from one that does.
+                if rigid_step {
+                    if let Some(state) = world.organism_mut(organism_id) {
+                        state.rigid_steps += 1;
                     }
                 }
 
@@ -1543,6 +1739,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // to a new tier -- it never grows, so this only
                             // matters to anything reading order off foliage.
                             write_order(world, cx, cy, order);
+                            write_path_len(world, cx, cy, own_path);
                             deposit_canopy(world, cx, cy, GROW_CANOPY_DEPOSIT);
                             next.push(reschedule_organism(cx, cy, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
                         }
@@ -2135,6 +2332,11 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // trunk parameters and grow straight up as a second trunk.
     let order = world.organism_cell(bx, by).map_or(0, |c| c.order);
     write_order(world, bx, by, order.saturating_add(1));
+    // `path_len` is deliberately **not** touched here. A flushing bud is
+    // not a new cell -- it is a stem node that already sits at its own
+    // distance from the collar, and the axis it launches continues from
+    // exactly there. Re-stamping it would reset a lateral high in the crown
+    // to path zero and hand it the full turgor budget a second time.
     // A flushed bud launches with **no inherited heading**. The bud cell
     // is a retired stem node, so its stored heading is the stem's own
     // (near-vertical on a trunk) -- and a lateral that starts life
@@ -2743,25 +2945,48 @@ fn cross_section_axis(world: &World, x: i32, y: i32) -> [(i32, i32); 2] {
 
 #[allow(clippy::too_many_arguments)]
 /// The contiguous run of *woody* same-organism cells through `(x, y)`
-/// along the row — this stem's cross-section at this height.
+/// **along `axis`** — this stem's true cross-section.
+///
+/// **`axis`, not the row, and that is the whole point.** This walked the
+/// row (`y` fixed) while `thicken` placed its new cell along
+/// `cross_section_axis` — so the function deciding *whether* a stem is wide
+/// enough and the function deciding *where* to widen it used different
+/// geometry. For a vertical trunk they agree; for any stem that leans, the
+/// row-walk runs *lengthwise down the stem* and swallows every limb it
+/// touches on the way.
+///
+/// The consequence was the whole "plants look like felt" problem. A trunk
+/// measured itself at 30-70 cells wide, `leaf_count / stem_width` fell far
+/// below `pipe_ratio`, and `thicken` returned without widening — every
+/// time, forever. Nothing was ever more than about four cells thick, so
+/// there was no trunk/limb/twig hierarchy and every species rendered as the
+/// same mat of one-cell strands with a green crust.
+///
+/// **This is the third time this denominator has been wrong, and the first
+/// two fixes changed its scope rather than its axis.** `pipe_ratio`'s own
+/// history records value 10 "dividing by the whole row's cells — a limb
+/// elsewhere on the row suppressed the trunk", replaced by a contiguous-run
+/// denominator. A contiguous run is still a *row* run: it still merges any
+/// limb that happens to touch, and on a diagonal stem it still measures
+/// length. Narrowing the scope hid how wrong the axis was.
 ///
 /// **Leaves are excluded on purpose.** The pipe model's cross-section is
 /// xylem, and foliage is not xylem. Counting leaves inflated the
 /// denominator by roughly 10% of all cells, and worse, `leaf_count` on the
 /// numerator counts `Leaf | GrowingTip` — so the same cell appeared on both
 /// sides of the ratio.
-fn stem_run(world: &World, x: i32, y: i32, organism_id: u16) -> usize {
-    let woody = |wx: i32| {
-        let c = world.get(wx, y);
+fn stem_run(world: &World, x: i32, y: i32, organism_id: u16, axis: [(i32, i32); 2]) -> usize {
+    let woody = |wx: i32, wy: i32| {
+        let c = world.get(wx, wy);
         c.organism_id() == organism_id && organism::cell_type(c.aux()) != Some(CellType::Leaf)
     };
-    if !woody(x) {
+    if !woody(x, y) {
         return 1;
     }
     let mut run = 1usize;
-    for dir in [-1i32, 1] {
+    for (dx, dy) in axis {
         let mut k = 1;
-        while woody(x + dir * k) && k <= MAX_STEM_RUN {
+        while woody(x + dx * k, y + dy * k) && k <= MAX_STEM_RUN {
             run += 1;
             k += 1;
         }
@@ -2846,7 +3071,7 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
     // If blobs ever return, this reverts to under-reading -- so a failure
     // here looks like runaway thickening, and the guard below is aimed at
     // exactly that.
-    let stem_width = stem_run(world, x, y, organism_id);
+    let stem_width = stem_run(world, x, y, organism_id, axis);
     if (leaf_count / stem_width as f32) <= pipe_ratio {
         return;
     }
@@ -2917,6 +3142,15 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
             // every thickened limb read as trunk the moment something does.
             let order = world.organism_cell(x, y).map_or(0, |c| c.order);
             write_order(world, nx, ny, order);
+            // Secondary thickening lays wood *beside* an existing cell, not
+            // beyond it, so the new cell is the same distance from the
+            // collar rather than one step further -- it inherits, it does
+            // not increment. Getting this wrong would make a fat trunk read
+            // as hydraulically remote and throttle its own growth.
+            let parent_path = path_len_at(world, x, y);
+            if let Some(slot) = world.organism_cell_mut(nx, ny) {
+                slot.path_len = parent_path;
+            }
             // **The cambium kills the buds it outpaces**, and that is
             // where the clear bole comes from -- for free, with no rule
             // about height and none about which cells are trunk. The trunk

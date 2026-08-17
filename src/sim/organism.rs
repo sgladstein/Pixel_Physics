@@ -465,6 +465,54 @@ pub enum Behavior {
         /// Orthotropic everywhere reproduces the old hardcoded `(0, -1)`.
         #[serde(default = "all_orthotropic")]
         tropism: ByOrder<Tropism>,
+        /// **The angle, in degrees, at which a new lateral leaves its
+        /// parent axis** — measured between the parent's `heading` and the
+        /// step the lateral takes.
+        ///
+        /// Branch angle is a top-tier silhouette parameter in every prior
+        /// art for procedural trees (L-systems, Weber–Penn, space
+        /// colonization) and this engine had **no parameter for it at
+        /// all**: the lateral was `alt[rng.below(alt.len())]`, a uniform
+        /// draw over whatever open neighbours were left. Branching *rate*
+        /// was per-order species data; branching *angle* was noise. See
+        /// `Reports/plant-appearance-design.md` §2.3.
+        ///
+        /// Growth is on an 8-neighbourhood, so the achievable angles are
+        /// multiples of 45° and this is a *target* that the candidate set
+        /// is scored against, not a value that can be hit exactly. It is
+        /// still a weighted sample and never an argmax — a deterministic
+        /// best-direction pick is what would curve-fit a silhouette, which
+        /// is the objection the candidate loop's own doc raises.
+        ///
+        /// `0.0` means unset and restores the uniform draw.
+        ///
+        /// **Useless without `internode`**, which is why they landed
+        /// together: a lateral that leaves at 90° is re-scored against
+        /// `upward_weight` and the tier reference on its very next step and
+        /// bends straight back alongside the trunk. That is the
+        /// parallel-ropes look, and an angle alone does not touch it.
+        #[serde(default)]
+        branch_angle: ByOrder<f32>,
+        /// **How many steps a fresh lateral holds its departure direction**
+        /// before the light, wind and tropism terms get a vote.
+        ///
+        /// The straightness budget, and the missing shape primitive: this
+        /// engine models a branch as a biased random walk and nothing in it
+        /// represented a branch as an *object* with a length and a
+        /// direction. Coefficients change the statistics of a meander; they
+        /// cannot change what a meander is (§2.4 of the same report). An
+        /// internode is a straight run, and a crown of straight runs
+        /// leaving at an angle is what a tree looks like.
+        ///
+        /// Counted in the lineage step the active site already carries, so
+        /// this costs **no new per-cell state**: a lateral is rescheduled
+        /// with `plastochron: 0`, so its lineage step *is* its age in
+        /// cells.
+        ///
+        /// `0` means unset and restores the old always-score-everything
+        /// behaviour.
+        #[serde(default)]
+        internode: ByOrder<u8>,
         /// Mechanical resistance, in MPa, this cell type can force its way
         /// through — a `RootTip` converts a `Powder` neighbour whose
         /// `Material::penetration_resistance` is *below* this into root
@@ -823,6 +871,22 @@ pub struct OrganismState {
     /// Growth steps taken under a plagiotropic reference — says whether a
     /// species' `tropism` tiers ever actually ran.
     pub plagiotropic_steps: u32,
+    /// Growth steps taken inside a lateral's `internode` straightness
+    /// budget — zero means the budget never bound and the shape is still
+    /// the old free meander.
+    pub rigid_steps: u32,
+    /// Laterals launched, and the sum of the angles they actually left at.
+    ///
+    /// **The mean of these two is the counter that matters for
+    /// `branch_angle`**, and it is deliberately the *achieved* angle rather
+    /// than a count of how often the scoring ran. Growth is on an
+    /// 8-neighbourhood, so a species asking for 90° cannot always get it;
+    /// a counter that only said "the angle code executed 400 times" would
+    /// be true and useless, which is the failure this project keeps
+    /// rediscovering. A mean of 47° against a target of 90° says the lever
+    /// is weak — which no contact sheet could tell you.
+    pub lateral_departures: u32,
+    pub departure_angle_sum: f32,
     /// **This individual's colour**, as absolute band indices into the
     /// `leaf` and `wood` palettes — drawn once at germination by
     /// `plant::seed_genotype`, from the same (world seed, germination
@@ -1069,6 +1133,16 @@ impl<T: Copy> ByOrder<T> {
     }
 }
 
+/// Every tier at `T`'s own default — what `#[serde(default)]` on a
+/// `ByOrder` field means, and for `branch_angle`/`internode` the zero is
+/// deliberately the "unset, keep the old behaviour" value rather than a
+/// neutral one.
+impl<T: Copy + Default> Default for ByOrder<T> {
+    fn default() -> Self {
+        Self::uniform(T::default())
+    }
+}
+
 impl<'de, T> Deserialize<'de> for ByOrder<T>
 where
     T: Deserialize<'de> + Copy,
@@ -1269,6 +1343,35 @@ pub struct OrganismCell {
     /// read, which is correct for a cell that has just germinated and has
     /// no history to carry.
     pub heading: (f32, f32),
+    /// **Hydraulic path length from the collar, in cells** — how far sap has
+    /// actually had to travel to reach here, not how high up it is.
+    ///
+    /// This replaces `collar - y` in `Grow`'s turgor gate, and the reason is
+    /// a measured gap rather than a preference for realism. The vertical
+    /// form bounds *height* and bounds width not at all: a cell two hundred
+    /// columns sideways at collar height reads `height = 0` and full margin.
+    /// A single tree planted with twenty rows of sky therefore never stops
+    /// growing — 24,946 cells and still climbing at frame 295,000 — because
+    /// it cannot go up, so it goes sideways forever. With 190 rows it
+    /// plateaus at frame 180,000. Self-shading was the only thing bounding
+    /// width, and it is enough in a tall scene and nothing in a shallow one.
+    /// See `Reports/branch-angle-and-the-width-bound.md`.
+    ///
+    /// Path length bounds both axes with the mechanism already there, and it
+    /// is what the biology says anyway: water potential falls with the
+    /// hydraulic path the xylem has to push through, not with altitude, so a
+    /// 200-cell horizontal limb is under the same constraint as a 200-cell
+    /// trunk (`Reports/tree-extension-biology.md` §2c's own source is about
+    /// path resistance).
+    ///
+    /// **Propagated at creation — parent + 1 — not recomputed.** A plant is
+    /// acyclic and does not move, so a cell's distance from the collar is
+    /// fixed the moment it exists; there is no pass and no per-tick cost. It
+    /// also strictly improves on the property that made height attractive
+    /// (`collar_y`'s doc: the one signal that does not equalize when growth
+    /// stops) — height is recomputed against a collar that can move, and
+    /// this never changes at all.
+    pub path_len: u16,
 }
 
 impl Default for OrganismCell {
@@ -1281,7 +1384,7 @@ impl Default for OrganismCell {
     /// therefore perfectly isotropic and differentiates only from flux it
     /// actually carried.
     fn default() -> Self {
-        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4], order: 0, q_peak: 0.0, heading: (0.0, 0.0) }
+        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4], order: 0, q_peak: 0.0, heading: (0.0, 0.0), path_len: 0 }
     }
 }
 
