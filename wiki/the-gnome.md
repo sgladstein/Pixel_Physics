@@ -20,6 +20,20 @@ plants and creatures hold him up, shallow bumps and rubble (up to a couple
 of cells) are stepped over without jumping, and anything taller is a wall.
 The world's edge is a wall too.
 
+## The view follows him
+
+The world is bigger than the screen, and while the gnome is in it the view
+is his. Run far enough toward the edge of the picture and it begins to
+travel with you, keeping him near the middle; at the ends of the world it
+stops rather than showing you emptiness beyond the edge, so he can walk
+right up to the wall while the view stays over solid ground.
+
+Small movements do not shift it — the picture holds still while he shuffles
+about and only moves once he is genuinely going somewhere, which is what
+keeps a walk from feeling like the world sliding underneath him. With no
+gnome in the world, the view stays where it is and the mouse works on
+whatever is under it.
+
 ## Sand, water, and falling rock
 
 Loose material is not a floor — it's something he's *in*. Walking into a
