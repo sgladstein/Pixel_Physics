@@ -12,7 +12,6 @@
 //! file before touching the constants below; they're not arbitrary.
 
 use super::cell::Cell;
-use super::field::FIELD_SCALE;
 use super::material::{self, MaterialKind};
 use super::organism::{self, Behavior, CellType};
 use super::rng::{self, Rng};
@@ -535,25 +534,31 @@ fn is_damp(world: &World, x: i32, y: i32) -> bool {
     world.field_at(x, y).moisture > DAMP_MOISTURE_THRESHOLD
 }
 
-/// Light reaching a plant-owned or plant-adjacent cell, read from just
-/// outside the cell's own position rather than at it. `rebuild_blocked`
-/// marks a whole `FIELD_SCALE`-sided block opaque the moment *any* `Solid`
-/// or `Plant` cell sits inside it (deliberately, so a canopy shades what's
-/// beneath it) — which means a plant cell reading `field_at` at its own
-/// exact position always lands inside a block its own material just made
-/// opaque, and reads a permanent `0.0` regardless of how bright the sky
-/// is one cell away. Never surfaced before this: moss's own light read
-/// (`shade_factor`, below) only ever multiplies a probability that fires
-/// either way, so a silently-always-shaded reading still looked plausible;
-/// the tree rewrite's `Germinate`/`Photosynthesize` are the first behaviors
-/// to treat a light reading as a hard gate, which is what turned this from
-/// a quiet skew into a permanent deadlock (a seed that can never see
-/// enough light to germinate, in open sky, forever). Offsetting the sample
-/// upward by one field block is the same trick `phototropism_dir` already
-/// uses (`light_above`, in this same file) for exactly this reason, just
-/// applied to an absolute reading instead of a relative comparison.
+/// Light reaching a plant-owned or plant-adjacent cell, **at its own
+/// position**.
+///
+/// **This used to sample one field block up, and that offset is now a
+/// bug.** It existed because `rebuild_blocked` marked a whole block opaque
+/// the moment any `Solid` or `Plant` cell sat inside it, and `apply_sky`
+/// then skipped opaque blocks entirely — so a plant cell reading its own
+/// position landed inside a block its own material had just made opaque
+/// and read a permanent `0.0`, however bright the sky was one cell away.
+/// That was a real deadlock (a seed that could never see enough light to
+/// germinate, in open sky, forever), and reading one block up dodged it.
+///
+/// `apply_sky` writes the light *arriving at* a block now, occupied or
+/// not, precisely so an occluder can read what it intercepts — a leaf is
+/// the thing doing the intercepting, and its own reading is the arriving
+/// light. So the workaround's premise is gone, and what the offset does
+/// instead is make every leaf read the light one block **above** itself,
+/// i.e. before its own block's attenuation. Every plant in the world
+/// over-reads its income by one block of self-shading, which is the
+/// strongest term in the feedback that is supposed to bound it.
+///
+/// `CLAUDE.md`'s "fixing a bug often exposes a constant that was
+/// compensating for it", one level up: it exposed a whole mechanism.
 pub fn ambient_light_above(world: &World, x: i32, y: i32) -> f32 {
-    world.field_at(x, y - FIELD_SCALE).light
+    world.field_at(x, y).light
 }
 
 /// Lower ambient light reads as more shaded, which favours spreading —
@@ -3366,31 +3371,33 @@ mod tests {
     // roots liveness check like `organism-substrate-design.md` §6
     // describes, which is genuine future work, not a one-line port.
 
-    // --- Self-blocking light regression (`ambient_light_above`) ----------
+    // --- A plant reads real light at its own position --------------------
     //
-    // `rebuild_blocked` marks a whole field block opaque the instant any
-    // `Solid`/`Plant` cell sits inside it, so a plant cell reading
-    // `field_at` at its own exact position always reads a self-blocked
-    // `0.0`, forever, regardless of how bright the sky is one cell away.
-    // Never caught before this: moss's own light read only ever scales a
-    // probability that fires either way, so a silently-always-shaded
-    // reading still looked plausible. `Germinate`/`Photosynthesize` are the
-    // first behaviors to treat a light reading as a hard gate/income
-    // source, which turns the same self-blocking into a permanent deadlock.
-    // These tests plant close enough to the sky (`field.rs`'s light model
-    // decays hard within a few field rows) that light genuinely reaches the
-    // cell from outside, and would fail if either behavior went back to
-    // reading `world.field_at(x, y)` directly at its own position.
+    // **These guarded a workaround, and now guard the invariant that
+    // replaced it.** `rebuild_blocked` used to mark a whole field block
+    // opaque the instant any `Solid`/`Plant` cell sat inside it, and
+    // `apply_sky` skipped opaque blocks, so a plant cell reading `field_at`
+    // at its own exact position read a self-blocked `0.0` forever, however
+    // bright the sky was one cell away. `ambient_light_above` dodged that
+    // by sampling one field block up.
+    //
+    // `apply_sky` writes the light *arriving at* a block now, occupied or
+    // not — a leaf is the thing intercepting, so its own reading is what
+    // reaches it — and the offset went with the premise. What these tests
+    // assert is unchanged and is the point either way: **a plant in open
+    // sky earns real light.** They failed under the old rule without the
+    // offset, and they pass under the new one without it, which is the
+    // difference between a workaround and a fix.
 
     #[test]
-    fn a_seed_germinates_in_open_sky_despite_its_own_position_self_blocking_light() {
+    fn a_seed_germinates_in_open_sky_reading_light_at_its_own_position() {
         let mut w = test_world();
-        // `ambient_light_above` reads `FIELD_SCALE` (8) world units above
-        // its own position -- y=20 keeps that offset read (y=12) safely
-        // in-bounds and within light's real reach, unlike a too-shallow
-        // planting depth (y < FIELD_SCALE) whose offset read would go
-        // negative and land out of the world entirely, which reads as
-        // blocked/zero regardless of the fix under test.
+        // y=20 is arbitrary now and used to be load-bearing: while
+        // `ambient_light_above` sampled a block *above* itself, a shallower
+        // planting depth sent that read out of the world, which is opaque,
+        // and the test would have failed for the geometry rather than for
+        // the mechanism. The read is at the cell's own position now, so
+        // there is no offset to keep in bounds.
         plant_tree_on_ground(&mut w, 100, 20);
         run_with_fields(&mut w, 400); // several germination checks (ORGANISM_TICK_INTERVAL apart)
 
@@ -3399,7 +3406,7 @@ mod tests {
     }
 
     #[test]
-    fn photosynthesize_gains_resource_in_open_sky_despite_its_own_position_self_blocking_light() {
+    fn photosynthesize_gains_resource_in_open_sky_reading_light_at_its_own_position() {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
