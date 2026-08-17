@@ -37,6 +37,9 @@
 //!   off it exceeds what its section can hold. See
 //!   `Reports/fracture-mechanics-design.md` for why reach was the wrong
 //!   question
+//! * `brain` — the fixed-scaffold network a creature decides with. Its
+//!   weights *are* the genome; the topology never changes, which is what
+//!   keeps every genome mutually compatible and every brain readable
 //! * `pheromone` — two world-sized u8 planes at CA resolution, the
 //!   stigmergy substrate creatures deposit into and read back. Deliberately
 //!   *not* a sixth `field` channel: at `FIELD_SCALE = 8` two trails four
@@ -58,6 +61,7 @@
 //!
 //! Nothing below `update` knows about rendering, windowing or input.
 
+pub mod brain;
 pub mod cell;
 pub mod chunk;
 pub mod creature;

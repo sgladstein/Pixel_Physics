@@ -43,10 +43,22 @@
 
 use super::chunk::Rect;
 
-/// Frames between diffusion/decay passes. Trails are slow signals — a
-/// deposit that took an ant a second to lay does not need resolving at CA
-/// granularity, and quartering the pass rate quarters its cost.
-pub const PHEROMONE_INTERVAL: u64 = 4;
+/// Frames between diffusion/decay passes.
+///
+/// **12, not the 4 this started at, and the reason is a hard ceiling
+/// rather than a preference.** `build_decay_lut` forces every nonzero
+/// value strictly downward, so a cell loses *at least* 1 per pass whatever
+/// `DECAY_RHO` says — which means the longest a trail can possibly survive
+/// unreinforced is 255 passes. At one pass every 4 frames that is about
+/// 1,000 frames, against a colony round trip of roughly 2,200. The trail
+/// was dying before any ant could complete a circuit, and no amount of
+/// tuning `DECAY_RHO` could have fixed it: the floor is in the LUT, which
+/// exists for its own good reason (P-13, ghost trails).
+///
+/// Measured: at interval 4 the colony reached 0 deliveries with total
+/// channel A across the whole world sitting at 100. The pass rate is the
+/// knob that moves the ceiling, and it is also three times cheaper.
+pub const PHEROMONE_INTERVAL: u64 = 12;
 
 /// Blend toward the 3x3 mean per pass.
 ///
@@ -85,14 +97,21 @@ pub const DIFFUSE: f32 = 0.25;
 /// ossifies on the first path found, too fast and no trail survives long
 /// enough to be reinforced.
 ///
-/// Measured at the bottom of the band and staying there for now — the same
-/// sweep puts on-trail at 0.817 for rho 0.1 against 0.613 at 0.25 and
-/// 0.633 at 0.40, because a trail evaporating faster than a single ant
-/// re-lays it never accumulates. Expect this to want raising once a *whole
-/// colony* is depositing on it, which is the condition ossification
-/// actually appears under; there is no point tuning it against one
-/// follower.
-pub const DECAY_RHO: f32 = 0.1;
+/// Measured below the literature band, and the reason is the same ceiling
+/// `PHEROMONE_INTERVAL` documents: against a *single follower* re-laying
+/// its trail every pass, 0.1 measured best (0.817 on-trail, against 0.613
+/// at 0.25 and 0.633 at 0.40) — but that harness re-lays continuously, so
+/// decay never had to be survived. A real colony lays a cell once and
+/// comes back minutes later. Note this is the opposite of what the
+/// single-follower sweep suggested the pressure would be, which is what
+/// `CLAUDE.md` means by measuring against the state the mechanism exists
+/// for.
+///
+/// Ossification is still the thing this guards against and it will want
+/// raising again once colonies are dense enough to show it. The crowding
+/// input (P-12) is the other half of that defence and does not depend on
+/// this number.
+pub const DECAY_RHO: f32 = 0.03;
 
 /// Deposit per successful move, of 255. A trail a dozen ants share should
 /// sit well below saturation — differential reinforcement *is* the

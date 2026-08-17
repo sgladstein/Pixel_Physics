@@ -609,11 +609,100 @@ pub enum Behavior {
 pub struct SpeciesDef {
     pub name: String,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
+    /// Everything only a *creature* species needs. `#[serde(default)]` so
+    /// `moss.ron` and `tree.ron` keep parsing untouched — a plant is a
+    /// species with an empty `Creature` block, not a species missing one.
+    #[serde(default)]
+    pub creature: Option<CreatureDef>,
+}
+
+/// A creature species' body plan, instincts and metabolism.
+///
+/// Separate from `cell_types` because these are properties of the
+/// *individual*, not of a cell type: a chain has one length however many
+/// cell types it uses, and one genome however many cells it has.
+#[derive(Clone, Deserialize)]
+pub struct CreatureDef {
+    /// Body length in cells, head included. 1 is the worm; ants are 2-3.
+    ///
+    /// Owner open question #1 (`Reports/creature-direction.md` §12): is an
+    /// ant readable at one cell, or is a chain the minimum read at play
+    /// zoom? Species data either way, so the answer is one number here.
+    pub body_cells: u8,
+    /// Frames between decisions.
+    pub tick_interval: u64,
+    pub start_energy: f32,
+    /// Charged every tick regardless of what the creature does.
+    pub idle_cost: f32,
+    /// Charged per cell moved.
+    pub move_cost: f32,
+    /// Charged per **active** synapse per tick.
+    ///
+    /// The sign of this mechanism is the point rather than its magnitude:
+    /// connections must pay for themselves or evolution prunes them, which
+    /// is simultaneously the sparsity pressure that keeps evolved brains
+    /// legible and a real energetic trade-off (brains are metabolically
+    /// expensive). `brain::eval_brain` returns the count for free.
+    pub synapse_cost: f32,
+    /// Gained by eating one food cell.
+    pub eat_energy: f32,
+    /// Fraction of `start_energy` below which a creature eats what it finds
+    /// instead of carrying it home.
+    ///
+    /// **Not "below full", which is what this was first written as and it
+    /// silently deleted the entire foraging loop.** A creature is below its
+    /// starting energy within one tick of being born and stays there
+    /// forever, so "eat if not full" means *always eat* — measured at 14
+    /// eats against 8 pickups and zero deliveries, with a colony that
+    /// looked, in the picture, exactly like one foraging correctly. This is
+    /// the number that decides whether a colony feeds itself or feeds its
+    /// nest, and it belongs in species data because that trade-off is what
+    /// separates a solitary forager from a social one.
+    pub hunger_fraction: f32,
+    /// Materials this species will eat and carry, by name.
+    ///
+    /// Owner open question #2: herbivory on live plants from day one, or
+    /// detritus only until the plant-damage interaction has been watched
+    /// once? The difference is one string in this list — herbivory works
+    /// with no new code at all, because a `Leaf` cell is just a cell and
+    /// the plant finds out through its own connectivity check.
+    pub food: Vec<String>,
+    /// The material a nest is built from — what `AtNest` senses.
+    pub nest: String,
+    /// How hard this species can dig, against a material's
+    /// `penetration_resistance`. The pattern roots already use
+    /// (`Behavior::Grow`'s `penetration_force`), **not** a material-name
+    /// whitelist: a species that can chew soil but not stone should say so
+    /// in force, so a future softer stone is diggable automatically.
+    pub dig_force: f32,
+    /// Ticks over which nest-scent deposit falls to nothing. See
+    /// `OrganismState::since_nest`.
+    pub nest_memory: u16,
+    /// Sensor offset in cells for the forward/lateral sampling.
+    ///
+    /// 6, measured: `pheromone::tests::trail_following_sweep` puts on-trail
+    /// tracking at 0.817 for SO 6 against 0.755 at 4, 0.743 at 8 and 0.727
+    /// at 10 — the best of the range, and it agrees with the literature's
+    /// 5-9 band and with the report's starting figure.
+    pub sensor_offset: i32,
+    /// The authored starting brain, as a sparse wiring list.
+    pub instincts: Vec<super::brain::Instinct>,
+    /// Authored connections into the hidden layer, and out of it. Empty for
+    /// a species whose generation-zero behaviour is pure taxis; the ant
+    /// needs them for the one thing a single layer cannot express — see
+    /// `brain::genome_from_wiring`.
+    #[serde(default)]
+    pub hidden_wiring: Vec<super::brain::HiddenWire>,
+    #[serde(default)]
+    pub hidden_outputs: Vec<super::brain::OutputWire>,
 }
 
 pub struct Species {
     pub name: String,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
+    pub creature: Option<CreatureDef>,
+    /// The authored genome, expanded once at load rather than per spawn.
+    pub genome: Vec<f32>,
 }
 
 impl Species {
@@ -631,7 +720,8 @@ impl Species {
 
 impl From<SpeciesDef> for Species {
     fn from(def: SpeciesDef) -> Self {
-        Self { name: def.name, cell_types: def.cell_types }
+        let genome = def.creature.as_ref().map(|c| super::brain::genome_from_wiring(&c.instincts, &c.hidden_wiring, &c.hidden_outputs)).unwrap_or_default();
+        Self { name: def.name, cell_types: def.cell_types, creature: def.creature, genome }
     }
 }
 
@@ -799,6 +889,27 @@ pub struct OrganismState {
     /// entire contents of the parallel per-creature storage this substrate
     /// replaced.
     pub energy: f32,
+    /// What this creature is carrying, if anything. **One item, not a
+    /// stack**, and deliberately *state* rather than a cell: making the
+    /// carried grain a chain cell doubles every movement edge case (what
+    /// happens when the cell it wants to move into is the thing it is
+    /// holding?) for no payoff at all at the zoom a creature is seen at.
+    pub carrying: Option<super::material::MaterialId>,
+    /// Ticks since this creature last touched nest material.
+    ///
+    /// **This is how an ant finds its way home without ever asking where
+    /// home is.** Its channel-A deposit is scaled down by how stale this
+    /// is, so outbound ants paint a gradient that is freshest nearest the
+    /// nest — and a laden ant walking *up* that gradient is walking home.
+    /// No creature ever queries the nest's position; the field knows.
+    pub since_nest: u16,
+    /// Persisted hidden-layer activations, so recurrence has something to
+    /// read. Zero for anything without a brain.
+    pub brain_state: [f32; super::brain::BRAIN_HIDDEN],
+    /// **The heritable genome** — `brain::GENOME_LEN` weights for a
+    /// creature, empty for plants until the plant migration adopts the
+    /// shared mechanism (`Reports/creature-direction.md` §7a).
+    pub genome: Vec<f32>,
 }
 
 /// How many independently-jittered traits a genotype carries — the width of
@@ -806,6 +917,10 @@ pub struct OrganismState {
 /// `OrganismState::genotype_draws`, which must agree because one indexes
 /// the other.
 pub const GENOTYPE_TRAITS: usize = 6;
+
+/// Re-exported so `world.rs` can size `OrganismState::brain_state`
+/// without importing `brain` for one constant.
+pub const BRAIN_HIDDEN_FOR_STATE: usize = super::brain::BRAIN_HIDDEN;
 
 pub struct SpeciesRegistry {
     species: Vec<Species>,
@@ -816,6 +931,7 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/species/moss.ron"),
     include_str!("../../assets/species/tree.ron"),
     include_str!("../../assets/species/worm.ron"),
+    include_str!("../../assets/species/ant.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

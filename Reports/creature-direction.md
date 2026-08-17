@@ -903,3 +903,97 @@ surveyed sims.
 3. Colony failure: when a queen dies, do workers persist until starvation
    (ghost colony) or wind down faster? Starvation-only is the no-code
    default and probably fine.
+
+---
+
+## 13. Findings from building stages 0–3 (2026-08-17)
+
+Written from measurement, not from re-reading the plan. Everything in §§1–12
+above is the design as agreed; this section is what happened when it was
+built, and it contradicts the design in three places.
+
+### 13a. What works, and is measured
+
+| Mechanism | Evidence |
+|---|---|
+| Creature-on-organism substrate | worm ported, `CreatureState` deleted, slot released on death and on fire; 5 break-checks recorded |
+| Pheromone planes at CA resolution | drains to exactly 0; settled pass **0.0014 ms** against the 0.5 ms gate, **0 tiles** processed |
+| Overlays + probe | both channels render as legible distinct trails; `creature_probe` prints all 14 inputs / 6 outputs / synapse count |
+| Free-space trail following | 0.817 of steps within 2 cells, 0.961 of the trail traversed, against a 0.050 no-trail control |
+| The caged brain | authored instincts expand to a genome; recurrence verified to read last tick; sub-`W_EPS` weights neither evaluated nor taxed |
+| Eat / pick up / dig / drop | all four fire; digging gated by `penetration_resistance` vs `dig_force` — 1,551 soil cells excavated, **stone floor 200/200 intact** |
+| Deposition bias (§6) | drops cluster where `\|∇moisture\|` is steep: **10 vs 1** across halves measured at 2.279 vs 0.787 |
+| Energy census (§8) | balances to f32 rounding over 12,000-frame runs (delta ~1.6 on ~20,000) |
+
+### 13b. The homing half does not close, and here is why
+
+**`forage_loop` reaches 33 pickups and 0 deliveries.** Carriers pick food
+up, lay channel B, and then drift *away* from the nest — measured with the
+probe: 33 ants carrying, mean position x=201, nest at x<120.
+
+The cause is geometric, not a tuning failure. §4a specifies three sensors —
+ahead, ahead-left, ahead-right — at offset `SO`, and the brain receives
+`lateral = right − left`. **On a horizontal surface both lateral sensors sit
+in open air.** For an ant on a floor heading east at SO=6 they sample
+`(x+6, y−6)` and `(x+6, y+6)`; the trail is in the row the ant is standing
+in. Measured directly: an ant standing on a cell holding `A = 27` reads
+`pheroA_lr = 0.000`.
+
+So `lateral` is **identically zero on flat ground**, for both channels, and
+no gain on it can steer anything. Two consequences:
+
+1. The Jones/Physarum sensor triad assumes agents in open 2D. This is a
+   side-view world where creatures walk on surfaces, and §9a's own
+   orientation caveat turns out to understate the problem: it is not that
+   side view gives *fewer competing paths*, it is that the sensor geometry
+   does not sample the surface the trail is on.
+2. Even with a working lateral signal, the three-forward-candidate rule
+   cannot express **reversal**. A carrier that needs to go back the way it
+   came must accumulate four ±1 turns, and the intermediate headings point
+   into the floor or into open air, where the footing rule blocks them. A
+   surface creature needs a front-versus-behind comparison, which no input
+   in §4b's table provides.
+
+**Do not fix this by re-tuning.** The gated hidden units §4c prescribes were
+built and *are* in `ant.ron` (the additive approximation failed exactly as
+§4c predicted) — they change nothing here, because the signal they gate is
+zero. Candidate next steps, unbuilt:
+
+* Add a `PheroAlongHeading` input: pheromone ahead minus pheromone at the
+  head, per channel. That is a scalar with directional meaning on a
+  surface, and it makes run-and-tumble chemotaxis expressible — which is
+  how bacteria solve exactly this problem without being able to steer.
+* Give a failed move roll a chance to re-roll the heading (the "tumble").
+  The mechanism is already half-present in the blocked path's
+  viable-heading re-roll.
+
+### 13c. `double_bridge` measured the terrain, not the colony
+
+An intermediate build reported 21.00 mean channel-B on the short route
+against 6.22 on the long one, and passed §9a's assertion. It was not
+measuring path selection: with lateral steering dead, what produced it was
+ants using the only route a ground-dweller can use and depositing on it.
+The assertion is now a printed note. **A guard that passes for the wrong
+reason is worse than no guard** — this one would have certified stigmergy
+that does not exist.
+
+### 13d. Corrections to the design's own numbers
+
+* `DIFFUSE = 0.1` (§5b) does essentially nothing on a u8 plane — the
+  blended value at distance 2 rounds to zero before it can propagate. 0.25,
+  set from a sweep of tracking performance.
+* `DECAY_RHO` wants to be **below** the literature band, not above it, and
+  `PHEROMONE_INTERVAL` is the load-bearing knob: `build_decay_lut`'s forced
+  strict decrease costs at least 1 per pass, so the longest an unreinforced
+  trail can live is 255 passes. At one pass per 4 frames that is ~1,000
+  frames against a ~2,200-frame round trip. Interval 12, rho 0.03.
+* "Gate an action on the output crossing 0.5" (§6) cannot work as written:
+  `squash(0.9) = 0.474`, so a plainly-authored instinct sits just under the
+  gate and the verb never fires. Actions are probabilities, which §6's own
+  "multiply drop probability by the moisture gradient" requires anyway.
+* §4c's instinct list has no standing drive to dig, so an ant facing a bank
+  of soil computed a dig urge of exactly zero and excavation never
+  happened. `(Bias, Dig, 0.4)` added.
+* "Eat if energy below full" makes every creature permanently hungry and
+  deletes carrying entirely. A `hunger_fraction` (0.5) is the real
+  parameter.

@@ -988,6 +988,10 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/leaf.ron"),
     include_str!("../../assets/materials/rootwood.ron"),
     include_str!("../../assets/materials/seed.ron"),
+    // Appended, never inserted -- see the two comments above. The ant
+    // milestone's pair: the creature and the material it calls home.
+    include_str!("../../assets/materials/ant.ron"),
+    include_str!("../../assets/materials/nest.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

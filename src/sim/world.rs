@@ -84,6 +84,55 @@ struct BodySlot {
     state: Option<LiquidBody>,
 }
 
+/// Per-verb creature counters. Printed beside every scene.
+///
+/// `trips_completed` is the one that proves the *loop* rather than its
+/// parts: a colony can move, deposit, dig and drop convincingly while never
+/// once completing nest -> food -> nest with cargo.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct CreatureStats {
+    pub spawned: u64,
+    pub moves: u64,
+    pub moves_blocked: u64,
+    pub falls: u64,
+    pub eats: u64,
+    pub pickups: u64,
+    pub digs: u64,
+    pub drops: u64,
+    /// Drops that happened at the nest — food actually delivered home.
+    /// **The number that proves the loop rather than its parts.**
+    pub deliveries: u64,
+    /// Arrivals at the nest after having been away. Splits "never got
+    /// home" from "never picked anything up", which the delivery count
+    /// alone cannot.
+    pub nest_visits: u64,
+    pub deaths: u64,
+}
+
+/// Where every joule went. See `World::energy_ledger`.
+///
+/// The invariant, asserted in the ascii scenes:
+/// `sum(live creature energy) == granted + eaten - metabolized - moved
+/// - synapse_tax - died_holding`.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct EnergyLedger {
+    /// Energy created out of nothing, at spawn. The only source besides
+    /// eating, and the one that has to be counted or nothing balances.
+    pub granted: f64,
+    pub eaten: f64,
+    pub metabolized: f64,
+    pub moved: f64,
+    pub synapse_tax: f64,
+    pub died_holding: f64,
+}
+
+impl EnergyLedger {
+    /// What the live population's total energy should equal.
+    pub fn expected_live_total(&self) -> f64 {
+        self.granted + self.eaten - self.metabolized - self.moved - self.synapse_tax - self.died_holding
+    }
+}
+
 pub struct World {
     chunks: HashMap<ChunkCoord, Chunk>,
     /// One tile per chunk, same lifetime — see the module doc on `field` for
@@ -186,6 +235,28 @@ pub struct World {
     /// reason `fields` is: the signal outlives whoever deposited it, which
     /// is the entire point of stigmergy.
     pub pheromones: Pheromones,
+    /// The "did it fire" counters for creature behaviour — `FailureCounts`
+    /// in shape and in purpose.
+    ///
+    /// An image shows *what and where*; it cannot show whether the
+    /// mechanism you built is what produced it. A colony of ants milling
+    /// plausibly and a colony genuinely foraging look identical at the zoom
+    /// a contact sheet is read at, and `trips_completed` is the number that
+    /// tells them apart (`CLAUDE.md`, and the collapse that rendered
+    /// convincingly for a whole run while its body count said the feature
+    /// had never once executed).
+    pub creature_stats: CreatureStats,
+    /// **Evolution is a fuzzer for your conservation laws.** Every surveyed
+    /// sim that evolved anything eventually evolved an exploit of an
+    /// energy-accounting bug — Karl Sims' creatures harvesting integration
+    /// error is the canonical case. So the census is built *before*
+    /// mutation is switched on (stage 4), because afterwards every anomaly
+    /// is ambiguous between "bug" and "adaptation".
+    ///
+    /// `f64` because these accumulate over long runs and an `f32` total
+    /// stops being able to represent a single `idle_cost` addition once it
+    /// passes about 16 million.
+    pub energy_ledger: EnergyLedger,
     organisms: Vec<OrganismSlot>,
     free_organism_slots: Vec<u16>,
     /// How many times a reused slot's 4-bit generation has wrapped back to
@@ -350,6 +421,8 @@ impl World {
             body_index: HashMap::new(),
             species: SpeciesRegistry::builtin(),
             pheromones: Pheromones::new(bounds),
+            creature_stats: CreatureStats::default(),
+            energy_ledger: EnergyLedger::default(),
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
             organism_generation_wraps: 0,
@@ -428,6 +501,12 @@ impl World {
     /// missing release shows up here as a count that only ever climbs.
     pub fn live_organism_count(&self) -> usize {
         self.organisms.iter().filter(|slot| slot.state.is_some()).count()
+    }
+
+    /// Total energy held by every live organism — the left-hand side of
+    /// `EnergyLedger`'s invariant.
+    pub fn live_creature_energy(&self) -> f64 {
+        self.organisms.iter().filter_map(|slot| slot.state.as_ref()).map(|state| state.energy as f64).sum()
     }
 
     /// Every live organism's encoded id.
@@ -674,6 +753,10 @@ impl World {
             chain: Vec::new(),
             heading: 0,
             energy: 0.0,
+            carrying: None,
+            since_nest: 0,
+            brain_state: [0.0; organism::BRAIN_HIDDEN_FOR_STATE],
+            genome: Vec::new(),
         };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];
@@ -708,7 +791,7 @@ impl World {
     /// `None` for `organism_id == 0` (no organism) or a stale id whose slot
     /// has since been reused by a different organism — the generation
     /// mismatch this whole scheme exists to catch, not a panic.
-    pub(crate) fn organism(&self, organism_id: u16) -> Option<&OrganismState> {
+    pub fn organism(&self, organism_id: u16) -> Option<&OrganismState> {
         let (slot_index, generation) = decode_organism_id(organism_id);
         if slot_index == 0 {
             return None;

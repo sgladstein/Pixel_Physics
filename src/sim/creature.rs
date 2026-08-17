@@ -58,9 +58,12 @@
 //! resource-gradient primitive are also out of scope for this first cut —
 //! see the research file's section 4 and 5.
 
+use super::brain;
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
+use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, CellType};
+use super::organism::{pack_cell_type, CellType, CreatureDef};
+use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
@@ -73,6 +76,12 @@ use super::world::World;
 pub const DIRS: [(i32, i32); 8] = [(1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1)];
 
 const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+/// A walking creature reads and moves at eight neighbours, not four: it
+/// climbs, it steps diagonally, and its support check has to use the same
+/// neighbourhood its movement does or it will judge itself unsupported
+/// while standing on a corner. (`CLAUDE.md`: a traversal must use the same
+/// neighbourhood the writer used.)
+const NEIGHBOURS_8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
 /// Which draw a creature is making, as the fourth key of `rng::stream` —
 /// so two decisions taken by the same creature on the same frame do not
@@ -210,7 +219,21 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     let ActiveKind::Creature { organism } = site.kind else {
         unreachable!("scheduler::step only routes ActiveKind::Creature to creature::tick");
     };
-    worm_tick(world, site.x, site.y, organism)
+    // A stale handle: this creature's slot was freed and may since have
+    // been handed to something else. Drop the site silently -- the whole
+    // point of the generational scheme.
+    let Some(state) = world.organism(organism) else {
+        return Vec::new();
+    };
+    // **Species data is the dispatch, not a name check.** A species with a
+    // `creature:` block is a chain creature with a brain; one without is
+    // the worm, which keeps its own researched burrowing economics. See
+    // the section header above `plant_creature_seed` for why these are
+    // deliberately two locomotion models rather than one parameterised one.
+    match world.species.get(state.species).creature.clone() {
+        Some(def) => creature_tick(world, site.x, site.y, organism, &def),
+        None => worm_tick(world, site.x, site.y, organism),
+    }
 }
 
 /// Pick an index from `scores` with probability proportional to
@@ -487,6 +510,657 @@ impl World {
             self.schedule_active_site(site);
         }
     }
+}
+
+
+// --- Ants: chain creatures with a brain -------------------------------
+//
+// The worm above and the ants below are **two locomotion models, not one
+// with parameters**, and that is deliberate — the same call
+// `organism.rs` makes for `Divide` versus `Grow`. A worm *burrows*: it
+// eats its way through powder, pays a cost scaled by the material's own
+// density, and has no notion of standing on anything. An ant *walks*: it
+// needs solid footing, it climbs, it digs only when a brain output says
+// so, and its cost is per cell moved. Forcing both onto one function
+// means a parameter that switches between two unrelated rules, which is
+// the shape that gets called "generic" and read as "unreadable".
+//
+// What they *do* share is the substrate (organism handles, cell lists,
+// slot reclamation), the choice function (`choose_weighted`), and the
+// whole-`Cell` move (P-1). Those are the parts worth sharing.
+
+/// The compass turn a brain's `Turn` output maps onto, and the three
+/// candidate directions a head may step to: ahead-left, ahead, ahead-right.
+/// Never all eight — a creature that can reverse in place every tick has no
+/// heading worth the name, and the Physarum literature's whole loop is
+/// built on a forward cone.
+const AHEAD_LEFT: u8 = 1;
+const AHEAD_RIGHT: u8 = 7;
+
+/// Radius of the crowding scan, in cells. Small on purpose: this is a
+/// *contact-range* read of the grid, which decision D5 explicitly permits
+/// (`Reports/creature-direction.md`) — the hard line is at colony scale,
+/// where the field is the mechanism, and it is not crossed by an ant
+/// noticing the ants it is standing among.
+const CROWDING_RADIUS: i32 = 2;
+/// How strongly a candidate with a foothold is preferred over one into
+/// thin air. Added to the candidate's score, not multiplied into it — see
+/// `step_chain` for the measurement that decided which.
+///
+/// A bonus rather than a veto: an ant must still be able to walk off a
+/// ledge, and forbidding it outright would be the "gate whether something
+/// happens" mistake that `CLAUDE.md` warns a size cap must never make.
+const FOOTING_BONUS: f32 = 0.6;
+/// Divisor turning that count into a 0..1-ish input.
+const CROWDING_SCALE: f32 = 8.0;
+
+/// Scale for the temperature input: degrees above ambient at which the
+/// input reads 1.0.
+const TEMP_INPUT_SCALE: f32 = 40.0;
+
+/// Plant a colony creature of `species_name` at `(x, y)`, laying its chain
+/// out to the left of the head. Returns the site to schedule.
+pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str) -> Option<ActiveSite> {
+    let species_id = world.species.id_of(species_name)?;
+    let material_id = world.materials.id_of(species_name)?;
+    let def = world.species.get(species_id).creature.as_ref()?.clone();
+    let genome = world.species.get(species_id).genome.clone();
+
+    // Every cell of the chain has to be available *before* anything is
+    // allocated or written, or a half-placed body leaks a slot and leaves
+    // orphan cells (the same reason `plant_worm_seed` checks first).
+    let mut positions = Vec::with_capacity(def.body_cells as usize);
+    for i in 0..def.body_cells as i32 {
+        let p = (x - i, y);
+        if !world.is_empty(p.0, p.1) {
+            return None;
+        }
+        positions.push(p);
+    }
+
+    let organism = world.push_organism(species_id);
+    let shades = world.materials.get(material_id).palette.len().max(1) as u32;
+    for (i, &(px, py)) in positions.iter().enumerate() {
+        let shade = rng::stream(world.seed, organism as u64, i as u64, RNG_SLOT_SHADE).below(shades) as u8;
+        let cell_type = if i == 0 { CellType::Head } else { CellType::Segment };
+        world.set(px, py, Cell::new(material_id, shade).with_organism_id(organism).with_aux(pack_cell_type(cell_type)));
+    }
+    if let Some(state) = world.organism_mut(organism) {
+        state.energy = def.start_energy;
+        state.chain = positions;
+        state.heading = 0; // east
+        state.genome = genome;
+        // Starts *at* the nest as far as scent goes: an ant that has just
+        // hatched has, by construction, just been at home.
+        state.since_nest = 0;
+    }
+    world.creature_stats.spawned += 1;
+    world.energy_ledger.granted += def.start_energy as f64;
+    Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + def.tick_interval })
+}
+
+impl World {
+    /// Place an ant at `(x, y)` — the debug/scene entry point, mirroring
+    /// `plant_worm`.
+    pub fn plant_ant(&mut self, x: i32, y: i32) {
+        if let Some(site) = plant_creature_seed(self, x, y, "ant") {
+            self.schedule_active_site(site);
+        }
+    }
+}
+
+/// One decision by one chain creature.
+///
+/// Order matters and is: resolve identity, sense, think, act on the world,
+/// then move and deposit. Deposits come **after** the move and only if it
+/// succeeded (P-11) — a blocked agent that still reinforces is how
+/// congested dead ends accumulate trail and the colony ossifies pointing
+/// into a wall.
+fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
+    let Some(material_id) = world.materials.id_of(&world.species.get(world.organism(organism).expect("live").species).name.clone()) else {
+        return Vec::new();
+    };
+    let cell = world.get(x, y);
+    if cell.material != material_id || cell.organism_id() != organism {
+        release_if_bodyless(world, organism);
+        return Vec::new();
+    }
+    if cell.is_burning() {
+        // Same deferral the worm makes, for the same reason: let fire.rs
+        // finish deciding this creature's fate first.
+        return vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + def.tick_interval }];
+    }
+
+    let heading = world.organism(organism).map_or(0, |s| s.heading);
+    let inputs = sense(world, x, y, organism, heading, def);
+    let (outputs, active_synapses) = {
+        let Some(state) = world.organism_mut(organism) else {
+            return Vec::new();
+        };
+        let genome = std::mem::take(&mut state.genome);
+        let mut brain_state = state.brain_state;
+        let result = brain::eval_brain(&genome, &inputs, &mut brain_state);
+        let state = world.organism_mut(organism).expect("still live");
+        state.genome = genome;
+        state.brain_state = brain_state;
+        result
+    };
+
+    let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MOVE);
+    let mut spent = def.idle_cost + def.synapse_cost * active_synapses as f32;
+    world.energy_ledger.metabolized += def.idle_cost as f64;
+    world.energy_ledger.synapse_tax += (def.synapse_cost * active_synapses as f32) as f64;
+
+    // --- the four verbs, before moving: an ant that is going to pick
+    // --- something up should do it from where it can reach it.
+    act(world, x, y, organism, def, &outputs, &mut draw);
+
+    // --- move -----------------------------------------------------------
+    let p_move = outputs[brain::BrainOutput::Move as usize].clamp(0.0, 1.0);
+    let mut moved = false;
+    if draw.unit_f32() < p_move {
+        moved = step_chain(world, organism, heading, &outputs, def, &mut draw, material_id);
+        if moved {
+            spent += def.move_cost;
+            world.energy_ledger.moved += def.move_cost as f64;
+        }
+    }
+
+    // --- deposit, only on a successful move (P-11) ----------------------
+    if moved {
+        let (hx, hy) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
+        // Nest scent falls off with how long ago this creature was home.
+        // That falloff is the entire homing mechanism: fresher scent is
+        // nearer the nest, so a laden ant walking up-gradient is walking
+        // home, and nothing ever asks where the nest is.
+        let since = world.organism(organism).map_or(0, |s| s.since_nest);
+        let recency = (1.0 - since as f32 / def.nest_memory.max(1) as f32).max(0.0);
+        let emit_a = outputs[brain::BrainOutput::EmitA as usize].clamp(0.0, 1.0) * recency;
+        let emit_b = outputs[brain::BrainOutput::EmitB as usize].clamp(0.0, 1.0);
+        world.deposit_pheromone(Channel::A, hx, hy, (emit_a * pheromone::DEPOSIT as f32) as u8);
+        world.deposit_pheromone(Channel::B, hx, hy, (emit_b * pheromone::DEPOSIT as f32) as u8);
+    }
+
+    if let Some(state) = world.organism_mut(organism) {
+        state.since_nest = state.since_nest.saturating_add(1);
+    }
+
+    let (hx, hy) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
+    apply_creature_energy(world, hx, hy, organism, -spent, def)
+}
+
+/// Read a creature's sensory inputs and its brain's response **without
+/// changing anything** — for `examples/creature_probe.rs`.
+///
+/// A non-mutating evaluation, so probing cannot perturb the run it is
+/// measuring: the hidden state is copied rather than written back, which
+/// costs one tick of recurrence accuracy in the readout and buys the
+/// guarantee that looking is free. (`CLAUDE.md`: a debug readout must not
+/// be a function of the thing it debugs — here, of itself.)
+pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> ([f32; brain::BRAIN_INPUTS], [f32; brain::BRAIN_OUTPUTS], u32) {
+    let Some(state) = world.organism(organism) else {
+        return ([0.0; brain::BRAIN_INPUTS], [0.0; brain::BRAIN_OUTPUTS], 0);
+    };
+    let inputs = sense(world, x, y, organism, state.heading, def);
+    let mut brain_state = state.brain_state;
+    let (outputs, active) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
+    (inputs, outputs, active)
+}
+
+/// The 14 brain inputs. Slot indices are `brain::BrainInput`'s and are a
+/// permanent public contract — see that enum.
+fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &CreatureDef) -> [f32; brain::BRAIN_INPUTS] {
+    use brain::BrainInput as I;
+    let mut inputs = [0.0f32; brain::BRAIN_INPUTS];
+    inputs[I::Bias as usize] = 1.0;
+
+    let so = def.sensor_offset;
+    let at = |dir: u8| {
+        let (dx, dy) = DIRS[dir as usize % 8];
+        (x + dx * so, y + dy * so)
+    };
+    let (fx, fy) = at(heading);
+    let (lx, ly) = at((heading + AHEAD_LEFT) % 8);
+    let (rx, ry) = at((heading + AHEAD_RIGHT) % 8);
+
+    // Front concentration plus a *lateral difference*, per channel. The
+    // pairing is what makes trail-following reachable by one connection
+    // from a lateral input to the turn output: concentration says "there is
+    // something", the difference says "that way".
+    for (channel, front_slot, lateral_slot) in
+        [(Channel::A, I::PheroAFront, I::PheroALateral), (Channel::B, I::PheroBFront, I::PheroBLateral)]
+    {
+        let f = world.pheromone_at(channel, fx, fy) as f32 / 255.0;
+        let l = world.pheromone_at(channel, lx, ly) as f32 / 255.0;
+        let r = world.pheromone_at(channel, rx, ry) as f32 / 255.0;
+        inputs[front_slot as usize] = f;
+        inputs[lateral_slot as usize] = r - l;
+    }
+
+    let moisture_at = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture / WORM_MOISTURE_SATURATION;
+    inputs[I::MoistureFront as usize] = moisture_at(fx, fy);
+    inputs[I::MoistureLateral as usize] = moisture_at(rx, ry) - moisture_at(lx, ly);
+
+    let here = world.field_at_bilinear(x as f32, y as f32);
+    // Divided through by the day/night oscillator, per CLAUDE.md: a
+    // threshold sampled at an arbitrary phase of a designed oscillator is a
+    // different threshold every hour, and the light channel swings 20:1.
+    inputs[I::LightHere as usize] = (field::noon_equivalent_light(here.light, world.frame) / field::MAX_LIGHT).clamp(0.0, 1.0);
+    inputs[I::TempAboveAmb as usize] = ((here.temperature - AMBIENT_TEMPERATURE as f32) / TEMP_INPUT_SCALE).clamp(-1.0, 1.0);
+
+    inputs[I::FoodAdjacent as usize] = if adjacent_food(world, x, y, def).is_some() { 1.0 } else { 0.0 };
+    inputs[I::AtNest as usize] = if adjacent_nest(world, x, y, def) { 1.0 } else { 0.0 };
+
+    if let Some(state) = world.organism(organism) {
+        inputs[I::Energy as usize] = (state.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
+        inputs[I::Carrying as usize] = if state.carrying.is_some() { 1.0 } else { 0.0 };
+    }
+
+    let mut crowd = 0;
+    for dy in -CROWDING_RADIUS..=CROWDING_RADIUS {
+        for dx in -CROWDING_RADIUS..=CROWDING_RADIUS {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            if world.materials.kind(world.get(x + dx, y + dy).material) == MaterialKind::Creature {
+                crowd += 1;
+            }
+        }
+    }
+    inputs[I::Crowding as usize] = (crowd as f32 / CROWDING_SCALE).min(1.0);
+
+    inputs
+}
+
+/// The first food cell in the head's 8-neighbourhood, if any.
+fn adjacent_food(world: &World, x: i32, y: i32, def: &CreatureDef) -> Option<(i32, i32, material::MaterialId)> {
+    NEIGHBOURS_8.iter().find_map(|&(dx, dy)| {
+        let m = world.get(x + dx, y + dy).material;
+        // Resolved by name per tick rather than cached on the species: a
+        // handful of hash lookups per creature per tick (~50 a frame at 100
+        // ants) against the alternative, which is a resolved-id cache that
+        // has to be invalidated on every F5 material reload. Cheap enough
+        // that the simpler mechanism wins.
+        def.food.iter().any(|name| world.materials.id_of(name) == Some(m)).then_some((x + dx, y + dy, m))
+    })
+}
+
+fn adjacent_nest(world: &World, x: i32, y: i32, def: &CreatureDef) -> bool {
+    let Some(nest) = world.materials.id_of(&def.nest) else {
+        return false;
+    };
+    NEIGHBOURS_8.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == nest)
+}
+
+/// Local `|grad moisture|`, normalized. **The whole of termite-style
+/// construction and excavation shaping** (`stigmergy-research.md` §4, the
+/// eLife 2024 result): drop probability is multiplied by this and dig
+/// probability by its inverse, so material accumulates at convex, drying
+/// sites and excavation runs toward concave, wetter ones. Pillars, walls
+/// and chambers are consequences of that bias. There is no "build a wall"
+/// behaviour and wanting to write one is the signal to re-read that
+/// section.
+fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
+    let m = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture;
+    let gx = m(x + 4, y) - m(x - 4, y);
+    let gy = m(x, y + 4) - m(x, y - 4);
+    ((gx * gx + gy * gy).sqrt() / WORM_MOISTURE_SATURATION).clamp(0.0, 1.0)
+}
+
+/// Eat, pick up, drop, dig — each a **probability**, then a world-state
+/// check.
+///
+/// **Probabilities rather than the design report's "output crossing 0.5".**
+/// Two reasons, and the first is a bug the threshold would have shipped:
+/// `squash` maps an authored weight of 0.9 to 0.474, so a plainly-authored
+/// instinct sits *just under* a 0.5 gate and the verb never fires at all —
+/// a knife-edge margin of exactly the kind `CLAUDE.md` says to prefer a
+/// continuous quantity over. The second is that §6 of the same report asks
+/// for drop probability to be *multiplied* by the moisture gradient, which
+/// a boolean gate cannot express. A graded outcome also simply beats a
+/// binary one here (the house ethos): ants that sometimes drop early build
+/// ragged, real-looking walls, where a threshold builds a clean line.
+fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) {
+    use brain::BrainOutput as O;
+    let carrying = world.organism(organism).and_then(|s| s.carrying);
+    let dig_urge = outputs[O::Dig as usize].clamp(0.0, 1.0);
+    let drop_urge = outputs[O::Drop as usize].clamp(0.0, 1.0);
+
+    // --- eat / pick up --------------------------------------------------
+    if carrying.is_none() {
+        if let Some((fxx, fyy, food)) = adjacent_food(world, x, y, def) {
+            if draw.unit_f32() < dig_urge {
+                let hungry = world.organism(organism).is_some_and(|s| s.energy < def.start_energy * def.hunger_fraction);
+                world.set(fxx, fyy, Cell::EMPTY);
+                if hungry {
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.energy += def.eat_energy;
+                    }
+                    world.energy_ledger.eaten += def.eat_energy as f64;
+                    world.creature_stats.eats += 1;
+                } else {
+                    // Full: carry it home instead of eating it. This is the
+                    // whole reason a colony accumulates stores rather than
+                    // every ant simply feeding itself.
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.carrying = Some(food);
+                    }
+                    world.creature_stats.pickups += 1;
+                }
+                return;
+            }
+        }
+    }
+
+    // --- drop -----------------------------------------------------------
+    if let Some(held) = carrying {
+        let at_nest = adjacent_nest(world, x, y, def);
+        // At the nest it is storage and always wanted; out on the route it
+        // is construction, and *there* the moisture bias decides.
+        let p = if at_nest { drop_urge } else { drop_urge * moisture_gradient(world, x, y) };
+        if draw.unit_f32() < p {
+            if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
+                world.set(dx, dy, Cell::new(held, 0));
+                if let Some(state) = world.organism_mut(organism) {
+                    state.carrying = None;
+                }
+                world.creature_stats.drops += 1;
+                if at_nest {
+                    world.creature_stats.deliveries += 1;
+                }
+            }
+        }
+        return;
+    }
+
+    // --- dig --------------------------------------------------------------
+    // Only reached with nothing to eat and nothing carried. Gated on the
+    // material's own `penetration_resistance` against this species'
+    // `dig_force` -- the pattern roots already use, never a name whitelist,
+    // so a future softer stone becomes diggable with no code change.
+    if draw.unit_f32() < dig_urge * (1.0 - moisture_gradient(world, x, y)) {
+        let heading = world.organism(organism).map_or(0, |s| s.heading);
+        let (dx, dy) = DIRS[heading as usize];
+        let (tx, ty) = (x + dx, y + dy);
+        let target = world.get(tx, ty);
+        if target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= def.dig_force {
+            // Spoil is destroyed in v1. Carrying it out is a stage-4+
+            // refinement (worms already eat their tunnels, so there is
+            // precedent) -- noted, not built.
+            world.set(tx, ty, Cell::EMPTY);
+            world.creature_stats.digs += 1;
+        }
+    }
+}
+
+/// Move the whole chain one cell, snake-fashion. Returns whether it moved.
+fn step_chain(
+    world: &mut World,
+    organism: u16,
+    heading: u8,
+    outputs: &[f32; brain::BRAIN_OUTPUTS],
+    def: &CreatureDef,
+    draw: &mut rng::Rng,
+    material_id: material::MaterialId,
+) -> bool {
+    let Some(chain) = world.organism(organism).map(|s| s.chain.clone()) else {
+        return false;
+    };
+    let Some(&(hx, hy)) = chain.first() else {
+        return false;
+    };
+
+    // --- support: a whole-chain rule (P-25) -----------------------------
+    // **Which object does this rule evaluate? The piece.** Asked and
+    // answered in advance, because the per-cell version of exactly this
+    // question took slabs apart one knife-edge footing at a time. A chain
+    // is held up if *any* of its cells touches something solid; evaluating
+    // per cell would drop the front half of an ant walking off a ledge and
+    // leave the back half standing.
+    //
+    // 8-neighbour, so ants climb walls and ceilings. That is correct (real
+    // ones do) and it is what makes a side-view world traversable at all.
+    let supported = chain.iter().any(|&(cx, cy)| {
+        NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+            matches!(world.materials.kind(world.get(cx + dx, cy + dy).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+        })
+    });
+    if !supported {
+        let fallen: Vec<(i32, i32)> = chain.iter().map(|&(cx, cy)| (cx, cy + 1)).collect();
+        if fallen.iter().all(|&(cx, cy)| world.is_empty(cx, cy) || chain.contains(&(cx, cy))) {
+            relocate_chain(world, organism, &chain, &fallen);
+            world.creature_stats.falls += 1;
+            return true;
+        }
+    }
+
+    // --- choose among the three forward candidates ----------------------
+    // Never an argmax (P-10); see `choose_weighted`. The turn output biases
+    // left and right with opposite signs, which is the one connection an
+    // authored lateral-to-turn instinct needs in order to steer.
+    let turn = outputs[brain::BrainOutput::Turn as usize];
+    let dirs = [(heading + AHEAD_LEFT) % 8, heading, (heading + AHEAD_RIGHT) % 8];
+    let base = [turn.max(0.0), 0.15, (-turn).max(0.0)];
+    let mut scores = [0.0f32; 3];
+    let mut passable = [false; 3];
+    for (i, &d) in dirs.iter().enumerate() {
+        let (dx, dy) = DIRS[d as usize];
+        let (tx, ty) = (hx + dx, hy + dy);
+        // Raw emptiness, plus "my own tail", which a chain may legitimately
+        // step into because it vacates on the same tick.
+        passable[i] = world.is_empty(tx, ty) || chain.contains(&(tx, ty));
+        // **Footing, not just emptiness — and this was measured, not
+        // anticipated.** Without it the counters read 16,451 falls against
+        // 22,138 moves: an ant on flat ground steps diagonally up into open
+        // air, finds nothing under it, falls straight back, and does that
+        // forever. Every part of it was behaving correctly and the colony
+        // still spent three quarters of its moves bouncing.
+        //
+        // A walking creature prefers a foothold. Unsupported candidates are
+        // not *forbidden* -- an ant must still be able to walk off a ledge,
+        // and forbidding it would be the "size cap that gates whether
+        // something happens" mistake -- they are just heavily discounted.
+        scores[i] = if passable[i] {
+            // **Added, not multiplied.** Multiplying was tried first and
+            // was far too weak: `choose_weighted`'s exploration floor `k`
+            // dominates every small score, so a discount of 20x on a base
+            // of 0.15 still left a step into thin air at 16% of the
+            // probability, and the colony spent 59% of its moves falling.
+            // A footing *bonus* puts the supported candidate an order of
+            // magnitude clear of the floor, where the discount belongs.
+            base[i] + if head_has_foothold(world, (tx, ty)) { FOOTING_BONUS } else { 0.0 }
+        } else {
+            0.0
+        };
+    }
+    // **No purchase anywhere ahead counts as blocked**, and this is the
+    // fix the two before it were groping at. An ant whose heading is
+    // *upward* has all three candidates in open air; nothing is blocking
+    // it, so it marched into the sky, and its chain only fell a tick later
+    // once the tail had left the ground. Discounting the airborne
+    // candidates could never help, because there was nothing else to pick:
+    // the discount was being applied to every option equally. Falls ran at
+    // 59-80% of all moves through both earlier attempts.
+    //
+    // An ant that can see no footing ahead turns to look somewhere else,
+    // which is what a real one does and what makes it stop walking off
+    // ledges. The cost is that ants cannot cross a gap; ants do not.
+    let footing_ahead = passable.iter().zip(&scores).any(|(&p, &s)| p && s > FOOTING_BONUS * 0.5);
+    if !passable.iter().any(|&p| p) || !footing_ahead {
+        // Turn to a new heading and **deposit nothing this tick** (P-11,
+        // enforced by the caller's `moved` flag). A blocked agent that
+        // reinforces is how a colony paints a trail into a wall.
+        //
+        // **Re-rolled among headings that have somewhere to go**, not
+        // uniformly over all eight. On flat ground three of the eight point
+        // upward into open air, so a uniform re-roll lands back in the
+        // blocked state better than a third of the time -- measured at
+        // 29,344 blocked ticks against 41,843 moves, a colony spending more
+        // of its life turning on the spot than walking. Uniform among the
+        // *viable* directions costs one extra scan of eight cells on a path
+        // that was about to do nothing anyway.
+        let viable: Vec<u8> = (0..8u8)
+            .filter(|&d| {
+                let (dx, dy) = DIRS[d as usize];
+                let (tx, ty) = (hx + dx, hy + dy);
+                (world.is_empty(tx, ty) || chain.contains(&(tx, ty))) && head_has_foothold(world, (tx, ty))
+            })
+            .collect();
+        if let Some(state) = world.organism_mut(organism) {
+            state.heading = if viable.is_empty() { draw.below(8) as u8 } else { viable[draw.below(viable.len() as u32) as usize] };
+        }
+        world.creature_stats.moves_blocked += 1;
+        return false;
+    }
+
+    // Zero out anything without footing now that at least one candidate
+    // has some: the discount was never the mechanism, the choice is.
+    for (i, s) in scores.iter_mut().enumerate() {
+        if !passable[i] || *s <= FOOTING_BONUS * 0.5 {
+            *s = 0.0;
+        }
+    }
+    let pick = choose_weighted(&scores, CHOICE_EXPLORATION_K, draw.unit_f32());
+    let pick = if scores[pick] > 0.0 { pick } else { scores.iter().position(|&s| s > 0.0).expect("footing_ahead guarantees one") };
+    let new_heading = dirs[pick];
+    let (dx, dy) = DIRS[new_heading as usize];
+    let (tx, ty) = (hx + dx, hy + dy);
+
+    let mut next: Vec<(i32, i32)> = Vec::with_capacity(chain.len());
+    next.push((tx, ty));
+    next.extend(chain.iter().take(chain.len() - 1).copied());
+    relocate_chain(world, organism, &chain, &next);
+    if let Some(state) = world.organism_mut(organism) {
+        state.heading = new_heading;
+    }
+    world.creature_stats.moves += 1;
+
+    // Touching the nest resets the scent clock, which is what makes channel
+    // A a gradient rather than a uniform smear.
+    if adjacent_nest(world, tx, ty, def) {
+        if let Some(state) = world.organism_mut(organism) {
+            // Only count it as a visit if the creature had actually been
+            // away: an ant loitering on the nest would otherwise register
+            // one every tick and the counter would say nothing.
+            if state.since_nest > 0 {
+                world.creature_stats.nest_visits += 1;
+            }
+            let state = world.organism_mut(organism).expect("live");
+            state.since_nest = 0;
+        }
+    }
+    let _ = material_id;
+    true
+}
+
+/// Is there anything for the head to hold on to at `(x, y)`?
+///
+/// **This is a different question from "am I held up", and conflating them
+/// cost two wrong fixes.** `CLAUDE.md` asks which object a rule evaluates;
+/// the honest answer here is that there are two rules and two objects:
+///
+/// * *"May I step there?"* is about the **head**, and is this function. A
+///   walking animal puts its feet on the surface.
+/// * *"Am I still standing?"* is about the **whole piece** (P-25), and is
+///   the support test in `step_chain`. A chain is held up if any of its
+///   cells touches something, or a bridge-walking ant comes apart the way
+///   the per-cell bearing rule took slabs apart.
+///
+/// Asking the second question about a prospective step is what produced
+/// the measured mess: the body was still on the ground, so leading the
+/// head up into open air *passed*, and the chain then fell one tick later
+/// once the tail had followed. Falls ran at 59% of all moves, and the
+/// obvious repair — leaning harder on the same predicate — pushed it to
+/// 80% while cutting deliveries from 90 to 4, because the bonus had to be
+/// big enough to swamp the steering before it changed anything.
+///
+/// Two fixes failing the same way meant the predicate was wrong, not the
+/// tuning.
+fn head_has_foothold(world: &World, (x, y): (i32, i32)) -> bool {
+    NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+        let (nx, ny) = (x + dx, y + dy);
+        // **The edge of the world is not scenery.** `World::get` returns a
+        // `BEDROCK` sentinel outside the bounds, deliberately, so material
+        // treats the edge as a wall and does not fall out of it. For a
+        // *climbing* creature that turns the invisible boundary into an
+        // infinitely tall ladder: the creature probe found ants parked at
+        // x = 0 heading permanently north, a slice of the colony walking
+        // up the side of the world forever. Correct for sand, wrong for
+        // anything with legs.
+        world.in_bounds(nx, ny)
+            && matches!(world.materials.kind(world.get(nx, ny).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+    })
+}
+
+/// Rewrite a chain from `from` to `to`, carrying every whole `Cell`.
+///
+/// **Clear-then-write, in two passes.** The two position sets overlap by
+/// construction (a body follows its own head), so writing in place would
+/// need an order argument that is different for every chain length and
+/// silently wrong when a creature steps into its own tail. Clearing first
+/// costs a few extra `World::set` calls at chain lengths of two or three
+/// and removes the whole class of question.
+///
+/// P-1: the `Cell` values are moved, not rebuilt, so temperature,
+/// `FLAG_BURNING` and the burn timer ride along for every cell. A chain is
+/// where that matters most — a rebuild forgets once per cell per step.
+fn relocate_chain(world: &mut World, organism: u16, from: &[(i32, i32)], to: &[(i32, i32)]) {
+    let cells: Vec<Cell> = from.iter().map(|&(cx, cy)| world.get(cx, cy)).collect();
+    for &(cx, cy) in from {
+        world.set(cx, cy, Cell::EMPTY);
+    }
+    for (&(cx, cy), &cell) in to.iter().zip(&cells) {
+        world.set(cx, cy, cell);
+    }
+    if let Some(state) = world.organism_mut(organism) {
+        state.chain = to.to_vec();
+    }
+}
+
+/// Charge energy, reschedule or die. The chain-creature counterpart of
+/// `apply_energy_delta`.
+fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: u16, delta: f32, def: &CreatureDef) -> Vec<ActiveSite> {
+    let Some(state) = world.organism_mut(organism) else {
+        return Vec::new();
+    };
+    state.energy += delta;
+    let energy = state.energy;
+    if energy <= 0.0 {
+        creature_dies(world, organism);
+        return Vec::new();
+    }
+    vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + def.tick_interval }]
+}
+
+/// Every cell of the chain becomes `corpse`, and the slot comes back.
+///
+/// **A dead ant is matter** — food for the next one, fuel for a fire — and
+/// that costs no code at all because the material system already does it.
+/// It is also what closes the colony's loop: the energy a forager spent
+/// getting somewhere it could not return from is not deleted, it is left
+/// lying there as something edible.
+fn creature_dies(world: &mut World, organism: u16) {
+    let chain = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
+    let held = world.organism(organism).and_then(|s| s.carrying);
+    let leftover = world.organism(organism).map_or(0.0, |s| s.energy.max(0.0));
+    world.energy_ledger.died_holding += leftover as f64;
+    if let Some(corpse_id) = world.materials.id_of("corpse") {
+        let shades = world.materials.get(corpse_id).palette.len().max(1) as u32;
+        for (i, &(cx, cy)) in chain.iter().enumerate() {
+            let shade = rng::stream(world.seed, organism as u64, i as u64, RNG_SLOT_DEATH).below(shades) as u8;
+            let temp = world.get(cx, cy).temperature();
+            world.set(cx, cy, Cell::new(corpse_id, shade).with_temperature(temp));
+        }
+    }
+    // Whatever it was carrying falls where it fell. Losing it would be a
+    // silent material sink, and the census is about to care.
+    if let (Some(held), Some(&(cx, cy))) = (held, chain.last()) {
+        if world.is_empty(cx, cy) {
+            world.set(cx, cy, Cell::new(held, 0));
+        }
+    }
+    world.creature_stats.deaths += 1;
+    world.free_organism(organism);
 }
 
 #[cfg(test)]

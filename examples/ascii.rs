@@ -257,6 +257,12 @@ fn main() {
     // and measured before anything reads it.
     pheromone_decay_scene();
     trail_follow_scene();
+
+    // Stage 3: the colony.
+    forage_loop_scene();
+    double_bridge_scene();
+    nest_dig_scene();
+    construction_scene();
 }
 
 /// A painted blob must **spread, fade and disappear**, and the plane must
@@ -313,7 +319,14 @@ fn pheromone_decay_scene() {
     print_plane(&world, "at deposit");
     let mut worst_active = std::time::Duration::ZERO;
     let mut previous_max = world.pheromones.plane(Channel::A).max();
-    for frame in 0..600 {
+    // Long enough for the deposit to actually drain: `build_decay_lut`
+    // forces at least -1 per *pass*, and a pass is one frame in
+    // PHEROMONE_INTERVAL, so 200 of deposit needs 200 passes = 2,400
+    // frames. Set from that arithmetic with headroom rather than from a
+    // remembered figure -- the frame count and the pass interval are tied
+    // together, and the first version of this scene broke the moment the
+    // interval moved.
+    for frame in 0..4000 {
         let started = std::time::Instant::now();
         world.step_pheromones();
         worst_active = worst_active.max(started.elapsed());
@@ -321,11 +334,11 @@ fn pheromone_decay_scene() {
         let now = world.pheromones.plane(Channel::A).max();
         assert!(now <= previous_max, "frame {frame}: plane max rose from {previous_max} to {now} with nothing depositing");
         previous_max = now;
-        if frame == 40 {
-            print_plane(&world, "after 40 frames");
+        if frame == 400 {
+            print_plane(&world, "after 400 frames");
         }
     }
-    print_plane(&world, "after 600 frames");
+    print_plane(&world, "after 4000 frames");
     assert_eq!(
         world.pheromones.plane(Channel::A).max(),
         0,
@@ -1006,4 +1019,438 @@ fn plant_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&m
             .collect();
         println!("|{row}|");
     }
+}
+
+
+/// **The scene that proves the loop, not its parts.** Ants leave a nest,
+/// find a food pile, carry from it, come home, and a channel-B trail forms
+/// between the two.
+///
+/// Counters print beside the picture because the picture cannot answer the
+/// only question that matters here: a colony milling plausibly and a colony
+/// genuinely foraging look identical at this zoom. `deliveries` is the
+/// number that separates them.
+fn forage_loop_scene() {
+    println!("\n=== ants: the foraging loop (nest, food pile, 60 ants) ===");
+    let (w, h) = (320i32, 120i32);
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    let floor = h - 8;
+    let nest = world.materials.id_of("nest").expect("nest is compiled in");
+    let corpse = world.materials.id_of("corpse").expect("corpse is compiled in");
+    let ant = world.materials.id_of("ant").expect("ant is compiled in");
+
+    for x in 0..w {
+        for y in floor..h {
+            world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+    }
+    // The nest on the left, the food well away on the right: the distance
+    // is what makes a trail worth having. Under 50 ants a colony scene
+    // looks broken with correct code (P-15, Grasse's threshold), so this
+    // runs 60.
+    // **The nest is a patch of the floor, not a block on it.** Built as a
+    // wall, ants arriving home were simply blocked by it: the forward
+    // candidates from ground level are all inside the wall, so they
+    // randomised their heading against its face instead of getting home,
+    // and `deliveries` stayed at 0 while `pickups` climbed. Flush with the
+    // surface, an ant walks over it and `AtNest` fires from the cell
+    // underfoot.
+    // A wide home patch, not a doorway: nest scent is refreshed wherever
+    // ants touch it, so the colony's *home range* is what the gradient is
+    // anchored to.
+    for x in 16..120 {
+        world.set(x, floor, Cell::new(nest, 0).with_attached(true));
+    }
+    // **Within the nest scent's reach, and that is a real limit worth
+    // stating rather than tuning around.** The homing gradient only
+    // extends as far as an ant with nest memory left can carry it, and it
+    // is a u8 plane, so past a certain distance channel A is not merely
+    // weak but *quantised to zero* -- measured at 261 across the far third
+    // against 4,364 at the nest, which is a 17:1 gradient made of values
+    // too small for a sensor to tell apart. Carriers arrived, picked up,
+    // and milled: 28 pickups, 0 deliveries. A colony's foraging radius is
+    // a real quantity in this design and this scene stays inside it.
+    for x in 135..170 {
+        for y in (floor - 5)..floor {
+            world.set(x, y, Cell::new(corpse, 0));
+        }
+    }
+    // **One row, not a stack.** Spawned three deep, the counters read 2501
+    // falls against 3634 moves: an ant standing on another ant is not
+    // standing on anything (Creature is not Solid/Powder/Plant), so the
+    // pile spent the run collapsing into itself instead of foraging. That
+    // is correct behaviour badly staged -- CLAUDE.md's "a scene that
+    // contradicts the code will look like a bug in the code".
+    // Starting on and beside the nest, clear of the food pile: three of
+    // them used to spawn inside it, silently fail their availability check
+    // and never exist, which the live-organism count gave away as 57.
+    for i in 0..55 {
+        world.plant_ant(20 + i * 2, floor - 1);
+    }
+
+    let print_state = |world: &World, label: &str| {
+        let st = world.creature_stats;
+        println!(
+            "{label}: {} live organisms | moves {} blocked {} falls {} | eats {} pickups {} digs {} drops {} deliveries {} nest-visits {} deaths {}",
+            world.live_organism_count(),
+            st.moves,
+            st.moves_blocked,
+            st.falls,
+            st.eats,
+            st.pickups,
+            st.digs,
+            st.drops,
+            st.deliveries,
+            st.nest_visits,
+            st.deaths
+        );
+        let food_left = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == corpse).count();
+        let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
+        let phero_a: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::A, x, y) as u64).sum();
+        // **In thirds, not as one total.** A homing gradient that points
+        // home and one that is merely present look the same in a single
+        // sum; what has to be true is that channel A is strongest at the
+        // nest end, which is the only reason a laden ant walking
+        // up-gradient ends up somewhere useful.
+        let band = |ch: Channel, lo: i32, hi: i32| -> u64 {
+            (lo..hi).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(ch, x, y) as u64).sum()
+        };
+        // Where the carriers are, which the verb counters alone cannot say:
+        // a colony with pickups and no deliveries is either failing to pick
+        // things up or failing to get home, and those want opposite fixes.
+        let mut carriers = Vec::new();
+        for x in 0..w {
+            for y in 0..h {
+                let c = world.get(x, y);
+                if c.material == ant {
+                    if let Some(st) = world.organism(c.organism_id()) {
+                        if st.carrying.is_some() && st.chain.first() == Some(&(x, y)) {
+                            carriers.push(x);
+                        }
+                    }
+                }
+            }
+        }
+        let mean_x = if carriers.is_empty() { -1.0 } else { carriers.iter().sum::<i32>() as f32 / carriers.len() as f32 };
+        println!("  carrying right now: {} ants, mean x {mean_x:.0}", carriers.len());
+        println!(
+            "  food cells {food_left} | channel A {phero_a} (nest third {} / mid {} / food third {}) | channel B {phero_b} (nest {} / mid {} / food {})",
+            band(Channel::A, 0, w / 3),
+            band(Channel::A, w / 3, 2 * w / 3),
+            band(Channel::A, 2 * w / 3, w),
+            band(Channel::B, 0, w / 3),
+            band(Channel::B, w / 3, 2 * w / 3),
+            band(Channel::B, 2 * w / 3, w),
+        );
+        for y in (floor - 26)..h {
+            let row: String = (0..w)
+                .step_by(2)
+                .map(|x| {
+                    let pick = |x: i32| {
+                        let c = world.get(x, y);
+                        if c.material == ant {
+                            Some('a')
+                        } else if c.material == nest {
+                            Some('N')
+                        } else if c.material == corpse {
+                            Some('f')
+                        } else if c.material != material::EMPTY {
+                            Some(glyph(c.material))
+                        } else if world.pheromone_at(Channel::B, x, y) > 12 {
+                            Some('-')
+                        } else if world.pheromone_at(Channel::A, x, y) > 12 {
+                            Some('.')
+                        } else {
+                            None
+                        }
+                    };
+                    pick(x).or_else(|| pick(x + 1)).unwrap_or(' ')
+                })
+                .collect();
+            println!("|{row}|");
+        }
+    };
+
+    print_state(&world, "at spawn");
+    let run = |world: &mut World, frames: usize| {
+        for _ in 0..frames {
+            parallel::step(world);
+            world.step_active_sites();
+            world.step_fields();
+            world.step_pheromones();
+        }
+    };
+    run(&mut world, 2000);
+    print_state(&world, "after 2000 frames");
+    run(&mut world, 10000);
+    print_state(&world, "after 12000 frames");
+
+    // **What holds, and what does not.** The outbound half of the loop is
+    // real and asserted; the return half is not, and is printed with the
+    // measurement rather than asserted into existence. See
+    // `Reports/creature-direction.md` §13 for the diagnosis -- on flat
+    // ground the ahead-left and ahead-right sensors both sit in open air, so
+    // the lateral input is identically zero and a laden ant has no way to
+    // express "turn around".
+    let st = world.creature_stats;
+    assert!(st.moves > 0, "no ant ever moved");
+    assert!(st.pickups > 0, "no ant ever picked food up -- the outbound half of the loop is broken");
+    assert!(st.nest_visits > 0, "no ant ever reached the nest");
+    let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
+    assert!(phero_b > 0, "carriers laid no food trail at all");
+    println!(
+        "  KNOWN GAP: deliveries {} (report §9a asks for > 0). Carriers pick up and lay trail; they cannot steer home on flat ground. Diagnosis in Reports/creature-direction.md §13.",
+        st.deliveries
+    );
+
+    // The census. Any imbalance is a bug now and an evolutionary attractor
+    // once stage 4 turns mutation on.
+    let live = world.live_creature_energy();
+    let expected = world.energy_ledger.expected_live_total();
+    println!(
+        "energy census: live {live:.2} vs ledger {expected:.2} (delta {:.4}); granted {:.0} eaten {:.0} metabolized {:.0} moved {:.0} synapses {:.2} died-holding {:.0}",
+        live - expected,
+        world.energy_ledger.granted,
+        world.energy_ledger.eaten,
+        world.energy_ledger.metabolized,
+        world.energy_ledger.moved,
+        world.energy_ledger.synapse_tax,
+        world.energy_ledger.died_holding
+    );
+}
+
+/// Shared runner for the colony scenes: the full frame order the live app
+/// uses, so nothing here is testing a phase the player never sees.
+fn run_colony(world: &mut World, frames: usize) {
+    for _ in 0..frames {
+        parallel::step(world);
+        world.step_active_sites();
+        world.step_fields();
+        world.step_pheromones();
+    }
+}
+
+/// Mean channel-B value over a rectangle, as a float — a *sum* would be
+/// dominated by whichever region has more cells in it, and the two routes
+/// here deliberately do not.
+fn mean_b(world: &World, x0: i32, x1: i32, y0: i32, y1: i32) -> f32 {
+    let mut total = 0u64;
+    let mut n = 0u64;
+    for x in x0..x1 {
+        for y in y0..y1 {
+            total += world.pheromone_at(Channel::B, x, y) as u64;
+            n += 1;
+        }
+    }
+    if n == 0 {
+        0.0
+    } else {
+        total as f32 / n as f32
+    }
+}
+
+/// **The double bridge, made of terrain.** Two routes from nest to food,
+/// one short and one long, separated by a wall with a tunnel through it at
+/// ground level and a climb over the top.
+///
+/// P-16: in side view the two routes have to come from *geometry*. Two
+/// distances on flat ground is not a bridge experiment here — there is
+/// nothing forcing an ant onto one branch or the other, so it tests
+/// nothing. The published figures are top-down arenas and a side-view strip
+/// has fewer competing paths, so expect this to look less dramatic than the
+/// literature; that is the orientation, not a bug.
+fn double_bridge_scene() {
+    println!("\n=== ants: a double bridge made of terrain (short tunnel vs the long way over) ===");
+    let (w, h) = (240i32, 120i32);
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    let floor = h - 8;
+    let nest = world.materials.id_of("nest").expect("nest");
+    let corpse = world.materials.id_of("corpse").expect("corpse");
+
+    for x in 0..w {
+        for y in floor..h {
+            world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+    }
+    for x in 16..48 {
+        world.set(x, floor, Cell::new(nest, 0).with_attached(true));
+    }
+    // The wall, with a two-cell tunnel at ground level. Over the top is a
+    // climb of 40 cells each way; through the tunnel is six.
+    const WALL_X0: i32 = 120;
+    const WALL_X1: i32 = 126;
+    const WALL_TOP: i32 = 70;
+    const TUNNEL_TOP: i32 = 110;
+    for x in WALL_X0..WALL_X1 {
+        for y in WALL_TOP..floor {
+            if y < TUNNEL_TOP {
+                world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+    }
+    for x in 170..210 {
+        for y in (floor - 5)..floor {
+            world.set(x, y, Cell::new(corpse, 0));
+        }
+    }
+    for i in 0..60 {
+        world.plant_ant(20 + i * 2, floor - 1);
+    }
+
+    // **Integrated over the run, not read off the end.** A trail is a
+    // standing quantity that evaporates, so a single reading at frame
+    // 16,000 reports only whoever walked past in the last few seconds --
+    // it says nothing about which route the colony *used*. Sampling
+    // periodically and summing measures traffic, which is the question.
+    let (mut short, mut long) = (0.0f32, 0.0f32);
+    for _ in 0..32 {
+        run_colony(&mut world, 500);
+        short += mean_b(&world, WALL_X0, WALL_X1, TUNNEL_TOP, floor);
+        long += mean_b(&world, WALL_X0, WALL_X1, WALL_TOP - 3, WALL_TOP);
+    }
+    let st = world.creature_stats;
+    println!(
+        "  moves {} blocked {} | pickups {} drops {} deliveries {} nest-visits {} deaths {}",
+        st.moves, st.moves_blocked, st.pickups, st.drops, st.deliveries, st.nest_visits, st.deaths
+    );
+    println!("  summed channel B over 32 samples -- short route (tunnel) {short:.2} vs long route (over the top) {long:.2}");
+    // **Recorded, not asserted, and the earlier version of this assertion
+    // was measuring the wrong thing.** An intermediate build did report
+    // 21.00 on the short route against 6.22 on the long one and passed --
+    // but trail *following* was not what produced it. On flat ground the
+    // ahead-left and ahead-right sensors both sit in open air, so the
+    // lateral input is identically zero (measured directly with
+    // `examples/creature_probe.rs`: an ant standing on a cell holding A=27
+    // reads `pheroA_lr = 0.000`). What that run measured was ants using the
+    // only route a ground-dwelling creature can use, and depositing on it:
+    // geometry, not stigmergy. A guard that cannot fail for the right
+    // reason is worse than none (`CLAUDE.md`), so this prints and the
+    // weaker claims that *do* hold are what get asserted.
+    println!("  NOTE: route selection is not yet demonstrated -- see Reports/creature-direction.md §13.");
+    assert!(st.moves > 0 && st.pickups > 0, "ants should at least have crossed and foraged");
+    assert!(st.nest_visits > 0, "ants should have reached the nest side");
+}
+
+/// 50+ ants and a block of diggable soil. Excavation is a *consequence* of
+/// dig_force against the material's own `penetration_resistance` — soil is
+/// 0.8 and an ant pushes 1.0, so it chews soil and is stopped by everything
+/// harder without a single material name appearing in the code.
+fn nest_dig_scene() {
+    println!("\n=== ants: excavating a chamber out of soil (and stopped by stone) ===");
+    let (w, h) = (200i32, 120i32);
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    let floor = h - 8;
+    let soil = world.materials.id_of("soil").expect("soil");
+    let nest = world.materials.id_of("nest").expect("nest");
+
+    for x in 0..w {
+        for y in floor..h {
+            world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+    }
+    // A soil bank with a stone floor under it: the ants should hollow the
+    // soil and leave the stone alone.
+    for x in 40..160 {
+        for y in (floor - 30)..floor {
+            world.set(x, y, Cell::new(soil, 0).with_attached(true));
+        }
+    }
+    for x in 16..40 {
+        world.set(x, floor, Cell::new(nest, 0).with_attached(true));
+    }
+    let soil_before = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == soil).count();
+    for i in 0..55 {
+        world.plant_ant(20 + i % 10 * 2, floor - 1 - (i / 10));
+    }
+
+    run_colony(&mut world, 8000);
+
+    let soil_after = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == soil).count();
+    let stone_floor: usize = (0..w).map(|x| usize::from(world.get(x, h - 1).material == material::STONE)).sum();
+    let st = world.creature_stats;
+    println!("  digs {} | moves {} blocked {} deaths {}", st.digs, st.moves, st.moves_blocked, st.deaths);
+    println!("  soil {soil_before} -> {soil_after} ({} excavated), stone floor intact {stone_floor}/{w}", soil_before - soil_after.min(soil_before));
+    assert!(st.digs > 0, "no ant ever dug -- the verb never fired, whatever the picture shows");
+    assert!(soil_after < soil_before, "soil should have been excavated: {soil_before} -> {soil_after}");
+    assert_eq!(stone_floor as i32, w, "ants must not have dug through stone -- dig_force 1.0 is below stone's penetration_resistance");
+}
+
+/// Carriers over a moisture gradient. **Deposition bias, not a build
+/// script** (`stigmergy-research.md` §4, the eLife 2024 result): drop
+/// probability is multiplied by local `|grad moisture|`, so material
+/// accumulates where the gradient is steep. Pillars and walls are
+/// consequences of that, and writing a "build a wall" behaviour would be
+/// the signal to go and re-read that section.
+fn construction_scene() {
+    println!("\n=== ants: deposition follows the moisture gradient, with no build rule anywhere ===");
+    let (w, h) = (240i32, 120i32);
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    let floor = h - 8;
+    let corpse = world.materials.id_of("corpse").expect("corpse");
+
+    for x in 0..w {
+        for y in floor..h {
+            world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+    }
+    // Water sunk in a walled well on the left half only, so the left half
+    // carries a real moisture gradient and the right half is flat and dry.
+    // No nest at all: this scene is about the *route*, and an ant that can
+    // deliver has no reason to build.
+    for y in (floor - 6)..floor {
+        world.set(60, y, Cell::new(material::STONE, 0).with_attached(true));
+        world.set(68, y, Cell::new(material::STONE, 0).with_attached(true));
+    }
+    for x in 61..68 {
+        for y in (floor - 5)..floor {
+            world.set(x, y, Cell::new(material::WATER, 0));
+        }
+    }
+    // Food spread thinly across the whole floor, so ants pick up wherever
+    // they are and then carry across both halves.
+    for x in (20..220).step_by(4) {
+        world.set(x, floor - 1, Cell::new(corpse, 0));
+    }
+    for i in 0..55 {
+        world.plant_ant(22 + i * 3, floor - 2);
+    }
+
+    run_colony(&mut world, 10000);
+
+    // Which half is which is measured, not assumed: the well is on the
+    // left, so the left half should be the steep one -- but a scene that
+    // contradicts the code looks like a bug in the code, so check.
+    let mean_grad = |x0: i32, x1: i32| -> f32 {
+        let mut total = 0.0;
+        let mut n = 0.0;
+        for x in x0..x1 {
+            for y in (floor - 10)..floor {
+                let gx = world.field_at_bilinear((x + 4) as f32, y as f32).moisture - world.field_at_bilinear((x - 4) as f32, y as f32).moisture;
+                let gy = world.field_at_bilinear(x as f32, (y + 4) as f32).moisture - world.field_at_bilinear(x as f32, (y - 4) as f32).moisture;
+                total += (gx * gx + gy * gy).sqrt();
+                n += 1.0;
+            }
+        }
+        total / n
+    };
+    let (wet_grad, dry_grad) = (mean_grad(20, w / 2), mean_grad(w / 2, 220));
+    // Drops land as material, so count what is standing where nothing was
+    // placed: any corpse cell not on the original 4-cell lattice row.
+    let dropped = |x0: i32, x1: i32| -> usize {
+        (x0..x1)
+            .flat_map(|x| ((floor - 12)..floor).map(move |y| (x, y)))
+            .filter(|&(x, y)| world.get(x, y).material == corpse && !(y == floor - 1 && x % 4 == 0))
+            .count()
+    };
+    let (wet_drops, dry_drops) = (dropped(20, w / 2), dropped(w / 2, 220));
+    let st = world.creature_stats;
+    println!("  pickups {} drops {} digs {} deaths {}", st.pickups, st.drops, st.digs, st.deaths);
+    println!("  mean |grad moisture|: steep half {wet_grad:.3}, flat half {dry_grad:.3}");
+    println!("  material left standing: steep half {wet_drops}, flat half {dry_drops}");
+    assert!(wet_grad > dry_grad, "the scene must actually contain the gradient it is testing: {wet_grad:.3} vs {dry_grad:.3}");
+    assert!(st.drops > 0, "no ant ever dropped anything -- the verb never fired");
+    assert!(
+        wet_drops > dry_drops,
+        "deposition should cluster where the moisture gradient is steep: {wet_drops} vs {dry_drops}"
+    );
 }
