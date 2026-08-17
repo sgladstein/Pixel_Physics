@@ -256,7 +256,17 @@ is settled.
 
 ## Awaiting a decision
 
-### The plant model bounds height and does not bound width
+### ~~The plant model bounds height and does not bound width~~ **FIXED**
+
+**Resolved by path-length turgor** (`OrganismCell::path_len`): the gate now
+reads hydraulic distance from the collar, stamped at creation, instead of
+`collar - y`. `a_tree_eventually_stops_growing` passes in 61s where it
+previously ran its whole 120,000-frame budget and failed. `plant-branch-angle`
+is merged. Kept below because the measurements are the reproduction, and
+because the *reason* it went unnoticed for so long is reusable.
+
+---
+
 
 Found by measurement while building branch angle and the internode
 straightness budget, which sit **unmerged** on branch `plant-branch-angle`
