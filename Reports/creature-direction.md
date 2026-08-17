@@ -1108,3 +1108,30 @@ load-bearing with a real economy (removing it costs 69% of deliveries).
 The lesson to keep: **an ablation in a broken economy measures nothing.**
 Every conclusion drawn from the corpse-pile world was wrong or
 unfalsifiable.
+
+### 13g. Scenes must run in the environment the mechanism was verified in
+
+`forage_loop`'s `deliveries > 0` is an assertion again (measured 414 per
+run). Getting there needed the scene moved onto **generated terrain**, and
+two cheaper stand-ins failed first -- both of which looked obviously fine:
+
+* **A flat floor is degenerate.** An ant on level ground has its
+  up-diagonals in open air and its down-diagonal inside the floor, so it
+  usually has exactly one legal step and is not deciding anything. 248
+  distinct cells visited against 1,670 on generated terrain; 0.54 of ants
+  ever leaving their start against 0.97.
+* **A hand-built ridge profile** produced one-column cliffs; ants walked
+  off them constantly (6,985 falls, 1 pickup). Smoothing every slope to
+  under a cell per column still left 6,269, because ants also climb trees
+  and drop out of a sparse canopy.
+
+This is the third time a hand-built stand-in has produced a wrong answer
+that a generated-terrain arm then corrected (the others: `Persist`
+appearing to have leverage, and the whole flat-world ablation). **Prefer
+the real generator over a controlled approximation of it**, even when the
+approximation is easier to reason about -- the approximations here have not
+been representative once.
+
+Also: the scene's print window was cropping the canopy, i.e. cropping the
+food out of a foraging scene. A scene that cannot be judged by eye is not
+doing its job.
