@@ -295,6 +295,75 @@ file's own rule says means it is reading the wrong quantity. Do not tune
 
 ---
 
+## 1a-ii. Can a cave be dug and hold? Yes — with a measured envelope
+
+The owner's scoping, after the wedging above: *"you don't have to get him
+in the cave, just want to make sure a cave can be dug and not collapse."*
+
+**It can.** `scene=worldcrack dig=4 tunnel=N` drives a bore into generated
+terrain with the same `rigid::mine` the sandbox cut and the gnome use.
+Swept over six presets x three seeds, reading *rock destroyed* (the census
+split — see §4 — because a failure count cannot tell a collapse from
+settling):
+
+| tunnel | length | rock destroyed: median | p90 | max |
+|---|---|---|---|---|
+| `tunnel=8` | ~72 cells | **4** | 37 | 40 |
+| `tunnel=16` | ~144 cells | 13 | 966 | 1,219 |
+
+So a ~70-cell cave at a 9-cell bore holds on **every preset and seed
+tested**, and stays open: `target/filmstrips/cave8.png` is four frames to
+1,800 and the bore is still there, not filled, not sagged. A ~145-cell
+cave holds on most seeds and collapses on `flat` and `arid`.
+
+A long gallery needing support is the *intended* behaviour (§1d
+requirement 1, "small tunnels self-sustaining; big ones need built
+support, like a mine"), so the collapse at 145 cells is not in itself a
+bug. **What is wrong is which ones collapse.**
+
+### The envelope is non-monotonic in bore size
+
+At **fixed depth** (`depth=18`, new arg) and fixed ~145-cell length on
+`flat`, rock destroyed by bore size:
+
+| bore | seed 1 | seed 7 |
+|---|---|---|
+| 5 cells | 24 | 24 |
+| 9 cells | **744** | **269** |
+| 13 cells | 14 | 14 |
+
+Small holds, medium collapses, large holds. By this file's own rule a knob
+that moves a number in both directions means the criterion is **reading
+the wrong quantity** — the same signal as §2a's `wall=3`, and worth
+suspecting the same cause. Note the roof thickness varies only mildly
+across those three (16, 14, 12 cells), so it is not simply cover.
+
+**Measure this with `depth=` from now on.** Without it the scene couples
+bore size to depth (`depth = surface + dig * 3`), and the first run of this
+comparison duly showed a 13-cell gallery holding where a 5-cell ant tunnel
+collapsed — the exact inverse of the owner's expectation — because the big
+bore was also being driven three times deeper. A knob that drags something
+else along with it is not a knob.
+
+### Confinement helps here, modestly
+
+`tunnel=16 dig=4` on `flat`, rock destroyed, `confine=0` -> `confine=1`:
+1,262 -> 1,152 (seed 1) and 1,028 -> 944 (seed 7). Real but small; the
+cave-in case is exactly where displacement *should* still happen, so this
+is the expected size of effect rather than a disappointment.
+
+### Still not in the model at all: height
+
+§1d requirement 2 — *"a super short tunnel should be able to have a longer
+span. ant tunnel vs digging a mine"* — has no representation in the
+criterion, which judges a roof purely as a span. Terzaghi's rock load
+(load scaling with *width + height* rather than full overburden) is the way
+in and drops into the existing capacity arithmetic. The non-monotonicity
+above should be understood first, since it suggests the span term itself is
+not measuring what it thinks.
+
+---
+
 ## 1c. OPEN: a big strike unzips the surface sideways
 
 The dig cascade and the small-strike cascade are fixed (see `df78bc7`,

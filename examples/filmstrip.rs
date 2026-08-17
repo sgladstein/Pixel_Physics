@@ -471,7 +471,7 @@ fn build(args: &Args) -> World {
             // the next, so this is the harsher reading of the same verb.
             if args.tunnel > 0 {
                 let step = args.dig * 2 + 1;
-                let depth = surface + args.dig * 3;
+                let depth = surface + args.depth.unwrap_or(args.dig * 3);
                 for i in 0..args.tunnel {
                     pixel_physics::sim::rigid::mine(&mut w, x + i * step, depth, args.dig, args.dig_yield);
                 }
@@ -933,6 +933,19 @@ struct Args {
     /// "nothing anywhere is over 1.0" on a scene that visibly stands is
     /// exactly that check.
     loadmap: bool,
+    /// `depth=N` -- how far below the surface a `worldcrack` tunnel is
+    /// driven, in cells. Defaults to `dig * 3`.
+    ///
+    /// It exists because the default **couples two variables**, and that
+    /// invalidated a measurement: comparing bore sizes at equal tunnel
+    /// length showed a 13-cell gallery holding (14 cells of rock lost)
+    /// where a 5-cell ant tunnel collapsed (1,105) -- the exact inverse of
+    /// what the owner expects -- but the big bore was also being driven
+    /// three times deeper, under three times the roof. A knob that moves
+    /// something else along with it is not a knob. Set this to hold depth
+    /// fixed while bore varies, which is what requirement 2 (collapse
+    /// depending on height, not only span) has to be measured against.
+    depth: Option<i32>,
     /// `dump=x,y,w,h` -- print the materials in that rectangle as ASCII,
     /// once per captured tile.
     ///
@@ -1007,6 +1020,7 @@ fn parse() -> Args {
         min_bodies: None,
         max_lost: None,
         dump: None,
+        depth: None,
         confine: true,
         wall: 3,
         dig: 3,
@@ -1069,6 +1083,7 @@ fn parse() -> Args {
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
             "max_lost" => a.max_lost = Some(v.parse().expect("max_lost")),
+            "depth" => a.depth = Some(v.parse().expect("depth")),
             "dump" => {
                 let n: Vec<i32> = v.split(',').map(|p| p.parse().expect("dump=x,y,w,h")).collect();
                 assert_eq!(n.len(), 4, "dump=x,y,w,h");
