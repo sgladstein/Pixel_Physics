@@ -1027,6 +1027,12 @@ impl World {
                     let mut cell = tile.get_local(lx, ly);
                     f(&mut cell);
                     tile.set_local(lx, ly, cell);
+                    // Un-settle the tile as well as the world. The global flag
+                    // above is what gets `field::step` past its early-out;
+                    // this is what puts *this* tile in the awake set once it
+                    // is there, instead of the solve falling back to every
+                    // resident chunk.
+                    tile.set_settled(false);
                 }
             }
         }
@@ -1056,6 +1062,7 @@ impl World {
             // A write from outside the solve, so the solve has to run at
             // least once more even if it had converged -- the same reason
             // `paint_field` clears this.
+            tile.set_settled(false);
             self.fields_settled = false;
         }
     }
@@ -1078,6 +1085,7 @@ impl World {
     pub(crate) fn replace_fields(&mut self, new_fields: HashMap<ChunkCoord, FieldTile>) {
         self.fields = new_fields;
     }
+
 
     // --- crate-internal seams used only by `parallel::step` (M5) -----------
     //
@@ -1127,6 +1135,7 @@ impl World {
             // heat push (`fire::tick_burn`) must be able to wake an
             // already-converged field, or it would sit unprocessed the next
             // time `field::step` sees zero CA activity and skips its pass.
+            tile.set_settled(false);
             self.fields_settled = false;
         }
     }
@@ -1138,6 +1147,7 @@ impl World {
             let mut cell = tile.get_local(lx, ly);
             cell.light += amount;
             tile.set_local(lx, ly, cell);
+            tile.set_settled(false);
             self.fields_settled = false;
         }
     }

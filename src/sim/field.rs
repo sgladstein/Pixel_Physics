@@ -34,7 +34,7 @@
 //! coupling to the CA grid is deliberate; it isolates bugs in the field solver
 //! from bugs in the coupling.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::cell::AMBIENT_TEMPERATURE;
 use super::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
@@ -315,6 +315,22 @@ pub struct FieldTile {
     /// this is the hybrid persistence `Reports/worldgen-design.md` §8 asks
     /// for, not a second moisture channel.
     moisture_floor: Box<[f32]>,
+    /// Whether this tile converged on the last solve — see [`Self::settled`].
+    settled: bool,
+    /// Whether the sky walk reached this tile with any light left.
+    sky_lit: bool,
+    /// The sky amplitude in force the last time this tile was *solved*.
+    ///
+    /// Compared against the current amplitude to decide whether a lit tile
+    /// may keep sleeping. Comparing consecutive *frames* instead — which is
+    /// what the global `amplitude_changed` does — cannot work here:
+    /// `SETTLE_EPSILON_LIGHT` is 0.005 and the sun moves at most ~0.0033 per
+    /// frame, so that test is essentially never true and the day/night cycle
+    /// actually advances by sub-epsilon drift the whole-world solve happened
+    /// to re-notice every frame. Measuring drift since the tile last solved
+    /// accumulates instead of vanishing, so the surface wakes every few
+    /// frames rather than every frame or never.
+    sky_amplitude: f32,
 }
 
 impl FieldTile {
@@ -330,7 +346,45 @@ impl FieldTile {
             transmission: vec![u8::MAX; FIELD_TILE_AREA].into_boxed_slice(),
             moisture_source: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
             moisture_floor: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
+            // A tile nobody has solved yet has not converged, by definition.
+            settled: false,
+            sky_lit: false,
+            sky_amplitude: f32::NAN,
         }
+    }
+
+    /// Whether this tile reached its own fixed point on the last solve.
+    ///
+    /// The per-tile half of what used to be `World::fields_settled` alone.
+    /// That single bool made `field::step` all-or-nothing: one active chunk
+    /// anywhere ran all seven passes over *every* resident chunk, which is
+    /// O(world) work for O(1) of activity — measured at 53 ms for one
+    /// four-cell impulse on a 2048x1280 world, against 2.5 ms for the same
+    /// impulse at 512x320. The global flag stays as a cheap fast path; this
+    /// is what lets the slow path solve only what is actually moving.
+    #[inline]
+    pub fn settled(&self) -> bool {
+        self.settled
+    }
+
+    #[inline]
+    pub(crate) fn set_settled(&mut self, settled: bool) {
+        self.settled = settled;
+    }
+
+    /// Whether a lit tile has drifted far enough from the sky it last solved
+    /// against to need solving again. `NaN` (never solved) always wakes.
+    #[inline]
+    fn sky_drifted(&self, amplitude: f32) -> bool {
+        if !self.sky_lit {
+            return false;
+        }
+        // `is_nan` explicitly rather than a negated comparison: a tile that has
+        // never solved carries `NaN`, and every ordinary comparison against it
+        // is false, so it must be spelled out or a fresh tile would read as
+        // "already in step with the sky".
+        let drift = (amplitude - self.sky_amplitude).abs();
+        drift.is_nan() || drift > SETTLE_EPSILON_LIGHT
     }
 
     #[inline]
@@ -604,32 +658,150 @@ pub fn step(world: &mut World) {
 
     let coords: Vec<ChunkCoord> = world.chunks().map(|c| c.coord).collect();
     let bounds = world.bounds();
+    let amplitude = sky_light_amplitude(world.frame);
+
+    // **Which tiles actually need solving.**
+    //
+    // Getting past the early-out above used to mean solving everything, which
+    // is O(world) work for whatever activity happened to be present. Measured
+    // with one radius-4 impulse held in a corner: 2.5 ms at 512x320, 11.5 ms
+    // at 1024x640, **53 ms at 2048x1280** — and identical to the cost of
+    // disturbing the entire world, which is the defect stated as a number.
+    // `examples/ascii.rs`'s `field_scaling_scene` is that measurement.
+    //
+    // A tile needs solving when it has not converged, when the CA chunk under
+    // it is awake (something moved, so `blocked`/`moisture_source` may be
+    // stale), or when it is next to such a tile — because the stencils below
+    // read one field cell past their own tile, so a disturbance advances one
+    // tile per frame and the ring is what lets it.
+    let mut awake: HashSet<ChunkCoord> = HashSet::with_capacity(coords.len());
+    for &coord in &coords {
+        let tile = world.fields_ref().get(&coord);
+        let tile_unsettled = tile.is_none_or(|t| !t.settled());
+        let chunk_awake = world.chunk(coord).is_some_and(|c| !c.is_settled());
+        // Light is an equilibrium, not a value that settles: `apply_sky` only
+        // ever raises it and only `LIGHT_DECAY` inside `step_diffusion` lowers
+        // it, so a lit tile that sleeps keeps its last brightness forever --
+        // measured as midnight reading 3.999994 against a night floor of 0.2.
+        let sky_moved = tile.is_some_and(|t| t.sky_drifted(amplitude));
+        if tile_unsettled || chunk_awake || sky_moved {
+            awake.insert(coord);
+        }
+    }
+    // The halo. One ring is sufficient *because* `step_advection`'s source
+    // displacement is clamped to a single field cell below; without that
+    // clamp a fast cell could back-trace past the ring and sample a tile this
+    // frame never populated, which `sample` answers with `AMBIENT` rather
+    // than with the truth — a silent wrong reading, not a panic.
+    for coord in awake.iter().copied().collect::<Vec<_>>() {
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let n = ChunkCoord::new(coord.x + dx, coord.y + dy);
+                if world.chunk(n).is_some() {
+                    awake.insert(n);
+                }
+            }
+        }
+    }
+    // Sorted so the solve order is deterministic — `HashSet` iteration is not,
+    // and `PLAN.md` requires same-build reproducibility.
+    let mut solve: Vec<ChunkCoord> = awake.iter().copied().collect();
+    solve.sort_unstable_by_key(|c| (c.y, c.x, c.slice));
+
+    // What the velocity and advection snapshots must be able to *read*: the
+    // tiles being solved, plus one ring, since a cell at a tile edge samples
+    // into its neighbour.
+    let mut read: HashSet<ChunkCoord> = awake.clone();
+    for coord in awake.iter().copied().collect::<Vec<_>>() {
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                let n = ChunkCoord::new(coord.x + dx, coord.y + dy);
+                if world.chunk(n).is_some() {
+                    read.insert(n);
+                }
+            }
+        }
+    }
+    let mut read_coords: Vec<ChunkCoord> = read.into_iter().collect();
+    read_coords.sort_unstable_by_key(|c| (c.y, c.x, c.slice));
 
     // Old state stays untouched in `world` until the very end, so every phase
     // below can read it through `sample`/`is_blocked` while writing into
     // `next` — no aliasing, because nothing is shared.
+    //
+    // `next` holds every tile: solved ones fresh, sleeping ones carried
+    // forward. That costs a clone per sleeping tile, and a `FieldTile` owns
+    // five boxed slices, so a 640-chunk world pays a few thousand allocations
+    // a frame for tiles nothing touched.
+    //
+    // **Merging solved tiles into the live map instead was tried and reverted.**
+    // It removed those allocations and made things dramatically *worse* — one
+    // four-cell impulse went back to 47 ms at 2048x1280, from 5.2 — because
+    // merging forces `apply_sky` to run after the merge, on the live map, and
+    // therefore after convergence is judged. Its light write then lands in
+    // `old` but never in `next`, so every tile it touches reads as "changed"
+    // forever, nothing ever converges, and the whole world stays awake. The
+    // pass order is load-bearing: whatever writes a channel has to write it
+    // *before* the comparison that decides whether the tile is done.
+    //
+    // Removing the clone therefore needs `apply_sky` to write into the solved
+    // subset while walking the full column for attenuation — worth doing, but
+    // it is a second mechanism, not a reordering.
     let mut next: HashMap<ChunkCoord, FieldTile> = HashMap::with_capacity(coords.len());
     for &coord in &coords {
-        let mut tile = FieldTile::new();
-        // The one array on a tile that is authored rather than derived, so
-        // the only one a fresh tile cannot reconstruct. See
-        // `FieldTile::moisture_floor`.
-        if let Some(previous) = world.fields_ref().get(&coord) {
-            tile.inherit_moisture_floor(previous);
+        if awake.contains(&coord) {
+            let mut tile = FieldTile::new();
+            // The one array on a tile that is authored rather than derived, so
+            // the only one a fresh tile cannot reconstruct. See
+            // `FieldTile::moisture_floor`.
+            if let Some(previous) = world.fields_ref().get(&coord) {
+                tile.inherit_moisture_floor(previous);
+            }
+            // Solved against the sky as it is now.
+            tile.sky_amplitude = amplitude;
+            next.insert(coord, tile);
+        } else if let Some(previous) = world.fields_ref().get(&coord) {
+            next.insert(coord, previous.clone());
+        } else {
+            next.insert(coord, FieldTile::new());
         }
-        next.insert(coord, tile);
     }
 
-    rebuild_blocked(world, &coords, &mut next);
-    step_pressure(world, &coords, &mut next);
-    step_velocity(world, &coords, &mut next);
-    step_diffusion(world, &coords, &mut next);
-    step_advection(&coords, bounds, &mut next);
-    apply_sky(world, &coords, &mut next);
-    apply_moisture_sources(&coords, &mut next);
+    rebuild_blocked(world, &solve, &mut next);
+    step_pressure(world, &solve, &mut next);
+    step_velocity(world, &solve, &read_coords, &mut next);
+    step_diffusion(world, &solve, &mut next);
+    step_advection(&solve, &read_coords, bounds, &mut next);
+    // **Always every column, never subsetted.** Light propagates down a
+    // column, so a sleeping tile between the sky and an awake one still
+    // attenuates — but the deeper reason is that this pass is what *drives*
+    // the day/night cycle, and subsetting it stops the world's clock.
+    //
+    // `SETTLE_EPSILON_LIGHT` is 0.005 and the sun's amplitude changes by at
+    // most ~0.0033 per frame, so `amplitude_changed` above is essentially
+    // never true. The sky does not advance because that flag fires; it
+    // advances because this pass writes a slightly different value every
+    // frame, `mark_converged` notices, and the tile stays awake. Subsetting to
+    // columns containing an awake tile broke exactly that loop: a quiet world
+    // had no awake tiles, so no column was written, so the light froze at
+    // whatever it was — `the_sky_keeps_cycling_through_day_and_night_even_
+    // after_the_field_goes_quiet` caught it reading noon at midnight.
+    //
+    // The consequence is honest and worth stating: sky-lit tiles never sleep,
+    // because the sun really is always moving. What sleeps is everything the
+    // light does not reach, which on a large world is most of it.
+    let _lit = apply_sky_to(amplitude, &coords, &mut next);
+    apply_moisture_sources(&solve, &mut next);
 
-    world.set_fields_settled(is_converged(world.fields_ref(), &coords, &next));
+    // Convergence is per tile. A tile outside the awake set was settled *and*
+    // had a settled chunk under it — that is what kept it out — so only the
+    // solved tiles can have changed verdict, and the global flag needs no
+    // fresh scan of the world.
+    mark_converged(world.fields_ref(), &solve, &mut next);
+
+    let all_settled = solve.iter().all(|c| next.get(c).is_some_and(|t| t.settled()));
     world.replace_fields(next);
+    world.set_fields_settled(all_settled);
 }
 
 /// Below this much change in a single step, per channel, a field cell counts
@@ -657,28 +829,52 @@ const SETTLE_EPSILON_MOISTURE: f32 = 0.005;
 /// count`. `old` is looked up directly from `world` (the pre-step state
 /// `step` above never mutates until its very last line) rather than passed
 /// in separately, since every caller already has a `&World` in hand.
-fn is_converged(old: &HashMap<ChunkCoord, FieldTile>, coords: &[ChunkCoord], next: &HashMap<ChunkCoord, FieldTile>) -> bool {
+/// Record, per tile, whether it reached its own fixed point this solve.
+///
+/// Was `is_converged`, collapsing every tile into one bool. That single answer
+/// is what made the solve all-or-nothing: it could say "something, somewhere,
+/// is still moving" but not *where*, so the next frame had no choice but to
+/// solve everything again. The comparison itself was always per tile — this
+/// only stops throwing the detail away.
+///
+/// Only `coords` (the tiles actually solved) are judged. A sleeping tile keeps
+/// the verdict it already had, which is correct: nothing touched it.
+fn mark_converged(
+    old: &HashMap<ChunkCoord, FieldTile>,
+    coords: &[ChunkCoord],
+    next: &mut HashMap<ChunkCoord, FieldTile>,
+) {
     for &coord in coords {
-        let (Some(old_tile), Some(new_tile)) = (old.get(&coord), next.get(&coord)) else {
-            continue; // a coord either map doesn't have yet -- nothing to compare, not evidence of change
+        let Some(old_tile) = old.get(&coord) else {
+            // No previous tile to compare against — nothing to call settled.
+            if let Some(t) = next.get_mut(&coord) {
+                t.set_settled(false);
+            }
+            continue;
         };
-        for ly in 0..FIELD_TILE_SIZE {
-            for lx in 0..FIELD_TILE_SIZE {
-                let a = old_tile.get_local(lx, ly);
-                let b = new_tile.get_local(lx, ly);
-                if (a.pressure - b.pressure).abs() > SETTLE_EPSILON_PRESSURE
-                    || (a.vx - b.vx).abs() > SETTLE_EPSILON_VELOCITY
-                    || (a.vy - b.vy).abs() > SETTLE_EPSILON_VELOCITY
-                    || (a.temperature - b.temperature).abs() > SETTLE_EPSILON_TEMPERATURE
-                    || (a.light - b.light).abs() > SETTLE_EPSILON_LIGHT
-                    || (a.moisture - b.moisture).abs() > SETTLE_EPSILON_MOISTURE
-                {
-                    return false;
+        let mut settled = true;
+        if let Some(new_tile) = next.get(&coord) {
+            'tile: for ly in 0..FIELD_TILE_SIZE {
+                for lx in 0..FIELD_TILE_SIZE {
+                    let a = old_tile.get_local(lx, ly);
+                    let b = new_tile.get_local(lx, ly);
+                    if (a.pressure - b.pressure).abs() > SETTLE_EPSILON_PRESSURE
+                        || (a.vx - b.vx).abs() > SETTLE_EPSILON_VELOCITY
+                        || (a.vy - b.vy).abs() > SETTLE_EPSILON_VELOCITY
+                        || (a.temperature - b.temperature).abs() > SETTLE_EPSILON_TEMPERATURE
+                        || (a.light - b.light).abs() > SETTLE_EPSILON_LIGHT
+                        || (a.moisture - b.moisture).abs() > SETTLE_EPSILON_MOISTURE
+                    {
+                        settled = false;
+                        break 'tile;
+                    }
                 }
             }
         }
+        if let Some(t) = next.get_mut(&coord) {
+            t.set_settled(settled);
+        }
     }
-    true
 }
 
 /// Frames per full day/night cycle — architecture §5h, "the same writer
@@ -872,10 +1068,14 @@ const COLUMN_TRANSMISSION: [f32; FIELD_SCALE as usize + 1] =
 /// Cost is one downward walk per field column per field step, over the
 /// blocked bitmap `rebuild_blocked` has already built for every chunk this
 /// step — no CA reads and no extra scan.
-fn apply_sky(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
-    let amplitude = sky_light_amplitude(world.frame);
+fn apply_sky_to(
+    amplitude: f32,
+    coords: &[ChunkCoord],
+    next: &mut HashMap<ChunkCoord, FieldTile>,
+) -> HashSet<ChunkCoord> {
+    let mut lit: HashSet<ChunkCoord> = HashSet::new();
     if coords.is_empty() {
-        return;
+        return lit;
     }
     // Group the chunk grid into columns so each can be walked top to
     // bottom. A chunk row with no chunk at all is open sky and passes light
@@ -927,10 +1127,16 @@ fn apply_sky(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord
                     // when only one of them is in a downward ray's way.
                     carried *= tile.transmission_local(lx, ly);
                 }
+                if carried > 0.0 {
+                    lit.insert(coord);
+                }
+                if let Some(t) = next.get_mut(&coord) {
+                    t.sky_lit = carried > 0.0 || t.sky_lit;
+                }
             }
         }
     }
-    let _ = world;
+    lit
 }
 
 /// Constant moisture source wherever a `Liquid` CA cell is present —
@@ -1193,15 +1399,27 @@ fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkC
 /// the pressure `step_pressure` just wrote into `next` — the deliberate
 /// pressure-then-velocity coupling order that makes disturbances propagate
 /// instead of the two fields updating independently of each other.
-fn step_velocity(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
+fn step_velocity(
+    world: &World,
+    coords: &[ChunkCoord],
+    read: &[ChunkCoord],
+    next: &mut HashMap<ChunkCoord, FieldTile>,
+) {
     let old = world.fields_ref();
     let bounds = world.bounds();
     // Read the just-computed pressure from `next` as an immutable snapshot
     // before mutating `next` further. A separate cloned table sidesteps
     // borrowing `next` both immutably (for pressure) and mutably (to write
     // velocity) at once.
+    //
+    // Snapshotted over `read` — the solved tiles *plus one ring* — not over
+    // `coords`. A cell at a tile edge samples into its neighbour, and `sample`
+    // answers a tile the snapshot lacks with `AMBIENT` rather than with the
+    // truth, so a snapshot narrowed to `coords` would read sleeping
+    // neighbours as ambient air. Silent, and wrong in the direction that
+    // looks plausible.
     let new_pressure: HashMap<ChunkCoord, FieldTile> =
-        coords.iter().map(|&c| (c, next.get(&c).unwrap().clone())).collect();
+        read.iter().filter_map(|&c| next.get(&c).map(|t| (c, t.clone()))).collect();
 
     for &coord in coords {
         let (ox, oy) = coord.origin();
@@ -1350,12 +1568,18 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
 /// `next` now holds, sample the *old* snapshot there, and blend it in. This
 /// is what makes wind actually carry smoke and heat sideways rather than only
 /// diffusing outward symmetrically in place.
-fn step_advection(coords: &[ChunkCoord], bounds: Option<Rect>, next: &mut HashMap<ChunkCoord, FieldTile>) {
+fn step_advection(
+    coords: &[ChunkCoord],
+    read: &[ChunkCoord],
+    bounds: Option<Rect>,
+    next: &mut HashMap<ChunkCoord, FieldTile>,
+) {
     // Snapshot `next` as it stands after pressure/velocity/diffusion, so the
     // sampling below reads a fixed pre-advection state rather than a mix of
     // advected and not-yet-advected cells depending on iteration order.
+    // Over `read` rather than `coords` — see `step_velocity` for why.
     let pre_advection: HashMap<ChunkCoord, FieldTile> =
-        coords.iter().map(|&c| (c, next.get(&c).unwrap().clone())).collect();
+        read.iter().filter_map(|&c| next.get(&c).map(|t| (c, t.clone()))).collect();
 
     for &coord in coords {
         let (ox, oy) = coord.origin();
@@ -1368,8 +1592,21 @@ fn step_advection(coords: &[ChunkCoord], bounds: Option<Rect>, next: &mut HashMa
                 }
                 let here = sample(&pre_advection, bounds, wx, wy);
 
-                let src_x = wx as f32 - here.vx * FIELD_SCALE as f32;
-                let src_y = wy as f32 - here.vy * FIELD_SCALE as f32;
+                // Clamped to one field cell of back-trace per axis.
+                //
+                // Velocity is damped but never bounded, so a blast peak (~86
+                // measured) would back-trace dozens of field cells — past the
+                // one-tile halo the awake set provides, into tiles this frame
+                // never populated, which `sample` reports as `AMBIENT`. The
+                // clamp is what makes a one-ring halo sufficient, and it costs
+                // only that very fast flow transports at one cell per step
+                // instead of many, which the `ADVECTION_BLEND` mix already
+                // smears out.
+                let max_step = FIELD_SCALE as f32;
+                let dx = (here.vx * FIELD_SCALE as f32).clamp(-max_step, max_step);
+                let dy = (here.vy * FIELD_SCALE as f32).clamp(-max_step, max_step);
+                let src_x = wx as f32 - dx;
+                let src_y = wy as f32 - dy;
                 let transported = sample_bilinear(&pre_advection, bounds, src_x, src_y, here);
 
                 let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
@@ -2215,6 +2452,110 @@ mod tests {
 
         step(&mut w);
         assert!(w.field_at(128, 128).pressure.abs() > 1.0, "the impulse was never actually solved after waking the field");
+    }
+
+    /// A world wide enough that a disturbance at one end has sleeping tiles
+    /// between it and the far end.
+    fn wide_world() -> World {
+        World::new(Rect::new(0, 0, 1023, 255))
+    }
+
+    #[test]
+    fn a_disturbance_crosses_sleeping_regions_exactly_as_if_nothing_slept() {
+        // **The test the per-tile solve exists to be checked by, and the only
+        // shape that can catch its failure mode.**
+        //
+        // Solving only the awake tiles is a bet that the awake set plus its
+        // halo is everywhere the disturbance can reach this frame. Lose that
+        // bet and the field does not crash, does not warn, and does not look
+        // wrong — it quietly stops carrying the wave, and every reading past
+        // the gap is a plausible number that is simply false. A test asserting
+        // "the field settles" passes trivially on a field that never woke; a
+        // test asserting an absolute pressure at the far end encodes whatever
+        // the solver happened to do the day it was written.
+        //
+        // So this is a **paired comparison** against the same disturbance in a
+        // world where nothing is allowed to sleep — achieved by re-dirtying
+        // every chunk each frame, which forces every tile into the awake set
+        // and reproduces the old whole-world behaviour exactly. Any divergence
+        // is the subsetting losing information, whatever the absolute values.
+        let mut sleeping = wide_world();
+        let mut control = wide_world();
+        for w in [&mut sleeping, &mut control] {
+            w.end_step();
+            for _ in 0..400 {
+                step(w);
+            }
+        }
+        assert!(sleeping.fields_settled(), "test setup: the field should have converged before the impulse");
+
+        sleeping.add_pressure_impulse(64, 128, 8, 400.0);
+        control.add_pressure_impulse(64, 128, 8, 400.0);
+
+        for _ in 0..120 {
+            step(&mut sleeping);
+            // The control never sleeps: waking every chunk keeps every tile in
+            // the awake set, which is the pre-subsetting solve.
+            control.wake_all();
+            step(&mut control);
+        }
+
+        // Sampled right across the world, well past the impulse, so anything
+        // the halo failed to carry shows up as a mismatch somewhere.
+        for x in (16..1008).step_by(48) {
+            let a = sleeping.field_at(x, 128);
+            let b = control.field_at(x, 128);
+            assert!(
+                (a.pressure - b.pressure).abs() < 0.5,
+                "pressure diverged at x {x}: sleeping {:.3} vs never-sleeping control {:.3}                  -- the awake set is not carrying the disturbance",
+                a.pressure,
+                b.pressure
+            );
+        }
+    }
+
+    #[test]
+    fn material_written_into_a_sleeping_region_is_noticed() {
+        // `rebuild_blocked` only runs for awake tiles now, so a wall built far
+        // from any other activity has to wake its own tile. It does, via the CA
+        // chunk being dirtied by the write — but that is exactly the kind of
+        // coupling that is easy to lose, and losing it means the field treats
+        // solid rock as open air indefinitely.
+        let mut w = wide_world();
+        w.end_step();
+        for _ in 0..400 {
+            step(&mut w);
+        }
+        assert!(w.fields_settled(), "test setup: expected a converged field");
+
+        let far = 900;
+        for y in 120..136 {
+            for x in far..(far + 16) {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w.end_step();
+        step(&mut w);
+        assert!(
+            w.field_is_blocked(far + 8, 128),
+            "a wall built in a sleeping region never reached the field's occupancy map"
+        );
+    }
+
+    #[test]
+    fn a_quiet_world_solves_nothing() {
+        // The saving, asserted rather than assumed: once every tile has
+        // converged the solve should touch none of them. Without this, a
+        // regression that quietly re-woke everything would show up only as a
+        // frame-time number nobody was watching.
+        let mut w = wide_world();
+        w.end_step();
+        for _ in 0..400 {
+            step(&mut w);
+        }
+        assert!(w.fields_settled(), "expected a converged field");
+        let awake = w.fields_ref().values().filter(|t| !t.settled()).count();
+        assert_eq!(awake, 0, "{awake} tiles are still marked unsettled in a quiet world");
     }
 }
 
