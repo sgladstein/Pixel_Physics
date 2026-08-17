@@ -1264,3 +1264,44 @@ Standing implication beyond this harness: `synapse_cost` is expressed in
 absolute energy but only means anything relative to `start_energy`. Any
 species whose budget differs from the ant's needs it re-derived, and a
 future body-size or metabolism parameter will hit this again.
+
+### 13k. Foraging cannot pay, because ants cannot reach the food
+
+The corrected economy sweep, 27 settings of `eat_energy` x `move_cost` x
+food density, two genomes each. **No setting made foraging pay.** The best
+was still negative: eat 120, move 0.02, 2 trees, advantage **-0.028**.
+
+The diagnosis is in a pair of identical rows:
+
+    eat 300, move 0.02, 2 trees -> forager 0.527
+    eat 700, move 0.02, 2 trees -> forager 0.527
+
+Every `eat_energy` 300 row equals its `eat_energy` 700 row, bit for bit,
+across all nine settings. **Identical output across settings means the knob
+was never connected** -- the `include_str!` tell, in a different costume.
+Raising the reward for eating changes nothing because ants are not eating.
+
+Why: **leaves are in the canopy and ants walk on the ground.** They can
+climb (Plant is support) but rarely do, so at two or even fourteen trees
+almost no ant reaches a leaf. §13f's renewable loop worked because that
+scene had six trees *and* corpses and fallen abscised leaves on the ground
+where ants already were; strip it to leaves-in-canopy and the food is
+effectively unreachable.
+
+So the sweep's real finding is not about the energy economy at all.
+`move_cost` behaves exactly as expected -- -0.24 at 0.25, -0.03 at 0.02 --
+and the gap closes to nearly zero as movement approaches free. It never
+crosses, because foraging returns *nothing*: at zero cost it merely ties
+with doing nothing. **The bottleneck is food accessibility, not price.**
+
+That is the third time this session the answer has been the ecology rather
+than the mechanism (§13f the food source, §13i the cost structure, this the
+reachability). The pattern is worth naming: when a creature behaviour will
+not pay, check what the creature can actually *reach* before touching what
+it costs.
+
+**The candidate fix is ground-level renewable food, and one already
+exists:** moss spreads on damp stone by division, lives where ants walk,
+and needs no new mechanism -- one more string in the food list, exactly as
+"leaf" was. Untested; it is the next experiment, and it should be run
+before any genome sweep.
