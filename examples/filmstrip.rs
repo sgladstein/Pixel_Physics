@@ -98,6 +98,10 @@ fn stone_floor(w: &mut World) {
 /// changed underneath a recorded measurement is worse than no scene.
 fn build(args: &Args) -> World {
     let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
+    // Set before the scene is built, because several scenes cut into the
+    // world during construction and the rule has to be in force for that
+    // cut as much as for the run that follows it.
+    w.crush_confined = args.confine;
     let floor_y = HEIGHT - FLOOR_THICKNESS;
     match args.scene.as_str() {
         // A large body released against the left wall, spreading right across
@@ -951,6 +955,16 @@ struct Args {
     /// during the run, so his bites do count, and `world holds` on his own
     /// report line is the number to read there.
     max_lost: Option<i64>,
+    /// `confine=0` -- turn off `World::crush_confined`, so a failing
+    /// region displaces whether or not it has anywhere to go.
+    ///
+    /// The control that isolates the rule. A sweep only varies its knob,
+    /// and anything that landed *with* a mechanism is constant across
+    /// every data point -- which has already read as "the approach is
+    /// wrong" here once when a rider was the whole effect. Running the
+    /// same binary with the rule off is what makes a before/after a
+    /// measurement rather than a memory of an earlier build.
+    confine: bool,
 }
 
 fn parse() -> Args {
@@ -981,6 +995,7 @@ fn parse() -> Args {
         max_frame_ms: None,
         min_bodies: None,
         max_lost: None,
+        confine: true,
         wall: 3,
         dig: 3,
         strike: 0,
@@ -1042,6 +1057,7 @@ fn parse() -> Args {
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
             "max_lost" => a.max_lost = Some(v.parse().expect("max_lost")),
+            "confine" => a.confine = v != "0" && v != "false",
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
             "loadmap" => a.loadmap = v != "false",
@@ -1674,6 +1690,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64)) {
             f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
         );
         println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
+        // How much of the damage happened to rock with nowhere to go --
+        // the mid-mountain collapse the owner reports as looking fake.
+        // A picture cannot answer this: a collapse at a cliff edge and one
+        // eighty cells inside a massif are the same grey rubble at the
+        // zoom a contact sheet is read at.
+        println!("    of those, confined (no free face anywhere): {} ({} cells), deepest {} cells from air, {} cells fissured", f.confined, f.confined_cells, f.deepest_confined, f.crushed_cells);
         // How much the world has actually *lost* since the cut was made,
         // which the failure counts above cannot say: a failed cell that
         // became rubble is still standing there. Printed per tile rather

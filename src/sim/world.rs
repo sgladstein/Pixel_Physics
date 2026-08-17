@@ -229,6 +229,19 @@ pub struct World {
     /// modes -- one of which is "this was overloaded" and the other "this
     /// was never held". Read by `examples/filmstrip.rs` beside the image.
     pub structural_failures: FailureCounts,
+    /// Whether rock with nowhere to go cracks in place instead of
+    /// displacing. See `structural::crush_in_place`; `true` is the shipped
+    /// behaviour.
+    ///
+    /// A switch and not a constant because this is a *look* question, and
+    /// this project's answer to a look question is a runtime selector
+    /// rather than an argument -- five grain modes behind one key settled
+    /// in minutes what no amount of still images had. It is also the
+    /// control that isolates the mechanism: a sweep only varies its knob,
+    /// and anything that rode along with the change is in every data
+    /// point, so being able to run the *same binary* with the rule off is
+    /// what makes a before/after here a measurement rather than a memory.
+    pub crush_confined: bool,
     /// Per-frame caches for the load walks (`load::Cache`).
     /// Cleared by `scheduler::step` each frame and again by
     /// `structural::tick` the instant a break mutates the grid, since both
@@ -292,11 +305,49 @@ pub struct FailureCounts {
     /// the pair -- mean and max -- is what says whether pieces or grit came
     /// out, and neither half says it alone.
     pub largest_failure: u32,
+    /// Failures whose whole region was **confined** — not one cell of it
+    /// touching air — and the cells they took.
+    ///
+    /// Instrumentation for a decision, and deliberately measured before
+    /// the mechanism it is for. The owner's framing of what still looks
+    /// wrong: *"it is stone in the middle of a mountain falling in on
+    /// itself... in solid rock you should just have cracks that propagate
+    /// and maybe break rock into small pieces that for the most part stay
+    /// where they are."* Rock deep in a massif cannot displace, because
+    /// there is nowhere for it to move.
+    ///
+    /// Whether that is worth building depends on whether it *happens*, and
+    /// that is a count, not a picture: a collapse at a cliff edge and one
+    /// eighty cells inside a mountain are the same grey rubble at the zoom
+    /// a contact sheet is read at. So this asks the question first. If it
+    /// stays at zero on every scene, the mechanism has nothing to fix.
+    pub confined: u32,
+    pub confined_cells: u32,
+    /// The deepest any confined failure was buried, in cells from the
+    /// nearest air. Separates "one row under a surface that is itself
+    /// coming apart" from "the middle of a mountain", which is the only
+    /// one of the two that is the reported artifact.
+    pub deepest_confined: u32,
+    /// Cells a crush actually wrote a fissure into.
+    ///
+    /// The "did it fire at all" counter, and it earned its place: a crush
+    /// whose crack pattern was rewritten twice produced *bit-identical*
+    /// images and counters both times, which reads exactly like "the
+    /// mechanism is dead" and is indistinguishable, in a contact sheet,
+    /// from cracks too fine to see at that zoom. An image cannot say
+    /// whether the thing you built is what produced it.
+    pub crushed_cells: u32,
 }
 
 impl FailureCounts {
     pub fn record_reach(&mut self, reach: u32) {
         self.max_chain_reach = self.max_chain_reach.max(reach);
+    }
+
+    pub fn record_confined(&mut self, cells: usize, depth: u32) {
+        self.confined += 1;
+        self.confined_cells += cells as u32;
+        self.deepest_confined = self.deepest_confined.max(depth);
     }
 
     pub fn record(&mut self, mode: crate::sim::load::FailureMode, cells: usize) {
@@ -337,6 +388,7 @@ impl World {
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
+            crush_confined: true,
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
             seed: DEFAULT_WORLD_SEED,

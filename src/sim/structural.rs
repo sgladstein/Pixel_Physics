@@ -122,6 +122,16 @@ use super::world::World;
 /// paths cost the same — which is most of a solid slab.
 pub const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
+/// The eight-neighbourhood, for questions about *space* rather than about
+/// support. Support does not travel diagonally here (a shared corner is
+/// not a shared face, which is why `NEIGHBOURS_4` is what the relaxation
+/// walks) but material does: `rigid::fracture` moves pieces in 8, so
+/// anything asking "is there room for this to go anywhere" has to use the
+/// same neighbourhood the mover does or it will call a piece trapped that
+/// is about to slide out diagonally.
+pub const NEIGHBOURS_8: [(i32, i32); 8] =
+    [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
 /// Frames between a structural check and its next one, if its distance is
 /// still changing. Deliberately faster than plant growth's tick intervals
 /// (20-45 frames) — a structural failure reads as more urgent than organic
@@ -362,6 +372,62 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         let reach = (failure.at.0 - x).unsigned_abs() + (failure.at.1 - y).unsigned_abs();
         world.structural_failures.record_reach(reach);
         let region = failure.region;
+        // Confined rock has nowhere to go, so it cracks where it stands
+        // rather than displacing. See `crush_in_place` -- and note this
+        // keys the *outcome* on free space, never the criterion: the
+        // failure above has already happened and been recorded.
+        //
+        // Nothing is rescheduled here, deliberately. A cascade is
+        // neighbours losing what was holding them up, and nothing has been
+        // taken away: the rock is all still standing exactly where it was.
+        // There is nothing for a neighbour to learn until something opens
+        // a face nearby, and whatever does that schedules its own checks.
+        // Counted whether or not the rule is switched on, so that
+        // `crush_confined=false` is a clean control: it changes what the
+        // engine *does* about a confined failure without changing what it
+        // can *see*, which is what makes an A/B on one binary a
+        // measurement. It also keeps the guard tests honest -- with the
+        // rule off they fail on the behaviour they are about, rather than
+        // on a setup assertion that the mechanism never ran.
+        let confined = !region_has_free_face(world, &region);
+        if confined {
+            let depth = burial_depth(world, &region);
+            world.structural_failures.record_confined(region.len(), depth);
+        }
+        if world.crush_confined && confined {
+            // Which failure it was decides what is worth doing about it,
+            // and both halves of this were measured on `preset=rolling
+            // seed=1 strike=20`.
+            //
+            // **Overloaded** is a bending failure: the rock is over
+            // capacity and cracking it is exactly the answer -- it comes
+            // apart into blocks where it stands. That writes cracks, which
+            // change the support distances, so the relaxation wavefront in
+            // `propagate` still has something to carry and is kept.
+            //
+            // **Unsupported** is a pocket already cut free on every side,
+            // wedged in a hole its own shape. More cracks would add
+            // nothing -- there is nothing left to separate -- and it
+            // cannot fall, because there is nowhere to fall to. So it is
+            // recorded and left alone, and the wavefront is dropped
+            // because nothing changed for anything to learn about.
+            //
+            // Getting this split wrong costs real money in both
+            // directions. Cracking-and-propagating the unsupported case
+            // too was a treadmill: a crushed pocket's distance never
+            // settles, so it re-failed, re-crushed idempotently and
+            // re-queued itself at 1,120 further confined failures every
+            // 400 frames with the world's material dead still throughout.
+            // Dropping the wavefront for *both* cases was worse the other
+            // way -- stale distances took overload failures from 162 to
+            // 382, damage from 919 to 1,691 cells of rock, and pending
+            // sites from ~450 to 16,052.
+            if failure.mode == super::load::FailureMode::Overloaded {
+                crush_in_place(world, &region, failure.at);
+                return propagate;
+            }
+            return Vec::new();
+        }
         // M8: a failure big enough to read as a *chunk* leaves as coherent
         // falling pieces rather than dissolving into loose grains one cell
         // at a time. Falls back to the per-cell conversion when the region
@@ -579,6 +645,301 @@ fn schedule_organism_neighbours(world: &World, x: i32, y: i32, organism_id: u16)
 /// breaking alone, with no extra bookkeeping needed to make that happen.
 const COLLAPSE_IMPULSE_RADIUS: i32 = 3;
 const COLLAPSE_IMPULSE_STRENGTH: f32 = 4.0;
+
+/// Whether a failing region has anywhere to go: does any cell of it touch
+/// air that is not part of the region itself?
+///
+/// # Which object this evaluates, and why it must be the region
+///
+/// A *piece*, not a cell and not a section. That distinction has already
+/// cost this project real rework twice -- a bearing rule correct for a
+/// piece resting on loose ground was applied per cell and took a slab
+/// apart one knife-edge footing at a time -- so it is worth stating: the
+/// question "is there room for this to move" is only defined for the whole
+/// thing that would move. Asked per cell it is nearly always yes, because
+/// every cell of a region touches its own neighbours' vacancies as they
+/// go; asked per region it is the physical question.
+///
+/// 8 neighbours, not 4. A region that can only escape diagonally can still
+/// escape, and more to the point the writer this has to agree with --
+/// `rigid::fracture`, which promotes and moves pieces -- works in 8, so
+/// asking in 4 would call a piece confined that the mover is about to
+/// displace anyway.
+///
+/// Air specifically, by the raw material test: `Cell::is_empty()` is
+/// managed-aware and would count a promoted liquid body's container cells
+/// as occupied, which is the wrong answer to "could rock move into here".
+fn region_has_free_face(world: &World, region: &[(i32, i32)]) -> bool {
+    let cells: std::collections::HashSet<(i32, i32)> = region.iter().copied().collect();
+    region.iter().any(|&(x, y)| {
+        NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+            let (nx, ny) = (x + dx, y + dy);
+            !cells.contains(&(nx, ny))
+                && world.in_bounds(nx, ny)
+                && world.get(nx, ny).material == super::material::EMPTY
+        })
+    })
+}
+
+/// How far a confined region is from the nearest air, in cells, capped at
+/// `BURIAL_PROBE_CAP`.
+///
+/// Distinguishes the two things a confined failure can be, which the
+/// boolean cannot and no contact sheet can either: rock one row under a
+/// surface that is itself coming apart, and rock in the middle of a
+/// mountain. Only the second is the artifact the owner reports. Measured
+/// as the *smallest* clearance any cell of the piece has, because that is
+/// the nearest place it could move to if it moved at all.
+///
+/// Only ever called for a region already known to be confined, which is
+/// tens of events in a whole run, so the bounded ring search below costs
+/// nothing measurable. It is emphatically not something to call per cell
+/// per frame.
+fn burial_depth(world: &World, region: &[(i32, i32)]) -> u32 {
+    let mut best = BURIAL_PROBE_CAP;
+    for &(x, y) in region {
+        // Expanding square rings: the first ring containing air gives this
+        // cell's clearance, and a cell cannot beat a ring the search has
+        // already passed, so it stops as soon as it cannot improve `best`.
+        for r in 1..best {
+            let ring = (-(r as i32)..=(r as i32)).flat_map(|d| {
+                let r = r as i32;
+                [(x + d, y - r), (x + d, y + r), (x - r, y + d), (x + r, y + d)]
+            });
+            if ring.into_iter().any(|(nx, ny)| world.in_bounds(nx, ny) && world.get(nx, ny).material == super::material::EMPTY) {
+                best = r;
+                break;
+            }
+        }
+    }
+    best
+}
+
+/// How far the burial probe looks before calling a piece "deep". Past this
+/// the answer stops mattering: anything 24 cells from the nearest air is
+/// unambiguously inside a massif, and the search is quadratic in it.
+const BURIAL_PROBE_CAP: u32 = 24;
+
+/// A confined region fails **in place**: it cracks into blocks and does not
+/// go anywhere.
+///
+/// # The rule, and the one it must not be mistaken for
+///
+/// Stated by the owner: *"it is stone in the middle of a mountain falling
+/// in on itself. It doesn't look right. If it happens in a cave and causes
+/// a cave in, or a cliff side falls over, that makes sense — but in solid
+/// rock you should just have cracks that propagate and maybe break rock
+/// into small pieces that for the most part stay where they are."* Rock
+/// confined on every side cannot displace, because there is nowhere for it
+/// to move. It fractures where it stands.
+///
+/// **This is not "confinement as an anchor", which is retired and must not
+/// come back** (`Reports/load-model-handoff.md` §6.1). That model inferred
+/// *support* from burial, which made thick rock immune to failing at all
+/// and is one word away from this. The difference is which end of the
+/// pipeline it sits at: confinement decides what a failure **produces**,
+/// never whether it happens. A buried cell is still judged, still goes
+/// over capacity, and is still recorded as failing here -- it simply
+/// cannot fall into rock that is already there. Keep that distinction
+/// explicit in anything built on this.
+///
+/// # Fissures, not graph paper
+///
+/// The first version cracked on a fixed lattice in world coordinates --
+/// every sixth column and row, with a ligament left in each run so the
+/// blocks stayed keyed together. The arithmetic was fine and **it looked
+/// absurd**: `preset=rolling seed=1 strike=20` drew a perfectly regular
+/// 6x6 crosshatch spreading across the hillside, reading as wireframe mesh
+/// laid over the rock rather than as broken stone. Nothing in a metric
+/// said so; one contact sheet said so immediately.
+///
+/// So the cracks radiate instead, from the cell that gave way and from a
+/// few further origins spread through the piece, which is `score_cracks`'
+/// shape -- and that already looks right on screen, because it is what
+/// draws the star of fissures round a blow. Directions are keyed on the
+/// *site* through `rng::jitter`, never drawn from `world.rng`: a hash of
+/// position costs no RNG draw (so a replayed input sequence cannot diverge
+/// here), it makes the pattern a property of the rock rather than of the
+/// blow, and it means a second failure over the same rock deepens the
+/// fissures it already has instead of scribbling new ones beside them.
+///
+/// Deliberately *not* `rigid::score_cracks` itself, though it is the same
+/// idea: that function unbraces the rock either side of every fissure and
+/// schedules a structural check at each one. Both are right for a blow and
+/// wrong here. Unbracing confined rock tells the load model the inside of
+/// a mountain has come free, and rescheduling is what turns a crush into a
+/// treadmill.
+///
+/// # Why not crack every edge
+///
+/// Because the outcome has to be a *distribution*, not a dissolve. The
+/// all-or-nothing failure -- one coherent body or a uniform powder -- is
+/// the artifact this project has already rewritten twice, and cracking
+/// every edge inside the region would be the powder end of it again: it
+/// would disconnect every cell from every other, cut the support paths
+/// that carry a mountain, and leave a mass of rock that is solid on screen
+/// and structurally sand.
+///
+/// # Why this needs no "already crushed" state
+///
+/// A crack is a bit, and setting a set bit changes nothing, so re-running
+/// this over the same rock is idempotent -- the second confined failure at
+/// the same place draws the same fissures and manufactures nothing. That
+/// matters because there is no spare flag on `Cell` (all eight are taken)
+/// and because the churn is then only scheduler cost, never accumulating
+/// visual damage.
+///
+/// It is also, by construction, the lever that killed the dig cascade:
+/// a failure that creates no loose material cannot undermine its
+/// neighbours, which is the positive feedback `Reports/next-session-
+/// handoff.md` §1b traces every cascade to.
+fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) {
+    // A fissure *wanders and forks*; it does not travel in a straight
+    // line. Each walker carries a heading, turns a little at every cell,
+    // and occasionally throws a fork off to one side -- so what comes out
+    // is one crack spreading through the rock and splitting, rather than
+    // spokes on a wheel.
+    //
+    // Every one of those decisions is `rng::jitter` on the cell the walker
+    // is standing on: a hash of position, never a draw from `world.rng`.
+    // That keeps the dig and the collapse out of the replay draw order
+    // entirely, and it makes the shape a property of the rock -- work the
+    // same stone twice and the crack runs where it ran before, deeper,
+    // instead of a second scribble appearing beside the first.
+    //
+    // Everything descends from **one** origin, the cell that actually gave
+    // way. That is the fix for the owner's verdict on the version before
+    // this one -- "it doesn't really look like a spreading crack from a
+    // boulder, it just looks like criss cross irregular lines" -- which
+    // scattered origins through the piece and drew straight spokes from
+    // each. Independent strokes crossing each other read as scribble; a
+    // trunk with branches reads as a crack. So there is a single seed
+    // point, a few primaries leaving it like the arms of a windscreen
+    // star, and every other stroke is a fork off one of those.
+    //
+    // Both the length and the number of forks scale with the piece,
+    // because a fist-sized failure and a 900-cell one should not come
+    // apart to the same amount of damage -- the all-or-nothing outcome is
+    // this project's most expensive recurring artifact and this is where
+    // it would reappear.
+    let extent = region
+        .iter()
+        .map(|&(x, y)| (x - at.0).abs().max((y - at.1).abs()))
+        .max()
+        .unwrap_or(0) as usize;
+    let length = extent.clamp(CRACK_MIN_LENGTH, CRACK_MAX_LENGTH);
+    let seed = super::rng::jitter(at.0, at.1) * std::f32::consts::TAU;
+    let mut walkers: Vec<((i32, i32), f32, usize)> = (0..CRACK_PRIMARIES)
+        .map(|i| (at, seed + i as f32 * std::f32::consts::TAU / CRACK_PRIMARIES as f32, length))
+        .collect();
+    let mut forks = CRACK_FORKS_BASE + region.len() / CRACK_CELLS_PER_FORK;
+    let mut head = 0;
+    while head < walkers.len() {
+        let (mut pos, mut heading, budget) = walkers[head];
+        head += 1;
+        // The path is carried at sub-cell precision and rounded only to
+        // decide which cell it is in. Stepping to an axis neighbour
+        // instead -- whichever of the four the heading pointed most nearly
+        // at -- was tried and is what produces a staircase: the heading
+        // turns slowly, so its dominant axis stays the same for many
+        // cells, and the crack comes out as long horizontal and vertical
+        // runs meeting at right angles. That is the "criss cross" look,
+        // and no amount of extra wander fixes it, because the quantisation
+        // is doing it rather than the path.
+        let (mut fx, mut fy) = (pos.0 as f32 + 0.5, pos.1 as f32 + 0.5);
+        for _ in 0..budget {
+            let wobble = super::rng::jitter(pos.0, pos.1);
+            heading += (wobble - 0.5) * CRACK_WANDER;
+            let (dx, dy) = (heading.cos(), heading.sin());
+            fx += dx;
+            fy += dy;
+            let next = (fx.floor() as i32, fy.floor() as i32);
+            if next == pos {
+                continue; // still inside the same cell; keep going
+            }
+            let step = (next.0 - pos.0, next.1 - pos.1);
+            if !world.in_bounds(next.0, next.1) {
+                break;
+            }
+            let cell = world.get(next.0, next.1);
+            // A fissure runs through **rock**, not through the bookkeeping
+            // region that was judged, and it stops where the rock does --
+            // there is nothing to split at a free face.
+            //
+            // Confining it to `region` was tried first and was very nearly
+            // a no-op, which only a counter could show: 189 confined
+            // failures wrote **29 cells of fissure between them**, and
+            // produced bit-identical images across two complete rewrites
+            // of the crack pattern. An overload's region is the union of
+            // the *subtrees* hanging off the failing section -- a sparse,
+            // often thin set that the walker leaves on its first step --
+            // so almost every crack died where it was born. It is also the
+            // wrong picture: a crack spreading out of a boulder into the
+            // massif around it is the thing being modelled, and the massif
+            // is by definition not in the region that failed.
+            if !is_body_material(world, cell.material) {
+                break;
+            }
+            // Which edge a fissure cuts is the one *perpendicular* to the
+            // way it travels -- get this backwards and the crack runs
+            // across itself, slicing the rock into rings rather than
+            // parting it. `rigid::score_cracks` records the same trap.
+            let scored = if step.0.abs() >= step.1.abs() { cell.with_crack_down(true) } else { cell.with_crack_right(true) };
+            if scored != cell {
+                world.set(next.0, next.1, scored);
+                world.structural_failures.crushed_cells += 1;
+            }
+            pos = next;
+            // Forking, not crossing. A branch leaves at a wide angle and
+            // gets a shorter budget than its parent, which is what makes
+            // the result read as a crack with side-cracks rather than as a
+            // tangle -- the second is what several straight rays from
+            // several origins produced, and it looked like scribble.
+            if forks > 0 && wobble < CRACK_FORK_CHANCE {
+                forks -= 1;
+                walkers.push((pos, heading + CRACK_FORK_ANGLE, budget / 2));
+            }
+        }
+    }
+}
+
+/// How many primary fissures leave the point that gave way.
+///
+/// Three, so the damage reads as a star spreading out of one place --
+/// which is what a crack from an impact looks like -- rather than as one
+/// stroke through the rock or as a wheel of spokes.
+const CRACK_PRIMARIES: usize = 3;
+
+/// How far a fissure runs, bounded by the piece it is running through.
+///
+/// Scaled to the failing region's own extent between these two, because
+/// the damage has to be a *distribution*: a crack that runs 40 cells
+/// through a 900-cell slab and through a 30-cell one is the all-or-nothing
+/// outcome in miniature. The floor keeps a small failure from producing
+/// damage too faint to see; the ceiling keeps a large one from being cut
+/// clean in half by a single stroke, which is displacement's job and not
+/// this.
+const CRACK_MIN_LENGTH: usize = 10;
+const CRACK_MAX_LENGTH: usize = 55;
+
+/// How sharply a fissure may turn at each cell, in radians.
+///
+/// A crack that does not wander is a ray, and a fan of rays reads as a
+/// wheel rather than as broken rock. Enough to curve visibly over its
+/// length, not so much that it doubles back on itself.
+const CRACK_WANDER: f32 = 0.9;
+
+/// How many side-branches a crush may throw, and on what terms.
+///
+/// Forking is the difference between a crack and a hatch: a branch that
+/// leaves at a wide angle and dies sooner than its parent reads as rock
+/// splitting, where independent strokes crossing at a point read as the
+/// scribble the owner rejected. Scaled with the piece for the same reason
+/// the length is.
+const CRACK_FORKS_BASE: usize = 4;
+const CRACK_CELLS_PER_FORK: usize = 80;
+const CRACK_FORK_CHANCE: f32 = 0.10;
+const CRACK_FORK_ANGLE: f32 = 0.8;
 
 fn break_free(world: &mut World, x: i32, y: i32) {
     // Resolved per cell rather than passed in by the caller, because a
@@ -1178,6 +1539,162 @@ mod tests {
             "a cantilever cell past stone's reach should have given way, found {tip_material:?}"
         );
         assert_eq!(w.get(0, 30).material, material::STONE, "the anchored root of the cantilever should still be standing");
+    }
+
+    /// A slab cut free by cracks in the *middle of a massif* must not turn
+    /// into rubble, and the identical slab with a cavity above it must.
+    ///
+    /// **A paired comparison, and it has to be**, because either half
+    /// alone is passable by cheating in one direction. "Nothing turns to
+    /// rubble" passes the first by making rock indestructible, which is
+    /// how four earlier support models died; "everything turns to rubble"
+    /// passes the second. The pair is what pins the rule to *free space*
+    /// rather than to strength.
+    ///
+    /// It is also the guard against the replacement artifact rather than
+    /// the original one: the way this fix fails is not by leaving the
+    /// mid-mountain collapse in place, it is by suppressing collapse
+    /// everywhere and leaving cliffs hanging in the air.
+    #[test]
+    fn rock_with_nowhere_to_go_cracks_where_it_stands() {
+        /// The slab is x 27..35 by y 33..37.
+        const SLAB_CELLS: usize = 8 * 4;
+        // A slab isolated by cracks on every side, so nothing holds it and
+        // it must be judged as failing. `open` decides the one thing under
+        // test: whether there is anywhere for it to go.
+        fn massif_with_isolated_slab(open: bool) -> World {
+            let mut w = test_world();
+            for y in 20..50 {
+                for x in 10..50 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // Cut the slab loose: cracks all the way round x 27..35, y
+            // 33..37. Support cannot cross a fracture, so this leaves it
+            // with no parent at all in either world.
+            for x in 27..35 {
+                let top = w.get(x, 32);
+                w.set(x, 32, top.with_crack_down(true));
+                let bottom = w.get(x, 37);
+                w.set(x, 37, bottom.with_crack_down(true));
+            }
+            for y in 33..37 {
+                let left = w.get(26, y);
+                w.set(26, y, left.with_crack_right(true));
+                let right = w.get(34, y);
+                w.set(34, y, right.with_crack_right(true));
+            }
+            if open {
+                // A cavity **directly** above the slab -- the cave-in
+                // case. Carved after the cracks and reaching down to y=32
+                // so its floor is the slab's own top row, which is the
+                // whole point: a first version stopped at y=31 and left a
+                // row of rock between the two, so the "open" world was
+                // just as confined as the buried one and the test compared
+                // a case against itself. A scene that does not contain the
+                // situation it is named for looks exactly like a broken
+                // mechanism.
+                for y in 28..33 {
+                    for x in 26..36 {
+                        w.set(x, y, Cell::EMPTY);
+                    }
+                }
+            }
+            // Distances *after* the cracks, not before: the relaxation
+            // skips cracked edges, so this is what actually leaves the
+            // slab with no path to an anchor. Computing first and cracking
+            // second leaves every cell holding a stale, perfectly good
+            // distance and nothing ever fails -- which is a test that
+            // passes while exercising nothing.
+            compute_world_distances(&mut w);
+            // Every cell of the slab, because only a cell with a cracked
+            // or empty neighbour is `is_structurally_interesting`, and an
+            // interior one is not: scheduling the middle of the slab is
+            // scheduling a cell the model deliberately never looks at.
+            for y in 33..37 {
+                for x in 27..35 {
+                    w.schedule_structural_check(x, y);
+                }
+            }
+            w
+        }
+
+        // **Still intact stone**, not "became debris", and the difference
+        // has bitten this file before. A failing region goes to
+        // `rigid::fracture`, which promotes anything at or above
+        // `MIN_BODY_CELLS` to a falling body -- leaving `EMPTY` behind --
+        // and converts only the rest to debris in place. Which one a given
+        // slab gets depends on the material's fragment ladder, so counting
+        // debris pins one of two outcomes rather than the claim. The claim
+        // is that the rock either stayed or did not.
+        let slab_intact =
+            |w: &World| (33..37).flat_map(|y| (27..35).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::STONE).count();
+
+        let mut buried = massif_with_isolated_slab(false);
+        run(&mut buried, 300);
+        let mut opened = massif_with_isolated_slab(true);
+        run(&mut opened, 300);
+
+        assert!(
+            buried.structural_failures.confined > 0,
+            "test setup: the buried slab was never judged as a confined failure, so this proves nothing"
+        );
+        assert_eq!(
+            slab_intact(&buried),
+            SLAB_CELLS,
+            "a slab in the middle of a massif has nowhere to go: every cell of it must still be standing there"
+        );
+        assert!(
+            slab_intact(&opened) < SLAB_CELLS,
+            "the same slab with a cavity above it must still come apart -- {} of {SLAB_CELLS} cells still intact",
+            slab_intact(&opened)
+        );
+    }
+
+    /// The rule is keyed on the *outcome*, never on the criterion, and
+    /// this is what says so out loud.
+    ///
+    /// The retired "confinement as an anchor" model
+    /// (`Reports/load-model-handoff.md` §6.1) inferred *support* from
+    /// burial, which made thick rock immune to failing at all. It is one
+    /// word away from this one, so the distinction gets a test: a buried
+    /// slab must still be **recorded as failing**. If a later change
+    /// quietly turns this into "confined rock does not fail", the count
+    /// goes to zero and this fails.
+    #[test]
+    fn a_confined_failure_still_fails_it_just_cannot_travel() {
+        let mut w = test_world();
+        for y in 20..50 {
+            for x in 10..50 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 27..35 {
+            let top = w.get(x, 32);
+            w.set(x, 32, top.with_crack_down(true));
+            let bottom = w.get(x, 37);
+            w.set(x, 37, bottom.with_crack_down(true));
+        }
+        for y in 33..37 {
+            let left = w.get(26, y);
+            w.set(26, y, left.with_crack_right(true));
+            let right = w.get(34, y);
+            w.set(34, y, right.with_crack_right(true));
+        }
+        compute_world_distances(&mut w);
+        for y in 33..37 {
+            for x in 27..35 {
+                w.schedule_structural_check(x, y);
+            }
+        }
+        run(&mut w, 300);
+
+        let f = w.structural_failures;
+        assert!(
+            f.overloaded + f.unsupported > 0,
+            "a buried slab must still be judged and still fail -- confinement decides what a failure produces, not whether it happens"
+        );
+        assert!(f.confined > 0, "and that failure must be recorded as the confined kind");
     }
 
     #[test]
