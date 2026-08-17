@@ -238,8 +238,8 @@ pub struct FieldTile {
     /// solve, because the solve reads it many times per step and CA lookups
     /// are not free.
     blocked: Box<[bool]>,
-    /// **How full this block is**, 0..=255 over its `FIELD_SCALE²` CA
-    /// cells, recomputed in the same scan as `blocked`.
+    /// **What fraction of a downward ray this block passes**, quantized to
+    /// 0..=255, recomputed in the same scan as `blocked`.
     ///
     /// `blocked` is all-or-nothing over an 8x8 region, and that is far too
     /// coarse for foliage. One twig anywhere in a block marks the whole
@@ -250,13 +250,34 @@ pub struct FieldTile {
     /// abscission, and phototropism, which measured completely inert across
     /// 1,024 genomes because there is no gradient left to steer by.
     ///
-    /// Occupancy makes transmission continuous instead of binary, which is
-    /// Beer-Lambert as it should have been: a sparse spray of twigs passes
-    /// most of the light, a dense crown passes little, solid rock passes
-    /// `SKY_TRANSMISSION`. Costs one `u8` per field block and no extra
-    /// scanning — `rebuild_blocked` already visits every CA cell in the
-    /// block and was throwing the count away.
-    occupancy: Box<[u8]>,
+    /// **Per column, not per cell count, and the difference is the whole
+    /// point of this field.** It stored *occupancy* — cells filled over
+    /// `FIELD_SCALE²` — which is orientation-blind, and wrong in exactly
+    /// the direction of the artifact the light model is supposed to bound.
+    /// A vertical 8-cell trunk in one column and a horizontal 8-cell plate
+    /// spanning all eight both read 8/64, so both passed 90% of the light.
+    /// For a *downward* ray only the horizontal extent matters: the trunk
+    /// answer was right by luck and the plate answer was 4.5x too bright,
+    /// and a flat canopy plate is the exact geometry this branch has fought
+    /// three separate times.
+    ///
+    /// So: count opacity **depth per CA column**, read each column's
+    /// transmission off `COLUMN_TRANSMISSION` (Beer-Lambert, normalised so
+    /// a full `FIELD_SCALE`-deep column lands exactly on
+    /// `SKY_TRANSMISSION`), and store the mean across the block's columns.
+    /// A sparse spray of twigs passes most of the light, a horizontal plate
+    /// shades what is under it, and solid rock still passes exactly
+    /// `SKY_TRANSMISSION` — same as before, since a full block is full in
+    /// every column.
+    ///
+    /// **Not a columns-hit mask**, which was the other candidate: counting
+    /// *whether* a column is touched makes any one-cell-deep structure as
+    /// opaque as rock, which is the binary-shade disease this field exists
+    /// to cure, rotated ninety degrees. Depth is what Beer-Lambert reads.
+    ///
+    /// Costs one `u8` per field block and no extra scanning —
+    /// `rebuild_blocked` already visits every CA cell in the block.
+    transmission: Box<[u8]>,
     /// Also recomputed every step, in the same scan as `blocked` — whether
     /// any `Liquid` CA cell falls inside this field block. `apply_moisture_
     /// sources` reads this at the end of `step` (mirroring `apply_sky`'s use
@@ -303,7 +324,10 @@ impl FieldTile {
         Self {
             cells: vec![FieldCell::AMBIENT; FIELD_TILE_AREA].into_boxed_slice(),
             blocked: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
-            occupancy: vec![0u8; FIELD_TILE_AREA].into_boxed_slice(),
+            // 255 is *clear*: a fresh tile passes light until the scan says
+            // otherwise. Zero would mean "perfectly opaque", which is the
+            // wrong default for a block nobody has looked at yet.
+            transmission: vec![u8::MAX; FIELD_TILE_AREA].into_boxed_slice(),
             moisture_source: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
             moisture_floor: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
         }
@@ -329,15 +353,15 @@ impl FieldTile {
         self.blocked[Self::local_index(lx, ly)]
     }
 
+    /// Fraction of a downward ray this block passes, 0.0..=1.0. See
+    /// `FieldTile::transmission`.
     #[inline]
-    /// Fraction of this block's CA cells that hold material, 0.0..=1.0.
-    pub fn occupancy_local(&self, lx: i32, ly: i32) -> f32 {
-        self.occupancy[Self::local_index(lx, ly)] as f32 / 255.0
+    pub fn transmission_local(&self, lx: i32, ly: i32) -> f32 {
+        self.transmission[Self::local_index(lx, ly)] as f32 / 255.0
     }
 
-    fn set_occupancy_local(&mut self, lx: i32, ly: i32, filled: u32, total: u32) {
-        let q = filled.saturating_mul(255).checked_div(total).unwrap_or(0).min(255);
-        self.occupancy[Self::local_index(lx, ly)] = q as u8;
+    fn set_transmission_local(&mut self, lx: i32, ly: i32, transmission: f32) {
+        self.transmission[Self::local_index(lx, ly)] = (transmission.clamp(0.0, 1.0) * 255.0).round() as u8;
     }
 
     fn set_blocked_local(&mut self, lx: i32, ly: i32, blocked: bool) {
@@ -761,6 +785,26 @@ pub fn sun_rising(frame: u64) -> bool {
 /// keeps caves dark.
 const SKY_TRANSMISSION: f32 = 0.2;
 
+/// What one CA column of a field block passes, indexed by how many opaque
+/// cells deep it is: `SKY_TRANSMISSION^(depth / FIELD_SCALE)`.
+///
+/// Beer-Lambert, normalised so the endpoints are the two values the model
+/// already committed to — an empty column passes everything, and a full one
+/// passes exactly `SKY_TRANSMISSION`, so solid rock behaves exactly as it
+/// did before this table existed. Everything between is the part that is
+/// new, and it is why a one-cell-thick leaf plate shades (0.82 per block,
+/// compounding through a crown) without shading like rock.
+///
+/// A table rather than `powf` in the scan: `rebuild_blocked` runs over
+/// every CA cell of every resident chunk every field step, and this is nine
+/// floats. `the_column_transmission_table_is_beer_lambert` keeps it honest
+/// against the formula and against `SKY_TRANSMISSION` moving.
+/// The last entry is written as `SKY_TRANSMISSION` itself rather than as
+/// its value, because that endpoint is the compatibility promise: a fully
+/// opaque column passes exactly what a blocked block always passed.
+const COLUMN_TRANSMISSION: [f32; FIELD_SCALE as usize + 1] =
+    [1.0, 0.817_765, 0.668_740, 0.546_884, 0.447_214, 0.365_697, 0.299_070, 0.244_581, SKY_TRANSMISSION];
+
 /// Direct sunlight, cast **down each column** from open sky.
 ///
 /// **Replaces seeding only the topmost chunk's top row and letting
@@ -842,15 +886,17 @@ fn apply_sky(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord
                         cell.light = carried;
                         tile.set_local(lx, ly, cell);
                     }
-                    // **Graded, not binary.** Transmission interpolates
-                    // toward `SKY_TRANSMISSION` with how full the block is,
-                    // so a sparse spray of twigs passes most of the light
-                    // and only a solid block attenuates fully. `blocked`
-                    // is all-or-nothing over 8x8 CA cells, which is far too
-                    // coarse for foliage: one twig made a whole block
-                    // opaque and a canopy read as a wall.
-                    let occupancy = tile.occupancy_local(lx, ly);
-                    carried *= 1.0 + (SKY_TRANSMISSION - 1.0) * occupancy;
+                    // **Graded, and graded per column.** The block's own
+                    // transmission is Beer-Lambert over how deep each of
+                    // its CA columns is, averaged — see
+                    // `FieldTile::transmission`. `blocked` is
+                    // all-or-nothing over 8x8 CA cells, far too coarse for
+                    // foliage (one twig made a whole block opaque and a
+                    // canopy read as a wall); an occupancy *fraction* fixed
+                    // that and introduced its own error, reading a
+                    // horizontal plate and a vertical trunk identically
+                    // when only one of them is in a downward ray's way.
+                    carried *= tile.transmission_local(lx, ly);
                 }
             }
         }
@@ -985,9 +1031,12 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                 // that holding forever.
                 // Strongest moisture source anywhere in this block.
                 let mut moisture_level = 0.0f32;
-                // Counted in the scan that is already happening -- see
-                // `FieldTile::occupancy`.
-                let mut filled = 0u32;
+                // How many opaque cells deep each CA *column* of this block
+                // is, counted in the scan that is already happening -- see
+                // `FieldTile::transmission` for why depth per column, and
+                // not cells filled per block, is the quantity a downward
+                // ray cares about.
+                let mut column_depth = [0u8; FIELD_SCALE as usize];
                 for dy in 0..FIELD_SCALE {
                     for dx in 0..FIELD_SCALE {
                         // `World::new` eagerly creates every chunk
@@ -1010,7 +1059,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         // reads elsewhere: solid, so blocked.
                         if !world.in_bounds(bx0 + dx, by0 + dy) {
                             blocked = true;
-                            filled += 1;
+                            column_depth[dx as usize] += 1;
                             continue;
                         }
                         let cell = chunk.get_world(bx0 + dx, by0 + dy);
@@ -1033,7 +1082,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         let kind = world.materials.kind(cell.material);
                         if matches!(kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant) {
                             blocked = true;
-                            filled += 1;
+                            column_depth[dx as usize] += 1;
                         }
                         if kind == super::material::MaterialKind::Liquid {
                             moisture_level = 1.0;
@@ -1052,7 +1101,13 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                     }
                 }
                 tile.set_blocked_local(lx, ly, blocked);
-                tile.set_occupancy_local(lx, ly, filled, (FIELD_SCALE * FIELD_SCALE) as u32);
+                // The block passes what its columns pass, averaged. Each
+                // column's own depth goes through Beer-Lambert first, so a
+                // deep narrow occluder and a shallow wide one come out
+                // different — which is the entire reason this is per column.
+                let transmission =
+                    column_depth.iter().map(|&d| COLUMN_TRANSMISSION[d as usize]).sum::<f32>() / FIELD_SCALE as f32;
+                tile.set_transmission_local(lx, ly, transmission);
                 tile.set_moisture_source_local(lx, ly, moisture_level);
             }
         }
@@ -1583,6 +1638,72 @@ mod tests {
         assert!(
             under < open_at_depth * 0.5,
             "the block under a solid one should be markedly darker than open sky at the same depth: {under} against {open_at_depth}"
+        );
+    }
+
+    #[test]
+    fn the_column_transmission_table_is_beer_lambert() {
+        // The table is hand-written so the scan can stay a lookup; this is
+        // what keeps it honest, and what fails if `SKY_TRANSMISSION` or
+        // `FIELD_SCALE` moves without it.
+        for (depth, &actual) in COLUMN_TRANSMISSION.iter().enumerate() {
+            let expected = SKY_TRANSMISSION.powf(depth as f32 / FIELD_SCALE as f32);
+            assert!((actual - expected).abs() < 1e-4, "COLUMN_TRANSMISSION[{depth}] is {actual}, Beer-Lambert says {expected}");
+        }
+        assert_eq!(COLUMN_TRANSMISSION[0], 1.0, "an empty column must pass everything");
+        assert_eq!(
+            COLUMN_TRANSMISSION[FIELD_SCALE as usize], SKY_TRANSMISSION,
+            "a full column must pass exactly SKY_TRANSMISSION, or solid rock changes behaviour"
+        );
+    }
+
+    /// **A one-cell-thick horizontal plate has to shade**, and under the
+    /// occupancy rule this replaced it barely did: 8 cells over a 64-cell
+    /// block read 12.5% full and passed 90% of the light, the same as a
+    /// vertical 8-cell trunk. For a downward ray those two are nothing
+    /// alike, and a flat canopy plate is the exact geometry the plant work
+    /// keeps fighting — so the light model was under-charging the artifact
+    /// it is supposed to bound.
+    ///
+    /// The pair of assertions is the point: the plate must shade *and* must
+    /// not shade like rock. A columns-hit mask (the other candidate fix)
+    /// passes the first and fails the second, which is why this test checks
+    /// both ends rather than just "is it darker".
+    #[test]
+    fn a_one_cell_thick_plate_shades_without_shading_like_rock() {
+        fn light_under(rows: i32) -> (f32, f32) {
+            let mut w = test_world();
+            // Nine field blocks wide, for the reason
+            // `open_sky_reads_brighter_than_a_directly_blocked_cell` gives:
+            // a narrow shadow fills in from both sides by diffusion within
+            // a few steps, so a shadow only exists if it is wider than
+            // diffusion can reach across.
+            for x in 104..176 {
+                for y in 16..(16 + rows) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for _ in 0..50 {
+                step(&mut w);
+            }
+            // Below the occluder, and open sky at the same depth.
+            (w.field_at(140, 40).light, w.field_at(20, 40).light)
+        }
+
+        let (under_plate, open) = light_under(1);
+        let (under_slab, _) = light_under(8);
+
+        assert!(under_plate < open * 0.95, "a one-cell plate should shade what is beneath it: {under_plate} against {open} in the open");
+        assert!(
+            under_slab < under_plate * 0.75,
+            "a full 8-deep block must shade far harder than a one-cell plate, or transmission is not reading depth: \
+             slab {under_slab}, plate {under_plate}"
+        );
+        // And the plate must stay recognisably brighter than rock -- the
+        // binary-shade failure this whole channel exists to avoid.
+        assert!(
+            under_plate > under_slab * 1.5,
+            "a one-cell plate should not shade like solid rock: plate {under_plate}, slab {under_slab}"
         );
     }
 
