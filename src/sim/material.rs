@@ -148,6 +148,10 @@ pub const ASH: MaterialId = MaterialId(5);
 pub const WATER: MaterialId = MaterialId(6);
 pub const OIL: MaterialId = MaterialId(7);
 pub const SMOKE: MaterialId = MaterialId(8);
+/// What stone breaks into (`stone.ron`'s `breaks_into`). Numbered from its
+/// position at the *end* of `EMBEDDED`, which is the only place a new
+/// material may be added — see that array's own comment.
+pub const RUBBLE: MaterialId = MaterialId(15);
 
 /// Determines which movement rule a cell obeys. Everything else is parameters.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
@@ -433,11 +437,13 @@ pub struct MaterialDef {
     /// floor thicker than a small span, floating decorative ledges with no
     /// path to an anchor at all) would otherwise start crumbling the
     /// moment this milestone shipped, surprising rather than demonstrating
-    /// anything. `structural.rs` only ever schedules a check in reaction to
-    /// something disturbing a structure (painting, erasing, an explosion),
-    /// never at world-gen time, so pre-placed terrain stays inert as well
-    /// regardless of this value — but an explicit, small value is still
-    /// what makes a material's structures interesting to build and break.
+    /// anything. Terrain *is* checked now — `structural::
+    /// compute_world_distances` relaxes it at generation — so this value is
+    /// live against generated terrain rather than only against what a
+    /// player builds. It no longer has to carry the whole model on its own,
+    /// though: `attached_span_bonus` carries the background mass, leaving
+    /// this to mean specifically "how far loose foreground material
+    /// reaches."
     #[serde(default = "default_never_u16")]
     pub max_unsupported_span: u16,
     /// What an unsupported cell becomes once it breaks free, or empty to
@@ -447,12 +453,97 @@ pub struct MaterialDef {
     /// without this milestone needing to change.
     #[serde(default)]
     pub breaks_into: String,
+
+    /// How much further this material spans when it is part of the
+    /// background mass (`Cell::attached`) rather than standing in front of
+    /// it: `effective_span = max_unsupported_span * this` for attached
+    /// cells, and the plain span for everything else.
+    ///
+    /// The play world is a 2D slice through a 3D world
+    /// (`Reports/worldgen-design.md` §0), so rock belonging to the massif is
+    /// braced by material the slice does not contain. That is worth a large
+    /// multiplier — but **not immunity**, which is the distinction this
+    /// field exists to hold. Attachment used to anchor a cell outright, and
+    /// an undercut shelf could then never fall however much was dug out from
+    /// beneath it, because its interior was still "attached" and therefore
+    /// still held. Reported from play as "nothing breaks off, everything
+    /// still dissolves".
+    ///
+    /// Keyed on attachment rather than on shape, which is what keeps it
+    /// safe: two earlier attempts to buy the same strength from geometry
+    /// (confinement, then thickness) also made everything the *player* built
+    /// unbreakable, because geometry cannot tell a mountain from a wall
+    /// someone stacked. Attachment can — nothing the player places is ever
+    /// attached.
+    ///
+    /// 1 (the default) means attachment buys no extra reach at all.
+    #[serde(default = "default_attached_span_bonus")]
+    pub attached_span_bonus: u16,
+
+    /// How coarsely this material breaks: the number of rungs on
+    /// `rigid::fracture`'s power-of-two fragment ladder.
+    ///
+    /// **Nobody derives debris size from physics, and that is not a gap.**
+    /// `Reports/prior-art-destruction.md`: Red Faction authors shard scale
+    /// per material, and UE5's Chaos uses a cluster hierarchy with a
+    /// damage threshold per level. The ladder here is already the right
+    /// *shape* -- uniform over the exponent, so each doubling is half as
+    /// likely per cell consumed, which is the heavy-tailed distribution
+    /// fragmentation actually has. What it lacked was any way for one rock
+    /// to break differently from another.
+    ///
+    /// Higher means a wider spread and larger top-end pieces: slate shears
+    /// into plates, granite calves blocks, a brittle crust shatters into
+    /// grit. 5 is the ladder that shipped before this field existed (2, 4,
+    /// 8, 16, 32 cells), so leaving it unset changes nothing.
+    #[serde(default = "default_fragment_rungs")]
+    pub fragment_rungs: u32,
+
+
+    /// What one step of `max_unsupported_span` costs, per direction the
+    /// support comes *from*: standing on the cell below, leaning on the one
+    /// beside, or hanging from the one above.
+    ///
+    /// Rock is strong in compression and weak in bending and tension, so
+    /// these are not equal in reality and were not distinguished at all
+    /// before this: the relaxation charged a flat 1 in every direction,
+    /// which is why a 1-cell tower built up from the ground snapped at the
+    /// same height a 1-cell cantilever reached sideways. Make `below` cheap
+    /// and a wall stands to any height; keep `beside` dear and an overhang
+    /// still fails at its span; make `above` dearest and nothing hangs far.
+    ///
+    /// All three default to 1, which is the flat cost this replaced — so a
+    /// `.ron` that says nothing about them behaves exactly as before.
+    #[serde(default = "default_support_cost")]
+    pub support_cost_below: u16,
+    #[serde(default = "default_support_cost")]
+    pub support_cost_beside: u16,
+    #[serde(default = "default_support_cost")]
+    pub support_cost_above: u16,
 }
 
 /// 16, the value the constant this replaced was tuned to — so a `.ron` that
 /// says nothing about it behaves exactly as before.
 fn default_min_transfer() -> u16 {
     16
+}
+
+/// 1 — the flat, direction-blind step cost `structural.rs`'s relaxation
+/// charged before `support_cost_*` split it three ways, so a `.ron` that
+/// sets none of them relaxes exactly as it always did.
+fn default_support_cost() -> u16 {
+    1
+}
+
+/// 1 — attachment buys no extra span unless a material asks for it, so a
+/// `.ron` that says nothing behaves exactly as it did before this existed.
+/// The ladder that shipped before the field existed: 2, 4, 8, 16, 32.
+fn default_fragment_rungs() -> u32 {
+    5
+}
+
+fn default_attached_span_bonus() -> u16 {
+    1
 }
 
 /// 0.65, matching the hardcoded `MIN_LIQUID_BRIGHTNESS` of 0.35 this
@@ -570,6 +661,14 @@ pub struct Material {
     pub melting_point: f32,
     pub boiling_point: f32,
     pub max_unsupported_span: u16,
+    /// See `MaterialDef::attached_span_bonus`. Always >= 1.
+    pub attached_span_bonus: u16,
+    /// See `MaterialDef::fragment_rungs`. Always >= 1.
+    pub fragment_rungs: u32,
+    /// See `MaterialDef::support_cost_below` and its siblings.
+    pub support_cost_below: u16,
+    pub support_cost_beside: u16,
+    pub support_cost_above: u16,
 
     // Names as written in the `.ron` file (empty = unset), kept so
     // `MaterialRegistry::resolve_references` can look them up once every
@@ -803,6 +902,32 @@ impl From<MaterialDef> for Material {
             melting_point: def.melting_point,
             boiling_point: def.boiling_point,
             max_unsupported_span: def.max_unsupported_span,
+            // Floored at 1: 0 would silently make attached rock *weaker*
+            // than loose material, which is never what a content author
+            // means by leaving a field small.
+            attached_span_bonus: def.attached_span_bonus.max(1),
+            // At least one rung, or the ladder has no rungs to draw from
+            // and `Rng::below(0)` is meaningless.
+            fragment_rungs: def.fragment_rungs.max(1),
+            // Clamped to at least 1 so a lateral or upward step always costs
+            // *something*. All three at 0 would let a distance propagate
+            // arbitrarily far without ever growing, silently disabling
+            // `max_unsupported_span` for that material rather than tuning it
+            // -- a content mistake that would read as "spans stopped working"
+            // with nothing pointing at the cause.
+            //
+            // `below` used to be exempt, on the reasoning that 0 there was
+            // "the whole point (free compression)". It is now clamped like
+            // its siblings, and that is load-bearing rather than tidiness.
+            // A zero here makes a whole column relax to
+            // `aux == 0`, and `load::evaluate` treats distance 0 as *anchored*
+            // -- so the structure becomes immune to every failure mode
+            // including hanging in mid-air. That is model 3's self-consistent
+            // zero (`Reports/load-model-handoff.md` §6) resurrected as total
+            // immunity, and it used to be reachable from any `.ron` file.
+            support_cost_below: def.support_cost_below.max(1),
+            support_cost_beside: def.support_cost_beside.max(1),
+            support_cost_above: def.support_cost_above.max(1),
             melts_into_name: def.melts_into,
             boils_into_name: def.boils_into,
             burns_into_name: def.burns_into,
@@ -852,6 +977,14 @@ const EMBEDDED: &[&str] = &[
     // Appended for the same reason the comment above gives -- never
     // inserted among the others, which would renumber every well-known id
     // after it at runtime rather than in a test.
+    //
+    // `rubble` sits ahead of the plant materials because it is the one with
+    // a pinned convenience constant (`material::RUBBLE = 15`, guarded by
+    // `well_known_ids_match_their_names`) -- the fracture path addresses it
+    // by that constant in hot code, while leaf/rootwood/seed are only ever
+    // looked up by name. Both sides of the plant/destruction merge appended
+    // to this list; the one with an id contract wins the earlier slot.
+    include_str!("../../assets/materials/rubble.ron"),
     include_str!("../../assets/materials/leaf.ron"),
     include_str!("../../assets/materials/rootwood.ron"),
     include_str!("../../assets/materials/seed.ron"),
@@ -920,6 +1053,11 @@ impl MaterialRegistry {
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
             breaks_into: String::new(),
+            attached_span_bonus: 1,
+            fragment_rungs: 5,
+            support_cost_below: 1,
+            support_cost_beside: 1,
+            support_cost_above: 1,
         }));
         reg.insert(Material::from(MaterialDef {
             name: "bedrock".into(),
@@ -952,6 +1090,11 @@ impl MaterialRegistry {
             // other material's span is.
             max_unsupported_span: u16::MAX,
             breaks_into: String::new(),
+            attached_span_bonus: 1,
+            fragment_rungs: 5,
+            support_cost_below: 1,
+            support_cost_beside: 1,
+            support_cost_above: 1,
         }));
         reg
     }
@@ -1184,6 +1327,7 @@ mod tests {
             ("water", WATER),
             ("oil", OIL),
             ("smoke", SMOKE),
+            ("rubble", RUBBLE),
         ];
         for (name, id) in expected {
             assert_eq!(reg.id_of(name), Some(id), "{name} has the wrong id");

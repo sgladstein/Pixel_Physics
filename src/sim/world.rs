@@ -96,6 +96,13 @@ pub struct World {
     pub frame: u64,
     pub materials: MaterialRegistry,
     pub rng: Rng,
+    /// M8: coherent pieces of broken structure currently in flight
+    /// (`rigid::ChunkBody`). A plain `Vec`, stepped in index order, because
+    /// insertion order is the only tiebreak that stays identical run to run
+    /// — the same determinism requirement that moved `active_sites` off a
+    /// `HashMap`. Distinct from `bodies` below, which is the liquid
+    /// heightfield's own unrelated arena.
+    pub chunk_bodies: Vec<crate::sim::rigid::ChunkBody>,
     /// M16: growing plant tips (and M17/M18's structural checks and
     /// creature ticks), due soonest at the top -- a min-heap keyed on
     /// `ActiveSite::next_frame`, see `scheduler::step`'s own doc for why
@@ -201,6 +208,81 @@ pub struct World {
     /// in the very call that's checking it) was caught by an independent
     /// review and closed the same way, checking both before and after.
     touched_chunks: std::collections::HashSet<ChunkCoord>,
+    /// Cells the load walks in `load.rs` may still visit this frame,
+    /// refilled to `load::MAX_LOAD_CELLS_PER_FRAME` by `scheduler::step`.
+    ///
+    /// Lives on `World` rather than being threaded through the scheduler
+    /// because a structural check is dispatched one site at a time and the
+    /// budget has to survive between them. Spent down rather than counted
+    /// up, so a walk can hand `&mut` straight to it and stop when it hits
+    /// zero without knowing what the ceiling was.
+    pub load_budget: u32,
+    /// Cumulative count of structural failures, by kind
+    /// (`load::FailureMode`). Debug instrumentation, and deliberately not
+    /// optional: a coherent falling slab and a scatter of loose grains are
+    /// indistinguishable in a contact sheet, and so are the two failure
+    /// modes -- one of which is "this was overloaded" and the other "this
+    /// was never held". Read by `examples/filmstrip.rs` beside the image.
+    pub structural_failures: FailureCounts,
+    /// Per-frame caches for the load walks (`load::Cache`).
+    /// Cleared by `scheduler::step` each frame and again by
+    /// `structural::tick` the instant a break mutates the grid, since both
+    /// invalidate the support forest it summarises.
+    pub load_cache: crate::sim::load::Cache,
+}
+
+/// How many structural failures of each kind have fired, and how much
+/// material each took. See `World::structural_failures`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FailureCounts {
+    pub overloaded: u32,
+    pub overloaded_cells: u32,
+    pub unsupported: u32,
+    pub unsupported_cells: u32,
+    /// Furthest a failure has ever been found from the cell whose check
+    /// found it, in cells.
+    ///
+    /// Instrumentation for a decision, not a metric anyone needs at
+    /// runtime. `Reports/prior-art-destruction.md` flags
+    /// `ROOTWARD_CHECK_STEPS = 128` as having 7 Days to Die's exact bug
+    /// shape -- a blow bringing down rock a hundred cells away, frames
+    /// later, which players experienced as bases collapsing for no visible
+    /// reason. The proposed fix (bound the walk by distance from what
+    /// actually changed) contradicts that constant's own doc comment,
+    /// which records that 16 was too small and left `scene=ligament`'s neck
+    /// standing at a stress ratio of 1.87. So the question is empirical:
+    /// how far do failures *actually* land from their trigger here?
+    pub max_chain_reach: u32,
+    /// The largest single failing region, in cells.
+    ///
+    /// The mean (`overloaded_cells / overloaded`) is not enough on its own:
+    /// one 200-cell break averaged with fifty 1-cell ones reads as a
+    /// respectable 5, and 1-cell failures are exactly the shape that
+    /// produces dust, because `rigid::fracture` declines anything below
+    /// `MIN_FRACTURE_CELLS` and falls through to per-cell conversion. So
+    /// the pair -- mean and max -- is what says whether pieces or grit came
+    /// out, and neither half says it alone.
+    pub largest_failure: u32,
+}
+
+impl FailureCounts {
+    pub fn record_reach(&mut self, reach: u32) {
+        self.max_chain_reach = self.max_chain_reach.max(reach);
+    }
+
+    pub fn record(&mut self, mode: crate::sim::load::FailureMode, cells: usize) {
+        self.largest_failure = self.largest_failure.max(cells as u32);
+        match mode {
+            crate::sim::load::FailureMode::Overloaded => {
+                self.overloaded += 1;
+                self.overloaded_cells += cells as u32;
+            }
+            crate::sim::load::FailureMode::Unsupported => {
+                self.unsupported += 1;
+                self.unsupported_cells += cells as u32;
+            }
+        }
+    }
 }
 
 impl World {
@@ -212,6 +294,7 @@ impl World {
             frame: 0,
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
+            chunk_bodies: Vec::new(),
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             bodies: Vec::new(),
@@ -223,6 +306,9 @@ impl World {
             free_organism_slots: Vec::new(),
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
+            load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
+            load_cache: crate::sim::load::Cache::default(),
+            structural_failures: FailureCounts::default(),
         };
         world.ensure_chunks_for(bounds);
         world
@@ -897,6 +983,35 @@ impl World {
         self.fields_settled
     }
 
+    /// Set the moisture floor covering the field block containing `(x, y)`.
+    ///
+    /// For `worldgen` only: this is how the saturated zone below the water
+    /// table is laid down. Saturated *ground* cannot be liquid cells — a cell
+    /// holds one material and there is no porosity — so the aquifer is a
+    /// property of the field rather than of the grid, and this is the seam
+    /// that writes it. See `field::FieldTile::moisture_floor`.
+    ///
+    /// Silently skips positions whose chunk is not resident, exactly as CA
+    /// writes outside a loaded chunk are not materialised.
+    pub(crate) fn set_field_moisture_floor(&mut self, x: i32, y: i32, floor: f32) {
+        let (fx, fy) = field::field_coord_of(x, y);
+        let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+        if let Some(tile) = self.fields.get_mut(&tile_coord) {
+            tile.set_moisture_floor_local(lx, ly, floor);
+            // A write from outside the solve, so the solve has to run at
+            // least once more even if it had converged -- the same reason
+            // `paint_field` clears this.
+            self.fields_settled = false;
+        }
+    }
+
+    /// The moisture floor at a world position, for tests and the inspector.
+    pub fn field_moisture_floor(&self, x: i32, y: i32) -> f32 {
+        let (fx, fy) = field::field_coord_of(x, y);
+        let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+        self.fields.get(&tile_coord).map_or(0.0, |t| t.moisture_floor_local(lx, ly))
+    }
+
     pub(crate) fn set_fields_settled(&mut self, settled: bool) {
         self.fields_settled = settled;
     }
@@ -1347,9 +1462,34 @@ impl World {
         material: MaterialId,
         density: f32,
     ) {
+        self.paint_capsule_as(a, b, radius, material, density)
+    }
+
+    /// As `paint_capsule`, but places material as part of the **background
+    /// mass** when `attached` (see `Cell::attached`).
+    ///
+    /// The brush lays down foreground by default, and that is the right
+    /// default: material a player stacks has to hold itself up, which is
+    /// what makes building a real constraint. But terrain is not built that
+    /// way — a cave wall is braced by rock out of plane — so authoring
+    /// terrain needs to say so, or every hand-made cavern behaves like a
+    /// free-standing structure and collapses.
+    ///
+    /// Kept as a separate entry point rather than a parameter on
+    /// `paint_capsule` so the dozens of existing callers, none of which want
+    /// this, stay untouched.
+    pub fn paint_capsule_as(
+        &mut self,
+        a: (i32, i32),
+        b: (i32, i32),
+        radius: i32,
+        material: MaterialId,
+        density: f32,
+    ) {
         let shades = self.materials.get(material).palette.len().max(1) as u32;
         let r = radius.max(0);
         let r2 = (r * r) as f32;
+        let mut touched_structure = false;
 
         for y in (a.1.min(b.1) - r)..=(a.1.max(b.1) + r) {
             for x in (a.0.min(b.0) - r)..=(a.0.max(b.0) + r) {
@@ -1383,7 +1523,60 @@ impl World {
                 // therefore the only thing `render::GrainMode::Cell` can
                 // key grain on so the texture travels with the material.
                 let shade = (self.rng.below(shades) + shades * self.rng.below(256 / shades.max(1))) as u8;
-                self.set(x, y, Cell::new(material, shade));
+                // Background rock has to *join* background rock.
+                //
+                // `Cell::attached` means "backed by mass the slice cannot
+                // show". A floating island of it is a claim the model has
+                // no way to check and every way to be ruined by: attached
+                // rock carries a twelvefold capacity bonus, so a detached
+                // blob of it is very nearly indestructible terrain hanging
+                // in mid-air. "Paint indestructible terrain anywhere,
+                // unlimited" is the right tool for authoring a test scene
+                // and the wrong one for a game about building things that
+                // can fall down.
+                //
+                // So the brush extends the massif rather than conjuring
+                // it: a cell becomes background only if it touches
+                // background, bedrock, or the world edge (which reads as
+                // bedrock via `Cell::OUT_OF_BOUNDS`). Anything else lands
+                // as ordinary foreground and has to hold itself up. Terrain
+                // grows from terrain, which is the same statement
+                // `attached` was always making.
+                //
+                // Cheap now that C1 exists: material keyed into terrain
+                // gets the bonus at its joint anyway, so the case this
+                // used to be needed for is already served.
+                // **Everything placed is intact.**
+                //
+                // `Cell::attached` used to mean "part of the background
+                // massif", authorable only through a separate brush mode.
+                // It now means *undamaged*, which is what a construction is
+                // until something happens to it. Reported from play: "I
+                // don't want my constructions to just immediately fall down
+                // or to have to work at all to make sure they are
+                // structurally stable, but I do want it to break
+                // realistically."
+                //
+                // A **multiplier, never an exemption**, and that is the
+                // whole design (`Reports/building-rethink.md` §3a). Intact
+                // rock is still evaluated and can still fail; it carries
+                // `attached_span_bonus` while it does. Exempting it instead
+                // would make one chip level a castle -- a structure
+                // standing only by exemption has no answer the moment
+                // anything asks, so the cascade reaches everything. With a
+                // multiplier the ring behind a wound is judged against a
+                // real capacity, so a chunky wall holds and an
+                // over-reaching span does not, and a collapse stops where
+                // the structure is genuinely sound.
+                //
+                // Damage revokes it, and every destructive verb already
+                // does: `structural::detach_exposed_neighbours` for digging
+                // and blasts, `detach_around_crack` for every crack a blow
+                // scores, `rigid::strike` over its chip zone. That is why
+                // this is not the "everything the player builds is
+                // indestructible" failure that killed four earlier support
+                // models -- in each of those, nothing ever revoked it.
+                self.set(x, y, Cell::new(material, shade).with_attached(material != material::EMPTY));
                 // M17: either side of this write might be a `Solid`/`Plant`
                 // (architecture item 9) that just gained or lost a neighbour
                 // it was relying on -- placing new stone, or erasing existing
@@ -1395,10 +1588,36 @@ impl World {
                 let placed_structural = matches!(self.materials.kind(material), material::MaterialKind::Solid | material::MaterialKind::Plant);
                 let erased_structural = material == material::EMPTY
                     && matches!(self.materials.kind(existing_material), material::MaterialKind::Solid | material::MaterialKind::Plant);
-                if placed_structural || erased_structural {
-                    self.schedule_structural_check_around(x, y);
+                if !placed_structural && !erased_structural {
+                    continue;
                 }
+                self.schedule_structural_check_around(x, y);
+                // Cutting rock costs its neighbours their backing, which is
+                // what lets mining produce anything at all -- see
+                // `structural::detach_exposed_neighbours`. Erasing only:
+                // *placing* material must not strip the attachment of the
+                // terrain it was placed against.
+                if erased_structural {
+                    super::structural::detach_exposed_neighbours(self, x, y);
+                }
+                touched_structure = true;
             }
+        }
+        // One converged pass over what the stroke touched, rather than
+        // letting a reactive wavefront climb through it a cell per five
+        // frames. See `structural::relax_region` for why a stroke needs
+        // this and generated terrain never did. Margin covers the cells
+        // just outside the brush whose own distance the new material
+        // changes, and `DETACH_DEPTH`'s loosened band on an erase.
+        if touched_structure {
+            const MARGIN: i32 = 4;
+            let region = Rect::new(
+                a.0.min(b.0) - r - MARGIN,
+                a.1.min(b.1) - r - MARGIN,
+                a.0.max(b.0) + r + MARGIN,
+                a.1.max(b.1) + r + MARGIN,
+            );
+            super::structural::relax_region(self, region);
         }
     }
 
@@ -1562,6 +1781,12 @@ impl CellSurface for World {
     #[inline]
     fn field_moisture_at(&self, x: i32, y: i32) -> f32 {
         World::field_at(self, x, y).moisture
+    }
+
+    #[inline]
+    fn field_wind_at(&self, x: i32, y: i32) -> (f32, f32) {
+        let f = World::field_at(self, x, y);
+        (f.vx, f.vy)
     }
 
     #[inline]

@@ -1181,7 +1181,13 @@ mod tests {
         }
 
         assert_eq!(w.body_count(), 0, "a grain of sand displacing into the body should have demoted it");
-        assert_eq!(w.get(target_x, WATER_Y).material, material::SAND, "the grain should have sunk into the managed cell");
+        // Any of the three columns, not `target_x` exactly: a grain sinking
+        // through liquid now sometimes takes a diagonal step instead of a
+        // straight one (`update::SINK_SPREAD`), so which column it lands in
+        // is deliberately not deterministic. What this test is about is that
+        // it sank *into the body's row at all*, which is what demotes it.
+        let landed = (target_x - 1..=target_x + 1).any(|x| w.get(x, WATER_Y).material == material::SAND);
+        assert!(landed, "the grain should have sunk into the managed cell");
     }
 
     #[test]

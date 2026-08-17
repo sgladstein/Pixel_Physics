@@ -85,6 +85,14 @@ fn glyph_for(c: char) -> Glyph {
         '?' => [0b01110, 0b10001, 0b00001, 0b00110, 0b00100, 0b00000, 0b00100],
         '+' => [0b00000, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0b00000],
         '=' => [0b00000, 0b00000, 0b11111, 0b00000, 0b11111, 0b00000, 0b00000],
+        // Added for the tunables panel: `_` because every tunable's name is
+        // a snake_case field name and rendering those as ragged gaps made
+        // them read as two separate words, and `<`/`>` for the pinned
+        // readout's own left/right adjust hint. Same class of omission the
+        // `[`/`]` comment above records finding by looking at the output.
+        '_' => [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111],
+        '<' => [0b00010, 0b00100, 0b01000, 0b10000, 0b01000, 0b00100, 0b00010],
+        '>' => [0b01000, 0b00100, 0b00010, 0b00001, 0b00010, 0b00100, 0b01000],
         ' ' => BLANK,
         // Any other character (lowercase, accented, anything not in the set
         // above) renders as blank rather than a mystery box or a panic --

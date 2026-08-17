@@ -23,10 +23,21 @@ fn main() {
     });
 
     // The same amount of each powder, dropped from the same height. Their
-    // friction angles are 45, 34 and 22 degrees, so gravel should hold a sharp
-    // peak, sand a moderate one, and ash should slump almost flat.
-    scene("angle of repose: gravel, sand, ash", 120, 34, 1500, |w| {
-        for (x, m) in [(20, material::GRAVEL), (60, material::SAND), (100, material::ASH)] {
+    // friction angles are 55, 45, 34 and 22 degrees, so rubble should hold the
+    // sharpest peak of all, gravel a sharp one, sand a moderate one, and ash
+    // should slump almost flat.
+    //
+    // Rubble is here to keep an honest record of how little its steeper angle
+    // actually buys: it lands at rows 1/5/7/11/15/17 against gravel's
+    // 1/5/8/11/14/17 -- marginally steeper, not visibly blockier, because
+    // reach is quantised and 55 degrees only shifts the per-grain chance of
+    // stepping sideways. `rubble.ron`'s header explains why chasing a bigger
+    // difference here is the wrong lever. Kept in the scene so the comparison
+    // stays visible rather than being an assertion in a comment nobody
+    // re-checks.
+    scene("angle of repose: rubble, gravel, sand, ash", 160, 34, 1500, |w| {
+        let rubble = w.materials.id_of("rubble").expect("rubble is a compiled-in material");
+        for (x, m) in [(20, rubble), (60, material::GRAVEL), (100, material::SAND), (140, material::ASH)] {
             for y in 2..10 {
                 for dx in -3..=3 {
                     w.set(x + dx, y, Cell::new(m, 0));
@@ -185,12 +196,23 @@ fn main() {
         w.plant_moss_seed(72, 14);
     });
 
-    // M17: a short stone bridge anchored at both world edges, cut on one
-    // side after settling. Should print twice: intact (nothing broken, since
-    // every cell of a 7-wide bridge sits within stone's span-3 reach of one
-    // end or the other), then with the far half collapsed into gravel after
-    // the right anchor is erased.
-    structural_scene("M17: cutting a bridge's far support collapses the far span", 7, 15);
+    // M17: a stone bridge anchored at both world edges, cut on one side
+    // after settling. Should print twice: intact (nothing broken, since
+    // every cell sits within stone's span of one end or the other), then
+    // with the far span collapsed into gravel after the right anchor is
+    // erased.
+    //
+    // **Width tracks stone's span and has to.** This was 7 wide against a
+    // span of 3. Confinement and direction-weighted steps raised the span
+    // well past that, and at 7 wide the scene silently stopped demonstrating
+    // anything -- cutting the anchor removed one cell and the remaining six
+    // stood, since all of them were now comfortably in reach of the left
+    // edge. It printed a perfectly healthy-looking bridge twice and proved
+    // nothing. Keep this wider than 2x the span, or it degrades the same way
+    // again.
+    structural_scene("M17: cutting a bridge's far support collapses the far span", 30, 15);
+
+    terrain_generation_cost();
 
     // M18: a worm burrows through a sand field (should visibly relocate from
     // its seed position over the run), then a fire is lit nearby partway
@@ -463,6 +485,80 @@ fn render_stress_scene(title: &str, w: i32, h: i32, setup: impl FnOnce(&mut Worl
 /// calls (as `scene`/`scene_with` use for their pre-placed floors) leave
 /// `structural.rs` untouched by design, matching how the sandbox's own
 /// world-gen terrain is exempt.
+/// What computing structural distances for a whole freshly-generated world
+/// actually costs, on the sandbox's real 512x320 terrain.
+///
+/// Reported because the claim this rests on has to be measured, not argued.
+/// Confinement is what makes the *search* cheap -- cells inside bulk rock
+/// are anchors by local test alone and never relax, so it runs along free
+/// surfaces rather than through volumes. But the measurement says the
+/// seeding scan dominates (one hashed `World::get` per cell across the whole
+/// world, issue #5's pattern in a new place), so the function as written
+/// still scales with world volume even though its search does not. Watch
+/// this number if terrain gets thicker or the world gets bigger; under M10
+/// streaming it becomes a per-chunk pass and stops being world-sized at all
+/// (`Reports/worldgen-design.md` §6b).
+///
+/// One-off generation cost, not a frame cost -- nothing here runs per frame.
+fn terrain_generation_cost() {
+    println!("\n=== M17: structural distances for a freshly generated world ===");
+    let mut world = World::new(Rect::new(0, 0, 511, 319));
+    let start = std::time::Instant::now();
+    pixel_physics::app::build_terrain(&mut world);
+    let with_pass = start.elapsed();
+
+    // The same terrain again, timed without the structural pass, so the
+    // figure above is attributed rather than just stated.
+    let mut bare = World::new(Rect::new(0, 0, 511, 319));
+    let start = std::time::Instant::now();
+    pixel_physics::app::build_terrain_only(&mut bare);
+    let without_pass = start.elapsed();
+
+    let solid = (0..512).map(|x| (0..320).filter(|&y| world.get(x, y).material != material::EMPTY).count()).sum::<usize>();
+    println!(
+        "512x320 hand-authored terrain, {solid} solid cells: {:.2} ms to build and relax, {:.2} ms to build alone \
+         -- the structural pass itself is {:.2} ms, paid once at generation",
+        with_pass.as_secs_f64() * 1000.0,
+        without_pass.as_secs_f64() * 1000.0,
+        (with_pass.saturating_sub(without_pass)).as_secs_f64() * 1000.0,
+    );
+
+    // The same attribution for a *generated* world, which is what the app
+    // actually builds now. Worth measuring separately rather than assuming
+    // it tracks the figure above: the generated massif fills most of the
+    // world instead of a floor and three ledges, and the structural pass
+    // scales with how much solid there is to relax.
+    let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
+    if let Some(e) = err {
+        println!("worldgen presets unavailable ({e}); skipping generated-terrain timing");
+        return;
+    }
+    let name = presets.default_name();
+    let Some(params) = presets.get(&name) else { return };
+    let spec = || pixel_physics::worldgen::Spec::Generated { params, seed: 1 };
+
+    let mut gen = World::new(Rect::new(0, 0, 511, 319));
+    let start = std::time::Instant::now();
+    pixel_physics::worldgen::generate(&mut gen, spec());
+    let gen_with_pass = start.elapsed();
+
+    let mut gen_bare = World::new(Rect::new(0, 0, 511, 319));
+    let start = std::time::Instant::now();
+    pixel_physics::worldgen::generate_only(&mut gen_bare, spec());
+    let gen_without_pass = start.elapsed();
+
+    let gen_solid =
+        (0..512).map(|x| (0..320).filter(|&y| gen.get(x, y).material != material::EMPTY).count()).sum::<usize>();
+    println!(
+        "512x320 generated terrain ({name}, seed 1), {gen_solid} solid cells: {:.2} ms to build and relax, \
+         {:.2} ms to place alone -- the structural pass itself is {:.2} ms, paid once at generation \
+         (and again on every F6 reroll)",
+        gen_with_pass.as_secs_f64() * 1000.0,
+        gen_without_pass.as_secs_f64() * 1000.0,
+        (gen_with_pass.saturating_sub(gen_without_pass)).as_secs_f64() * 1000.0,
+    );
+}
+
 fn structural_scene(title: &str, w: i32, h: i32) {
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
@@ -634,6 +730,12 @@ fn glyph(id: MaterialId) -> char {
     match id {
         material::SAND => 'o',
         material::GRAVEL => 'O',
+        // Distinct from gravel's 'O' on purpose: the M17 scenes below are
+        // read to tell collapsed stone from material that was already loose,
+        // and without its own glyph rubble fell through to ' ' -- a collapsed
+        // span printed as empty space, which reads as "vanished" rather than
+        // "came down".
+        material::RUBBLE => '@',
         material::ASH => '.',
         material::WATER => '~',
         material::OIL => ':',

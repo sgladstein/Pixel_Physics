@@ -10,6 +10,12 @@ into terrain on impact," and it does exactly that. The problem is that it
 does *only* that, in one frame, and two of the three things the design says
 an explosion writes turn out to have no consumer at all.
 
+> **Read §5 with round 4's correction in hand.** "Pressure has no consumer"
+> is overstated: pressure drives velocity, and velocity was already read by
+> the field's own advection and by `organism::wind_lean_dir`. The accurate
+> claim is that velocity moved no *material*. Rounds are kept in order rather
+> than rewritten, per this repo's "a revert keeps the knowledge" convention.
+
 ## Harness note
 
 `examples/filmstrip.rs` could not show an explosion before this pass: it ran
@@ -313,3 +319,186 @@ blast radius should be decoupled from the brush radius** — or the default
 raised a long way. This is probably worth doing before anything else on the
 round-1 list, because it is one line and it gates whether any of the rest is
 even visible.
+
+---
+
+# Round 3 — what was built
+
+All of the above is implemented. `sim::explosion` is now a `Tuning` struct, a
+`Blast` (a cavity front expanding one stage per frame) and a `Blasts`
+collection, with two drivers over one `Blast::advance` — the staged one
+`App::update` calls, and a synchronous `trigger()` that runs a blast to
+completion in a single call for tests. That is the same "two drivers, one set
+of rules" shape `update::step` / `parallel::step` already use, for the same
+reason: a second implementation would drift.
+
+| round-1 item | built as |
+|---|---|
+| give the blast a duration | `Tuning::duration`, default 10 frames |
+| flash / respect flammability | `Blast::scorch` writes CA cell temperature; ignition rolls `flammability` |
+| fewer, longer-lived debris | `Tuning::debris_fraction`, default 0.4 |
+| ragged fireball burnout | `BURN_DURATION_JITTER`, ±50% per ignited cell |
+| smoke | `Tuning::smoke_fraction`, default 0.18 |
+| decouple blast radius from brush | `Tuning::radius`, default 22 |
+| let debris move through material | `particle::Particle::pierce` (round 2) |
+| couple field pressure to something | **not done** — still out of scope |
+
+## Two bugs found while building it, both by looking
+
+- **The epicentre was never cleared.** `clear_annulus` skips `dist2 <=
+  prev2` so a stage cannot re-clear the previous stage's ring, and at stage 0
+  `prev2` is exactly 0.0 — which silently spared the single cell at
+  `dist2 == 0`, i.e. the material directly under the charge. Caught by
+  `an_explosion_clears_material_within_its_radius`, which has asserted
+  exactly that since M15.
+- **No shipped material has a finite `ignition_temperature`.** Writing cell
+  temperature glows correctly but cannot *light* anything: `fire::try_ignite`
+  gates its temperature path on a finite `ignition_temperature`, and every
+  material file leaves it at the "never" default — oil's own comment says so
+  explicitly. A fireball that only wrote heat would have looked right and
+  started no fires, the exact opposite failure to the one being fixed. So
+  `scorch` also rolls `flammability` directly, which is the same property
+  `try_ignite` rolls for neighbour contact: stone (0.0) can never light, oil
+  (0.5) readily does. `oil_beside_a_blast_ignites_but_stone_does_not` runs
+  the real sweep and pins both halves.
+
+## Result
+
+Sand, radius 22, strength 180, measured 5 seconds after detonation:
+
+| cover | material evacuated from 3× radius (was → now) | peak particles | worst frame |
+|---|---|---|---|
+| 2 | 564 → **738** | 437 | 3.4 ms |
+| 6 | 671 → **896** | 525 | 3.6 ms |
+| 15 | 771 → **1085** | 651 | 3.8 ms |
+| 30 | 703 → **1172** | 791 | 3.8 ms |
+| 60 | 170 → **712** | 810 | 4.5 ms |
+
+Water, which previously threw *nothing* at any depth, now opens real
+cavities; worst frame there runs 5.7–9.0 ms against a 3.9–5.7 ms baseline for
+the same scene without a blast, so a blast in deep water costs roughly 3 ms
+while it is expanding. Peak in-flight particles is **810 against the 7213**
+the naive full-debris prototype produced for a comparable blast — staging
+spreads spawning across ten frames and `debris_fraction` halves it again.
+
+`examples/ascii.rs`'s standing stress numbers are untouched: no explosion
+runs in those scenes, and the only hot-path change (`particle::
+advance_and_check_landing` taking `&mut World` and gaining a pierce branch)
+costs nothing where there are no particles.
+
+## Known caveats
+
+- **The crater-retention metric now understates itself.** It counts
+  materially-empty cells, and `smoke_fraction` deliberately backfills part of
+  the crater — so smoke that has not yet risen away reads as "collapsed."
+  The evacuation column is the one to trust; this is the third time in this
+  investigation a metric has quietly changed meaning under a mechanism
+  change, which is the standing lesson rather than a new one.
+- **Heated water draws with the fire tint**, since `render.rs` keys the glow
+  off cell temperature regardless of material. It reads as a bright rim
+  around an underwater cavity, which is not wrong exactly, but steam would be
+  the honest answer. `flash_temperature` tunes it down.
+- **Field pressure still has no consumer.** The shockwave propagates and
+  reflects across the world and moves nothing, exactly as before. That was
+  scoped out of round 1 and stays out.
+
+---
+
+# Round 4 — giving field pressure a consumer
+
+Standing conclusion from rounds 1–3 was that the pressure channel does
+nothing. **That was overstated, and the correction matters.** The real chain
+is `impulse → pressure → step_velocity → velocity`, and velocity already has
+two consumers: the field's own semi-Lagrangian advection of
+heat/light/moisture, and `organism::wind_lean_dir`, whose comment records
+that a blast's shockwave was strong enough it had to be clamped to
+direction-only. The accurate statement is narrower: **velocity moved no
+material.** No CA cell and no free particle was ever pushed by wind.
+
+Two consumers now exist.
+
+## Gas drifts on wind (`update_gas`)
+
+`CellSurface::field_wind_at`, biasing the horizontal preference `update_gas`
+already picked with a fair coin.
+
+**Cost: free, and for a reason that was not the one assumed.** The obvious
+argument is "gas is a small population, unlike the 10⁵ cells/frame that got
+the field read removed from `fire::diffuse_heat`." True, but secondary. The
+one that does the work is that `diffuse_heat` called `World::field_at`, a
+**HashMap lookup**, whereas the production sweep is `parallel::step` and
+`ChunkView::field_wind_at` answers from the worker's *own field tile by array
+index*. Measured on a deliberately absurd scene — 56,640 gas cells, ~140x
+what a blast leaves, with a live impulse over it:
+
+| | mean frame, 3 runs |
+|---|---|
+| with the read | 6.392 / 6.142 / 6.179 ms |
+| without | 6.455 / 6.218 / 6.157 ms |
+
+Indistinguishable. (A first attempt reported 73 ms vs 30 ms and was entirely
+warm-up — the first ~20 frames of any scene here are dominated by allocation
+and first-touch faults. Worth remembering before believing any single
+worst-frame number in this repo.)
+
+**The first implementation was a complete no-op, and no test would have
+caught it.** `update_gas` tries the straight-up move first; a plume in open
+air always has an empty cell above it, so the wind-weighted horizontal choice
+was only ever consulted for gas already trapped under a ceiling. The rule
+genuinely "used" the wind on every call and moved nothing. Caught by
+rendering the same blast with the bias on and off and getting two identical
+contact sheets. Fixed by letting strong wind take the downwind diagonal
+*before* rising.
+
+Even then the effect was invisible in stills, because a blast's own outflow
+is radial — it disperses a plume rather than leaning it. The quantity that
+settled it was the **plume centroid**, not the image:
+
+| | sideways drift over 140 frames |
+|---|---|
+| with prevailing wind | **+19.4 cells** (while rising 119) |
+| control | −3.2 cells |
+
+`WIND_BIAS_FULL_SPEED` was also set from measurement rather than eye, after
+the first value (0.35) saturated permanently: probing real field velocity
+around a blast gives a peak near **86**, falling through ~20 by frame 24,
+sitting at 1–3 for another forty frames, under 1 by frame 80.
+
+## Free particles feel wind (`particle::WIND_DRAG`)
+
+Reverses that module's own "deliberately does not touch the M13 field"
+decision — the premise changed, not the rule, so the original reasoning is
+kept in the module doc rather than deleted.
+
+Written as drag *toward* the wind's velocity, not as an added force. That
+distinction is load-bearing given the numbers above: field velocity peaks
+near 86 while `MAX_SPEED_PER_AXIS` clamps particles to 8, so any formula
+adding a fraction of raw wind would swamp the launch direction
+`debris_velocity` computes and, once the shock reflects, drive debris back
+into its own crater — exactly what `debris_is_thrown_away_from_the_
+epicentre_not_toward_it` exists to catch. Relative-velocity drag is
+self-limiting: fast debris moving with the blast feels almost nothing.
+
+## Tried and reverted: ambient wind as a real field forcing term
+
+The better design, and it is not affordable. A small `vx` nudge on every
+unblocked field cell each step — so heat advection and tree lean would feel
+it too — **destroys the field-sleep optimization (issue #4)**. A uniform
+velocity in a bounded world hits walls, which creates divergence, which
+creates pressure, which creates more velocity, so `is_converged` never
+returns true.
+
+Measured on `examples/ascii.rs`'s own sleep scene: settled-field frame cost
+went from **0.0002 ms to 3.55 ms**, permanently, on every scene, and six
+field tests failed. `CLAUDE.md` is explicit that frame cost is a hard
+constraint, so it was reverted.
+
+What shipped instead is deliberately the lesser thing: `PREVAILING_DRIFT`, a
+constant the *gas rule alone* reads. Costs nothing, and is honestly an
+approximation rather than physics — this wind does not carry heat, sway
+trees, or appear in the F-key velocity overlay. **The prerequisite for a real
+field-level wind is making the solver settle with a steady forcing term
+present**, not re-attempting the same nudge and rediscovering the same
+3.55 ms.
+
+Field sleep re-verified after all of the above: **0.0001 ms once settled.**

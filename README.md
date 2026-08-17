@@ -25,11 +25,16 @@ cargo test
 | `.` | Step one frame while paused |
 | `F` | Force-ignite whatever's under the brush (debug tool) |
 | `P` | Throw a burst of the selected material as free particles (debug tool) |
-| `X` | Trigger an explosion at the brush radius |
+| `X` | Trigger an explosion (its own radius/strength, tunable under `O` -> EXPLOSION, **not** the brush radius) |
+| `C` | **Strike** the rock under the cursor — pulverizes the centre, loosens the rock around it and throws the pieces. Force scales with brush size. The destruction *verb*: erasing removes support but delivers no load, so before this nothing could fail from being hit |
 | `T` | Plant a tree seed under the brush (M16 debug tool) |
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `W` | Plant a worm under the brush (M18 debug tool) |
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
+| `N` | Toggle the structural stress view — every load-bearing cell tinted green at rest through red at its limit |
+| `D` | Dig — a precise cut that loosens and cracks the rock around it, unlike the eraser |
+| `Z` | Cycle the build tool — freehand brush, solid rectangle, hollow room, line |
+| `B` | Stamp a **reference room** — 200x160, standing on whatever ground is under the cursor, walls as thick as the brush. Deliberately sized at the measured edge of what the structural model holds (`Reports/next-session-handoff.md` §2b), so the open question "is a room this big a reasonable thing to want to build?" can be judged in the hand instead of argued from a contact sheet |
 | `V` | Cycle the field overlay: off → pressure → temperature → light → moisture → off |
 | `G` | Cycle how a liquid's brightness grain is generated: position (default) → cell → muted → animated → motion → animated-muted → animated-smooth. Kept as a live selector so the look can keep being iterated on. The animated variants have to redraw liquid chunks the sweep never touched, so they are the only ones that cost anything: measured on a fully settled world with water across 92% of the width, animated-muted costs 1.45 ms and animated-smooth 7.5 ms, against 0.000 ms for every other mode and for any of them with no water on screen. Exists so the variants can be judged on real moving water rather than argued about; the active one is shown in the title bar. See `render::GrainMode`, and expect this key and the enum to disappear together once one is chosen. |
 | `K` | **A/B key.** Flips whatever is being evaluated right now between its baseline and candidate value, so a comparison is one keypress rather than a scroll through a panel. Deliberately reassigned whenever the question changes, with the previous experiment deleted rather than accumulated — see `App::toggle_experiment` for what it currently does. |
@@ -553,6 +558,18 @@ particles (debug tool, ahead of M15 giving explosions a real reason to call
 
 ## M15 status
 
+**Rebuilt after a diagnosis pass** — see
+[`Reports/explosion-mechanics-diagnosis.md`](Reports/explosion-mechanics-diagnosis.md)
+for the measurements. A blast now expands over `Tuning::duration` frames
+rather than resolving in one; the fireball writes CA cell temperature (so it
+glows, fades raggedly, and respects `flammability` — the old path reused the
+debug force-ignite tool and set *stone* alight); debris can punch through
+loose material (`particle::Particle::pierce`), which is what makes a buried
+charge throw anything at all; and the crater is backfilled with smoke, giving
+`SMOKE` its first producer anywhere in the simulation. Every number lives on
+`explosion::Tuning`, live-adjustable under `O` and persisted to
+`assets/explosion.ron`.
+
 Explosions, in [`src/sim/explosion.rs`](src/sim/explosion.rs) —
 `explosion::trigger`, built entirely from M13/M14/M7 triggered together, no
 new simulation primitive. Per the plan: a pressure impulse and heat spike
@@ -631,9 +648,12 @@ within one worker's own sweep still see that worker's own earlier writes,
 the same way a direct `World::set` always has — before it could be trusted,
 and it does not visibly announce itself as missing; it would have shipped
 as a subtle, load-bearing gap. What's in `parallel.rs` instead needs **no
-`unsafe` anywhere** (`grep -rn unsafe src/` returns nothing but the doc
-comments describing why there's none), at the cost of one extra serial
-merge step per pass.
+`unsafe` anywhere** in the simulation, at the cost of one extra serial merge
+step per pass. (This section used to claim `grep -rn unsafe src/` returned
+nothing but doc comments — stale: `main.rs` has since gained test-only
+`unsafe { std::env::set_var }` blocks, which Rust 2024 makes unsafe and
+`ENV_LOCK` serializes. Nothing in the sweep, the rules, or any simulation
+path uses `unsafe`.)
 
 **The proof, worked out by hand and then checked exhaustively by a test.**
 Movement only ever moves a cell by `MAX_REACH` (32, exactly half of
@@ -897,25 +917,58 @@ Built: destructible building with no polygon solver (`structural.rs`). Every
 anchor — bedrock, or the world edge (the `Cell::OUT_OF_BOUNDS` sentinel
 already used everywhere else a rule needs to treat the edge as a wall, so
 both cases are one check). A cell whose distance exceeds its material's
-`max_unsupported_span` converts to `breaks_into` (stone becomes gravel) and
-falls under ordinary gravity like any other loose material — M8 upgrades
-that into coherent tumbling chunks later without this milestone needing to
-change.
+`max_unsupported_span` converts to `breaks_into` (stone becomes rubble) and
+falls under ordinary gravity like any other loose material — unless the
+failing region is a detached piece big enough to read as a chunk, in which
+case M8's `rigid::ChunkBody` flies it as one coherent falling body instead
+(see the M8 section for which failures qualify and which do not).
 
-**Checks are scheduled reactively, never at world-gen time — this is the
-one design decision the whole milestone hinges on.** The sandbox's own
-starting terrain (an 8-cell floor, deeper than stone's shipped span of 3,
-and three floating decorative ledges with no path to any anchor at all)
-would otherwise crumble the instant this shipped — not a demonstration of
-anything, just a surprise regression in terrain M1–M15 already established
-looked right. `structural.rs` only ever schedules a check in response to
-something actually disturbing a structure: `World::paint_capsule` (the
-player's own paint/erase brush) and `explosion::trigger` both call
-`World::schedule_structural_check_around` when a `Solid` cell is placed or
-removed. Pre-placed terrain built directly via `World::set` — which is how
-`app.rs`'s own floor and ledges are constructed — is never touched, and
-`pre_placed_terrain_is_never_retroactively_checked` is the regression test
-that guards it.
+**Confinement is what makes bulk material work, and it replaced the
+exemption the milestone originally shipped with.** Distance-to-bedrock
+alone is the wrong question to ask of bulk rock: a cell buried 500 deep
+inside a mountain scores 500, vastly over any sane span, while being the
+most supported cell in the world. Read literally that condemns the interior
+of every mountain, which is why terrain was originally exempt from checking
+altogether — and `Reports/worldgen-design.md` §6b calls that exemption "the
+structural-integrity landmine," since the whole world was structurally
+invalid while reading as anchored.
+
+The fix follows from what this world *is*: a 2D vertical **slice** through
+a 3D world (§0, "the world is 2D; the worldgen is 3D"). A real cave ceiling
+is held up largely by rock out of plane, so requiring every cell to trace
+an in-plane path to bedrock asks the slice to justify support it cannot
+observe. A cell confined on every side the slice *can* see is anchored
+outright, with a per-material `confinement_radius` — so the minimum
+self-supporting thickness is `2r + 1`, authored rather than hardcoded. That
+is §7's open problem ("a noise-defined ceiling has no bounded thickness")
+answered rather than worked around, and it is also honest rock mechanics:
+confinement is what gives rock its strength, and failure initiates at free
+faces.
+
+**A step's cost now depends on which direction the support comes from.**
+The relaxation charged a flat 1 regardless, so a 1-cell tower snapped at
+exactly the reach a 1-cell cantilever managed. Rock is strong in
+compression and weak in bending and tension;
+`support_cost_below`/`_beside`/`_above` split that three ways (stone takes
+0/1/3), so a wall stands to any height while an overhang still fails at its
+span. All three default to 1, the behaviour they replaced.
+
+**Terrain is now genuinely checked, not exempt.** `app::build_terrain`
+places real bedrock and calls `structural::compute_world_distances`, a
+single converged Dijkstra run at generation — deliberately *not* routed
+through the active-site scheduler, which caps at `MAX_SITES_PER_FRAME` and
+would spread a world's terrain over many frames, during which the
+count-to-infinity dynamic can push a cell past its span before the true
+anchor value reaches it. That is §6b's predicted global collapse arriving
+as visible crumbling on frame one. Measured at 9.1 ms for the 512×320
+terrain's 6,616 solid cells, against 0.4 ms to build the same terrain
+without it, reported permanently by `examples/ascii.rs`. The relaxation is
+the cheap half; the whole-world seeding scan dominates, which is issue #5's
+hashed-`World::get` pattern in a new place and becomes per-chunk under M10.
+
+The three floating ledges stand on confinement alone, with no support
+pillars — `generated_terrain_is_structurally_real_and_still_stands` asserts
+both that distances were genuinely computed and that nothing crumbles.
 
 **Recomputation reuses the M16 active-site scheduler unchanged** —
 `ActiveKind::StructuralCheck` is a third kind alongside moss and tree/root
@@ -929,10 +982,18 @@ the affected structure rather than the size of the world. Ticks are paced
 5 frames apart (`STRUCTURAL_TICK_INTERVAL`) rather than resolving a whole
 cascade in one frame, which is what makes a collapse read as progressive —
 see `cargo run --release --example ascii`'s bridge scene for what that
-actually looks like: a 7-cell bridge anchored at both world edges stands
-whole (stone's span of 3 reaches every cell from one end or the other),
-then erasing the right anchor collapses everything more than 3 cells from
-the surviving left anchor into gravel while the near stub stands.
+actually looks like: a 30-cell bridge anchored at both world edges stands
+whole (stone's span reaches every cell from one end or the other), then
+erasing the right anchor collapses everything past the span from the
+surviving left anchor while the near stub stands.
+
+**That scene's width tracks the span, and has to.** It was 7 cells against
+a span of 3. Confinement and direction-weighted steps raised the span well
+past that, and at 7 wide the scene silently stopped demonstrating anything
+— cutting the anchor removed one cell and the remaining six stood, since
+all of them were now comfortably in reach of the left edge. It printed a
+healthy-looking bridge twice and proved nothing, with every test green.
+Caught by looking at the output. Keep it wider than twice the span.
 
 One genuinely interesting emergent property, not deliberately designed in:
 a `Solid` structure with **no** path to any anchor doesn't stay at distance
@@ -1248,15 +1309,54 @@ correctly resolved, only safely bounded). Regression test
 background thread with a timeout, so a future regression fails the test
 rather than hanging the suite.
 
-**Not yet built, in pipeline order:** Douglas-Peucker simplification,
-`earcutr` triangulation, the `rapier2d` collider, and the per-frame
-erase-from-grid → step-physics → re-rasterize loop. No trigger exists yet
-for *when* a component should become a rigid body (an explosion clearing
-enough of a structure's support, a player tool, etc.) — `label_component`
-and `trace_contours` are pure query functions today, not wired into any
-gameplay path. No new dependency (`rapier2d`, `earcutr`, `glam`) has been
-added to `Cargo.toml` yet either; that's deliberately deferred until the
-pipeline stage that actually needs it, rather than pulled in speculatively.
+**Also built: chunk bodies — the milestone's first gameplay wiring.**
+`label_component` and `trace_contours` were pure queries with nothing
+calling them; a structural failure now promotes to a `rigid::ChunkBody`
+that falls as one coherent piece, displaces what it passes through, lands,
+and re-rasterizes back into the grid as ordinary terrain. It runs in its
+own serial phase beside `step_liquid_bodies` because
+`Reports/coupling-research.md` §4 is explicit that a body spanning two
+same-parity chunks would write to both and break `parallel.rs`'s
+write-disjointness proof.
+
+The trigger uses a *failure* predicate rather than `label_component`:
+labelling connected solid from a failing cell would sweep in the whole
+mountain the overhang is still attached to. `structural.rs` has already
+written every cell's distance by then, so the flood is over "solid,
+unowned, and past its own span."
+
+**Only a detached region becomes a chunk; progressive span failure does
+not, and cannot** — found by counting, not by looking, and the distinction
+is worth keeping. `filmstrip`'s `mine` scene reads exactly like coherent
+slabs coming down and reported `bodies 0` throughout: the picture said the
+feature worked while the count said it had never fired. A mined roof is
+still held at both ends, so its cells sit at different distances and the
+failure wavefront walks inward one cell per `STRUCTURAL_TICK_INTERVAL`; at
+the instant the first crosses its span the next is still short, and the
+region is one cell. A detached shelf has no anchor at all, so its cells
+climb in lockstep and cross together — `filmstrip`'s `snap` scene promotes
+one 54-cell body that falls, lands, and becomes terrain again. That is the
+physically right split rather than a gap: a roof held at both ends is a
+span crumbling, not a chunk that fell off. Chunks from *mining* would need
+reachability computed forward instead of read from the cached distance,
+and are deliberately not attempted.
+
+**Still not built, in pipeline order:** Douglas-Peucker simplification,
+`earcutr` triangulation, a `rapier2d` collider, and *continuous* rotation.
+Bodies translate and tumble in **quarter turns** — deliberately right-angle
+only, since a cell grid cannot hold a slab at 37° without the resampling
+leaks the re-rasterization pitfall below describes, while a 90° transform is
+exact and can never gain or lose a cell (`rigid::ChunkBody::spin`'s own doc).
+No new dependency (`rapier2d`, `earcutr`,
+`glam`) has been added to `Cargo.toml`, deliberately: what a falling chunk
+needs is gravity, a grid fit test and a settle rule, not a constraint
+solver, and everything except the integration step is shared with a rapier
+version if one ever lands. Two facts that outlive that choice, both from
+`Reports/coupling-research.md`: rapier's `enhanced-determinism` cannot be
+combined with its `parallel` feature (§0.2), against a determinism
+requirement `PLAN.md` reversed to *required*; and §3's resistive-force
+coupling and §5's buoyancy both remain unbuilt, so a body currently sits on
+sand as though it were stone.
 
 ## Performance
 
@@ -1374,17 +1474,16 @@ headroom left to spend carelessly.
 
 So a completely full screen of moving material, with something actively
 disturbing the field at the same time, is close to budget with little headroom
-serial and comfortable parallel. **Correction to a claim this section used to
-make**: "a quiet field costs almost nothing since nothing in it is changing"
-is not true of the current implementation and should not have been stated as
-fact — `field::step` runs all five whole-world passes every frame
-unconditionally, with no check for whether anything in a given tile actually
-changed (`pixel-physics-issues.md` issue #4, not yet fixed). A quiet field
-today costs the *same* as a busy one; the sentence above described intended
-future behaviour, not present behaviour. Multithreading is the intended
-answer for the saturated case, and this is the measurement that says when it
-stops being optional. Run the example while nothing else is compiling —
-concurrent cargo processes skew the figure badly.
+serial and comfortable parallel. An earlier "correction" paragraph here said a
+quiet field costs the same as a busy one because `field::step` ran all five
+whole-world passes unconditionally (issue #4, then unfixed) — that correction
+itself went stale when field sleeping landed, and stood in this file for some
+time alongside the Issue #4 entry above describing the fix. The current truth
+is the one that entry measures: a converged, quiet field skips its whole solve
+(~0.0001–0.01 ms against ~2–4 ms while propagating). Multithreading remains
+the intended answer for the saturated case, and this is the measurement that
+says when it stops being optional. Run the example while nothing else is
+compiling — concurrent cargo processes skew the figure badly.
 
 ## Status
 
@@ -1427,9 +1526,6 @@ Known limitations:
   `heat_conductivity: 0.0` — correct for sand/water/stone/gravel/smoke, which
   have no business catching fire. Lava, steam and richer reactions are
   natural additions once there is a design reason to want them.
-- **Explosions ignite anything nearby regardless of flammability** — see M15
-  status above. Reuses the debug force-ignite tool rather than a
-  flammability-respecting path; stone glows the same as oil would.
 - **Plants don't reseed, and a burned forest doesn't regrow on its own** —
   the plan's M16 verify criterion "a forest burns and regrows" only got the
   "burns" half; there's no mechanic yet for a burned-out patch to spawn a

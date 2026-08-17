@@ -58,9 +58,12 @@ struct Handler {
 
     /// Kept alive for as long as we want notifications; dropping it stops them.
     _watcher: Option<RecommendedWatcher>,
-    material_events: Option<Receiver<()>>,
+    /// `true` on the event means the change was to `assets/worldgen.ron`.
+    material_events: Option<Receiver<bool>>,
     /// When a change was last noticed, for debouncing a burst of writes.
     pending_reload: Option<Instant>,
+    /// Whether anything in the debounced burst was a worldgen edit.
+    pending_worldgen: bool,
 
     /// Counts down real rendered frames until a one-shot framebuffer PNG
     /// dump, set from `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES`; `None` means
@@ -108,6 +111,7 @@ impl Handler {
             _watcher: watcher,
             material_events,
             pending_reload: None,
+            pending_worldgen: false,
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES")
                 .ok()
                 .and_then(|s| s.parse().ok()),
@@ -130,8 +134,9 @@ impl Handler {
             // Drain the burst; the timer restarts on each one, so the reload
             // happens once the writes have stopped.
             let mut saw_change = false;
-            while rx.try_recv().is_ok() {
+            while let Ok(is_worldgen) = rx.try_recv() {
                 saw_change = true;
+                self.pending_worldgen |= is_worldgen;
             }
             if saw_change {
                 self.pending_reload = Some(Instant::now());
@@ -141,7 +146,15 @@ impl Handler {
         if let Some(at) = self.pending_reload {
             if at.elapsed() >= RELOAD_DEBOUNCE {
                 self.pending_reload = None;
-                self.app.reload_materials();
+                // Worldgen edits are tracked separately from material edits
+                // because reloading worldgen *rebuilds the world*, and doing
+                // that on every material save would throw away whatever the
+                // player had built since the last one.
+                if std::mem::take(&mut self.pending_worldgen) {
+                    self.app.reload_worldgen();
+                } else {
+                    self.app.reload_materials();
+                }
             }
         }
     }
@@ -223,6 +236,20 @@ impl Handler {
         if !self.painting && !self.erasing {
             return;
         }
+        // Freehand only. The drag-out tools commit on release, so painting
+        // as the cursor moves would smear a stroke along the drag *and*
+        // then lay the shape -- reported from play as "the brush isn't
+        // disabled when using the other tools, so it draws while I am
+        // trying to make a rectangle".
+        //
+        // Guarded here rather than at the call sites: there are three of
+        // them (cursor motion, button press, and the per-frame catch-up in
+        // `about_to_wait`), the first version of this guarded only the
+        // press, and a fourth call site added later would reintroduce the
+        // same bug. One gate on the operation itself cannot be missed.
+        if self.app.tool != pixel_physics::app::Tool::Brush {
+            return;
+        }
         let erase = self.erasing;
         match self.last_paint {
             Some(prev) => self.app.paint_stroke(prev, pos, erase),
@@ -240,6 +267,8 @@ impl Handler {
             KeyCode::Escape => {
                 if self.app.show_tunables {
                     self.app.show_tunables = false;
+                } else if self.app.has_pin() {
+                    self.app.clear_pin();
                 } else {
                     event_loop.exit();
                 }
@@ -250,6 +279,12 @@ impl Handler {
             KeyCode::KeyR => self.app.reset(),
             KeyCode::F1 => self.app.toggle_overlay(),
             KeyCode::F5 => self.app.reload_materials(),
+            // Worldgen lives on F6-F8: reroll, cycle preset, step back a
+            // seed. Judging generated terrain means seeing a lot of it, so
+            // the reroll is a single key rather than anything to navigate.
+            KeyCode::F6 => self.app.next_seed(),
+            KeyCode::F7 => self.app.cycle_preset(),
+            KeyCode::F8 => self.app.previous_seed(),
             KeyCode::KeyF => {
                 if let Some((x, y)) = self.cursor {
                     self.app.ignite(x, y);
@@ -263,6 +298,24 @@ impl Handler {
             KeyCode::KeyX => {
                 if let Some((x, y)) = self.cursor {
                     self.app.explode(x, y);
+                }
+            }
+            KeyCode::KeyC => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.strike(x, y);
+                }
+            }
+            KeyCode::KeyD => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.mine(x, y);
+                }
+            }
+            // A known-size room in one keystroke, so "is this big enough to
+            // want to build?" is judged in the hand rather than argued from
+            // a contact sheet. See `App::stamp_reference_room`.
+            KeyCode::KeyB => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.stamp_reference_room(x, y);
                 }
             }
             KeyCode::KeyT => {
@@ -285,23 +338,40 @@ impl Handler {
             KeyCode::Equal => self.app.renderer.adjust_zoom(1),
             KeyCode::Minus => self.app.renderer.adjust_zoom(-1),
             KeyCode::KeyV => self.app.renderer.cycle_field_overlay(),
-            KeyCode::KeyB => self.app.renderer.cycle_organism_overlay(),
+            // `L` for the *living* channels. This was `B` until the merge
+            // with the destruction work, whose reference-room stamp already
+            // held that key -- the compiler's unreachable-pattern warning is
+            // what caught the collision, not a runtime symptom.
+            KeyCode::KeyL => self.app.renderer.cycle_organism_overlay(),
             KeyCode::KeyG => self.app.renderer.cycle_grain(),
             // The A/B key. Deliberately reassigned as the question changes --
             // see `App::toggle_experiment`.
             KeyCode::KeyK => self.app.toggle_experiment(),
             KeyCode::PageUp | KeyCode::PageDown if self.app.show_tunables => self.app.tunables_cycle_group(),
+            KeyCode::KeyS if self.app.show_tunables => self.app.save_tunable(),
             KeyCode::KeyI => self.app.toggle_hover_inspector(),
+            KeyCode::KeyN => self.app.toggle_stress_view(),
+            KeyCode::KeyZ => self.app.cycle_tool(),
             KeyCode::Tab => self.app.toggle_palette(),
             KeyCode::Slash => self.app.toggle_help(),
             KeyCode::KeyO => self.app.toggle_tunables(),
-            // Arrow keys and Enter only drive the tunables panel, and only
-            // while it's open -- they have no other binding to steal.
+            // Arrow keys and Enter only drive the tunables panel -- they
+            // have no other binding to steal. Left/right additionally drive
+            // a *pinned* tunable with the panel closed, which is the whole
+            // point of pinning: sweep a value with the world visible rather
+            // than behind a panel covering most of it (`App::pinned`).
             KeyCode::ArrowUp if self.app.show_tunables => self.app.tunables_move(-1),
             KeyCode::ArrowDown if self.app.show_tunables => self.app.tunables_move(1),
             KeyCode::ArrowLeft if self.app.show_tunables => self.app.tunables_adjust(-1),
             KeyCode::ArrowRight if self.app.show_tunables => self.app.tunables_adjust(1),
-            KeyCode::Enter if self.app.show_tunables => self.app.save_tunable(),
+            KeyCode::ArrowLeft => self.app.adjust_pinned(-1),
+            KeyCode::ArrowRight => self.app.adjust_pinned(1),
+            // Enter *pins and closes*, rather than saving -- saving moved to
+            // `S`. Pin is the far more frequent action (every value judged by
+            // eye needs it; saving happens once at the end), and "take this
+            // one with me" is the better meaning for the key that dismisses
+            // a dialog.
+            KeyCode::Enter if self.app.show_tunables => self.app.pin_selected(),
             KeyCode::KeyQ => self.app.cycle_material(-1),
             KeyCode::KeyE => self.app.cycle_material(1),
             KeyCode::Digit1 => self.app.select_material(1),
@@ -399,12 +469,24 @@ impl ApplicationHandler for Handler {
                     MouseButton::Right => self.erasing = pressed,
                     _ => {}
                 }
+                let erase = button == MouseButton::Right;
                 if pressed {
                     // Start a fresh stroke rather than joining the last one.
                     self.last_paint = None;
+                    // The drag-out tools commit on *release*, so a press
+                    // only records where the gesture began; `paint_now`
+                    // would lay a blob at the corner.
                     self.paint_now();
-                } else if !self.painting && !self.erasing {
-                    self.last_paint = None;
+                    if let Some((x, y)) = self.cursor {
+                        self.app.begin_drag(x, y);
+                    }
+                } else {
+                    if let Some((x, y)) = self.cursor {
+                        self.app.end_drag(x, y, erase);
+                    }
+                    if !self.painting && !self.erasing {
+                        self.last_paint = None;
+                    }
                 }
             }
 
@@ -446,12 +528,19 @@ impl ApplicationHandler for Handler {
 /// churning every call site for a rename that doesn't fix anything) already
 /// reloads species alongside materials on every call, so a single "reload
 /// everything" signal is all either watched directory needs to produce.
-fn watch_materials() -> (Option<RecommendedWatcher>, Option<Receiver<()>>) {
+fn watch_materials() -> (Option<RecommendedWatcher>, Option<Receiver<bool>>) {
     let (tx, rx) = channel();
     let mut watcher = match notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        if res.is_ok() {
+        if let Ok(event) = res {
+            // Which file it was matters for exactly one case: a worldgen
+            // edit rebuilds the world, so it must not be triggered by a
+            // material save. Everything else still reduces to "reload".
+            let worldgen = event
+                .paths
+                .iter()
+                .any(|p| p.file_name().is_some_and(|n| n == "worldgen.ron"));
             // The receiver is gone only during shutdown.
-            let _ = tx.send(());
+            let _ = tx.send(worldgen);
         }
     }) {
         Ok(w) => w,
@@ -468,8 +557,12 @@ fn watch_materials() -> (Option<RecommendedWatcher>, Option<Receiver<()>>) {
     // directory is no more fatal than a missing materials one (the
     // compiled-in set already loaded, per `SpeciesRegistry::builtin`).
     let species_watched = watcher.watch(Path::new(organism::ASSET_DIR), RecursiveMode::NonRecursive).is_ok();
+    // The worldgen presets live directly in `assets/`, not in a directory of
+    // their own, so this watch covers the parent. Non-recursive, so it does
+    // not duplicate the two directory watches above.
+    let worldgen_watched = watcher.watch(Path::new("assets"), RecursiveMode::NonRecursive).is_ok();
 
-    if materials_watched || species_watched {
+    if materials_watched || species_watched || worldgen_watched {
         (Some(watcher), Some(rx))
     } else {
         // Neither assets directory exists beside the binary. The compiled-in

@@ -1,9 +1,14 @@
-// max_unsupported_span/breaks_into (M17): the plan's own suggested number
-// for stone specifically ("stone 3, wood 8, steel 20"). Only ever checked
-// reactively -- painting, erasing, an explosion -- never at world-gen time
-// (see structural.rs), so the sandbox's own pre-placed floor and ledges
-// stay put by default; this is what makes stone the player *builds*
-// interesting to break, not a retroactive change to existing terrain.
+// Structural integrity (structural.rs). These four numbers between them
+// decide how thin a cave roof gets before it comes down, how far an overhang
+// reaches, and how tall a wall stands -- so they are the first place to look
+// when building or mining feels wrong.
+//
+// max_unsupported_span was 3, the plan's own original suggestion ("stone 3,
+// wood 8, steel 20"), back when it was carrying the entire model on its own
+// and terrain had to be exempted from checking to survive it. It now means
+// only "how far an *unconfined* cantilever reaches" -- confinement handles
+// bulk rock -- which is a much narrower claim and affords a much larger
+// number.
 (
     name: "stone",
     display: "Stone",
@@ -15,6 +20,45 @@
         (138, 136, 140),
         (110, 112, 118),
     ],
-    max_unsupported_span: 3,
-    breaks_into: "gravel",
+    max_unsupported_span: 16,
+
+    // Attached rock -- the massif the slice is cut through -- is braced by
+    // material out of plane, so it reaches far further than anything the
+    // player stacks in front of it. 16 * 12 = 192 cells, comfortably more
+    // than any span in a 512-wide world, while still being finite: undercut
+    // a shelf far enough and it does come down. Loose foreground stone stays
+    // on the bare 16, which is what makes a built cantilever a real limit.
+    attached_span_bonus: 12,
+    breaks_into: "rubble",
+
+    // How coarsely stone comes apart: rungs on `rigid::fracture`'s
+    // power-of-two ladder, so 6 means fragments of 2, 4, 8, 16, 32 or 64
+    // cells. One rung more than the engine default, because stone is the
+    // material a player spends the most time breaking and the top of the
+    // ladder is what reads as "a piece of the wall came off" rather than
+    // "the wall crumbled". Raise it for rock that should calve slabs;
+    // lower it for anything that should shatter into grit.
+    fragment_rungs: 6,
+
+
+    // Rock is strong in compression, weak in bending, weakest in tension.
+    // Leaning out costs the full step; hanging costs triple, so nothing
+    // dangles far from what holds it.
+    //
+    // `support_cost_below` was 0 -- standing on rock was free -- and that
+    // is deleted rather than tuned. It existed only to stop towers snapping
+    // under the *reach* model, where a column's height counted against it
+    // exactly like a cantilever's overhang. Under load a tower stands
+    // because it *carries little* (its mass sits directly above it, so its
+    // bending moment is ~0), which is the real reason, and the zero was
+    // actively harmful for three separate reasons: whole regions shared one
+    // distance, so "closer to an anchor" stopped ordering support and the
+    // parent relation could cycle; a floating blob where every cell claimed
+    // support from the one below sat at a self-consistent distance of 0 and
+    // never even scheduled a recheck; and equal-cost ties made subtree
+    // accumulation double-count. See `load.rs` and
+    // `Reports/fracture-mechanics-design.md` §2/§3.1.
+    support_cost_below: 1,
+    support_cost_beside: 1,
+    support_cost_above: 3,
 )

@@ -5,6 +5,36 @@ already heavily documented and the architecture is written up at length
 elsewhere — see below. What is not written down anywhere else, and what this
 project keeps re-learning the expensive way, is the method.
 
+## The ethos: it has to feel satisfying
+
+**Stated by the owner as a core value, above correctness of any individual
+mechanic: everything should feel satisfying.** A mechanic that is right on
+paper and dull in the hand has failed, and "the test passes" is not a
+defence.
+
+This is not a restatement of "looks good in motion" below — that is about
+*appearance*, and this is about *response*. Destroying something should feel
+like destroying it: the thing should crack, throw debris, come apart in
+pieces of varying size, and react to how it was hit. Two failures that
+already cost real rework, both of which passed every test they had:
+
+- **All-or-nothing outcomes.** Structural failure produced either a single
+  large coherent body or a uniform dissolve into powder, with nothing in
+  between. Real breakage is a *distribution* — a few blocks, more cobbles, a
+  lot of grit — and its absence read as fake immediately.
+- **No verb behind the effect.** Destruction could only be triggered by
+  *erasing* support, which delivers no load and no impulse, so nothing ever
+  failed from being *hit*. The mechanic worked and still felt inert, because
+  the player had no way to strike anything.
+
+Practical consequences when weighing a change: prefer the version with more
+legible feedback even when it is less exact; a graded outcome beats a binary
+one; and if a destructive event produces no debris, no impulse and no sound
+of consequence, it is not finished regardless of what the simulation
+believes. Judge this by playing it, not by reading the diff — the owner's
+playtest reports have overturned three separate models that all looked
+correct in tests.
+
 ## What this project is optimising for
 
 **Looks good and realistic, in motion, at play scale — without ruining
@@ -36,10 +66,13 @@ already changed decisions:
 | File | Holds |
 |---|---|
 | `README.md` | Architecture, and per-milestone status |
+| `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*. |
 | `PLAN.md` | Roadmap, settled decisions, the issues backlog |
 | `Reports/*.md` | Design records and research, one per subsystem |
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions, what has been ruled out *by measurement*, and what was tried and reverted. Read this before touching a listed area. |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
+| `Reports/fracture-mechanics-design.md` | Why rock breaks the way it does, and why three earlier support models were wrong |
+| `Reports/load-model-handoff.md` | **The next step on destruction**, written up to be picked up cold |
 
 **Source comments are load-bearing.** They record *why*, including approaches
 that were tried and reverted and must not be retried. Do not strip them when
@@ -56,9 +89,46 @@ cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
 ```
 
 `filmstrip` writes a contact-sheet PNG — several frames of one run in a grid —
-so an artifact can be judged by eye without a window. For the real app, set
-`PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start>,<interval>,<count>` and edit the scene
-into `build_terrain`; frames and a GIF land under `%TEMP%`.
+so an artifact can be judged by eye without a window. For the real app, press
+`F7` to the `flat` preset — dead-level bare rock with 200 rows of sky, the
+structural test bed — or set
+`PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start>,<interval>,<count>`; frames and a GIF
+land under `%TEMP%`.
+
+## Working alongside another session
+
+**This tree is worked in concurrently, and often by more than one agent at
+once.** Git handles the merges; what it cannot handle is the two failures
+below, both of which have cost real hours.
+
+**Work in your own worktree, not the shared checkout.** Two sessions in one
+checkout share a `target/`, so one session's half-finished edit makes the
+*other* session's `cargo test` and `cargo clippy` fail on code it did not
+write and must not fix — and a running sandbox in one session locks the exe
+the other needs to link. Both happened in a single afternoon. A worktree
+gives each session its own `target/`, so a broken build stays local to
+whoever broke it. `.claude/worktrees/` already holds several.
+
+**Know which files are yours.** Collisions are almost never random — they
+land in the same few files every time:
+
+| Area | Files |
+|---|---|
+| Structural / destruction | `src/sim/load.rs`, `structural.rs`, `rigid.rs`, `examples/filmstrip.rs` scenes, `scripts/acceptance.sh` |
+| Worldgen | `src/worldgen/*`, `assets/worldgen.ron`, `tests/worldgen.rs` |
+| **Contested** | `src/app.rs`, `src/main.rs`, `README.md`, `PLAN.md`, this file |
+
+Everything that has actually collided here collided in `src/app.rs`. So:
+**if you touch a contested file, land it quickly** rather than holding a
+large diff across a session — the window in which someone else's work
+cannot compile is the window you created.
+
+If you find yourself needing to commit while a contested file holds
+somebody else's unfinished work, do **not** try to stage around it. Add a
+worktree at `origin/master`, re-apply your own change there, verify, commit
+and push from it, then bring the main tree's branch pointer forward with
+`git reset --mixed origin/master` — which moves the branch and leaves their
+working tree untouched.
 
 ## Method
 
@@ -82,6 +152,24 @@ same shape.
 An image tells you *what* and *where*. A metric tells you *how much* and
 *whether it came back*. Reaching for a metric to answer "what and where" is
 the recurring mistake.
+
+**"Did it fire at all" needs a counter, not a picture.** An image shows
+*what* and *where*; it cannot show whether the thing you built is what
+produced it. A collapse rendered as coherent falling slabs, was read as
+"chunks are working," and the harness's own body count said **zero for the
+whole run** — the feature had never once executed, and what was on screen
+was loose rubble that happened to hold its shape. Two very different
+mechanisms look identical at the zoom a contact sheet is read at. When a
+change adds a discrete "this happened" event, print the count next to the
+image and read both.
+
+**Check that a planned step can demonstrate itself, before promising it
+will.** "Cracks weaken rock" was scheduled as an independently shippable,
+judge-by-eye milestone. Built, it did almost nothing visible, because
+failure was evaluated per cell against *its own* reach and a crack at a
+beam's root weakens a cell the criterion never tests. One question asked
+earlier — *which cell does this rule actually evaluate?* — would have caught
+it before the work.
 
 **Resolve an ambiguous complaint before building anything.** "Flatness at
 rest" was read as the surface texture and turned out to mean a screen-wide
@@ -210,6 +298,13 @@ consider it at all.
   it now fails), and record what the withdrawn fix was, what it improved, and
   why it went. A reverted fix's genuine improvements become the bar its
   replacement must meet — not the pre-fix baseline.
+- **A session that makes a significant change affecting a `wiki/` page must
+  update that page (and its freshness note) in the same change.** This is a
+  cheap backstop, not the real defence against `wiki/*.md` going stale the
+  way early design Reports did — the real defence is that each page
+  describes coarse, player-visible behavior, not implementation, which is
+  inherently more stable. This rule just shortens the gap on whatever does
+  drift.
 - **Commit messages carry the measurement**, not just the intent: the number
   before, the number after, and what was tried and rejected on the way.
 - **Determinism is required** (same-build, per `PLAN.md`) — it was reversed
@@ -237,6 +332,27 @@ consider it at all.
   Five grain modes behind one key settled in minutes a question that no
   amount of argument or still images had. Default to current behaviour, name
   the active one on screen, and state what each option *costs*.
+- **A size cap must bound work, never gate whether something happens.**
+  Written twice in one session: fracture declined any region larger than its
+  body-size cap and fell through to per-cell conversion, so the *bigger* the
+  collapse the more certain it dissolved into dust. The cap belonged on a
+  fragment, not on the decision to break at all. Any `if too_big { return }`
+  is a claim that the largest cases deserve the least behaviour — check that
+  is what you meant.
+- **When a rule must tell apart two things that can look identical, state
+  the difference as data.** Four successive support models tried to infer
+  "is this held up" from *shape*, and every one was either strong enough to
+  hold a mountain or weak enough to let a player's tower break, never both —
+  because geometry cannot distinguish a mountain from a wall someone
+  stacked. The fix was a bit on the cell saying which it is. If tuning keeps
+  trading one case for the other, the rule is reading the wrong quantity;
+  more tuning will not find a setting that does not exist.
+- **A superseded mechanism's tests keep passing while testing nothing.**
+  Distinct from the `#[ignore]` case below — these *run*, pass, and exercise
+  nothing, because the scenario is trivially stable once the mechanism they
+  were written for is gone. When replacing a mechanism, deliberately break
+  the *replacement* and confirm the old tests fail. If they still pass,
+  delete them rather than porting them.
 - Prefer an independent review before significant commits; batch small ones.
 
 ## Gotchas that have each caused a real bug
@@ -262,9 +378,24 @@ consider it at all.
 - `MAX_REACH == CHUNK_SIZE / 2` exactly, and that equality is load-bearing for
   `parallel.rs`'s cross-chunk write-safety proof *and* for its
   reinsert-then-replay loop. Changing it needs both re-derived.
-- **Never `git add -A` here.** This tree gets worked in concurrently; doing
-  so once swept ~1,200 lines of someone else's in-progress work into an
-  unrelated commit. Stage explicit paths.
+- **A commit message is not evidence the change is in the file.** A `git
+  stash` cycle restored an older blob over a source file, so a commit that
+  claimed a behaviour change shipped only its *doc comment* — the code kept
+  the old predicate, and nobody noticed for four commits, because the
+  message read correctly and the tests still passed. After any stash, rebase
+  or merge, re-read the function, not the diff.
+- **The app locks its own exe.** While the sandbox is running, `cargo build`
+  fails with "failed to remove `pixel-physics.exe`" — and so does plain
+  `cargo test`, which builds the bin target to run `main.rs`'s eight tests.
+  (This file said `cargo test` still works; it does not, and that cost a
+  confusing ten minutes.) `cargo test --lib` works throughout, and is what
+  to reach for with the app open. Separately, stale incremental artifacts
+  produce bogus `LNK2019 unresolved external symbol anon.…` link errors —
+  `rm -rf target/debug/incremental` clears it, and it is not a code error.
+- **Never `git add -A` here.** Doing so once swept ~1,200 lines of someone
+  else's in-progress work into an unrelated commit. Stage explicit paths,
+  and see "Working alongside another session" above — `git add -A` is the
+  symptom, a shared checkout is the cause.
 - **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
   whole project, not that file — 28 files and ~3,000 lines in one go. The
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and

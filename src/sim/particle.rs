@@ -13,12 +13,16 @@
 //! the moment it would overlap something solid. Noita does the same split for
 //! the same reason.
 //!
-//! Deliberately does **not** touch the M13 field (no wind drag, no coupling)
-//! — that is a plausible enhancement, not something either of `particle.rs`'s
-//! two callers (M15 explosion debris, general splash effects) need to exist
-//! at all. Keeping the two systems uncoupled for now is the same judgement
-//! call M14 made about not coupling every visited CA cell to the field: only
-//! add a cross-system read when something concrete needs it.
+//! **Now couples to the M13 field** (`WIND_DRAG`), reversing this module's
+//! original "only add a cross-system read when something concrete needs it"
+//! position — something concrete turned up. The field's velocity channel had
+//! no consumer that displaced anything at all, so an explosion's pressure
+//! impulse propagated and reflected across the world while moving nothing;
+//! `update_gas`'s wind bias was the first fix for that and this is the
+//! second. The original judgement call was right when it was made and is
+//! recorded here rather than deleted, because the reasoning ("only couple
+//! when a caller needs it") still holds — it is the premise that changed,
+//! not the rule.
 
 use super::material::MaterialId;
 use super::rng::Rng;
@@ -52,6 +56,12 @@ const MAX_GRAVITY_SCALE: f32 = 1.1;
 /// throwing material to the surface as freely as a shallow one, which is the
 /// distinction the mechanic exists to restore rather than erase.
 const PIERCE_SPEED_RETENTION: f32 = 0.82;
+
+/// How strongly a free particle is dragged toward the ambient field
+/// velocity each step — see the call site for why this is a *relative*
+/// drag rather than an added force. Small: debris should be nudged by a
+/// blast's own outflow and by wind while it hangs, not steered by it.
+const WIND_DRAG: f32 = 0.03;
 
 /// How far `land` will search outward for an empty cell when a particle
 /// comes to rest embedded in material — see its own comment. Small: this is
@@ -203,6 +213,27 @@ impl ParticleSystem {
         for mut particle in self.particles.drain(..) {
             particle.vy += GRAVITY * particle.gravity_scale;
             particle.vx *= particle.drag;
+            // Wind drag, reversing this module's own original "deliberately
+            // does not touch the M13 field" decision now that the field has
+            // a reason to push things (see `update_gas`).
+            //
+            // Written as drag toward the wind's own velocity, **not** as a
+            // force added to the particle's. That matters more here than it
+            // looks: field velocity around a fresh blast peaks near 86 while
+            // `MAX_SPEED_PER_AXIS` clamps particles to 8, so any formula
+            // that adds a fraction of the raw wind would swamp the launch
+            // direction `debris_velocity` carefully computed — and once the
+            // shock reflects, would send debris back into the crater, which
+            // is precisely what `debris_is_thrown_away_from_the_epicentre_
+            // not_toward_it` exists to catch. A relative-velocity drag is
+            // self-limiting instead: fast debris moving with the blast feels
+            // almost nothing, and only slow or stalled debris gets carried.
+            // `World::field_at` directly, not `CellSurface::field_wind_at`:
+            // this module holds a real `&mut World`, not a generic surface,
+            // so there is nothing to gain from pulling the trait into scope.
+            let wind = world.field_at(particle.x.round() as i32, particle.y.round() as i32);
+            particle.vx += (wind.vx - particle.vx) * WIND_DRAG;
+            particle.vy += (wind.vy - particle.vy) * WIND_DRAG;
             particle.vx = particle.vx.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
             particle.vy = particle.vy.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
 

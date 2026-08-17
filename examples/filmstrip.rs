@@ -82,8 +82,12 @@ fn water_at(x: i32, y: i32) -> Cell {
 
 fn stone_floor(w: &mut World) {
     for x in 0..WIDTH {
+        // Terrain, so it declares itself attached the way `build_terrain`
+        // does -- otherwise it is foreground material that has to hold
+        // itself up, and a floor that is only anchored at the world edges
+        // erodes inward from every free face.
         for y in (HEIGHT - FLOOR_THICKNESS)..HEIGHT {
-            w.set(x, y, Cell::new(material::STONE, 0));
+            w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
         }
     }
 }
@@ -91,10 +95,10 @@ fn stone_floor(w: &mut World) {
 /// The scenes the current bug list is about. Adding one is three lines, and
 /// is much preferred to editing an existing one — a scene that quietly
 /// changed underneath a recorded measurement is worse than no scene.
-fn build(scene: &str) -> World {
+fn build(args: &Args) -> World {
     let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
     let floor_y = HEIGHT - FLOOR_THICKNESS;
-    match scene {
+    match args.scene.as_str() {
         // A large body released against the left wall, spreading right across
         // seven vertical chunk seams. The terracing/banding reproduction.
         "pour" => {
@@ -290,8 +294,361 @@ fn build(scene: &str) -> World {
         "grove" => {
             return common::PlantScene::default().build();
         }
+        // The sandbox's *real* starting terrain, built by the same
+        // `app::build_terrain` the running game calls -- not a replica, so
+        // what this renders is what a player actually sees. Exists to answer
+        // one question by eye: with structural checks computed at generation
+        // rather than skipped, does any of it move? The three ledges float
+        // with no in-plane path to bedrock and stand only because 6 cells is
+        // thicker than stone's confinement diameter, which is exactly the
+        // claim `Reports/worldgen-design.md` §6b says would collapse the
+        // world if it were wrong.
+        "terrain" => {
+            pixel_physics::app::build_terrain(&mut w);
+        }
+        // **One dig into a generated world.** Reported from play: "one crack
+        // in the ground basically propagates throughout the whole world and
+        // slowly breaks everything."
+        //
+        // Kept separate from `scene=worldgen` rather than added to it as a
+        // flag: that scene is worldgen's own, it asserts that a generated
+        // world arrives at rest and *stays* there, and a scene that
+        // sometimes digs would make its zero-failure reading mean two
+        // different things.
+        //
+        // The cut lands on the surface at mid-width, found by walking down
+        // rather than assumed -- generated terrain puts the surface
+        // wherever it likes, and a dig into open air would reproduce
+        // nothing while looking like it had.
+        "worldcrack" => {
+            let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
+            if let Some(e) = err {
+                panic!("{e}");
+            }
+            let name = if args.preset.is_empty() { presets.default_name() } else { args.preset.clone() };
+            let Some(params) = presets.get(&name) else { panic!("unknown preset {name:?}") };
+            pixel_physics::worldgen::generate(&mut w, pixel_physics::worldgen::Spec::Generated { params, seed: args.seed });
+            let x = WIDTH / 2;
+            let surface = (0..HEIGHT).find(|&y| w.get(x, y).material != material::EMPTY).expect("ground somewhere under mid-width");
+            println!("worldcrack {name} seed {} -- cut at ({x}, {})", args.seed, surface + args.dig);
+            if args.dig > 0 {
+                pixel_physics::sim::rigid::mine(&mut w, x, surface + args.dig, args.dig);
+            }
+            if args.relax {
+                pixel_physics::sim::structural::compute_world_distances(&mut w);
+            }
+        }
+        // The reference room `B` stamps, standing on the app's real terrain
+        // rather than on a flat test floor. `scene=room` answers "does it
+        // hold"; this answers "is it a sensible size", which is a different
+        // question and needs the actual world in frame for scale. Render it
+        // whole-world at zoom 1 -- the moment it is cropped or magnified the
+        // only comparison it exists to make is gone.
+        "refroom" => {
+            let mut app = pixel_physics::app::App::new();
+            app.stamp_reference_room(WIDTH / 2, 40);
+            w = app.world;
+        }
+        // Generated terrain, the thing worldgen is judged on. Reads
+        // `assets/worldgen.ron` rather than a replica of it, for the same
+        // reason `terrain` calls the real `build_terrain`: a scene that
+        // approximated the generator would stop being evidence about the
+        // generator the first time either drifted.
+        //
+        // `seed=` and `preset=` pick the world; a run with `count=1` is a
+        // single still, which is what the seed sweep in the worldgen plan
+        // uses. Stepping it at all is also the at-rest check in visual form
+        // — generated terrain that settles is terrain that moved.
+        "worldgen" => {
+            let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
+            if let Some(e) = err {
+                panic!("{e}");
+            }
+            let name = if args.preset.is_empty() { presets.default_name() } else { args.preset.clone() };
+            let Some(params) = presets.get(&name) else { panic!("unknown preset {name:?}") };
+            let report = pixel_physics::worldgen::generate_reported(
+                &mut w,
+                pixel_physics::worldgen::Spec::Generated { params, seed: args.seed },
+            );
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            // Printed next to the image on purpose. A contact sheet cannot
+            // show whether a feature pass ran -- a terrace and an overhang
+            // read the same at this zoom -- so a pass reporting zero here is
+            // the only way to catch one that silently never fires.
+            println!("worldgen {name} seed {}", args.seed);
+            for (pass, cells) in &report {
+                println!("  {pass:<14} {cells:>7} cells");
+            }
+        }
+        // The payoff mechanic, and the one M17 "was built for and has never
+        // had a real test case" (`Reports/worldgen-design.md` §7): mine
+        // upward into a ledge until the roof left above the excavation is
+        // thinner than stone can hold, and watch it come down. The bite is
+        // taken out of the ledge's underside through the ordinary eraser
+        // brush, so this goes through the same reactive path a player does.
+        // Undercut an attached cliff shelf: erase the material *under* one
+        // end of it so the outer part is left hanging over open air. This is
+        // the case the whole model exists for, and the one that produced
+        // nothing before `detach_exposed_neighbours` -- attached rock
+        // anchors outright, so carving it used to just delete cells while
+        // everything around them stayed permanently held.
+        "undercut" => {
+            stone_floor(&mut w);
+            for y in 120..260 {
+                for x in 0..90 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // A shelf continuing out from the cliff face, also part of the
+            // massif.
+            for y in 150..162 {
+                for x in 90..210 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            // Dig the shelf's support away from underneath, through the
+            // ordinary eraser brush.
+            for x in 92..208 {
+                for y in 156..162 {
+                    w.paint_capsule((x, y), (x, y), 0, material::EMPTY, 1.0);
+                }
+            }
+        }
+        // A solid attached cliff, struck once. Nothing here is structurally
+        // unsound, so every piece that leaves is leaving because it was hit
+        // -- which is the whole point of having a verb at all.
+        "strike" => {
+            stone_floor(&mut w);
+            for y in 60..280 {
+                for x in 140..380 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            pixel_physics::sim::rigid::strike(&mut w, 260, 150, 14, 12.0);
+        }
+        // Work one spot on an attached shelf with repeated blows, the way a
+        // player would with `C`. Each hit drives the fissure deeper and cuts
+        // what the rock around it can carry, so the shelf should give way
+        // after several -- rather than needing to be chewed away cell by
+        // cell, which is what erasing amounts to.
+        "worked" => {
+            stone_floor(&mut w);
+            for y in 120..280 {
+                for x in 0..90 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for y in 150..164 {
+                for x in 90..250 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            // Six blows on the shelf where it leaves the cliff -- the most
+            // stressed point of a cantilever, and where a person would aim.
+            for _ in 0..6 {
+                pixel_physics::sim::rigid::strike(&mut w, 100, 157, 7, 6.0);
+            }
+        }
+        // The reported case: a tall thick player-built column with a cap
+        // overhanging it on both sides. Built as foreground (no
+        // `with_attached`), exactly as the stone brush lays it down, so this
+        // is what a player actually gets. It used to tear its own cap off
+        // and dissolve most of it to dust.
+        "capped" => {
+            stone_floor(&mut w);
+            for y in 120..floor_y {
+                for x in 226..286 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for y in 90..126 {
+                for x in 196..316 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            w.schedule_structural_check_around(200, 108);
+            w.schedule_structural_check_around(312, 108);
+        }
+        "mine" => {
+            pixel_physics::app::build_terrain(&mut w);
+            // The 60..200 ledge spans y=200..206. Erase its lower rows
+            // across most of its length, leaving a roof too thin to stand.
+            for x in 70..190 {
+                for y in 202..206 {
+                    w.paint_capsule((x, y), (x, y), 0, material::EMPTY, 1.0);
+                }
+            }
+        }
+        // Acceptance case 4, and the owner's original case: a big overhang
+        // joined to the cliff by a deliberately thin ligament. It must snap
+        // at the *neck*, not at the tip and not at all.
+        //
+        // This is the shape the reach model could not get right in
+        // principle rather than by tuning. The ligament sits at *low*
+        // distance -- it is right next to solid rock -- so reach says it is
+        // fine, while the tip, being far out, is the part that fails. That
+        // is backwards: rock fails where the stress is highest, and the
+        // stress is highest where the section is thinnest.
+        //
+        // No blow and no erasing: the geometry alone has to be enough, so
+        // nothing here can be mistaken for the strike doing the work.
+        "ligament" => {
+            stone_floor(&mut w);
+            for y in 100..280 {
+                for x in 0..100 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // The neck: 4 cells deep, 10 long. Everything beyond it has to
+            // carry its moment through these forty cells.
+            for y in 150..154 {
+                for x in 100..110 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // The overhang: 40 deep and 110 long, hung off that neck.
+            for y in 130..170 {
+                for x in 110..220 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            // One structural check at the neck, which is all a disturbance
+            // would do. Nothing is removed, nothing is struck.
+            w.schedule_structural_check_around(105, 152);
+        }
+        // What a player actually builds, painted through the ordinary
+        // brush at the radius they use (R2, so 5 cells thick).
+        //
+        // Reconstructed from a playtest screenshot after the report "most
+        // things are still falling apart": a column with two arms, a tall
+        // hook, and a wide arch, all foreground, all standing on the floor.
+        // The screenshot's stress view read almost entirely *green* -- so
+        // whatever is bringing these down is not the torque criterion, and
+        // guessing which of the two failure paths it is from a picture is
+        // exactly what the failure counters exist to stop.
+        "built" => {
+            stone_floor(&mut w);
+            let paint = |w: &mut World, a: (i32, i32), b: (i32, i32)| {
+                w.paint_capsule(a, b, 2, material::STONE, 1.0);
+            };
+            // The "F": a column off the floor with two short arms.
+            paint(&mut w, (60, floor_y - 1), (60, 120));
+            paint(&mut w, (60, 150), (110, 150));
+            paint(&mut w, (60, 190), (105, 190));
+            // The hook: up, then a long arm back over open air.
+            paint(&mut w, (300, floor_y - 1), (300, 70));
+            paint(&mut w, (300, 70), (210, 60));
+            // The arch: two feet and a span, the case the model has the
+            // most trouble with because an arch carries its load in
+            // compression along its curve and this model only knows about
+            // bending moment.
+            let arch: Vec<(i32, i32)> = (0..=20)
+                .map(|i| {
+                    let t = i as f32 / 20.0;
+                    let angle = std::f32::consts::PI * t;
+                    (360 + (angle.cos() * -110.0) as i32, floor_y - 1 - (angle.sin() * 120.0) as i32)
+                })
+                .collect();
+            for pair in arch.windows(2) {
+                paint(&mut w, pair[0], pair[1]);
+            }
+        }
+        // **The unzip reproduction.** A hollow room built exactly the way
+        // `Tool::Room` builds one, then one cut into a wall -- one click of
+        // `D`, which is what the report was.
+        //
+        // Two things have to be faithful for this to reproduce, and both
+        // are easy to get wrong:
+        //
+        // - The walls go down through `paint_capsule_as`, not `set`,
+        //   because that is what marks them intact and reruns the scoped
+        //   relaxation. A room laid down with `set` is unattached
+        //   foreground and fails for an entirely different reason.
+        // - The four walls are drawn as four *overlapping* capsule runs, so
+        //   the corners are covered twice. Four independent segments leak
+        //   at every corner, which structurally means the roof is not
+        //   carried by the walls at all -- the scene would then be
+        //   measuring a bug in itself.
+        //
+        // The cut is at mid-height on the left wall, where a doorway goes.
+        //
+        // **What this scene found.** `Tool::Room` sets wall thickness from
+        // `brush_radius` and `App::mine` passes the *same* `brush_radius`
+        // through as the cut radius. A capsule of radius r is `2r+1` thick
+        // and a dig of radius r is `2r+1` across, so a cut into a wall
+        // built by the room tool severs it completely, every time, at any
+        // height, at any brush size. There is no ligament left because
+        // there cannot be one. The roof then hangs off the far wall alone
+        // and duly overloads -- correctly. Two verbs sharing one number
+        // where the whole point is that one must be smaller than the
+        // other.
+        // `wall=` and `dig=` are separate knobs *because the app gives them
+        // the same number* and that turns out to be the whole bug -- see
+        // the note above. Being able to vary them independently here is how
+        // the question "how much thicker than a cut does a wall have to be"
+        // gets an answer instead of an argument.
+        "room" => {
+            stone_floor(&mut w);
+            let (x0, y0) = (140, 150);
+            let (x1, y1) = (x0 + args.span, floor_y - 1);
+            for (a, b) in [((x0, y0), (x1, y0)), ((x0, y1), (x1, y1)), ((x0, y0), (x0, y1)), ((x1, y0), (x1, y1))] {
+                w.paint_capsule_as(a, b, args.wall, material::STONE, 1.0);
+            }
+            // One click, at mid-height on the left wall. `dig=0` makes no
+            // cut at all, which is the control: it says whether the room
+            // even stands untouched, and that has to be established before
+            // any number from a cut means anything.
+            if args.dig > 0 {
+                pixel_physics::sim::rigid::mine(&mut w, x0, (y0 + y1) / 2, args.dig);
+            }
+        }
+        // A thin shelf cantilevered off a thick pillar, with the join then
+        // cut so the shelf detaches whole.
+        //
+        // This is the case that actually produces an M8 chunk body, and the
+        // contrast with `mine` is the point. A mined roof fails
+        // *progressively* -- its cells sit at genuinely different distances
+        // (17, 18, 19...) and cross their span on different ticks, so at the
+        // instant the first one breaks its neighbours are still supported
+        // and there is no region to promote. A *detached* region has no
+        // anchor at all, so its cells climb in lockstep (the
+        // count-to-infinity dynamic in `structural.rs`'s module doc) and
+        // cross together, which is what gives `try_promote_failing_region` a
+        // whole connected region to find at once.
+        //
+        // The shelf is deliberately 3 cells thick: thicker than stone's
+        // confinement diameter and it would anchor itself and hang there
+        // forever, which is documented, intended behaviour and not what this
+        // scene is for.
+        "snap" => {
+            stone_floor(&mut w);
+            // The pillar is a cliff: attached, so it anchors the shelf and
+            // does not crumble under its own weight.
+            for y in 120..200 {
+                for x in 60..80 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // The shelf is *not* attached -- it is the thing under test, and
+            // cutting it off its pillar should drop it.
+            for y in 140..143 {
+                for x in 80..112 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            // Cut the shelf off its pillar, through the ordinary eraser
+            // brush so this goes down the same reactive path a player does.
+            for y in 140..143 {
+                w.paint_capsule((80, y), (80, y), 0, material::EMPTY, 1.0);
+            }
+        }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack"
         ),
     }
     w
@@ -299,6 +656,32 @@ fn build(scene: &str) -> World {
 
 struct Args {
     scene: String,
+    /// `seed=N` -- which generated world `scene=worldgen` builds.
+    seed: u64,
+    /// `preset=NAME` -- which entry of `assets/worldgen.ron` it uses. Empty
+    /// means that file's own `default`.
+    preset: String,
+    /// `wall=N` / `dig=N` -- capsule radii for `scene=room`'s walls and for
+    /// the cut made into them. Both default to 3, which is what the app
+    /// itself does, because the app has only one number for both.
+    wall: i32,
+    dig: i32,
+    /// `relax=1` -- run a **converged** distance pass straight after the
+    /// dig, instead of letting the scheduled relaxation reconverge over the
+    /// following frames.
+    ///
+    /// The instrument for one specific question: is a failure real, or is
+    /// it a cell judged mid-convergence against a stale distance? Those look
+    /// identical in an image and `load.rs` has been bitten by the
+    /// distinction before. Answered for the dig cascade: no, staleness is
+    /// not the cause -- see `Reports/next-session-handoff.md` 1b.
+    relax: bool,
+    /// `span=N` -- how wide `scene=room` is drawn, outer edge to outer
+    /// edge. The knob the whole "what can a player actually build" question
+    /// turns on, and the reason it is a knob rather than a constant: a
+    /// single width says the room stands or does not, and what is wanted is
+    /// the *envelope*.
+    span: i32,
     start: usize,
     every: usize,
     count: usize,
@@ -338,11 +721,68 @@ struct Args {
     /// which is what isolates the *physiological* response from the
     /// mechanical one.
     cuts: Vec<(i32, i32, i32, i32, usize)>,
+    /// `load=x,y` -- print `sim::load::evaluate` at that cell for every
+    /// tile. Repeatable. The structural counterpart of the `bodies` line:
+    /// an image says a shelf is still up, and only a number says whether it
+    /// is up with 3% of its capacity used or 97%.
+    probes: Vec<(i32, i32)>,
+    /// `repeat=N` -- run the whole scene N times and report the **minimum**
+    /// worst-frame with the spread beside it, rather than one sample.
+    ///
+    /// This machine is contended enough that a single sample is not a
+    /// measurement. Observed within one session: 18.0 ms twice running on
+    /// `scene=terrain`, which schedules zero structural checks and cannot
+    /// be doing the work that number would imply, and 40.5 / 55.6 ms on
+    /// scenes that measured 14-19 ms moments later. Three separate
+    /// near-misses where contention was almost read as a regression.
+    ///
+    /// The minimum is the right statistic, not the mean: contention can
+    /// only ever make a frame *slower*, so the fastest observed run is the
+    /// closest thing to the machine's actual cost. The spread is printed
+    /// beside it so a sample that is all noise is visible as such.
+    repeat: usize,
+    /// `min_overloaded=N` / `max_failures=N` -- exit non-zero unless the
+    /// run produced at least / at most that many structural failures. See
+    /// `check_expectations`.
+    min_overloaded: Option<u32>,
+    max_failures: Option<u32>,
+    /// `max_frame_ms=N` -- exit non-zero if the **minimum** worst-frame
+    /// across `repeat` runs exceeds N.
+    ///
+    /// Checked against the minimum specifically, and that is what makes it
+    /// safe to gate CI on. A single sample from a contended machine is not
+    /// a measurement -- this session saw 18.0 ms twice running on a scene
+    /// that schedules no structural work at all -- so a bar checked against
+    /// one run, or against a mean, would be permanently flaky and would
+    /// train everyone to ignore it. Contention can only make a frame
+    /// slower, so the fastest of several runs is the closest thing to the
+    /// machine's real cost, and a bar it still fails is a real regression.
+    max_frame_ms: Option<f64>,
+    /// `min_bodies=N` -- exit non-zero unless at least N coherent chunk
+    /// bodies were in flight at once at some point in the run.
+    ///
+    /// A different question from `min_overloaded`, and the `strike` scene
+    /// is why both exist. That scene is about a *blow throwing pieces*,
+    /// and the mechanism there is `rigid::strike`'s own fracture, not the
+    /// load criterion -- so asserting overload failures tested something
+    /// the scene is not about, and duly broke when an unrelated change to
+    /// the fragment ladder shifted how many separate events the same
+    /// material came away in. Peak concurrent bodies is the quantity that
+    /// actually says "it threw pieces".
+    min_bodies: Option<usize>,
+    /// `loadmap=1` -- also report the single most-stressed cell in the
+    /// world per tile. `CLAUDE.md`: sanity-check a new metric against a
+    /// case you know is fine before trusting it about one you don't, and
+    /// "nothing anywhere is over 1.0" on a scene that visibly stands is
+    /// exactly that check.
+    loadmap: bool,
 }
 
 fn parse() -> Args {
     let mut a = Args {
         scene: "pour".into(),
+        seed: 1,
+        preset: String::new(),
         start: 100,
         every: 60,
         count: 6,
@@ -357,11 +797,24 @@ fn parse() -> Args {
         gif: false,
         explosions: Vec::new(),
         cuts: Vec::new(),
+        probes: Vec::new(),
+        loadmap: false,
+        repeat: 1,
+        min_overloaded: None,
+        max_failures: None,
+        max_frame_ms: None,
+        min_bodies: None,
+        wall: 3,
+        dig: 3,
+        relax: false,
+        span: 200,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
             "scene" => a.scene = v.into(),
+            "seed" => a.seed = v.parse().expect("seed"),
+            "preset" => a.preset = v.into(),
             "start" => a.start = v.parse().expect("start"),
             "every" => a.every = v.parse().expect("every"),
             "count" => a.count = v.parse().expect("count"),
@@ -399,6 +852,21 @@ fn parse() -> Args {
                     "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure"
                 ),
             },
+            "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),
+            "wall" => a.wall = v.parse().expect("wall"),
+            "dig" => a.dig = v.parse().expect("dig"),
+            "relax" => a.relax = v != "false",
+            "span" => a.span = v.parse().expect("span"),
+            "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
+            "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
+            "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
+            "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
+            "loadmap" => a.loadmap = v != "false",
+            "load" => {
+                let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("load")).collect();
+                assert_eq!(n.len(), 2, "load=x,y");
+                a.probes.push((n[0], n[1]));
+            }
             "explode" => {
                 let n: Vec<f32> = v.split(',').map(|s| s.parse().expect("explode")).collect();
                 assert_eq!(n.len(), 5, "explode=x,y,radius,strength,frame");
@@ -465,6 +933,7 @@ fn fire_due_cuts(world: &mut World, pending: &mut Vec<(i32, i32, i32, i32, usize
 fn fire_due_explosions(
     world: &mut World,
     particles: &mut ParticleSystem,
+    blasts: &mut explosion::Blasts,
     pending: &mut Vec<(i32, i32, i32, f32, usize)>,
     now: usize,
 ) {
@@ -473,7 +942,7 @@ fn fire_due_explosions(
         if pending[i].4 <= now {
             let (x, y, r, strength, _) = pending.remove(i);
             println!("  boom: ({x}, {y}) r={r} strength={strength} at frame {now}");
-            explosion::trigger(world, particles, x, y, r, strength);
+            blasts.trigger_with(world, particles, x, y, r, strength);
         } else {
             i += 1;
         }
@@ -490,21 +959,155 @@ fn fire_due_explosions(
 /// scenes (nothing promotes a liquid body, nothing schedules an active site,
 /// and no liquid rule reads the field), so they do not move the measurements
 /// already recorded against those.
-fn advance(world: &mut World, particles: &mut ParticleSystem, parallel_driver: bool) {
+fn advance(world: &mut World, particles: &mut ParticleSystem, blasts: &mut explosion::Blasts, parallel_driver: bool) {
     if parallel_driver {
         parallel::step(world);
     } else {
         update::step(world);
     }
     world.step_liquid_bodies();
+    // M8 chunk bodies, in `App::update`'s own slot. Without this a promoted
+    // body is lifted out of the grid and then never moves -- a collapse
+    // would render as material simply disappearing, which is exactly the
+    // kind of thing this harness exists to catch by eye.
+    pixel_physics::sim::rigid::step_chunk_bodies(world);
     world.step_active_sites();
+    blasts.step(world, particles);
     particles.step(world);
     world.step_fields();
 }
 
+/// Print whatever structural probes were asked for. Separate from the tile
+/// line above because these scan the world and the tile line does not — a
+/// scene that isn't about structure should pay nothing for this existing.
+fn report_loads(world: &World, args: &Args) {
+    for &(x, y) in &args.probes {
+        match pixel_physics::sim::load::evaluate(world, x, y) {
+            Some(l) => println!(
+                "    load ({x},{y}): mass {} torque {} capacity {} stress {:.2}{}{}",
+                l.mass,
+                l.torque,
+                l.capacity,
+                l.stress(),
+                if l.supported { "" } else { " UNSUPPORTED" },
+                if l.truncated { " TRUNCATED" } else { "" },
+            ),
+            // Says *which* of the reasons, because "nothing here" covers
+            // both "solid rock that cannot fail" and "this cell is gone",
+            // and confusing those wastes a session.
+            None => {
+                let cell = world.get(x, y);
+                let name = &world.materials.get(cell.material).name;
+                println!("    load ({x},{y}): not evaluated -- {name}, aux {}, attached {}", cell.aux(), cell.attached());
+            }
+        }
+    }
+    if !args.loadmap {
+        return;
+    }
+    let mut worst: Option<((i32, i32), pixel_physics::sim::load::Load)> = None;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let Some(l) = pixel_physics::sim::load::evaluate(world, x, y) else { continue };
+            if worst.is_none_or(|(_, w)| l.stress() > w.stress()) {
+                worst = Some(((x, y), l));
+            }
+        }
+    }
+    match worst {
+        Some(((x, y), l)) => println!(
+            "    worst stress: {:.2} at ({x},{y}) -- mass {} torque {} capacity {}{}",
+            l.stress(),
+            l.mass,
+            l.torque,
+            l.capacity,
+            if l.supported { "" } else { " UNSUPPORTED" }
+        ),
+        None => println!("    worst stress: nothing evaluable in the world"),
+    }
+}
+
+/// Assert what the scene was supposed to do, and exit non-zero if it did
+/// not. Returns whether everything asked for held.
+///
+/// # Why the mechanism is asserted and not just the outcome
+///
+/// Because "it still stands" is true of a structure that is standing and
+/// equally true of one nothing ever looked at. That is not hypothetical:
+/// `scene=capped` was recorded as passing its acceptance case -- "the
+/// thick column still stands, worst stress 0.00" -- while the whole
+/// 15,840-cell structure was frozen, every cell still at `aux 0`, and not
+/// one of them had ever been load-evaluated. The assertion was true and
+/// meant nothing, which is `CLAUDE.md`'s vacuous-test failure arriving in
+/// the acceptance harness instead of the test suite.
+///
+/// So a scene that is supposed to collapse must show the *criterion
+/// firing* (`min_overloaded`), not merely that material moved; and a scene
+/// that is supposed to stand must show that nothing fired
+/// (`max_failures`), which is only meaningful once the same binary has
+/// demonstrated it can fire at all on the collapsing scenes.
+fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usize) -> bool {
+    let f = world.structural_failures;
+    let mut ok = true;
+    if let Some(limit) = args.max_frame_ms {
+        if best_ms > limit {
+            println!("  FAIL: worst frame {best_ms:.2} ms over the {limit:.1} ms budget (best of {} runs)", args.repeat);
+            ok = false;
+        }
+    }
+    if let Some(min) = args.min_bodies {
+        if peak_bodies < min {
+            println!("  FAIL: expected at least {min} chunk bodies in flight at once, peaked at {peak_bodies}");
+            ok = false;
+        }
+    }
+    if let Some(min) = args.min_overloaded {
+        if f.overloaded < min {
+            println!("  FAIL: expected at least {min} overload failures, got {}", f.overloaded);
+            ok = false;
+        }
+    }
+    if let Some(max) = args.max_failures {
+        let total = f.overloaded + f.unsupported;
+        if total > max {
+            println!("  FAIL: expected at most {max} structural failures, got {total}");
+            ok = false;
+        }
+    }
+    if ok && (args.min_overloaded.is_some() || args.max_failures.is_some() || args.max_frame_ms.is_some() || args.min_bodies.is_some()) {
+        println!("  OK: scene={} met its expectations", args.scene);
+    }
+    ok
+}
+
 fn main() {
     let args = parse();
-    let mut world = build(&args.scene);
+    // Repeated runs are for the *timing* only -- the image and the
+    // expectations come from the last one, which is a full run like any
+    // other. Deliberately re-simulated from scratch rather than reusing a
+    // warm world, since a second pass over an already-settled scene
+    // measures nothing.
+    let mut samples: Vec<f64> = Vec::new();
+    for _ in 1..args.repeat {
+        samples.push(run_once(&args, false).0);
+    }
+    let (last_ms, world, peak_bodies) = run_once(&args, true);
+    samples.push(last_ms);
+    let best = samples.iter().cloned().fold(f64::INFINITY, f64::min);
+    if args.repeat > 1 {
+        let worst = samples.iter().cloned().fold(0.0, f64::max);
+        println!("worst frame over {} runs: {best:.2} ms (spread {best:.2}-{worst:.2})", args.repeat);
+    }
+    if !check_expectations(&world, &args, best, peak_bodies) {
+        std::process::exit(1);
+    }
+}
+
+/// One full run. Returns its worst frame in ms and the finished world.
+/// `render` is false for the extra timing samples, which do not need an
+/// image and should not pay for one.
+fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
+    let mut world = build(args);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
     renderer.organism_overlay = args.organism_overlay;
@@ -512,6 +1115,7 @@ fn main() {
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
     let mut pending_cuts = args.cuts.clone();
+    let mut blasts = explosion::Blasts::new();
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
     let (cw, ch) = (args.crop.width(), args.crop.height());
@@ -538,12 +1142,12 @@ fn main() {
         for i in 0..args.count {
             let target = args.start + i * args.every;
             while step_no < target {
-                fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
-            fire_due_cuts(&mut world, &mut pending_cuts, step_no);
-                advance(&mut world, &mut particles, args.parallel_driver);
+                fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+                fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+                advance(&mut world, &mut particles, &mut blasts, args.parallel_driver);
                 step_no += 1;
             }
-            fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
+            fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
@@ -581,21 +1185,52 @@ fn main() {
         }
         drop(encoder);
         println!("animated gif ({tile_w}x{tile_h}, {} frames): {}", args.count, args.out);
-        return;
+        // The gif branch is for watching motion, not for measuring; it has
+        // no per-frame timing of its own and `repeat`/expectations do not
+        // apply to it.
+        // The gif branch is for watching motion, not measuring: no
+        // per-frame timing and no body sampling, so it reports neither.
+        return (0.0, world, 0);
     }
 
     let mut captured = 0usize;
     let mut step_no = 0usize;
+    // Worst *single* frame, not the mean, and reported per tile rather than
+    // once at the end. `Reports/fracture-mechanics-design.md` §3.4 names the
+    // cascade spike as the thing to watch -- each break changes loads and
+    // triggers more breaks in the same frame -- and a mean over 250 frames
+    // hides exactly that. Per tile, because it localizes the spike to a
+    // phase of the scene instead of just proving one happened.
+    let mut worst_ms = 0.0f64;
+    let mut worst_frame = 0usize;
+    // Sampled every frame, not just at capture: a body's whole life can
+    // fall between two tiles, and "bodies 0" in every tile of a scene that
+    // visibly threw rock is exactly the confusion this harness exists to
+    // prevent.
+    let mut peak_bodies = 0usize;
     while captured < args.count {
         let target = args.start + captured * args.every;
         while step_no < target {
-            fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
+            fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
-            advance(&mut world, &mut particles, args.parallel_driver);
+            let began = std::time::Instant::now();
+            advance(&mut world, &mut particles, &mut blasts, args.parallel_driver);
+            let ms = began.elapsed().as_secs_f64() * 1000.0;
+            // Frame 0 is excluded, and not to flatter the number: every
+            // scene spikes there, including `terrain`, which runs no
+            // structural work at all. It is chunk and field allocation plus
+            // first-touch page faults, paid once at startup, and leaving it
+            // in made all seven scenes report the same ~70-110 ms and hid
+            // the differences between them entirely.
+            peak_bodies = peak_bodies.max(world.chunk_bodies.len());
+            if ms > worst_ms && step_no > 0 {
+                worst_ms = ms;
+                worst_frame = step_no;
+            }
             step_no += 1;
         }
-        fire_due_explosions(&mut world, &mut particles, &mut pending, step_no);
-            fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+        fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+        fire_due_cuts(&mut world, &mut pending_cuts, step_no);
         // `force_full`, not the dirty-rect path: this must draw the whole
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.
@@ -620,11 +1255,63 @@ fn main() {
                 }
             }
         }
-        println!("  tile {captured}: frame {target}, awake {}/{}, particles {}", world.active_chunk_count(), world.chunk_count(), particles.len());
+        // `bodies` reports M8 chunk bodies in flight. Worth printing rather
+        // than inferring from the image: a coherent falling slab and a
+        // tightly-packed scatter of loose grains look nearly identical at
+        // the zoom levels these sheets are usually read at, so "did this
+        // actually promote to a body" is a question the picture cannot
+        // answer on its own.
+        if !render {
+            captured += 1;
+            continue;
+        }
+        println!(
+            "  tile {captured}: frame {target}, awake {}/{}, sites {}, particles {}, bodies {} ({} cells)",
+            world.active_chunk_count(),
+            world.chunk_count(),
+            world.active_site_count(),
+            particles.len(),
+            world.chunk_bodies.len(),
+            world.chunk_bodies.iter().map(|b| b.cells.len()).sum::<usize>(),
+        );
+        // Which failure fired, cumulatively. An overloaded piece and a
+        // piece that was never held look identical falling, so the image
+        // cannot say which mechanism produced what is on screen -- and
+        // those are the two halves of the model, with different causes and
+        // different bugs. `CLAUDE.md`: print the count next to the image
+        // and read both.
+        let f = world.structural_failures;
+        println!(
+            "    failures: overloaded {} ({} cells), unsupported {} ({} cells)",
+            f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
+        );
+        println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
+        // Pieces or grit. A region below `MIN_FRACTURE_CELLS` is not
+        // fractured at all -- it falls through to per-cell conversion,
+        // which *is* powder -- so a run whose failures average 1 or 2
+        // cells has already decided to produce dust no matter what the
+        // fragment ladder is set to. Printed next to the image because the
+        // two are indistinguishable at the zoom a contact sheet is read
+        // at.
+        let events = f.overloaded + f.unsupported;
+        if events > 0 {
+            println!(
+                "    failing region size: mean {:.1} cells, largest {}",
+                (f.overloaded_cells + f.unsupported_cells) as f64 / events as f64,
+                f.largest_failure
+            );
+        }
+        if render {
+            println!("    worst frame so far: {worst_ms:.2} ms (frame {worst_frame})");
+            report_loads(&world, args);
+        }
         captured += 1;
     }
 
-    image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
-        .expect("writing the contact sheet");
-    println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
+    if render {
+        image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
+            .expect("writing the contact sheet");
+        println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
+    }
+    (worst_ms, world, peak_bodies)
 }

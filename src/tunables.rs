@@ -27,6 +27,7 @@
 //! starting point, and registering it would either silently clamp to a
 //! misleadingly-finite value or need its own special-cased UI.
 
+use crate::sim::explosion::Tuning as Explosion;
 use crate::sim::material::{MaterialKind, MaterialRegistry};
 
 /// Which menu the tunables panel shows an entry in.
@@ -41,6 +42,12 @@ pub enum TunableGroup {
     /// How it is drawn. Changes nothing in the simulation, which is the
     /// property that makes the split worth having and is asserted in tests.
     Visual,
+    /// Explosions. The first group whose entries are **not material fields**
+    /// — they live on `sim::explosion::Tuning`, an engine struct — which is
+    /// why `Tunable::category` is no longer necessarily a material name and
+    /// why the save path has to branch on the group rather than assuming
+    /// every entry has a `.ron` file named after its category.
+    Explosion,
 }
 
 impl TunableGroup {
@@ -48,20 +55,34 @@ impl TunableGroup {
         match self {
             TunableGroup::Physics => "PHYSICS",
             TunableGroup::Visual => "VISUAL",
+            TunableGroup::Explosion => "EXPLOSION",
         }
     }
 
     pub fn next(self) -> Self {
         match self {
             TunableGroup::Physics => TunableGroup::Visual,
-            TunableGroup::Visual => TunableGroup::Physics,
+            TunableGroup::Visual => TunableGroup::Explosion,
+            TunableGroup::Explosion => TunableGroup::Physics,
         }
     }
 
-    pub fn all() -> [TunableGroup; 2] {
-        [TunableGroup::Physics, TunableGroup::Visual]
+    pub fn prev(self) -> Self {
+        match self {
+            TunableGroup::Physics => TunableGroup::Explosion,
+            TunableGroup::Visual => TunableGroup::Physics,
+            TunableGroup::Explosion => TunableGroup::Visual,
+        }
+    }
+
+    pub fn all() -> [TunableGroup; 3] {
+        [TunableGroup::Physics, TunableGroup::Visual, TunableGroup::Explosion]
     }
 }
+
+/// The one category name every [`TunableGroup::Explosion`] entry uses.
+/// Not a material — see that variant's own doc.
+pub const EXPLOSION_CATEGORY: &str = "explosion";
 
 /// One live-adjustable value. `value` is a live snapshot at the moment
 /// the registry was built, not a handle back into the registry it came
@@ -147,8 +168,76 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
                 out.push(Tunable::float(phys, &category, field, value, 0.0, 2000.0, 10.0));
             }
         }
+        // Structural integrity (`structural.rs`), `Solid` only -- a
+        // confinement radius or a compression weight means nothing to a
+        // powder or a gas, and the panel is long enough already. A material
+        // sitting at the "never" span sentinel is skipped for exactly the
+        // reason an infinite `ignition_temperature` is: there is no sensible
+        // value to drag a slider up from. All `u16` in the file, so all
+        // `integer` -- see `Tunable::integral` for why writing `2.0` into one
+        // is a save-breaking error rather than a cosmetic one.
+        if m.kind == MaterialKind::Solid && m.max_unsupported_span != u16::MAX {
+            out.push(Tunable::integer(phys, &category, "max_unsupported_span", m.max_unsupported_span as f32, 0.0, 64.0, 1.0));
+            out.push(Tunable::integer(phys, &category, "support_cost_below", m.support_cost_below as f32, 0.0, 8.0, 1.0));
+            // Floored at 1, matching `Material::from`'s own clamp: all three
+            // at 0 would let a distance propagate forever without growing,
+            // silently disabling spans rather than tuning them.
+            out.push(Tunable::integer(phys, &category, "support_cost_beside", m.support_cost_beside as f32, 1.0, 8.0, 1.0));
+            out.push(Tunable::integer(phys, &category, "support_cost_above", m.support_cost_above as f32, 1.0, 8.0, 1.0));
+        }
     }
     out
+}
+
+/// Every explosion parameter, in the order the panel lists them — roughly
+/// "what does the blast look like" first, then the finer physics.
+///
+/// Each field's own reasoning lives on `sim::explosion::Tuning`; the ranges
+/// here are what makes sense to sweep with a key held down, not hard limits.
+pub fn from_explosion(t: &Explosion) -> Vec<Tunable> {
+    let g = TunableGroup::Explosion;
+    let c = EXPLOSION_CATEGORY;
+    vec![
+        Tunable::float(g, c, "radius", t.radius, 1.0, 80.0, 1.0),
+        Tunable::float(g, c, "strength", t.strength, 10.0, 600.0, 10.0),
+        Tunable::float(g, c, "duration", t.duration, 1.0, 40.0, 1.0),
+        Tunable::float(g, c, "debris_fraction", t.debris_fraction, 0.0, 1.0, 0.05),
+        Tunable::float(g, c, "smoke_fraction", t.smoke_fraction, 0.0, 1.0, 0.02),
+        Tunable::float(g, c, "flash_temperature", t.flash_temperature, 0.0, 2000.0, 50.0),
+        Tunable::float(g, c, "fireball_fraction", t.fireball_fraction, 0.0, 3.0, 0.1),
+        Tunable::float(g, c, "vaporize_fraction", t.vaporize_fraction, 0.0, 1.0, 0.02),
+        Tunable::float(g, c, "shockwave_multiplier", t.shockwave_multiplier, 1.0, 4.0, 0.1),
+        Tunable::float(g, c, "pierce_divisor", t.pierce_divisor, 1.0, 200.0, 2.0),
+        Tunable::float(g, c, "speed_per_strength", t.speed_per_strength, 0.0, 0.5, 0.005),
+        Tunable::float(g, c, "debris_jitter", t.debris_jitter, 0.0, 2.0, 0.05),
+        Tunable::float(g, c, "heat_fraction", t.heat_fraction, 0.5, 20.0, 0.5),
+    ]
+}
+
+/// Apply one adjusted explosion value back onto the live tuning struct.
+///
+/// Kept next to `from_explosion` on purpose: the two are a matched pair of
+/// name lists, and splitting them across modules is how the field name in
+/// one drifts from the field name in the other. The same argument applies to
+/// `app.rs`'s material dispatch, which has lived with that risk since M-UI;
+/// this at least keeps the new half honest.
+pub fn apply_explosion(t: &mut Explosion, name: &str, value: f32) {
+    match name {
+        "radius" => t.radius = value,
+        "strength" => t.strength = value,
+        "duration" => t.duration = value,
+        "debris_fraction" => t.debris_fraction = value,
+        "smoke_fraction" => t.smoke_fraction = value,
+        "flash_temperature" => t.flash_temperature = value,
+        "fireball_fraction" => t.fireball_fraction = value,
+        "vaporize_fraction" => t.vaporize_fraction = value,
+        "shockwave_multiplier" => t.shockwave_multiplier = value,
+        "pierce_divisor" => t.pierce_divisor = value,
+        "speed_per_strength" => t.speed_per_strength = value,
+        "debris_jitter" => t.debris_jitter = value,
+        "heat_fraction" => t.heat_fraction = value,
+        _ => {}
+    }
 }
 
 /// Where a saved edit's target `.ron` file lives, by the same
@@ -314,7 +403,14 @@ mod tests {
     #[test]
     fn every_group_is_reachable_and_visual_changes_nothing_in_the_simulation() {
         let registry = MaterialRegistry::builtin();
-        let all = from_materials(&registry);
+        // Every registrant, not just materials. `Explosion`'s entries come
+        // from `from_explosion` — an engine struct rather than a material —
+        // and this assertion is about the *panel* having something to show
+        // in every menu, so it has to see everything the panel does. Keeping
+        // it material-only would have silently passed while the new menu was
+        // empty, which is precisely what it exists to catch.
+        let mut all = from_materials(&registry);
+        all.extend(from_explosion(&Explosion::default()));
         for group in TunableGroup::all() {
             assert!(
                 all.iter().any(|t| t.group == group),
@@ -327,6 +423,28 @@ mod tests {
         // here forces a decision about which side it belongs on.
         for t in all.iter().filter(|t| t.group == TunableGroup::Visual) {
             assert_eq!(t.name, "fill_dimming", "unexpected entry {} in the VISUAL menu", t.name);
+        }
+    }
+
+    /// The panel's two halves of the explosion story have to agree: every
+    /// entry `from_explosion` lists must be one `apply_explosion` can
+    /// actually write back. They are a hand-maintained pair of name lists,
+    /// and a typo in either would silently produce a row that displays fine
+    /// and does nothing when adjusted — the exact failure mode `app.rs`'s
+    /// material dispatch has always been exposed to and nothing checks.
+    #[test]
+    fn every_explosion_tunable_can_actually_be_written_back() {
+        let base = Explosion::default();
+        for t in from_explosion(&base) {
+            let mut probe = base;
+            // A value guaranteed different from the current one, inside the
+            // registered range, so "nothing changed" can only mean the write
+            // did not land.
+            let target = if (t.value - t.max).abs() > f32::EPSILON { t.max } else { t.min };
+            apply_explosion(&mut probe, &t.name, target);
+            assert_ne!(probe, base, "adjusting explosion.{} changed nothing -- name mismatch?", t.name);
+            let written = from_explosion(&probe).into_iter().find(|x| x.name == t.name).expect("entry still listed");
+            assert_eq!(written.value, target, "explosion.{} wrote to the wrong field", t.name);
         }
     }
 
@@ -444,5 +562,44 @@ mod tests {
         assert_eq!(format_value(12.345, false), "12.345");
         assert_eq!(format_value(0.1, false), "0.1");
         assert_eq!(format_value(-5.5, false), "-5.5");
+    }
+
+    /// Every registered tunable must survive the panel's actual save path
+    /// against its own real asset file.
+    ///
+    /// The bug this exists for shipped and was reported from live play:
+    /// `min_transfer` is a `u16`, the save path wrote `min_transfer: 60.0`,
+    /// and `ron::from_str` rejected the result with "Expected comma" —
+    /// which the panel then displayed in its footer. No existing test caught
+    /// it, because every save test used a hand-built source string with only
+    /// float fields in it, and none of them re-parsed the result as a real
+    /// `MaterialDef`. Both of those gaps are closed here: real files, real
+    /// round trip, every registered entry rather than a chosen few.
+    ///
+    /// Confirmed to fail before `Tunable::integral` existed — on exactly
+    /// the two `u16` liquid fields and nothing else.
+    #[test]
+    fn every_registered_tunable_saves_to_a_file_that_still_parses() {
+        let registry = MaterialRegistry::builtin();
+        for t in from_materials(&registry) {
+            let path = material_file_path(material::ASSET_DIR, &t.category);
+            let Ok(source) = std::fs::read_to_string(&path) else {
+                continue; // a material with no file of its own is not this test's problem
+            };
+            // Mid-range rather than the current value, so the write is a
+            // real change and an integral field genuinely has to round.
+            let probe = (t.min + t.max) / 2.0;
+            let updated = write_field_value(&source, &t.name, probe, t.integral)
+                .unwrap_or_else(|e| panic!("{}.{} failed to write: {e}", t.category, t.name));
+            if let Err(e) = ron::from_str::<material::MaterialDef>(&updated) {
+                panic!(
+                    "{}.{} = {probe} produced a file that no longer parses: {e}\n\
+                     wrote: {}",
+                    t.category,
+                    t.name,
+                    updated.lines().find(|l| l.contains(&t.name)).unwrap_or("?").trim()
+                );
+            }
+        }
     }
 }

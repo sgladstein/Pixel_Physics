@@ -328,6 +328,38 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
             continue;
         }
         let (wetter, drier) = if moisture > there { (moisture, there) } else { (there, moisture) };
+        // **A rest threshold, so standing dampness is representable — and
+        // its value is derived, not tuned.** Without one, capillary
+        // equalizes every gradient toward ±1 unit, so any local wetness (a
+        // generated water table, a pond's damp margin, a watered plot)
+        // keeps its chunks awake until the whole soil bed is uniform.
+        //
+        // The value must be at least the drainable band —
+        // `SOIL_SATURATED - SOIL_FIELD_CAPACITY` — and here is the argument,
+        // which cost a real derivation session: a saturated zone borders
+        // unsaturated soil somewhere, and every cell in that border is
+        // pulled by two rules with incompatible rest states. Drainage is
+        // only at rest at or below field capacity; capillary is only at
+        // rest across gradients at or under this threshold. Any cell
+        // holding between field capacity and saturation, with room in the
+        // cell below, drains — and capillary then refills it from the
+        // saturated side, forever. A perpetual two-cell pump, at every
+        // water-table boundary in the world. The *only* standing profile is
+        // saturation stepping straight down to field capacity in one cell,
+        // which requires the threshold to span that step. Physically this
+        // is the specific-yield band: suction cannot hold water that
+        // gravity can drain, so gradients inside the drainable band do not
+        // stand in nature either.
+        //
+        // What must keep flowing, and does: a root drying its cell toward
+        // the wilting point (180) beside field-capacity soil (620) is a
+        // 440 gradient; a wetting front from standing water starts near
+        // 1000 against dry soil. Both clear 380. What stops is the final
+        // sub-band remainder, which was pure churn.
+        const SOIL_CAPILLARY_REST: u16 = material::SOIL_SATURATED - material::SOIL_FIELD_CAPACITY;
+        if wetter - drier <= SOIL_CAPILLARY_REST {
+            continue;
+        }
         // Wetness is a *fraction of the wetter cell's own* capacity, and
         // the room available is the *receiver's*. Both used to read this
         // cell's `capacity` regardless of which side was which, so a
@@ -449,10 +481,28 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     // `FLAG_UNDERCUT` (`cell.rs`).
     let below = surface.get(x, y + 1);
     let hole_from_a_sideways_escape = below.is_empty() && below.undercut();
+
+    // Sinking into a liquid, a grain sometimes goes diagonally instead of
+    // straight down -- drag, and the reason a real blob of sand hitting
+    // water fans into a plume rather than descending as a slab.
+    //
+    // Not a refusal: the grain still moves, every frame, by exactly one
+    // cell. That matters. Rate-limiting the sink instead (so the grain
+    // sometimes stays put) was tried and is a trap -- a deferral that
+    // writes nothing lets the chunk settle, and the grain freezes in
+    // mid-water forever with the world asleep around it.
+    //
+    // Only when there is genuinely liquid below: a grain falling through
+    // air, or resting on ground, is unaffected.
+    let sinking = !below.is_empty() && surface.materials().kind(below.material) == MaterialKind::Liquid;
+    let (first, second) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
+    if sinking && surface.rng().chance(SINK_SPREAD) && (try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1)) {
+        return true;
+    }
+
     if !hole_from_a_sideways_escape && try_move(surface, x, y, x, y + 1) {
         return true;
     }
-    let (first, second) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
     if try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1) {
         return true;
     }
@@ -940,14 +990,50 @@ pub(crate) fn liquid_fill(cell: Cell) -> u16 {
 /// from ~9.3 ms to 31 ms, since the scan runs on every one of well over a
 /// million lateral descents. Two is the smallest value that does the whole
 /// job, so it is the one that pays least for it.
+/// How often a grain sinking through a liquid takes a diagonal step instead
+/// of a straight one -- see `update_powder`.
+const SINK_SPREAD: f32 = 0.5;
+
 const LIQUID_SETTLE_DROP: i32 = 2;
 
-/// Rises, then spreads. Gases are the mirror of liquids under gravity.
+/// Rises, then spreads — biased downwind. Gases are the mirror of liquids
+/// under gravity.
+///
+/// The wind bias is the first thing in this engine that lets the M13 field
+/// move *material*. Until it landed, the field's velocity channel had two
+/// consumers — its own semi-Lagrangian advection of heat/light/moisture, and
+/// `organism::wind_lean_dir`'s tree-tip lean — and neither of them displaces
+/// a single cell. So an explosion's pressure impulse would propagate and
+/// reflect across the whole world, sway some branches, and otherwise be
+/// invisible. A blast now visibly blows its own smoke outward before the
+/// plume drifts off, which is the shock becoming something you can see
+/// rather than something the F-key overlay can confirm.
+///
+/// Implemented as a *bias on an existing choice*, not as a new movement
+/// mode: `update_gas` already picks which horizontal direction to try first
+/// with a fair coin, and this only weights that coin. A gas in still air
+/// behaves exactly as it did (the coin stays fair below
+/// `WIND_BIAS_THRESHOLD`), and even in strong wind the gas still rises
+/// first — wind steers a plume, it does not stop it from being buoyant.
 fn update_gas<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
+    let (first, second, lean) = wind_biased_order(surface, x, y);
+    // Strong wind takes the downwind diagonal *before* rising straight up.
+    //
+    // This ordering is the whole mechanism, and getting it wrong made the
+    // first version of this a complete no-op: with the straight-up move
+    // tried first, a plume in open air always has an empty cell above it, so
+    // it rose vertically and the horizontal preference below was never
+    // consulted at all. The bias only ever applied to gas already trapped
+    // under a ceiling — which is the one case where it looks like nothing.
+    // Caught by rendering the same blast with the bias on and off and
+    // getting two identical contact sheets; no test would have noticed,
+    // because the rule genuinely "used" the wind on every call.
+    if lean && try_move(surface, x, y, x + first, y - 1) {
+        return true;
+    }
     if try_move(surface, x, y, x, y - 1) {
         return true;
     }
-    let (first, second) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
     if try_move(surface, x, y, x + first, y - 1) || try_move(surface, x, y, x + second, y - 1) {
         return true;
     }
@@ -957,6 +1043,116 @@ fn update_gas<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) 
     let dispersion = (surface.materials().get(surface.get(x, y).material).dispersion as i32).min(MAX_REACH);
     flow_sideways(surface, x, y, first, dispersion, 1, rightward)
         || flow_sideways(surface, x, y, second, dispersion, 1, rightward)
+}
+
+/// A prevailing breeze, added to whatever the field reports.
+///
+/// **Applied here rather than in the field, and that placement is the whole
+/// point.** The obvious implementation is a real forcing term in
+/// `field::step` — a small `vx` nudge on every unblocked cell, so heat
+/// advection and `organism::wind_lean_dir` feel it too. That was built,
+/// measured, and reverted: it destroys the field-sleep optimization (issue
+/// #4). A uniform velocity in a bounded world hits walls, which creates
+/// divergence, which creates pressure, which creates more velocity — so
+/// `is_converged` never returns true and the solve runs forever. Measured on
+/// `examples/ascii.rs`'s own sleep scene, the settled-field frame cost went
+/// from **0.0002 ms to 3.55 ms**, permanently, on every scene; six field
+/// tests failed alongside it. `CLAUDE.md` is explicit that frame cost is a
+/// hard constraint and not a tiebreaker, and 3.55 ms a frame forever is not
+/// a price worth paying for smoke that leans.
+///
+/// So this is deliberately the cheaper, lesser thing: a constant the *gas
+/// rule alone* reads, costing nothing and changing nothing else. It is
+/// honestly an approximation rather than physics — this "wind" does not
+/// carry heat, does not sway trees, and does not appear in the F-key
+/// velocity overlay, all of which a real field-level breeze would. What it
+/// does buy is the one thing the coupling needed to be visible outside the
+/// two seconds after an explosion: smoke that drifts somewhere instead of
+/// rising straight up. Set to 0.0 to remove it entirely.
+///
+/// If a real field-level wind is ever wanted, the actual prerequisite is
+/// making the solver settle *with* a steady forcing term present — not
+/// re-attempting the same nudge and re-discovering the same 3.55 ms.
+///
+/// The magnitude is set against `WIND_BIAS_FULL_SPEED`'s own measured scale,
+/// not chosen in isolation: at 0.35 (the first value tried) this produced a
+/// downwind preference of 0.53 against a fair 0.5 and was invisible. At 2.0
+/// it is a clear but not overwhelming lean, and it stays far below the ~86
+/// an explosion's own transient peaks at — so a blast still dominates its
+/// own neighbourhood completely and the breeze only takes over once the
+/// shock has passed, which is the ordering that reads correctly.
+const PREVAILING_DRIFT: f32 = 2.0;
+
+/// Below this wind speed a gas picks its horizontal direction with a fair
+/// coin, exactly as it always did. Not zero: the field's velocity channel
+/// approaches its fixed point asymptotically and settles to *near* rather
+/// than exactly zero (`field::SETTLE_EPSILON_VELOCITY` exists for the same
+/// reason), so without a threshold a long-settled world would still show
+/// every plume leaning one way forever on numerical residue.
+const WIND_BIAS_THRESHOLD: f32 = 0.01;
+
+/// Strongest the wind bias can get, as a probability of choosing downwind.
+/// Capped below 1.0 deliberately: at exactly 1.0 every gas cell in a windy
+/// region picks the identical direction on the identical frame, and a plume
+/// stops reading as a diffuse cloud and starts reading as a solid block
+/// sliding sideways — the same failure `explosion::Tuning::debris_jitter`
+/// and `particle::Particle::drag` were both added to prevent, for the same
+/// underlying reason (a shared decision made identically by many cells at
+/// once).
+const MAX_WIND_BIAS: f32 = 0.85;
+
+/// Wind speed at which the bias reaches `MAX_WIND_BIAS`.
+///
+/// **Measured, not guessed** — the first value here was 0.35, picked by eye
+/// with no idea of the channel's actual scale, which saturated the bias
+/// permanently and told me nothing. Probing `field_at(..).vx` around a real
+/// blast: the peak reaches ~86 about eight frames in, falls through ~20 by
+/// frame 24, sits between 1 and 3 for another forty frames, and is under 1
+/// by frame 80. A settled world reads essentially zero (the solver's own
+/// `SETTLE_EPSILON_VELOCITY` is 0.001). This value puts the *sustained*
+/// post-blast wind partway up the ramp and the initial shock firmly at the
+/// top, so the lean visibly eases off as the shock passes rather than
+/// switching between two states.
+const WIND_BIAS_FULL_SPEED: f32 = 4.0;
+
+/// How much of the bias also decides whether the gas leans downwind *before*
+/// rising, rather than only which side it prefers once it cannot rise. See
+/// `update_gas`'s own comment — without this the whole mechanism is a no-op
+/// in open air. Below 1.0 so even a howling wind lets some of a plume rise
+/// vertically, which is what keeps it looking like a cloud being pushed
+/// rather than a solid diagonal streak.
+const MAX_LEAN_CHANCE: f32 = 0.7;
+
+/// Which horizontal direction a gas tries first, weighted downwind, and
+/// whether the wind is strong enough for it to lean that way *before* rising.
+///
+/// Returns the same `(first, second)` pair `update_gas` always used, so that
+/// part of the caller is unchanged apart from where the pair comes from. In
+/// still air this is exactly a fair coin and `lean` is always false, so a
+/// gas behaves precisely as it did before any of this existed.
+fn wind_biased_order<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> (i32, i32, bool) {
+    let (field_vx, _) = surface.field_wind_at(x, y);
+    let vx = field_vx + PREVAILING_DRIFT;
+    if vx.abs() <= WIND_BIAS_THRESHOLD {
+        let (a, b) = if surface.rng().flip() { (-1, 1) } else { (1, -1) };
+        return (a, b, false);
+    }
+    let downwind = if vx > 0.0 { 1 } else { -1 };
+    // 0.5 (no preference) at the threshold, rising to `MAX_WIND_BIAS` at
+    // `WIND_BIAS_FULL_SPEED`.
+    let strength = (vx.abs() / WIND_BIAS_FULL_SPEED).clamp(0.0, 1.0);
+    let downwind_chance = 0.5 + (MAX_WIND_BIAS - 0.5) * strength;
+    let (first, second) = if surface.rng().chance(downwind_chance) {
+        (downwind, -downwind)
+    } else {
+        (-downwind, downwind)
+    };
+    // Only lean ahead of rising when the preferred side actually *is*
+    // downwind -- otherwise a cell that just rolled against the bias would
+    // be pushed upwind ahead of its own buoyancy, which is the opposite of
+    // the intent.
+    let lean = first == downwind && surface.rng().chance(strength * MAX_LEAN_CHANCE);
+    (first, second, lean)
 }
 
 /// Walk up to `max` cells in `dir`, stopping at the first obstruction, and move
@@ -1919,6 +2115,76 @@ mod tests {
             .find(|&y| (0..128).any(|x| w.get(x, y).material == material::SMOKE))
             .expect("smoke vanished");
         assert!(smoke_y < 20, "smoke did not rise: y = {smoke_y}");
+    }
+
+    /// A rising plume must lean downwind, not go straight up.
+    ///
+    /// The first version of the wind bias passed every "does it use the
+    /// wind" reading you could take of the code and still did *nothing*:
+    /// `update_gas` tried the straight-up move first, and a plume in open
+    /// air always has an empty cell above it, so the wind-weighted
+    /// horizontal choice was only ever consulted for gas already trapped
+    /// under a ceiling. Two contact sheets of the same blast, bias on and
+    /// bias off, came out identical. Measuring the plume's *centroid* is
+    /// what settled it — +19.4 cells of sideways drift with the fix against
+    /// -3.2 without — and a centroid is what this asserts, for the same
+    /// reason: the topmost or leftmost smoke cell is noise, the population's
+    /// centre of mass is the signal.
+    #[test]
+    fn a_rising_plume_leans_downwind() {
+        let mut w = world_with_floor();
+        for x in 60..70 {
+            for y in 110..120 {
+                w.set(x, y, Cell::new(material::SMOKE, 0));
+            }
+        }
+        let centroid_x = |w: &World| {
+            let cells: Vec<i32> = (0..128)
+                .flat_map(|y| (0..128).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material == material::SMOKE)
+                .map(|(x, _)| x)
+                .collect();
+            assert!(!cells.is_empty(), "the smoke vanished entirely");
+            cells.iter().sum::<i32>() as f32 / cells.len() as f32
+        };
+        let before = centroid_x(&w);
+        run(&mut w, 60);
+        let after = centroid_x(&w);
+
+        // Direction keyed off the constant rather than hardcoded, so
+        // flipping the prevailing wind does not silently invert this test
+        // into asserting the opposite of what it means.
+        let drift = (after - before) * PREVAILING_DRIFT.signum();
+        assert!(
+            drift > 1.0,
+            "a plume in a {PREVAILING_DRIFT} wind drifted {:.2} cells downwind ({before:.1} -> {after:.1})",
+            after - before
+        );
+    }
+
+    /// Wind steers a plume; it must not stop it being buoyant.
+    ///
+    /// `MAX_LEAN_CHANCE` is capped below 1.0 precisely so some of a plume
+    /// always takes the straight-up move. At 1.0 every gas cell in a windy
+    /// region leans on the same frame and the plume stops reading as a cloud
+    /// being pushed and starts reading as a solid diagonal streak — the same
+    /// "many cells making one decision identically" failure
+    /// `explosion::Tuning::debris_jitter` and `Particle::drag` both exist to
+    /// prevent. This pins the observable half of that: smoke in a wind still
+    /// has to climb.
+    #[test]
+    fn wind_steers_a_plume_without_stopping_it_rising() {
+        let mut w = world_with_floor();
+        for x in 60..70 {
+            for y in 110..120 {
+                w.set(x, y, Cell::new(material::SMOKE, 0));
+            }
+        }
+        run(&mut w, 60);
+        let top = (0..128)
+            .find(|&y| (0..128).any(|x| w.get(x, y).material == material::SMOKE))
+            .expect("the smoke vanished entirely");
+        assert!(top < 90, "smoke in a crosswind failed to rise: topmost cell at y = {top}, started at 110");
     }
 
     #[test]

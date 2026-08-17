@@ -1,0 +1,254 @@
+// World generation shape. Edit and save: the running app reloads this file and
+// regenerates the world on the current seed, so a value can be judged by eye
+// in a couple of seconds. F6 rolls a new seed, F7 cycles preset, F8 steps back
+// to the previous seed.
+//
+// Every field is documented on `WorldgenParams` in `src/worldgen/params.rs`.
+// Lengths are in cells; wavelengths are in cells of world x.
+//
+// Nothing writes this file back — unlike the material `.ron` files, there is
+// no panel save path here, so these comments are safe.
+//
+// Presets are written out in full rather than inheriting, so that every value
+// in play is visible at the point of tuning. A preset that omits a field still
+// loads (it falls back to the `rolling` values compiled into
+// `WorldgenParams::default`), which is what keeps adding a field later from
+// breaking this file. `rolling` and that fallback are asserted equal by
+// `the_default_preset_matches_the_compiled_in_fallback`.
+//
+// Two numbers are load-bearing rather than decorative, and are worth
+// understanding before sweeping them:
+//
+//   soil_slope_cutoff  Soil is omitted from ground steeper than this fraction
+//                      of its own angle of repose. It is the whole at-rest
+//                      guarantee for powder — raise it past 1.0 and generated
+//                      soil will avalanche the moment the world loads.
+//   sky_rows           How much air the composition gets. Too little and the
+//                      frame is all rock; the surface wants room above it.
+(
+    default: "rolling",
+    presets: {
+        // The reference world: a ridge, a valley, and bluffs in patches.
+        // What every other preset is a variation on.
+        "rolling": (
+            sky_rows: 95.0,
+            relief_amplitude: 36.0,
+            hill_amplitude: 30.0,
+            hill_wavelength: 150.0,
+            detail_amplitude: 2.5,
+            detail_wavelength: 28.0,
+            warp_strength: 34.0,
+            warp_wavelength: 130.0,
+            terrace_step: 26.0,
+            terrace_strength: 0.9,
+            mask_wavelength: 150.0,
+            soil_depth: 16.0,
+            soil_slope_cutoff: 0.8,
+            bedrock_band: 4.0,
+            strata_thickness: 9.0,
+            strata_tilt: 0.06,
+            strata_fold: 6.0,
+            pocket_density: 0.6,
+            talus_max_height: 12.0,
+            brow_chance: 0.8,
+            table_damping: 0.35,
+            table_offset: 12.0,
+            capillary_fringe: 24.0,
+            pond_min_depth: 2.0,
+            pond_min_width: 4.0,
+            moss_density: 0.10,
+            tree_density: 0.26,
+            life_cluster_wavelength: 70.0,
+        ),
+        // Benched country: bluffs over most of the relief instead of in
+        // patches. The preset for judging whether terracing reads as geology
+        // or as a flight of stairs — if it ever reads as stairs, it will read
+        // as stairs here first.
+        "terraced": (
+            sky_rows: 95.0,
+            relief_amplitude: 40.0,
+            hill_amplitude: 26.0,
+            hill_wavelength: 170.0,
+            detail_amplitude: 2.5,
+            detail_wavelength: 28.0,
+            warp_strength: 30.0,
+            warp_wavelength: 130.0,
+            terrace_step: 20.0,
+            terrace_strength: 0.95,
+            mask_wavelength: 110.0,
+            soil_depth: 14.0,
+            soil_slope_cutoff: 0.8,
+            bedrock_band: 4.0,
+            strata_thickness: 10.0,
+            strata_tilt: 0.05,
+            strata_fold: 7.0,
+            pocket_density: 0.6,
+            talus_max_height: 14.0,
+            brow_chance: 0.9,
+            table_damping: 0.35,
+            table_offset: 26.0,
+            capillary_fringe: 24.0,
+            pond_min_depth: 2.0,
+            pond_min_width: 4.0,
+            moss_density: 0.10,
+            tree_density: 0.22,
+            life_cluster_wavelength: 70.0,
+        ),
+        // Deep relief, thin soil, tall scree, water far down. Big vertical
+        // faces to strike, mine and stand under.
+        "canyon": (
+            sky_rows: 80.0,
+            relief_amplitude: 70.0,
+            hill_amplitude: 18.0,
+            hill_wavelength: 200.0,
+            detail_amplitude: 3.0,
+            detail_wavelength: 26.0,
+            warp_strength: 40.0,
+            warp_wavelength: 150.0,
+            terrace_step: 34.0,
+            terrace_strength: 0.95,
+            mask_wavelength: 170.0,
+            soil_depth: 7.0,
+            soil_slope_cutoff: 0.7,
+            bedrock_band: 5.0,
+            strata_thickness: 12.0,
+            strata_tilt: 0.09,
+            strata_fold: 8.0,
+            pocket_density: 0.8,
+            talus_max_height: 18.0,
+            brow_chance: 0.9,
+            table_damping: 0.3,
+            table_offset: 70.0,
+            capillary_fringe: 20.0,
+            pond_min_depth: 2.0,
+            pond_min_width: 4.0,
+            moss_density: 0.06,
+            tree_density: 0.10,
+            life_cluster_wavelength: 70.0,
+        ),
+        // Low relief, deep soil, high water table, dense life. The wettest
+        // world the parameters allow — the upper bound when judging whether
+        // water helps the place or drowns it.
+        "wetland": (
+            sky_rows: 110.0,
+            relief_amplitude: 24.0,
+            hill_amplitude: 16.0,
+            hill_wavelength: 200.0,
+            detail_amplitude: 2.0,
+            detail_wavelength: 34.0,
+            warp_strength: 24.0,
+            warp_wavelength: 140.0,
+            terrace_step: 26.0,
+            terrace_strength: 0.3,
+            mask_wavelength: 180.0,
+            soil_depth: 22.0,
+            soil_slope_cutoff: 0.85,
+            bedrock_band: 3.0,
+            strata_thickness: 8.0,
+            strata_tilt: 0.03,
+            strata_fold: 5.0,
+            pocket_density: 0.5,
+            talus_max_height: 8.0,
+            brow_chance: 0.5,
+            table_damping: 0.35,
+            table_offset: 8.0,
+            capillary_fringe: 30.0,
+            pond_min_depth: 2.0,
+            pond_min_width: 4.0,
+            moss_density: 0.25,
+            tree_density: 0.45,
+            life_cluster_wavelength: 70.0,
+        ),
+        // No water anywhere: the table is pushed below the world floor, so no
+        // pond is generated and the moisture floor stays zero. This is the
+        // pivot lever made concrete — if the water table turns out not to be
+        // fun, this preset is what the world looks like without it, one press
+        // of F7 away.
+        "arid": (
+            sky_rows: 95.0,
+            relief_amplitude: 40.0,
+            hill_amplitude: 30.0,
+            hill_wavelength: 150.0,
+            detail_amplitude: 3.0,
+            detail_wavelength: 24.0,
+            warp_strength: 34.0,
+            warp_wavelength: 130.0,
+            terrace_step: 26.0,
+            terrace_strength: 0.9,
+            mask_wavelength: 150.0,
+            soil_depth: 6.0,
+            soil_slope_cutoff: 0.75,
+            bedrock_band: 4.0,
+            strata_thickness: 9.0,
+            strata_tilt: 0.07,
+            strata_fold: 6.0,
+            pocket_density: 0.9,
+            talus_max_height: 16.0,
+            brow_chance: 0.85,
+            table_damping: 0.35,
+            table_offset: 400.0,
+            capillary_fringe: 24.0,
+            pond_min_depth: 2.0,
+            pond_min_width: 4.0,
+            moss_density: 0.0,
+            tree_density: 0.0,
+            life_cluster_wavelength: 70.0,
+        ),
+        // **The structural test bed.** Dead flat bare rock under a tall sky:
+        // the world for judging whether something a player *built* stands,
+        // as opposed to whether the world itself does.
+        //
+        // It is a preset rather than a code path on purpose. The question
+        // "does this room hold" needs a ground with no slope, no soil to
+        // sink into, no talus to prop things up and no trees in the way --
+        // and every one of those is already a number here, so a whole
+        // parallel "test world" mode would be a second way to build a world
+        // that could drift out of step with the real one. F7 reaches it.
+        //
+        // Every amplitude is zero and every wavelength is left alone: a
+        // wavelength is a divisor in places, and zeroing the thing that
+        // multiplies is what makes the surface flat without asking whether
+        // any of them is load-bearing.
+        //
+        //   sky_rows 200   Room for the 200x160 reference room `B` stamps,
+        //                  with margin. At the shipped 95 there is not
+        //                  enough air and `B` correctly refuses.
+        //   soil_depth 0   Bare stone. Building on sand is a different
+        //                  structural question -- `GRANULAR_CAPACITY_DIVISOR`
+        //                  cuts a cell's capacity by 64x when what is under
+        //                  it is loose grain -- and mixing the two is how a
+        //                  test bed stops telling you which one you measured.
+        //   table_offset   Past the world floor, as `arid` does, so no pond
+        //                  fills the room while you are watching it.
+        "flat": (
+            sky_rows: 200.0,
+            relief_amplitude: 0.0,
+            hill_amplitude: 0.0,
+            hill_wavelength: 150.0,
+            detail_amplitude: 0.0,
+            detail_wavelength: 28.0,
+            warp_strength: 0.0,
+            warp_wavelength: 130.0,
+            terrace_step: 26.0,
+            terrace_strength: 0.0,
+            mask_wavelength: 150.0,
+            soil_depth: 0.0,
+            soil_slope_cutoff: 0.8,
+            bedrock_band: 4.0,
+            strata_thickness: 9.0,
+            strata_tilt: 0.0,
+            strata_fold: 0.0,
+            pocket_density: 0.0,
+            talus_max_height: 0.0,
+            brow_chance: 0.0,
+            table_damping: 0.35,
+            table_offset: 400.0,
+            capillary_fringe: 24.0,
+            pond_min_depth: 2.0,
+            pond_min_width: 4.0,
+            moss_density: 0.0,
+            tree_density: 0.0,
+            life_cluster_wavelength: 70.0,
+        ),
+    },
+)

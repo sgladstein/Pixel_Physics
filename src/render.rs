@@ -12,6 +12,7 @@ use crate::sim::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
 use crate::sim::material;
 use crate::sim::organism;
 use crate::sim::particle::ParticleSystem;
+use crate::sky::{self, Sky};
 use crate::sim::rng;
 use crate::sim::world::World;
 
@@ -193,7 +194,7 @@ impl FieldOverlay {
 }
 
 /// Which organism-owned per-cell channel `Renderer::organism_overlay` tints
-/// by, cycled by `B` — the same shape as `FieldOverlay` above, pointed at
+/// by, cycled by `L` — the same shape as `FieldOverlay` above, pointed at
 /// `organism.rs`'s per-cell scalars instead of `field.rs`'s coarse grid.
 ///
 /// **Why this exists at all.** Every channel here is currently invisible,
@@ -341,12 +342,25 @@ const MAX_ZOOM: i32 = 8;
 /// "the same kind of picture, zoomed out" rather than aliasing into noise.
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
+/// How far a fractured cell is darkened, out of 256. Dark enough to read as
+/// a break at a glance, light enough that a scored face is still obviously
+/// rock rather than a hole.
+const CRACK_DARKEN: u16 = 110;
+
 pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
     /// Prototype switch — see the enum's own doc.
     pub grain: GrainMode,
     /// Frame counter, advanced by `draw`, read only by `GrainMode::Animated`.
     frame: u64,
+    /// Screen rectangles the chunk bodies occupied on the previous `draw`.
+    ///
+    /// A body is painted on top of the per-cell pass, so when it moves it
+    /// leaves stale pixels behind that nothing else will repaint. Keeping
+    /// last frame's rectangles is what lets the dirty region cover the
+    /// smear without falling back to redrawing the whole screen -- which is
+    /// what this did before, for the entire duration of every collapse.
+    last_body_rects: Vec<Rect>,
     /// World coordinate displayed at the top-left pixel. Fixed at the origin
     /// for M2; M10 moves it with the player.
     pub camera_x: i32,
@@ -422,6 +436,33 @@ pub struct Renderer {
     /// always full too, for the same reason: an unwritten buffer has nothing
     /// valid to partially build on.
     last_zoom_state: Option<(i32, i32)>,
+    /// The sky as of this frame, recomputed once per `draw` and read by
+    /// every empty pixel. Held rather than passed because `cell_colour` is
+    /// the per-pixel hot path and recomputing a cosine there would be paying
+    /// for the same answer up to 160,000 times a frame.
+    sky: Sky,
+    /// The quantised sky last actually painted. A frame whose sky key still
+    /// matches this one would repaint the screen to exactly the same pixels,
+    /// so it does not — which is what keeps a day/night sky from costing the
+    /// dirty-rect skip. See `sky::Sky::key`.
+    last_sky_key: Option<[i32; 7]>,
+    /// How lit the world is, `0..=LIGHT_LEVELS`, for this frame.
+    ///
+    /// **From the global daylight, not from the light channel**, and that was
+    /// a correction rather than a shortcut. Measured at noon on open terrain,
+    /// the channel reads 0.30 of `MAX_LIGHT` at the ground surface and 0.00
+    /// forty cells down: light diffuses through air and is stopped by solids,
+    /// so it never meaningfully enters the material it would have to light.
+    /// Driving the ground's brightness from it produced a picture that looked
+    /// right for the wrong reason — every solid pinned at the unlit floor all
+    /// day, with the visible day/night swing coming entirely from the ambient
+    /// tint. Lighting rock by the light channel needs light to propagate into
+    /// rock, which is the "caves are dark, bring a torch" feature and not
+    /// this one.
+    daylight: u8,
+    /// Where the moon was painted last frame, so its old pixels get cleaned
+    /// up. Same device as `last_body_rects`.
+    last_moon_rect: Option<Rect>,
 }
 
 impl Renderer {
@@ -429,6 +470,7 @@ impl Renderer {
         Self {
             grain: GrainMode::default(),
             frame: 0,
+            last_body_rects: Vec::new(),
             camera_x: 0,
             camera_y: 0,
             show_chunk_overlay: false,
@@ -438,6 +480,10 @@ impl Renderer {
             organism_overlay: OrganismOverlay::Off,
             last_organism_overlay: OrganismOverlay::Off,
             last_zoom_state: None,
+            sky: Sky::at(0, 0, 1, 0, 1),
+            last_sky_key: None,
+            daylight: sky::LIGHT_LEVELS,
+            last_moon_rect: None,
         }
     }
 
@@ -596,8 +642,46 @@ impl Renderer {
             GrainMode::AnimatedSmooth => true,
             _ => false,
         };
+        // Particles still force a full redraw: they are drawn off-grid on
+        // top of the per-cell pass, so the dirty-rect skip has no idea they
+        // moved and would leave a smear behind them.
+        //
+        // **Chunk bodies used to be in this list and are not any more.**
+        // Reported from play: "when something big breaks into lots of
+        // little pieces, the performance gets bad." That is this, and the
+        // fracture work made it much worse -- a collapse that used to
+        // promote 13 bodies now promotes over 100, and *any* body at all
+        // meant repainting the entire screen every frame for the whole
+        // duration of the fall. The dirty-rect skip was doing nothing
+        // during exactly the events with the most on screen.
+        //
+        // They still need repainting, so their rectangles are unioned into
+        // the dirty region below -- both where they are now and where they
+        // were last frame, since the stale pixels are the reason this was a
+        // full redraw in the first place.
+        // The sky changes with the clock rather than with the world, so
+        // nothing in `touched` will ever mention it and the dirty region
+        // cannot find it. It therefore has to force a redraw itself — but
+        // only on the frames it has genuinely changed, which is what the
+        // quantised key is for. Through most of a day that is no frames at
+        // all; through a sunrise it is a modest fraction of them, which is
+        // the one time of day worth repainting for.
+        let bounds = world.bounds();
+        self.sky = Sky::at(
+            world.frame,
+            bounds.map_or(0, |b| b.min_x),
+            bounds.map_or(1, |b| b.max_x),
+            bounds.map_or(0, |b| b.min_y),
+            bounds.map_or(1, |b| b.max_y),
+        );
+        self.daylight = sky::daylight_level(world.frame);
+        let sky_key = self.sky.key();
+        let sky_changed = self.last_sky_key != Some(sky_key);
+        self.last_sky_key = Some(sky_key);
+
         let full = force_full
             || scale_changed
+            || sky_changed
             || organism_overlay_changed
             || organism_overlay_is_live
             || self.field_overlay != FieldOverlay::Off
@@ -615,6 +699,37 @@ impl Renderer {
             (width as usize) * (height as usize)
         } else {
             let mut dirty: Option<Rect> = None;
+            // Where the bodies are now, and where they were when this last
+            // ran. Both, because a body that moved leaves stale pixels
+            // behind it and nothing else will repaint them.
+            let mut body_rects: Vec<Rect> = Vec::with_capacity(world.chunk_bodies.len());
+            for body in &world.chunk_bodies {
+                let (x0, y0, x1, y1) = body.bounds();
+                if let Some(r) = self.world_rect_to_screen_rect(Rect::new(x0, y0, x1, y1), width, height) {
+                    body_rects.push(r);
+                }
+            }
+            for r in body_rects.iter().chain(self.last_body_rects.iter()) {
+                dirty = Some(match dirty {
+                    Some(d) => d.union(*r),
+                    None => *r,
+                });
+            }
+            self.last_body_rects = body_rects;
+            // The moon, where it is now and where it was. A disc crossing
+            // the sky is a moving sprite as far as the dirty region is
+            // concerned, and leaves a trail behind it without the second
+            // rectangle.
+            let moon_rect = self.sky.moon_rect().and_then(|(x0, y0, x1, y1)| {
+                self.world_rect_to_screen_rect(Rect::new(x0, y0, x1, y1), width, height)
+            });
+            for r in moon_rect.iter().chain(self.last_moon_rect.iter()) {
+                dirty = Some(match dirty {
+                    Some(d) => d.union(*r),
+                    None => *r,
+                });
+            }
+            self.last_moon_rect = moon_rect;
             for coord in touched {
                 if let Some(r) = self.world_rect_to_screen_rect(coord.bounds(), width, height) {
                     dirty = Some(match dirty {
@@ -656,6 +771,7 @@ impl Renderer {
         };
 
         self.draw_particles(world, particles, frame, width, height);
+        self.draw_chunk_bodies(world, frame, width, height);
 
         if self.show_chunk_overlay {
             self.draw_chunk_overlay(world, frame, width, height);
@@ -720,6 +836,31 @@ impl Renderer {
         }
     }
 
+    /// M8 chunk bodies, drawn the same way free particles are and for the
+    /// same reason: a body in flight has been lifted *out* of the CA grid
+    /// (`rigid::try_promote_failing_region` erases its cells so a landing
+    /// cannot duplicate them), so the per-cell pass above cannot see it. A
+    /// falling chunk would otherwise simply vanish for the whole of its
+    /// flight and reappear on landing.
+    fn draw_chunk_bodies(&self, world: &World, frame: &mut [u8], width: u32, height: u32) {
+        let block = self.zoom.max(1);
+        for body in &world.chunk_bodies {
+            for cell in &body.cells {
+                let (wx, wy) = body.cell_position(cell);
+                let Some((sx, sy)) = self.world_to_screen(wx, wy) else {
+                    continue;
+                };
+                let palette = &world.materials.get(cell.material).palette;
+                let colour = palette[cell.shade as usize % palette.len()];
+                for dy in 0..block {
+                    for dx in 0..block {
+                        put(frame, width, height, sx + dx, sy + dy, colour);
+                    }
+                }
+            }
+        }
+    }
+
     fn cell_colour(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
         if !world.in_bounds(x, y) {
             return VOID;
@@ -728,7 +869,22 @@ impl Renderer {
         let palette = &world.materials.get(cell.material).palette;
         // Modulo keeps any shade value valid, so a palette can shrink on hot
         // reload in M3 without invalidating cells already in the world.
-        let base = palette[cell.shade as usize % palette.len()];
+        let mut base = palette[cell.shade as usize % palette.len()];
+        // Fractured rock draws dark along the break. Cracks are edge state
+        // (`FLAG_CRACK_RIGHT`), and at 1:1 an edge has no pixels of its own
+        // to draw into -- so the *cell* owning the crack is darkened
+        // instead, which renders a fissure as a dark seam threading through
+        // the rock at any zoom. Without this the entire mechanic is
+        // invisible: rock would weaken, sag and eventually drop with nothing
+        // on screen ever having looked damaged.
+        if cell.cracked() {
+            base = [
+                (base[0] as u16 * CRACK_DARKEN / 256) as u8,
+                (base[1] as u16 * CRACK_DARKEN / 256) as u8,
+                (base[2] as u16 * CRACK_DARKEN / 256) as u8,
+                base[3],
+            ];
+        }
         // A raw material check, not `cell.is_empty()` -- a promoted liquid
         // body's container cell (`Reports/liquid-heightfield-design.md`
         // §3c) is materially empty but `FLAG_MANAGED`, and `is_empty()`'s
@@ -738,6 +894,21 @@ impl Renderer {
         // grain jitter/heat-glow instead of flat background -- a visible,
         // static artifact along the outline of every heightfield body.
         if cell.material == material::EMPTY {
+            // Sky, not a flat background. Empty space inside the world is
+            // *air*, and drawing it black made every world read as a cutaway
+            // diagram rather than a place -- the strongest remaining tell,
+            // once the ground itself started looking like ground.
+            //
+            // Empty space is also where the day/night cycle was invisible.
+            // The oscillator has driven the light channel since M16, so
+            // plants and moss have always known what time it is while the
+            // screen did not; this is that same cosine, read rather than
+            // reinvented (`sky::Sky::at`).
+            //
+            // Deliberately *inside* the bounds check above, so the void
+            // outside the world keeps its own colour and stays
+            // distinguishable from a dark night sky.
+            base = self.sky.colour_at(x, y);
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
             // temperature very much propagate through vacuum) rather than
@@ -871,13 +1042,25 @@ impl Renderer {
         // lesson M5's `ChunkView` already applied to the sweep) before it's
         // safe to turn back on.
 
+        // Lit last, so everything above — fill dimming, grain, heat glow —
+        // is lit rather than competing with the light.
+        //
+        // Fire looks after itself without a special case: a burning cell
+        // floods its own field block with light, so its level comes out at
+        // the top of the range and the darkening barely touches it. The one
+        // thing that emits is the one thing that stays bright, which is the
+        // behaviour a special case would have had to fake.
+        let rgb = sky::apply_light(rgb, self.daylight, self.sky.ambient());
         let tinted = self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255]);
         // Applied *after* the field overlay, deliberately: the two can be on
         // at once (light and canopy density together is the pairing that
         // actually explains where a tip chose to grow), and when they are,
         // the per-cell channel is the more specific statement and should win
         // on the handful of cells it covers rather than being washed out by
-        // a field tint covering the whole screen.
+        // a field tint covering the whole screen. Both sit on top of the sky
+        // lighting: a debug channel must stay readable at midnight, and the
+        // full-replace ramps below are exactly the channels that must not be
+        // modulated by the time of day.
         self.apply_organism_overlay(world, x, y, tinted)
     }
 
@@ -1098,7 +1281,7 @@ impl Renderer {
     /// `zoom_out_stride > 1` and so has no single screen pixel of its own —
     /// distinct from simply being off-screen, which callers already clip
     /// against separately via `put`'s own bounds check.
-    fn world_to_screen(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+    pub fn world_to_screen(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         if self.zoom > 1 {
             Some(((x - self.camera_x) * self.zoom, (y - self.camera_y) * self.zoom))
         } else if self.zoom_out_stride > 1 {
@@ -1125,6 +1308,28 @@ pub(crate) fn put(frame: &mut [u8], width: u32, height: u32, x: i32, y: i32, col
     }
     let i = (y as usize * width as usize + x as usize) * 4;
     frame[i..i + 4].copy_from_slice(&colour);
+}
+
+/// Blend `colour` over whatever is already in the frame at `(x, y)`, with
+/// `alpha` in 0..=1. The HUD's panels are drawn *after* the world, straight
+/// into the same framebuffer, so this is the whole of the translucency
+/// mechanism — no second buffer, no compositing pass.
+///
+/// Integer math on the way out, but the blend itself is float: these are
+/// panel-sized fills (a few tens of thousands of pixels at most) drawn only
+/// while an overlay is open, not the per-cell hot path `cell_colour` is, so
+/// the readability is worth more here than the cycles.
+pub(crate) fn blend(frame: &mut [u8], width: u32, height: u32, x: i32, y: i32, colour: [u8; 4], alpha: f32) {
+    if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
+        return;
+    }
+    let a = alpha.clamp(0.0, 1.0);
+    let i = (y as usize * width as usize + x as usize) * 4;
+    for c in 0..3 {
+        let dst = frame[i + c] as f32;
+        frame[i + c] = (dst + (colour[c] as f32 - dst) * a).round().clamp(0.0, 255.0) as u8;
+    }
+    frame[i + 3] = 255;
 }
 
 /// Midpoint circle algorithm, eight-way symmetry — the brush outline

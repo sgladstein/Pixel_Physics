@@ -77,6 +77,64 @@ const FLAG_MANAGED: u8 = 0b0000_1000;
 /// than only on the powder path — harmless for the kinds that never read it.
 const FLAG_UNDERCUT: u8 = 0b0001_0000;
 
+/// A fracture running along this cell's **right** edge — between it and
+/// `(x + 1, y)`.
+///
+/// # Why cracks live on edges rather than on cells
+///
+/// A crack is a *separation between* two pieces of rock, not a property of
+/// either one. Storing damage per cell can only ever erode: the cell weakens
+/// until it disappears, which is the dissolve this engine was reported as
+/// having. Storing it on the edge means rock can be visibly, cumulatively
+/// broken while still being entirely present — the state that was missing.
+///
+/// Every edge in the world is the right-or-down edge of exactly one cell, so
+/// these two bits describe every edge exactly once, with no ambiguity about
+/// which cell owns a given crack and no second grid to keep in step. The
+/// left edge of `(x, y)` is the right edge of `(x - 1, y)`; its top edge is
+/// the down edge of `(x, y - 1)`.
+///
+/// What makes this worth the two bits: support cannot propagate across a
+/// cracked edge. So "a crack has gone all the way around a piece" needs no
+/// detection of its own — the piece simply stops being able to reach an
+/// anchor, and the structural machinery that already exists fails it and
+/// breaks it off. Cracks that do not yet surround anything change nothing
+/// structurally, which is exactly right: a scored rock face is still a rock
+/// face.
+const FLAG_CRACK_RIGHT: u8 = 0b0100_0000;
+
+/// A fracture along this cell's **bottom** edge — between it and
+/// `(x, y + 1)`. See `FLAG_CRACK_RIGHT`.
+const FLAG_CRACK_DOWN: u8 = 0b1000_0000;
+
+/// Set on material that is part of the **background mass** — the rock the
+/// 2D slice is cut through, rather than something standing in front of it.
+///
+/// This is the engine's answer to a question geometry cannot answer. The
+/// play world is a vertical slice through a 3D world
+/// (`Reports/worldgen-design.md` §0), so a cave wall is held up largely by
+/// rock *out of plane* that the slice will never contain. Two earlier
+/// attempts tried to infer that from shape — first "a sufficiently confined
+/// cell is anchored", then "thickness scales how far a cell can span" — and
+/// both failed the same way: any rule strong enough to hold up a mountain
+/// also made everything the player built indestructible, and any rule weak
+/// enough to let built structures break also ate the mountain. It is not a
+/// property of shape. It is a property of what the material *is*.
+///
+/// So it is stated instead of guessed at. An attached cell is an anchor
+/// outright: it never falls, whatever its shape, because the mass behind it
+/// is holding it. Unattached material has to earn its support through a
+/// real path, which is what makes a built cantilever a genuine engineering
+/// problem.
+///
+/// **Attachment is lost, never gained, by destruction.** Break a piece out
+/// of a cliff and the part that comes free stops being backed by anything —
+/// `structural.rs` clears this as it detaches, and that transition is
+/// precisely what turns "I dug into a mountain" into falling chunks and
+/// rubble. Whether *placing* material can attach it is a separate question
+/// this flag does not decide.
+const FLAG_ATTACHED: u8 = 0b0010_0000;
+
 /// Default temperature for a newly created cell, in Celsius. Room temperature;
 /// chosen so cells created before the M13 ambient field exists still hold a
 /// believable value instead of 0 or an extreme.
@@ -236,6 +294,51 @@ impl Cell {
     #[inline]
     pub fn with_undercut(mut self, undercut: bool) -> Self {
         self.set_flag(FLAG_UNDERCUT, undercut);
+        self
+    }
+
+    /// See `FLAG_CRACK_RIGHT` — is this cell separated from `(x + 1, y)`?
+    #[inline]
+    pub fn crack_right(self) -> bool {
+        self.flags & FLAG_CRACK_RIGHT != 0
+    }
+
+    #[inline]
+    pub fn with_crack_right(mut self, cracked: bool) -> Self {
+        self.set_flag(FLAG_CRACK_RIGHT, cracked);
+        self
+    }
+
+    /// See `FLAG_CRACK_DOWN` — is this cell separated from `(x, y + 1)`?
+    #[inline]
+    pub fn crack_down(self) -> bool {
+        self.flags & FLAG_CRACK_DOWN != 0
+    }
+
+    #[inline]
+    pub fn with_crack_down(mut self, cracked: bool) -> Self {
+        self.set_flag(FLAG_CRACK_DOWN, cracked);
+        self
+    }
+
+    /// Whether this cell has any fracture on it at all — used by rendering
+    /// to darken a scored face, and by the strike tool to find crack tips
+    /// worth extending.
+    #[inline]
+    pub fn cracked(self) -> bool {
+        self.flags & (FLAG_CRACK_RIGHT | FLAG_CRACK_DOWN) != 0
+    }
+
+    /// See `FLAG_ATTACHED`'s own doc — whether this cell is part of the
+    /// background mass, and therefore anchored no matter its shape.
+    #[inline]
+    pub fn attached(self) -> bool {
+        self.flags & FLAG_ATTACHED != 0
+    }
+
+    #[inline]
+    pub fn with_attached(mut self, attached: bool) -> Self {
+        self.set_flag(FLAG_ATTACHED, attached);
         self
     }
 

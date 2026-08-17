@@ -1,15 +1,21 @@
 //! A tiny xorshift64* generator.
 //!
 //! The simulation calls this several times per cell per frame, so it needs to be
-//! trivially cheap. It is deliberately not a dependency: quality beyond "looks
-//! unbiased" buys nothing here, and owning it avoids churn in `rand`'s API.
+//! trivially cheap. It is deliberately not a dependency: statistical quality
+//! beyond "looks unbiased" buys nothing here, and owning it avoids churn in
+//! `rand`'s API.
 //!
-//! **Determinism is required** (same-build), per `PLAN.md` — this doc used to
-//! say the opposite, because the decision was originally "not required" and was
-//! later reversed; `CLAUDE.md` flags the stale comments the reversal left
-//! behind, and this was one of them. What that requirement does *not* by itself
-//! give you is independence: a single shared generator is deterministic and
-//! still couples every caller to every other caller's draw count. See `stream`.
+//! An earlier version of this doc said the sim "does not require
+//! reproducibility" — that decision was **reversed** (`PLAN.md`: same-build
+//! deterministic replay is required), and this module is now load-bearing for
+//! it: every seed is fixed (`Rng::default`) or position-derived
+//! (`Chunk::rng`, `jitter`), never drawn from time or OS entropy, so two
+//! identical runs draw identical streams. `tests/determinism.rs` asserts
+//! this end to end; do not add an entropy-seeded constructor.
+//!
+//! What that requirement does *not* by itself give you is independence: a
+//! single shared generator is deterministic and still couples every caller
+//! to every other caller's draw count. See `stream`.
 
 pub struct Rng(u64);
 

@@ -231,7 +231,7 @@ const MAX_TEMPERATURE: f32 = 4000.0;
 /// thermodynamics engine, and something can legitimately overshoot slightly
 /// during a single damped step without that being a bug worth chasing.
 const MIN_TEMPERATURE: f32 = -270.0;
-const MAX_LIGHT: f32 = 4.0;
+pub const MAX_LIGHT: f32 = 4.0;
 /// Architecture report §4. No physical unit — a relative "how much ambient
 /// humidity" scalar, same spirit as `MAX_LIGHT`: not calibrated against a
 /// real quantity, just a fixed ceiling the diffusion/decay constants below
@@ -324,6 +324,25 @@ pub struct FieldTile {
     /// what closes the loop `Reports/plant-substrate-v2-design.md` §4d
     /// describes — infiltrate, hold, drink, deplete, *and be noticed*.
     moisture_source: Box<[f32]>,
+    /// A lower bound on moisture that evaporation may not take a cell below.
+    ///
+    /// The saturated ground beneath the water table. Worldgen writes it once
+    /// (`worldgen::passes::moisture_init`) and it does not change again,
+    /// which makes it categorically different from every other array on this
+    /// tile: `blocked` and `moisture_source` are *recomputed from the CA
+    /// grid* every step, whereas this is **authored** and has no CA state to
+    /// be recomputed from. That is why `step` has to carry it forward
+    /// explicitly rather than getting it for free — see the copy in `step`.
+    ///
+    /// It exists because the aquifer cannot be liquid cells. A cell holds one
+    /// material and there is no porosity, so "saturated rock" is rock whose
+    /// *field* says it is wet; without a floor, evaporation would dry the
+    /// deep world out within a few hundred frames and the water table would
+    /// quietly cease to exist. Moisture above the floor still decays
+    /// normally, so surface humidity, puddles and rain all behave as before —
+    /// this is the hybrid persistence `Reports/worldgen-design.md` §8 asks
+    /// for, not a second moisture channel.
+    moisture_floor: Box<[f32]>,
 }
 
 impl FieldTile {
@@ -335,6 +354,7 @@ impl FieldTile {
             blocked: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
             occupancy: vec![0u8; FIELD_TILE_AREA].into_boxed_slice(),
             moisture_source: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
+            moisture_floor: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
         }
     }
 
@@ -381,6 +401,26 @@ impl FieldTile {
     #[inline]
     fn set_moisture_source_local(&mut self, lx: i32, ly: i32, source: f32) {
         self.moisture_source[Self::local_index(lx, ly)] = source;
+    }
+
+    #[inline]
+    pub fn moisture_floor_local(&self, lx: i32, ly: i32) -> f32 {
+        self.moisture_floor[Self::local_index(lx, ly)]
+    }
+
+    #[inline]
+    pub(crate) fn set_moisture_floor_local(&mut self, lx: i32, ly: i32, floor: f32) {
+        self.moisture_floor[Self::local_index(lx, ly)] = floor.clamp(0.0, MAX_MOISTURE);
+    }
+
+    /// Carry the authored floor across into a freshly built tile.
+    ///
+    /// `step` rebuilds every tile from scratch each frame, which is right for
+    /// the two arrays derived from the CA grid and wrong for this one: it has
+    /// no source to be derived from, so without this the floor would survive
+    /// exactly one frame and the aquifer would evaporate.
+    fn inherit_moisture_floor(&mut self, previous: &FieldTile) {
+        self.moisture_floor.copy_from_slice(&previous.moisture_floor);
     }
 }
 
@@ -595,7 +635,14 @@ pub fn step(world: &mut World) {
     // `next` — no aliasing, because nothing is shared.
     let mut next: HashMap<ChunkCoord, FieldTile> = HashMap::with_capacity(coords.len());
     for &coord in &coords {
-        next.insert(coord, FieldTile::new());
+        let mut tile = FieldTile::new();
+        // The one array on a tile that is authored rather than derived, so
+        // the only one a fresh tile cannot reconstruct. See
+        // `FieldTile::moisture_floor`.
+        if let Some(previous) = world.fields_ref().get(&coord) {
+            tile.inherit_moisture_floor(previous);
+        }
+        next.insert(coord, tile);
     }
 
     rebuild_blocked(world, &coords, &mut next);
@@ -664,7 +711,7 @@ fn is_converged(old: &HashMap<ChunkCoord, FieldTile>, coords: &[ChunkCoord], nex
 /// for a few thousand frames (the scale of this file's own longer tests,
 /// and of `plant.rs`'s multi-thousand-frame growth runs) sees at least one
 /// full day and one full night, not just a sliver of one.
-const DAY_NIGHT_PERIOD_FRAMES: u64 = 3600;
+pub const DAY_NIGHT_PERIOD_FRAMES: u64 = 3600;
 /// Floor on `sky_light_amplitude` at the darkest point of night — real
 /// moon/starlight, not absolute zero. Keeps night from being a hard on/off
 /// switch for everything reading the light channel (moss shade-seeking,
@@ -679,9 +726,47 @@ const NIGHT_LIGHT_FLOOR: f32 = 0.2;
 /// from sunrise, a peak at noon, a smooth fall to sunset, then flat dark
 /// until the next sunrise — not a pure sinusoid with no true night.
 fn sky_light_amplitude(frame: u64) -> f32 {
-    let phase = (frame % DAY_NIGHT_PERIOD_FRAMES) as f32 / DAY_NIGHT_PERIOD_FRAMES as f32;
-    let daylight = (phase * std::f32::consts::TAU).cos().max(0.0);
+    let daylight = sun_elevation(frame).max(0.0);
     NIGHT_LIGHT_FLOOR + daylight * (MAX_LIGHT - NIGHT_LIGHT_FLOOR)
+}
+
+/// How high the sun stands, as `-1.0` (deep night) through `0.0` (exactly
+/// sunrise or sunset) to `1.0` (noon).
+///
+/// The same cosine [`sky_light_amplitude`] is built from, exposed because the
+/// renderer draws a sky from it and the two must not drift: a sky painting
+/// dawn while the light channel still says midnight would be worse than no
+/// sky at all. This is the shared definition of what time it is, and the sign
+/// is what tells sunrise from sunset — `sun_rising` reads the other half of
+/// the cycle for that.
+pub fn sun_elevation(frame: u64) -> f32 {
+    let phase = (frame % DAY_NIGHT_PERIOD_FRAMES) as f32 / DAY_NIGHT_PERIOD_FRAMES as f32;
+    (phase * std::f32::consts::TAU).cos()
+}
+
+/// How much daylight there is, as `0.0` (deepest night) to `1.0` (noon).
+///
+/// [`sky_light_amplitude`] normalised by its own range. The renderer lights
+/// the world from this rather than from the light *channel*, and the reason
+/// is a measurement: at noon, on open terrain, the channel reads **0.30 of
+/// `MAX_LIGHT` at the ground surface and 0.00 forty cells down**. Light
+/// diffuses through air and is blocked by solids, so it never meaningfully
+/// enters the material it would have to light — the channel is doing its own
+/// job (telling plants and moss what is shaded) perfectly well and simply is
+/// not a description of how lit the *rock* looks.
+///
+/// Making it one is a real feature — light propagating into solids, or a
+/// depth term — and would be what "caves are dark and you need a torch"
+/// requires. It is not what a day/night cycle requires.
+pub fn daylight_fraction(frame: u64) -> f32 {
+    ((sky_light_amplitude(frame) - NIGHT_LIGHT_FLOOR) / (MAX_LIGHT - NIGHT_LIGHT_FLOOR)).clamp(0.0, 1.0)
+}
+
+/// Whether the sun is on its way up. Phase runs noon → sunset → midnight →
+/// sunrise, so the second half of the cycle is the rising half.
+pub fn sun_rising(frame: u64) -> bool {
+    let phase = (frame % DAY_NIGHT_PERIOD_FRAMES) as f32 / DAY_NIGHT_PERIOD_FRAMES as f32;
+    phase >= 0.5
 }
 
 /// Top-of-world light boundary condition — architecture report §2's sky
@@ -854,17 +939,30 @@ fn apply_moisture_sources(coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, 
         let tile = next.get_mut(&coord).expect("next was pre-populated with every coord in coords");
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
+                // Two independent lower bounds meet here, and one `max`
+                // serves both. The graded *source* level (this branch's
+                // damp-soil work) raises humidity to at least its own
+                // level — standing liquid still pins the block to
+                // MAX_MOISTURE exactly as before (level 1.0), damp soil
+                // lifts it part way without capping air that is humid for
+                // some other reason. The authored *floor* (master's
+                // aquifer) bounds what evaporation may take a cell down
+                // to: moisture above it still diffuses and evaporates
+                // normally, so rain and puddles behave as before and only
+                // the drying-out is bounded. Applied here rather than
+                // inside the diffusion loop so it lands after advection
+                // too — wind may not blow the aquifer away. Where both
+                // apply, the stronger bound simply wins; neither ever
+                // pulls a reading down.
                 let level = tile.moisture_source_local(lx, ly);
-                if level > 0.0 {
+                let floor = tile.moisture_floor_local(lx, ly);
+                let forced = (MAX_MOISTURE * level).max(floor);
+                if forced > 0.0 {
                     let mut cell = tile.get_local(lx, ly);
-                    // `max`, not assignment: a source raises humidity to at
-                    // least its own level and never pulls it back down.
-                    // Standing liquid still pins the block to MAX_MOISTURE
-                    // exactly as before (level 1.0); damp soil lifts it part
-                    // way without capping air that is humid for some other
-                    // reason.
-                    cell.moisture = cell.moisture.max(MAX_MOISTURE * level);
-                    tile.set_local(lx, ly, cell);
+                    if cell.moisture < forced {
+                        cell.moisture = forced;
+                        tile.set_local(lx, ly, cell);
+                    }
                 }
             }
         }

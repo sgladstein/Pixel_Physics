@@ -18,6 +18,15 @@ jobs:
       - name: cargo test
         run: cargo test --release --locked
 
+      # The release profile compiles `debug_assert!` out, and this codebase
+      # uses debug asserts as real invariant guards (organism/creature index
+      # overflow, `clear_moved` ownership, `tick_burn` on a non-burning
+      # cell, `set_aux` during a burn). Until this step existed, no CI
+      # configuration ever compiled a single one of them — a guard that is
+      # never built protects nothing.
+      - name: cargo test (debug, compiles the debug_assert guards)
+        run: cargo test --locked
+
       - name: cargo clippy
         run: cargo clippy --all-targets --release --locked -- -D warnings
 
@@ -27,6 +36,16 @@ jobs:
       # performance regressions locally, run headless here as a smoke test.
       - name: cargo run --example ascii
         run: cargo run --release --example ascii --locked
+
+      # The structural acceptance cases, run rather than remembered. Each
+      # asserts the *mechanism* as well as the outcome -- a scene that
+      # should collapse has to show the failure criterion firing, not just
+      # that material moved. That distinction is not academic: `capped` was
+      # recorded as passing its acceptance case ("the column still stands")
+      # for two commits while the whole structure was frozen and had never
+      # been evaluated at all. See scripts/acceptance.sh.
+      - name: structural acceptance cases
+        run: bash scripts/acceptance.sh
 
       # Informational only, not gating: the codebase predates rustfmt.toml
       # (added alongside this workflow) and has not yet had a full `cargo

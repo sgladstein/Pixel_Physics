@@ -7,13 +7,16 @@
 use crate::hud;
 use crate::render::{self, Renderer};
 use crate::sim::chunk::Rect;
+use crate::sim::explosion;
+use crate::sim::load;
 use crate::sim::material::{self, MaterialId, MaterialKind};
 use crate::sim::organism;
 use crate::sim::parallel;
 use crate::sim::particle::ParticleSystem;
+use crate::sim::structural;
 use crate::sim::world::World;
-use crate::sim::Cell;
 use crate::tunables::{self, Tunable, TunableGroup};
+use crate::worldgen::{self, WorldgenPresets};
 
 /// Simulation resolution, in cells. The window is larger; `pixels` scales the
 /// framebuffer up, which is what gives the chunky pixel look.
@@ -25,9 +28,55 @@ pub const HEIGHT: u32 = 320;
 /// one fills in within a handful of frames.
 const STREAM_DENSITY: f32 = 0.3;
 
+/// How hard a strike throws its debris, per cell of brush radius. Tuned so a
+/// small brush chips and a large one hurls -- the brush size is already the
+/// player's sense of "how big a hit is this", so it drives the force rather
+/// than a second hidden number.
+const STRIKE_FORCE_PER_RADIUS: f32 = 0.9;
+
+/// The seed a fresh session starts on, so that launching the sandbox twice
+/// gives the same world and a bug report has something to name.
+const INITIAL_SEED: u64 = 0x5EED;
+
+/// Build `world` from a named preset, falling back to the hand-authored
+/// terrain.
+///
+/// The fallback covers both `worldgen::LEGACY` (which is deliberately not in
+/// the presets file) and a name that no longer resolves because the file was
+/// edited while the app was running — neither is worth failing over when
+/// there is a working world one branch away.
+fn build_world_with(world: &mut World, presets: &WorldgenPresets, preset: &str, seed: u64) {
+    match presets.get(preset) {
+        Some(params) => worldgen::generate(world, worldgen::Spec::Generated { params, seed }),
+        None => worldgen::generate(world, worldgen::Spec::Legacy),
+    }
+}
+
+/// The reference room `B` stamps, in cells. See `stamp_reference_room`.
+///
+/// **Set to the measured edge of what the structural model will hold, not
+/// to a round number that looks nice.** A 200-cell span with 5- to
+/// 17-cell walls stands untouched; 260 fails at every thickness tested
+/// (`Reports/next-session-handoff.md` §2b). Stamping the *limit* is the
+/// point — a room comfortably inside it would show that rooms work, which
+/// nobody doubts, rather than whether the ceiling is in a sensible place.
+///
+/// 200 wide against a 512-wide world is 39% of it, which is the number the
+/// eye is actually being asked to judge.
+const REFERENCE_ROOM_SPAN: i32 = 200;
+
+/// Tall enough to stand a structure up rather than draw a lintel: the roof
+/// has to be carried by walls doing real work, or the span is not being
+/// tested. 160 is half the world's height.
+const REFERENCE_ROOM_HEIGHT: i32 = 160;
+
 pub struct App {
     pub world: World,
     pub particles: ParticleSystem,
+    /// Explosions currently expanding, plus their live tuning. A blast is
+    /// no longer a single-frame event (`sim::explosion`'s own module doc has
+    /// the measurements), so it needs somewhere to live between frames.
+    pub blasts: explosion::Blasts,
     pub renderer: Renderer,
     pub brush_radius: i32,
     /// Index into `paintable`, not a `MaterialId`, so cycling wraps cleanly.
@@ -39,6 +88,13 @@ pub struct App {
     /// Feedback from the last material/species reload — the only place a
     /// typo in a `.ron` file shows up.
     pub message: Option<String>,
+    /// Files under `assets/` that differ from the committed tree, or `None`
+    /// where git cannot answer (not installed, not a repository). Shown in
+    /// the title bar so a value saved through the tunables panel cannot sit
+    /// invisibly uncommitted across sessions — refreshed only on the events
+    /// that can change it (startup, a tunables save, a reload), never per
+    /// frame.
+    pub assets_dirty: Option<usize>,
     /// `I` — material/temperature/field readout for whatever's under the
     /// cursor. Off by default (§9 of `PLAN.md`'s UI-improvement pass).
     pub show_hover_inspector: bool,
@@ -58,9 +114,98 @@ pub struct App {
     tunables_selected: usize,
     /// Which menu the tunables panel is showing. `PageUp`/`PageDown`.
     tunables_group: TunableGroup,
+    /// The tunable currently pinned for live adjustment with the panel
+    /// *closed* — `Enter` in the panel sets it and closes.
+    ///
+    /// The panel covers most of the screen, so anything judged by eye could
+    /// not be judged while it was open: you adjusted blind, closed, looked,
+    /// reopened, scrolled back. Pinning is the fix — a one-line readout in
+    /// the corner and the same left/right keys, with the world fully
+    /// visible. Stored by identity (group/category/name), never by value,
+    /// so it stays correct across a hot-reload that rebuilds the list.
+    pinned: Option<(TunableGroup, String, String)>,
     /// `K` — whether the current A/B experiment is on. See `toggle_experiment`.
     pub experiment: bool,
+    /// Which gesture the mouse lays material with. `Z` cycles it.
+    ///
+    /// Reported from play: *"using a paint brush type tool to build is not
+    /// satisfying."* A freehand round brush is a **drawing** tool -- right
+    /// for sand, water and terrain, wrong for building, and for reasons
+    /// that have nothing to do with the simulation: no straight lines, no
+    /// right angles, no repeatable dimensions, and no sense of *placing*
+    /// anything. Every structure comes out wobbly. Prior art is unanimous
+    /// that building games use placement rather than painting
+    /// (`Reports/prior-art-destruction.md`).
+    ///
+    /// A mode rather than a held modifier, deliberately. A modifier is
+    /// invisible, and this project has already learned that an invisible
+    /// rule is the failure mode of the whole genre; a mode can be named in
+    /// the brush label and announced when it changes.
+    pub tool: Tool,
+    /// Where a drag-out gesture started, in screen space, while the button
+    /// is still held. `None` for the freehand brush, which paints as it
+    /// goes rather than on release.
+    pub drag_from: Option<(i32, i32)>,
+    /// `N` — the stress overlay. Off by default: it repaints the world
+    /// every frame it is up, which is the cost the dirty-rect skip exists
+    /// to avoid, and that is only worth paying while someone is actually
+    /// asking the question.
+    pub show_stress: bool,
+    /// A short-lived on-screen line, and the frame it stops being drawn on.
+    ///
+    /// `message` already existed but is only ever *read* from the window
+    /// title bar and the tunables panel's own footer — neither of which is
+    /// where anyone is looking mid-stroke. Reported from play about `B`
+    /// specifically: the brush changes what it authors and nothing on the
+    /// world itself says so, so which mode you are in has to be inferred
+    /// from what happens after you have already painted. A mode change is
+    /// exactly the case that wants a transient: it is worth saying loudly
+    /// once and worth nothing a second later, unlike the persistent brush
+    /// label beneath it.
+    toast: Option<(String, u64)>,
+    /// Every worldgen preset, reloaded whenever `assets/worldgen.ron` changes.
+    pub worldgen: WorldgenPresets,
+    /// Which preset a new world is built from. May be `worldgen::LEGACY`,
+    /// which selects the hand-authored terrain instead of generating.
+    pub worldgen_preset: String,
+    /// The seed the current world was generated from. `F6` rolls a new one.
+    ///
+    /// On screen in the status line at all times, so that a world worth
+    /// keeping can be written down and a screenshot always says which world
+    /// it is. A generator whose output cannot be named is one whose bugs
+    /// cannot be reported.
+    pub worldgen_seed: u64,
+    /// Seeds already visited, so `F8` can walk back to one that looked good.
+    /// Rolling forward past a promising world and having no way back is the
+    /// obvious failure of a single-key reroll.
+    seed_history: Vec<u64>,
 }
+
+/// Which gesture the mouse lays material with. See `App::tool`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tool {
+    /// Freehand, painting as the cursor moves. The original behaviour, and
+    /// still the right one for sand, water and terrain.
+    Brush,
+    /// Drag out a filled rectangle. Walls, floors, columns.
+    Rect,
+    /// Drag out a **hollow** rectangle: four walls of the brush's width
+    /// around an empty middle. The tool for anything you can go inside.
+    ///
+    /// Worth its own mode rather than being a modifier on `Rect`, because
+    /// it is the one a player reaches for most once they are building
+    /// rather than sculpting -- and because it gives `brush_radius` a
+    /// second, better meaning here: wall thickness.
+    Room,
+    /// Drag out a straight run of the current brush width. Beams,
+    /// diagonals, bracing.
+    Line,
+}
+
+/// Frames a `toast` stays up — two seconds at the sandbox's fixed 60 Hz.
+/// Long enough to read a short line without looking away from the cursor,
+/// short enough that it is gone before the next stroke finishes.
+const TOAST_FRAMES: u64 = 120;
 
 /// Re-read both the material and species directories over the current
 /// registries, returning a combined status message. Shared by `App::new`
@@ -77,6 +222,25 @@ fn reload_assets(world: &mut World) -> Option<String> {
     }
 }
 
+/// How many files under `assets/` differ from the committed tree, per
+/// `git status --porcelain`, or `None` when git cannot answer (not
+/// installed, not a repository, subprocess failure — all silently fine,
+/// this is an affordance, not a dependency).
+///
+/// Exists because the tunables panel saves straight back into the `.ron`
+/// files — right for iteration, and it quietly accumulates unrecorded
+/// balance changes: a `smoke_fraction` saved mid-playtest sat invisible in
+/// the working tree for a whole session before a review caught it, having
+/// silently removed SMOKE's only producer. One subprocess per call, so
+/// callers refresh it on the events that can change it, never per frame.
+fn dirty_asset_count() -> Option<usize> {
+    let out = std::process::Command::new("git").args(["status", "--porcelain", "--", "assets"]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).lines().filter(|l| !l.trim().is_empty()).count())
+}
+
 impl App {
     pub fn new() -> Self {
         let mut world = World::new(Rect::new(0, 0, WIDTH as i32 - 1, HEIGHT as i32 - 1));
@@ -90,9 +254,22 @@ impl App {
         // actually wired up: `SpeciesRegistry::reload` existed and was
         // tested, but nothing called it, so editing `assets/species/*.ron`
         // silently did nothing, unlike every material file.
-        let message = reload_assets(&mut world);
+        let mut message = reload_assets(&mut world);
 
-        build_terrain(&mut world);
+        let (worldgen_presets, worldgen_error) = WorldgenPresets::load();
+        // A broken `worldgen.ron` falls back to compiled-in defaults, which
+        // still builds a world -- so without this the only symptom of a typo
+        // would be that a tuning session silently stopped having any effect.
+        if let Some(e) = worldgen_error {
+            message = Some(match message {
+                Some(m) => format!("{m}; {e}"),
+                None => e,
+            });
+        }
+        let worldgen_preset = worldgen_presets.default_name();
+        let worldgen_seed = INITIAL_SEED;
+        build_world_with(&mut world, &worldgen_presets, &worldgen_preset, worldgen_seed);
+
         let paintable = world.materials.paintable();
         // Start on sand: the material that most obviously shows whether the
         // simulation is behaving.
@@ -105,6 +282,7 @@ impl App {
         Self {
             world,
             particles: ParticleSystem::new(),
+            blasts: explosion::Blasts::with_tuning(explosion::Tuning::load()),
             renderer: Renderer::new(),
             brush_radius: 6,
             selected,
@@ -112,15 +290,255 @@ impl App {
             paused: false,
             step_once: false,
             message,
+            assets_dirty: dirty_asset_count(),
             show_hover_inspector: false,
             show_palette: false,
             show_help: false,
             show_tunables: false,
             tunables_selected: 0,
             tunables_group: TunableGroup::Physics,
+            pinned: None,
             experiment: false,
+            tool: Tool::Brush,
+            drag_from: None,
+            show_stress: false,
+            toast: None,
+            worldgen: worldgen_presets,
+            worldgen_preset,
+            worldgen_seed,
+            seed_history: Vec::new(),
         }
     }
+
+    /// `F6` — generate a fresh world from a new seed.
+    ///
+    /// The reroll key, and the reason the generator is judged by eye rather
+    /// than argued about: a parameter change is worth nothing until it has
+    /// been seen across a dozen seeds, and any workflow where that costs a
+    /// recompile means it does not happen.
+    pub fn next_seed(&mut self) {
+        self.seed_history.push(self.worldgen_seed);
+        // Advancing the seed through the same hash the generator uses, rather
+        // than incrementing: adjacent integer seeds are perfectly fine inputs
+        // to a hashed generator, but consecutive worlds looking related --
+        // even once, even by coincidence -- would be read as the generator
+        // being broken.
+        self.worldgen_seed = worldgen::noise::hash(self.worldgen_seed, worldgen::noise::Purpose::Height, 0, 0);
+        self.reset();
+        self.announce_world();
+    }
+
+    /// `F8` — back to the previous seed.
+    pub fn previous_seed(&mut self) {
+        match self.seed_history.pop() {
+            Some(seed) => {
+                self.worldgen_seed = seed;
+                self.reset();
+                self.announce_world();
+            }
+            None => self.show_toast("NO PREVIOUS SEED"),
+        }
+    }
+
+    /// `F7` — cycle worldgen preset, keeping the seed.
+    ///
+    /// Same seed on purpose: comparing two presets is only meaningful on the
+    /// same underlying world, and a preset switch that also rerolled would
+    /// confound every comparison it was reached for.
+    pub fn cycle_preset(&mut self) {
+        let order = self.worldgen.cycle_order();
+        let at = order.iter().position(|n| *n == self.worldgen_preset).unwrap_or(0);
+        self.worldgen_preset = order[(at + 1) % order.len()].clone();
+        self.reset();
+        self.announce_world();
+    }
+
+    /// Re-read `assets/worldgen.ron` and rebuild on the current seed.
+    ///
+    /// The tuning loop: edit a number, save, look. Reached from the file
+    /// watcher, so no keypress is needed at all.
+    pub fn reload_worldgen(&mut self) {
+        let (presets, error) = WorldgenPresets::load();
+        self.worldgen = presets;
+        // A preset can be deleted out from under the current selection.
+        if self.worldgen_preset != worldgen::LEGACY && self.worldgen.get(&self.worldgen_preset).is_none() {
+            self.worldgen_preset = self.worldgen.default_name();
+        }
+        self.reset();
+        self.assets_dirty = dirty_asset_count();
+        match error {
+            Some(e) => self.show_toast(e),
+            None => self.announce_world(),
+        }
+    }
+
+    /// Put the current seed and preset on screen.
+    fn announce_world(&mut self) {
+        let text = format!("{} — SEED {:#018X}", self.worldgen_preset.to_uppercase(), self.worldgen_seed);
+        self.show_toast(text);
+    }
+
+    /// `Z` — cycle the build gesture. See `App::tool`.
+    pub fn cycle_tool(&mut self) {
+        self.tool = match self.tool {
+            Tool::Brush => Tool::Rect,
+            Tool::Rect => Tool::Room,
+            Tool::Room => Tool::Line,
+            Tool::Line => Tool::Brush,
+        };
+        self.drag_from = None;
+        self.show_toast(match self.tool {
+            Tool::Brush => "TOOL: BRUSH - FREEHAND",
+            Tool::Rect => "TOOL: RECTANGLE - DRAG OUT A SOLID BLOCK",
+            Tool::Room => "TOOL: ROOM - HOLLOW, BRUSH SETS WALL THICKNESS",
+            Tool::Line => "TOOL: LINE - DRAG OUT A BEAM",
+        });
+    }
+
+    /// Begin a drag-out gesture, for the tools that commit on release.
+    pub fn begin_drag(&mut self, screen_x: i32, screen_y: i32) {
+        if self.tool != Tool::Brush {
+            self.drag_from = Some((screen_x, screen_y));
+        }
+    }
+
+    /// Finish a drag-out gesture, laying the shape down. A no-op for the
+    /// freehand brush, which has already painted everything it is going to.
+    pub fn end_drag(&mut self, screen_x: i32, screen_y: i32, erase: bool) {
+        let Some(from) = self.drag_from.take() else { return };
+        let m = if erase { material::EMPTY } else { self.selected_material() };
+        let density = self.emission_density(m, erase);
+        let a = self.renderer.screen_to_world(from.0, from.1);
+        let b = self.renderer.screen_to_world(screen_x, screen_y);
+        match self.tool {
+            // Filled by sweeping capsules row by row rather than by a
+            // dedicated rectangle primitive: `paint_capsule_as` already
+            // carries every rule that matters -- density, the
+            // do-not-overwrite-solid guard, structural scheduling, the
+            // background-must-join-background test and the converged
+            // relaxation at the end -- and a second path into the grid
+            // would have to reimplement all of it to stay consistent.
+            Tool::Rect => {
+                let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
+                let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
+                let step = (self.brush_radius).max(1);
+                let mut y = y0;
+                loop {
+                    self.world.paint_capsule_as((x0, y), (x1, y), self.brush_radius, m, density);
+                    if y >= y1 {
+                        break;
+                    }
+                    y = (y + step).min(y1);
+                }
+            }
+            // Four walls rather than a fill. Each is a capsule run, so the
+            // corners are covered twice and join properly -- a room drawn
+            // as four independent segments would leak at every corner,
+            // which for a structure means the roof is not actually carried
+            // by the walls.
+            Tool::Room => self.paint_room(a, b, self.brush_radius, m, density),
+            Tool::Line => {
+                self.world.paint_capsule_as(a, b, self.brush_radius, m, density);
+            }
+            Tool::Brush => {}
+        }
+    }
+
+    /// Four walls around an empty middle, with `a` and `b` as opposite
+    /// corners.
+    ///
+    /// Each wall is a capsule *run*, so the corners are covered twice and
+    /// join properly — a room drawn as four independent segments leaks at
+    /// every corner, which for a structure means the roof is not actually
+    /// carried by the walls.
+    ///
+    /// Shared by the drag-out room tool and `stamp_reference_room` on
+    /// purpose. A reference room that was not built by the same code as a
+    /// player's room would be measuring a replica, which is the mistake
+    /// `build_terrain` is public to avoid.
+    fn paint_room(&mut self, a: (i32, i32), b: (i32, i32), r: i32, m: material::MaterialId, density: f32) {
+        let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
+        let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
+        for (from, to) in [((x0, y0), (x1, y0)), ((x0, y1), (x1, y1)), ((x0, y0), (x0, y1)), ((x1, y0), (x1, y1))] {
+            self.world.paint_capsule_as(from, to, r, m, density);
+        }
+    }
+
+    /// `B` — drop a **reference room** of a known size at the cursor, sitting
+    /// on whatever ground is under it.
+    ///
+    /// This exists to answer a question that only the eye can answer and
+    /// that no contact sheet has managed to: *is a room this size a
+    /// reasonable thing to want to build?* The structural model's measured
+    /// envelope is that a room holds its own roof up to about
+    /// `REFERENCE_ROOM_SPAN` cells wide and fails above it
+    /// (`Reports/next-session-handoff.md` §2b), and whether that is a
+    /// generous allowance or a cramped one is a judgement about play, not
+    /// about statics. Dragging one out by hand gives a different size every
+    /// time and so cannot settle it.
+    ///
+    /// Wall thickness is the brush radius, deliberately, so the same key at
+    /// different brush sizes walks the other axis of that envelope.
+    ///
+    /// **Always stone, ignoring the palette.** The app starts on sand, so
+    /// keying to the selection would hand a first-time press a room made of
+    /// powder — which answers no question about structure and looks like the
+    /// feature is broken. A reference is a fixed known thing or it is not a
+    /// reference; the ordinary room tool on `Z` is there for building out of
+    /// whatever you like.
+    pub fn stamp_reference_room(&mut self, screen_x: i32, screen_y: i32) {
+        let Some(stone) = self.world.materials.id_of("stone") else { return };
+        let (cx, cy) = self.renderer.screen_to_world(screen_x, screen_y);
+        // Sit it on the ground rather than at the cursor's height: a room
+        // floating in mid-air is a different structural question (and a
+        // much easier one) than a room standing on something.
+        let mut floor = cy;
+        while floor < HEIGHT as i32 - 1 && self.world.get(cx, floor + 1).material == material::EMPTY {
+            floor += 1;
+        }
+        let half = REFERENCE_ROOM_SPAN / 2;
+        let top = floor - REFERENCE_ROOM_HEIGHT;
+        // **Refuse rather than build a smaller one.** Generated terrain
+        // (M10) puts the surface anywhere, and on a hilltop there is not
+        // 160 cells of headroom -- a room clipped by the top of the world
+        // is not the reference size, and silently stamping one would be a
+        // measuring stick that changes length depending where you stand.
+        // Say so instead: the whole value of this key is that its answer
+        // means the same thing every time.
+        let margin = self.brush_radius;
+        if top - margin < 0 || cx - half - margin < 0 || cx + half + margin >= WIDTH as i32 {
+            self.show_toast(format!(
+                "NO ROOM FOR A {}x{} REFERENCE HERE - NEEDS CLEAR SKY AND SIDES",
+                REFERENCE_ROOM_SPAN, REFERENCE_ROOM_HEIGHT
+            ));
+            return;
+        }
+        self.paint_room((cx - half, top), (cx + half, floor), self.brush_radius, stone, 1.0);
+        self.show_toast(format!(
+            "REFERENCE ROOM {}x{} STONE - WALLS {} THICK",
+            REFERENCE_ROOM_SPAN,
+            REFERENCE_ROOM_HEIGHT,
+            self.brush_radius * 2 + 1
+        ));
+    }
+
+    /// `N` — show or hide the structural stress overlay.
+    ///
+    /// The key is `N` because that is what Medieval Engineers binds its
+    /// own stress view to, and `Reports/prior-art-destruction.md` is
+    /// emphatic that legibility, not physics, is what every disliked
+    /// stability system in this genre actually got wrong. There is no
+    /// reason to make someone learn a different key for the same idea.
+    pub fn toggle_stress_view(&mut self) {
+        self.show_stress = !self.show_stress;
+        self.show_toast(if self.show_stress { "STRESS VIEW ON - RED IS AT ITS LIMIT" } else { "STRESS VIEW OFF" });
+    }
+
+    /// Put `text` on screen for `TOAST_FRAMES`. See `App::toast`.
+    fn show_toast(&mut self, text: impl Into<String>) {
+        self.toast = Some((text.into(), self.world.frame + TOAST_FRAMES));
+    }
+
 
     pub fn toggle_hover_inspector(&mut self) {
         self.show_hover_inspector = !self.show_hover_inspector;
@@ -150,10 +568,15 @@ impl App {
     /// a persistent list in sync with hot-reload (`F5`) entirely, the same
     /// tradeoff `tunables.rs`'s own module doc explains.
     fn tunables_list(&self) -> Vec<Tunable> {
-        tunables::from_materials(&self.world.materials)
-            .into_iter()
-            .filter(|t| t.group == self.tunables_group)
-            .collect()
+        self.all_tunables().into_iter().filter(|t| t.group == self.tunables_group).collect()
+    }
+
+    /// Every registered tunable from every source, ungrouped — materials
+    /// plus the engine structs that are not materials at all.
+    fn all_tunables(&self) -> Vec<Tunable> {
+        let mut out = tunables::from_materials(&self.world.materials);
+        out.extend(tunables::from_explosion(&self.blasts.tuning));
+        out
     }
 
     /// `PageUp`/`PageDown` — switch which menu the panel shows. Resets the
@@ -205,16 +628,30 @@ impl App {
         let Some(t) = self.tunables_list().into_iter().nth(self.tunables_selected) else {
             return;
         };
+        self.apply_adjust(&t, sign);
+    }
+
+    /// Nudge `t` by one `step` in `sign`'s direction and write it back to
+    /// whichever live store it came from. Split out of `tunables_adjust` so
+    /// the pinned path (`adjust_pinned`) drives exactly the same code rather
+    /// than a parallel copy of it.
+    fn apply_adjust(&mut self, t: &Tunable, sign: i32) {
+        let new_value = (t.value + sign as f32 * t.step).clamp(t.min, t.max);
+        if t.group == TunableGroup::Explosion {
+            tunables::apply_explosion(&mut self.blasts.tuning, &t.name, new_value);
+            self.message = Some(format!("{}.{} = {new_value:.3}", t.category, t.name));
+            return;
+        }
         let Some(id) = self.world.materials.id_of(&t.category) else {
             return;
         };
-        let new_value = (t.value + sign as f32 * t.step).clamp(t.min, t.max);
         let m = self.world.materials.get_mut(id);
         match t.name.as_str() {
             "density" => m.density = new_value,
             "friction_angle" => m.friction_angle = new_value,
             "flammability" => m.flammability = new_value,
-            "min_transfer" => m.min_transfer = new_value.max(0.0) as u16,
+            "min_transfer" => m.min_transfer = new_value.max(0.0).round() as u16,
+            "flow_rate" => m.flow_rate = new_value.max(0.0).round() as u16,
             "fill_dimming" => m.fill_dimming = new_value,
             "heat_conductivity" => m.heat_conductivity = new_value,
             "ignition_temperature" => m.ignition_temperature = new_value,
@@ -227,6 +664,44 @@ impl App {
             // reachable case today.
             _ => {}
         }
+        self.message = Some(format!("{}.{} = {new_value:.3}", t.category, t.name));
+    }
+
+    /// `Enter` in the panel: remember the highlighted entry and close, so it
+    /// can be swept with the world actually visible. See `App::pinned`.
+    pub fn pin_selected(&mut self) {
+        let Some(t) = self.tunables_list().into_iter().nth(self.tunables_selected) else {
+            return;
+        };
+        self.message = Some(format!("pinned {}.{} -- LEFT/RIGHT to adjust, ESC to release", t.category, t.name));
+        self.pinned = Some((t.group, t.category, t.name));
+        self.show_tunables = false;
+    }
+
+    pub fn clear_pin(&mut self) {
+        if self.pinned.take().is_some() {
+            self.message = Some("released".into());
+        }
+    }
+
+    pub fn has_pin(&self) -> bool {
+        self.pinned.is_some()
+    }
+
+    /// The pinned entry, re-read live from whichever registry owns it, so
+    /// the readout and the next adjustment both see the current value rather
+    /// than whatever it was when it was pinned.
+    fn pinned_tunable(&self) -> Option<Tunable> {
+        let (group, category, name) = self.pinned.as_ref()?;
+        self.all_tunables()
+            .into_iter()
+            .find(|t| t.group == *group && &t.category == category && &t.name == name)
+    }
+
+    /// Left/right with the panel closed.
+    pub fn adjust_pinned(&mut self, sign: i32) {
+        let Some(t) = self.pinned_tunable() else { return };
+        self.apply_adjust(&t, sign);
     }
 
     /// Write the selected tunable's current live value back to its
@@ -248,6 +723,18 @@ impl App {
         let Some(t) = self.tunables_list().into_iter().nth(self.tunables_selected) else {
             return;
         };
+        // Engine tunables have no material file to span-edit -- the whole
+        // struct round-trips to its own generated file instead. See
+        // `explosion::Tuning::save` for why a full re-serialization is fine
+        // there and emphatically not fine for materials.
+        if t.group == TunableGroup::Explosion {
+            self.message = Some(match self.blasts.tuning.save() {
+                Ok(()) => format!("saved {}", explosion::Tuning::ASSET_PATH),
+                Err(e) => format!("{}: {e}", explosion::Tuning::ASSET_PATH),
+            });
+            self.assets_dirty = dirty_asset_count();
+            return;
+        }
         let path = tunables::material_file_path(material::ASSET_DIR, &t.category);
         let result = (|| -> Result<(), String> {
             let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
@@ -260,6 +747,7 @@ impl App {
             Ok(()) => format!("saved {}.{} = {}", t.category, t.name, t.value),
             Err(e) => format!("{}: {e}", path.display()),
         });
+        self.assets_dirty = dirty_asset_count();
     }
 
     pub fn update(&mut self) {
@@ -283,6 +771,14 @@ impl App {
         // this phase to do; wired in now so later steps land here rather
         // than needing frame-order surgery.
         self.world.step_liquid_bodies();
+        // M8 chunk bodies in the same slot and for the same reason: a body
+        // spanning two same-parity chunks would write to both from separate
+        // workers and break `parallel.rs`'s write-disjointness proof
+        // (`Reports/coupling-research.md` §4 states this outright), so it
+        // gets its own serial phase. Before active sites, so a structural
+        // check this frame sees a landed chunk's cells already in the grid
+        // rather than a frame-old hole where they used to be.
+        crate::sim::rigid::step_chunk_bodies(&mut self.world);
         // M16 active sites after the CA sweep too, for the same reason as
         // particles below: a root deciding whether to drink an adjacent
         // water cell needs this frame's settled position, not last frame's.
@@ -294,6 +790,12 @@ impl App {
         // currently matter, since particles do not read or write the field,
         // but keeping the CA-derived phases grouped together here is easier
         // to reason about than interleaving them.
+        // Blasts before particles: a blast stage clears cells and spawns
+        // debris, and that debris should get its first `particle::step`
+        // against the cavity this stage just opened rather than waiting a
+        // frame for it -- which is the whole reason staging helps debris
+        // escape at all (`sim::explosion::Tuning::duration`).
+        self.blasts.step(&mut self.world, &mut self.particles);
         self.particles.step(&mut self.world);
         self.world.step_fields();
     }
@@ -317,10 +819,33 @@ impl App {
         // erasing. Forcing a full redraw whenever any of this is showing is
         // the simple, always-correct alternative to tracking that footprint
         // separately; see `Renderer::draw`'s own doc for the full reasoning.
-        let force_full = cursor.is_some() || self.show_palette || self.show_help || self.show_tunables || self.show_hover_inspector;
+        let force_full = cursor.is_some()
+            || self.show_palette
+            || self.show_help
+            || self.show_tunables
+            || self.show_hover_inspector
+            || self.pinned.is_some()
+            // A toast paints over terrain and has no tracked footprint, so
+            // the frame it expires on has to redraw or it stays burned in
+            // over a settled world -- the exact reason every other overlay
+            // is in this list.
+            || self.active_toast().is_some()
+            || self.show_stress
+            || self.drag_from.is_some();
         let touched = self.world.take_touched_chunks();
         self.renderer.draw(&self.world, &self.particles, &touched, frame, (WIDTH, HEIGHT), force_full);
         self.draw_hud(frame, cursor);
+    }
+
+    /// The toast text, if one is set and has not yet expired. Expiry is
+    /// checked at draw time against `world.frame` rather than cleared by a
+    /// per-frame tick, so this needs no update-phase wiring at all. It does
+    /// mean a toast raised while *paused* stays up until the simulation
+    /// runs again, which is the behaviour worth having: the point is to say
+    /// which mode the brush is in, and paused is exactly when someone is
+    /// setting up rather than watching a clock.
+    fn active_toast(&self) -> Option<&str> {
+        self.toast.as_ref().filter(|(_, until)| self.world.frame < *until).map(|(text, _)| text.as_str())
     }
 
     fn draw_hud(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
@@ -330,13 +855,65 @@ impl App {
         // Brush label -- always on, bottom-left, the data `status()` above
         // already computes just shown persistently instead of only in the
         // window title bar.
-        let label = format!("{} R{}", self.selected_name(), self.brush_radius);
+        // Under the HUD text but over the terrain, so the readouts stay
+        // legible against it.
+        if self.show_stress {
+            self.draw_stress_overlay(frame);
+        }
+        // The tool is named in the persistent label, not only announced
+        // when it changes: a mode you cannot see is the failure this whole
+        // subsystem keeps relearning.
+        let label = match self.tool {
+            Tool::Brush => format!("{} R{}", self.selected_name(), self.brush_radius),
+            Tool::Rect => format!("{} R{} - RECT", self.selected_name(), self.brush_radius),
+            Tool::Room => format!("{} R{} - ROOM", self.selected_name(), self.brush_radius),
+            Tool::Line => format!("{} R{} - LINE", self.selected_name(), self.brush_radius),
+        };
         hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
+        // Directly above the persistent brush label, so a mode change reads
+        // as a line about the brush rather than as an unrelated notice
+        // somewhere else on screen.
+        if let Some(toast) = self.active_toast() {
+            hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 20, toast, YELLOW);
+        }
         // The help panel existed from the start and was invisible unless you
         // already knew the key -- which is the same as not existing. Hidden
         // only while help itself is open, where it would be redundant.
         if !self.show_help {
             hud::draw_text(frame, WIDTH, HEIGHT, WIDTH as i32 - 56, HEIGHT as i32 - 10, "? HELP", WHITE);
+        }
+
+        // The shape being dragged out, so the player can see what they are
+        // about to commit before they release.
+        if let (Some(from), Some(to)) = (self.drag_from, cursor) {
+            match self.tool {
+                Tool::Rect | Tool::Room => {
+                    let (x0, x1) = (from.0.min(to.0), from.0.max(to.0));
+                    let (y0, y1) = (from.1.min(to.1), from.1.max(to.1));
+                    for x in x0..=x1 {
+                        render::put(frame, WIDTH, HEIGHT, x, y0, YELLOW);
+                        render::put(frame, WIDTH, HEIGHT, x, y1, YELLOW);
+                    }
+                    for y in y0..=y1 {
+                        render::put(frame, WIDTH, HEIGHT, x0, y, YELLOW);
+                        render::put(frame, WIDTH, HEIGHT, x1, y, YELLOW);
+                    }
+                }
+                Tool::Line => {
+                    // A straight run of dots between the two ends. Enough
+                    // to show what will be laid down; the real stroke is
+                    // `paint_capsule_as`, which is a capsule of the
+                    // current brush width rather than a hairline.
+                    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+                    let steps = dx.abs().max(dy.abs()).max(1);
+                    for i in 0..=steps {
+                        let x = from.0 + dx * i / steps;
+                        let y = from.1 + dy * i / steps;
+                        render::put(frame, WIDTH, HEIGHT, x, y, YELLOW);
+                    }
+                }
+                Tool::Brush => {}
+            }
         }
 
         if let Some((sx, sy)) = cursor {
@@ -366,6 +943,10 @@ impl App {
 
         if self.show_tunables {
             self.draw_tunables_panel(frame);
+        } else {
+            // Only with the panel closed -- the whole point of pinning is
+            // watching the world, and the panel already shows the value.
+            self.draw_pinned_readout(frame);
         }
     }
 
@@ -377,29 +958,66 @@ impl App {
     /// a second one). Scrolls to keep the selection on screen once the
     /// list is taller than the panel — a fixed window of rows centred
     /// around `tunables_selected` rather than a real scrollbar.
+    /// The live-tunables panel (`O`).
+    ///
+    /// Translucent rather than opaque, by request: the panel covers most of
+    /// the screen, and a solid fill meant nothing being tuned could be seen
+    /// while tuning it. The world still shows through at `PANEL_ALPHA`, the
+    /// selected row gets a brighter bar behind it so it stays readable
+    /// against whatever happens to be underneath, and a value bar shows each
+    /// entry's position within its own min..max range — which is the one
+    /// piece of information a bare number never gave: whether there is any
+    /// headroom left in the direction you are pushing.
     fn draw_tunables_panel(&self, frame: &mut [u8]) {
-        const BG: [u8; 4] = [10, 10, 16, 255];
-        const WHITE: [u8; 4] = [235, 235, 235, 255];
+        const PANEL: [u8; 4] = [10, 10, 16, 255];
+        const PANEL_ALPHA: f32 = 0.78;
+        /// The selected row is *lifted* out of the panel, not pushed further
+        /// into it. Blending the panel colour over itself was the first
+        /// attempt and it darkened the row instead of highlighting it --
+        /// visible immediately in a rendered PNG, invisible in the code.
+        const ROW_LIFT: [u8; 4] = [46, 58, 82, 255];
+        const ROW_ALPHA: f32 = 0.85;
+        const WHITE: [u8; 4] = [225, 228, 235, 255];
+        const DIM: [u8; 4] = [140, 146, 158, 255];
         const SELECTED: [u8; 4] = [255, 220, 100, 255];
+        const ACCENT: [u8; 4] = [90, 170, 240, 255];
+        const BAR: [u8; 4] = [70, 96, 130, 255];
+
         let (left, top, right, bottom) = (20, 20, WIDTH as i32 - 20, HEIGHT as i32 - 20);
         for y in top..bottom {
             for x in left..right {
-                render::put(frame, WIDTH, HEIGHT, x, y, BG);
+                render::blend(frame, WIDTH, HEIGHT, x, y, PANEL, PANEL_ALPHA);
             }
+        }
+        // A one-pixel border, so the panel still reads as a panel now that
+        // its fill no longer fully hides what is behind it.
+        for x in left..right {
+            render::put(frame, WIDTH, HEIGHT, x, top, ACCENT);
+            render::put(frame, WIDTH, HEIGHT, x, bottom - 1, ACCENT);
+        }
+        for y in top..bottom {
+            render::put(frame, WIDTH, HEIGHT, left, y, ACCENT);
+            render::put(frame, WIDTH, HEIGHT, right - 1, y, ACCENT);
         }
 
         let list = self.tunables_list();
-        let header = format!(
-            "TUNABLES [{}]  PGUP/PGDN MENU  UP/DOWN SELECT  LEFT/RIGHT ADJUST  ENTER SAVE",
-            self.tunables_group.label()
+        hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 6, &format!("TUNABLES  [{}]", self.tunables_group.label()), SELECTED);
+        hud::draw_text(
+            frame,
+            WIDTH,
+            HEIGHT,
+            left + 8,
+            top + 16,
+            "PGUP/PGDN MENU   UP/DOWN SELECT   LEFT/RIGHT ADJUST   ENTER PIN+CLOSE   S SAVE",
+            DIM,
         );
-        hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 6, &header, WHITE);
         if list.is_empty() {
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 20, "NOTHING REGISTERED", WHITE);
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 30, "NOTHING REGISTERED", WHITE);
             return;
         }
 
         const ROW_HEIGHT: i32 = 10;
+        const HEADER_HEIGHT: i32 = 30;
         // Reserved unconditionally, not only when `self.message` is
         // currently `Some` -- a live PNG check caught the list running
         // rows straight through this space when the reservation was
@@ -408,23 +1026,89 @@ impl App {
         // footer must stay put whether or not there's a message to put in
         // it, so the two can never collide.
         const FOOTER_HEIGHT: i32 = 16;
+        let rows_top = top + HEADER_HEIGHT;
         let rows_bottom = bottom - FOOTER_HEIGHT;
-        let visible_rows = ((rows_bottom - (top + 20)) / ROW_HEIGHT).max(1) as usize;
+        let visible_rows = ((rows_bottom - rows_top) / ROW_HEIGHT).max(1) as usize;
         // Centre the window on the selection, clamped so it never scrolls
         // past either end of the list.
         let half = visible_rows / 2;
         let first = self.tunables_selected.saturating_sub(half).min(list.len().saturating_sub(visible_rows));
 
+        // Where the value bar lives, right-aligned inside the panel.
+        let bar_w = 60;
+        let bar_x = right - 8 - bar_w;
+
         for (row, (i, t)) in list.iter().enumerate().skip(first).take(visible_rows).enumerate() {
             let selected = i == self.tunables_selected;
+            let y = rows_top + row as i32 * ROW_HEIGHT;
+            if selected {
+                for by in y - 1..y + ROW_HEIGHT - 1 {
+                    for bx in left + 1..right - 1 {
+                        render::blend(frame, WIDTH, HEIGHT, bx, by, ROW_LIFT, ROW_ALPHA);
+                    }
+                }
+            }
             let colour = if selected { SELECTED } else { WHITE };
             let marker = if selected { ">" } else { " " };
-            let line = format!("{marker} {}.{} = {:.3}", t.category, t.name, t.value);
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 20 + row as i32 * ROW_HEIGHT, &line, colour);
+            let line = format!("{marker} {}.{}", t.category, t.name);
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, y, &line, colour);
+            hud::draw_text(frame, WIDTH, HEIGHT, bar_x - 52, y, &format!("{:>8.3}", t.value), colour);
+
+            // Fill fraction within min..max. Guards a degenerate range
+            // rather than dividing by zero -- nothing registers one today,
+            // but a future entry with min == max would otherwise produce NaN
+            // and a bar of unpredictable width.
+            let span = t.max - t.min;
+            let frac = if span > 0.0 { ((t.value - t.min) / span).clamp(0.0, 1.0) } else { 0.0 };
+            let filled = (bar_w as f32 * frac).round() as i32;
+            for bx in 0..bar_w {
+                let c = if bx < filled {
+                    if selected { SELECTED } else { ACCENT }
+                } else {
+                    BAR
+                };
+                // Three rows tall: a one-pixel bar was drawn first and read
+                // as a dashed hairline at this resolution rather than as a
+                // gauge -- caught by looking at the rendered panel.
+                for by in 2..5 {
+                    render::put(frame, WIDTH, HEIGHT, bar_x + bx, y + by, c);
+                }
+            }
         }
 
         if let Some(message) = &self.message {
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, bottom - 12, message, WHITE);
+            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, bottom - 12, message, DIM);
+        }
+    }
+
+    /// The pinned-tunable readout — one line, bottom-left, drawn only while
+    /// something is pinned and the panel is closed. See `App::pinned`.
+    fn draw_pinned_readout(&self, frame: &mut [u8]) {
+        const BG: [u8; 4] = [10, 10, 16, 255];
+        const SELECTED: [u8; 4] = [255, 220, 100, 255];
+        let Some(t) = self.pinned_tunable() else { return };
+
+        let line = format!("<{}.{}={:.3}>", t.category, t.name, t.value);
+        let w = (line.chars().count() as i32) * 6 + 10;
+        let (x, y) = (4, HEIGHT as i32 - 40);
+        for by in y - 3..y + 11 {
+            for bx in x - 3..x + w {
+                render::blend(frame, WIDTH, HEIGHT, bx, by, BG, 0.72);
+            }
+        }
+        hud::draw_text(frame, WIDTH, HEIGHT, x + 2, y, &line, SELECTED);
+
+        // The same min..max bar the panel draws, so the readout carries the
+        // one thing the number alone cannot: how much room is left.
+        let span = t.max - t.min;
+        let frac = if span > 0.0 { ((t.value - t.min) / span).clamp(0.0, 1.0) } else { 0.0 };
+        let bar_w = w - 8;
+        let filled = (bar_w as f32 * frac).round() as i32;
+        for bx in 0..bar_w {
+            let c = if bx < filled { SELECTED } else { [70, 96, 130, 255] };
+            for by in 8..10 {
+                render::put(frame, WIDTH, HEIGHT, x + 2 + bx, y + by, c);
+            }
         }
     }
 
@@ -432,6 +1116,101 @@ impl App {
     /// field channel at the world position under the cursor — every
     /// existing data path `I` toggles into view rather than needing a
     /// debugger to inspect.
+    /// Paint every structurally interesting cell by how close it is to
+    /// failing.
+    ///
+    /// # Why this exists at all
+    ///
+    /// `load::Load::stress()` is the exact ratio the failure criterion
+    /// tests, and before Phase A nothing in the running game read it. The
+    /// model decided whether a player's structure stood using quantities
+    /// invisible on screen — `attached` multiplies capacity twelvefold and
+    /// renders identically either way; `section` can differ 1,600x between
+    /// two cells that draw the same. Every shipped stability system in this
+    /// genre that players disliked failed on exactly that, and Rust ships a
+    /// cruder model than ours that players accept because the number is on
+    /// the hammer.
+    ///
+    /// # Why one cache for the whole screen
+    ///
+    /// `load::evaluate` walks a subtree, so a per-cell call would re-walk
+    /// what the neighbour just walked and the pass would be quadratic. One
+    /// shared `load::Cache` makes it O(region). The budget is deliberately
+    /// unbounded here: this is a debug view answering a question the user
+    /// asked *now*, and a half-drawn overlay would be worse than a slow
+    /// one — the honest cost is that it defeats the dirty-rect skip while
+    /// it is up, which is the same trade the animated grain documents and
+    /// is why it is off by default.
+    fn draw_stress_overlay(&self, frame: &mut [u8]) {
+        let mut cache = load::Cache::default();
+        let mut budget = u32::MAX;
+        let (x0, y0) = self.renderer.screen_to_world(0, 0);
+        let (x1, y1) = self.renderer.screen_to_world(WIDTH as i32, HEIGHT as i32);
+        let zoom = self.renderer.zoom.max(1);
+        for wy in y0..=y1 {
+            for wx in x0..=x1 {
+                let Some(l) = load::evaluate_with_cache(&self.world, wx, wy, &mut cache, &mut budget) else { continue };
+                let Some((sx, sy)) = self.renderer.world_to_screen(wx, wy) else { continue };
+                // Green at rest through amber to red at the limit, and
+                // beyond 1.0 it stays saturated rather than wrapping --
+                // "over its limit" is one state, not a gradient, and a cell
+                // that is about to go should not fade back toward green.
+                let ratio = l.stress().clamp(0.0, 1.0);
+                let colour = [(40.0 + 215.0 * ratio) as u8, (220.0 * (1.0 - ratio)) as u8, 60, 255];
+                for dy in 0..zoom {
+                    for dx in 0..zoom {
+                        render::blend(frame, WIDTH, HEIGHT, sx + dx, sy + dy, colour, 0.55);
+                    }
+                }
+            }
+        }
+    }
+
+    /// What the structural model thinks of the cell under the cursor.
+    ///
+    /// # Why this is not a nice-to-have
+    ///
+    /// `load::Load::stress()` is the ratio the failure criterion actually
+    /// tests, it has always been computed, and until now **nothing in the
+    /// running game read it** — its only consumer was `examples/filmstrip`.
+    /// So the model decided whether a player's structure stood using two
+    /// quantities that are invisible on screen: `attached`, a bit that
+    /// multiplies capacity twelvefold and renders identically either way,
+    /// and `section`, which can differ 1,600x between two cells that draw
+    /// the same.
+    ///
+    /// That is precisely how every shipped stress system in this genre
+    /// went wrong. `Reports/prior-art-destruction.md`: Medieval Engineers'
+    /// complaints were "buttresses push into the legs" — *unpredictable*,
+    /// not *too fragile* — while Rust ships a cruder physical model that
+    /// players accept because the number is written on the hammer.
+    ///
+    /// Says why when there is nothing to show, rather than going blank:
+    /// "no reading" covers both "solid rock that cannot fail" and "this
+    /// cell is not part of the structural system at all", and confusing
+    /// those wastes a session.
+    fn structural_line(&self, wx: i32, wy: i32) -> String {
+        if let Some(load) = load::evaluate(&self.world, wx, wy) {
+            return format!(
+                "STRESS {:.2} M{} T{}/{}{}{}",
+                load.stress(),
+                load.mass,
+                load.torque,
+                load.capacity,
+                if load.supported { "" } else { " UNSUPPORTED" },
+                if load.truncated { " PARTIAL" } else { "" },
+            );
+        }
+        let cell = self.world.get(wx, wy);
+        if !structural::is_body_material(&self.world, cell.material) {
+            return "NOT STRUCTURAL".into();
+        }
+        if cell.aux() == 0 {
+            return "ANCHORED".into();
+        }
+        format!("BULK D{} {}", cell.aux(), if cell.attached() { "BACKGROUND" } else { "FOREGROUND" })
+    }
+
     fn draw_hover_inspector(&self, frame: &mut [u8], sx: i32, sy: i32, colour: [u8; 4]) {
         let (wx, wy) = self.renderer.screen_to_world(sx, sy);
         let cell = self.world.get(wx, wy);
@@ -441,6 +1220,7 @@ impl App {
             format!("{material} ({wx},{wy})"),
             format!("TEMP {}C{}", cell.temperature(), if cell.is_burning() { " BURNING" } else { "" }),
             format!("P{:.1} T{:.0} L{:.1} M{:.1}", field.pressure, field.temperature, field.light, field.moisture),
+            self.structural_line(wx, wy),
         ];
         for (i, line) in lines.iter().enumerate() {
             hud::draw_text(frame, WIDTH, HEIGHT, 4, 4 + i as i32 * 9, line, colour);
@@ -482,27 +1262,42 @@ impl App {
     /// actually looks for).
     fn draw_help(&self, frame: &mut [u8]) {
         const BG: [u8; 4] = [10, 10, 16, 255];
-        const WHITE: [u8; 4] = [235, 235, 235, 255];
+        const WHITE: [u8; 4] = [225, 228, 235, 255];
+        const ACCENT: [u8; 4] = [90, 170, 240, 255];
         let (left, top, right, bottom) = (20, 20, WIDTH as i32 - 20, HEIGHT as i32 - 20);
+        // Translucent, matching the tunables panel -- see its own doc.
         for y in top..bottom {
             for x in left..right {
-                render::put(frame, WIDTH, HEIGHT, x, y, BG);
+                render::blend(frame, WIDTH, HEIGHT, x, y, BG, 0.88);
             }
+        }
+        for x in left..right {
+            render::put(frame, WIDTH, HEIGHT, x, top, ACCENT);
+            render::put(frame, WIDTH, HEIGHT, x, bottom - 1, ACCENT);
+        }
+        for y in top..bottom {
+            render::put(frame, WIDTH, HEIGHT, left, y, ACCENT);
+            render::put(frame, WIDTH, HEIGHT, right - 1, y, ACCENT);
         }
         let lines = [
             "LEFT CLICK PAINT    RIGHT CLICK ERASE",
             "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
             "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
             "",
+            "C STRIKE ROCK    D DIG (PRECISE CUT)",
             "F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    W PLANT WORM",
             "",
             "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
+            "N STRESS VIEW (GREEN AT REST, RED AT ITS LIMIT)",
+            "Z TOOL: BRUSH / RECT / ROOM / LINE  (DRAG OUT A SHAPE)",
+            "B STAMP A 200x160 REFERENCE ROOM (BRUSH = WALL THICKNESS)",
             "F1 CHUNK OVERLAY    G WATER GRAIN",
-            "B ORGANISM OVERLAY  (CELL TYPE/RESOURCE/CANOPY)",
+            "L ORGANISM OVERLAY  (CELL TYPE/RESOURCE/CANOPY)",
             "",
-            "O TUNABLES  (PGUP PGDN SWITCH MENU,",
-            "             ARROWS SELECT/ADJUST, ENTER SAVE)",
+            "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
+            "             ENTER PIN AND CLOSE, S SAVE)",
+            "  PINNED: LEFT/RIGHT ADJUST LIVE, ESC RELEASE",
             "K A/B EXPERIMENT    F5 RELOAD ASSETS",
             "",
             "? THIS HELP    ESC CLOSE",
@@ -517,6 +1312,9 @@ impl App {
     /// start behaving differently.
     pub fn reload_materials(&mut self) {
         self.message = reload_assets(&mut self.world).map(|s| format!("reloaded {s}"));
+        // The watcher lands here on any external edit to the asset files,
+        // so the marker tracks hand-edits as well as panel saves.
+        self.assets_dirty = dirty_asset_count();
         // A new material file adds an id, so the picker has to be rebuilt.
         let current = self.selected_material();
         self.paintable = self.world.materials.paintable();
@@ -581,7 +1379,7 @@ impl App {
         let to = self.renderer.screen_to_world(to.0, to.1);
         let density = self.emission_density(m, erase);
         self.world
-            .paint_capsule(from, to, self.brush_radius, m, density);
+            .paint_capsule_as(from, to, self.brush_radius, m, density);
     }
 
     /// Force-ignite the brush area at a screen position. See
@@ -628,8 +1426,26 @@ impl App {
     /// radius of cells converted to thrown debris or vacuum.
     pub fn explode(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
-        const STRENGTH: f32 = 180.0;
-        crate::sim::explosion::trigger(&mut self.world, &mut self.particles, x, y, self.brush_radius, STRENGTH);
+        self.blasts.trigger(&mut self.world, &mut self.particles, x, y);
+    }
+
+    /// Strike the rock under the cursor — the destruction *verb*.
+    ///
+    /// Scaled off the brush so the tool the player is already sizing is the
+    /// tool that decides how hard they hit, rather than introducing a second
+    /// invisible number to tune. See `rigid::strike`.
+    pub fn strike(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        let force = self.brush_radius as f32 * STRIKE_FORCE_PER_RADIUS;
+        crate::sim::rigid::strike(&mut self.world, x, y, self.brush_radius, force);
+    }
+
+    /// Cut rock away precisely under the cursor — the *mining* verb, as
+    /// distinct from the eraser, which deletes matter and tells the
+    /// structural model nothing. See `rigid::mine`.
+    pub fn mine(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        crate::sim::rigid::mine(&mut self.world, x, y, self.brush_radius);
     }
 
     /// Plant a tree seed at a screen position — M16 debug tool. See
@@ -671,7 +1487,7 @@ impl App {
         // Carry the loaded materials across rather than dropping back to the
         // compiled-in set.
         std::mem::swap(&mut world.materials, &mut self.world.materials);
-        build_terrain(&mut world);
+        build_world_with(&mut world, &self.worldgen, &self.worldgen_preset, self.worldgen_seed);
         self.world = world;
     }
 
@@ -683,12 +1499,17 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
             self.world.active_chunk_count(),
             self.world.chunk_count(),
+            // Always shown, never elided. A screenshot of a generated world
+            // that does not say which world it is cannot be reproduced, and
+            // this generator will be judged almost entirely from screenshots.
+            self.worldgen_preset,
+            self.worldgen_seed,
             if self.paused { " — PAUSED" } else { "" },
             // Only shown once it has been changed, so the ordinary status
             // line is untouched until someone is actually comparing modes.
@@ -706,6 +1527,12 @@ impl App {
             } else {
                 format!(" — organism {}", self.renderer.organism_overlay.label())
             },
+            // Uncommitted asset edits, so a value saved mid-playtest is a
+            // glance rather than an audit. Silent when git can't answer.
+            match self.assets_dirty {
+                Some(n) if n > 0 => format!(" — ASSETS EDITED ({n})"),
+                _ => String::new(),
+            },
             match &self.message {
                 Some(m) => format!(" — {m}"),
                 None => String::new(),
@@ -722,43 +1549,65 @@ impl Default for App {
 
 /// A floor and a couple of ledges, so there is something for material to
 /// interact with on startup instead of an empty box.
-fn build_terrain(world: &mut World) {
-    let w = WIDTH as i32;
-    let h = HEIGHT as i32;
-    // Always present: `reload` only ever adds or updates, so the compiled-in
-    // stone cannot be removed by editing the assets directory.
-    let stone = world
-        .materials
-        .id_of("stone")
-        .expect("stone is a compiled-in material");
+///
+/// Public so headless tools can render and probe *this* terrain rather than
+/// a hand-rolled approximation of it — `examples/filmstrip.rs` builds the
+/// real thing to check that structural integrity leaves it standing, which
+/// is a claim about the terrain players actually see, not about a replica.
+pub fn build_terrain(world: &mut World) {
+    worldgen::generate(world, worldgen::Spec::Legacy);
+}
 
-    for x in 0..w {
-        for y in (h - 8)..h {
-            world.set(x, y, Cell::new(stone, (x % 4) as u8));
-        }
-    }
-
-    let mut ledge = |x0: i32, x1: i32, y: i32| {
-        for x in x0..x1 {
-            for dy in 0..6 {
-                world.set(x, y + dy, Cell::new(stone, (x % 4) as u8));
-            }
-        }
-    };
-    ledge(60, 200, 200);
-    ledge(300, 440, 150);
-    ledge(180, 320, 260);
-
-    // The world is left dirty on purpose. The first sweep examines the terrain,
-    // finds that none of it moves, and settles from the second frame onward.
+/// Just the material placement, without the structural pass `build_terrain`
+/// runs after it. Split out so `examples/ascii.rs` can time the two halves
+/// separately and attribute the generation cost rather than just stating it.
+pub fn build_terrain_only(world: &mut World) {
+    worldgen::generate_only(world, worldgen::Spec::Legacy);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Only the tests build cells directly now that the terrain moved to
+    // `worldgen`.
+    use crate::sim::Cell;
 
     fn id(app: &App, name: &str) -> MaterialId {
         app.world.materials.id_of(name).expect(name)
+    }
+
+    /// An app on the hand-authored terrain.
+    ///
+    /// `App::new` builds a *generated* world now, so any test written against
+    /// the sandbox terrain's exact coordinates — its ledges, its eight-row
+    /// floor — has to ask for that terrain by name. Kept pointed at the real
+    /// layout rather than relaxed into "some stone somewhere": these tests
+    /// are about a known shape standing up, and a version that passed against
+    /// any terrain would have stopped testing the thing it was written for.
+    fn legacy_app() -> App {
+        let mut app = App::new();
+        app.worldgen_preset = worldgen::LEGACY.to_string();
+        app.reset();
+        app
+    }
+
+    /// Step until every chunk is asleep, asserting that it happens quickly.
+    ///
+    /// Two frames used to be enough anywhere, because the starting world was
+    /// stone and bedrock — solids, which have no movement rule to run. A
+    /// generated world contains real powder (soil blankets, scree, buried
+    /// lenses), and powder cannot be known to be at rest until it has been
+    /// examined, so settling now takes a few frames rather than exactly one.
+    /// The claim worth testing is unchanged and is still asserted here: the
+    /// world goes quiet promptly and does not keep waking itself.
+    fn settle(app: &mut App) {
+        for frame in 0..20 {
+            app.update();
+            if app.world.active_chunk_count() == 0 {
+                return;
+            }
+            assert!(frame < 19, "world never went quiet");
+        }
     }
 
     /// Cells of `id` inside a square window around a point.
@@ -801,13 +1650,34 @@ mod tests {
     }
 
     #[test]
+    fn the_status_line_shows_uncommitted_asset_edits_and_stays_quiet_otherwise() {
+        // The field is set directly rather than through `dirty_asset_count`
+        // — what the working tree actually contains while the suite runs is
+        // not this test's to assert. What is: a real count reaches the eye,
+        // and both "clean" and "git couldn't answer" stay silent.
+        let mut app = App::new();
+        app.assets_dirty = Some(2);
+        assert!(app.status(60.0).contains("ASSETS EDITED (2)"), "a dirty asset count must be visible in the title");
+        app.assets_dirty = Some(0);
+        assert!(!app.status(60.0).contains("ASSETS EDITED"), "a clean tree must not add noise to the title");
+        app.assets_dirty = None;
+        assert!(!app.status(60.0).contains("ASSETS EDITED"), "git being unavailable is silence, not a warning");
+    }
+
+    #[test]
     fn reloading_materials_wakes_the_world() {
         // Changed friction or dispersion can unstick material that had settled,
         // so everything must be re-examined.
-        let mut app = App::new();
-        app.update();
-        app.update();
-        assert_eq!(app.world.active_chunk_count(), 0);
+        //
+        // On the lifeless legacy terrain, deliberately. The default generated
+        // world plants trees and moss (worldgen's life pass), and since the
+        // light model became a per-column sky cast those seeds germinate
+        // within a frame or two of generation and start growing -- a living
+        // world is never globally quiet, by design, so "settle, then assert
+        // the reload woke things" needs a world whose only activity is the
+        // reload's doing.
+        let mut app = legacy_app();
+        settle(&mut app);
         app.reload_materials();
         assert!(app.world.active_chunk_count() > 0, "reload left the world asleep");
     }
@@ -853,23 +1723,348 @@ mod tests {
 
     #[test]
     fn static_terrain_settles_and_stays_settled() {
-        let mut app = App::new();
-        // Two sweeps, because dirty regions are double buffered: the terrain
-        // writes made before the first frame are only promoted into the swept
-        // region by the end of it, so the second frame is the one that examines
-        // the stone and concludes it does not move.
-        app.update();
-        app.update();
-        assert_eq!(
-            app.world.active_chunk_count(),
-            0,
-            "static starting terrain kept chunks awake"
-        );
+        // The *static* terrain -- the lifeless legacy layout. The generated
+        // default carries living flora (worldgen's life pass germinates
+        // under the column-cast light within frames), and a growing plant
+        // wakes its chunks on every organism tick, so "stays settled" is a
+        // claim only a world without life can make. The mineral fraction of
+        // generated worlds arriving at rest is tests/worldgen.rs's job.
+        let mut app = legacy_app();
+        // Dirty regions are double buffered, so the terrain writes made
+        // before the first frame are only promoted into the swept region by
+        // the end of it -- the second frame is the earliest that can examine
+        // the terrain and conclude it does not move. Generated worlds carry
+        // powder as well as stone and take a few frames more; `settle`
+        // asserts it still happens promptly.
+        settle(&mut app);
 
         for _ in 0..10 {
             app.update();
             assert_eq!(app.world.active_chunk_count(), 0, "a settled chunk woke itself");
         }
+    }
+
+    #[test]
+    fn generated_terrain_is_structurally_real_and_still_stands() {
+        // `Reports/worldgen-design.md` §6b, "the structural-integrity
+        // landmine": terrain used to be exempt from structural checking
+        // entirely, keeping `aux = 0` -- "indistinguishable from
+        // 'anchored'" -- so the whole world was structurally invalid while
+        // reading as fine, and turning checks on would collapse it.
+        // `build_terrain` now computes real distances at generation, so
+        // this asserts both halves: the distances are genuinely computed
+        // (not left at a default that merely looks anchored), and the
+        // terrain nonetheless stands.
+        let mut app = legacy_app();
+        let stone = id(&app, "stone");
+        let h = HEIGHT as i32;
+
+        // The ledges are the interesting case. They reach bedrock only
+        // through the wall they are cut into, and attachment buys them the
+        // span to get there -- it does not anchor them outright, which is
+        // what would make an undercut shelf unfallable.
+        let ledge_probe = (60, 202);
+        assert_eq!(app.world.get(ledge_probe.0, ledge_probe.1).material, stone, "test setup: expected a ledge here");
+        assert!(
+            app.world.get(ledge_probe.0, ledge_probe.1).aux() < u16::MAX,
+            "the ledge never reached an anchor, so it is standing only because nothing has checked it yet"
+        );
+        // Attachment is what anchors it, and it has to be *stated* rather
+        // than inferred -- a ledge that stands only because nothing has
+        // checked it yet is section 6b's landmine, and reads identically
+        // from the outside.
+        assert!(
+            app.world.get(ledge_probe.0, ledge_probe.1).attached(),
+            "generated terrain must mark itself attached, or it is anchored only by never having been asked"
+        );
+        // Freshly brushed material is now laid down *intact* as well.
+        // Undamaged material is held, which is what a construction is until
+        // something happens to it (`Reports/building-rethink.md`). It is a
+        // capacity multiplier and not an exemption, so this is not the
+        // "everything the player builds is indestructible" failure two
+        // inferred-support models had: damage revokes it, and every
+        // destructive verb already does.
+        // Legacy terrain too, so (40, 40) is open sky: painting into
+        // generated rock would assert that pre-existing terrain is attached,
+        // which is a different claim that happens to pass.
+        let mut probe = legacy_app();
+        probe.world.paint_capsule((40, 40), (40, 40), 3, stone, 1.0);
+        assert!(probe.world.get(40, 40).attached(), "brushed stone should be laid down intact");
+
+        for _ in 0..400 {
+            app.update();
+        }
+
+        for y in (h - 8)..(h - 2) {
+            assert_eq!(app.world.get(256, y).material, stone, "the stone floor crumbled at y={y}");
+        }
+        for y in (h - 2)..h {
+            assert_eq!(app.world.get(256, y).material, material::BEDROCK, "the bedrock floor was disturbed at y={y}");
+        }
+        for &(x, y) in &[(60, 202), (460, 152), (250, 262)] {
+            assert_eq!(app.world.get(x, y).material, stone, "a floating ledge crumbled at ({x}, {y})");
+        }
+        // Read from the registry rather than named, so retargeting stone's
+        // `breaks_into` cannot quietly turn this into a check for a material
+        // the engine no longer produces.
+        let debris = app.world.materials.get(stone).breaks_into.expect("stone must define a breaks_into");
+        let crumbled = (0..WIDTH as i32).any(|x| (0..h).any(|y| app.world.get(x, y).material == debris));
+        assert!(!crumbled, "some terrain broke free despite nothing disturbing it");
+    }
+
+    #[test]
+    fn the_room_tool_leaves_an_interior_you_could_walk_into() {
+        // Reported from play: "right now we are just building a solid
+        // block, but we will want interiors of an external structure ...
+        // like you can go inside." Asserts both halves, because either
+        // alone passes against a broken tool: walls all round, and a middle
+        // that is genuinely empty. A hollow rectangle that leaked at a
+        // corner would also fail the wall checks, which is the failure mode
+        // worth catching -- for a structure, a corner gap means the roof is
+        // not actually carried by the walls.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        app.select_material(app.paintable.iter().position(|&m| m == stone).unwrap() + 1);
+        app.cycle_tool(); // Rect
+        app.cycle_tool(); // Room
+        assert_eq!(app.tool, Tool::Room);
+
+        let (ax, ay, bx, by) = (60, 50, 200, 140);
+        app.begin_drag(ax, ay);
+        app.end_drag(bx, by, false);
+
+        let (wx0, wy0) = app.renderer.screen_to_world(ax, ay);
+        let (wx1, wy1) = app.renderer.screen_to_world(bx, by);
+        let (cx, cy) = ((wx0 + wx1) / 2, (wy0 + wy1) / 2);
+        let stone_near = |x: i32, y: i32| {
+            (-3..=3).flat_map(|dy| (-3..=3).map(move |dx| (dx, dy))).any(|(dx, dy)| app.world.get(x + dx, y + dy).material == stone)
+        };
+
+        assert!(stone_near(cx, wy0), "the room has no top wall");
+        assert!(stone_near(cx, wy1), "the room has no bottom wall");
+        assert!(stone_near(wx0, cy), "the room has no left wall");
+        assert!(stone_near(wx1, cy), "the room has no right wall");
+        // The interior is the whole point: a fill would pass every wall
+        // check above and still be a solid block.
+        assert!(!stone_near(cx, cy), "the room is solid -- there is nothing to go inside");
+    }
+
+    #[test]
+    fn the_reference_room_is_stone_and_stands_on_the_ground() {
+        // Three claims, and each one is a way the key could look like it
+        // worked while answering nothing.
+        //
+        // It must be **stone**: the app starts on sand, so a version keyed
+        // to the palette would hand a first press a powder room, which
+        // reads as a broken feature rather than as a structure to judge.
+        //
+        // It must **sit on the ground**: a room dropped in mid-air is a
+        // much easier structural question than one standing on something,
+        // so stamping at the cursor's own height would quietly measure the
+        // wrong thing.
+        //
+        // And it must be **the size it claims**, because the whole point of
+        // a reference is that its dimensions are known -- this is the
+        // measured edge of the model's envelope, not a round number.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        let sand = id(&app, "sand");
+        assert_eq!(app.selected_material(), sand, "test setup: the app is expected to start on sand");
+
+        // On the `flat` preset, which is the structural test bed and exists
+        // precisely because a 160-tall room needs 200 rows of sky.
+        //
+        // This used to run on the default preset and passed on a margin of
+        // about five cells: only the very deepest columns of `rolling` had
+        // the headroom, and the day standing water landed it filled exactly
+        // those hollows and the test could not find a column at all. It was
+        // never really testing the default world -- it was testing whichever
+        // world happened to have one deep enough spot -- so pointing it at
+        // the preset built for the job is what it always meant.
+        app.worldgen_preset = "flat".to_string();
+        app.reset();
+
+        // The surface height is still not something this test may assume --
+        // an earlier version hardcoded the middle of the screen and broke the
+        // day worldgen became the default, which is the right kind of
+        // breakage but not what this test is about. Find a column with the
+        // headroom the room actually needs.
+        let half = REFERENCE_ROOM_SPAN / 2;
+        let need = REFERENCE_ROOM_HEIGHT + app.brush_radius;
+        let ground_at = |app: &App, x: i32| (0..HEIGHT as i32).find(|&y| app.world.get(x, y).material != material::EMPTY);
+        let cx = (half + app.brush_radius..WIDTH as i32 - half - app.brush_radius)
+            .find(|&x| ground_at(&app, x).is_some_and(|g| g > need))
+            .expect("no column in the generated world has room for a reference room");
+        let ground = ground_at(&app, cx).expect("ground at the chosen column");
+
+        let (sx, sy) = (cx, 0);
+        app.stamp_reference_room(sx, sy);
+        let stone_near = |x: i32, y: i32| {
+            (-4..=4).flat_map(|dy| (-4..=4).map(move |dx| (dx, dy))).any(|(dx, dy)| app.world.get(x + dx, y + dy).material == stone)
+        };
+
+        let mid = ground - 1 - REFERENCE_ROOM_HEIGHT / 2;
+        assert!(stone_near(cx - half, mid), "no left wall at the stated span");
+        assert!(stone_near(cx + half, mid), "no right wall at the stated span");
+        // The roof is the assertion that carries the "always stone" claim
+        // as well as the height one: it sits 160 cells above the ground in
+        // open air, so stone there cannot have come from the terrain and
+        // can only have been stamped. A version keyed to the palette would
+        // have put sand there and this would fail.
+        //
+        // Deliberately *not* a world-wide sand count, which is what the
+        // first attempt used and which fails for an honest reason -- the
+        // walls displace sand the generator placed, so the count legitimately
+        // drops. A metric that moves when the feature is working is worse
+        // than no metric.
+        assert!(stone_near(cx, ground - 1 - REFERENCE_ROOM_HEIGHT), "no roof at the stated height, or it was not built from stone");
+        assert!(!stone_near(cx, mid), "the reference room is solid, not a room");
+    }
+
+    #[test]
+    fn a_reference_room_with_nowhere_to_stand_is_refused_rather_than_shrunk() {
+        // The other half of "the size it claims". Generated terrain puts
+        // the surface anywhere, so a hilltop or a world edge can leave less
+        // than the room needs -- and a measuring stick that quietly comes
+        // out shorter when there is less space is worse than no measuring
+        // stick. Asserts the refusal changes *nothing*, not merely that it
+        // does not crash.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        let count_stone =
+            |app: &App| (0..WIDTH as i32).flat_map(|x| (0..HEIGHT as i32).map(move |y| (x, y))).filter(|&(x, y)| app.world.get(x, y).material == stone).count();
+
+        let before = count_stone(&app);
+        // Hard against the left edge: the room's own span cannot fit
+        // beside it whatever the terrain is doing.
+        app.stamp_reference_room(1, 0);
+        assert_eq!(count_stone(&app), before, "a reference room was stamped where its full span does not fit");
+        assert!(
+            app.toast.as_ref().is_some_and(|(m, _)| m.contains("NO ROOM")),
+            "the refusal was silent -- a key that does nothing reads as broken"
+        );
+    }
+
+    #[test]
+    fn the_flat_preset_is_somewhere_a_reference_room_can_actually_be_stamped() {
+        // The two halves of the test bed, joined. `tests/worldgen.rs` says
+        // the `flat` preset has 200 rows of sky; `stamp_reference_room`
+        // refuses when it has less than the room needs. Neither knows about
+        // the other, so nothing until now said the combination works -- and
+        // "the preset is fine" plus "the key is fine" adding up to a key
+        // that refuses everywhere on the preset built for it is exactly the
+        // shape of failure this repo keeps shipping.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        let count_stone = |app: &App| {
+            (0..WIDTH as i32).flat_map(|x| (0..HEIGHT as i32).map(move |y| (x, y))).filter(|&(x, y)| app.world.get(x, y).material == stone).count()
+        };
+
+        // Cycle to `flat` the way F7 does rather than reaching past the
+        // key, so a preset renamed or dropped from the cycle fails here.
+        let mut guard = 0;
+        while app.worldgen_preset != "flat" {
+            app.cycle_preset();
+            guard += 1;
+            assert!(guard < 32, "`flat` is not in the preset cycle -- F7 cannot reach the structural test bed");
+        }
+
+        let before = count_stone(&app);
+        app.stamp_reference_room(WIDTH as i32 / 2, 0);
+        assert!(
+            count_stone(&app) > before,
+            "B refused on the one preset built for it: {}",
+            app.toast.as_ref().map(|(m, _)| m.as_str()).unwrap_or("no toast")
+        );
+    }
+
+    #[test]
+    fn the_stress_view_paints_loaded_rock_and_leaves_empty_space_alone() {
+        // Two assertions, because either alone passes against a broken
+        // overlay: one that paints nothing would satisfy "the sky is
+        // untouched", and one that paints the whole screen would satisfy
+        // "the rock changed colour".
+        //
+        // Also writes the frame out, because `CLAUDE.md` is emphatic that
+        // an assertion about pixels is not the same as having looked at
+        // them -- and a colour ramp is exactly the kind of thing that
+        // passes a numeric test while being unreadable on screen.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        // A cantilever off the left cliff: something with a real stress
+        // gradient along it rather than a uniform blob.
+        for x in 0..90 {
+            for y in 120..170 {
+                app.world.set(x, y, Cell::new(stone, 0).with_attached(true));
+            }
+        }
+        for x in 90..250 {
+            for y in 150..162 {
+                app.world.set(x, y, Cell::new(stone, 0));
+            }
+        }
+        crate::sim::structural::compute_world_distances(&mut app.world);
+
+        let mut plain = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        app.draw(&mut plain, None);
+        app.toggle_stress_view();
+        assert!(app.show_stress);
+        let mut tinted = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        app.draw(&mut tinted, None);
+
+        let at = |buf: &[u8], x: i32, y: i32| {
+            let i = ((y * WIDTH as i32 + x) * 4) as usize;
+            [buf[i], buf[i + 1], buf[i + 2]]
+        };
+        // The far end of the cantilever carries the most, so if anything is
+        // tinted it is this.
+        assert_ne!(at(&tinted, 120, 155), at(&plain, 120, 155), "loaded rock was not tinted by the stress view");
+        // Open sky well above the structure has no structural cell at all.
+        assert_eq!(at(&tinted, 300, 40), at(&plain, 300, 40), "the stress view painted empty space");
+
+        let dir = std::env::temp_dir().join("pixel-physics-stress-view");
+        std::fs::create_dir_all(&dir).ok();
+        image::save_buffer(dir.join("stress.png"), &tinted, WIDTH, HEIGHT, image::ColorType::Rgba8).ok();
+    }
+
+    #[test]
+    fn the_rectangle_tool_lays_down_a_filled_rectangle() {
+        // Reported from play: "using a paint brush type tool to build is
+        // not satisfying." A freehand round brush cannot make a straight
+        // wall, and every structure came out wobbly. Asserts the corners
+        // and the middle are filled and that the gesture commits on
+        // *release*, not on press -- pressing alone must not leave a blob
+        // at the corner.
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        app.select_material(app.paintable.iter().position(|&m| m == stone).unwrap() + 1);
+        app.cycle_tool();
+        assert_eq!(app.tool, Tool::Rect);
+
+        let (ax, ay) = (60, 60);
+        let (bx, by) = (140, 110);
+        app.begin_drag(ax, ay);
+        let (wx0, wy0) = app.renderer.screen_to_world(ax, ay);
+        let (wx1, wy1) = app.renderer.screen_to_world(bx, by);
+        assert_ne!(app.world.get(wx0, wy0).material, stone, "pressing alone must not paint anything");
+
+        app.end_drag(bx, by, false);
+
+        // Sampled rather than tested cell by cell: painting rolls a
+        // per-cell density, so no single cell is guaranteed.
+        let filled = |cx: i32, cy: i32| {
+            (-2..=2).flat_map(|dy| (-2..=2).map(move |dx| (dx, dy))).any(|(dx, dy)| app.world.get(cx + dx, cy + dy).material == stone)
+        };
+        assert!(filled(wx0, wy0), "the rectangle's first corner is empty");
+        assert!(filled(wx1, wy1), "the rectangle's opposite corner is empty");
+        assert!(filled((wx0 + wx1) / 2, (wy0 + wy1) / 2), "the rectangle's middle is empty -- it drew an outline, not a wall");
+        // And the interior really is continuous, which is the whole point
+        // of the tool: a row of capsules that missed each other would leave
+        // gaps between them.
+        for cy in (wy0 + 2)..(wy1 - 2) {
+            assert!(filled((wx0 + wx1) / 2, cy), "gap in the rectangle at y={cy} -- the row sweep does not overlap");
+        }
+        assert!(app.drag_from.is_none(), "the gesture should be finished after release");
     }
 
     #[test]
@@ -957,7 +2152,8 @@ mod tests {
 
     #[test]
     fn reset_clears_painted_material_but_keeps_terrain_and_materials() {
-        let mut app = App::new();
+        // Legacy terrain: the assertions below name the floor's exact rows.
+        let mut app = legacy_app();
         let sand = id(&app, "sand");
         let stone = id(&app, "stone");
         app.paint(100, 20, false);
@@ -969,10 +2165,18 @@ mod tests {
             0,
             "reset left painted material behind"
         );
+        // Both layers of the floor, since it is no longer stone all the way
+        // down -- the bottom two rows are literal bedrock, the anchor
+        // `structural.rs` keys on.
         assert_eq!(
             app.world.get(10, HEIGHT as i32 - 1).material,
+            material::BEDROCK,
+            "reset lost the bedrock floor"
+        );
+        assert_eq!(
+            app.world.get(10, HEIGHT as i32 - 3).material,
             stone,
-            "reset lost the floor"
+            "reset lost the stone floor"
         );
         // Reset must not throw away materials loaded from disk.
         assert!(app.world.materials.id_of("gravel").is_some());
@@ -980,7 +2184,12 @@ mod tests {
 
     #[test]
     fn sand_dropped_on_the_floor_settles_and_the_world_sleeps_again() {
-        let mut app = App::new();
+        // Legacy terrain for the same reason as the two settling tests
+        // above: this is a claim about *sand* coming to rest, and the
+        // generated default's living flora keeps its own chunks awake
+        // indefinitely, which would fail the assertion for a reason that
+        // has nothing to do with sand.
+        let mut app = legacy_app();
         app.paint(256, 20, false);
         for _ in 0..3000 {
             app.update();

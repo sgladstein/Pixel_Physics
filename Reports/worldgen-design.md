@@ -4,7 +4,11 @@
 **Reviewed at:** `b2ebea8`, branch `master`.
 **Status:** direction agreed with the repo owner. Companion to `emergent-world-architecture.md` (which this depends on heavily) and `pixel-physics-issues.md`.
 
-**Current state of worldgen:** `app.rs::build_terrain` is a flat 8-cell stone floor plus three hardcoded ledges. `PLAN.md`'s M10 is one line — seeded noise, LRU unload, RLE compression. That line hides essentially every problem in this document.
+**See also `Reports/prior-art-worldgen-slicing.md`** — a later prior-art survey asking what other games and disciplines have actually done with the §0 slice framing, and with §6a's "generated terrain must be at rest." It does not overturn anything settled here, but it sharpens five things (its §8 lists them) and answers three of §13's open questions from outside games: off-plane flux, the curvature bound on a curved route, and cave surface connectivity.
+
+**Current state of worldgen:** §11 steps 1–2 are **built** (`src/worldgen/`, driven by `assets/worldgen.ron`): parameters as data, and a seeded heightfield with the six-zone vertical structure replacing the old hand-authored terrain, which survives verbatim as the `legacy` preset. The decide/realise split is in place and no pass is world-global yet, so per-chunk generation stays a change of caller. **Step 3 (water table + moisture) is deliberately not built** — it is gated on a playtest of the terrain alone, because the water table is the part of this design most at risk of being right and not fun; the `arid` preset exists as the standing proof that removing water entirely is a data change. Steps 4–7 (coarse map, water cycle, caves, world age) and streaming are untouched.
+
+`PLAN.md`'s M10 is one line — seeded noise, LRU unload, RLE compression. That line hides essentially every problem in this document.
 
 **Revision note (important).** The first draft of this document was written from training knowledge plus a read of the codebase — *not* from the literature. It has since been revised against primary sources, and **three of its recommendations were wrong**: the cave-carving approach (§7), the definition of ridged noise (§7), and the terrain-then-rivers ordering (§5). A further pass added §0 after noticing a larger problem — **nearly all terrain literature means "2D heightmap seen from above," while this engine means "2D vertical cross-section,"** and the first draft applied planar techniques without flagging which layer they belong to. Sections carrying a **[revised]** tag changed materially. Sources are listed in §12.
 

@@ -1,0 +1,290 @@
+//! Worldgen parameters, as data rather than constants.
+//!
+//! `Reports/design-philosophy.md` §2a is the rule this file exists to
+//! satisfy: a constant graduates to hot-reloadable `.ron` the moment a
+//! non-programmer might plausibly want to tune it, and *before* heavy tuning
+//! starts rather than after — every experiment run before the migration costs
+//! a recompile, and the migration gets harder as the constant count grows
+//! (`Reports/worldgen-design.md` §11 step 1 puts this first for exactly that
+//! reason).
+//!
+//! Everything here is shape, not structure. The internals that are *not*
+//! here — fBm gain and lacunarity, the shade tone table, the pass order —
+//! stay in the source because tuning them is a code change in disguise.
+
+use std::collections::BTreeMap;
+
+/// The reserved preset name for the hand-authored sandbox terrain.
+///
+/// Never appears in `assets/worldgen.ron`; the app resolves it to
+/// [`super::Spec::Legacy`]. Kept selectable because a hand-authored scene with
+/// known coordinates is what several filmstrip scenes and app tests are
+/// written against, and because it is the control when judging whether
+/// generated terrain is actually better.
+pub const LEGACY: &str = "legacy";
+
+/// One world's worth of generation shape.
+///
+/// All lengths are in cells and all wavelengths in cells of world x. Fields
+/// are grouped the way the generator consumes them: surface composition
+/// first, then the layers beneath it, then water, then life.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct WorldgenParams {
+    // ---- surface composition ----
+    /// Rows of clear sky kept above the highest possible ridge.
+    pub sky_rows: f32,
+    /// Amplitude of the base relief wave — the ridge-to-valley swing that
+    /// guarantees a composition in every window. See `column::elev` for why
+    /// its phase is deliberately *not* seeded.
+    pub relief_amplitude: f32,
+    /// Mid-frequency hills stacked on the base wave.
+    pub hill_amplitude: f32,
+    /// Wavelength of those hills.
+    pub hill_wavelength: f32,
+    /// Fine surface roughness, a few cells at most.
+    pub detail_amplitude: f32,
+    /// Wavelength of that roughness.
+    pub detail_wavelength: f32,
+    /// How far the height sample position is displaced before sampling.
+    /// Domain warp is what turns symmetric bumps into asymmetric ridges with
+    /// a steep face and a shallow one — the single cheapest thing that stops
+    /// fBm terrain reading as fBm terrain.
+    pub warp_strength: f32,
+    /// Wavelength of the warp field.
+    pub warp_wavelength: f32,
+    /// Height of one terrace riser. Zero disables terracing.
+    pub terrace_step: f32,
+    /// How completely terracing replaces the smooth surface where it
+    /// applies, 0..1.
+    pub terrace_strength: f32,
+    /// Wavelength of the mask deciding *where* terracing applies. Terracing
+    /// everywhere reads as a rendering artifact; terracing in patches reads
+    /// as geology.
+    pub mask_wavelength: f32,
+
+    // ---- layers ----
+    /// Nominal soil blanket thickness on flat ground.
+    pub soil_depth: f32,
+    /// Fraction of soil's own friction angle above which soil is omitted
+    /// entirely. This is the at-rest guarantee for the soil pass: below the
+    /// cutoff a slope cannot avalanche, so generated soil never moves.
+    pub soil_slope_cutoff: f32,
+    /// Depth of the noise-perturbed band above bedrock, so the world floor is
+    /// not a ruler line.
+    pub bedrock_band: f32,
+    /// Thickness of one sedimentary band in the stone shade channel.
+    pub strata_thickness: f32,
+    /// Tilt of those bands, in cells of rise per cell of run.
+    pub strata_tilt: f32,
+    /// Amplitude of the fold applied to the bands, so strata bend rather than
+    /// running dead straight across the world.
+    pub strata_fold: f32,
+    /// Expected sand/gravel lenses per 64x64 region. Fractional values mean
+    /// "sometimes one".
+    pub pocket_density: f32,
+    /// Tallest gravel apron heaped at the base of a cliff. Zero disables.
+    pub talus_max_height: f32,
+    /// Chance that a given cliff edge grows an overhanging lip, 0..1. Zero
+    /// disables.
+    pub brow_chance: f32,
+
+    // ---- water ----
+    // Every field in this group is a pivot lever. `table_offset` alone, set
+    // past the world height, produces a completely dry world with no ponds
+    // and no moisture floor -- which is what the `arid` preset ships, and the
+    // escape hatch if the water table turns out not to be fun
+    // (`Reports/worldgen-design.md` deliberately does not assume it is).
+    /// How strongly the water table copies surface relief, 0..1. The table is
+    /// a *subdued replica* of topography — high under hills, low under
+    /// valleys, but flatter than either.
+    pub table_damping: f32,
+    /// Cells the table sits below the mean surface. Large values (past the
+    /// world height) mean no water at all.
+    pub table_offset: f32,
+    /// Cells above the table over which moisture ramps from saturated to dry.
+    pub capillary_fringe: f32,
+    /// Ponds shallower than this are not generated. A one-cell film of water
+    /// renders as a black line rather than as water (`render.rs` dims liquid
+    /// toward black by fill) and reads as an artifact.
+    pub pond_min_depth: f32,
+    /// Ponds narrower than this are not generated, for the same reason.
+    pub pond_min_width: f32,
+
+    // ---- life ----
+    /// Per-column moss probability scale. Zero disables plant scatter.
+    pub moss_density: f32,
+    /// Per-column tree probability scale.
+    pub tree_density: f32,
+    /// Wavelength of the clustering field that both densities are multiplied
+    /// by. This is the anti-even-spacing device: uniform probability produces
+    /// evenly scattered plants, which is exactly the failure mode a
+    /// side-view world has to avoid.
+    pub life_cluster_wavelength: f32,
+}
+
+/// The `rolling` preset's values.
+///
+/// Also the fallback for any field a preset omits (`#[serde(default)]` on the
+/// struct), which gives presets inheritance for free: a preset lists only
+/// what it changes and still loads if a later version adds a field.
+impl Default for WorldgenParams {
+    fn default() -> Self {
+        Self {
+            sky_rows: 95.0,
+            relief_amplitude: 36.0,
+            hill_amplitude: 30.0,
+            hill_wavelength: 150.0,
+            detail_amplitude: 2.5,
+            detail_wavelength: 28.0,
+            warp_strength: 34.0,
+            warp_wavelength: 130.0,
+            terrace_step: 26.0,
+            terrace_strength: 0.9,
+            mask_wavelength: 150.0,
+            soil_depth: 16.0,
+            soil_slope_cutoff: 0.8,
+            bedrock_band: 4.0,
+            strata_thickness: 9.0,
+            strata_tilt: 0.06,
+            strata_fold: 6.0,
+            pocket_density: 0.6,
+            talus_max_height: 12.0,
+            brow_chance: 0.8,
+            table_damping: 0.35,
+            table_offset: 12.0,
+            capillary_fringe: 24.0,
+            pond_min_depth: 2.0,
+            pond_min_width: 4.0,
+            moss_density: 0.10,
+            tree_density: 0.26,
+            life_cluster_wavelength: 70.0,
+        }
+    }
+}
+
+/// Every preset in `assets/worldgen.ron`, plus which one a fresh world uses.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct WorldgenPresets {
+    /// Preset a fresh world starts on. May be [`LEGACY`].
+    pub default: String,
+    /// Named presets. A `BTreeMap` rather than a `HashMap` so iteration order
+    /// is fixed — preset cycling has to land on the same next preset every
+    /// run, and `HashMap` order is neither stable nor reproducible.
+    pub presets: BTreeMap<String, WorldgenParams>,
+}
+
+impl Default for WorldgenPresets {
+    fn default() -> Self {
+        let mut presets = BTreeMap::new();
+        presets.insert("rolling".to_string(), WorldgenParams::default());
+        Self { default: "rolling".to_string(), presets }
+    }
+}
+
+impl WorldgenPresets {
+    /// Where the presets live, alongside the other tunable `.ron` files.
+    pub const ASSET_PATH: &'static str = "assets/worldgen.ron";
+
+    /// Load from [`Self::ASSET_PATH`], falling back to the compiled-in
+    /// defaults when the file is absent or unparseable.
+    ///
+    /// Absent is a normal state (a fresh checkout, a binary run from another
+    /// directory), not a reason to fail startup — the same call the
+    /// explosion tuning makes for the same reason. Returns the parse error
+    /// alongside the defaults so a typo shows up on screen instead of
+    /// silently reverting the world to stock values, which is the failure
+    /// mode that wastes a tuning session.
+    pub fn load() -> (Self, Option<String>) {
+        let text = match std::fs::read_to_string(Self::ASSET_PATH) {
+            Ok(t) => t,
+            Err(_) => return (Self::default(), None),
+        };
+        match ron::from_str::<Self>(&text) {
+            Ok(p) if p.presets.is_empty() => {
+                (Self::default(), Some(format!("{}: no presets", Self::ASSET_PATH)))
+            }
+            Ok(p) => (p, None),
+            Err(e) => (Self::default(), Some(format!("{}: {e}", Self::ASSET_PATH))),
+        }
+    }
+
+    /// Preset names in cycling order: every generated preset, alphabetically,
+    /// then [`LEGACY`] last so the hand-authored control sits at the end of
+    /// the ring rather than in the middle of the generated ones.
+    pub fn cycle_order(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.presets.keys().cloned().collect();
+        names.push(LEGACY.to_string());
+        names
+    }
+
+    /// The named preset, or `None` for [`LEGACY`] and for names that are not
+    /// in the file (a preset deleted while the app was running).
+    pub fn get(&self, name: &str) -> Option<&WorldgenParams> {
+        self.presets.get(name)
+    }
+
+    /// The preset a fresh world should start on, falling back to the first
+    /// generated preset and then to [`LEGACY`] — so a `default:` naming a
+    /// preset that no longer exists degrades to something that works instead
+    /// of panicking.
+    pub fn default_name(&self) -> String {
+        if self.default == LEGACY || self.presets.contains_key(&self.default) {
+            return self.default.clone();
+        }
+        self.presets.keys().next().cloned().unwrap_or_else(|| LEGACY.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shipped_asset_file_parses() {
+        // Guards the file the app actually reads: a syntax error here is
+        // otherwise a silent fall back to compiled-in defaults, and the
+        // world would look right enough that nobody would notice.
+        let text = std::fs::read_to_string(WorldgenPresets::ASSET_PATH)
+            .expect("assets/worldgen.ron is committed");
+        let parsed: WorldgenPresets = ron::from_str(&text).expect("worldgen.ron parses");
+        for name in ["rolling", "terraced", "canyon", "wetland", "arid"] {
+            assert!(parsed.presets.contains_key(name), "missing preset {name}");
+        }
+    }
+
+    #[test]
+    fn arid_preset_is_a_dry_world() {
+        // The stated pivot lever: if the water table turns out not to be fun,
+        // one preset switch removes all of it. That only holds if the offset
+        // really is past any world height we would run.
+        let (presets, _) = WorldgenPresets::load();
+        let arid = presets.get("arid").expect("arid preset exists");
+        assert!(arid.table_offset > 320.0, "arid must put the table below the world floor");
+        assert_eq!(arid.moss_density, 0.0);
+        assert_eq!(arid.tree_density, 0.0);
+    }
+
+    #[test]
+    fn legacy_sorts_last_in_the_cycle() {
+        let presets = WorldgenPresets::default();
+        let order = presets.cycle_order();
+        assert_eq!(order.last().map(String::as_str), Some(LEGACY));
+    }
+
+    #[test]
+    fn missing_default_degrades_instead_of_panicking() {
+        let presets = WorldgenPresets { default: "deleted-preset".to_string(), ..Default::default() };
+        assert_eq!(presets.default_name(), "rolling");
+    }
+
+    #[test]
+    fn partial_preset_inherits_the_rest() {
+        // The inheritance `#[serde(default)]` buys: a preset lists only what
+        // it changes, and adding a field later cannot break existing presets.
+        let p: WorldgenParams = ron::from_str("(soil_depth: 3.0)").expect("partial preset parses");
+        assert_eq!(p.soil_depth, 3.0);
+        assert_eq!(p.relief_amplitude, WorldgenParams::default().relief_amplitude);
+    }
+}
