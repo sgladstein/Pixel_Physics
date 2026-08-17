@@ -171,6 +171,15 @@ beam's root weakens a cell the criterion never tests. One question asked
 earlier — *which cell does this rule actually evaluate?* — would have caught
 it before the work.
 
+The same question was missed again later, in a different costume, **by a
+session that had this paragraph in front of it**: a bearing rule that is
+correct for a *piece* resting on loose ground was applied per cell, so a slab
+lying on its own rubble was judged as many separate knife-edge footings and
+taken apart one cell at a time. Ask it as **which object does this rule
+evaluate — a cell, a section, or a whole piece?** — and check that the
+quantities it needs (a centroid, a contact width, a tipping moment) are even
+defined for that object.
+
 **Resolve an ambiguous complaint before building anything.** "Flatness at
 rest" was read as the surface texture and turned out to mean a screen-wide
 tilt — opposite directions, a whole detour spent on the wrong one. When a
@@ -266,6 +275,12 @@ touching the mechanism.
   cell in it is still occupied. An occupancy metric finds literally nothing.
 - **Powder faces: measure the face, not the spreading front.** The front
   crosses seams smoothly while a vertical face persists behind it.
+- **Destruction: a failure count is not a damage count.** `FailureCounts`
+  counts cells that *failed*; a failed cell that became rubble is still
+  standing there. Two digs whose event counts look comparable removed 894 and
+  23,042 cells. If the question is "how much did this eat", census the
+  materials before and after — nothing in the engine measured that until it
+  was needed, which is why the regression below went unseen.
 - Prefer a **continuous** quantity (a summed deficit) over a **count** of bad
   cells. Counts give knife-edge margins; sums separate cleanly.
 
@@ -314,11 +329,40 @@ consider it at all.
   much worse banding passed its own test, because that test only looked at
   rows lying on a seam. If a fix trades one artifact for another, its test
   should be the thing that catches the trade.
+- **Check that a guard's inputs actually vary what it guards.** All eight
+  acceptance scenes stayed green through a change that made one world seed
+  lose 26x more material to a single dig — and a ninth hand-authored scene
+  would have been just as blind, because `seed=` reaches only two scenes and
+  every structural case builds hand-placed geometry at the default seed. The
+  scenes were not too few; they were blind *by construction*. A guard over a
+  procedural system has to sweep the procedure, and it should gate an **order
+  statistic** (p90 or max over N seeds) rather than any single seed: outcomes
+  here are chaotic in the seed, so which one is worst reshuffles on any
+  legitimate change and a per-seed baseline gets rubber-stamped. **This
+  happened twice in one session** — two different changes to the load model,
+  both green on all eight cases, the second eating fifty times more world than
+  the bug it was fixing. A seed sweep caught each in one command. So build the
+  sweep *before* changing a model that governs procedural content, not after:
+  on green alone, both would have shipped.
 - **Two fixes failing the same way means the approach is wrong, not the
   tuning.** Two separate attempts to penalise a cell crossing a chunk seam
   both replaced the tear with a throttle at the same seam. That is a signal
   to change the approach — the third attempt fixed the sweep *order* instead
   and cost nothing.
+- **A change that moves *nothing* is different evidence from one that moves a
+  little.** Gating the granular capacity divisor on `parent.is_none()` was
+  recorded as a dead end because not one cell moved, across six presets and
+  three seeds. It was not wrong, it was **vacuous**: `structural::tick` rooted
+  a cell's distance at 0 the moment powder touched its underside, so every
+  powder-backed cell was parentless *by construction* and the gate had nothing
+  to discriminate. An exactly-zero delta means suspect the condition you keyed
+  on is degenerate, before concluding the lever is dead — and re-test any
+  do-not-retry entry of that shape after something changes its condition.
+- **A constant nobody can tune in either direction may be a counterweight, not
+  a model.** That same divisor existed to cancel the eager rooting above: two
+  modelling errors roughly annulling each other. Every attempt to tune it made
+  some case worse because it was holding a different mistake in place. When a
+  term resists tuning in both directions, ask what it is compensating for.
 - **When several knobs move the same number, check what each one trades.**
   `min_transfer` and `HORIZONTAL_TRANSFER_REACH` both make water settle
   sooner; the first does it by giving up on the last of the levelling

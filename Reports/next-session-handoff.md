@@ -121,6 +121,19 @@ Two things that picture settles, and neither is what the counters suggest:
   but is not the cause here.
 - **Gating the granular divisor on `parent.is_none()`.** Not one cell moved
   anywhere. The cells taking the cut have no solid parent to begin with.
+  **Superseded — this entry was wrong, and the reason is the bug.** The gate
+  was not a dead lever, it was *vacuous*: `structural::tick` rooted a cell's
+  distance at 0 the moment powder touched its underside, so every powder-backed
+  cell was parentless by construction and the gate had nothing to discriminate.
+  Demote ground to a **last-resort root** (relax from neighbours first; take 0
+  only when that leaves no path at all) and the same gate becomes meaningful —
+  measured, one radius-6 dig across six presets x three seeds went from a worst
+  case of 27,409 cells to a worst case of 70. That is only half a fix: it
+  overcorrects, `roomcut` drops to 2 overload failures against its bar of 5,
+  and `a_sprinkle_of_sand_under_a_beam_does_not_hold_the_beam_up` fails. The
+  other half is a bearing model (compression-only bed, kern rule, capacity
+  proportional to pile depth) replacing the flat 64x divisor. Full measurements,
+  patches and sequencing are in the session plan file.
 - **Granular capacity as a cap rather than a divisor.** 899/215/0 →
   25,838/51,262/0. The cap sits far below what a deep intact section
   resting on soil used to get, and generated terrain is mostly that.
