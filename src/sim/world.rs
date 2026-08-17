@@ -1040,6 +1040,18 @@ impl World {
         self.paint_field(cx, cy, radius, |c| c.moisture = (c.moisture - amount).max(0.0));
     }
 
+    /// Raise moisture in a filled circle, capped at `1.0` — the mirror of
+    /// [`Self::deplete_moisture`], and what rain writes.
+    ///
+    /// Capped rather than accumulating without limit: the channel is a
+    /// saturation fraction, and a cell that has been rained on for an hour is
+    /// wet, not a thousand times wet. Without the cap a long storm would
+    /// leave ground that takes just as long to dry out afterwards, which
+    /// reads as the rain having broken something.
+    pub fn add_moisture(&mut self, cx: i32, cy: i32, radius: i32, amount: f32) {
+        self.paint_field(cx, cy, radius, |c| c.moisture = (c.moisture + amount).min(1.0));
+    }
+
     /// Apply `f` to every field cell within `radius` *world cells* of
     /// `(cx, cy)`.
     ///

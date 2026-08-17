@@ -97,6 +97,11 @@ use super::world::World;
 /// why that was never a behavioural guarantee this engine made anyway.
 pub fn step(world: &mut World) {
     world.begin_step();
+    // Weather before the sweep, so rain landing this frame is material the
+    // sweep then moves -- rather than a drop that sits for a frame before
+    // anything notices it. Both drivers, deliberately: `CLAUDE.md`'s "two
+    // drivers, and the app runs the parallel one".
+    super::weather::step(world);
     let rightward = world.frame.is_multiple_of(2);
 
     // Snapshotted once, up front — see the module doc's note on why this

@@ -362,6 +362,41 @@ impl Sky {
     /// everything several hundred times a night for a disc a few hundred
     /// pixels across. This is the same trick chunk bodies use, and for the
     /// same reason.
+    /// Mute the sky under cloud. Applied after construction rather than as a
+    /// constructor argument so the day/night maths above stays one thing and
+    /// weather stays another — the sunset still happens behind the cloud, it
+    /// is just not very visible, which is what happens.
+    ///
+    /// Desaturates toward the sky's *own* luminance rather than toward a
+    /// fixed grey: a fixed grey would light up the night sky under a storm,
+    /// which is backwards. This darkens whatever is there and drains its
+    /// colour, so an overcast noon is flat white-grey and an overcast
+    /// midnight is flat black — both correct, from one line.
+    pub fn muted(mut self, overcast: f32) -> Self {
+        if overcast <= 0.0 {
+            return self;
+        }
+        let o = overcast.clamp(0.0, 1.0);
+        let flatten = |c: [u8; 3]| {
+            let luma = (c[0] as f32 * 0.30 + c[1] as f32 * 0.59 + c[2] as f32 * 0.11) * 0.78;
+            let mut out = [0u8; 3];
+            for i in 0..3 {
+                out[i] = (c[i] as f32 * (1.0 - o) + luma * o).clamp(0.0, 255.0) as u8;
+            }
+            out
+        };
+        self.zenith = flatten(self.zenith);
+        self.horizon = flatten(self.horizon);
+        // Cloud hides stars and the moon. Without this a snowstorm is drawn
+        // over a perfectly clear starfield, which reads as two unrelated
+        // effects layered rather than as one sky.
+        self.star_alpha = (self.star_alpha as f32 * (1.0 - o)) as u8;
+        if o > 0.55 {
+            self.moon = None;
+        }
+        self
+    }
+
     pub fn moon_rect(&self) -> Option<(i32, i32, i32, i32)> {
         self.moon.map(|(mx, my)| {
             let r = MOON_GLOW_RADIUS;
@@ -532,4 +567,186 @@ mod tests {
         let after = sky(sunrise() + 200).key();
         assert_ne!(before, after);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Precipitation
+// ---------------------------------------------------------------------------
+
+/// One streak or flake, in **world** coordinates.
+///
+/// World coordinates, not screen, and that is the whole reason this is
+/// generated here rather than straight into the framebuffer: the camera
+/// follows the gnome now, and a pattern hashed against screen position slides
+/// bodily across the world every time he walks. Rain that swims sideways when
+/// you move reads as a rendering fault immediately.
+pub struct Drop {
+    pub from: (f32, f32),
+    pub to: (f32, f32),
+    /// `0.0..=1.0`. Varies per drop and per layer — uniform opacity is the
+    /// single biggest tell that precipitation is a texture rather than
+    /// weather.
+    pub alpha: f32,
+    pub colour: [f32; 3],
+}
+
+/// How the falling stuff is drawn. Distinct from `weather::Precipitation`,
+/// which is what the *simulation* believes; this is the presentation of it.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Fall {
+    Rain,
+    Snow,
+}
+
+/// Depth layers. Near drops are faster, longer, brighter and sparser; far
+/// ones are slow, short and dim.
+///
+/// Parallax is doing the heavy lifting on how this reads. A single layer of
+/// identical streaks is a screen-door effect no matter how it is tuned,
+/// because every drop moves at exactly the same rate and the eye reads the
+/// whole field as one flat sheet sliding. Three rates and the air acquires
+/// depth. `(band width, fall speed, streak length, alpha, brightness)`.
+const RAIN_LAYERS: [(f32, f32, f32, f32, f32); 3] =
+    [(3.4, 3.1, 13.0, 0.52, 1.00), (2.4, 2.1, 8.0, 0.34, 0.86), (1.7, 1.4, 5.0, 0.21, 0.70)];
+const SNOW_LAYERS: [(f32, f32, f32, f32, f32); 3] =
+    [(7.0, 0.55, 2.6, 0.95, 1.00), (5.0, 0.36, 1.8, 0.70, 0.92), (3.6, 0.24, 1.2, 0.46, 0.80)];
+
+/// Drops emitted per band per fall period.
+///
+/// With one, a band contributes a visible drop only when its single drop
+/// happens to be inside the viewport, so the density on screen is the band
+/// count scaled by `viewport height / FALL_PERIOD` -- which at the first
+/// values meant roughly a hundred streaks for a downpour of intensity 0.87.
+/// It looked like drizzle. Density is set here and by the band widths
+/// together, and neither is meaningful without the other.
+const DROPS_PER_BAND: i32 = 2;
+
+/// How far a drop falls before its pattern repeats, in world cells.
+///
+/// A little taller than a viewport, so a drop crosses the whole screen and
+/// wraps well off the top rather than blinking out mid-air -- but only a
+/// little, because every cell of period beyond the screen is a drop that
+/// exists and is not visible, and that ratio *is* the on-screen density.
+/// Anchored in world space so the wrap point does not move when the camera
+/// does.
+const FALL_PERIOD: f32 = 420.0;
+
+/// Sideways travel per cell of fall, at full wind.
+const WIND_SLANT: f32 = 0.75;
+
+const RAIN_COLOUR: [f32; 3] = [186.0, 208.0, 232.0];
+const SNOW_COLOUR: [f32; 3] = [244.0, 246.0, 252.0];
+
+/// Every drop visible in a world-space rectangle this frame.
+///
+/// Pure and stateless, like everything else about weather here: there is no
+/// drop list to advance, spawn into or clean up, so nothing to desynchronise
+/// and nothing whose cost grows with how long it has been raining. Two runs
+/// of a seed draw the same rain on the same frame, and a paused world's rain
+/// is frozen rather than accumulating.
+///
+/// Deliberately **not** `ParticleSystem`: a non-empty particle system forces
+/// a full-screen redraw every frame for as long as it is non-empty, measured
+/// at ~10 ms, and that cost would be permanent rather than confined to the
+/// storm. Rain still forces full redraws while it falls — it must, it moves
+/// everywhere — but only while it falls.
+#[allow(clippy::too_many_arguments)]
+pub fn drops(
+    frame: u64,
+    fall: Fall,
+    intensity: f32,
+    wind: f32,
+    (x0, y0): (i32, i32),
+    (x1, y1): (i32, i32),
+) -> Vec<Drop> {
+    let mut out = Vec::new();
+    if intensity <= 0.0 {
+        return out;
+    }
+    let layers: &[(f32, f32, f32, f32, f32); 3] = match fall {
+        Fall::Rain => &RAIN_LAYERS,
+        Fall::Snow => &SNOW_LAYERS,
+    };
+    let colour = match fall {
+        Fall::Rain => RAIN_COLOUR,
+        Fall::Snow => SNOW_COLOUR,
+    };
+    let t = frame as f32;
+
+    for (layer, &(band, speed, length, alpha, bright)) in layers.iter().enumerate() {
+        let salt = 0x5041_5454 + layer as u64;
+        // Bands are indexed in world space, so which drops exist is a
+        // property of *where you are*, not of where the camera is. Widened
+        // by the slant so a drop that starts off-screen and blows into view
+        // is generated rather than popping into existence at the edge.
+        let slant = wind * WIND_SLANT;
+        let margin = (slant.abs() * FALL_PERIOD).min(64.0) + length + 2.0;
+        let g0 = ((x0 as f32 - margin) / band).floor() as i32;
+        let g1 = ((x1 as f32 + margin) / band).ceil() as i32;
+        for g in g0..=g1 {
+            for d in 0..DROPS_PER_BAND {
+            // Intensity thins the field rather than dimming it: light rain is
+            // fewer drops, not fainter ones. Fading them instead produces a
+            // ghost of a downpour, which reads as fog.
+            let live = hash01(g, layer as i32 * 8 + d, salt ^ 0x11);
+            if live > intensity.clamp(0.0, 1.0) {
+                continue;
+            }
+            let phase = hash01(g, layer as i32 * 8 + d, salt);
+            let jitter = hash01(g, layer as i32 * 8 + d, salt ^ 0x22);
+            // Per-drop speed spread, so a layer is a cloud of drops rather
+            // than a rigid comb descending in lockstep.
+            let v = speed * (0.75 + jitter * 0.5);
+            let base = (t * v + phase * FALL_PERIOD) % FALL_PERIOD;
+            let x_base = g as f32 * band + jitter * band;
+
+            // The wrap is resolved by *which* repeats of the period fall
+            // inside the visible rows, so a drop crosses the screen and
+            // continues past it instead of restarting at the top edge.
+            let n0 = ((y0 as f32 - base) / FALL_PERIOD).floor() as i32;
+            let n1 = ((y1 as f32 - base) / FALL_PERIOD).ceil() as i32;
+            for n in n0..=n1 {
+                let y = base + n as f32 * FALL_PERIOD;
+                if y < y0 as f32 - length - 1.0 || y > y1 as f32 + 1.0 {
+                    continue;
+                }
+                let (len, sway) = match fall {
+                    Fall::Rain => (length, 0.0),
+                    // Snow does not fall straight and does not streak: it
+                    // drifts. The sway is per-drop in phase, or every flake
+                    // in a layer swings together like a curtain.
+                    Fall::Snow => {
+                        // Wider, slower sway than the first attempt. Snow
+                        // that barely drifts is indistinguishable from
+                        // static -- and the near layer's flakes are drawn as
+                        // short strokes rather than single pixels for the
+                        // same reason, so that a flake has a *size* and the
+                        // three layers separate by more than brightness.
+                        let w = (t * 0.009 + phase * std::f32::consts::TAU).sin();
+                        (length, w * 5.5)
+                    }
+                };
+                let x = x_base + y * slant + sway;
+                out.push(Drop {
+                    from: (x, y),
+                    to: (x - slant * len, y - len),
+                    alpha: alpha * (0.7 + jitter * 0.3),
+                    colour: [colour[0] * bright, colour[1] * bright, colour[2] * bright],
+                });
+            }
+            }
+        }
+    }
+    out
+}
+
+/// How much a storm mutes the sky, `0.0` (clear) to `1.0` (fully overcast).
+///
+/// Applied to the gradient rather than drawn as cloud shapes: this world has
+/// no cloud layer and inventing one would be a much bigger feature than the
+/// weather it is decorating. What an overcast sky actually looks like from
+/// below is a flat, desaturated, darker version of the same sky, which is
+/// exactly what a lerp toward grey produces.
+pub fn overcast(intensity: f32) -> f32 {
+    (intensity * 0.85).clamp(0.0, 1.0)
 }

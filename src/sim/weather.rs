@@ -28,8 +28,11 @@
 //! answer is usually `Precipitation::None`, and a test that wants rain has to
 //! go looking for a frame that has some (see `first_frame_with`).
 
+use super::cell::Cell;
 use super::field::DAY_NIGHT_PERIOD_FRAMES;
+use super::material::{self, MaterialKind};
 use super::rng;
+use super::world::World;
 
 /// How long one weather epoch lasts, in frames.
 ///
@@ -158,9 +161,213 @@ pub fn drift(seed: u64, from: u64, to: u64) -> f32 {
     (a.intensity - b.intensity).abs() + (a.wind - b.wind).abs() * 0.5 + (a.chill - b.chill).abs() * 0.25
 }
 
+/// How many columns one frame of the heaviest possible downpour touches.
+///
+/// A hard cap on work, not a rate: rain must cost the same whether the world
+/// is one screen wide or thirty, or weather becomes the reason big worlds are
+/// slow. Each touched column also unsettles a field tile, so this is
+/// simultaneously the bound on how much field solving a storm can provoke.
+const MAX_COLUMNS_PER_FRAME: f32 = 24.0;
+
+/// The world width `MAX_COLUMNS_PER_FRAME` describes.
+///
+/// Without this, a fixed column count is a fixed *rate*, so rain gets denser
+/// the narrower the world: 24 columns a frame across 128 columns soaks every
+/// one of them every five frames, and a test world drowned under 2232 water
+/// cells while the shipped 2048-wide world saw an ordinary shower. The
+/// number that should be constant is drops per column per second; the cap
+/// then bounds work on worlds larger than this, at the price of rain that
+/// thins out on them -- which is the right trade, because frame cost is a
+/// hard constraint and rain density is a feel.
+const REFERENCE_WIDTH: f32 = 2048.0;
+
+/// How wet one drop makes the ground it lands on.
+///
+/// Large, because a drop here is not a raindrop -- it is *this field cell got
+/// rained on*, and the channel it writes is a saturation fraction that
+/// evaporation is continuously pulling back down. The first value (0.10) was
+/// chosen as if drops accumulated; they do not, they reach a balance against
+/// evaporation, and that balance measured **0.031 of saturation across a
+/// whole 128-wide world** -- real, conserved, and completely invisible. What
+/// matters is the steady state under continuous rain, not the size of one
+/// write.
+const MOISTURE_PER_DROP: f32 = 0.45;
+
+/// Chance that a landing drop is a real water cell rather than only a
+/// moisture write, at full intensity.
+///
+/// Low on purpose. Most rain should soak in and be *seen* as darker, damper
+/// ground, because that is what rain mostly does and because a water cell
+/// per drop would flood a world in a minute. Soil consumes a landing water
+/// cell outright when it has capacity (`update.rs`'s infiltration), so the
+/// cells that survive are the ones landing on rock -- which is exactly where
+/// puddles and runoff belong.
+const WATER_CELL_CHANCE: f32 = 0.06;
+
+/// How much a drop raises the landing cell's own saturation, at full
+/// intensity, in the units `material::SOIL_SATURATED` is expressed in.
+///
+/// A tenth of saturation, so ground darkens over a few passes of a shower
+/// rather than going instantly black under the first drop.
+const SOIL_SOAK_PER_DROP: u16 = material::SOIL_SATURATED / 10;
+
+/// How far down a drop soaks, in cells.
+///
+/// Rain wet only the single topmost cell in the first version, which is
+/// defensible as physics and useless as a picture: the soil blanket is tens
+/// of cells thick, so a rainstorm darkened a one-pixel line along the top of
+/// it and the paired wet/dry renders were indistinguishable. Soaking a few
+/// cells down is both what rain does and what makes wet ground read as wet.
+/// Each cell down gets less, so the profile is damp at the surface fading
+/// with depth rather than a uniform slab -- a slab reads as a different
+/// material lying on top of the soil.
+const SOAK_DEPTH: i32 = 5;
+
+/// One frame of weather acting on the world.
+///
+/// Called by both drivers (`parallel::step` and `update::step`), because
+/// behaviour only the player sees is behaviour only the parallel driver
+/// produces -- and a headless harness that silently had no weather would be
+/// the worst possible way to measure it.
+///
+/// # Where rain is simulated
+///
+/// **Where it lands, not where it falls.** Nothing is simulated in the air:
+/// there are no falling drops, no particles, and no writes over the sky
+/// column. That is a correctness requirement rather than an optimisation --
+/// the field sleeps per tile now, and a write anywhere in a sky column would
+/// wake every tile between the cloud and the ground, undoing it. What the
+/// player sees falling is drawn, not simulated.
+pub fn step(world: &mut World) {
+    let w = at(world.seed, world.frame);
+    if !w.is_precipitating() {
+        return;
+    }
+    let Some(bounds) = world.bounds() else { return };
+    // Snow is a separate material and lands differently; until it exists,
+    // a cold front simply produces nothing rather than quietly raining.
+    if w.kind != Precipitation::Rain {
+        return;
+    }
+
+    let width = bounds.max_x - bounds.min_x + 1;
+    // Fractional columns are resolved by chance rather than rounded up: at
+    // low intensity on a small world the honest answer is "less than one
+    // column this frame", and rounding that to one is how a drizzle becomes
+    // a downpour on a test world.
+    let wanted = (w.intensity * MAX_COLUMNS_PER_FRAME * width as f32 / REFERENCE_WIDTH).min(MAX_COLUMNS_PER_FRAME);
+    let mut pick = rng::stream(world.seed, 0x5241_494E, world.frame, u64::MAX);
+    let columns = wanted.floor() as usize + usize::from(pick.chance(wanted.fract()));
+    if columns == 0 {
+        return;
+    }
+    // Hoisted: `id_of` is a string hash, and the sweep must not pay one per
+    // drop. `None` means this world has no water material at all, in which
+    // case rain still wets the ground and simply never puddles.
+    let water = world.materials.id_of("water");
+    let soak = (SOIL_SOAK_PER_DROP as f32 * w.intensity) as u16;
+
+    for i in 0..columns {
+        // Position drawn from `(seed, frame, i)` rather than a stream, so the
+        // same frame of the same world rains on the same columns however many
+        // times it is replayed, and two drops in one frame never collide by
+        // sharing a generator's state.
+        let mut r = rng::stream(world.seed, 0x5241_494E, world.frame, i as u64);
+        let x = bounds.min_x + (r.next_u64() % width as u64) as i32;
+        let Some(surface_y) = surface_under_sky(world, x, bounds.min_y, bounds.max_y) else {
+            continue;
+        };
+        world.add_moisture(x, surface_y, 1, MOISTURE_PER_DROP * w.intensity);
+        // ...and the *cell's own* saturation, which is a different channel
+        // from the field's humidity and is the one that matters twice over:
+        // roots read it (`update::soil_moisture`), and it is what makes wet
+        // ground look wet. Writing only the field left rain with a real,
+        // conserved, entirely invisible effect.
+        //
+        // `aux == 0` on a Powder means **dry** -- the opposite of the
+        // convention on a Liquid, where 0 means full. Getting this backwards
+        // does not merely mis-shade a cell, it hands every root in the world
+        // a full drink.
+        for d in 0..SOAK_DEPTH {
+            let y = surface_y + d;
+            if y > bounds.max_y {
+                break;
+            }
+            let cell = world.get(x, y);
+            // Stops at the first thing that cannot hold water, so a puddle
+            // on bare rock does not wet the rock beneath it and a thin soil
+            // cap over stone soaks only as deep as the soil goes.
+            if world.materials.get(cell.material).water_capacity == 0 {
+                break;
+            }
+            let share = soak / (d as u16 + 1);
+            let wetter = cell.aux().saturating_add(share).min(material::SOIL_SATURATED);
+            if wetter != cell.aux() {
+                world.set(x, y, cell.with_aux(wetter));
+            }
+        }
+        // **Rain does not stack on standing water.** If the topmost thing in
+        // this column is already a liquid, the drop joins it as moisture and
+        // nothing new is spawned. Without this the column refills as fast as
+        // the puddle drains and a long storm grows water without bound --
+        // measured at 2232 cells in a 128-wide world, which is seventeen rows
+        // of flood. Rain landing in a lake making the lake deeper is
+        // technically true and is not what anyone wants to look at.
+        let is_liquid = world.materials.kind(world.get(x, surface_y).material) == MaterialKind::Liquid;
+        if let Some(water) = water {
+            if !is_liquid && r.chance(WATER_CELL_CHANCE * w.intensity) && surface_y > bounds.min_y {
+                let above = surface_y - 1;
+                if world.get(x, above).material == material::EMPTY {
+                    world.set(x, above, Cell::new(water, 0));
+                }
+            }
+        }
+    }
+}
+
+/// The topmost solid cell in column `x`, or `None` if the column is empty all
+/// the way down.
+///
+/// Walks from the top, so the answer is by construction the first thing the
+/// sky can see -- a cell under an overhang or inside a cave is never
+/// returned, which is what makes "rain does not fall indoors" fall out of
+/// the geometry rather than needing a roof test of its own.
+fn surface_under_sky(world: &World, x: i32, min_y: i32, max_y: i32) -> Option<i32> {
+    (min_y..=max_y).find(|&y| world.get(x, y).material != material::EMPTY)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sim::chunk::Rect;
+    use crate::sim::parallel;
+
+    /// A frame at which `seed` is raining, so a test can assert about rain
+    /// rather than about the 86% of frames that are clear.
+    fn a_rainy_frame(seed: u64) -> u64 {
+        (0..WEATHER_EPOCH_FRAMES * 40)
+            .step_by(30)
+            .find(|&f| at(seed, f).kind == Precipitation::Rain && at(seed, f).intensity > 0.3)
+            .expect("no seed used by these tests should be rainless")
+    }
+
+    /// A world with a stone shelf across the middle and a soil floor beneath
+    /// it, so the same run has both an exposed surface and a roofed one.
+    fn sheltered_world(seed: u64, frame: u64) -> World {
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        w.seed = seed;
+        w.frame = frame;
+        let soil = w.materials.id_of("soil").expect("soil must exist");
+        for x in 0..128 {
+            w.set(x, 100, Cell::new(soil, 0));
+        }
+        // A roof over the right half only, with a gap under it. Rain must
+        // reach the left half's soil and nothing under the roof.
+        for x in 64..128 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        w
+    }
 
     /// The first frame at or after `from` whose weather satisfies `f`, within
     /// a generous budget. Most frames are clear, so nearly every test here
@@ -170,6 +377,79 @@ mod tests {
         // epochs, so anything that lasts less than a few hundred frames is
         // not a weather event in the first place.
         (from..from + WEATHER_EPOCH_FRAMES * 64).step_by(60).find(|&frame| f(at(seed, frame)))
+    }
+
+    #[test]
+    fn rain_wets_exposed_ground_and_not_ground_under_a_roof() {
+        // The claim that makes rain read as rain rather than as a global
+        // moisture tick. Paired within one run -- roofed against exposed, in
+        // the same world, same frames, same weather -- so it cancels
+        // everything the rule under test is not about.
+        let seed = 4;
+        let start = a_rainy_frame(seed);
+        let mut w = sheltered_world(seed, start);
+        // Summed over each half rather than sampled at one column. Rain
+        // lands on scattered columns, so a single-column reading is a
+        // coin-flip on whether that column was picked -- the metric has to
+        // count the quantity the claim is about, which is how wet the
+        // exposed ground *is*, not whether one cell of it got hit.
+        let wetness = |w: &World, from: i32, to: i32| {
+            (from..to).step_by(8).map(|x| w.field_at(x, 100).moisture).sum::<f32>()
+        };
+        let exposed_before = wetness(&w, 0, 64);
+        let roofed_before = wetness(&w, 64, 128);
+        for _ in 0..400 {
+            parallel::step(&mut w);
+        }
+        let exposed_after = wetness(&w, 0, 64);
+        let roofed_after = wetness(&w, 64, 128);
+        println!(
+            "exposed half {exposed_before:.3} -> {exposed_after:.3}, roofed half {roofed_before:.3} -> {roofed_after:.3}"
+        );
+        assert!(exposed_after > exposed_before + 0.05, "400 frames of rain did not wet exposed ground");
+        assert!(
+            roofed_after <= roofed_before + 0.001,
+            "ground under a roof got wetter ({roofed_before:.3} -> {roofed_after:.3});              rain is reaching through solid rock"
+        );
+    }
+
+    #[test]
+    fn a_long_storm_does_not_flood_the_world() {
+        // The runaway this feature is most likely to produce, and the reason
+        // water cells are a low-probability event rather than a drop per
+        // column. Counts *cells*, not events: a failure count is not a
+        // damage count, and what floods a world is standing water.
+        let seed = 4;
+        let start = a_rainy_frame(seed);
+        let mut w = sheltered_world(seed, start);
+        let water = w.materials.id_of("water").expect("water must exist");
+        for _ in 0..3000 {
+            parallel::step(&mut w);
+            w.step_active_sites();
+        }
+        let cells = (0..128).flat_map(|x| (0..128).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == water).count();
+        println!("after 3000 frames of weather on a 128x128 world: {cells} water cells");
+        // Bar from measurement with headroom, not from an aspiration. What
+        // this must catch is unbounded growth, not a puddle.
+        assert!(cells < 1200, "{cells} water cells is a flood, not rain");
+    }
+
+    #[test]
+    fn a_clear_sky_leaves_the_world_alone() {
+        // The other half, and the one that protects per-tile field sleeping:
+        // a world with no weather must not be touched at all, or every frame
+        // of every clear day pays for a feature that is doing nothing.
+        let seed = 4;
+        let dry = (0..WEATHER_EPOCH_FRAMES * 40)
+            .step_by(30)
+            .find(|&f| !at(seed, f).is_precipitating())
+            .expect("some frame is clear");
+        let mut w = sheltered_world(seed, dry);
+        let before = w.field_at(32, 100).moisture;
+        for _ in 0..200 {
+            parallel::step(&mut w);
+        }
+        assert_eq!(w.field_at(32, 100).moisture, before, "a clear sky changed the world's moisture");
     }
 
     #[test]
