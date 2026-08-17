@@ -224,53 +224,74 @@ opened. He never once crosses x=180 into it.
 `target/filmstrips/tunnel-clean.png` (zoom 8) is the picture, and it is
 unambiguous: a clean open tunnel, and a gnome standing outside it.
 
+### The cause, found: **he does not fit**
+
+`dump=` (new, `examples/filmstrip.rs`) prints the materials around him as
+ASCII, which is what settled this after three wrong guesses read off a 20x
+contact sheet. The column immediately in front of him, at `scene=tunnel
+yield=0.0` frame 400:
+
+```
+    299 .................#....       x=185 is rock  <- ceiling
+    300 ..........PPPPPPP.....       air
+     ...                             air
+    312 ..........PPPPPPP.....       air
+    313 ########..PPPPPPP#####       x=185 is rock  <- floor
+```
+
+Thirteen free rows at x=185. **`PLAYER_HEIGHT` is 14.** He is one cell too
+tall for the gap and simply cannot pass, so he stands at the threshold for
+the rest of the run.
+
+The step-up does not save him, and its logic is not at fault: the floor at
+x=185 is one row higher than the floor beneath him, so a 1-cell lift is
+exactly right -- but lifting puts his head into the rock at (185, 299). He
+is wedged between a floor bump and a ceiling in a passage his own height.
+
+**Why the passage is too short.** A bite is a *disc* of radius 7, so it is
+15 cells tall only on its exact centre line; everywhere else the chord is
+shorter. A bore cut as a row of overlapping discs therefore has a scalloped
+floor and ceiling, and most of its length is 13-14 cells clear rather than
+15. A 14-cell gnome needs essentially all of it, so he wedges on the first
+scallop he meets.
+
 ### What has been ruled out, by measurement
 
-- **Spoil silting the bore up.** The obvious reading, and wrong: this
-  reproduction is at `yield=0.0`, where *nothing* is left behind and the
-  bore is completely empty. The stall is worst there.
-- **Aim.** `face_toward` reaches past loose material to the first hard
-  cell, and `examples/filmstrip.rs`'s tunnel script already aims at
-  `cx + dig_reach * 2` — a previous session fixed exactly the failure where
-  a nearer aim point made bites land in the open bore. The aim is fine; he
-  is simply too far away to reach the face.
+- **The digging.** With digging switched off entirely after frame 300, he
+  spends 800 further frames with `right` held and moves **zero cells**. It
+  is not spoil, not the aim, not depenetration shoving him back.
+- **Spoil silting the bore up.** The reproduction is at `yield=0.0`, where
+  nothing is left behind and the bore is empty. The stall is *worst* there.
+- **The aim, and `dig_reach`.** The face is always ~40 cells beyond
+  wherever he stands (reach 30 + bite radius 7), confirmed at two yields:
+  he stops at 178 and the bore ends ~218; he stops at 192 and it ends ~232.
+  So "zero cells removed" is a *consequence* of him stopping, not a cause
+  -- every later bite lands in the open bore. Fix the walking and the reach
+  arithmetic takes care of itself.
+- **The walk duty cycle.** Holding `right` continuously is *worse* (ends at
+  173, against 178), so he is not merely failing to try.
 
-### The spoil sweep, which points at the answer
+### The fix is a design call, so ask
 
-`scene=tunnel`, 125 bites, where he ended up (he starts at x=150):
+Four ways out, and they are not equivalent:
 
-| yield | ends at | dusted | note |
-|---|---|---|---|
-| 0.0 (CLEAN) | **178** | 518 | never enters; bore completely empty |
-| 0.2 | **192** | 604 | furthest of any setting |
-| 0.35 (DUST, default) | 189 | 484 | |
-| 0.55 (SPOIL) | 173 | 206 | |
+1. **Cut a capsule along the direction of travel, not a disc.** Gives a
+   constant-height corridor with no scallops. `paint_capsule` already
+   exists. Probably the right answer, and it makes a bore read as a bore.
+2. **Make the bite bigger than he is** -- `dig_radius` 7 to 8. One number,
+   but it widens every cut including the sandbox one, and a 17-cell hole
+   from a single click is a lot.
+3. **Let him crouch or squeeze** through a gap one cell short. The most
+   character-ish answer and the most work.
+4. **Make him shorter.** Cheapest and worst: it is a game-feel constant
+   that was chosen, not derived.
 
-**More rubble gets him *further*, up to a point.** That is the tell, and it
-inverts the obvious hypothesis. With spoil on the floor he climbs into the
-bore and keeps working; with a spotless tunnel he stands at the lip. So the
-bore's floor is not something he can walk onto from outside — rubble is
-acting as a ramp, and it is the only reason a tunnel advances at all today.
-`examples/filmstrip.rs`'s own script comment already recorded the extreme
-version of this ("at `yield=1.0` he travelled furthest of any setting purely
-by walking up rubble"), and it was read as a measurement artifact rather
-than as the bug it is.
-
-### Where to look
-
-`player::step`'s ground handling and `step_up` (default 4). A bite is
-centred on his own centre with radius 7, so the bore spans roughly
-`cy-7 .. cy+7` while the outside ground is at his feet — the mouth is a
-lip, and something about crossing it is refusing. Instrument his `x` and
-`grounded` per frame at the moment he first touches x=179; do not reason
-about the geometry from the contact sheet, because the sheet cannot show
-which of "blocked", "stepped and pushed back" or "never tried" is
-happening.
-
-**Do not fix this by tuning `dig_yield`.** The sweep above is exactly the
-knob-that-moves-the-number-in-both-directions shape this file warns about:
-0.2 beats both 0.0 and 0.55, which means it is reading the wrong quantity.
-Spoil is compensating for a movement bug.
+The spoil sweep is a trap here and is what sent the first reading wrong:
+ending x by yield is 0.0 -> 178, 0.2 -> 192, 0.35 -> 189, 0.55 -> 173, so
+**more rubble gets him further** -- rubble fills the scallops and ramps him
+over them. That is a knob moving the number in both directions, which this
+file's own rule says means it is reading the wrong quantity. Do not tune
+`dig_yield` to fix this.
 
 ---
 

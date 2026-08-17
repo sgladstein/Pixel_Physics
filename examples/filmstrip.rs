@@ -933,6 +933,17 @@ struct Args {
     /// "nothing anywhere is over 1.0" on a scene that visibly stands is
     /// exactly that check.
     loadmap: bool,
+    /// `dump=x,y,w,h` -- print the materials in that rectangle as ASCII,
+    /// once per captured tile.
+    ///
+    /// For questions a contact sheet cannot answer however far it is
+    /// zoomed. "Why will the gnome not walk into his own tunnel" turned
+    /// into three wrong guesses about the geometry of the mouth read off a
+    /// 20x magnification -- whether the floor was a step up or a drop,
+    /// whether a lip of rock survived at the threshold -- when what was
+    /// needed was the cells themselves. `.` is air, `#` solid, `o` powder,
+    /// `~` liquid, `P` where the player is standing.
+    dump: Option<Rect>,
     /// `max_lost=N` -- exit non-zero if the world ended with more than N
     /// cells fewer than it started with.
     ///
@@ -995,6 +1006,7 @@ fn parse() -> Args {
         max_frame_ms: None,
         min_bodies: None,
         max_lost: None,
+        dump: None,
         confine: true,
         wall: 3,
         dig: 3,
@@ -1057,6 +1069,11 @@ fn parse() -> Args {
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
             "max_lost" => a.max_lost = Some(v.parse().expect("max_lost")),
+            "dump" => {
+                let n: Vec<i32> = v.split(',').map(|p| p.parse().expect("dump=x,y,w,h")).collect();
+                assert_eq!(n.len(), 4, "dump=x,y,w,h");
+                a.dump = Some(Rect::new(n[0], n[1], n[0] + n[2] - 1, n[1] + n[3] - 1));
+            }
             "confine" => a.confine = v != "0" && v != "false",
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
@@ -1361,6 +1378,34 @@ impl Gnome {
             }
         }
         Some(s)
+    }
+}
+
+/// Print the materials in `args.dump` as ASCII. See `Args::dump`.
+fn dump_materials(world: &World, args: &Args) {
+    let Some(r) = args.dump else { return };
+    let player = world.player.as_ref().map(|p| p.bounds());
+    println!("    dump x {}..{} y {}..{}:", r.min_x, r.max_x, r.min_y, r.max_y);
+    for y in r.min_y..=r.max_y {
+        let mut line = String::new();
+        for x in r.min_x..=r.max_x {
+            if let Some((x0, y0, x1, y1)) = player {
+                if x >= x0 && x <= x1 && y >= y0 && y <= y1 {
+                    line.push('P');
+                    continue;
+                }
+            }
+            let cell = world.get(x, y);
+            line.push(match world.materials.kind(cell.material) {
+                _ if cell.material == material::EMPTY => '.',
+                MaterialKind::Solid => '#',
+                MaterialKind::Powder => 'o',
+                MaterialKind::Liquid => '~',
+                MaterialKind::Gas => ':',
+                _ => '?',
+            });
+        }
+        println!("    {y:>3} {line}");
     }
 }
 
@@ -1727,6 +1772,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64)) {
         if render {
             println!("    worst frame so far: {worst_ms:.2} ms (frame {worst_frame})");
             report_loads(&world, args);
+            dump_materials(&world, args);
         }
         captured += 1;
     }
