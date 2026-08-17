@@ -20,11 +20,35 @@
     display: "Wood",
     kind: Plant,
     density: 0.9,
+    // **Four bark bands of four tonal steps** — see `organism::PALETTE_BAND`
+    // and `leaf.ron`'s longer note. Band 0 is the original palette
+    // unchanged; a species with no declared `bark_bands` still draws
+    // uniformly over the whole thing, as before.
+    //
+    // Bark carries less of the silhouette than foliage does, so this axis is
+    // shorter than leaf's on purpose — it separates species at the trunk
+    // without pulling attention off the crown.
     colors: [
+        // 0: mid brown — the original palette
         (92, 64, 40),
         (105, 74, 46),
         (80, 55, 34),
         (114, 81, 51),
+        // 1: dark red-brown — conifer bark
+        (78, 48, 34),
+        (92, 58, 42),
+        (64, 38, 26),
+        (104, 68, 50),
+        // 2: near-black brown — old or wet bark
+        (58, 42, 30),
+        (70, 52, 38),
+        (46, 33, 23),
+        (82, 62, 46),
+        // 3: grey-brown — birch, and most shrub stems
+        (112, 100, 84),
+        (128, 116, 98),
+        (96, 85, 70),
+        (142, 130, 112),
     ],
     flammability: 0.25,
     burn_temperature: 700.0,

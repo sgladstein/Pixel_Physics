@@ -632,6 +632,8 @@ impl World {
             shoot_top_y: None,
             sympodial_forks: 0,
             plagiotropic_steps: 0,
+            foliage_band: 0,
+            bark_band: 0,
         };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];

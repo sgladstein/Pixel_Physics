@@ -618,14 +618,47 @@ pub enum Behavior {
 /// run on it. `Vec<(CellType, Vec<Behavior>)>` rather than a map keyed on
 /// `CellType` — simpler RON syntax, and no species is expected to have
 /// enough cell types for linear lookup to matter.
+/// How many consecutive palette entries make one **band** — one hue, in the
+/// four tonal steps `render.rs` already uses as material grain.
+///
+/// Colour is not physics, so a conifer's needles are not a new *material*:
+/// `leaf.ron`'s own doc states this engine's test for when a material is
+/// warranted ("its *physics* genuinely differ on numbers that already
+/// exist"), and a fir and an oak differ on none of them. What differs is
+/// hue, so hue is what varies — a band range per species, one band per
+/// individual inside it, one tonal step per cell.
+pub const PALETTE_BAND: u8 = 4;
+
+/// A species' slice of a material's palette: `count` bands starting at
+/// `first`. An individual draws one band from this range at germination, so
+/// the range is the *species'* colour and the draw is the *individual's*.
+///
+/// **`count: 0` means unset and restores the pre-band behaviour** — a shade
+/// drawn uniformly from the whole palette. That is what every species
+/// without a declared range gets (moss, and any asset set that predates
+/// this), so adding bands cost no existing species its look.
+#[derive(Clone, Copy, Deserialize, Default, Debug, PartialEq, Eq)]
+pub struct PaletteBands {
+    pub first: u8,
+    pub count: u8,
+}
+
 #[derive(Deserialize)]
 pub struct SpeciesDef {
     pub name: String,
+    /// Which bands of `leaf`'s palette this species' foliage draws from.
+    #[serde(default)]
+    pub foliage_bands: PaletteBands,
+    /// Which bands of `wood`'s palette this species' stems draw from.
+    #[serde(default)]
+    pub bark_bands: PaletteBands,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
 }
 
 pub struct Species {
     pub name: String,
+    pub foliage_bands: PaletteBands,
+    pub bark_bands: PaletteBands,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
 }
 
@@ -644,7 +677,7 @@ impl Species {
 
 impl From<SpeciesDef> for Species {
     fn from(def: SpeciesDef) -> Self {
-        Self { name: def.name, cell_types: def.cell_types }
+        Self { name: def.name, foliage_bands: def.foliage_bands, bark_bands: def.bark_bands, cell_types: def.cell_types }
     }
 }
 
@@ -790,6 +823,22 @@ pub struct OrganismState {
     /// Growth steps taken under a plagiotropic reference — says whether a
     /// species' `tropism` tiers ever actually ran.
     pub plagiotropic_steps: u32,
+    /// **This individual's colour**, as absolute band indices into the
+    /// `leaf` and `wood` palettes — drawn once at germination by
+    /// `plant::seed_genotype`, from the same (world seed, germination
+    /// coordinate) key the genotype uses and for the same reason: colour
+    /// should be a property of the plant, not of the world's planting
+    /// order.
+    ///
+    /// Stored rather than recomputed because the germination coordinate is
+    /// not kept anywhere else, and resolved to an absolute index here
+    /// rather than an offset so the read at every cell-creation site is a
+    /// field access and not a species lookup plus a modulo.
+    ///
+    /// Both are 0 until germination, which is the first band of whatever
+    /// palette the material has — the pre-band look.
+    pub foliage_band: u8,
+    pub bark_band: u8,
 }
 
 /// How many independently-jittered traits a genotype carries — the width of

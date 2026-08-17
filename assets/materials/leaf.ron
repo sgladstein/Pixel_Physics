@@ -13,11 +13,50 @@
     kind: Plant,
     // Foliage is not wood. Well under `wood`'s 0.9.
     density: 0.25,
+    // **Six hue bands of four tonal steps** — see `organism::PALETTE_BAND`.
+    // A species declares which bands it draws from (`foliage_bands`) and an
+    // individual draws one band inside that range at germination, so a
+    // stand is a spread of related greens instead of sixteen draws of one.
+    //
+    // Band 2 is the original four-colour palette, unchanged, so anything
+    // that referenced a specific shade index by hand still lands on the
+    // colour it was written against — and a species with no declared range
+    // still draws uniformly over the whole thing, as before.
+    //
+    // The order is deliberate: hue runs blue-green → green → yellow-green →
+    // olive, so a species' range is a contiguous slice of one axis and
+    // widening a range never jumps a hue.
     colors: [
+        // 0: deep blue-green — fir, spruce
+        (42, 74, 52),
+        (52, 90, 62),
+        (34, 62, 44),
+        (60, 102, 72),
+        // 1: mid blue-green — pine
+        (46, 86, 58),
+        (56, 102, 70),
+        (38, 72, 48),
+        (66, 116, 80),
+        // 2: mid green — the original palette
         (58, 96, 40),
         (70, 116, 48),
         (48, 82, 34),
         (82, 132, 56),
+        // 3: yellow-green — birch, willow
+        (86, 118, 44),
+        (102, 138, 54),
+        (72, 100, 36),
+        (118, 158, 66),
+        // 4: olive — dry-site shrubs
+        (94, 104, 56),
+        (110, 122, 68),
+        (78, 88, 46),
+        (126, 140, 80),
+        // 5: dark olive
+        (66, 76, 38),
+        (80, 92, 46),
+        (54, 62, 30),
+        (94, 108, 56),
     ],
     // Much more flammable than heartwood, and it burns *out* far faster. A
     // real canopy fire runs through foliage, not through trunks, and this

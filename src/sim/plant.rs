@@ -357,8 +357,80 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
         let mut rng = rng::stream(world_seed, x as u64, y as u64, slot as u64);
         *draw = rng.below(10_000) as f32 / 10_000.0 * 2.0 - 1.0;
     }
+    // **Colour is drawn on the same key, and it is the cheapest variety in
+    // the subsystem.** Three species shared one four-brown palette and one
+    // four-green palette, so a stand of sixteen individuals was sixteen
+    // draws of the same two colours — which is a large part of why the
+    // architectural levers of the previous phase (sympody, tropism,
+    // acrotony) all fired, all counted, and changed nothing anyone could
+    // see. A lever that relabels a cell cannot move a silhouette that
+    // texture and colour set.
+    //
+    // Streams 64/65 rather than the next free genotype slot: genotype slots
+    // are positional forever (renumbering one rewrites every genome ever
+    // measured), and colour is not a trait with a *width* — it does not
+    // multiply a species mean, it selects a band. Keeping it off the draws
+    // array leaves `GENOTYPE_TRAITS` free for the root traits the handoff
+    // has queued for slots 6+.
+    // `SpeciesId` is `Copy`, so reading it out ends the organism borrow
+    // before the registry one begins — `world` is `&mut` here.
+    let species_id = world.organism(organism_id).map(|s| s.species);
+    let (foliage, bark) = match species_id {
+        Some(id) => {
+            let sp = world.species.get(id);
+            (sp.foliage_bands, sp.bark_bands)
+        }
+        None => Default::default(),
+    };
+    let pick = |bands: organism::PaletteBands, stream: u64| -> u8 {
+        if bands.count == 0 {
+            return 0;
+        }
+        let mut rng = rng::stream(world_seed, x as u64, y as u64, stream);
+        bands.first + rng.below(bands.count as u32) as u8
+    };
+    let foliage_band = pick(foliage, 64);
+    let bark_band = pick(bark, 65);
     if let Some(state) = world.organism_mut(organism_id) {
         state.genotype_draws = draws;
+        state.foliage_band = foliage_band;
+        state.bark_band = bark_band;
+    }
+}
+
+/// Which palette band a new cell of this organism belongs in.
+///
+/// `Foliage` and `Bark` are the two the species declares; a species that
+/// declares neither (moss, and anything predating bands) gets `count: 0`
+/// and falls through to a uniform draw over the whole palette, which is
+/// exactly the pre-band behaviour.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Band {
+    Foliage,
+    Bark,
+}
+
+/// The `shade` byte for a cell this organism is about to create.
+///
+/// `Cell::shade` is a full byte wrapped modulo the palette length at render
+/// time, so a banded palette needs no engine change at all: band `b`'s four
+/// tonal steps are simply entries `4b..4b+4`. Per-individual colour
+/// therefore costs **no per-cell state and no render work** — the byte the
+/// cell already carried for grain now carries identity as well.
+fn banded_shade(world: &World, organism_id: u16, material: material::MaterialId, band: Band, rng: &mut Rng) -> u8 {
+    let palette_len = world.materials.get(material).palette.len().max(1) as u32;
+    let declared = world.organism(organism_id).map(|s| {
+        let sp = world.species.get(s.species);
+        match band {
+            Band::Foliage => (sp.foliage_bands.count, s.foliage_band),
+            Band::Bark => (sp.bark_bands.count, s.bark_band),
+        }
+    });
+    match declared {
+        Some((count, index)) if count > 0 => index * organism::PALETTE_BAND + rng.below(organism::PALETTE_BAND as u32) as u8,
+        // Undeclared, or an organism that no longer exists: the old
+        // uniform-over-the-whole-palette draw.
+        _ => rng.below(palette_len) as u8,
     }
 }
 
@@ -1236,8 +1308,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 }
                 let (tx, ty, _) = chosen;
 
-                let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
-                let shade = rng.below(shades) as u8;
+                let shade = banded_shade(world, organism_id, cell.material, Band::Bark, &mut rng);
                 // Canopy density deposited once, here, at creation --
                 // `organism::diffuse_resource`'s own doc explains why this
                 // lives at the moment of growth rather than a continuous
@@ -1307,7 +1378,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     if !alt.is_empty() {
                         let (bx, by, _) = alt[rng.below(alt.len() as u32) as usize];
                         if growable(world, bx, by, penetration_force) {
-                            let branch_shade = rng.below(shades) as u8;
+                            let branch_shade = banded_shade(world, organism_id, cell.material, Band::Bark, &mut rng);
                             let branch_cell =
                                 Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(cell_type));
                             displace_soil_water(world, bx, by);
@@ -1463,9 +1534,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         // loaded, so a stripped-down asset set degrades to
                         // the old look rather than failing to grow.
                         let leaf_material = world.materials.id_of("leaf").unwrap_or(cell.material);
-                        let leaf_shades = world.materials.get(leaf_material).palette.len().max(1) as u32;
                         for &(cx, cy) in &cluster {
-                            let shade = rng.below(leaf_shades) as u8;
+                            let shade = banded_shade(world, organism_id, leaf_material, Band::Foliage, &mut rng);
                             let leaf_cell =
                                 Cell::new(leaf_material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::Leaf));
                             world.set(cx, cy, leaf_cell);
@@ -2566,8 +2636,8 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     seed_genotype(world, organism_id, x, y);
     // The seed cell is `seed` material; the shoot it becomes is wood.
     let wood = world.materials.id_of("wood").unwrap_or(cell.material);
-    let shades = world.materials.get(wood).palette.len().max(1) as u32;
-    let shoot_shade = rng.below(shades) as u8;
+    // After `seed_genotype`, which is what draws this individual's bands.
+    let shoot_shade = banded_shade(world, organism_id, wood, Band::Bark, rng);
     world.set(
         x,
         y,
@@ -2833,8 +2903,12 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
         };
         if world.is_empty(nx, ny) || own_leaf {
             let cell = world.get(x, y);
-            let shades = world.materials.get(cell.material).palette.len().max(1) as u32;
-            let shade = rng.below(shades) as u8;
+            // **Banded here too, and this is the site that matters most for
+            // bark colour**: secondary thickening lays far more wood than
+            // extension does, so a trunk whose girth cells kept the old
+            // uniform draw would read as the old brown however the shoot
+            // was banded.
+            let shade = banded_shade(world, organism_id, cell.material, Band::Bark, rng);
             let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::MatureBody));
             world.set(nx, ny, new_cell);
             // Wood laid beside a trunk cell is that trunk, so it inherits
@@ -3318,14 +3392,32 @@ mod tests {
 
         // A trunk cell at the cap (the richest), a bud holding real
         // carbon, and enough sunlit foliage that the whole-plant gate
-        // supports one more tip than the zero that exist. `supportable`
-        // is ⌊intercepted / L_node · INCOME_PER_NODE / cost⌋ =
-        // ⌊intercepted / 50⌋ at tree.ron's numbers, so fifteen leaves
-        // under a noon sky (~4.0 each) clear it with margin.
+        // supports one more tip than the zero that exist.
+        //
+        // **The foliage count is derived from `leaf_cluster`, not written
+        // down.** `supportable` is
+        // ⌊intercepted / L_node · INCOME_PER_NODE / cost⌋ and
+        // `L_node = MAX_LIGHT × leaf_cluster`, so the gate is denominated
+        // in *nodes*: three fully-lit nodes give 3 × 0.08/0.2 = 1.2 and
+        // clear the one-tip bar with margin, whatever a node is made of.
+        //
+        // It used to say fifteen, which was three nodes at `leaf_cluster:
+        // 5` — and raising the cluster to 10 for foliage volume
+        // (`Reports/plant-appearance-design.md` §5a) made the same fifteen
+        // cells one and a half nodes, so the bud stopped flushing and this
+        // test failed on a change that had nothing to do with what it
+        // asserts. That is `CLAUDE.md`'s "when a fix changes what a number
+        // *means*, re-deriving the constants that read it is part of the
+        // fix": the honest repair is to state the scenario in the unit the
+        // gate actually uses, so the next cluster change cannot break it.
+        let leaf_cluster = match w.species.get(tree).behaviors(CellType::GrowingTip).iter().find(|b| matches!(b, Behavior::Grow { .. })) {
+            Some(Behavior::Grow { leaf_cluster, .. }) => *leaf_cluster as i32,
+            _ => panic!("tree's GrowingTip has a Grow behavior"),
+        };
         place(&mut w, (100, 20), wood, organism_id, CellType::MatureBody, (4.0, 0.0));
         place(&mut w, (101, 20), wood, organism_id, CellType::DormantBud, (3.0, 0.0));
-        for i in 0..15 {
-            place(&mut w, (90 + i, 18), wood, organism_id, CellType::Leaf, (0.0, 0.0));
+        for i in 0..(3 * leaf_cluster) {
+            place(&mut w, (60 + i, 18), wood, organism_id, CellType::Leaf, (0.0, 0.0));
         }
         for _ in 0..30 {
             field::step(&mut w); // converge the sky so the leaves read real light
@@ -3386,6 +3478,57 @@ mod tests {
 
         let lean = organism::wind_lean_dir(&windy, 150.0, 150.0);
         assert!(lean.0 > 0.0, "a rightward breeze should lean downwind (positive x), got {lean:?}");
+    }
+
+    /// Every foliage cell a species grows must land inside the palette band
+    /// range that species declared, and two species with disjoint ranges
+    /// must never share a colour.
+    ///
+    /// **Written to fail for the replacement artifact, not the original
+    /// one.** The failure this guards against is not "bands do nothing" —
+    /// the `plant_probe` counter catches that, and a picture cannot. It is
+    /// the subtler one: a *new cell-creation site* added later that draws
+    /// its shade the old way, `rng.below(palette.len())`, and so paints
+    /// some fraction of a plant in another species' colours. That is
+    /// invisible on a sheet (a few cells of the wrong green) and it is
+    /// exactly what happened to `thicken()` in the first draft of this
+    /// change, where secondary growth — the majority of all wood — kept
+    /// the uniform draw while the shoot was banded.
+    #[test]
+    fn every_cell_a_species_grows_lands_in_the_band_range_it_declared() {
+        for (species, cell_type) in [("tree", CellType::Leaf), ("conifer", CellType::Leaf)] {
+            let mut w = test_world();
+            let species_id = w.species.id_of(species).expect("species is compiled in");
+            let bands = w.species.get(species_id).foliage_bands;
+            assert!(bands.count > 0, "{species} is supposed to declare foliage bands");
+            for fx in 94..=106 {
+                w.set(fx, 61, Cell::new(material::STONE, 0));
+            }
+            w.plant_tree_species(100, 60, species);
+            run_with_fields(&mut w, 3000);
+
+            let mut seen = 0usize;
+            for y in 0..200 {
+                for x in 0..200 {
+                    let c = w.get(x, y);
+                    if c.organism_id() == 0 || organism::cell_type(c.aux()) != Some(cell_type) {
+                        continue;
+                    }
+                    let band = c.shade / organism::PALETTE_BAND;
+                    assert!(
+                        band >= bands.first && band < bands.first + bands.count,
+                        "{species} grew a {cell_type:?} at ({x}, {y}) in band {band}, outside its declared {}..{}",
+                        bands.first,
+                        bands.first + bands.count
+                    );
+                    seen += 1;
+                }
+            }
+            // A vacuous pass is the failure mode this project keeps
+            // rediscovering: the assertion above is trivially true if the
+            // plant grew no foliage at all.
+            assert!(seen > 0, "{species} grew no {cell_type:?} cells in 3000 frames -- the test proves nothing");
+        }
     }
 
     #[test]

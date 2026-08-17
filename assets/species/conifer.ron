@@ -13,6 +13,11 @@
 // zero is a mislabelled poplar.
 (
     name: "conifer",
+    // The blue-green end of the foliage axis on dark red-brown bark -- the
+    // fir/spruce reading, and disjoint from `tree`'s range so the two
+    // species never draw the same colour however the individuals fall.
+    foliage_bands: (first: 0, count: 2),
+    bark_bands: (first: 1, count: 2),
     cell_types: [
         (Seed, [
             Germinate(
@@ -52,8 +57,11 @@
                 turgor_taper: 0.25,
                 // A conifer leader barely wanders.
                 heading_inertia: 0.8,
-                // Needle sprays read smaller than broadleaf clusters.
-                leaf_cluster: 3,
+                // Needle sprays read smaller than broadleaf clusters -- the
+                // ratio against `tree`'s is what carries that, so both moved
+                // together when foliage volume was raised (see tree.ron's
+                // note on why this is now a pure appearance knob). 3 -> 6.
+                leaf_cluster: 6,
                 juvenile_size: 60,
                 juvenile_plastochron: 0.25,
                 juvenile_branch: 1.5,

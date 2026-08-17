@@ -69,6 +69,23 @@ fn main() {
         w.seed = seed;
     }
 
+    // **Echo what this run was actually given, first line of every log.**
+    //
+    // A three-and-a-half hour megastudy — 3 species x 8 world seeds x 16
+    // plants x 45,000 frames — produced eight *byte-identical* logs per
+    // species, because it ran a release binary built fourteen minutes
+    // before `worldseed=` was added to this file. An unknown argument is
+    // silently ignored, so the study looked exactly like a study: 24 runs,
+    // 24 logs, sensible numbers, and 3 distinct populations in place of 24.
+    //
+    // `CLAUDE.md` already carries the asset-side form of this ("editing a
+    // `.ron` does nothing until the next build; identical output across
+    // settings is the tell"). This is the same rule one level up — the
+    // *harness* is as stale-able as the assets it reads — and the cheap
+    // defence is not discipline, it is this line: a log that does not name
+    // its own seed was written by a binary that never had one.
+    println!("plant_probe: species={} trees={trees} frames={frames} worldseed={} width={width}", scene.species, w.seed);
+
     let mut awake_frames = 0u64;
     for _ in 0..frames {
         parallel::step(&mut w);
@@ -234,6 +251,84 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         println!("  per-tree heights   {heights:?}");
         println!("  per-tree thickness {thicks:?}");
 
+        // **Shape, not size — and until now this harness measured only
+        // size.** Every figure above is a magnitude: cells, height,
+        // thickness, leaves. Three species that differ *only* in scale
+        // score as three clearly different species on all of them, which
+        // is precisely why the numbers could neither confirm nor refute
+        // the owner's reading that "the shrub is a small version of the
+        // same tree". A study cannot answer a question it does not
+        // measure, and the genetic-variability megastudy was built
+        // without these.
+        //
+        // Two descriptors, both **scale-free by construction** — ratios
+        // taken within one individual, so neither can be satisfied by
+        // growing the plant bigger:
+        //
+        //  - **crown profile**: foliage width in five height bands, top
+        //    band first, each as a percentage of that plant's widest band.
+        //    A fir is wide at the bottom (descending), a bare-boled
+        //    broadleaf is top-heavy (ascending), a shrub is flat.
+        //  - **foliage centre**: mean leaf height as a fraction of the
+        //    plant's own vertical span, 0 at the collar and 1 at the apex.
+        //    A bole-then-crown tree sits high; a mound sits mid.
+        //  - **foliage share**: leaves as a percentage of the plant's
+        //    cells. Not a shape number, but the one that governs whether
+        //    the silhouette is set by foliage or by twig, and it was
+        //    measured at 3-6% across all three species.
+        const BANDS: usize = 5;
+        let mut profile: std::collections::BTreeMap<u16, [(i32, i32, usize); BANDS]> = std::collections::BTreeMap::new();
+        let mut leaf_centre: std::collections::BTreeMap<u16, (i64, usize)> = std::collections::BTreeMap::new();
+        for y in 0..height {
+            for x in 0..width {
+                let c = w.get(x, y);
+                let id = c.organism_id();
+                if id == 0 || organism::cell_type(c.aux()) != Some(organism::CellType::Leaf) {
+                    continue;
+                }
+                let Some(&(_, _, min_y, max_y)) = per_organism.get(&id) else { continue };
+                let span = (max_y - min_y + 1).max(1);
+                // y grows downward, so band 0 is the top of the plant.
+                let band = (((y - min_y) * BANDS as i32) / span).clamp(0, BANDS as i32 - 1) as usize;
+                let slot = profile.entry(id).or_insert([(i32::MAX, i32::MIN, 0); BANDS]);
+                slot[band].0 = slot[band].0.min(x);
+                slot[band].1 = slot[band].1.max(x);
+                slot[band].2 += 1;
+                let centre = leaf_centre.entry(id).or_insert((0, 0));
+                centre.0 += (max_y - y) as i64;
+                centre.1 += 1;
+            }
+        }
+        // Median across the ensemble of each plant's own normalised
+        // profile — a mean would let one huge individual write the shape.
+        let mut per_band: [Vec<usize>; BANDS] = Default::default();
+        for slot in profile.values() {
+            let widest = slot.iter().map(|&(lo, hi, _)| if hi >= lo { (hi - lo + 1) as usize } else { 0 }).max().unwrap_or(0).max(1);
+            for (b, &(lo, hi, _)) in slot.iter().enumerate() {
+                let wide = if hi >= lo { (hi - lo + 1) as usize } else { 0 };
+                per_band[b].push(100 * wide / widest);
+            }
+        }
+        let med = |v: &mut Vec<usize>| {
+            v.sort_unstable();
+            if v.is_empty() { 0 } else { v[v.len() / 2] }
+        };
+        let shape: Vec<usize> = per_band.iter_mut().map(med).collect();
+        println!("  crown profile (top->bottom, % of each plant's widest band, median): {shape:?}");
+        let mut centres: Vec<usize> = per_organism
+            .keys()
+            .map(|k| {
+                let Some(&(sum, n)) = leaf_centre.get(k) else { return 0 };
+                let Some(&(_, _, min_y, max_y)) = per_organism.get(k) else { return 0 };
+                let span = (max_y - min_y + 1).max(1) as i64;
+                if n == 0 { 0 } else { (100 * sum / (n as i64 * span)) as usize }
+            })
+            .collect();
+        let foliage_share: Vec<usize> = per_organism.values().map(|v| 100 * v.1 / v.0.max(1)).collect();
+        let mut share = foliage_share.clone();
+        println!("  foliage centre (0 = collar, 100 = apex, median): {}", med(&mut centres));
+        println!("  foliage share  (% of cells that are leaf, median): {}", med(&mut share));
+
         // **One run is a population now, and that is worth more than a
         // parameter sweep.** `genotype_variance` gives every individual its
         // own draw on four traits, so a stand of N trees is N genomes
@@ -305,6 +400,37 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
     }
     for (ty, n) in &counts {
         println!("  {ty:<20} {n:>5}");
+    }
+
+    // **The palette-band counter, and it exists because a picture cannot
+    // answer "did this fire".** A banded stand and an unbanded one differ
+    // by a few colour bytes per cell; at the zoom a contact sheet is read
+    // at they are indistinguishable, which is the exact failure mode that
+    // once had a collapse read as "chunks are working" while the body
+    // count was zero for the whole run. If a species declares
+    // `foliage_bands: (first: 4, count: 2)` and this prints one band, the
+    // draw is not reaching the cells.
+    let mut band_counts: std::collections::BTreeMap<(String, u8), usize> = std::collections::BTreeMap::new();
+    for y in 0..height {
+        for x in 0..width {
+            let c = w.get(x, y);
+            if c.organism_id() == 0 {
+                continue;
+            }
+            let mat = w.materials.get(c.material);
+            // **The band a cell actually renders as**, which is not
+            // `shade / PALETTE_BAND`: `render.rs` wraps the shade modulo the
+            // palette length, so on a four-entry palette (`rootwood`) band 1
+            // draws exactly band 0's colours. Reporting the unwrapped index
+            // would show `rootwood` split across two bands it does not have
+            // and read as a bug in a mechanism that is behaving correctly.
+            let effective = (c.shade as usize % mat.palette.len().max(1)) as u8 / organism::PALETTE_BAND;
+            *band_counts.entry((mat.name.clone(), effective)).or_insert(0) += 1;
+        }
+    }
+    println!("  palette bands in use (material, band -> cells):");
+    for ((name, band), n) in &band_counts {
+        println!("    {name:<10} band {band:>2}  {n:>6}");
     }
     if let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) = (
         cells.iter().map(|c| c.0).min(),

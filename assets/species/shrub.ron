@@ -18,6 +18,12 @@
 // read as a stunted tree instead of a thicket.
 (
     name: "shrub",
+    // Olive foliage on grey-brown stems -- the scrubby end of both axes,
+    // and disjoint from both `tree` and `conifer`. A hedge of these should
+    // read as a different plant at a glance and not as a short tree, which
+    // is the whole complaint this range exists to answer.
+    foliage_bands: (first: 4, count: 2),
+    bark_bands: (first: 2, count: 2),
     cell_types: [
         (Seed, [
             Germinate(
@@ -43,7 +49,9 @@
                 turgor_per_cell: 0.0075,
                 turgor_taper: 0.35,
                 heading_inertia: 0.7,
-                leaf_cluster: 4,
+                // 4 -> 8, with tree.ron and conifer.ron -- see tree.ron's
+                // note on why cluster size is now economically neutral.
+                leaf_cluster: 8,
                 juvenile_size: 30,
                 juvenile_plastochron: 0.4,
                 juvenile_branch: 1.3,

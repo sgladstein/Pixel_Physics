@@ -42,6 +42,13 @@
 // terrain rather than "how close to y=20 is the floor."
 (
     name: "tree",
+    // Mid green through yellow-green, on mid-to-red brown. Band 2 is the
+    // original leaf palette and band 0 the original wood one, so an
+    // individual drawing the low end of both ranges is exactly the tree
+    // this file grew before bands existed -- the change adds neighbours,
+    // it does not move the species.
+    foliage_bands: (first: 2, count: 2),
+    bark_bands: (first: 0, count: 2),
     cell_types: [
         (Seed, [
             Germinate(
@@ -165,7 +172,25 @@
                 // A 2D cross-section shows every twig, so one leaf cell per
                 // node renders as a bare skeleton with green specks. See
                 // Behavior::Grow::leaf_cluster.
-                leaf_cluster: 5,
+                // **Raised 5 -> 10, and it is a pure appearance knob now.**
+                // Foliage measured 5% of a plant's cells across all three
+                // species, so the silhouette was set by brown twig and no
+                // architectural lever could reach it (Reports/plant-
+                // appearance-design.md §2.1).
+                //
+                // Raising this used to be unaffordable: it quintupled income
+                // and fused the stand. The node currency ended that -- income
+                // (`intercepted / l_node`), the bud-break gate and the pipe
+                // ratio (`q_peak / l_node`) are *all* normalised by
+                // `leaf_cluster`, so a bigger cluster is more leaf cells at
+                // the same economy. That normalisation was done to end the
+                // constant treadmill; this is a dividend of it.
+                //
+                // Not free, and the two costs are real: every leaf cell
+                // deposits canopy density, so crowding rises, and a denser
+                // crown shades its own interior harder. Both are measured
+                // paired against 5 rather than argued.
+                leaf_cluster: 10,
                 juvenile_size: 60,
                 juvenile_plastochron: 0.25,
                 juvenile_branch: 1.5,
