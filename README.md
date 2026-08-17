@@ -31,7 +31,7 @@ cargo test
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `J` | Plant a worm under the brush (M18 debug tool; was `W` before the gnome claimed WASD) |
 | `U` | Summon the gnome at the cursor, or dismiss him (M9). Arrives in `Tool::Dig`, where left-click cuts the near rock face along the aim (the yellow ring shows where the bite lands and how big it is) and right-click still erases; `Z` cycles back to the brush. `A`/`D` run, `W` jump (tap for a hop, hold for full height). He wades knee-deep in powder — slowed in proportion to how deep — swims in liquid (`W` strokes up, `S` down, and breaking the surface leaves a window to jump out), and rides a falling chunk body rather than being left behind by it |
-| `L` `Y` `F2` | Cycle the gnome's **jump feel**, **water feel** and **spoil mode** — named runtime selectors for the three things only play can settle. The active one is shown in the title bar once it differs from the default. Every underlying number is also sweepable under `O` -> PLAYER |
+| `F2` `F3` `F4` | Cycle the gnome's **jump feel**, **water feel** and **spoil mode** — named runtime selectors for the three things only play can settle. The active one is shown in the title bar once it differs from the default. Every underlying number is also sweepable under `O` -> PLAYER |
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
 | `N` | Toggle the structural stress view — every load-bearing cell tinted green at rest through red at its limit |
 | `H` | Dig — a precise cut that loosens and cracks the rock around it, unlike the eraser (was `D`, which now runs the gnome right) |

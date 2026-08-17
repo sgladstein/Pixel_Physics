@@ -20,7 +20,7 @@ use super::creature::CreatureState;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::liquid::{self, LiquidBody};
 use super::material::{self, MaterialId, MaterialKind, MaterialRegistry};
-use super::organism::{OrganismState, SpeciesId, SpeciesRegistry};
+use super::organism::{self, OrganismState, SpeciesId, SpeciesRegistry};
 use super::rng::Rng;
 use super::scheduler::{self, ActiveSite};
 use super::surface::CellSurface;
@@ -234,7 +234,31 @@ pub struct World {
     /// `structural::tick` the instant a break mutates the grid, since both
     /// invalidate the support forest it summarises.
     pub load_cache: crate::sim::load::Cache,
+    /// **This world's identity**, mixed into anything that should differ
+    /// between worlds but be stable within one.
+    ///
+    /// Set by `worldgen::generate` from the spec's own seed; left at
+    /// `DEFAULT_WORLD_SEED` for a hand-built world (every test, every
+    /// harness scene), which is what keeps those reproducible without any
+    /// of them having to think about it.
+    ///
+    /// Its first consumer is `plant::seed_genotype`. An individual plant's
+    /// genotype is drawn from *this* plus the coordinate it germinated at,
+    /// rather than from its `organism_id` — ids are assigned in planting
+    /// order, so an id-keyed genotype makes a tree's character a property
+    /// of the world's event history: plant one extra sapling anywhere
+    /// earlier and every later plant in the world redraws. Position keying
+    /// is stable under that, stable under save/load by construction (a save
+    /// that restores the grid restores the genotypes), and still gives
+    /// "same world, same trees", which `PLAN.md`'s determinism requirement
+    /// wants.
+    pub seed: u64,
 }
+
+/// The seed a world has when nothing has given it one. Arbitrary, fixed,
+/// and deliberately not zero — a zero seed mixed into a hash tends to make
+/// the first few draws correlate with the position alone.
+pub const DEFAULT_WORLD_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 
 /// How many structural failures of each kind have fired, and how much
 /// material each took. See `World::structural_failures`.
@@ -315,6 +339,7 @@ impl World {
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
+            seed: DEFAULT_WORLD_SEED,
         };
         world.ensure_chunks_for(bounds);
         world
@@ -348,6 +373,23 @@ impl World {
     /// parallel-sweep machinery.
     pub fn step_active_sites(&mut self) {
         scheduler::step(self);
+        // Mature organism cells are no longer on that schedule at all --
+        // their upkeep runs here, once per organism. See
+        // `plant::step_organisms`.
+        super::plant::step_organisms(self);
+    }
+
+    /// Every live organism's encoded id.
+    ///
+    /// Collected rather than iterated in place because the caller needs
+    /// `&mut World` to run each organism's pass.
+    pub(crate) fn live_organism_ids(&self) -> Vec<u16> {
+        self.organisms
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.state.is_some())
+            .map(|(i, slot)| encode_organism_id((i + 1) as u16, slot.generation))
+            .collect()
     }
 
     /// Advance every promoted liquid body by one frame — its own serial
@@ -481,7 +523,7 @@ impl World {
             .filter(|Reverse(site)| match site.kind {
                 scheduler::ActiveKind::Organism { organism, .. } if organism == organism_id => {
                     let cell = self.get(site.x, site.y);
-                    cell.organism_id() == organism_id && super::organism::unpack_aux(cell.aux()).0 == Some(cell_type)
+                    cell.organism_id() == organism_id && super::organism::cell_type(cell.aux()) == Some(cell_type)
                 }
                 _ => false,
             })
@@ -559,7 +601,16 @@ impl World {
     /// moment a future caller needs it. Returns the encoded `organism_id`
     /// to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
-        let state = OrganismState { species };
+        let state = OrganismState {
+            species,
+            cells: std::collections::HashMap::new(),
+            root_cells: 0,
+            shoot_cells: 0,
+            collar_y: None,
+            // The species mean until something germinates and draws — see
+            // `OrganismState::genotype_draws`.
+            genotype_draws: [0.0; organism::GENOTYPE_TRAITS],
+        };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];
             // Wraps at 16 generations (4 bits) rather than growing further
@@ -593,10 +644,28 @@ impl World {
         slot.state.as_ref()
     }
 
-    // `organism_mut` (mutate an organism's own state in place) and
+    /// Mutable counterpart to `organism`, same generational check.
+    ///
+    /// Added for `set`'s cell-list bookkeeping (`Reports/plant-substrate-v2-
+    /// design.md` Decision 2, step 1). The generation test is what makes a
+    /// stale `organism_id` still held by some cell resolve to `None` rather
+    /// than silently editing an unrelated organism that has since been
+    /// allocated the same slot.
+    pub(crate) fn organism_mut(&mut self, organism_id: u16) -> Option<&mut OrganismState> {
+        let (slot_index, generation) = decode_organism_id(organism_id);
+        if slot_index == 0 {
+            return None;
+        }
+        let slot = self.organisms.get_mut((slot_index - 1) as usize)?;
+        if slot.generation != generation {
+            return None;
+        }
+        slot.state.as_mut()
+    }
+
     // `free_organism` (return a slot to `free_organism_slots`, the other
-    // half of issue #8's actual fix) are not here yet, deliberately: no
-    // species retrofitted so far needs either. Moss's `Divide` never
+    // half of issue #8's actual fix) is not here yet, deliberately: no
+    // species retrofitted so far needs it. Moss's `Divide` never
     // touches `OrganismState` after creation (its resource scalar lives
     // entirely in `Cell::aux`, not here), and detecting "this organism has
     // no cells left" cheaply needs a real anchor/tip list to search from
@@ -954,6 +1023,35 @@ impl World {
         self.fields_settled
     }
 
+    /// Set the moisture floor covering the field block containing `(x, y)`.
+    ///
+    /// For `worldgen` only: this is how the saturated zone below the water
+    /// table is laid down. Saturated *ground* cannot be liquid cells — a cell
+    /// holds one material and there is no porosity — so the aquifer is a
+    /// property of the field rather than of the grid, and this is the seam
+    /// that writes it. See `field::FieldTile::moisture_floor`.
+    ///
+    /// Silently skips positions whose chunk is not resident, exactly as CA
+    /// writes outside a loaded chunk are not materialised.
+    pub(crate) fn set_field_moisture_floor(&mut self, x: i32, y: i32, floor: f32) {
+        let (fx, fy) = field::field_coord_of(x, y);
+        let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+        if let Some(tile) = self.fields.get_mut(&tile_coord) {
+            tile.set_moisture_floor_local(lx, ly, floor);
+            // A write from outside the solve, so the solve has to run at
+            // least once more even if it had converged -- the same reason
+            // `paint_field` clears this.
+            self.fields_settled = false;
+        }
+    }
+
+    /// The moisture floor at a world position, for tests and the inspector.
+    pub fn field_moisture_floor(&self, x: i32, y: i32) -> f32 {
+        let (fx, fy) = field::field_coord_of(x, y);
+        let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+        self.fields.get(&tile_coord).map_or(0.0, |t| t.moisture_floor_local(lx, ly))
+    }
+
     pub(crate) fn set_fields_settled(&mut self, settled: bool) {
         self.fields_settled = settled;
     }
@@ -1079,6 +1177,122 @@ impl World {
         if old.managed() {
             self.demote_body_at(x, y);
         }
+        // Organism cell bookkeeping, at the same seam and for the same
+        // reason `managed()` above is checked here rather than at every
+        // caller: `Reports/plant-substrate-v2-design.md`'s Decision 2 lists
+        // a dozen creation and removal sites to hook (germinate, both of
+        // Grow's children, the leaf spawn, Divide's child, thicken's write,
+        // both planters, structural::break_free, fire's burnout, brush
+        // erase), and warns that step 2a "is where the real bugs are".
+        //
+        // It does not need to be a list. Every one of those paths writes
+        // through here, so hooking the write itself is complete by
+        // construction -- which is this function's own recorded lesson,
+        // stated a few lines above: "an enumeration that has to stay
+        // complete is the failure mode this project keeps rediscovering."
+        //
+        // Guarded so the overwhelmingly common case -- neither cell belongs
+        // to an organism -- costs one branch on a value already in hand.
+        // This is the hottest function in the engine and the reason the
+        // `managed()` check above reuses `write_cell`'s returned old value
+        // rather than reading the cell a second time.
+        //
+        // The entry carries the cell's scalars (`OrganismCell`), so the
+        // `was == now` fast path is doing real work beyond saving a lookup:
+        // it is what makes an ordinary in-place rewrite -- a tip retiring
+        // to `MatureBody`, `Photosynthesize` restamping the same cell --
+        // *keep* its carbon instead of resetting it. A cell only gets a
+        // fresh, zeroed `OrganismCell` when it genuinely changes hands,
+        // which is what `a freshly divided cell should start at 0 resource,
+        // not inherit any` asserts.
+        self.reindex_organism_cell(x, y, old.organism_id(), cell.organism_id());
+    }
+
+    /// Move `(x, y)` from organism `was`'s cell list to organism `now`'s.
+    ///
+    /// Factored out of `set` because **`set` is not the only write seam.**
+    /// `parallel::ChunkView::set` writes a same-chunk cell straight into its
+    /// own `Chunk`, deliberately never touching `World::set` (see that
+    /// function for why), so it queues the membership change and replays it
+    /// through here after the pass — exactly the shape its `demotions`
+    /// queue already uses for the same reason.
+    ///
+    /// **This gap was real and it was silent.** Decision 2 step 2a hooked
+    /// `World::set` and recorded that doing so was "complete by
+    /// construction", which is true of every *caller* but not of the
+    /// parallel sweep, which does not call it. A falling seed moving inside
+    /// one chunk therefore vanished from its own organism's cell list while
+    /// staying in the grid. It went unnoticed because the list was
+    /// deliberately behaviour-free at the time, and because the test
+    /// guarding it runs `update::step` — the *serial* driver — so it could
+    /// not observe `ChunkView` at all. `CLAUDE.md` says to test both
+    /// drivers; this is what it costs not to.
+    ///
+    /// **A cell that moves gets a fresh, zeroed `OrganismCell`, and that is
+    /// a real limitation rather than an oversight.** This seam sees a
+    /// remove at one position and an insert at another; nothing tells it
+    /// the two are the same cell relocating, so the scalars cannot ride
+    /// along the way they used to when they lived in `Cell::aux` and
+    /// travelled with the cell. It is correct today because a `Seed` is the
+    /// only organism cell that moves (`relocated_seed`'s own doc: "every
+    /// other organism cell is immovable") and a seed carries no carbon —
+    /// `Germinate` has no resource gate. **The moment a carbon-carrying
+    /// cell can move, this needs a move-aware seam**, not a second
+    /// remove/insert pair.
+    pub(crate) fn reindex_organism_cell(&mut self, x: i32, y: i32, was: u16, now: u16) {
+        if was == now {
+            return;
+        }
+        if was != 0 {
+            if let Some(state) = self.organism_mut(was) {
+                state.cells.remove(&(x, y));
+            }
+        }
+        if now != 0 {
+            if let Some(state) = self.organism_mut(now) {
+                state.cells.insert((x, y), organism::OrganismCell::default());
+            }
+        }
+    }
+
+    /// The sidecar scalars for the organism-owned cell at `(x, y)`, or
+    /// `None` if nothing there belongs to an organism.
+    ///
+    /// The read half of `Reports/plant-substrate-v2-design.md` Decision 2:
+    /// callers that used to `unpack_aux(cell.aux()).1` come through here
+    /// instead. Two lookups (organism slot, then position) where the old
+    /// form was a shift and a mask -- which is why `transport` resolves its
+    /// topology once per tick rather than calling this in its inner loop.
+    pub fn organism_cell(&self, x: i32, y: i32) -> Option<&organism::OrganismCell> {
+        let id = self.get(x, y).organism_id();
+        self.organism(id)?.cells.get(&(x, y))
+    }
+
+    /// Mutable counterpart to `organism_cell`.
+    ///
+    /// Returns `None` rather than inserting when the cell is not registered:
+    /// registration is `set`'s job and happens at the write that creates the
+    /// cell, so a `None` here means the caller is writing a scalar to a cell
+    /// that does not exist yet -- which was a silent no-op under the packed
+    /// layout and should stay one rather than manufacturing an entry the
+    /// grid scan would then flag as a phantom.
+    pub fn organism_cell_mut(&mut self, x: i32, y: i32) -> Option<&mut organism::OrganismCell> {
+        let id = self.get(x, y).organism_id();
+        self.organism_mut(id)?.cells.get_mut(&(x, y))
+    }
+
+    /// Carbon at `(x, y)`, or `0.0` where there is no organism cell —
+    /// the reading callers of the old packed field expect, since an
+    /// unregistered or inert cell held a zeroed scalar field.
+    pub fn carbon_at(&self, x: i32, y: i32) -> f32 {
+        self.organism_cell(x, y).map_or(0.0, |c| c.carbon)
+    }
+
+    /// Canopy density at `(x, y)`, or `0.0` where there is no organism
+    /// cell — "nothing has grown near here yet", which is the correct
+    /// reading and not a sentinel to special-case.
+    pub fn canopy_density_at(&self, x: i32, y: i32) -> f32 {
+        self.organism_cell(x, y).map_or(0.0, |c| c.canopy_density)
     }
 
     /// The body's own sanctioned rasterizer write — bypasses `set`'s

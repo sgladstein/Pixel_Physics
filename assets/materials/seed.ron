@@ -1,0 +1,36 @@
+// An ungerminated seed, and a `Powder` on purpose: seeds fall.
+//
+// Previously a seed was `wood` (Plant kind), which never moves, so one
+// placed in mid-air hung there and germinated into a tree growing out of
+// nothing. Reported from live play as "seeds stay where placed and do not
+// drop... hard to place on the soil surface and unrealistic".
+//
+// Being a Powder means it falls, rolls down slopes, piles in hollows and
+// comes to rest on the surface -- all of it from the CA rules that already
+// exist, with no seed-specific movement code anywhere. It also means seeds
+// scattered over uneven ground collect where real seeds collect.
+//
+// `Germinate` converts the landed cell to `wood` (plant.rs's `germinate`),
+// so this material only ever exists before germination.
+(
+    name: "seed",
+    display: "Seed",
+    kind: Powder,
+    // Light: a seed sinks through water rather than floating, but only just.
+    density: 0.6,
+    // Steep, so seeds sit where they land instead of running like sand to
+    // the bottom of every slope. Real seeds are irregular and interlock.
+    friction_angle: 55.0,
+    colors: [
+        (126, 96, 52),
+        (142, 110, 62),
+        (110, 84, 44),
+        (156, 122, 70),
+    ],
+    // Burns easily and briefly, like the dry husk it is.
+    flammability: 0.5,
+    burn_temperature: 500.0,
+    burn_duration: 30,
+    burns_into: "ash",
+    heat_conductivity: 0.15,
+)

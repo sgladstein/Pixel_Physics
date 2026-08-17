@@ -51,11 +51,14 @@ fn variant_ron(v: &Variant) -> String {
                 upward_weight: 0.1,
                 crowding_weight: 0.5,
                 max_active_tips: 14,
+                plastochron: 3,
+                penetration_force: 0.0,
             ),
             Photosynthesize(rate: {rate}),
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
+            Transpire(rate: 1.0),
             Grow(
                 cost: 0.25,
                 branch_chance: 0.04,
@@ -65,9 +68,12 @@ fn variant_ron(v: &Variant) -> String {
                 upward_weight: 0.6,
                 crowding_weight: 0.0,
                 max_active_tips: 10,
+                plastochron: 0,
+                penetration_force: 1.2,
             ),
         ]),
         (MatureBody, [
+            Transpire(rate: 1.0),
             SecondaryThicken(pipe_ratio: 2.5),
             StructuralAnchor,
         ]),
@@ -111,62 +117,167 @@ fn save_png(app: &mut App, path: &str) {
     image::save_buffer(&cropped_path, &cropped, cw * ZOOM, ch * ZOOM, image::ColorType::Rgba8).unwrap();
 }
 
+/// Per-variant outcome distribution across the ensemble.
+fn summarize(name: &str, mut counts: Vec<usize>) -> (usize, usize, usize, f64) {
+    counts.sort_unstable();
+    let n = counts.len();
+    let median = counts[n / 2];
+    let mean = counts.iter().sum::<usize>() as f64 / n as f64;
+    let _ = name;
+    (counts[0], median, counts[n - 1], mean)
+}
+
 fn main() {
-    let mut app = App::new();
+    let arg = |k: &str, d: usize| -> usize {
+        std::env::args().find_map(|a| a.strip_prefix(k).map(|v| v.parse().expect(k))).unwrap_or(d)
+    };
+    // **`n=` replicates per variant, and this is the whole point of the
+    // rewrite.** This harness compared six variants at *one tree each* and
+    // was the authority the entire resource economy was to be tuned with.
+    // Tree-to-tree spread from a single genome measures 39 to 1390 cells in
+    // `plant_probe -- trees=24`; swapping which numbers a tree draws (not
+    // how many, not their distribution) once moved the standard scene from
+    // 69 cells to 19. A single run per variant is therefore a sample from a
+    // very wide, very skewed distribution, and any ranking read off it is
+    // mostly noise.
+    let replicates = arg("n=", 8);
+    // Growth converges long before the old 20,000. Measured on the shipped
+    // variants: every count is *identical* at 4,000, 10,000 and 20,000
+    // ticks, so two thirds of the old runtime bought nothing. 8,000 keeps
+    // headroom over the 4,000 where it actually settled, and still spans
+    // more than two of `field.rs`'s `DAY_NIGHT_PERIOD_FRAMES` (3,600), so a
+    // variant that only works at high noon is still caught.
+    let frames = arg("frames=", 8000);
+
     let dir = "docs/screenshots/tree-rewrite-live-verification";
     std::fs::create_dir_all(dir).ok();
 
-    // Write each variant's species file into a scratch directory, then
-    // load them all at once -- `reload` is additive (upsert by name), so
-    // this doesn't disturb the real `assets/species/tree.ron`.
     let variants_dir = std::env::temp_dir().join("pixel_physics_tree_variants");
     std::fs::create_dir_all(&variants_dir).unwrap();
     for v in VARIANTS {
         std::fs::write(variants_dir.join(format!("{}.ron", v.name)), variant_ron(v)).unwrap();
     }
-    let loaded = app.world.species.reload(&variants_dir).expect("variant species should parse");
-    println!("loaded {loaded} variant species from {variants_dir:?}");
 
-    // A floor near the top of the world, well within light's real reach
-    // (see debug_tree_v2.rs's own note on why not y=259, or y<20).
     use pixel_physics::sim::cell::Cell;
     use pixel_physics::sim::material;
     let floor_y = 20;
     let seed_y = floor_y - 1;
-    for x in 40..470 {
-        app.world.set(x, floor_y, Cell::new(material::STONE, 0));
-    }
-
-    // One tree per variant, spaced 60 cells apart so no two variants'
-    // crowding/self-avoidance can ever interact (crowding only counts
-    // same-organism_id neighbours anyway, but the spacing also keeps them
-    // visually distinguishable in the screenshot).
     let start_x = 60;
     let spacing = 60;
-    for (i, v) in VARIANTS.iter().enumerate() {
-        let x = start_x + (i as i32) * spacing;
-        let planted = app.world.plant_tree_species(x, seed_y, v.name);
-        println!("planted {} at x={x}: {planted}", v.name);
-    }
 
-    let wood = app.world.materials.id_of("wood").unwrap();
-    let checkpoints = [1000, 4000, 10000, 20000];
-    let mut ticked = 0u32;
-    for &n in &checkpoints {
-        for _ in 0..(n - ticked) {
+    println!("{replicates} replicates x {} variants, {frames} frames each", VARIANTS.len());
+
+    let mut results: Vec<Vec<usize>> = vec![Vec::new(); VARIANTS.len()];
+    for rep in 0..replicates {
+        let mut app = App::new();
+        app.world.species.reload(&variants_dir).expect("variant species should parse");
+        for x in 40..470 {
+            app.world.set(x, floor_y, Cell::new(material::STONE, 0));
+        }
+
+        // **Replicates are different planting positions, not repeated runs
+        // of the same one.** `rng::stream` seeds from (organism, x, y,
+        // frame), so re-running an identical scene draws identical numbers
+        // and would produce the same tree every time -- a "replicate" that
+        // measures nothing. Shifting x by a prime-ish stride per replicate
+        // changes which numbers each tree draws while leaving the scene,
+        // the spacing and the lighting identical.
+        let offset = (rep as i32) * 7;
+        for (i, v) in VARIANTS.iter().enumerate() {
+            let x = start_x + offset + (i as i32) * spacing;
+            app.world.plant_tree_species(x, seed_y, v.name);
+        }
+
+        for _ in 0..frames {
             app.update();
         }
-        ticked = n;
-        save_png(&mut app, &format!("{dir}/variants-after-{n}-ticks.png"));
-        print!("after {n} ticks:");
-        for (i, v) in VARIANTS.iter().enumerate() {
-            let x = start_x + (i as i32) * spacing;
-            let count = (x - 30..x + 30).flat_map(|cx| (0..floor_y + 2).map(move |cy| (cx, cy))).filter(|&(cx, cy)| app.world.get(cx, cy).material == wood).count();
-            print!("  {}={count}", v.name);
+
+        let wood = app.world.materials.id_of("wood").unwrap();
+        for (i, _v) in VARIANTS.iter().enumerate() {
+            let x = start_x + offset + (i as i32) * spacing;
+            let count = (x - 30..x + 30)
+                .flat_map(|cx| (0..floor_y + 2).map(move |cy| (cx, cy)))
+                .filter(|&(cx, cy)| app.world.get(cx, cy).material == wood)
+                .count();
+            results[i].push(count);
         }
-        println!();
+        // One sheet, from the first replicate, so there is still something
+        // to look at -- the numbers below are the authority, but a ranking
+        // nobody has looked at is how this project keeps going wrong.
+        if rep == 0 {
+            save_png(&mut app, &format!("{dir}/variants-ensemble-rep0.png"));
+        }
+        println!("  replicate {rep} done");
     }
 
-    println!("saved to {dir}");
-    println!("ok");
+    // **The outcome is bimodal, and that matters more than any ranking.**
+    // Across every variant the values cluster either at 13-21 cells -- a
+    // seedling that germinated and then stopped -- or at 100-500. There is
+    // almost nothing in between, so a *mean* describes a population that
+    // does not exist, and the tunable quantity is not "how big" but "how
+    // often does one establish at all".
+    //
+    // This is exactly the failure `plant-substrate-v2-design.md` §7e names
+    // in advance: a seedling that never establishes a strand stalls before
+    // its first leaf, and the knobs are the canalization contrast and
+    // `CARBON_SUBSTEPS` -- *not* the seed reserve. Check transport before
+    // re-deriving §5c.
+    const ESTABLISHED: usize = 30;
+
+    println!("
+wood cells per variant, {replicates} replicates:");
+    println!("  {:<24} {:>5} {:>7} {:>5} {:>7}   values", "variant", "min", "median", "max", "mean");
+    let mut summaries = Vec::new();
+    for (i, v) in VARIANTS.iter().enumerate() {
+        let (lo, med, hi, mean) = summarize(v.name, results[i].clone());
+        summaries.push((v.name, med, lo, hi));
+        println!("  {:<24} {lo:>5} {med:>7} {hi:>5} {mean:>7.1}   {:?}", v.name, results[i]);
+    }
+
+    // **Whether any of this separates.** The failure this harness caused
+    // before was reading a ranking off six single runs; the guard is to
+    // say, out loud, when the spread swamps the difference. A variant only
+    // counts as ahead if its median clears the *next* variant's whole
+    // observed range.
+    summaries.sort_by_key(|&(_, med, _, _)| std::cmp::Reverse(med));
+    println!("
+ranking by median:");
+    for (name, med, lo, hi) in &summaries {
+        println!("  {name:<24} median {med:>4}  (range {lo}..{hi})");
+    }
+    println!("
+establishment rate (>{ESTABLISHED} cells = grew rather than stalled):");
+    let mut best_rate = (0.0f64, "");
+    for (i, v) in VARIANTS.iter().enumerate() {
+        let grew = results[i].iter().filter(|c| **c > ESTABLISHED).count();
+        let rate = 100.0 * grew as f64 / replicates as f64;
+        if rate > best_rate.0 {
+            best_rate = (rate, v.name);
+        }
+        let median_of_grown = {
+            let mut g: Vec<usize> = results[i].iter().copied().filter(|c| *c > ESTABLISHED).collect();
+            g.sort_unstable();
+            if g.is_empty() {
+                0
+            } else {
+                g[g.len() / 2]
+            }
+        };
+        println!("  {:<24} {grew}/{replicates} established ({rate:>3.0}%), median when it does: {median_of_grown}", v.name);
+    }
+    println!("  best: {} at {:.0}%", best_rate.1, best_rate.0);
+
+    let (best, best_med, _, _) = summaries[0];
+    let (runner, _, _, runner_hi) = summaries[1];
+    if best_med > runner_hi {
+        println!("
+{best} leads: its median ({best_med}) clears {runner}'s entire range (..{runner_hi}).");
+    } else {
+        println!(
+            "
+**Nothing separates.** {best}'s median ({best_med}) sits inside {runner}'s observed              range (..{runner_hi}), so this ensemble cannot rank them. Raise n= before drawing a              conclusion -- do not read the ordering above as a result."
+        );
+    }
+    println!("
+sheet: {dir}/variants-ensemble-rep0.png");
 }

@@ -35,6 +35,37 @@ pub const BEDROCK: MaterialId = MaterialId(1);
 /// instead — so `aux == 0` on a `Liquid` cell is unambiguous: it always
 /// means "untouched since creation," never "empty."
 pub const LIQUID_FULL: u16 = 1000;
+/// A `Powder` cell's held water, fixed-point on this scale in its `aux`.
+///
+/// **The convention is inverted relative to `LIQUID_FULL` above, and that
+/// is the single easiest thing here to get backwards.** For a `Liquid`,
+/// `aux == 0` means *full* (see that constant's own doc for why). For a
+/// `Powder`, **`aux == 0` means dry** — which is what worldgen, the brush
+/// and every existing test already produce for free, so soil starts dry
+/// rather than every soil-creating call site having to say so.
+///
+/// `Reports/plant-substrate-v2-design.md` §4a calls this out specifically
+/// as the bug to avoid, since `LIQUID_FULL`'s own doc exists because the
+/// same confusion already bit once on the liquid side.
+pub const SOIL_SATURATED: u16 = 1000;
+
+/// Water held against gravity after free drainage — **field capacity**,
+/// conventionally the content at a matric potential of −33 kPa. Soil above
+/// this drains downward; soil at or below it holds what it has.
+pub const SOIL_FIELD_CAPACITY: u16 = 620;
+
+/// **Permanent wilting point**, −1500 kPa: the content below which most
+/// plants can no longer extract water at all. `Absorb` credits nothing here,
+/// which is what makes drought a real terminal failure rather than a slow
+/// one.
+///
+/// Field capacity minus this is **plant available water**, the only band a
+/// plant actually drinks from. Both breakpoints, and the framework tying
+/// them to the penetration bound in `penetration_resistance`, are the least
+/// limiting water range: Da Silva, Kay & Perfect (1994), SSSAJ
+/// 58:1775-1781, refining Letey (1985).
+pub const SOIL_WILTING_POINT: u16 = 180;
+
 /// How much a `Liquid` cell may hold above `LIQUID_FULL` when the cell below
 /// it is also full — the pressure signal that lets a compressed column push
 /// sideways into a shorter neighbour even once every cell in it individually
@@ -262,6 +293,68 @@ pub struct MaterialDef {
     /// *entirely* at the surface, which is exactly where the eye looks.
     #[serde(default = "default_fill_dimming")]
     pub fill_dimming: f32,
+    /// Mechanical resistance a root tip has to overcome to grow through
+    /// this material, in **MPa**, so the number means something outside
+    /// this engine. A `RootTip` displaces a `Powder` cell in place when
+    /// this is below the species' own limit; anything at or above it stops
+    /// root elongation, and `Solid`-kind material is never penetrable
+    /// regardless (`plant.rs`'s `Grow`).
+    ///
+    /// **Real units, and a real threshold.** The dry-end bound of the least
+    /// limiting water range is set at a penetrometer resistance of **2-3
+    /// MPa**, above which root elongation effectively stops — Da Silva,
+    /// Kay & Perfect (1994), *Characterization of the Least Limiting Water
+    /// Range of Soils*, SSSAJ 58:1775-1781, which is the same framework
+    /// `Reports/plant-substrate-v2-design.md` §4b uses for soil moisture.
+    /// So the numbers here are calibrated against a published bound rather
+    /// than invented: loose `soil` sits well under it, compacted `gravel`
+    /// well over.
+    ///
+    /// **Why not just use `density`**, which the design doc offers as the
+    /// cheaper option: density and penetration resistance are genuinely
+    /// different properties, and conflating them means a material cannot be
+    /// dense and loose (wet sand) or light and hard (pumice) without one
+    /// of the two behaviours coming out wrong. This is also exactly the
+    /// kind of gameplay-facing value `design-philosophy.md` §2a says
+    /// graduates to `.ron` data immediately.
+    ///
+    /// Defaults high, so a material that says nothing is impenetrable.
+    /// That is the safe direction: a new material silently letting roots
+    /// eat through it would be discovered as roots growing through a floor.
+    #[serde(default = "default_penetration_resistance")]
+    pub penetration_resistance: f32,
+    /// Most water this `Powder` can hold in its own pore space, on
+    /// `SOIL_SATURATED`'s scale. **`0` — the default — means it holds none
+    /// at all**, and a material that holds none never absorbs an adjacent
+    /// `Liquid`.
+    ///
+    /// Opt-in rather than universal, and that is a deliberate scope
+    /// decision rather than a modelling claim. Real sand genuinely does
+    /// hold water, and turning that on here is a one-line data change. But
+    /// making *every* `Powder` absorb liquid silently changed what the
+    /// engine's own conservation tests measure — `nothing_escapes_the_
+    /// world` and `a_full_multi_chunk_world_of_sand_and_water_settles_
+    /// under_the_parallel_sweep` both failed, correctly, because water
+    /// entering sand left the liquid tally without anything accounting for
+    /// where it went. Water inside soil is *stored*, not destroyed, but
+    /// nothing outside this field knows that yet, so the honest move is to
+    /// scope the mechanic to the material the plant work actually needs
+    /// and leave the rest of the engine's mass bookkeeping untouched.
+    ///
+    /// Widening it later means teaching those tallies about held water
+    /// first. Flagged rather than done.
+    #[serde(default)]
+    pub water_capacity: u16,
+    /// Whether this material reinforces a `Powder` it is embedded in, so
+    /// that grain no longer falls — the Wu-Waldron apparent-cohesion effect
+    /// roots have on soil (`update.rs`'s `root_reinforced`).
+    ///
+    /// A flag rather than a name lookup for a measured reason: the first
+    /// version asked `materials().id_of("rootwood")`, which is a string
+    /// hash, **once per powder cell per frame**. A `bool` on the material
+    /// the neighbour already resolves to is a `Vec` index instead.
+    #[serde(default)]
+    pub reinforces_powder: bool,
     pub colors: Vec<[u8; 3]>,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
@@ -455,6 +548,13 @@ fn default_attached_span_bonus() -> u16 {
 
 /// 0.65, matching the hardcoded `MIN_LIQUID_BRIGHTNESS` of 0.35 this
 /// replaced, so a `.ron` that says nothing about it looks exactly as before.
+/// Impenetrable by default -- see `penetration_resistance`'s own doc for
+/// why the safe default is "no", not "yes". Well above the 2-3 MPa bound
+/// at which real root elongation stops.
+fn default_penetration_resistance() -> f32 {
+    100.0
+}
+
 fn default_fill_dimming() -> f32 {
     0.65
 }
@@ -543,6 +643,12 @@ pub struct Material {
     pub min_transfer: u16,
     /// See `MaterialDef::fill_dimming`.
     pub fill_dimming: f32,
+    /// See `MaterialDef::penetration_resistance`.
+    pub penetration_resistance: f32,
+    /// See `MaterialDef::water_capacity`.
+    pub water_capacity: u16,
+    /// See `MaterialDef::reinforces_powder`.
+    pub reinforces_powder: bool,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
     pub palette: Vec<[u8; 4]>,
@@ -779,6 +885,9 @@ impl From<MaterialDef> for Material {
             flow_rate: def.flow_rate,
             min_transfer: def.min_transfer,
             fill_dimming: def.fill_dimming,
+            penetration_resistance: def.penetration_resistance,
+            water_capacity: def.water_capacity,
+            reinforces_powder: def.reinforces_powder,
             palette: def
                 .colors
                 .iter()
@@ -865,7 +974,20 @@ const EMBEDDED: &[&str] = &[
     // runtime, not just in a test.
     include_str!("../../assets/materials/soil.ron"),
     include_str!("../../assets/materials/deadwood.ron"),
+    // Appended for the same reason the comment above gives -- never
+    // inserted among the others, which would renumber every well-known id
+    // after it at runtime rather than in a test.
+    //
+    // `rubble` sits ahead of the plant materials because it is the one with
+    // a pinned convenience constant (`material::RUBBLE = 15`, guarded by
+    // `well_known_ids_match_their_names`) -- the fracture path addresses it
+    // by that constant in hot code, while leaf/rootwood/seed are only ever
+    // looked up by name. Both sides of the plant/destruction merge appended
+    // to this list; the one with an id contract wins the earlier slot.
     include_str!("../../assets/materials/rubble.ron"),
+    include_str!("../../assets/materials/leaf.ron"),
+    include_str!("../../assets/materials/rootwood.ron"),
+    include_str!("../../assets/materials/seed.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -914,6 +1036,9 @@ impl MaterialRegistry {
             flow_rate: 0,
             min_transfer: default_min_transfer(),
             fill_dimming: default_fill_dimming(),
+            penetration_resistance: default_penetration_resistance(),
+            water_capacity: 0,
+            reinforces_powder: false,
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
@@ -945,6 +1070,9 @@ impl MaterialRegistry {
             flow_rate: 0,
             min_transfer: default_min_transfer(),
             fill_dimming: default_fill_dimming(),
+            penetration_resistance: default_penetration_resistance(),
+            water_capacity: 0,
+            reinforces_powder: false,
             colors: vec![[20, 20, 24]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,

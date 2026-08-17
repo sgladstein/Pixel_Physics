@@ -46,7 +46,6 @@
 use super::chunk::{Rect, MAX_REACH};
 use super::fire;
 use super::material::{self, MaterialKind, HORIZONTAL_TRANSFER_REACH};
-use super::organism;
 use super::surface::CellSurface;
 use super::world::World;
 use crate::sim::cell::Cell;
@@ -152,27 +151,22 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
     fire::update(surface, x, y);
     let cell = surface.get(x, y);
 
-    // Organism resource/canopy-density diffusion (`Reports/tree-rewrite-
-    // design.md` §3, §2b) runs from here, not the M16 active-site
-    // schedule, for the same reason `fire::update` above does: a
-    // `MatureBody` trunk cell needs to keep relaying resource even though
-    // it is deliberately off the active-site schedule
-    // (`design-philosophy.md` §3's "mature cells go fully inert"), and the
-    // CA sweep is the one pass that already visits every cell in an awake
-    // chunk regardless of scheduling. Costs nothing once a tree's chunk
-    // actually goes to sleep, since nothing gets visited at all then --
-    // consistent with "inert" in the sense that matters (CPU cost), even
-    // though the cell type itself doesn't leave the active-site schedule
-    // question. A no-op for `organism_id() == 0` (inert material),
-    // checked first so this never runs for the overwhelming majority of
-    // `Plant`-kind cells (hand-painted wood) that aren't organism tissue
-    // at all.
-    if cell.organism_id() != 0 {
-        organism::diffuse_resource(surface, x, y);
-    }
+    // Organism resource/canopy-density transport used to run from here, on
+    // the CA sweep. It now runs as one pass per organism from
+    // `plant::step_organisms` -- `Reports/plant-substrate-v2-design.md`
+    // §3d, forced by the scalars moving to `OrganismState` where a
+    // `CellSurface` cannot reach them, and wanted independently because
+    // dispatching from the sweep tied transport to chunk wakefulness.
+    //
+    // The requirement that put it here in the first place is unchanged and
+    // still met: a `MatureBody` trunk cell keeps relaying resource while
+    // staying off the active-site schedule (`design-philosophy.md` §3).
+    // Iterating the organism's own cell list satisfies that directly,
+    // rather than by leaning on the sweep to visit every cell of an awake
+    // chunk. Do not reintroduce a per-cell call here.
 
     match surface.materials().kind(cell.material) {
-        MaterialKind::Powder => update_powder(surface, x, y, rightward),
+        MaterialKind::Powder => update_powder(surface, x, y, cell, rightward),
         MaterialKind::Liquid => update_liquid(surface, x, y, rightward),
         MaterialKind::Gas => update_gas(surface, x, y, rightward),
         MaterialKind::Empty | MaterialKind::Solid | MaterialKind::Plant | MaterialKind::Creature => false,
@@ -180,7 +174,301 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
 }
 
 /// Falls straight down, then diagonally, then creeps along the slope.
-fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
+/// How much of a saturated cell's surplus moves down per visit. Not a
+/// rate with a physical name — real infiltration follows Richards'
+/// equation and this is a relaxation constant — but it is what turns
+/// drainage into a visible *wetting front* descending over time rather
+/// than an instant teleport, which is the behaviour worth having.
+const SOIL_DRAINAGE_RATE: f32 = 0.25;
+
+/// Share of a moisture *difference* that capillary action moves per visit,
+/// before the wetness scaling in `update_soil_water` is applied.
+///
+/// Well under drainage's rate on purpose: unsaturated flow is genuinely much
+/// slower than gravity drainage, and this is what keeps a wetting front
+/// reading as a front descending through soil rather than a blob that
+/// instantly averages itself out.
+const SOIL_CAPILLARY_RATE: f32 = 0.06;
+
+/// Is this grain held in place by a root threading through it?
+///
+/// Four-neighbour, not eight: a root crossing a shear plane reinforces the
+/// soil it is actually embedded in, and a diagonal corner-touch is a weaker
+/// claim than this binary rule should be making. Erring toward *less*
+/// stabilization keeps the mechanic from quietly freezing whole hillsides
+/// off one stray root.
+///
+/// Matched by name once, not by a hardcoded id: `rootwood` is data like
+/// every other material, and a world loaded without it simply has no
+/// root-reinforced soil rather than failing.
+fn root_reinforced<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
+    [(0, -1), (0, 1), (-1, 0), (1, 0)]
+        .iter()
+        .any(|&(dx, dy)| surface.materials().get(surface.get(x + dx, y + dy).material).reinforces_powder)
+}
+
+/// Infiltration and gravity drainage for one `Powder` cell.
+///
+/// Two rules, both local, run before the movement rules below:
+///
+/// - **Infiltration.** An adjacent `Liquid` is drunk by unsaturated soil.
+///   This is what makes rain, a burst pipe or a spilled bucket soak *into*
+///   ground instead of running over it as though the ground were glass.
+/// - **Drainage.** Soil above field capacity passes its surplus to the
+///   cell below, capped by that cell's remaining room. That is
+///   `transfer_liquid_vertical`'s own shape at a different scale, and it
+///   is what produces a descending wetting front rather than a uniformly
+///   damp block.
+///
+/// Together these close a loop the moisture channel has never had. Today
+/// `field.rs` forces moisture to `MAX_MOISTURE` wherever a `Liquid` cell
+/// sits and that is its only source — deposit, and nothing else. Now:
+/// liquid infiltrates soil, soil holds and drains it, roots drink it and
+/// deplete it, depleted soil reads dry again. `design-philosophy.md` §0's
+/// point is that behaviour count scales with closed loops, not systems.
+///
+/// Returns whether anything was written, so the caller can keep its own
+/// "did this cell do something" bookkeeping honest.
+fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
+    let cell = surface.get(x, y);
+    // Opt-in per material -- see `Material::water_capacity`. A powder that
+    // holds no water neither absorbs nor drains, so sand and gravel behave
+    // exactly as they did and the engine's liquid conservation tallies stay
+    // true.
+    let capacity = surface.materials().get(cell.material).water_capacity;
+    if capacity == 0 {
+        return false;
+    }
+    let here = soil_moisture(cell);
+    let mut moisture = here;
+
+    // Infiltration: soil drinks an adjacent liquid, taking only what fits
+    // and leaving the rest as water.
+    //
+    // **Both halves of this were wrong, and the first was reported from
+    // live play** — "there is no mechanism for water getting absorbed into
+    // soil and increasing its moisture", which was correct as observed even
+    // though the mechanism was right here.
+    //
+    // The gate used to be `moisture + SOIL_SATURATED / 2 <= capacity`,
+    // meaning soil could only absorb while under **half** saturated. Field
+    // capacity is 620 of 1000, so any ground at or above field capacity —
+    // which is what ordinary damp soil between rain events *is*, and what
+    // `filmstrip`'s `forest` scene starts at — was completely waterproof. A
+    // puddle sat on top of it forever. The gate existed to stop a nearly
+    // full cell destroying a whole water cell for a sliver of moisture,
+    // which was a real problem; it was just solved in the wrong place.
+    //
+    // Solving it properly removes the need for the gate: take `min(fill,
+    // room)` and **write the remainder back as water** instead of deleting
+    // the cell outright. Absorbing a cell whole and keeping only part of it
+    // was a silent mass leak, and one the old gate hid rather than fixed —
+    // `infiltration_conserves_water_it_cannot_fit` passed against the gated
+    // version only because infiltration never ran at all in that setup.
+    for (dx, dy) in [(0, -1), (-1, 0), (1, 0), (0, 1)] {
+        if moisture >= capacity {
+            break;
+        }
+        let n = surface.get(x + dx, y + dy);
+        if surface.materials().kind(n.material) != MaterialKind::Liquid {
+            continue;
+        }
+        let fill = liquid_fill(n);
+        let taken = fill.min(capacity - moisture);
+        if taken == 0 {
+            continue;
+        }
+        moisture += taken;
+        if taken >= fill {
+            surface.set(x + dx, y + dy, Cell::EMPTY);
+        } else {
+            // Partly drunk. `aux` on a `Liquid` is its fill, and 0 there
+            // means *full* rather than empty, so a genuinely drained cell
+            // must become `Cell::EMPTY` and never `with_aux(0)` — the
+            // gotcha `material::LIQUID_FULL`'s own doc exists for.
+            surface.set(x + dx, y + dy, n.with_aux(fill - taken));
+        }
+        break; // one neighbour per visit -- infiltration is not instant
+    }
+
+    // **Capillary redistribution: wet soil feeds dry soil, in any
+    // direction.** Distinct from the gravity drainage below, and both are
+    // real:
+    //
+    // - *Saturated* flow is gravity-driven, downward only, and only above
+    //   field capacity. That is the drainage rule below (Darcy).
+    // - *Unsaturated* flow follows gradients of **matric potential** — the
+    //   suction dry soil exerts — and moves water sideways and even upward,
+    //   from wetter soil toward drier. This is Richards' equation's other
+    //   half, and it is why a wetting front spreads laterally as well as
+    //   descending, and why a soil profile evens out between rain events.
+    //   Without it a plume stays a plume forever and a root drinking a cell
+    //   dry gets no resupply from the damp soil beside it.
+    //
+    // **The rate falls steeply as soil dries, and that is the load-bearing
+    // detail rather than a refinement.** Unsaturated hydraulic conductivity
+    // drops by orders of magnitude between saturation and the wilting
+    // point: wet soil redistributes readily, dry soil barely at all. Scaling
+    // the exchange by the wetter cell's own saturation captures the
+    // direction of that dependence. Named honestly as a linear stand-in for
+    // a relationship that is really closer to a power law — the ordering is
+    // faithful, the curve is not.
+    //
+    // Only the `+x` and `+y` faces are visited, so each shared face is
+    // handled exactly once and the exchange conserves rather than depending
+    // on sweep order.
+    for (dx, dy) in [(1, 0), (0, 1)] {
+        let n = surface.get(x + dx, y + dy);
+        let n_capacity = surface.materials().get(n.material).water_capacity;
+        if n_capacity == 0 {
+            continue;
+        }
+        let there = soil_moisture(n);
+        if moisture == there {
+            continue;
+        }
+        let (wetter, drier) = if moisture > there { (moisture, there) } else { (there, moisture) };
+        // **A rest threshold, so standing dampness is representable — and
+        // its value is derived, not tuned.** Without one, capillary
+        // equalizes every gradient toward ±1 unit, so any local wetness (a
+        // generated water table, a pond's damp margin, a watered plot)
+        // keeps its chunks awake until the whole soil bed is uniform.
+        //
+        // The value must be at least the drainable band —
+        // `SOIL_SATURATED - SOIL_FIELD_CAPACITY` — and here is the argument,
+        // which cost a real derivation session: a saturated zone borders
+        // unsaturated soil somewhere, and every cell in that border is
+        // pulled by two rules with incompatible rest states. Drainage is
+        // only at rest at or below field capacity; capillary is only at
+        // rest across gradients at or under this threshold. Any cell
+        // holding between field capacity and saturation, with room in the
+        // cell below, drains — and capillary then refills it from the
+        // saturated side, forever. A perpetual two-cell pump, at every
+        // water-table boundary in the world. The *only* standing profile is
+        // saturation stepping straight down to field capacity in one cell,
+        // which requires the threshold to span that step. Physically this
+        // is the specific-yield band: suction cannot hold water that
+        // gravity can drain, so gradients inside the drainable band do not
+        // stand in nature either.
+        //
+        // What must keep flowing, and does: a root drying its cell toward
+        // the wilting point (180) beside field-capacity soil (620) is a
+        // 440 gradient; a wetting front from standing water starts near
+        // 1000 against dry soil. Both clear 380. What stops is the final
+        // sub-band remainder, which was pure churn.
+        const SOIL_CAPILLARY_REST: u16 = material::SOIL_SATURATED - material::SOIL_FIELD_CAPACITY;
+        if wetter - drier <= SOIL_CAPILLARY_REST {
+            continue;
+        }
+        // Wetness is a *fraction of the wetter cell's own* capacity, and
+        // the room available is the *receiver's*. Both used to read this
+        // cell's `capacity` regardless of which side was which, so a
+        // neighbour with a smaller capacity could be pushed above its own
+        // limit and a wetter neighbour's fraction was computed against the
+        // wrong denominator.
+        //
+        // **Latent, not live** -- `water_capacity` is opt-in and `soil` is
+        // the only material that has it, so every exchange today is
+        // soil-to-soil with equal capacities and both readings agree. It
+        // goes live the moment a second water-holding powder exists, which
+        // is exactly what widening `water_capacity` to sand would do (see
+        // `Material::water_capacity`'s own note on that being flagged
+        // rather than done). Fixed now because the cost is two lines and
+        // the failure would be a silent over-fill. Found by independent
+        // review.
+        let wetter_capacity = if moisture > there { capacity } else { n_capacity };
+        let wetness = wetter as f32 / wetter_capacity.max(1) as f32;
+        let room = if moisture > there { n_capacity.saturating_sub(there) } else { capacity.saturating_sub(moisture) };
+        let moved = ((((wetter - drier) as f32) * SOIL_CAPILLARY_RATE * wetness) as u16).min(room);
+        if moved == 0 {
+            continue;
+        }
+        if moisture > there {
+            moisture -= moved;
+            surface.set(x + dx, y + dy, n.with_aux(there + moved));
+        } else {
+            moisture += moved;
+            surface.set(x + dx, y + dy, n.with_aux(there - moved));
+        }
+    }
+
+    if moisture > material::SOIL_FIELD_CAPACITY {
+        let below = surface.get(x, y + 1);
+        let below_capacity = surface.materials().get(below.material).water_capacity;
+        if below_capacity > 0 {
+            let room = below_capacity.saturating_sub(soil_moisture(below));
+            let surplus = moisture - material::SOIL_FIELD_CAPACITY;
+            let moved = ((surplus as f32 * SOIL_DRAINAGE_RATE) as u16).min(room);
+            if moved > 0 {
+                moisture -= moved;
+                surface.set(x, y + 1, below.with_aux(soil_moisture(below) + moved));
+            }
+        }
+    }
+
+    if moisture != here {
+        surface.set(x, y, cell.with_aux(moisture));
+        return true;
+    }
+    false
+}
+
+fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, rightward: bool) -> bool {
+    // Water first: a grain that is about to move should carry the moisture
+    // it just absorbed with it, and `move_cell` copies the whole cell.
+    //
+    // **The opt-in check is here, not inside `update_soil_water`, and that
+    // placement is a measured requirement rather than a tidiness
+    // preference.** Guarding inside the function still cost a
+    // `surface.get` per powder cell per frame to find out the material
+    // holds no water, and the `ascii` sand-and-water stress scene -- which
+    // is entirely sand, holding no water at all -- went from ~8.1 ms worst
+    // frame to 10.2-12.7 ms. `CLAUDE.md` is explicit that frame cost is a
+    // hard constraint and not a tiebreaker, and paying 25-50% for a
+    // feature that does nothing in that scene is not a trade worth making.
+    // The caller already has `cell`, so reusing it makes the check a Vec
+    // index and nothing else.
+    let holds_water = surface.materials().get(cell.material).water_capacity > 0;
+    let wet_changed = if holds_water { update_soil_water(surface, x, y) } else { false };
+
+    // **Root-reinforced soil does not fall.** One check, before any of the
+    // movement rules, and it is the mirror of "too much weight breaks a
+    // branch" pointing the other way: today the world acts on plants
+    // (light, moisture, wind, fire) and plants act back on almost nothing.
+    //
+    // `Reports/plant-substrate-v2-design.md` §6d, including its correction
+    // of `PLAN.md`'s original framing. The plan proposed "extending
+    // anchor-distance credit outward from a root into adjacent soil",
+    // which cannot work: `Powder` cells take no part in `structural.rs` at
+    // all -- they have no anchor distance and never break free, they simply
+    // fall via this function every frame. There is no distance to extend
+    // credit into. The correct place is here.
+    //
+    // Grounded in measured geotechnics rather than analogy. Roots crossing
+    // a shear plane act as laterally loaded fibres in tension, resolving
+    // into a tangential component that adds **apparent cohesion** to the
+    // soil -- the Wu-Waldron model, from Waldron (1977), SSSAJ 41:843-849
+    // and Wu, McKinnell & Swanston (1979), Can. Geotech. J. 16:19-33, still
+    // the baseline in slope-stability practice.
+    //
+    // **Simplification, named:** apparent cohesion is a continuous strength
+    // increment and this is a binary "does not move". The graded version
+    // (root-adjacent soil gets a reduced roll reach, so it holds a steeper
+    // slope without being fully immobile) is strictly more faithful and is
+    // the obvious upgrade if binary reads as too absolute. Starting binary
+    // because it is one check and immediately verifiable by eye.
+    //
+    // Asked of the *material*, which is the whole reason `rootwood` is a
+    // material rather than a shaded `CellType`: this function holds a bare
+    // `Cell` and has no route to organism state.
+    // Gated on `holds_water`, which is already in hand, so a powder that
+    // is not soil never pays the four neighbour fetches this needs. Same
+    // reasoning as the water pass above: the sand-and-water stress scene
+    // must not pay for a plant mechanic it has no plants for.
+    if holds_water && root_reinforced(surface, x, y) {
+        return wet_changed;
+    }
+
     // Straight down, unless the cell below is a hole opened this frame by
     // something escaping *sideways* out of it. Dropping into that hole is
     // how a vertical face survives: the vacancy the one escaping grain
@@ -232,7 +520,16 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
     if cell.flowing() {
         surface.set(x, y, cell.with_flowing(false));
     }
-    false
+    // A cell that only moved *water* has not moved, but it has written, so
+    // its chunk must stay awake long enough for the wetting front to keep
+    // descending. Reporting `false` here would let a soaking column settle
+    // mid-front and freeze the water part-way down.
+    //
+    // The converse matters just as much for frame cost: once moisture
+    // stops changing, `update_soil_water` writes nothing and this returns
+    // false, so a settled damp bed sleeps exactly like a dry one. That is
+    // the property to check if soil ever starts keeping chunks awake.
+    wet_changed
 }
 
 /// Creep one cell along a slope, toward the nearest place the grain could fall.
@@ -646,6 +943,34 @@ fn write_liquid_transfer<S: CellSurface>(
 /// cell count -- the actual conserved quantity under this model, since a
 /// single full cell can now split its fill across two cells.
 #[inline]
+/// Water held in a `Powder` cell, `0..=SOIL_SATURATED`.
+///
+/// **Read the sign carefully: `0` means dry here**, the opposite of
+/// `liquid_fill` below, where `0` means full. `material::SOIL_SATURATED`'s
+/// own doc has the reasoning; the practical consequence is that soil from
+/// worldgen, the brush or any existing test starts dry with no call site
+/// needing to know, whereas a liquid created the same way starts full.
+///
+/// No managed-cell subtlety to worry about: only `Powder` uses `aux` this
+/// way, and a `Powder` is never a liquid body's container cell.
+pub fn soil_moisture(cell: Cell) -> u16 {
+    cell.aux().min(material::SOIL_SATURATED)
+}
+
+/// The fraction of *plant available water* present, `0.0..=1.0` — the band
+/// between the permanent wilting point and field capacity, which is the
+/// only water a root can actually take up.
+///
+/// Exactly zero at or below the wilting point, which is the whole point of
+/// that breakpoint: drought becomes a terminal failure rather than a slow
+/// one, and a root in dust gets nothing rather than a little.
+pub(crate) fn plant_available_fraction(cell: Cell) -> f32 {
+    let m = soil_moisture(cell) as f32;
+    let wp = material::SOIL_WILTING_POINT as f32;
+    let fc = material::SOIL_FIELD_CAPACITY as f32;
+    ((m - wp) / (fc - wp)).clamp(0.0, 1.0)
+}
+
 pub(crate) fn liquid_fill(cell: Cell) -> u16 {
     let aux = cell.aux();
     if aux == 0 {
@@ -1123,6 +1448,66 @@ fn try_move<S: CellSurface>(surface: &mut S, x: i32, y: i32, tx: i32, ty: i32) -
 
 #[cfg(test)]
 mod tests {
+
+    /// Capillary flow must respect the *receiver's* capacity, not the
+    /// sender's.
+    ///
+    /// Needs two water-holding powders with different capacities to be
+    /// observable at all: with equal capacities the drier cell is by
+    /// definition below its own limit, so the clamp can never bind and the
+    /// bug is invisible. `soil` is the only such material shipped, so this
+    /// writes a second one (`tightsoil`, a third of soil's capacity) into a
+    /// temp directory and loads it additively -- the same trick
+    /// `examples/debug_tree_variants.rs` uses for species.
+    #[test]
+    fn capillary_flow_never_pushes_a_neighbour_past_its_own_capacity() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let dir = std::env::temp_dir().join("pixel_physics_capillary_capacity_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("tightsoil.ron"),
+            format!(
+                r#"(
+    name: "tightsoil",
+    display: "Tight soil",
+    kind: Powder,
+    density: 1.5,
+    friction_angle: 40.0,
+    colors: [(90, 70, 50)],
+    water_capacity: {},
+    penetration_resistance: 0.8,
+)
+"#,
+                material::SOIL_SATURATED / 3
+            ),
+        )
+        .unwrap();
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        w.materials.reload(&dir).expect("tightsoil should parse");
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let tight = w.materials.id_of("tightsoil").expect("just loaded");
+        let tight_capacity = w.materials.get(tight).water_capacity;
+
+        // A saturated ordinary soil cell beside a nearly-full tight one, so
+        // the exchange runs from soil into a neighbour with much less room.
+        w.set(10, 10, Cell::new(soil, 0).with_aux(material::SOIL_SATURATED));
+        w.set(11, 10, Cell::new(tight, 0).with_aux(tight_capacity - 1));
+
+        for _ in 0..200 {
+            update_soil_water(&mut w, 10, 10);
+            update_soil_water(&mut w, 11, 10);
+        }
+
+        let held = soil_moisture(w.get(11, 10));
+        assert!(
+            held <= tight_capacity,
+            "a neighbour must never be filled past its own water_capacity: {held} > {tight_capacity}"
+        );
+    }
+
     use super::*;
 
     fn world_with_floor() -> World {
@@ -1976,6 +2361,244 @@ mod tests {
             }
         }
         n
+    }
+
+    /// Wu-Waldron, as a behaviour rather than a citation: soil threaded by
+    /// roots holds where bare soil slumps.
+    ///
+    /// Measured as the *difference* between two identical slopes, one
+    /// rooted and one not, rather than against an absolute. A bare pile's
+    /// final shape depends on friction angle, repose hysteresis and the
+    /// sweep's own ordering, none of which this rule is about; the paired
+    /// comparison cancels all of it and leaves only the effect under test.
+    #[test]
+    fn root_threaded_soil_holds_a_slope_that_bare_soil_loses() {
+        let build = |rooted: bool| -> World {
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+            for x in 0..64 {
+                w.set(x, 50, Cell::new(material::STONE, 0));
+            }
+            // A steep bank: a right triangle of soil that cannot stand at
+            // soil's own angle of repose and must slump.
+            for step in 0..20 {
+                for y in (49 - step)..50 {
+                    w.set(20 + step, y, Cell::new(soil, 0));
+                }
+            }
+            if rooted {
+                // A root *system*, not one strand. The rule reinforces a
+                // grain's four neighbours, so a single root column holds
+                // only the two columns beside it -- measured at one cell of
+                // difference, which is real but says nothing about whether
+                // the mechanic matters. Root density is the variable, and a
+                // grown tree spreads roots across many columns (see
+                // `docs/screenshots/plant-v2-leaves/forest-root-systems.png`),
+                // so the representative case is several strands.
+                for root_x in [24, 28, 32, 36] {
+                    for y in 30..50 {
+                        w.set(root_x, y, Cell::new(rootwood, 0));
+                    }
+                }
+            }
+            w
+        };
+
+        // How far the toe of the bank has spread past where soil started.
+        let spread = |w: &World| -> i32 {
+            let soil = w.materials.id_of("soil").unwrap();
+            (0..64)
+                .filter(|&x| (0..50).any(|y| w.get(x, y).material == soil))
+                .max()
+                .unwrap_or(0)
+        };
+
+        let mut bare = build(false);
+        let mut rooted = build(true);
+        run(&mut bare, 600);
+        run(&mut rooted, 600);
+
+        let (bare_spread, rooted_spread) = (spread(&bare), spread(&rooted));
+        assert!(
+            rooted_spread < bare_spread,
+            "root-reinforced soil should slump less far than bare soil: rooted reached {rooted_spread}, bare reached {bare_spread}"
+        );
+    }
+
+    #[test]
+    fn soil_absorbs_a_puddle_and_the_water_shows_up_as_held_moisture() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..64 {
+            for y in 40..50 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        for x in 20..30 {
+            w.set(x, 39, Cell::new(material::WATER, 0));
+        }
+        let water_before = count(&w, material::WATER);
+        assert!(water_before > 0, "test setup: there should be a puddle");
+
+        run(&mut w, 400);
+
+        assert_eq!(count(&w, material::WATER), 0, "a puddle on dry soil should soak in, not sit on top");
+        let held: u32 = (0..64)
+            .flat_map(|y| (0..64).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == soil)
+            .map(|(x, y)| soil_moisture(w.get(x, y)) as u32)
+            .sum();
+        assert!(
+            held > 0,
+            "water that soaked in has to be *somewhere* -- it is stored as per-cell moisture, not destroyed"
+        );
+    }
+
+    /// Reported from live play: "there is no mechanism for water getting
+    /// absorbed into soil and increasing its moisture." Correct as
+    /// observed, and this is the reproduction.
+    ///
+    /// Damp ground — not dry ground — is the case that matters, because it
+    /// is the case a scene actually contains: soil between rain events sits
+    /// near field capacity, which is what `filmstrip`'s `forest` scene
+    /// starts at.
+    #[test]
+    fn damp_soil_still_absorbs_a_puddle() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..64 {
+            for y in 40..50 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        for x in 20..30 {
+            w.set(x, 39, Cell::new(material::WATER, 0));
+        }
+
+        run(&mut w, 600);
+
+        assert_eq!(
+            count(&w, material::WATER),
+            0,
+            "a puddle sitting on damp soil should soak in; ground at field capacity is not waterproof"
+        );
+    }
+
+    /// Infiltration must not destroy the water it cannot fit.
+    ///
+    /// A cell is absorbed whole, so any fill beyond the receiving cell's
+    /// remaining room used to vanish — invisible in play, and exactly the
+    /// class of silent mass leak the engine's own conservation tests exist
+    /// to catch elsewhere.
+    #[test]
+    fn infiltration_conserves_water_it_cannot_fit() {
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        // One soil cell with only a little room, under a full water cell,
+        // walled so nothing can flow away and confuse the accounting.
+        for y in 18..24 {
+            w.set(14, y, Cell::new(material::STONE, 0));
+            w.set(16, y, Cell::new(material::STONE, 0));
+        }
+        w.set(15, 22, Cell::new(material::STONE, 0));
+        w.set(15, 21, Cell::new(soil, 0).with_aux(material::SOIL_SATURATED - 200));
+        w.set(15, 20, Cell::new(material::WATER, 0));
+
+        let total = |w: &World| -> u32 {
+            let b = w.bounds().unwrap();
+            (b.min_y..=b.max_y)
+                .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                .map(|(x, y)| {
+                    let c = w.get(x, y);
+                    if c.material == material::WATER {
+                        liquid_fill(c) as u32
+                    } else if c.material == soil {
+                        soil_moisture(c) as u32
+                    } else {
+                        0
+                    }
+                })
+                .sum()
+        };
+        let before = total(&w);
+        run(&mut w, 200);
+        assert_eq!(total(&w), before, "water absorbed beyond a cell's room must stay water, not vanish");
+    }
+
+    #[test]
+    fn saturated_soil_drains_downward_into_drier_soil_below() {
+        let mut w = World::new(Rect::new(0, 0, 15, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        // A floor *and* walls, or the sample positions go stale on their
+        // own. Soil is a `Powder`: an unsupported column falls to the
+        // bottom of the world, and a one-cell-wide column that *is*
+        // supported still topples sideways into a pile at its angle of
+        // repose. Either leaves the sampled cells empty, which reads
+        // exactly like "drainage did nothing". Contain it so the test
+        // measures drainage rather than granular collapse.
+        for x in 0..16 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        for y in 39..60 {
+            w.set(7, y, Cell::new(material::STONE, 0));
+            w.set(9, y, Cell::new(material::STONE, 0));
+        }
+        // A saturated cap over dry soil: the wetting front should descend.
+        for y in 40..60 {
+            w.set(8, y, Cell::new(soil, 0));
+        }
+        w.set(8, 40, Cell::new(soil, 0).with_aux(material::SOIL_SATURATED));
+
+        run(&mut w, 300);
+
+        // Field capacity plus a small dead band, not exactly field
+        // capacity. `moved` truncates to `u16`, so once the surplus falls
+        // under `1 / SOIL_DRAINAGE_RATE` the transfer rounds to zero and
+        // drainage stops a few units high — measured at 623 against a
+        // capacity of 620. That is a real property of an integer store and
+        // not worth chasing: exactness is explicitly not a goal here, and
+        // the alternative (draining the last few units over many more
+        // frames) is the "still shuffling fill for another quarter of an
+        // hour" cost `CLAUDE.md` warns about. Bar set above the measured
+        // value with headroom rather than on it.
+        let top = soil_moisture(w.get(8, 40));
+        assert!(
+            top <= material::SOIL_FIELD_CAPACITY + 16,
+            "soil above field capacity must shed its surplus downward; top still holds {top}"
+        );
+        let below: u32 = (41..60).map(|y| soil_moisture(w.get(8, y)) as u32).sum();
+        assert!(below > 0, "the surplus has to arrive somewhere below, as a descending wetting front");
+    }
+
+    #[test]
+    fn a_powder_that_holds_no_water_neither_absorbs_nor_drains() {
+        // The property that keeps every existing liquid-conservation tally
+        // true: only a material opting in via `water_capacity` takes part.
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        for x in 0..32 {
+            w.set(x, 20, Cell::new(material::SAND, 0));
+        }
+        for x in 10..20 {
+            w.set(x, 19, Cell::new(material::WATER, 0));
+        }
+        // Total *fill*, not a cell count. The compressible-volume model
+        // spreads a fixed volume of water into more, shallower cells as it
+        // settles, so occupancy rises while volume does not -- `CLAUDE.md`
+        // lists exactly this ("measure fill, not occupancy") as a trap that
+        // has already cost this project real time, and counting cells here
+        // reported water *increasing* from 10 to 32.
+        let volume = |w: &World| -> u32 {
+            let b = w.bounds().unwrap();
+            (b.min_y..=b.max_y)
+                .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material == material::WATER)
+                .map(|(x, y)| liquid_fill(w.get(x, y)) as u32)
+                .sum()
+        };
+        let before = volume(&w);
+        run(&mut w, 200);
+        assert_eq!(volume(&w), before, "sand holds no water, so no volume may disappear into it");
     }
 }
 
@@ -2852,4 +3475,5 @@ mod liquid_acceptance {
              (bar 700, measured 443)"
         );
     }
+
 }

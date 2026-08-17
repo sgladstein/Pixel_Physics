@@ -219,7 +219,7 @@ pub const SPOIL_MODES: [SpoilMode; 4] = [
     SpoilMode { name: "HOARD", note: "nothing is lost - you cannot dig far", dig_yield: 1.0 },
 ];
 
-/// A named set of movement numbers, cycled live with `L`.
+/// A named set of movement numbers, cycled live with `F3`.
 ///
 /// This exists because of a playtest answer, and the answer was the right
 /// one: asked how the jump felt, the owner said *"honest, not sure — if
@@ -322,7 +322,7 @@ pub const MOVEMENT_FEELS: [MovementFeel; 5] = [
     },
 ];
 
-/// The same idea for water, cycled with `Y`, after the first playtest
+/// The same idea for water, cycled with `F4`, after the first playtest
 /// reported the swimming as the thing that was off: *"Water is off, with
 /// swimming, I didn't like the buoyancy."*
 ///

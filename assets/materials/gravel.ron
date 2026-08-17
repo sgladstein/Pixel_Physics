@@ -5,6 +5,9 @@
     name: "gravel",
     display: "Gravel",
     kind: Powder,
+    // Coarse and compacted: above the 2-3 MPa bound at which root
+    // elongation effectively stops, so roots refuse it.
+    penetration_resistance: 3.5,
     density: 1.9,
     friction_angle: 45.0,
     colors: [

@@ -52,12 +52,12 @@
             talus_max_height: 12.0,
             brow_chance: 0.8,
             table_damping: 0.35,
-            table_offset: 26.0,
+            table_offset: 12.0,
             capillary_fringe: 24.0,
             pond_min_depth: 2.0,
             pond_min_width: 4.0,
             moss_density: 0.10,
-            tree_density: 0.015,
+            tree_density: 0.26,
             life_cluster_wavelength: 70.0,
         ),
         // Benched country: bluffs over most of the relief instead of in
@@ -91,7 +91,7 @@
             pond_min_depth: 2.0,
             pond_min_width: 4.0,
             moss_density: 0.10,
-            tree_density: 0.015,
+            tree_density: 0.22,
             life_cluster_wavelength: 70.0,
         ),
         // Deep relief, thin soil, tall scree, water far down. Big vertical
@@ -122,8 +122,8 @@
             capillary_fringe: 20.0,
             pond_min_depth: 2.0,
             pond_min_width: 4.0,
-            moss_density: 0.05,
-            tree_density: 0.006,
+            moss_density: 0.06,
+            tree_density: 0.10,
             life_cluster_wavelength: 70.0,
         ),
         // Low relief, deep soil, high water table, dense life. The wettest
@@ -156,7 +156,7 @@
             pond_min_depth: 2.0,
             pond_min_width: 4.0,
             moss_density: 0.25,
-            tree_density: 0.03,
+            tree_density: 0.45,
             life_cluster_wavelength: 70.0,
         ),
         // No water anywhere: the table is pushed below the world floor, so no

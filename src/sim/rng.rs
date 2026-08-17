@@ -12,6 +12,10 @@
 //! (`Chunk::rng`, `jitter`), never drawn from time or OS entropy, so two
 //! identical runs draw identical streams. `tests/determinism.rs` asserts
 //! this end to end; do not add an entropy-seeded constructor.
+//!
+//! What that requirement does *not* by itself give you is independence: a
+//! single shared generator is deterministic and still couples every caller
+//! to every other caller's draw count. See `stream`.
 
 pub struct Rng(u64);
 
@@ -64,6 +68,56 @@ impl Default for Rng {
     fn default() -> Self {
         Self::new(0x243F_6A88_85A3_08D3)
     }
+}
+
+/// A generator whose entire sequence is a pure function of the four values
+/// identifying *who is drawing* — nothing else in the world can shift it.
+///
+/// **The problem this solves is independence, not determinism.** `World::rng`
+/// is a single shared stream, and `plant.rs` and `creature.rs` both draw from
+/// it. That is perfectly deterministic and still means every organism's
+/// sequence depends on how many draws every *other* organism, decay event and
+/// explosion made first — so planting a second tree silently changes the first
+/// one's growth, and `plant.rs`'s own `two_trees_grown_from_the_same_seed_
+/// differ` test relies on exactly that coupling to produce its difference.
+///
+/// That makes side-by-side comparison unsound, which matters because
+/// `examples/debug_tree_variants.rs` plants six parameter variants in one scene
+/// and compares them, and it is the harness the whole resource economy is
+/// tuned with. Six entangled single runs cannot separate "this parameter is
+/// better" from "this variant drew luckier numbers because of where it sat in
+/// the draw order."
+///
+/// **Note both research reports name the wrong culprit.**
+/// `plant-simulation-research.md` §7d and `population-dynamics-research.md` §7d
+/// both attribute this to `Chunk::rng` being seeded from chunk coordinates,
+/// making position a hidden inherited variable. Organisms and creatures never
+/// touch `Chunk::rng` — it is reached only by the CA sweep through
+/// `CellSurface::rng()`. The recommendation (a per-organism stream) is right;
+/// the mechanism is order coupling, not position.
+///
+/// Position stays *in* the seed deliberately: two identical genomes planted in
+/// different places should still grow differently, which is the property
+/// `two_trees_grown_from_the_same_seed_differ` is really asserting. What
+/// changes is that the difference now comes from where they are rather than
+/// from what else happens to exist.
+///
+/// Mixing is splitmix64's finalizer, which is the standard cheap way to turn
+/// correlated inputs (small, adjacent integers — exactly what cell coordinates
+/// and organism ids are) into well-separated states. `Rng::new`'s own
+/// zero-state guard still applies on top.
+pub fn stream(a: u64, b: u64, c: u64, d: u64) -> Rng {
+    let mut h = a
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        .wrapping_add(b.wrapping_mul(0xBF58_476D_1CE4_E5B9))
+        .wrapping_add(c.wrapping_mul(0x94D0_49BB_1331_11EB))
+        .wrapping_add(d.wrapping_mul(0xD6E8_FEB8_6659_FD93));
+    h ^= h >> 30;
+    h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    h ^= h >> 27;
+    h = h.wrapping_mul(0x94D0_49BB_1331_11EB);
+    h ^= h >> 31;
+    Rng::new(h)
 }
 
 /// A stable pseudo-random value in `0.0..1.0` for a world position.
@@ -190,5 +244,58 @@ mod tests {
         let heads = (0..10_000).filter(|_| rng.flip()).count();
         // A fair coin over 10k trials lands well inside this window; a stuck bit would not.
         assert!((4500..5500).contains(&heads), "heads = {heads}");
+    }
+
+    /// The property `stream` exists for: an organism's sequence must not
+    /// depend on anything but its own identity. Asserted as "two different
+    /// identities give different sequences, and the same identity gives the
+    /// same one" — the second half is what makes determinism survive, the
+    /// first is what makes side-by-side comparison sound.
+    #[test]
+    fn a_stream_is_a_pure_function_of_its_own_identity() {
+        let draw = |a, b, c, d| {
+            let mut r = stream(a, b, c, d);
+            (0..8).map(|_| r.next_u64()).collect::<Vec<_>>()
+        };
+        assert_eq!(draw(7, 100, 99, 450), draw(7, 100, 99, 450), "the same identity must replay the same sequence");
+        assert_ne!(draw(7, 100, 99, 450), draw(8, 100, 99, 450), "a different organism must draw differently");
+        assert_ne!(draw(7, 100, 99, 450), draw(7, 101, 99, 450), "a different cell must draw differently");
+        assert_ne!(draw(7, 100, 99, 450), draw(7, 100, 99, 495), "a different tick must draw differently");
+    }
+
+    /// A stream stays well-distributed along the axis it is actually
+    /// advanced on. Organism cells tick every `ORGANISM_TICK_INTERVAL`
+    /// frames, so the frame input moves in a fixed stride of 45 and nothing
+    /// else changes — a mixer that handled random inputs but correlated on
+    /// an arithmetic sequence would look fine in isolation and quietly bias
+    /// every growth roll in the engine.
+    ///
+    /// Both tails are checked. `moss.ron`'s two division chances differ by
+    /// more than two orders of magnitude (`damp_chance: 0.35`,
+    /// `dry_chance: 0.002`), so a mixer that was uniform in the middle and
+    /// short in the low tail would leave damp moss working and dry moss
+    /// permanently frozen — a bug that would present as a behaviour
+    /// question about moisture, nowhere near the generator.
+    #[test]
+    fn a_stream_stays_uniform_along_a_fixed_tick_stride() {
+        let (mut common, mut rare, mut n) = (0u32, 0u32, 0u32);
+        for cell in 0..200u64 {
+            for tick in 0..400u64 {
+                let mut r = stream(7, 100 + cell, 99, 45 * tick);
+                let _ = r.below(4); // Divide draws a candidate first; chance is the *second* draw
+                if r.chance(0.35) {
+                    common += 1;
+                }
+                let mut r = stream(7, 100 + cell, 99, 45 * tick);
+                let _ = r.below(4);
+                if r.chance(0.002) {
+                    rare += 1;
+                }
+                n += 1;
+            }
+        }
+        let (common_rate, rare_rate) = (common as f32 / n as f32, rare as f32 / n as f32);
+        assert!((0.33..0.37).contains(&common_rate), "chance(0.35) fired at {common_rate}");
+        assert!((0.001..0.004).contains(&rare_rate), "chance(0.002) fired at {rare_rate}");
     }
 }

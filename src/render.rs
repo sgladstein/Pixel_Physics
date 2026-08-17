@@ -10,7 +10,9 @@ use std::collections::HashSet;
 use crate::sim::cell::AMBIENT_TEMPERATURE;
 use crate::sim::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
 use crate::sim::material;
+use crate::sim::organism;
 use crate::sim::particle::ParticleSystem;
+use crate::sky::{self, Sky};
 use crate::sim::rng;
 use crate::sim::world::World;
 
@@ -191,6 +193,131 @@ impl FieldOverlay {
     }
 }
 
+/// Which organism-owned per-cell channel `Renderer::organism_overlay` tints
+/// by, cycled by `L` — the same shape as `FieldOverlay` above, pointed at
+/// `organism.rs`'s per-cell scalars instead of `field.rs`'s coarse grid.
+///
+/// **Why this exists at all.** Every channel here is currently invisible,
+/// and that has already cost real time: `Reports/tree-rewrite-design.md`
+/// §2b's canopy-density self-avoidance mechanism shipped inert, and *two*
+/// independent design reviews signed it off without catching that the
+/// "follow" step read the empty side of the occupied/empty boundary and
+/// therefore always saw `0.0`. Live verification caught it, because a
+/// picture shows a round clump and a passing test does not. The channels
+/// that decide plant shape need to be lookable-at before more of them get
+/// added on top (`Reports/plant-substrate-v2-design.md`'s Decisions 2, 3
+/// and 6 each add one), not after.
+///
+/// `CellType` is categorical and the rest are magnitudes — see
+/// `apply_organism_overlay` for why that difference is in the blend rather
+/// than in two separate overlays.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum OrganismOverlay {
+    #[default]
+    Off,
+    /// `Seed`/`GrowingTip`/`MatureBody`/`Leaf`/`RootTip`, one flat colour
+    /// each. The only way to tell a retired `MatureBody` from a live
+    /// `GrowingTip` on screen — both currently paint as plain `wood`.
+    CellType,
+    /// The `Grow`/`Divide` energy budget, `0..RESOURCE_SCALE`.
+    Resource,
+    /// The crowding signal `Grow`'s `crowding_weight` scores against,
+    /// `0..CANOPY_DENSITY_SCALE`.
+    CanopyDensity,
+    /// **Vein conductance** — the largest of a cell's four per-face carbon
+    /// efflux conductances, `CONDUCTANCE_MIN..CONDUCTANCE_MAX`.
+    ///
+    /// The channel Decision 6 exists to make visible. Canalization either
+    /// produces a strand hierarchy — a bright path from source to sink
+    /// against dim undifferentiated tissue — or it does not, and no unit
+    /// test answers that question the way a picture does. Renders the max
+    /// rather than a sum or a mean because the question is "is this cell
+    /// part of a channel", and a cell with one strongly conducting face is,
+    /// however isotropic its other three are.
+    VeinConductance,
+    /// Water held in a `Powder` cell — not organism data, but the same
+    /// question ("what is in this cell that I cannot see") and the channel
+    /// the root work has to be able to look at. Without it, a wetting
+    /// front descending through soil is completely invisible.
+    SoilMoisture,
+}
+
+impl OrganismOverlay {
+    fn next(self) -> Self {
+        match self {
+            OrganismOverlay::Off => OrganismOverlay::CellType,
+            OrganismOverlay::CellType => OrganismOverlay::Resource,
+            OrganismOverlay::Resource => OrganismOverlay::CanopyDensity,
+            OrganismOverlay::CanopyDensity => OrganismOverlay::VeinConductance,
+            OrganismOverlay::VeinConductance => OrganismOverlay::SoilMoisture,
+            OrganismOverlay::SoilMoisture => OrganismOverlay::Off,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            OrganismOverlay::Off => "OFF",
+            OrganismOverlay::CellType => "CELL TYPE",
+            OrganismOverlay::Resource => "RESOURCE",
+            OrganismOverlay::CanopyDensity => "CANOPY DENSITY",
+            OrganismOverlay::VeinConductance => "VEIN CONDUCTANCE",
+            OrganismOverlay::SoilMoisture => "SOIL MOISTURE",
+        }
+    }
+}
+
+/// Per-`CellType` colours for `OrganismOverlay::CellType`. Deliberately
+/// high-contrast and *not* botanically suggestive — this is a debug
+/// readout, and a leaf drawn green here would be indistinguishable from
+/// the `leaf` material the plant work is about to add
+/// (`Reports/plant-substrate-v2-design.md` §6a), which is exactly the
+/// confusion a debug view must not create.
+const CELL_TYPE_SEED: [f32; 3] = [255.0, 230.0, 90.0];
+const CELL_TYPE_GROWING_TIP: [f32; 3] = [90.0, 255.0, 120.0];
+const CELL_TYPE_MATURE_BODY: [f32; 3] = [150.0, 110.0, 255.0];
+const CELL_TYPE_LEAF: [f32; 3] = [255.0, 120.0, 220.0];
+const CELL_TYPE_ROOT_TIP: [f32; 3] = [255.0, 150.0, 60.0];
+/// Deliberately loud and unlike wood. A bud is a *decision point* — where
+/// the crown will come from — and it is a handful of cells among thousands
+/// of stem cells, so a subtle colour reads as absent. See this module's own
+/// note on the canopy-density sheet that read as blank because a mid-range
+/// value moved one colour byte from 139 to 155.
+const CELL_TYPE_DORMANT_BUD: [f32; 3] = [80.0, 255.0, 255.0];
+
+/// Flat blend for `OrganismOverlay::CellType`. High, but short of 1.0 on
+/// purpose: keeping a little of the underlying material colour through
+/// means a burning or partially-dimmed cell still reads as such under the
+/// overlay, so a fire moving through a canopy stays legible while the type
+/// readout is on.
+const CELL_TYPE_BLEND: f32 = 0.85;
+/// Full-scale colours for the scalar organism channels. A reading of zero
+/// draws at `SCALAR_RAMP_FLOOR` of these, not at black, so a cell holding
+/// exactly nothing is still visible *as a cell* — otherwise an organism
+/// with an empty channel disappears into the background and "the value is
+/// zero" becomes indistinguishable from "there is nothing here", which are
+/// very different bugs.
+const SCALAR_RAMP_RESOURCE: [f32; 3] = [120.0, 255.0, 160.0];
+const SCALAR_RAMP_CANOPY: [f32; 3] = [255.0, 80.0, 80.0];
+const SCALAR_RAMP_MOISTURE: [f32; 3] = [80.0, 170.0, 255.0];
+/// Deliberately unlike `SCALAR_RAMP_RESOURCE`: conductance and the carbon
+/// it carries are different quantities on different timescales, and two
+/// green ramps would invite reading one sheet as the other.
+const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
+
+/// How bright a zero reading draws, as a fraction of the channel's
+/// full-scale colour. Low enough that zero and full are unmistakable at a
+/// glance, high enough that a zero cell still has a visible silhouette.
+const SCALAR_RAMP_FLOOR: f32 = 0.18;
+
+/// Maps a normalized `0..1` reading onto a channel's ramp. Deliberately
+/// linear: this is a readout, and a perceptual or log curve would make
+/// "how much" harder to judge between two tiles of a contact sheet, which
+/// is the comparison these sheets exist to support.
+fn scalar_ramp(t: f32, full: [f32; 3]) -> [f32; 3] {
+    let scale = SCALAR_RAMP_FLOOR + (1.0 - SCALAR_RAMP_FLOOR) * t.clamp(0.0, 1.0);
+    [full[0] * scale, full[1] * scale, full[2] * scale]
+}
+
 /// Display-only normalization ranges for the field overlay — not the
 /// field's own internal clamp bounds (`field.rs`'s `MAX_TEMPERATURE`/
 /// `MAX_LIGHT`/`MAX_MOISTURE` are private to that module, the same
@@ -308,6 +435,48 @@ pub struct Renderer {
     /// opts in, the same "toggled debug overlay, zero cost when off" shape
     /// `show_chunk_overlay` already uses.
     pub field_overlay: FieldOverlay,
+    /// Tints organism-owned cells by one of `organism.rs`'s per-cell
+    /// channels — `B` cycles it. `Off` by default and costs nothing then,
+    /// same shape as `field_overlay` above.
+    ///
+    /// **The scalar channels defeat the dirty-rect skip; `CellType` does
+    /// not.** That split is exact, and the reasoning changed when the
+    /// scalars moved off `Cell::aux`.
+    ///
+    /// This overlay used to be able to keep the skip wholesale, on the
+    /// argument that every channel it draws lives in `Cell::aux` and can
+    /// only change via a `set`, so a changed reading always came with a
+    /// dirtied chunk. **Decision 2 step 2c falsified that.** `carbon`,
+    /// `canopy_density` and `carbon_conductance` live in `OrganismState`
+    /// now, and `plant.rs` deliberately relies on writing them *without*
+    /// touching the grid — that is what stopped an organism keeping the CA
+    /// sweep awake merely by existing. So those three change with no chunk
+    /// dirtied, and on a settled world the overlay would freeze while the
+    /// values underneath it kept moving.
+    ///
+    /// Which is precisely the failure this overlay was built to prevent:
+    /// `CLAUDE.md`'s "a debug readout must not be a function of the thing
+    /// it debugs" — a frozen sheet and a genuinely static channel draw the
+    /// same picture, and the obvious reading ("the mechanism is dead")
+    /// would send a fix at working code. It has already cost this project
+    /// one wrong diagnosis.
+    ///
+    /// `CellType` is exempt because a cell type really does live in `aux`
+    /// and really can only change through a `set`. It keeps the skip.
+    ///
+    /// **Cost, stated because it is the thing being traded** (`CLAUDE.md`:
+    /// measure a cost against the state the optimisation exists for): a
+    /// full redraw every frame is ~10 ms mean on a *settled* world, the
+    /// number `grain`'s animated modes are documented against. This is a
+    /// debug overlay that is `Off` by default and costs exactly nothing
+    /// then, which is the same bargain `field_overlay` already makes.
+    pub organism_overlay: OrganismOverlay,
+    /// `organism_overlay` as of the last `draw` call. A change means every
+    /// existing pixel in the buffer was tinted for a different channel, so
+    /// one full redraw has to re-establish it — the same reason
+    /// `last_zoom_state` exists, and the reason this overlay can otherwise
+    /// leave the dirty-rect skip alone.
+    last_organism_overlay: OrganismOverlay,
     /// `(zoom, zoom_out_stride)` as of the last `draw` call — a change since
     /// then means the whole frame buffer's existing bytes were computed at
     /// the wrong scale, forcing one full redraw to re-establish it before
@@ -316,6 +485,33 @@ pub struct Renderer {
     /// always full too, for the same reason: an unwritten buffer has nothing
     /// valid to partially build on.
     last_zoom_state: Option<(i32, i32)>,
+    /// The sky as of this frame, recomputed once per `draw` and read by
+    /// every empty pixel. Held rather than passed because `cell_colour` is
+    /// the per-pixel hot path and recomputing a cosine there would be paying
+    /// for the same answer up to 160,000 times a frame.
+    sky: Sky,
+    /// The quantised sky last actually painted. A frame whose sky key still
+    /// matches this one would repaint the screen to exactly the same pixels,
+    /// so it does not — which is what keeps a day/night sky from costing the
+    /// dirty-rect skip. See `sky::Sky::key`.
+    last_sky_key: Option<[i32; 7]>,
+    /// How lit the world is, `0..=LIGHT_LEVELS`, for this frame.
+    ///
+    /// **From the global daylight, not from the light channel**, and that was
+    /// a correction rather than a shortcut. Measured at noon on open terrain,
+    /// the channel reads 0.30 of `MAX_LIGHT` at the ground surface and 0.00
+    /// forty cells down: light diffuses through air and is stopped by solids,
+    /// so it never meaningfully enters the material it would have to light.
+    /// Driving the ground's brightness from it produced a picture that looked
+    /// right for the wrong reason — every solid pinned at the unlit floor all
+    /// day, with the visible day/night swing coming entirely from the ambient
+    /// tint. Lighting rock by the light channel needs light to propagate into
+    /// rock, which is the "caves are dark, bring a torch" feature and not
+    /// this one.
+    daylight: u8,
+    /// Where the moon was painted last frame, so its old pixels get cleaned
+    /// up. Same device as `last_body_rects`.
+    last_moon_rect: Option<Rect>,
 }
 
 impl Renderer {
@@ -331,7 +527,13 @@ impl Renderer {
             zoom: 1,
             zoom_out_stride: 1,
             field_overlay: FieldOverlay::Off,
+            organism_overlay: OrganismOverlay::Off,
+            last_organism_overlay: OrganismOverlay::Off,
             last_zoom_state: None,
+            sky: Sky::at(0, 0, 1, 0, 1),
+            last_sky_key: None,
+            daylight: sky::LIGHT_LEVELS,
+            last_moon_rect: None,
         }
     }
 
@@ -346,6 +548,14 @@ impl Renderer {
 
     pub fn cycle_field_overlay(&mut self) {
         self.field_overlay = self.field_overlay.next();
+    }
+
+    /// `B` — step through the organism channels. Same reasoning as
+    /// `cycle_grain`: these are questions ("is canopy density actually
+    /// non-zero where a tip is about to grow?") that only a picture of the
+    /// real running plant answers.
+    pub fn cycle_organism_overlay(&mut self) {
+        self.organism_overlay = self.organism_overlay.next();
     }
 
     /// `delta > 0` zooms in a step, `delta < 0` zooms out a step — `=`/`-`
@@ -450,6 +660,17 @@ impl Renderer {
         let scale_changed = self.last_zoom_state != Some(zoom_state);
         self.last_zoom_state = Some(zoom_state);
 
+        // One full redraw when the organism channel changes, and — for the
+        // channels that read the sidecar rather than `Cell::aux` — one every
+        // frame, since those values change with no chunk dirtied. See
+        // `organism_overlay`'s own doc for why that split is exact.
+        let organism_overlay_changed = self.last_organism_overlay != self.organism_overlay;
+        self.last_organism_overlay = self.organism_overlay;
+        let organism_overlay_is_live = matches!(
+            self.organism_overlay,
+            OrganismOverlay::Resource | OrganismOverlay::CanopyDensity | OrganismOverlay::VeinConductance
+        );
+
         self.frame = self.frame.wrapping_add(1);
         // The animated variants are the ones whose output changes with
         // nothing in the world changing, so they have to defeat the
@@ -488,8 +709,31 @@ impl Renderer {
         // the dirty region below -- both where they are now and where they
         // were last frame, since the stale pixels are the reason this was a
         // full redraw in the first place.
+        // The sky changes with the clock rather than with the world, so
+        // nothing in `touched` will ever mention it and the dirty region
+        // cannot find it. It therefore has to force a redraw itself — but
+        // only on the frames it has genuinely changed, which is what the
+        // quantised key is for. Through most of a day that is no frames at
+        // all; through a sunrise it is a modest fraction of them, which is
+        // the one time of day worth repainting for.
+        let bounds = world.bounds();
+        self.sky = Sky::at(
+            world.frame,
+            bounds.map_or(0, |b| b.min_x),
+            bounds.map_or(1, |b| b.max_x),
+            bounds.map_or(0, |b| b.min_y),
+            bounds.map_or(1, |b| b.max_y),
+        );
+        self.daylight = sky::daylight_level(world.frame);
+        let sky_key = self.sky.key();
+        let sky_changed = self.last_sky_key != Some(sky_key);
+        self.last_sky_key = Some(sky_key);
+
         let full = force_full
             || scale_changed
+            || sky_changed
+            || organism_overlay_changed
+            || organism_overlay_is_live
             || self.field_overlay != FieldOverlay::Off
             || self.show_chunk_overlay
             || !particles.is_empty();
@@ -547,6 +791,20 @@ impl Renderer {
                 }
                 self.last_player_rect = player_rect;
             }
+            // The moon, where it is now and where it was. A disc crossing
+            // the sky is a moving sprite as far as the dirty region is
+            // concerned, and leaves a trail behind it without the second
+            // rectangle.
+            let moon_rect = self.sky.moon_rect().and_then(|(x0, y0, x1, y1)| {
+                self.world_rect_to_screen_rect(Rect::new(x0, y0, x1, y1), width, height)
+            });
+            for r in moon_rect.iter().chain(self.last_moon_rect.iter()) {
+                dirty = Some(match dirty {
+                    Some(d) => d.union(*r),
+                    None => *r,
+                });
+            }
+            self.last_moon_rect = moon_rect;
             for coord in touched {
                 if let Some(r) = self.world_rect_to_screen_rect(coord.bounds(), width, height) {
                     dirty = Some(match dirty {
@@ -735,6 +993,21 @@ impl Renderer {
         // grain jitter/heat-glow instead of flat background -- a visible,
         // static artifact along the outline of every heightfield body.
         if cell.material == material::EMPTY {
+            // Sky, not a flat background. Empty space inside the world is
+            // *air*, and drawing it black made every world read as a cutaway
+            // diagram rather than a place -- the strongest remaining tell,
+            // once the ground itself started looking like ground.
+            //
+            // Empty space is also where the day/night cycle was invisible.
+            // The oscillator has driven the light channel since M16, so
+            // plants and moss have always known what time it is while the
+            // screen did not; this is that same cosine, read rather than
+            // reinvented (`sky::Sky::at`).
+            //
+            // Deliberately *inside* the bounds check above, so the void
+            // outside the world keeps its own colour and stays
+            // distinguishable from a dark night sky.
+            base = self.sky.colour_at(x, y);
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
             // temperature very much propagate through vacuum) rather than
@@ -868,7 +1141,134 @@ impl Renderer {
         // lesson M5's `ChunkView` already applied to the sweep) before it's
         // safe to turn back on.
 
-        self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255])
+        // Lit last, so everything above — fill dimming, grain, heat glow —
+        // is lit rather than competing with the light.
+        //
+        // Fire looks after itself without a special case: a burning cell
+        // floods its own field block with light, so its level comes out at
+        // the top of the range and the darkening barely touches it. The one
+        // thing that emits is the one thing that stays bright, which is the
+        // behaviour a special case would have had to fake.
+        let rgb = sky::apply_light(rgb, self.daylight, self.sky.ambient());
+        let tinted = self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255]);
+        // Applied *after* the field overlay, deliberately: the two can be on
+        // at once (light and canopy density together is the pairing that
+        // actually explains where a tip chose to grow), and when they are,
+        // the per-cell channel is the more specific statement and should win
+        // on the handful of cells it covers rather than being washed out by
+        // a field tint covering the whole screen. Both sit on top of the sky
+        // lighting: a debug channel must stay readable at midnight, and the
+        // full-replace ramps below are exactly the channels that must not be
+        // modulated by the time of day.
+        self.apply_organism_overlay(world, x, y, tinted)
+    }
+
+    /// Blends `base` toward a ramp keyed on the selected organism channel,
+    /// for organism-owned cells only — a no-op returning `base` unchanged
+    /// when the overlay is off or the cell isn't organism tissue, so
+    /// `cell_colour` can route through it unconditionally.
+    ///
+    /// **A raw `organism_id() != 0` test is what identifies organism
+    /// tissue**, not `Cell::is_empty()` and not a `Plant`-kind check.
+    /// `organism_id` is the tag `organism.rs` itself uses everywhere
+    /// (`diffuse_resource`'s `is_wall`, `organism_tick`'s own guard), and a
+    /// hand-painted `wood` cell is `Plant`-kind but owns no organism state
+    /// — tinting it would draw a resource value that does not exist.
+    ///
+    /// **Scalar channels *replace* the cell colour rather than blending
+    /// into it, and that is a correction to how this first shipped.** The
+    /// first version copied `apply_field_overlay`'s magnitude-scaled blend
+    /// exactly. On a tree that produced a canopy-density sheet which was
+    /// blank to the eye, and the obvious reading — "the deposit isn't
+    /// there" — was wrong. Wood's own base colour is brown, the ramp was
+    /// red, and a mid-range reading moved the red byte from 139 to 155 and
+    /// changed nothing else; the value was present and simply not visible
+    /// against the material it was drawn over. The resource channel looked
+    /// fine only because green happens to sit far from brown.
+    ///
+    /// That is the exact failure mode this whole overlay exists to prevent,
+    /// reproduced inside the tool built to prevent it, so it is written
+    /// down rather than quietly fixed: **a debug readout must not be a
+    /// function of the thing it is debugging.** A full replace on a fixed
+    /// dark→bright ramp reads the same over wood, leaf, soil or anything
+    /// added later, and zero is unambiguously distinguishable from
+    /// "present but low."
+    ///
+    /// `apply_field_overlay`'s blend stays correct for *its* job — it
+    /// covers every pixel including empty space, where replacing would
+    /// repaint the whole screen and hide the world entirely.
+    ///
+    /// `CellType` is categorical (there is no "less of a `RootTip`") and
+    /// keeps a high flat blend, so a burning or dimmed cell still reads as
+    /// such underneath the type colour.
+    fn apply_organism_overlay(&self, world: &World, x: i32, y: i32, base: [u8; 4]) -> [u8; 4] {
+        if self.organism_overlay == OrganismOverlay::Off {
+            return base;
+        }
+        let cell = world.get(x, y);
+        if self.organism_overlay == OrganismOverlay::SoilMoisture {
+            if world.materials.kind(cell.material) != material::MaterialKind::Powder {
+                return base;
+            }
+            let t = crate::sim::update::soil_moisture(cell) as f32 / material::SOIL_SATURATED as f32;
+            let ramp = scalar_ramp(t.clamp(0.0, 1.0), SCALAR_RAMP_MOISTURE);
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
+        if cell.organism_id() == 0 {
+            return base;
+        }
+        let cell_type = organism::cell_type(cell.aux());
+        let (ramp, blend) = match self.organism_overlay {
+            // Both handled above, before the organism-tissue guard: `Off`
+            // returns immediately, and `SoilMoisture` asks about inert
+            // `Powder` rather than organism cells.
+            OrganismOverlay::Off | OrganismOverlay::SoilMoisture => return base,
+            OrganismOverlay::CellType => {
+                // An unrecognized type bit pattern is a real possibility
+                // (`organism.rs`'s own `an_unrecognized_type_bit_pattern_
+                // is_none` test), and it should be *visible* as wrong
+                // rather than silently drawn as ordinary wood.
+                let colour = match cell_type {
+                    Some(organism::CellType::Seed) => CELL_TYPE_SEED,
+                    Some(organism::CellType::GrowingTip) => CELL_TYPE_GROWING_TIP,
+                    Some(organism::CellType::MatureBody) => CELL_TYPE_MATURE_BODY,
+                    Some(organism::CellType::Leaf) => CELL_TYPE_LEAF,
+                    Some(organism::CellType::RootTip) => CELL_TYPE_ROOT_TIP,
+                    Some(organism::CellType::DormantBud) => CELL_TYPE_DORMANT_BUD,
+                    None => [255.0, 0.0, 0.0],
+                };
+                (colour, CELL_TYPE_BLEND)
+            }
+            OrganismOverlay::Resource => {
+                let t = (world.carbon_at(x, y) / organism::RESOURCE_SCALE).clamp(0.0, 1.0);
+                (scalar_ramp(t, SCALAR_RAMP_RESOURCE), 1.0)
+            }
+            OrganismOverlay::VeinConductance => {
+                // Normalized across the *live* range rather than 0..max, so
+                // undifferentiated tissue sits at the ramp floor instead of
+                // a third of the way up it. A cell that has never carried
+                // flux reads as unambiguously dark.
+                let c = world
+                    .organism_cell(x, y)
+                    .map_or(organism::CONDUCTANCE_MIN, |cell| cell.carbon_conductance.iter().copied().fold(f32::MIN, f32::max));
+                let span = organism::CONDUCTANCE_MAX - organism::CONDUCTANCE_MIN;
+                let t = ((c - organism::CONDUCTANCE_MIN) / span).clamp(0.0, 1.0);
+                (scalar_ramp(t, SCALAR_RAMP_VEIN), 1.0)
+            }
+            OrganismOverlay::CanopyDensity => {
+                let t = (world.canopy_density_at(x, y) / organism::CANOPY_DENSITY_SCALE).clamp(0.0, 1.0);
+                (scalar_ramp(t, SCALAR_RAMP_CANOPY), 1.0)
+            }
+        };
+        let mut out = base;
+        for (c, r) in out.iter_mut().take(3).zip(ramp) {
+            *c = (*c as f32 + (r - *c as f32) * blend).round().clamp(0.0, 255.0) as u8;
+        }
+        out
     }
 
     /// Blends `base` toward a colour ramp keyed on the currently-selected

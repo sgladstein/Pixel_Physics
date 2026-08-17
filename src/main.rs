@@ -383,6 +383,11 @@ impl Handler {
             KeyCode::Equal => self.app.renderer.adjust_zoom(1),
             KeyCode::Minus => self.app.renderer.adjust_zoom(-1),
             KeyCode::KeyV => self.app.renderer.cycle_field_overlay(),
+            // `L` for the *living* channels. This was `B` until the merge
+            // with the destruction work, whose reference-room stamp already
+            // held that key -- the compiler's unreachable-pattern warning is
+            // what caught the collision, not a runtime symptom.
+            KeyCode::KeyL => self.app.renderer.cycle_organism_overlay(),
             KeyCode::KeyG => self.app.renderer.cycle_grain(),
             // The A/B key. Deliberately reassigned as the question changes --
             // see `App::toggle_experiment`.
@@ -392,8 +397,8 @@ impl Handler {
             KeyCode::KeyI => self.app.toggle_hover_inspector(),
             KeyCode::KeyN => self.app.toggle_stress_view(),
             KeyCode::KeyZ => self.app.cycle_tool(),
-            KeyCode::KeyL => self.app.cycle_movement_feel(),
-            KeyCode::KeyY => self.app.cycle_water_feel(),
+            KeyCode::F3 => self.app.cycle_movement_feel(),
+            KeyCode::F4 => self.app.cycle_water_feel(),
             KeyCode::F2 => self.app.cycle_spoil_mode(),
             KeyCode::Tab => self.app.toggle_palette(),
             KeyCode::Slash => self.app.toggle_help(),

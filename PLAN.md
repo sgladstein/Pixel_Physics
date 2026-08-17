@@ -549,6 +549,105 @@ Two things to get right early:
   order now: **`entities → CA sweep → rigid bodies → render`**.
 - **Perception is cheap and unconstrained.** `MAX_REACH` binds CA rules because
   of how waking works; entities are outside the sweep and may read anywhere.
+  **Correction, from `Reports/population-dynamics-research.md` §4a:** true as an
+  engineering statement, dangerous as an ecological one. An entity that perceives
+  arbitrarily far and moves toward what it perceives has *effective* mobility far
+  above its step size, and mobility past a sharp critical threshold destroys the
+  spatial structure that coexistence depends on (Reichenbach, Mobilia & Frey,
+  *Nature* 448:1046). **Constrain perception range for ecological reasons even
+  though nothing technical requires it**, and treat perception radius × movement
+  rate as one combined stability parameter, measured rather than guessed.
+
+### M18 Phase 2's species set: a cycle, not a chain
+
+**Re-shaped from `Reports/population-dynamics-research.md` before any creature
+`.ron` is written, because it determines what they contain (§12).** The original
+sketch — a worm and something that eats worms — is the configuration Gause showed
+goes extinct *regardless of starting population*, and Huffaker only rescued it by
+engineering spatial structure **and** handicapping the predator's dispersal. A
+linear food chain has a top predator checked by nothing but starvation; a
+non-transitive cycle has every species checked by another, and coexists on a
+lattice where a two-species chain does not (§6).
+
+**Proposed cycle, using only mechanisms that already exist** — §6 notes a
+material-mediated interaction is both more interesting than "eats" and cheaper,
+since the substrate already does the work:
+
+| species | does | loses to |
+|---|---|---|
+| **worm** | burrows loose powder, loosening compacted material behind it | *binder* — hardened substrate is unburrowable |
+| **binder** | eats loose powder, excretes a compacted variant (higher `friction_angle`/`density`, which `roll_along_slope` and the two-angle repose model already turn into behaviour) | *borer* |
+| **borer** | eats binders, but can only travel through compacted material | *worm* — loosened ground strands it |
+
+A → B → C → A, expressed entirely through material properties the engine already
+simulates. **The physical refuge falls out for free**: loose sand is the worm's
+refuge from the borer, which is §3's preferred reservoir mechanism (a burrow the
+predator cannot follow into) rather than an off-screen immigration hack.
+
+**Species identity needs owner sign-off before implementation** — the cycle
+*structure* is the report's recommendation; these three particular creatures are
+this plan's proposal, not the report's.
+
+**Design rules that come with it, all from the same report:**
+
+- **Prey must disperse better than predators** — not equally, better. The single
+  most load-bearing parameter in the system (§2), and it must be **asserted as a
+  property of the `.ron` data** so a well-meaning tuning change cannot silently
+  invert it (§9c).
+- **Cap mobility at half the measured threshold.** Sweep combined mobility, find
+  where persistence falls below 50%, ship at no more than half of it — the
+  transition is sharp, so margin is cheap insurance (§9b).
+- **Density-dependent predator mortality**, the cheapest defence against the
+  enrichment problem below, and something the existing energy budget nearly
+  expresses already (§5).
+- **Acceptance is an ensemble, never a single run** (§8, §9a): all species alive
+  at 100,000 frames in ≥80% of 20 seeds. Extinction is stochastic; a parameter set
+  with a 30% extinction rate looks fine three times and then fails in front of a
+  player. This is the same finding the plant work hit independently — twelve
+  identical trees span a five-fold size range (`examples/plant_probe.rs
+  -- trees=12`) — so **one persistence-testing harness should serve both**, per
+  §12, rather than growing two.
+
+### Standing note: everything else getting better makes the ecology less stable
+
+`Reports/population-dynamics-research.md` §5, recorded here because it is exactly
+the cross-system interaction that produces a week of misdirected debugging.
+Rosenzweig's paradox of enrichment: raising the prey's carrying capacity raises
+the amplitude of population cycles, and amplitude crossing zero is extinction —
+with no atto-fox to rescue it, since an individual-based grid has extinction as a
+genuine absorbing state (§3).
+
+**Every improvement on this roadmap is an enrichment event.** Working plants mean
+more prey food; fixed water levelling means more habitable area; worldgen with a
+water table means a richer world everywhere. The plant work now in progress is
+one. So the ecology will get *less* stable as the engine gets *better*, and the
+failure will be attributed to whatever shipped most recently.
+
+**Two corrections to the report, verified against this codebase:**
+
+- **§7a (chunk sleeping) is already decided, not open.** The report asks whether
+  creatures keep their chunk awake or have timers advanced on wake, warning that
+  either silently creates a perfect refuge or a silent extinction. `scheduler.rs`'s
+  own module doc settled it: the active-site schedule is *explicitly independent
+  of chunk sleep state*, so creatures and plants tick in sleeping chunks. Record
+  it; don't re-decide it.
+- **§7d (per-chunk RNG) names the wrong generator.** `Chunk::rng` is seeded from
+  chunk coordinates, but organisms and creatures never touch it — it is reached
+  only by the CA sweep through `CellSurface::rng()`. Both `plant.rs` and
+  `creature.rs` drew from the single shared `World::rng`, whose real defect is
+  *order coupling*: every organism's sequence depends on how many draws every
+  other caller made first. The recommendation (a per-organism stream) was right
+  for the wrong reason. **Done for plants** (`rng::stream`); `creature.rs` still
+  draws from `World::rng` and should move the same way before Phase 2 breeding.
+
+**§7c is real and still open:** `World::push_creature` guards a `u16` overflow
+with a `debug_assert`, and CI runs `--release` exclusively, so it is never checked
+anywhere; in release the assert vanishes and `(len - 1) as u16` silently wraps, so
+creature 65,536 *becomes* creature 0 — two creatures sharing one state slot,
+presenting as a creature behaving erratically. `creatures` never shrinks, so with
+breeding this is a hard limit on **cumulative births**, not live population. Fix
+with the same free-list `free_organism` needs, and do them together (§7c) — the
+plant work's Decision 2 is the pass that builds it.
 
 **Verify:** a worm burrows through sand and cannot enter stone; a creature flees
 a fire it senses through the temperature field; killing one leaves a destructible
@@ -3540,6 +3639,581 @@ tip taking the larger share at §7h tick 6) is the load-bearing one, and
 `VEIN_GAIN = 0` must reproduce today's isotropic results exactly so a
 future regression here stays bisectable. Evolution stays out of scope for
 this phase either way (§8b).
+
+---
+
+## Plant substrate v2 — started, on branch `plant-substrate-v2` (session handoff)
+
+The design above was "fully planned, zero code written" for several sessions.
+Implementation started on a worktree branch off `master` at `a39da4e`, isolated
+because explosion work was live in the main working tree at the time.
+
+**Re-ordered against the design doc's own §10, for reasons that are recorded
+where they bite rather than only here.** The doc sequences sidecar → polarity →
+leaves, and instructs that neither of the first two be screenshot-verified. That
+is two large invisible refactors before anything reaches the screen, which is the
+shape `CLAUDE.md` says has repeatedly failed here. The revised order puts a
+lookable-at result at the end of every step.
+
+**Landed so far:**
+
+1. **Tooling first (`fdb7a0c`).** `render.rs` gains `OrganismOverlay` (`B`
+   cycles it), the organism-side parallel to `FieldOverlay`: cell type, resource,
+   canopy density. `filmstrip` gains `tree`/`forest` scenes and `channel=`;
+   `examples/plant_probe.rs` dumps the per-cell numbers. Baseline committed under
+   `docs/screenshots/plant-v2-baseline/` with a README of what each sheet shows.
+2. **Real leaves (`4ff9f52`).** A plastochron counter on `ActiveKind::Organism`
+   retires every N-th parent to `Leaf` instead of `MatureBody`. **This is the one
+   place the design doc is wrong:** §3a lists a plastochron counter among the
+   scalars that make the sidecar migration a prerequisite for leaves. It is not a
+   per-cell scalar — it is lineage state, which `ActiveSite` already hands
+   parent→child for `stale_ticks` — so it costs no `aux` bits and the visible half
+   of Decision 4 did not have to wait behind the migration.
+3. **Per-organism RNG (`f9ab577`)** and **open bug #3 reproduced (`dcb9c0d`)`**.
+
+**Measured, on the standard scene at 8,000 frames:**
+
+| | before | after |
+|---|---|---|
+| organism cells | 18 | 69 |
+| `Leaf` cells | 0 | 18 |
+| thickest contiguous run | 1 | 4 |
+| height | 6 rows | 33 rows |
+
+`SecondaryThicken` had **never fired on anything, ever** — it counts downstream
+`Leaf | GrowingTip` cells and tips retire the instant they grow, so the count sat
+at 0–2 against `pipe_ratio: 2.5` for a tree's whole life. Persistent leaves are
+what give it a real signal.
+
+**Four findings that change the remaining plan:**
+
+- **Transport is starved, not runaway.** `diffuse_resource` is dispatched from the
+  CA sweep, which skips settled chunks: measured awake on 22.8% of frames, then 0
+  once the tree settles, while decay runs every organism tick regardless.
+  Invisible today because `GrowingTip` carries its own `Photosynthesize` and each
+  tip funds itself; it becomes a correctness problem the moment Decision 4 moves
+  `Photosynthesize` to `Leaf` only. **Decision 2 is a correctness prerequisite,
+  not a storage tidy-up**, and its gate is this duty cycle.
+- **Growth is frontier-limited, not income-limited.** The tree stops while still
+  holding mid-range resource (and post-leaves, saturated at 4.0/4.0). No amount of
+  economy tuning lifts the ceiling; only bud break does.
+- **Single-run tuning is unsound here.** Twelve identical trees in one scene span
+  **31–153 cells and 10–33 leaves** (`plant_probe -- trees=12`). Swapping the RNG
+  alone moved the standard scene 69→19 cells. `examples/debug_tree_variants.rs`
+  compares six variants at n=1 each and is the harness the whole economy gets
+  tuned with — it needs to become an ensemble before Decision 4's re-tune, and it
+  is the same harness `population-dynamics-research.md` §12 asks the creature work
+  to share.
+- **Canopy density is *not* inert** (deposit and decay both work: 1.600 → 0.800 →
+  0.533 → 0.267 → 0), but its whole live range is ~6 quantization steps and its
+  decay constant was already tuned around the quantization half-step. That is the
+  measured version of §3a's "tail wagging the dog."
+
+**Phase 2 landed** (`5a842ba`, `31ddcb4`, `e8b91a9`, `00a84c5`) — pulled *ahead*
+of the tuning pass, because the design doc's §10 sequences its "single tuning
+pass" before step 8 gives `RootTip` an entirely new income source, which would
+guarantee the double tuning §8a exists to prevent.
+
+- **Roots grow into soil.** `Material::penetration_resistance` (MPa) against a
+  per-species `Grow.penetration_force`, calibrated to the 2–3 MPa bound where
+  real root elongation stops (Da Silva/Kay/Perfect 1994). soil 0.8, sand 1.4,
+  gravel 3.5, tree roots 1.2 — so a tree roots through soil, is refused by
+  gravel, and never touches stone. Chose a real field over the doc's cheaper
+  "use `density`": conflating them breaks wet sand and pumice.
+- **Soil holds water and roots drink it.** Per-cell moisture in a `Powder`'s
+  `aux` — **`0` means dry, the inverse of a liquid's fill**. Field capacity and
+  wilting point from the same LLWR framework, so `Absorb` credits exactly zero
+  below the wilting point and drought is terminal. Closes PLAN.md's recorded
+  `RootTip` stall, which was a missing mechanism no tuning could have fixed.
+- **`leaf` and `rootwood` are real materials**, on differing physics. `rootwood`
+  exists mainly so `update_powder` can ask "is this a root" from a bare `Cell`.
+- **Roots hold soil, weight breaks branches** — Wu–Waldron apparent cohesion,
+  and `effective_span = max_span − load / LOAD_PER_SPAN_UNIT`.
+
+**Three bugs the work exposed rather than caused**, all older than it:
+
+- `reachable_from_anchors` traversed **4** neighbours while `Grow` places
+  children at **8**, so any diagonally-grown tree read back as disconnected
+  fragments — and `thicken()`, its only production caller, had been counting a
+  fragment of the canopy rather than the canopy. Found by a test written for a
+  different bug.
+- `thicken()`'s "downstream" was never downstream: the flood spreads across
+  every connected cell with no direction. 4-connectivity had masked it. Now
+  filtered to cells above, which is what the pipe model specifies, and
+  `pipe_ratio` recalibrated 2.5 → 10.0 because its input changed by an order of
+  magnitude.
+- `RootTip` never retired, so once roots could grow, every root cell stayed an
+  eligible tip and the frontier multiplied into mats spanning the soil bed.
+
+**Decision 2 started, and it was driven by performance** (`1e7b30f`,
+`fe426ff`, plus `696630f`). Measured on six trees over 6,000 frames:
+
+| | active sites | elapsed |
+|---|---|---|
+| before | 2,698 | 41 s |
+| cheap fixes only | 2,698 | 22 s |
+| after the per-organism pass | **18** | **16 s** |
+
+- `OrganismState::cells` is hooked at **`World::set`**, not at the design
+  doc's dozen creation/removal sites. Every one of those paths writes
+  through `set`, so hooking the write is complete by construction — the
+  lesson already recorded in that function for `FLAG_MANAGED`. Gated by a
+  test checking the list against a full grid scan after growth, after
+  erasing through a canopy, and after fire.
+- Mature cells left the active-site schedule entirely; their upkeep runs in
+  one pass per organism. `thicken()`'s per-cell whole-organism flood fill
+  became one row histogram per organism, producing the identical number.
+- The dispatch no longer heap-allocates per cell per tick.
+
+**A finding worth generalising, now in `CLAUDE.md`: a performance limit
+standing in for a design one hides the design one.** `MAX_SITES_PER_FRAME`
+(2,000) against 2,698 due sites had been *accidentally throttling plant
+growth*. Removing the backlog exposed that nothing bounded root growth at
+all — roots then converted essentially a whole soil bed to root tissue.
+Fixed with real allometry (a conserved root:shoot ratio, `MAX_ROOT_FRACTION`),
+using the whole-organism totals the cell list makes cheap and §6 sanctions.
+
+**Step 0, before any new plant work: rebase onto `master`.**
+
+This branch was cut from `master` at `a39da4e` while explosion work was live
+in the main working tree, which is why it is on its own worktree at
+`.claude/worktrees/plant-v2`. That work has since landed and `master` has
+moved on, so the divergence is real and only gets more expensive to carry —
+21 commits is already past the point where deferring is the cheaper option.
+
+It is not merely hygiene. The explosion work touched `parallel.rs` and
+`surface.rs`, and the per-organism transport pass sits directly downstream
+of both. Rebasing *after* building polarity on top would mean resolving a
+transport-mechanism conflict inside a transport-mechanism change.
+
+Expect mechanical conflicts in `render.rs`, `app.rs` and
+`examples/filmstrip.rs` — every plant change to those three is additive (an
+overlay enum beside the existing one, a key binding, a new scene). Re-run
+the full suite *and* `examples/ascii` afterwards before starting anything:
+a rebase that compiles is not evidence the sweep still behaves.
+
+**Step 0 done, with one correction to the entry above.** The rebase landed on
+`abe9c2f`, not `5cb856e`: **`master`'s tip does not compile.** `5cb856e`
+("Give sand drag when it sinks into a liquid") calls
+`surface.field_wind_at(x, y)`, and that method exists in no commit — it is
+declared on `CellSurface` and implemented in `parallel.rs`/`world.rs` only in
+the *uncommitted* explosion work still live in the main working tree. So the
+explosion work has **not** landed, contrary to what this entry said, and the
+`parallel.rs`/`surface.rs` conflict it was written to get ahead of is still
+ahead of us. Rebasing onto `abe9c2f` picks up everything that builds; redo the
+last step once the explosion work is committed. Only `CLAUDE.md` conflicted
+(both sides appended method entries; both kept).
+
+**Decision 2 step 2c landed — and it was a prerequisite for polarity, not a
+tidy-up.** The handoff said the per-organism transport pass already existed.
+It did not: `step_organisms` did *upkeep*, transport was still the per-cell
+`CellSurface` rule on the CA sweep, `OrganismCell` did not exist, and the
+resource scalar was still 8-bit fixed point in `aux`. Polarity cannot be built
+on that, and the reason is arithmetic rather than taste: at §7e's constants the
+§7h Y-junction gate — which §10 calls "the real gate" — turns on a share
+difference of 0.0048, and one quantum of the packed representation is 0.0157.
+**The gate resolves 0.31 of a step.** Per-substep rounding also exceeds the
+per-substep signal at `c_min` in both directions, so §7c's exact conservation
+is unreachable. Worth noting the trap: the *chain* canalization test passes
+under packing either way (flux saturates Φ), so only the discriminating gate
+dies — a guard suite that looks green while the mechanism is unmeasurable.
+
+**Polarity landed** (`12739bc`), and the economy pass is under way. **Bud
+break is the remaining item.**
+
+### Polarity (Decision 6) — landed
+
+`carbon_conductance: [f32; 4]` on `OrganismCell`, the pairwise carrier rule
+with substeps, the Hill-function conductance update, and `Grow`'s
+`away_from_growth` → `away_from_supply` swap. Gate was a picture as well as
+unit tests: `render.rs` gained a VEIN CONDUCTANCE channel (`B` in-app,
+`channel=vein` in filmstrip) and `plant_probe` prints the distribution
+beside it. Sheets under `docs/screenshots/plant-v2-polarity/`.
+
+Deviated from §7f in one place, recorded in `transport`: density cannot run
+through the general pairwise form and stay "bit-for-bit" the symmetric
+average, because the mean rule and the pairwise rule differ by the
+neighbour count. Density keeps its tested rule.
+
+The §7h Y-junction test asserts the *claim*, not the illustration. §7h pins
+the stem at 1.0 for hunger and caps delivery at Q=0.3, which a running
+simulation cannot do both of; pinning drives flux to ~19× J_REF, saturates
+Φ on both faces and collapses the conductance ratio to 1.00. Supply-limited
+instead, the ratio lands at 1.26 against §7h's predicted 1.38.
+
+### The economy pass — three things landed, in this order
+
+**1. The harness had to become an ensemble first, and it immediately
+justified itself** (`f4ce696`). `debug_tree_variants` compared six variants
+at one tree each. Its n=1 output read as "highrate is 3× baseline"; at n=8
+that variant spans 15 to 488 and every range overlaps every other. **Any
+tuning decision taken on the old harness would have been wrong.** It now
+prints the full value list and refuses to rank when the leader's median
+sits inside the runner-up's range.
+
+Two side findings: growth converges by **4,000** frames (counts identical
+at 4k/10k/20k), so the old 20,000 was 3× longer than needed; and replicates
+must be different planting *positions*, since `rng::stream` is seeded from
+position and re-running one scene draws identical numbers.
+
+**The finding that matters is that the outcome is bimodal** — 13–21 cells
+(germinated then stopped) or 100–500, almost nothing between. A mean
+describes a population that does not exist. Report the **establishment
+rate** instead.
+
+**2. Canalization contrast 30:1 → 10:1** (`11c2b1e`). §7e names the
+contrast as the first knob when seedlings stall, ahead of
+`CARBON_SUBSTEPS`; measured, and it is right.
+
+| contrast | established | cells | strand contrast achieved |
+|---|---|---|---|
+| 30:1 | 54/96 (56%) | 4,906 | 20.7× of 30 |
+| **10:1** | **70/96 (73%)** | **6,321** | 6.1× of 10 |
+
+`TRANSPORT_RATE` re-derives with it (0.008 → 0.024) and that coupling *is*
+the mechanism: lowering contrast raises the rate the stability bound
+permits, and unpolarized tissue conducts at `RATE · CONDUCTANCE_MIN`, so a
+seedling with no strand gets 3× the transport. 5:1 tried and rejected.
+
+**3. `thicken()` measures the trunk's real cross-section** (`c0e278f`) —
+and this was the big one.
+
+`width` was a count of immediate left/right neighbours, so the *growing end
+of a run* always read 2 however wide the trunk had become. It passed
+`leaf_count / width > pipe_ratio` forever and spread sideways without
+limit. Now the full contiguous run, measured perpendicular to the stem
+(axis from `supply_direction` — the first consumer of the conductance field
+outside transport).
+
+| | before | after |
+|---|---|---|
+| thickest run on one row | 105 | 51 |
+| stem thickness above base, max | 103 | 32 |
+| stem thickness above base, median | 5 | 6 |
+| rows >1 cell wide | 38% | 44% |
+| leaves, max | 31 | 55 |
+
+**And it roughly doubled establishment** — baseline 5/12 → 11/12 at n=12,
+best variant 75% → 100%. Not predicted; measured, then explained.
+`thicken` grows *through* its own leaves, so an unbounded trunk ate the
+seedling's foliage faster than it could be replaced, starving the plant
+building it. The visible symptom (a slab) was two steps removed from the
+damage (seedlings quietly failing).
+
+### AUDIT: what the scene discovery invalidates, and what survives
+
+**The environment every plant judgement was made in is not fit for plants**,
+and this was found only after the polarity and economy work. See
+`Reports/tree-architecture-research.md` §6. Headroom above ground, by
+harness:
+
+| harness | rows of sky | used for |
+|---|---|---|
+| `debug_tree_variants` | **20** | the canalization contrast tuning |
+| `plant_probe` (default `ground=40`) | **40** | every ensemble number below |
+| `filmstrip` `tree` / `forest` | **40** | every screenshot |
+
+Trees reach 41-47 rows in those scenes, so **they are pressed against the
+ceiling and can only spread sideways**. Measured directly: widest
+above-ground row is **56 cells at 40 rows of sky and 7 cells at 70**. The
+"canopies merge into a slab" symptom that drove two sessions of work is
+substantially this.
+
+And there is no depth that fixes it, because `field.rs` seeds light only on
+the topmost chunk's top row and diffuses it down with `LIGHT_DECAY` —
+**light attenuates through empty air**, so headroom costs illumination.
+Same trees, `ground=70`, decay alone: median height **21 → 65** and biomass
+**1,271 → 15,362**. Light is the binding constraint on tree size; no plant
+mechanism was ever the limit.
+
+**Stands — correctness, established by synthetic unit tests or by
+run-to-run comparison, with no dependence on scene shape:**
+
+- The Decision 2 sidecar migration, and transport moving off the CA sweep.
+- The `ChunkView` cell-list bug (a falling seed vanished from its own
+  organism), both halves — same-chunk and remote.
+- The determinism fix (sorted iteration; 5877/5872/5881 → 5806 ×3).
+- `RootTip` retiring instead of becoming a phantom.
+- A root growing into soil displacing its water instead of deleting it.
+- The capillary capacity clamp.
+- Transport honouring `RESOURCE_SCALE` (a cell held 92.0 against a cap of 4).
+- The polarity mechanism itself and its six tests — all synthetic organisms.
+- `thicken()`'s width bug. The *defect* is real and scene-free: the growing
+  end of a run always read `width = 2`, so the gate never terminated.
+- The ensemble harness, and all three metric corrections. **These are worth
+  more now, not less** — the audit was only possible because the metrics
+  had been cleaned up.
+
+**Must be re-measured — tuned or judged against a ceiling:**
+
+- **The canalization contrast 30:1 → 10:1.** Tuned on establishment rate in
+  the 20-row scene. The *direction* may well hold; the numbers do not.
+- **`thicken()`'s measured magnitudes** (slab 105 → 51, establishment
+  doubled). The fix stands, the effect sizes were measured against a
+  ceiling.
+- **The bud break verdict.** "Fills the world as a solid mass" was measured
+  against a 40-row ceiling, and the mass is exactly what a ceiling
+  produces. **That revert may have been wrong**, and re-testing it in a
+  proper scene is the first thing to do after the scene exists.
+- **`tree-architecture-research.md` §1** (maintenance respiration and
+  self-pruning). Reasoned from the mass symptom. The biology is sound and
+  the citations stand; whether it is *this engine's* missing mechanism is
+  now unproven.
+- The respiration and gravitysense sweeps, both run in the bad scene.
+
+**The environment is now fixed, and it corrected the audit above.**
+`LIGHT_DECAY` 0.997 → 0.9997 (air is near-transparent; attenuation comes
+from occlusion, where it belongs), plus a `grove` scene with ~96 rows of
+sky. Frame cost unchanged, paired: 10.027 → 10.061 ms.
+
+**And with light and headroom both fixed, the mass is real.** Trees now
+reach 94 rows tall instead of 21 — and then grow into a large branching
+blob anyway. So the ceiling was *hiding* the problem by starving growth,
+not causing it. Two consequences:
+
+- The audit above overstated. "The slab is substantially a ceiling
+  artifact" is **wrong**; the ceiling was a confound, and removing it makes
+  the mass more visible, not less.
+- **`Reports/tree-architecture-research.md` §1 is back on.** Maintenance
+  respiration and self-pruning remain the best candidate for what is
+  missing, and can now be tested somewhere the answer means something.
+
+What still stands from the audit is the *list* — every correctness fix
+survives, and every tuned number (the canalization contrast above all,
+measured in a 20-row scene) still needs re-deriving in `grove`.
+
+### The blob is almost pure wood, and `thicken()` is why
+
+Measured in `grove` (96 rows of sky, light fixed), 8 trees:
+
+| frame | total | Leaf | MatureBody | widest run above ground |
+|---|---|---|---|---|
+| 3,000 | 868 | 92 | 768 | 10 |
+| 5,000 | 2,711 | 184 | 2,512 | 34 |
+| 9,000 | 8,611 | 255 | 8,355 | 103 |
+| 14,000 | 12,292 | **253** | **12,039** | 105 |
+
+**Foliage plateaus at ~255 while wood grows to 12,039.** From frame 5,000
+on, leaves grow 38% and wood grows 379%; the wood:leaf ratio goes 8:1 →
+**48:1**. The blob is not a canopy at all, it is secondary thickening —
+and `SecondaryThicken`'s whole justification is Shinozaki's pipe model,
+*wood in proportion to the foliage it supplies*. At 48:1 that gate is
+plainly not binding.
+
+**The growth trajectory passes through a good tree and keeps going.** The
+time series is unambiguous: frames 3,300–5,100 read as a genuine tree —
+vertical trunk, branching crown, thickened base — and everything after is
+the same tree filling in. So the *shape* mechanisms are broadly right and
+what is missing is anything that stops the filling. That is a much better
+position than "trees are the wrong shape".
+
+**Prime suspect, and it is in code this branch already touched.**
+`thicken()` measures `width` along the axis perpendicular to
+`supply_direction`. In a slender stem that axis is meaningful. Inside a
+blob the supply direction is near-arbitrary, so the "perpendicular" is
+arbitrary too, and the run it measures is not the cell's actual thickness —
+a horizontal lobe measured vertically reads as thin and keeps widening.
+The fix that made the *end of a run* terminate correctly (`c0e278f`) does
+not help once the axis itself is meaningless. Check this before reaching
+for self-pruning: it is cheaper, and it is a defect rather than a missing
+mechanism.
+
+**Order from here:** re-measure in `grove`, in this order — the
+canalization contrast, then self-pruning, then the bud break verdict. Do
+not re-tune anything against `forest` or the default `plant_probe` ground
+again; both are 40-row scenes and are now for root and soil work only.
+
+### Bud break — built, measured, and **reverted**. Read this before rebuilding it.
+
+`Reports/plant-substrate-v2-design.md` §2e specifies `BudBreak {
+resource_threshold, crowding_threshold, chance }` on `MatureBody`, argues
+it is "self-limiting without a cap", and calls it the only thing that can
+lift the size ceiling. It was implemented as written, wired into
+`tree.ron`, measured, and taken back out. **Three of its claims are false in
+this engine, each falsified by measurement rather than argument.**
+
+**The ceiling is real.** Without budding, a 24-tree ensemble reaches 0
+active sites by frame 16,000 and is flat from there (4,682 → 7,265 →
+7,466 → 7,484 at 4k/8k/16k/24k). So §2e's diagnosis is right even though
+its mechanism is not.
+
+**1. "Surplus resource" carries no information.** The premise is that a
+mature cell holding surplus has nothing downstream consuming what it is
+fed. It does not: carbon fills *every* cell to `RESOURCE_SCALE` exactly
+(that is what `transport`'s headroom clamp guarantees), so once a tree
+stops growing every mature cell is at the cap simultaneously. Raising
+`resource_threshold` from 0.75 to **0.99** — a near-impossible surplus —
+moved the ensemble from 17,181 to 17,365 cells. It is not a gate.
+
+**2. "Self-limiting without a cap" is false.** Local crowding closes for
+about two ticks (`GROW_CANOPY_DEPOSIT` 1.5, halved every tick), and
+conductance is no better: with growth stopped there is no flux anywhere,
+so every face decays to basal together. **When a tree stops growing, every
+local signal equalizes at once**, so any purely local "am I idle" test
+fires on every mature cell simultaneously. A per-cell chance then makes
+budding proportional to *volume* — every new cell is another bud site —
+and the tree fills in as a solid mass. The time series is unambiguous:
+recognisable tree to frame 2,000, then a mound expanding from the base
+with leaves buried inside it.
+
+**3. A rate cap is not enough, and neither is allometry.** Moving the roll
+to one per organism per tick converts exponential growth into linear
+growth, and linear growth still fills the world — the canopy went lumpy at
+frame 12,500 instead of 3,000. Adding the shoot-side allometry bound this
+file asks for (`MAX_SHOOT_FRACTION`, the mirror of `MAX_ROOT_FRACTION`)
+does **not** fix it either, and the reason generalises: **a ratio bound
+does not bound size.** Roots and shoot can both grow without limit while
+staying in band. Measured with budding off, the shoot bound cost ~13%
+biomass (7,484 → 6,529 at frame 24,000) and changed nothing about
+saturation, so it is a tax with no benefit unless something else is
+producing frontier. Both reverted.
+
+**What is *not* the problem: self-shading.** It works — `field.rs` blocks
+light on `MaterialKind::Plant`, so a buried cell really is dark. The canopy
+grows at its *lit surface*, which is correct; the slab is the mass filling
+in behind that surface.
+
+**What a future attempt needs.** Not a better threshold — a real bound on
+absolute size, which this engine currently has nowhere. Two candidates
+neither of which was tried: making growth cost rise with distance from the
+roots (a hydraulic limit, which is what actually bounds real trees), or
+triggering budding on **disturbance** rather than idleness, which is both
+the cited biology (`research/m16-plant-biology.md` §5's fire-resprouting)
+and self-limiting by construction. The second is also the more satisfying
+one in the hand — cut a limb and the tree resprouts near the wound — and
+it needs no size bound at all, because the trigger is an event rather than
+a state.
+
+**Do not tune against `rows >1 cell wide`.** It is dominated by the basal
+slab; eight A/B runs were spent chasing a "regression" in it that turned
+out to be the metric, not the trees. Judge on **stem thickness above the
+base**, on the **establishment rate**, and on the picture.
+
+**Two bugs step 2c exposed, both older than it, both recorded where they
+bite:**
+
+- **The organism cell-list hook was incomplete, and its guard test could not
+  see it.** `World::set` maintains `OrganismState::cells`, and step 2a
+  recorded that hooking that one seam was "complete by construction". It is
+  complete over every *caller* — but `parallel::ChunkView::set` writes a
+  same-chunk cell straight into its own `Chunk` and never calls `World::set`.
+  A falling seed therefore dropped out of its own organism's cell list while
+  staying in the grid. Latent while the list was behaviour-free; **fatal the
+  moment carbon moved into it** — the shoot read 0 carbon forever, `write_
+  carbon` was a silent no-op, and every seed that fell germinated and then
+  never grew. `filmstrip scene=forest`: 253 → 5468 organism cells before,
+  **8 → 8** after, i.e. four germinated seedlings and nothing else, for 8,000
+  frames. Fixed by queueing the membership change in `ChunkView` and replaying
+  it after the pass, exactly the shape its `demotions` queue already had.
+  `every_organism_cell_list_agrees_with_the_grid` runs `update::step` — the
+  *serial* driver — so it never built a `ChunkView` and could not fail. This
+  is `CLAUDE.md`'s "test both drivers" costing a session.
+- **`organism_upkeep` was non-deterministic.** It iterated the cell `HashSet`
+  directly, and Rust seeds its hasher per process, so the same binary on the
+  same scene gave 5877 / 5872 / 5881 organism cells on three consecutive runs.
+  Sorting row-major gives 5806 three times. `PLAN.md` requires same-build
+  determinism and it was not being met.
+
+**And one constant the migration invalidated, deliberately left for the economy
+pass.** Canopy density was 4 bits, `CANOPY_DENSITY_DECAY_PER_TICK` is a
+halving, and 0.267 × 0.5 = 0.133 rounds straight back to 0.267 — so density had
+a **permanent floor of one quantum on every cell that ever received a
+deposit**, and the mechanism whose whole purpose is letting later growth
+reclaim space near mature wood could never release it. As `f32` it now reaches
+zero.
+
+**`rows >1 cell wide` mostly measures the basal pancake. Do not tune against
+it.** This is the metric trap `CLAUDE.md` warns about — ask what a metric counts
+when nothing is wrong — found the expensive way, after eight A/B runs chasing a
+"regression" in it.
+
+Paired 24-tree ensembles across the migration:
+
+| | baseline | after 2c |
+|---|---|---|
+| total organism cells | 5872–5881 | 5806 |
+| rows >1 cell wide, mean | 42% | 35% |
+| **thickest contiguous run on one row** | **61** | **121** |
+| **stem thickness above the base**, mean | **11.8** | **13.3** |
+| stem thickness above the base, median | 5 | 4 |
+
+The headline metric dropped 42 → 35, which reads as "trees got thinner". They
+did not: *above the base*, where the trunk actually is, they are slightly
+**thicker** on the mean. The entire gap sits in the basal region, where
+`thicken()` spreads sideways along open ground — the pancake this file already
+lists as known-open. The migration widened the outcome distribution: more pure
+whips *and* a bigger maximum slab (121 cells vs 61), at flat mean biomass.
+
+**Lowering `pipe_ratio` "fixes" the metric by making the pancake worse.**
+Measured: 10.0 → 6.0 takes the metric from 35% to 43%, matching baseline — and
+takes biomass from 5,806 to 13,795 and draws a slab spreading the full width of
+the ground. Reverted; `pipe_ratio` stays 10.0. **The real fix is the `thicken()`
+change already on the books** (grow around the stem rather than left/right, and
+stop `width` reading 1 on a diagonal stem), not a tuning knob.
+
+**Eight candidate causes for the 42 → 35 shift were A/B'd; all were ruled out**
+— every variant lands at 35–37 and none reaches 42:
+
+| variant | rows >1 cell wide, mean |
+|---|---|
+| baseline (4 runs, stable) | 42 |
+| migrated, as shipped | 35 |
+| + canopy density re-quantized | 36 |
+| + resource re-quantized | 36 |
+| + transport per-frame at 1 substep | 36 |
+| + transport gated on chunk-awake (old duty cycle) | 35 |
+| + iteration order reversed | 35 |
+| + scalar writes dirty the chunk again | 35 |
+| + Gauss-Seidel instead of Jacobi | 37 |
+| + Gauss-Seidel and both quantizations | 35 |
+
+Not cumulative — the combination is *worse* than Gauss-Seidel alone, so these
+interact rather than adding. Given the metric turned out to be pancake-dominated,
+the shift is no longer worth chasing as a defect; **judge the next pass on stem
+thickness above the base and on the picture, not on this number.**
+
+**A metric caveat worth carrying into that pass:** `plant_probe` plants its
+seeds *on the ground*, so its trees never fall. It therefore reported a healthy
+−1% biomass change while `filmstrip`'s `forest` scene — which drops seeds 25
+cells, like real play — was totally dead. The ensemble is the right tool for
+tuning and was structurally blind to a total growth failure. Shoot a picture.
+
+**The economy pass now has concrete, visible targets** — all consequences of
+the same removed throttle, and all shape/tuning rather than missing
+mechanism, which is why they wait for the single pass after polarity rather
+than being tuned twice:
+
+- **Canopies merge into a slab.** Roots are bounded by allometry; the shoot
+  is bounded by nothing equivalent. The mechanisms that should bound it
+  (self-shading, the resource gate) exist and are mis-parameterised.
+- **`thicken()` makes a pancake, not a trunk.** It only grows left/right, so
+  a trunk base carrying the whole canopy spreads sideways along open ground.
+  `width` is also still "same-organism cells immediately left/right on this
+  row", which on a diagonal stem is 1 almost everywhere. Fix both when
+  `thicken()` is next touched.
+- Tree-to-tree variance was 5x before any of this; `examples/
+  debug_tree_variants.rs` still compares six variants at n=1 each and must
+  become an ensemble before the pass.
+
+**Known-open, carried forward:**
+
+- **Trees still read as whips.** ~75% of a tree's rows are one cell wide.
+  `thicken()`'s `width` term counts same-organism cells immediately left/right on
+  one row, which on a diagonal stem is 1 almost everywhere — fix it when
+  `thicken()` is next touched (Decision 2 §3e already bounds its scan).
+- **Tree-to-tree variance is 5x** (31–153 cells from one genome, `plant_probe --
+  trees=12`). `examples/debug_tree_variants.rs` still compares six variants at
+  n=1 each and must become an ensemble before the economy pass.
+- **`water_capacity` is opt-in per material** (soil only). Real sand holds water;
+  widening it means teaching the engine's liquid-conservation tallies about held
+  water first.
+- Anoxia necrosis deferred to the economy pass — it needs the sidecar's
+  `anoxia_ticks`.
+
+**`germinate()`'s root gate is deferred to Phase 2 deliberately.** Refusing a root
+on bare stone is *correct* — trees should not root in rock. It refuses on soil
+too, and that is the real bug, but it cannot be fixed honestly until roots can
+enter soil.
 
 ---
 

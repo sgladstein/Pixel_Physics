@@ -25,12 +25,18 @@
 //! the honest debt — they need the whole world's shape, and paying them off
 //! is exactly what the coarse `(x, z)` map of design doc §5 is for.
 //!
+//! # Water, and how to remove it
+//!
+//! The water table is the part of this design most at risk of being right and
+//! not fun, so it is built to be removable by data rather than by code:
+//! `table_offset` past the world height puts the table below the floor, which
+//! produces no pools and no moisture floor at all. The `arid` and `flat`
+//! presets both ship that way. Nothing underground ever fills with liquid
+//! regardless of the setting — see [`passes::moisture_init`].
+//!
 //! # What is not here yet
 //!
-//! Water, moisture and plant scatter are designed and deliberately not built:
-//! they sit behind a playtest of the terrain alone, because the water table
-//! is the part of the design most at risk of being realistic and not fun.
-//! Caves, erosion, world age and streaming are later milestones.
+//! Caves, erosion, world age and streaming.
 
 pub mod column;
 pub mod legacy;
@@ -87,6 +93,16 @@ const PASSES: &[Pass] = &[
     Pass { name: "brows", margin: 4, run: passes::brows },
     Pass { name: "talus", margin: 3, run: passes::talus },
     Pass { name: "pockets", margin: 0, run: passes::pockets },
+    // The two water passes read the whole world: where water stands depends
+    // on the lowest rim enclosing a hollow, which can be any distance away.
+    // They are the first honest `GLOBAL` entries in this table and the debt
+    // the coarse map is for.
+    Pass { name: "ponds", margin: GLOBAL, run: passes::ponds },
+    Pass { name: "soil_moisture", margin: GLOBAL, run: passes::soil_moisture },
+    Pass { name: "moisture_init", margin: GLOBAL, run: passes::moisture_init },
+    // Last, so it can see the finished ground -- including whether a column
+    // ended up under water.
+    Pass { name: "life_scatter", margin: 0, run: passes::life_scatter },
 ];
 
 /// Everything the passes share: the decided columns, and the material ids
@@ -99,6 +115,7 @@ pub struct Ctx<'a> {
     pub soil: MaterialId,
     pub sand: MaterialId,
     pub gravel: MaterialId,
+    pub water: MaterialId,
 }
 
 impl<'a> Ctx<'a> {
@@ -110,7 +127,8 @@ impl<'a> Ctx<'a> {
                 .id_of(name)
                 .unwrap_or_else(|| panic!("{name} is a compiled-in material"))
         };
-        let (stone, soil, sand, gravel) = (id("stone"), id("soil"), id("sand"), id("gravel"));
+        let (stone, soil, sand, gravel, water) =
+            (id("stone"), id("soil"), id("sand"), id("gravel"), id("water"));
         // Read soil's angle of repose from the material data rather than
         // assuming it: the generator's whole at-rest guarantee is that it
         // never places soil steeper than this, and an edit to `soil.ron` that
@@ -119,7 +137,7 @@ impl<'a> Ctx<'a> {
         let terrain =
             Terrain { seed, params, w: bounds.max_x + 1, h: bounds.max_y + 1, soil_tan };
         let plans = terrain.plan_all();
-        Self { terrain, plans, stone, soil, sand, gravel }
+        Self { terrain, plans, stone, soil, sand, gravel, water }
     }
 }
 
@@ -148,6 +166,12 @@ pub fn generate_reported(world: &mut World, spec: Spec) -> Vec<(&'static str, us
             Vec::new()
         }
         Spec::Generated { params, seed } => {
+            // The world keeps its own seed, because generation is not the
+            // only thing that needs to know which world this is: a plant's
+            // genotype is drawn from it (`plant::seed_genotype`), so two
+            // worlds grown from different seeds must not produce the same
+            // individual at the same coordinate.
+            world.seed = seed;
             let ctx = Ctx::new(world, params, seed);
             PASSES.iter().map(|pass| (pass.name, (pass.run)(&ctx, world))).collect()
         }
@@ -182,15 +206,15 @@ mod tests {
     use crate::sim::chunk::Rect;
 
     #[test]
-    fn no_pass_is_global_yet() {
-        // Every pass built so far is chunk-local. This is not decoration: it
-        // is the property that decides whether streaming needs the coarse map
-        // first, and the water passes (which will be GLOBAL) are exactly the
-        // ones being held back for a playtest. If this starts failing,
-        // something global was added without that being a deliberate call.
-        for (name, margin) in pass_summary() {
-            assert_ne!(margin, GLOBAL, "{name} reads the whole world");
-        }
+    fn only_the_water_passes_read_the_whole_world() {
+        // Which passes are `GLOBAL` is the list of things standing between
+        // this generator and per-chunk generation, so it is worth being an
+        // assertion rather than a comment: adding a third one should be a
+        // deliberate decision that fails here first, not something noticed
+        // when streaming is attempted.
+        let global: Vec<&str> =
+            pass_summary().into_iter().filter(|(_, m)| *m == GLOBAL).map(|(n, _)| n).collect();
+        assert_eq!(global, vec!["ponds", "soil_moisture", "moisture_init"]);
     }
 
     #[test]

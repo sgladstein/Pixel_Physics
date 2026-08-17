@@ -99,24 +99,51 @@ const HEAT_DIFFUSION_RATE: f32 = 0.2;
 /// right without being physically accurate. Revisit if M6's rendering needs
 /// something better.
 const LIGHT_DIFFUSION_RATE: f32 = 0.3;
-/// Retuned from an original 0.85 ("diffuse fast, decay hard," a genuine
-/// local-glow-only reading) to 0.997, by explicit owner request: outdoor
-/// sunlight reaching real depth is more realistic than requiring every
-/// tree to be planted within a couple of field rows of open sky, which the
-/// original steep decay effectively forced (`Germinate`'s own light gate
-/// made that a hard requirement, not just an aesthetic one, once the tree
-/// rewrite made light-gated germination real). At the old value, light
-/// crossed below a `0.1` reading roughly 20 world cells below open sky; at
-/// this value, roughly 75 (see the git history for the exact depth-probe
-/// numbers this was tuned against). The real cost: convergence to a static
-/// sky amplitude now takes roughly 100x longer (`the_sky_keeps_cycling_
-/// through_day_and_night_even_after_the_field_goes_quiet`'s own updated
-/// doc has the specifics) — the field-sleep optimization (issue #4) stays
-/// correct, it just spends more real frames awake near each day/night
-/// peak/trough before qualifying. A live perf re-check against the stress
-/// scene is worth doing before this ships broadly; not done as part of
-/// this change.
-const LIGHT_DECAY: f32 = 0.997;
+/// Per-step decay on the **diffusive** light component only.
+///
+/// **Read this before reaching for it to change how bright the world is:
+/// direct sunlight does not pass through here at all any more.**
+/// `apply_sky` casts sun down each column and takes a `max`, so daylight's
+/// reach is set by occlusion (`FieldTile::occupancy`) and never by this
+/// constant. What decays here is the *bounce*: lateral bleed that softens
+/// a canopy's shadow instead of leaving a hard stencil edge at field
+/// resolution, and point sources like fire.
+///
+/// So the tuning question this constant answers is "how far does light
+/// spill sideways from where it lands", and the answer wanted is *not
+/// far* — a glow, not a second sun. 0.95 gives a handful of blocks.
+///
+/// ## The history, because it is the part that keeps being re-derived
+///
+/// This constant used to carry sunlight, and was pushed 0.85 → 0.997 →
+/// 0.9997 chasing the consequences. Everything below is why it is not
+/// carrying it now, and why moving it back would be a mistake:
+///
+/// - Air attenuating sunlight is not a thing air does, but a
+///   diffusion-with-decay model has no way to say so: at 0.997 an
+///   *empty* world read 4.00 at the surface and 0.16 at depth 128,
+///   crossing `Germinate`'s 0.1 gate in vacuum. Illumination was a
+///   function of distance from the world's top edge.
+/// - That made height its own reward, so every scene ended with its trees
+///   pinned against the boundary, and it made scene depth a cliff rather
+///   than a curve — no ground depth was both well-lit and un-ceilinged.
+/// - The value was then outcome-justified at 0.9997 on a 25x tree-size
+///   difference, honestly measured and still treating the symptom.
+///
+/// `apply_sky`'s column cast (`Reports/tree-architecture-implementation-
+/// plan.md` §0f) fixed the cause: **clear air does not attenuate sunlight,
+/// occluders do.** With sunlight off this channel the old value was doing
+/// nothing but spreading every point source across the whole world, and
+/// 0.95 — close to the original local-glow reading — is what a bounce
+/// term should be. The three recorded side effects of the 0.9997 era went
+/// with it: the germination gate is reachable again, the deep field no
+/// longer inverts for half of every day/night cycle, and caves stay dark.
+///
+/// One live symptom of that era survives and is *not* this constant's
+/// doing: `Germinate`'s gate is degenerate in the other direction now,
+/// because powders and liquids are transparent to `occupancy`, so a
+/// buried seed still passes it. See `rebuild_blocked`.
+const LIGHT_DECAY: f32 = 0.95;
 
 /// Humidity spreads through air more readily than it evaporates away, unlike
 /// light — a much larger diffusion rate than `LIGHT_DIFFUSION_RATE`, still
@@ -155,7 +182,7 @@ const MAX_TEMPERATURE: f32 = 4000.0;
 /// thermodynamics engine, and something can legitimately overshoot slightly
 /// during a single damped step without that being a bug worth chasing.
 const MIN_TEMPERATURE: f32 = -270.0;
-const MAX_LIGHT: f32 = 4.0;
+pub const MAX_LIGHT: f32 = 4.0;
 /// Architecture report §4. No physical unit — a relative "how much ambient
 /// humidity" scalar, same spirit as `MAX_LIGHT`: not calibrated against a
 /// real quantity, just a fixed ceiling the diffusion/decay constants below
@@ -211,6 +238,25 @@ pub struct FieldTile {
     /// solve, because the solve reads it many times per step and CA lookups
     /// are not free.
     blocked: Box<[bool]>,
+    /// **How full this block is**, 0..=255 over its `FIELD_SCALE²` CA
+    /// cells, recomputed in the same scan as `blocked`.
+    ///
+    /// `blocked` is all-or-nothing over an 8x8 region, and that is far too
+    /// coarse for foliage. One twig anywhere in a block marks the whole
+    /// block opaque, so a tree canopy reads as a solid wall: measured, 88%
+    /// of all leaf cells in a grown stand sat below 0.05 light, and there
+    /// was no threshold anywhere between "prunes nothing" and "defoliates
+    /// the world". Two mechanisms are stuck behind that — shade-driven leaf
+    /// abscission, and phototropism, which measured completely inert across
+    /// 1,024 genomes because there is no gradient left to steer by.
+    ///
+    /// Occupancy makes transmission continuous instead of binary, which is
+    /// Beer-Lambert as it should have been: a sparse spray of twigs passes
+    /// most of the light, a dense crown passes little, solid rock passes
+    /// `SKY_TRANSMISSION`. Costs one `u8` per field block and no extra
+    /// scanning — `rebuild_blocked` already visits every CA cell in the
+    /// block and was throwing the count away.
+    occupancy: Box<[u8]>,
     /// Also recomputed every step, in the same scan as `blocked` — whether
     /// any `Liquid` CA cell falls inside this field block. `apply_moisture_
     /// sources` reads this at the end of `step` (mirroring `apply_sky`'s use
@@ -218,7 +264,36 @@ pub struct FieldTile {
     /// wherever it's still true, the same "recompute the source condition
     /// fresh every active frame, don't try to track it incrementally"
     /// approach `blocked` itself already uses.
-    moisture_source: Box<[bool]>,
+    /// **A level, 0..1, not a flag.** Standing liquid sources at 1.0 as it
+    /// always did; damp *soil* sources in proportion to how damp it is.
+    ///
+    /// Without this, per-cell soil moisture was invisible to everything but
+    /// the roots drinking it: `is_damp` (moss) and `moisture_pull` (root
+    /// hydrotropism) both read this field, and this field only knew about
+    /// standing water. Roots steered toward puddles and ignored moist
+    /// ground, and moss would not grow on damp earth. Grading the source is
+    /// what closes the loop `Reports/plant-substrate-v2-design.md` §4d
+    /// describes — infiltrate, hold, drink, deplete, *and be noticed*.
+    moisture_source: Box<[f32]>,
+    /// A lower bound on moisture that evaporation may not take a cell below.
+    ///
+    /// The saturated ground beneath the water table. Worldgen writes it once
+    /// (`worldgen::passes::moisture_init`) and it does not change again,
+    /// which makes it categorically different from every other array on this
+    /// tile: `blocked` and `moisture_source` are *recomputed from the CA
+    /// grid* every step, whereas this is **authored** and has no CA state to
+    /// be recomputed from. That is why `step` has to carry it forward
+    /// explicitly rather than getting it for free — see the copy in `step`.
+    ///
+    /// It exists because the aquifer cannot be liquid cells. A cell holds one
+    /// material and there is no porosity, so "saturated rock" is rock whose
+    /// *field* says it is wet; without a floor, evaporation would dry the
+    /// deep world out within a few hundred frames and the water table would
+    /// quietly cease to exist. Moisture above the floor still decays
+    /// normally, so surface humidity, puddles and rain all behave as before —
+    /// this is the hybrid persistence `Reports/worldgen-design.md` §8 asks
+    /// for, not a second moisture channel.
+    moisture_floor: Box<[f32]>,
 }
 
 impl FieldTile {
@@ -228,7 +303,9 @@ impl FieldTile {
         Self {
             cells: vec![FieldCell::AMBIENT; FIELD_TILE_AREA].into_boxed_slice(),
             blocked: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
-            moisture_source: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
+            occupancy: vec![0u8; FIELD_TILE_AREA].into_boxed_slice(),
+            moisture_source: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
+            moisture_floor: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
         }
     }
 
@@ -253,18 +330,48 @@ impl FieldTile {
     }
 
     #[inline]
+    /// Fraction of this block's CA cells that hold material, 0.0..=1.0.
+    pub fn occupancy_local(&self, lx: i32, ly: i32) -> f32 {
+        self.occupancy[Self::local_index(lx, ly)] as f32 / 255.0
+    }
+
+    fn set_occupancy_local(&mut self, lx: i32, ly: i32, filled: u32, total: u32) {
+        let q = filled.saturating_mul(255).checked_div(total).unwrap_or(0).min(255);
+        self.occupancy[Self::local_index(lx, ly)] = q as u8;
+    }
+
     fn set_blocked_local(&mut self, lx: i32, ly: i32, blocked: bool) {
         self.blocked[Self::local_index(lx, ly)] = blocked;
     }
 
     #[inline]
-    fn is_moisture_source_local(&self, lx: i32, ly: i32) -> bool {
+    fn moisture_source_local(&self, lx: i32, ly: i32) -> f32 {
         self.moisture_source[Self::local_index(lx, ly)]
     }
 
     #[inline]
-    fn set_moisture_source_local(&mut self, lx: i32, ly: i32, source: bool) {
+    fn set_moisture_source_local(&mut self, lx: i32, ly: i32, source: f32) {
         self.moisture_source[Self::local_index(lx, ly)] = source;
+    }
+
+    #[inline]
+    pub fn moisture_floor_local(&self, lx: i32, ly: i32) -> f32 {
+        self.moisture_floor[Self::local_index(lx, ly)]
+    }
+
+    #[inline]
+    pub(crate) fn set_moisture_floor_local(&mut self, lx: i32, ly: i32, floor: f32) {
+        self.moisture_floor[Self::local_index(lx, ly)] = floor.clamp(0.0, MAX_MOISTURE);
+    }
+
+    /// Carry the authored floor across into a freshly built tile.
+    ///
+    /// `step` rebuilds every tile from scratch each frame, which is right for
+    /// the two arrays derived from the CA grid and wrong for this one: it has
+    /// no source to be derived from, so without this the floor would survive
+    /// exactly one frame and the aquifer would evaporate.
+    fn inherit_moisture_floor(&mut self, previous: &FieldTile) {
+        self.moisture_floor.copy_from_slice(&previous.moisture_floor);
     }
 }
 
@@ -479,7 +586,14 @@ pub fn step(world: &mut World) {
     // `next` — no aliasing, because nothing is shared.
     let mut next: HashMap<ChunkCoord, FieldTile> = HashMap::with_capacity(coords.len());
     for &coord in &coords {
-        next.insert(coord, FieldTile::new());
+        let mut tile = FieldTile::new();
+        // The one array on a tile that is authored rather than derived, so
+        // the only one a fresh tile cannot reconstruct. See
+        // `FieldTile::moisture_floor`.
+        if let Some(previous) = world.fields_ref().get(&coord) {
+            tile.inherit_moisture_floor(previous);
+        }
+        next.insert(coord, tile);
     }
 
     rebuild_blocked(world, &coords, &mut next);
@@ -548,7 +662,7 @@ fn is_converged(old: &HashMap<ChunkCoord, FieldTile>, coords: &[ChunkCoord], nex
 /// for a few thousand frames (the scale of this file's own longer tests,
 /// and of `plant.rs`'s multi-thousand-frame growth runs) sees at least one
 /// full day and one full night, not just a sliver of one.
-const DAY_NIGHT_PERIOD_FRAMES: u64 = 3600;
+pub const DAY_NIGHT_PERIOD_FRAMES: u64 = 3600;
 /// Floor on `sky_light_amplitude` at the darkest point of night — real
 /// moon/starlight, not absolute zero. Keeps night from being a hard on/off
 /// switch for everything reading the light channel (moss shade-seeking,
@@ -563,9 +677,47 @@ const NIGHT_LIGHT_FLOOR: f32 = 0.2;
 /// from sunrise, a peak at noon, a smooth fall to sunset, then flat dark
 /// until the next sunrise — not a pure sinusoid with no true night.
 fn sky_light_amplitude(frame: u64) -> f32 {
-    let phase = (frame % DAY_NIGHT_PERIOD_FRAMES) as f32 / DAY_NIGHT_PERIOD_FRAMES as f32;
-    let daylight = (phase * std::f32::consts::TAU).cos().max(0.0);
+    let daylight = sun_elevation(frame).max(0.0);
     NIGHT_LIGHT_FLOOR + daylight * (MAX_LIGHT - NIGHT_LIGHT_FLOOR)
+}
+
+/// How high the sun stands, as `-1.0` (deep night) through `0.0` (exactly
+/// sunrise or sunset) to `1.0` (noon).
+///
+/// The same cosine [`sky_light_amplitude`] is built from, exposed because the
+/// renderer draws a sky from it and the two must not drift: a sky painting
+/// dawn while the light channel still says midnight would be worse than no
+/// sky at all. This is the shared definition of what time it is, and the sign
+/// is what tells sunrise from sunset — `sun_rising` reads the other half of
+/// the cycle for that.
+pub fn sun_elevation(frame: u64) -> f32 {
+    let phase = (frame % DAY_NIGHT_PERIOD_FRAMES) as f32 / DAY_NIGHT_PERIOD_FRAMES as f32;
+    (phase * std::f32::consts::TAU).cos()
+}
+
+/// How much daylight there is, as `0.0` (deepest night) to `1.0` (noon).
+///
+/// [`sky_light_amplitude`] normalised by its own range. The renderer lights
+/// the world from this rather than from the light *channel*, and the reason
+/// is a measurement: at noon, on open terrain, the channel reads **0.30 of
+/// `MAX_LIGHT` at the ground surface and 0.00 forty cells down**. Light
+/// diffuses through air and is blocked by solids, so it never meaningfully
+/// enters the material it would have to light — the channel is doing its own
+/// job (telling plants and moss what is shaded) perfectly well and simply is
+/// not a description of how lit the *rock* looks.
+///
+/// Making it one is a real feature — light propagating into solids, or a
+/// depth term — and would be what "caves are dark and you need a torch"
+/// requires. It is not what a day/night cycle requires.
+pub fn daylight_fraction(frame: u64) -> f32 {
+    ((sky_light_amplitude(frame) - NIGHT_LIGHT_FLOOR) / (MAX_LIGHT - NIGHT_LIGHT_FLOOR)).clamp(0.0, 1.0)
+}
+
+/// Whether the sun is on its way up. Phase runs noon → sunset → midnight →
+/// sunrise, so the second half of the cycle is the rising half.
+pub fn sun_rising(frame: u64) -> bool {
+    let phase = (frame % DAY_NIGHT_PERIOD_FRAMES) as f32 / DAY_NIGHT_PERIOD_FRAMES as f32;
+    phase >= 0.5
 }
 
 /// Top-of-world light boundary condition — architecture report §2's sky
@@ -594,24 +746,116 @@ fn sky_light_amplitude(frame: u64) -> f32 {
 /// through the transition — a real property of daylight, not a bug to work
 /// around. Force-waking every frame regardless, the way `add_light` does,
 /// would defeat field sleeping (issue #4) for every open-sky scene, all day.
+/// What fraction of direct sunlight survives one blocked field block.
+///
+/// A field block is `FIELD_SCALE` (8) world cells square, so one blocked
+/// block is a substantial thickness of canopy or rock — but not an absolute
+/// wall, which matters: a hard zero makes shade a binary stencil with a
+/// visible edge at field resolution, and
+/// `Reports/tree-procedural-prior-art.md` records that pairing a *graded*
+/// rule (self-pruning, shedding) with a *binary* light signal makes
+/// branches vanish the instant they stop extending. Keeping transmission
+/// graded leaves room for that mechanism to work later.
+///
+/// Rock still goes effectively black after two blocks (0.04), which is what
+/// keeps caves dark.
+const SKY_TRANSMISSION: f32 = 0.2;
+
+/// Direct sunlight, cast **down each column** from open sky.
+///
+/// **Replaces seeding only the topmost chunk's top row and letting
+/// diffusion carry light downward**, which made illumination a function of
+/// *distance from the world's top edge* rather than of what was in the way.
+/// Four separate symptoms had that one cause, and all of them are recorded
+/// with measurements in `Reports/tree-architecture-implementation-plan.md`
+/// §0f:
+///
+/// - **Light got brighter as a plant climbed**, so growing up always paid
+///   and every scene ended with its trees pinned against the world
+///   boundary — chased as a plant bug across two sessions and three scenes.
+///   With a sweep of ground depth the outcome was a cliff, not a curve: at
+///   200 rows of sky a stand reached 8,529 cells with 3 rows of clearance,
+///   at 250 it managed 179 cells, and at 400 nothing germinated at all.
+///   **No depth was both well-lit and un-ceilinged.**
+/// - `Germinate`'s 0.1 light gate became unreachable anywhere with sky
+///   access, degrading into "am I sealed in rock".
+/// - The deep field never converged inside a day/night period, so the
+///   profile *inverted* for ~45% of every cycle and `phototropism_dir`
+///   pointed **downward** across the top ~70 rows for nearly half of each
+///   day.
+/// - Caves lit up through any opening wider than `FIELD_SCALE`.
+///
+/// A column cast fixes all four at once, because it is the physically
+/// right shape: **clear air does not attenuate sunlight, occluders do.**
+/// Open sky now reads the same at any depth, so height carries no intrinsic
+/// reward and a canopy shades what is beneath it because it is *in the
+/// way*.
+///
+/// Diffusion is deliberately kept for everything else — it is what makes
+/// shade soft and bleeds light sideways under a canopy rather than leaving
+/// a hard stencil edge at field resolution. This pass only adds the direct
+/// component, taking the max so diffusion can fill but never darken.
+///
+/// Cost is one downward walk per field column per field step, over the
+/// blocked bitmap `rebuild_blocked` has already built for every chunk this
+/// step — no CA reads and no extra scan.
 fn apply_sky(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
     let amplitude = sky_light_amplitude(world.frame);
-    for &coord in coords {
-        let above = ChunkCoord::new(coord.x, coord.y - 1);
-        if world.chunk(above).is_some() {
-            continue; // another chunk sits above it -- not exposed to sky
-        }
-        let Some(tile) = next.get_mut(&coord) else {
-            continue;
-        };
+    if coords.is_empty() {
+        return;
+    }
+    // Group the chunk grid into columns so each can be walked top to
+    // bottom. A chunk row with no chunk at all is open sky and passes light
+    // through untouched, which is what makes a world with sparse chunks
+    // behave the same as one with empty chunks allocated.
+    let (min_cy, max_cy) = coords.iter().fold((i32::MAX, i32::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
+    let mut columns: Vec<i32> = coords.iter().map(|c| c.x).collect();
+    columns.sort_unstable();
+    columns.dedup();
+
+    for cx in columns {
         for lx in 0..FIELD_TILE_SIZE {
-            if !tile.is_blocked_local(lx, 0) {
-                let mut cell = tile.get_local(lx, 0);
-                cell.light = amplitude;
-                tile.set_local(lx, 0, cell);
+            let mut carried = amplitude;
+            for cy in min_cy..=max_cy {
+                let coord = ChunkCoord::new(cx, cy);
+                let Some(tile) = next.get_mut(&coord) else {
+                    continue; // no chunk here: open sky, carry on unchanged
+                };
+                for ly in 0..FIELD_TILE_SIZE {
+                    if carried <= 0.0 {
+                        continue;
+                    }
+                    // **The light reaching this block is written here even
+                    // when the block is occupied**, before attenuation.
+                    // A leaf's own reading should be what arrives at it --
+                    // it is the thing doing the intercepting. The previous
+                    // rule skipped occupied blocks entirely, so every leaf
+                    // in a canopy read only whatever lateral diffusion left
+                    // behind, which is why 88% of them measured under 0.05
+                    // and why both shade-pruning and phototropism had no
+                    // gradient to work with.
+                    let mut cell = tile.get_local(lx, ly);
+                    // Max, never assignment: diffusion may legitimately
+                    // have brought *more* light here from a neighbouring
+                    // column, and this pass must not darken it.
+                    if carried > cell.light {
+                        cell.light = carried;
+                        tile.set_local(lx, ly, cell);
+                    }
+                    // **Graded, not binary.** Transmission interpolates
+                    // toward `SKY_TRANSMISSION` with how full the block is,
+                    // so a sparse spray of twigs passes most of the light
+                    // and only a solid block attenuates fully. `blocked`
+                    // is all-or-nothing over 8x8 CA cells, which is far too
+                    // coarse for foliage: one twig made a whole block
+                    // opaque and a canopy read as a wall.
+                    let occupancy = tile.occupancy_local(lx, ly);
+                    carried *= 1.0 + (SKY_TRANSMISSION - 1.0) * occupancy;
+                }
             }
         }
     }
+    let _ = world;
 }
 
 /// Constant moisture source wherever a `Liquid` CA cell is present —
@@ -646,10 +890,30 @@ fn apply_moisture_sources(coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, 
         let tile = next.get_mut(&coord).expect("next was pre-populated with every coord in coords");
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
-                if tile.is_moisture_source_local(lx, ly) {
+                // Two independent lower bounds meet here, and one `max`
+                // serves both. The graded *source* level (this branch's
+                // damp-soil work) raises humidity to at least its own
+                // level — standing liquid still pins the block to
+                // MAX_MOISTURE exactly as before (level 1.0), damp soil
+                // lifts it part way without capping air that is humid for
+                // some other reason. The authored *floor* (master's
+                // aquifer) bounds what evaporation may take a cell down
+                // to: moisture above it still diffuses and evaporates
+                // normally, so rain and puddles behave as before and only
+                // the drying-out is bounded. Applied here rather than
+                // inside the diffusion loop so it lands after advection
+                // too — wind may not blow the aquifer away. Where both
+                // apply, the stronger bound simply wins; neither ever
+                // pulls a reading down.
+                let level = tile.moisture_source_local(lx, ly);
+                let floor = tile.moisture_floor_local(lx, ly);
+                let forced = (MAX_MOISTURE * level).max(floor);
+                if forced > 0.0 {
                     let mut cell = tile.get_local(lx, ly);
-                    cell.moisture = MAX_MOISTURE;
-                    tile.set_local(lx, ly, cell);
+                    if cell.moisture < forced {
+                        cell.moisture = forced;
+                        tile.set_local(lx, ly, cell);
+                    }
                 }
             }
         }
@@ -719,7 +983,11 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                 // uses `FIELD_SCALE`-aligned dimensions -- but nothing
                 // enforces that, so it stays fixed rather than relying on
                 // that holding forever.
-                let mut has_liquid = false;
+                // Strongest moisture source anywhere in this block.
+                let mut moisture_level = 0.0f32;
+                // Counted in the scan that is already happening -- see
+                // `FieldTile::occupancy`.
+                let mut filled = 0u32;
                 for dy in 0..FIELD_SCALE {
                     for dx in 0..FIELD_SCALE {
                         // `World::new` eagerly creates every chunk
@@ -742,6 +1010,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         // reads elsewhere: solid, so blocked.
                         if !world.in_bounds(bx0 + dx, by0 + dy) {
                             blocked = true;
+                            filled += 1;
                             continue;
                         }
                         let cell = chunk.get_world(bx0 + dx, by0 + dy);
@@ -764,14 +1033,27 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         let kind = world.materials.kind(cell.material);
                         if matches!(kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant) {
                             blocked = true;
+                            filled += 1;
                         }
                         if kind == super::material::MaterialKind::Liquid {
-                            has_liquid = true;
+                            moisture_level = 1.0;
+                        } else {
+                            // Damp soil is a weaker source than standing
+                            // water, in proportion to how much water it
+                            // actually holds. `water_capacity == 0` (sand,
+                            // gravel, anything that does not opt in) gives
+                            // 0 and costs a single compare.
+                            let capacity = world.materials.get(cell.material).water_capacity;
+                            if capacity > 0 {
+                                let held = super::update::soil_moisture(cell) as f32 / capacity as f32;
+                                moisture_level = moisture_level.max(held);
+                            }
                         }
                     }
                 }
                 tile.set_blocked_local(lx, ly, blocked);
-                tile.set_moisture_source_local(lx, ly, has_liquid);
+                tile.set_occupancy_local(lx, ly, filled, (FIELD_SCALE * FIELD_SCALE) as u32);
+                tile.set_moisture_source_local(lx, ly, moisture_level);
             }
         }
     }
@@ -1165,17 +1447,86 @@ mod tests {
         );
     }
 
+    /// A *point* source still falls off with distance — but this has to be
+    /// asked underground now, and the reason is the point of `apply_sky`.
+    ///
+    /// The original version of this test placed a point light in open air
+    /// and asserted the reading 72 rows below was dimmer. It was, because
+    /// sky light itself used to decay with depth, so *everything* was
+    /// dimmer further down. Once direct sunlight became a column cast, open
+    /// air reads full brightness at any depth and swamps a point source
+    /// entirely — the assertion failed, correctly, because it was measuring
+    /// the sky's distance falloff rather than the source's.
+    ///
+    /// Sealed in rock the sky cannot reach, so what is left is the thing
+    /// the test is named for.
     #[test]
-    fn light_diffuses_from_a_source_and_decays_with_distance() {
+    fn a_point_light_falls_off_with_distance_where_the_sky_cannot_reach() {
         let mut w = test_world();
-        w.add_light(128, 128, 2, 1.0);
+        // A solid block with a hollow interior: no column from open sky
+        // reaches inside it.
+        // The rock above the cavity has to be genuinely thick: one blocked
+        // field block only attenuates by `SKY_TRANSMISSION`, so a thin roof
+        // leaves the cavity uniformly lit by transmitted sky and swamps the
+        // point source all over again. 90 rows is ~11 blocks, i.e. 0.2^11.
+        for x in 60..200 {
+            for y in 40..250 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 100..160 {
+            for y in 140..240 {
+                w.set(x, y, Cell::EMPTY);
+            }
+        }
+        w.add_light(128, 150, 2, 1.0);
         for _ in 0..10 {
             step(&mut w);
         }
-        let near = w.field_at(128, 128).light;
-        let far = w.field_at(128, 200).light;
+        let near = w.field_at(128, 150).light;
+        let far = w.field_at(128, 235).light;
         assert!(near > 0.0, "light source went dark");
-        assert!(far < near, "light did not fall off with distance");
+        assert!(far < near, "a point light must still fall off with distance: near {near}, far {far}");
+    }
+
+    /// The invariant that replaced it: **clear air does not attenuate
+    /// sunlight; occluders do.**
+    ///
+    /// Light used to be seeded on the topmost chunk's top row and carried
+    /// down by diffusion, so illumination was a function of *distance from
+    /// the world's top edge*. That gave a plant an unbounded reward for
+    /// climbing and pinned every scene's trees against the world boundary —
+    /// see `apply_sky` for the four symptoms and their measurements.
+    #[test]
+    fn open_air_is_equally_lit_at_any_depth_and_a_roof_still_shades() {
+        let mut w = test_world();
+        for _ in 0..40 {
+            step(&mut w);
+        }
+        let high = w.field_at(128, 16).light;
+        let low = w.field_at(128, 240).light;
+        assert!(high > 0.0, "open sky went dark");
+        assert!(
+            (low - high).abs() < 1e-3,
+            "clear air must not attenuate sunlight: {high} at row 16 against {low} at row 240"
+        );
+
+        // A roof, and the same column underneath it must go dark.
+        let mut w = test_world();
+        for x in 80..200 {
+            for y in 100..108 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for _ in 0..40 {
+            step(&mut w);
+        }
+        let above_roof = w.field_at(128, 64).light;
+        let under_roof = w.field_at(128, 160).light;
+        assert!(
+            under_roof < above_roof * 0.5,
+            "an occluder must shade what is beneath it: {above_roof} above against {under_roof} below"
+        );
     }
 
     #[test]
@@ -1193,7 +1544,13 @@ mod tests {
         // One field cell's worth of solid rock, aligned to the field grid
         // (FIELD_SCALE = 8) so `rebuild_blocked` marks exactly this field
         // cell and no other.
-        for x in 136..144 {
+        // **Nine field blocks wide, not one**, and the width is load-bearing
+        // rather than incidental: lateral diffusion fills a narrow shadow
+        // in from both sides within a few steps, so a single 8x8 occluder
+        // leaves the block beneath it at 74% of open sky however opaque it
+        // is. A shadow only exists if it is wider than the diffusion can
+        // reach across, which is also true of the canopies this models.
+        for x in 104..176 {
             for y in 8..16 {
                 w.set(x, y, Cell::new(material::STONE, 0));
             }
@@ -1203,9 +1560,30 @@ mod tests {
         }
 
         let open = w.field_at(20, 10).light; // open column, one field row below the sky
-        let blocked = w.field_at(140, 10).light; // inside the solid block itself
+        let occluder = w.field_at(140, 10).light; // inside the solid block itself
+        let under = w.field_at(140, 18).light; // beneath the middle of the slab
+        let open_at_depth = w.field_at(20, 18).light; // same depth, open column
         assert!(open > 0.5, "the open column under the sky did not brighten: {open}");
-        assert_eq!(blocked, 0.0, "a solid field cell should never carry a light value of its own");
+
+        // **The invariant here was deliberately reversed**, and the old one
+        // is worth stating because it looked obviously right: a solid field
+        // block used to carry *no* light of its own. Physically that is
+        // backwards — the light arriving at an occluder is exactly what
+        // that occluder intercepts, and a leaf is an occluder. Under the
+        // old rule every leaf inside a canopy read only whatever lateral
+        // diffusion left behind, 88% of them measured under 0.05, and two
+        // separate mechanisms were stuck on it: shade-driven abscission had
+        // no threshold between "prunes nothing" and "defoliates the world",
+        // and `light_weight` measured completely inert across 1,024 genomes
+        // because there was no gradient left to steer by.
+        //
+        // What must still hold is the *gradient*: an occluder is lit by
+        // what reaches it, and everything under it is dimmer.
+        assert!(occluder > 0.5, "a solid block should read the light arriving at it, not zero: {occluder}");
+        assert!(
+            under < open_at_depth * 0.5,
+            "the block under a solid one should be markedly darker than open sky at the same depth: {under} against {open_at_depth}"
+        );
     }
 
     #[test]
@@ -1687,5 +2065,39 @@ mod tests {
 
         step(&mut w);
         assert!(w.field_at(128, 128).pressure.abs() > 1.0, "the impulse was never actually solved after waking the field");
+    }
+}
+
+#[cfg(test)]
+mod light_depth_probe {
+    use super::*;
+    use crate::sim::chunk::Rect;
+    use crate::sim::world::World;
+
+    /// Prints the light profile against depth in a **completely empty**
+    /// world — no occluders anywhere, so whatever falls off here is the
+    /// model attenuating through *air*.
+    ///
+    /// `#[ignore]`d because it prints rather than asserts, and kept because
+    /// it is the measurement that found `LIGHT_DECAY` was the binding
+    /// constraint on how tall a plant could ever grow. At the previous
+    /// 0.997 it read 0.16 at depth 128 — below `Germinate`'s own 0.1 gate
+    /// by depth ~145, in vacuum. Reach for this before tuning anything
+    /// about plant height, and before adding sky to a scene.
+    ///
+    /// ```text
+    /// cargo test --lib print_light_versus_depth -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn print_light_versus_depth() {
+        let mut w = World::new(Rect::new(0, 0, 511, 319));
+        for _ in 0..4000 {
+            step(&mut w);
+        }
+        println!("depth  light");
+        for y in (0..320).step_by(16) {
+            println!("{y:5}  {:.4}", w.field_at(256, y).light);
+        }
     }
 }

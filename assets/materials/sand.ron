@@ -5,6 +5,9 @@
     name: "sand",
     display: "Sand",
     kind: Powder,
+    // Loose, so roots pass -- but drier and less cohesive than soil, so a
+    // little more resistant. Still under the 2-3 MPa bound.
+    penetration_resistance: 1.4,
     density: 1.6,
     friction_angle: 34.0,
     colors: [

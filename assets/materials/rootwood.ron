@@ -1,0 +1,47 @@
+// Root tissue. A real material rather than shaded `wood`, and the reason is
+// mechanical rather than cosmetic: `Reports/plant-substrate-v2-design.md`
+// §6d's soil stabilization runs inside `update_powder`, which has a bare
+// `Cell` and no way to reach organism state at all -- so "is the thing
+// beside this grain a root" has to be answerable *from the material id*.
+// Shading a `CellType` would not have been enough. §6a.
+//
+// Two other differences that are real physics, not decoration: buried wet
+// tissue barely burns, and root wood is darker than a sunlit trunk.
+(
+    name: "rootwood",
+    display: "Root",
+    kind: Plant,
+    // Denser than trunk wood -- root tissue is water-saturated.
+    density: 1.05,
+    // Pale tan, not dark brown. Real roots are cream-to-tan and read pale
+    // against dark earth, which is the accurate choice *and* the legible
+    // one -- the first version of this file used (72,50,34), within a few
+    // points of `soil`'s own (64,46,34), and an entire root system was
+    // invisible in the game view while showing perfectly in the cell-type
+    // overlay. A material whose whole justification is that it must be
+    // distinguishable from its surroundings has to actually be
+    // distinguishable from them.
+    colors: [
+        (168, 146, 112),
+        (186, 164, 128),
+        (150, 130, 98),
+        (200, 180, 144),
+    ],
+    // Wet and underground: nearly unburnable. This is what stops a surface
+    // fire from consuming a tree's whole root system through the soil, and
+    // it is why a real burned-over forest resprouts from its roots at all
+    // (`research/m16-plant-biology.md` §5's fire-resprouting note).
+    flammability: 0.02,
+    burn_temperature: 600.0,
+    burn_duration: 600,
+    burns_into: "ash",
+    heat_conductivity: 0.12,
+    // Holds the soil it threads through in place -- Wu-Waldron apparent
+    // cohesion. See Material::reinforces_powder and update.rs's
+    // root_reinforced.
+    reinforces_powder: true,
+    // Longer than trunk wood: a root is held on all sides by the soil it
+    // grew through rather than cantilevered into open air.
+    max_unsupported_span: 12,
+    breaks_into: "deadwood",
+)

@@ -422,7 +422,7 @@ impl App {
         self.show_toast(text);
     }
 
-    /// `L` — cycle the gnome's movement feel. See `player::MovementFeel`
+    /// `F3` — cycle the gnome's movement feel. See `player::MovementFeel`
     /// for why this is a runtime selector rather than a decided number.
     ///
     /// Overwrites whatever the PLAYER tunables currently hold for the
@@ -442,7 +442,7 @@ impl App {
         self.show_toast(&line);
     }
 
-    /// `Y` — cycle how water handles him. See `player::WaterFeel`.
+    /// `F4` — cycle how water handles him. See `player::WaterFeel`.
     pub fn cycle_water_feel(&mut self) {
         self.water_feel = (self.water_feel + 1) % player::WATER_FEELS.len();
         let feel = &player::WATER_FEELS[self.water_feel];
@@ -1421,7 +1421,7 @@ impl App {
             "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
             "  CLICK NEAR THE GNOME: HE DIGS (FURTHER AWAY: BRUSH AS EVER)",
             "  IN WATER: W STROKE UP    S SWIM DOWN",
-            "  L JUMP FEEL   Y WATER FEEL   F2 SPOIL  (CYCLE, SAY WHICH IS BEST)",
+            "  F3 JUMP FEEL  F4 WATER FEEL  F2 SPOIL (CYCLE, SAY WHICH IS BEST)",
             "C STRIKE ROCK    H DIG (PRECISE CUT)",
             "F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    J PLANT WORM",
@@ -1431,6 +1431,7 @@ impl App {
             "Z TOOL: BRUSH / RECT / ROOM / LINE  (DRAG OUT A SHAPE)",
             "B STAMP A 200x160 REFERENCE ROOM (BRUSH = WALL THICKNESS)",
             "F1 CHUNK OVERLAY    G WATER GRAIN",
+            "L ORGANISM OVERLAY  (CELL TYPE/RESOURCE/CANOPY)",
             "",
             "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
             "             ENTER PIN AND CLOSE, S SAVE)",
@@ -1644,7 +1645,7 @@ impl App {
         // persistent HUD label say what the mouse now does.
         self.tool = Tool::Dig;
         self.message =
-            Some("gnome summoned — A/D run, W jump, LMB dig, L jump feel, Y water feel, U dismiss".into());
+            Some("gnome summoned — A/D run, W jump, LMB dig, F2/F3/F4 feel presets, U dismiss".into());
     }
 
     /// How much of the brush to fill per application.
@@ -1679,7 +1680,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1715,6 +1716,15 @@ impl App {
                 String::new()
             } else {
                 format!(" — spoil {}", player::SPOIL_MODES[self.spoil_mode].name)
+            },
+            // Same "only once turned on" rule. Worth showing at all because
+            // the tint is subtle on a sparse tree and "is this channel on,
+            // or is it on and reading zero everywhere?" is exactly the
+            // question the overlay exists to answer unambiguously.
+            if self.renderer.organism_overlay == render::OrganismOverlay::Off {
+                String::new()
+            } else {
+                format!(" — organism {}", self.renderer.organism_overlay.label())
             },
             // Uncommitted asset edits, so a value saved mid-playtest is a
             // glance rather than an audit. Silent when git can't answer.
@@ -1903,7 +1913,15 @@ mod tests {
     fn reloading_materials_wakes_the_world() {
         // Changed friction or dispersion can unstick material that had settled,
         // so everything must be re-examined.
-        let mut app = App::new();
+        //
+        // On the lifeless legacy terrain, deliberately. The default generated
+        // world plants trees and moss (worldgen's life pass), and since the
+        // light model became a per-column sky cast those seeds germinate
+        // within a frame or two of generation and start growing -- a living
+        // world is never globally quiet, by design, so "settle, then assert
+        // the reload woke things" needs a world whose only activity is the
+        // reload's doing.
+        let mut app = legacy_app();
         settle(&mut app);
         app.reload_materials();
         assert!(app.world.active_chunk_count() > 0, "reload left the world asleep");
@@ -1950,7 +1968,13 @@ mod tests {
 
     #[test]
     fn static_terrain_settles_and_stays_settled() {
-        let mut app = App::new();
+        // The *static* terrain -- the lifeless legacy layout. The generated
+        // default carries living flora (worldgen's life pass germinates
+        // under the column-cast light within frames), and a growing plant
+        // wakes its chunks on every organism tick, so "stays settled" is a
+        // claim only a world without life can make. The mineral fraction of
+        // generated worlds arriving at rest is tests/worldgen.rs's job.
+        let mut app = legacy_app();
         // Dirty regions are double buffered, so the terrain writes made
         // before the first frame are only promoted into the swept region by
         // the end of it -- the second frame is the earliest that can examine
@@ -2092,11 +2116,24 @@ mod tests {
         let sand = id(&app, "sand");
         assert_eq!(app.selected_material(), sand, "test setup: the app is expected to start on sand");
 
-        // Terrain is *generated*, so the surface height is not something
-        // this test may assume -- an earlier version hardcoded the middle
-        // of the screen and broke the day worldgen became the default,
-        // which is the right kind of breakage but not what this test is
-        // about. Find a column with the headroom the room actually needs.
+        // On the `flat` preset, which is the structural test bed and exists
+        // precisely because a 160-tall room needs 200 rows of sky.
+        //
+        // This used to run on the default preset and passed on a margin of
+        // about five cells: only the very deepest columns of `rolling` had
+        // the headroom, and the day standing water landed it filled exactly
+        // those hollows and the test could not find a column at all. It was
+        // never really testing the default world -- it was testing whichever
+        // world happened to have one deep enough spot -- so pointing it at
+        // the preset built for the job is what it always meant.
+        app.worldgen_preset = "flat".to_string();
+        app.reset();
+
+        // The surface height is still not something this test may assume --
+        // an earlier version hardcoded the middle of the screen and broke the
+        // day worldgen became the default, which is the right kind of
+        // breakage but not what this test is about. Find a column with the
+        // headroom the room actually needs.
         let half = REFERENCE_ROOM_SPAN / 2;
         let need = REFERENCE_ROOM_HEIGHT + app.brush_radius;
         let ground_at = |app: &App, x: i32| (0..HEIGHT as i32).find(|&y| app.world.get(x, y).material != material::EMPTY);
@@ -2392,7 +2429,12 @@ mod tests {
 
     #[test]
     fn sand_dropped_on_the_floor_settles_and_the_world_sleeps_again() {
-        let mut app = App::new();
+        // Legacy terrain for the same reason as the two settling tests
+        // above: this is a claim about *sand* coming to rest, and the
+        // generated default's living flora keeps its own chunks awake
+        // indefinitely, which would fail the assertion for a reason that
+        // has nothing to do with sand.
+        let mut app = legacy_app();
         app.paint(256, 20, false);
         for _ in 0..3000 {
             app.update();

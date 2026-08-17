@@ -73,22 +73,45 @@ options: let an unsupported refused mover fall (fixes the 115 floating cells
 only), move a coherent body *as a body* (`rigid.rs` — the only thing that
 removes the premise), or accept it.
 
-### 3. Scheduler under-enforces `max_active_tips` (a tree bug)
+### 3. Scheduler under-enforces `max_active_tips` (a tree bug) — measured, and it cannot bite yet
 
-Review finding, **verified by reading but not reproduced**, and therefore
-deliberately not fixed. `scheduler::step` pops the entire due batch into
-`due_sites` *before* dispatching any of it, so `world.active_sites` does not
-hold the batch while `plant::tick` runs. `organism_active_tip_count` counts
-only the heap, so it cannot see any tip in the current batch — and when a
-tree's tips all come due on the same frame, which is the normal case, the
-count it returns is far too low and `Behavior::Grow`'s cap
-(`max_active_tips`, 14 and 10 in `tree.ron`) is under-enforced.
+Review finding. `scheduler::step` pops the entire due batch into `due_sites`
+*before* dispatching any of it, so `world.active_sites` does not hold the
+batch while `plant::tick` runs. `organism_active_tip_count` counts only the
+heap, so it cannot see any tip in the current batch — and when a tree's tips
+all come due on the same frame, which is the normal case, the count it
+returns is far too low and `Behavior::Grow`'s cap (`max_active_tips`, 14 and
+10 in `tree.ron`) is under-enforced. **The reading is correct.**
 
-An attempt to reproduce it grew no tips at all (`plant_tree` on a soil floor
-with no field step), so the scale of the real effect is unknown. A fix wants
-either dispatch-one-at-a-time (changes the cap's meaning, and risks a tip
-producing a due-now tip in the same frame) or making the in-flight batch
-visible to the count. Needs someone with the tree subsystem in context.
+**Now reproduced properly, and the answer is that the cap is unreachable.**
+The previous attempt "grew no tips at all (`plant_tree` on a soil floor with
+no field step)" — germination is light-gated, so a run that never steps the
+field never germinates and can only ever report zero. With fields stepped
+(`plant.rs`'s `a_trees_simultaneous_tip_count_stays_within_its_species_cap`,
+8,000 frames), the **peak simultaneous `GrowingTip` count for one tree is
+1**.
+
+Not "under the cap" — one. Tip retirement converts a `GrowingTip` to
+`MatureBody` in the same tick it grows, with the child carrying the frontier
+forward, so a lineage holds exactly one live tip and branching only briefly
+makes it two. `max_active_tips: 14` was sized for the pre-retirement system
+where tips persisted; against the current one it has nothing to do.
+
+So the bug is **real as read and unreachable as built**: a cap that is never
+approached cannot be exceeded, however badly it is checked. Deliberately
+*not* fixed on that basis — the fix (dispatch-one-at-a-time, which changes
+the cap's meaning and risks a tip producing a due-now tip in the same frame;
+or making the in-flight batch visible to the count) costs more than the
+defect currently does.
+
+**What changes that:** `Reports/plant-substrate-v2-design.md`'s bud break
+(retrofit step 9) exists specifically to let a mature tree open new
+frontiers, and is the first thing that would push simultaneous tips toward
+the cap. The reproduction above is kept as a tripwire and should start doing
+real work exactly then. Decision 2's sidecar also fixes it structurally for
+free — `organism_active_tip_count` becomes a count over the organism's own
+cell list rather than a scan of the schedule (design doc §3e), which has no
+in-flight-batch blind spot at all.
 
 ### 4. Levelling is O(width²)
 
@@ -227,3 +250,72 @@ with **zero occupancy changes**. Its interior genuinely does not move. So
 not, but nothing can animate an interior that is standing still — `Muted`
 and `Animated` are the variants aimed at that half, and `Animated` is the
 only one that costs the dirty-rect render skip.
+
+---
+
+## ~~Open~~ **CLOSED** — the three the polarity review raised (M18 plant v2)
+
+All three are now fixed, each with a guard verified to fail against the old
+code. Kept here rather than deleted, because what they have in common is
+worth more than any one of them: **all three were invisible to the suite
+for the same reason — nothing tallies held water, and nothing walked the
+frontier cell types.** A new test that covers either of those covers a
+whole class.
+
+| finding | fixed in | guard |
+|---|---|---|
+| allometry gate permanently retiring roots | `ab39721` | `a_root_tip_that_ages_out_retires_instead_of_becoming_a_phantom` |
+| `Grow` into soil destroying stored water | (next commit) | `a_root_growing_into_soil_displaces_its_water_rather_than_destroying_it` |
+| capillary exchange over-filling a neighbour | `13bce0a` | `capillary_flow_never_pushes_a_neighbour_past_its_own_capacity` |
+
+Two of them turned out differently from the review's framing, and the
+difference is recorded at each site:
+
+- The root bug was **not** fixable by marking the "not now" gates as
+  `found_candidate`, which is what the framing suggests. That breaks
+  `a_tree_eventually_stops_growing` immediately — the staleness counter is
+  the only thing that makes growth terminate. The real defect was that
+  ageing out had no landing site for `RootTip`.
+- The capillary bug needed a **second water-holding material to be
+  testable at all**. With equal capacities the drier cell is by definition
+  below its own limit, so the clamp can never bind. The guard writes a
+  `tightsoil` into a temp dir and loads it additively.
+
+The original descriptions follow, since the reproductions are still the
+cheapest way back into each area.
+
+### 1. `MAX_ROOT_FRACTION` feeds the staleness counter, permanently retiring roots
+
+`plant.rs`'s allometry gate `continue`s without setting `found_candidate`,
+so a *transient* root:shoot ratio counts as a failed tick. After
+`STALE_LIMIT` blocked ticks the `RootTip` stops rescheduling — and
+`organism_upkeep` skips frontier cell types, so nothing ever visits it
+again. It loses `Absorb`/`Transpire` permanently while still counting
+toward `root_cells`, which ratchets the very ratio that blocked it.
+
+The gate is meant to say "not now", which is the "temporary shortfall"
+framing `Divide`'s own resource gate uses — that path sets
+`found_candidate` and this one does not. Suspect this first if roots look
+like they stop drinking on a mature tree.
+
+### 2. `Grow` into soil destroys the soil's stored water
+
+Growing a root into a penetrable soil cell overwrites the cell wholesale,
+replacing its `aux` — which for a `Powder` is moisture — with cell-type
+bits. In the `forest` scene each root cell silently deletes
+`SOIL_FIELD_CAPACITY` (620) units; a 100-cell root system loses roughly 62
+water cells' worth. No conservation tally covers held water, which is why
+nothing noticed.
+
+Note this interacts with the still-open `water_capacity` item below: any
+liquid-conservation test taught about held water will start failing here.
+
+### 3. Capillary exchange can push a neighbour above its own capacity
+
+`update.rs`'s capillary step bounds the transfer by *this* cell's
+`water_capacity` and writes `there + moved` without checking the
+neighbour's. Latent today because `water_capacity` is opt-in and only
+`soil` has it, so every exchange is soil-to-soil with equal capacity. It
+goes live the moment a second water-holding powder exists with a different
+capacity — which is exactly what widening `water_capacity` to sand would
+do.

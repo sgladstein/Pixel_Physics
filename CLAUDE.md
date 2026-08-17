@@ -190,6 +190,72 @@ plain straight-down fall for 76% of them — true, and useless, because those
 films existed for one frame each. The artifact that persists came from
 somewhere else entirely, and only a standing count showed it.
 
+### A debug readout must not be a function of the thing it debugs
+
+Several channels that decide behaviour are invisible — per-cell scalars, not
+occupancy. Build the overlay *before* the mechanism that uses them
+(`render.rs`'s `FieldOverlay` / `OrganismOverlay`, `filmstrip`'s `channel=`),
+and make it a **full replace on a fixed dark→bright ramp, not a blend into
+the cell's own colour**. A magnitude-scaled blend was tried and produced a
+canopy-density sheet that read as blank: the ramp was red, wood is brown,
+and a mid-range value moved one colour byte from 139 to 155. The obvious
+reading — "the mechanism is dead" — would have sent a fix at working code.
+
+### An image says *what and where*; only a number says *how much*
+
+The corollary of "look before you measure", and it bites in the other
+direction just as hard. A corrected overlay was still misread as "everything
+at the ramp floor" when the real value was 40% of scale — genuinely hard to
+judge on a one-cell-wide twig. Pair every debug channel with a probe that
+prints the values (`examples/plant_probe.rs`); reach for it the moment the
+question turns quantitative.
+
+### Fixing a bug often exposes a constant that was compensating for it
+
+`thicken()`'s flood fill traversed 4 neighbours while growth places cells at
+8, so it counted a fragment of a tree rather than the tree. Fixing the
+traversal made every cell see the true count and thicken uniformly — because
+`pipe_ratio` had been calibrated against the broken quantity. **When a fix
+changes what a number *means*, re-deriving the constants that read it is
+part of the fix, not scope creep** — and sweeping is how you re-derive it.
+
+Watch for the inverse too: a gate can hide a second bug by making it
+unreachable. Infiltration's conservation test passed against a version whose
+gate meant infiltration never ran at all. A test can pass because the code
+under it is dead, which looks exactly like passing because it is correct.
+
+### Compare two runs, not one run against a remembered number
+
+Outcomes here have enormous spread — twelve identical trees from one genome
+span 31 to 153 cells. A bar set from a single run is a sample from a wide
+distribution and will flake in whichever direction that run landed. Prefer a
+**paired comparison** (rooted bank vs bare bank, loaded branch vs bare
+branch): it cancels everything the rule under test is not about.
+
+This applies to frame timings too. A change once looked like a 25–50%
+regression against a figure measured an hour earlier; re-measuring the
+baseline on the spot showed the machine had slowed and the change cost
+nothing. **Always re-measure the baseline in the same session, on the same
+machine, before reporting a regression.**
+
+### Guard hot-path work at the call site that already has the data
+
+New per-cell behaviour usually applies to one material. Gating *inside* the
+function still pays a `World::get` and a lookup per cell per frame, and
+matching a material by `id_of("name")` is a string hash in the sweep. Put the
+opt-in on `Material` as a field and test it at the dispatch site, which
+already holds the `Cell` — a `Vec` index instead.
+
+### A scene that contradicts the code will look like a bug in the code
+
+Two Phase-2 "root bugs" were scene errors: free water buried in a soil
+column sank (soil is a `Powder`, it sinks through `Liquid`) and surfaced, so
+every seed germinated onto water; and a soil column with no floor or walls
+fell out of the world and toppled, leaving the sampled cells empty. Both read
+exactly like "the mechanism does nothing". **When a mechanism appears inert,
+check the scene still contains the situation you think it does** before
+touching the mechanism.
+
 ### Metric traps, each of which has already cost real time
 
 - **Liquids: measure column *volume*, not the topmost cell.** A `Liquid` cell
@@ -291,6 +357,18 @@ consider it at all.
 
 ## Gotchas that have each caused a real bug
 
+- **Two conventions for `Cell::aux` point opposite ways.** On a `Liquid`,
+  `aux == 0` means **full**. On a `Powder`, `aux == 0` means **dry**
+  (`material::SOIL_SATURATED`). Both defaults are deliberate — liquids are
+  created full, soil is created dry — and getting either backwards
+  manufactures water out of nothing. A partly-drained liquid must be written
+  as `with_aux(remaining)`, and a fully-drained one as `Cell::EMPTY`, never
+  `with_aux(0)`.
+- **A traversal must use the same neighbourhood the writer used.** `Grow`
+  places organism cells at 8 neighbours; anything reading a grown organism
+  back has to traverse 8 or it sees disconnected fragments. Transport
+  (`diffuse_resource`) is the deliberate exception and stays at 4: an
+  exchange crosses a shared face, and diagonal cells share only a corner.
 - `Cell::is_empty()` is **managed-aware** — a promoted liquid body's container
   cells are materially empty but read as not-empty. Use the raw
   `cell.material == material::EMPTY` when the question is "is there material

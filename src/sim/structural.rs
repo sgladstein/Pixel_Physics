@@ -403,7 +403,22 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
         return Vec::new(); // this species' material doesn't participate at all (e.g. moss)
     }
     let organism_id = cell.organism_id();
-    if organism_is_supported(world, x, y, organism_id, max_span) {
+    // **Load shortens the span a branch can hold.** `PLAN.md` treats "too
+    // much weight breaks a branch" as already in scope, and it was only
+    // half-built: `organism_is_supported` measured *distance from an
+    // anchor* and nothing else, so a branch with a metre of sand piled on
+    // it broke at exactly the same span as a bare one.
+    //
+    // `Reports/plant-substrate-v2-design.md` §6c, and named as an analogue
+    // rather than dressed up as physics: real allowable cantilever span
+    // does fall with load, and that ordering is the only property being
+    // borrowed. This is not a beam-deflection calculation and must not be
+    // described as one. It is a weighted local rule -- which
+    // `design-philosophy.md` §2b explicitly permits -- whose *outcome*
+    // (which branch breaks, and when) is emergent from what the player
+    // actually piled on it.
+    let effective_span = max_span.saturating_sub(supported_load(world, x, y, organism_id) / LOAD_PER_SPAN_UNIT);
+    if organism_is_supported(world, x, y, organism_id, effective_span) {
         // Supported and, unlike the aux-cached path, always an exact
         // answer rather than one still converging -- nothing more to do
         // until something else disturbs this organism's own structure.
@@ -429,6 +444,52 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
 /// PLAN.md's own recorded gap) will extend this the same way once it
 /// exists; nothing here needs to change for that, since "touches Solid"
 /// stays true for a root embedded in solid-kind ground either way.
+/// How many cells of piled-up load cost one cell of allowable span.
+///
+/// Four, so `wood`'s span of 8 survives a light dusting and a genuinely
+/// buried branch loses most of its reach. Untuned beyond that ordering,
+/// and a first-class candidate for the economy pass — the interesting
+/// question is whether burying a limb in sand visibly snaps it, which is a
+/// look judgement rather than a derivable number.
+const LOAD_PER_SPAN_UNIT: u16 = 4;
+
+/// How far out a cell looks for material resting on this organism.
+///
+/// Small on purpose. This runs per reactive structural check, and the
+/// question it answers is local ("is something sitting on me"), not global
+/// ("what is the total mass of the pile above"). A wider search would cost
+/// more and measure something the rule is not about.
+const LOAD_SEARCH_RADIUS: i32 = 3;
+
+/// Non-organism material resting directly on this organism's own cells,
+/// within a short radius — the weight term for `effective_span` above.
+///
+/// Counts only cells *above* organism tissue, since that is what "resting
+/// on" means and a grain beside a branch is not load. `Powder` and `Liquid`
+/// only: a `Solid` neighbour is a wall the branch might be growing against
+/// rather than a burden, and counting it would make a tree weaker for
+/// having grown near rock.
+fn supported_load(world: &World, x: i32, y: i32, organism_id: u16) -> u16 {
+    let mut load = 0u16;
+    for dx in -LOAD_SEARCH_RADIUS..=LOAD_SEARCH_RADIUS {
+        for dy in -LOAD_SEARCH_RADIUS..=LOAD_SEARCH_RADIUS {
+            let (cx, cy) = (x + dx, y + dy);
+            // Is this one of ours, and is something sitting on top of it?
+            if world.get(cx, cy).organism_id() != organism_id {
+                continue;
+            }
+            let above = world.get(cx, cy - 1);
+            if above.organism_id() == organism_id {
+                continue; // our own tissue is not a load on itself
+            }
+            if matches!(world.materials.kind(above.material), MaterialKind::Powder | MaterialKind::Liquid) {
+                load = load.saturating_add(1);
+            }
+        }
+    }
+    load
+}
+
 fn organism_is_supported(world: &World, x: i32, y: i32, organism_id: u16, max_span: u16) -> bool {
     let touches_solid_ground = |px: i32, py: i32| {
         NEIGHBOURS_4.iter().any(|&(dx, dy)| world.materials.kind(world.get(px + dx, py + dy).material) == MaterialKind::Solid)
@@ -1530,7 +1591,7 @@ mod tests {
 
     fn organism_wood_cell(w: &mut World, organism_id: u16) -> Cell {
         let wood = w.materials.id_of("wood").unwrap();
-        Cell::new(wood, 0).with_organism_id(organism_id).with_aux(organism::pack_aux(organism::CellType::MatureBody, 0.0))
+        Cell::new(wood, 0).with_organism_id(organism_id).with_aux(organism::pack_cell_type(organism::CellType::MatureBody))
     }
 
     #[test]
@@ -1607,4 +1668,60 @@ mod tests {
 
         assert_ne!(w.get(13, 30).organism_id(), organism_id, "the far end of the organism beam never collapsed after its only anchor was cut");
     }
+    /// The other half of §6d's mirror: weight breaks a branch.
+    ///
+    /// A paired comparison of two identical cantilevers, one bare and one
+    /// buried, for the same reason the soil-reinforcement test uses one --
+    /// whether a given span survives at all depends on `max_unsupported_
+    /// span`, the anchor rule and the search bound, none of which this is
+    /// about. Comparing two runs cancels all of it and leaves only the
+    /// load term.
+    #[test]
+    fn a_loaded_branch_breaks_at_a_shorter_span_than_a_bare_one() {
+        let build = |loaded: bool| -> World {
+            let mut w = test_world();
+            let wood = w.materials.id_of("wood").expect("wood is compiled in");
+            let organism = w.push_organism(w.species.id_of("tree").expect("tree is compiled in"));
+            // A trunk on the ground, and a cantilever reaching out from it.
+            for y in 30..40 {
+                w.set(10, y, Cell::new(material::STONE, 0));
+            }
+            // Nine cells, so the tip sits exactly `wood`'s span (8) from
+            // the anchor. That length is the whole point: a bare branch
+            // survives at 8 and a loaded one, whose effective span is 7,
+            // does not. Shorter and both live; longer and both die, which
+            // is what the first version of this test measured (8 cells kept
+            // in both runs) and why it proved nothing.
+            for x in 11..=19 {
+                w.set(x, 30, Cell::new(wood, 0).with_organism_id(organism).with_aux(organism::pack_cell_type(organism::CellType::MatureBody)));
+            }
+            if loaded {
+                // Sand piled directly on the branch.
+                for x in 11..=19 {
+                    w.set(x, 29, Cell::new(material::SAND, 0));
+                }
+            }
+            // Reactive, never proactive: nudge the far end so the check runs.
+            w.schedule_structural_check_around(19, 30);
+            w
+        };
+
+        let surviving = |w: &World| -> usize {
+            let wood = w.materials.id_of("wood").unwrap();
+            (11..=19).filter(|&x| w.get(x, 30).material == wood).count()
+        };
+
+        let mut bare = build(false);
+        let mut loaded = build(true);
+        run(&mut bare, 200);
+        run(&mut loaded, 200);
+
+        assert!(
+            surviving(&loaded) < surviving(&bare),
+            "a branch buried in sand should break back further than a bare one: loaded kept {} cells, bare kept {}",
+            surviving(&loaded),
+            surviving(&bare)
+        );
+    }
+
 }

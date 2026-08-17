@@ -37,16 +37,70 @@ fn strata_shade(ctx: &Ctx, x: i32, y: i32) -> u8 {
     // it (`column::terraced`).
     let band_y = y as f32 + ctx.terrain.strata_offset(x);
     let band = (band_y / thickness).floor() as i32;
-    // Adjacent bands differ by one tone, not four: strata are a subtle
-    // gradient in real rock, and cycling the full range makes stripes.
-    const TONES: [u8; 4] = [1, 2, 1, 0];
-    let base = TONES[band.rem_euclid(4) as usize];
+    // Each band draws its own tone, rather than the sequence cycling.
+    //
+    // A fixed four-tone cycle was the first version, and at any distance it
+    // reads as wallpaper: the eye picks up the repeat immediately and the
+    // rock stops looking deposited and starts looking tiled. Real
+    // stratigraphy is mostly a run of similar beds with the occasional
+    // markedly lighter or darker marker bed in it, and no period at all. The
+    // weights below say exactly that — about five in six bands sit in the two
+    // middle tones, and the rest are markers.
+    //
+    // Keyed on the band index alone, so a bed holds its tone across the whole
+    // world: a layer you can follow from one cliff face to another is the
+    // entire point of drawing them.
+    //
+    // The four tones are spread roughly evenly rather than concentrated in
+    // the middle two. Stone's palette spans only 110..138 in brightness, so
+    // there is not enough range to spend most of it on near-identical greys —
+    // the first version of this weighting put 86% of bands into tones eight
+    // apart and the banding simply vanished from the render, which is a
+    // reminder that "subtle" and "invisible" are one tuning step apart when
+    // the palette is this tight. Irregular run lengths, not low contrast, are
+    // what stop it reading as wallpaper.
+    let r = noise::unit(ctx.terrain.seed, Purpose::Strata, band, 0);
+    let base = if r < 0.30 {
+        3
+    } else if r < 0.55 {
+        1
+    } else if r < 0.80 {
+        0
+    } else {
+        2
+    };
     // A minority of cells jump a tone, so the bands have grain inside them
     // rather than reading as flat ribbons.
     if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < 0.12 {
         (base + 1).min(3)
     } else {
         base
+    }
+}
+
+/// Shade for a soil cell, darkening toward the surface.
+///
+/// A soil profile is legible in cross-section and nowhere else, which makes
+/// it exactly the kind of detail this view exists to show: dark organic
+/// topsoil over paler mineral subsoil, the thing you see in the side of every
+/// ditch. Drawn with the same four palette entries the brush uses, so it
+/// costs nothing — soil's palette happens to run from `2` (darkest) through
+/// `0` and `1` to `3` (lightest), which is the ramp used here.
+///
+/// `depth` is cells below the top of the blanket.
+fn soil_shade(ctx: &Ctx, x: i32, y: i32, depth: i32, total: i32) -> u8 {
+    // Jitter first, so the horizons are ragged rather than ruled.
+    let jitter = noise::unit(ctx.terrain.seed, Purpose::Shade, x, y);
+    let f = if total <= 1 { 0.0 } else { depth as f32 / (total - 1) as f32 };
+    let f = (f + (jitter - 0.5) * 0.35).clamp(0.0, 1.0);
+    if f < 0.3 {
+        2
+    } else if f < 0.6 {
+        0
+    } else if f < 0.85 {
+        1
+    } else {
+        3
     }
 }
 
@@ -123,19 +177,40 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
             // A dithered band where soil meets stone, rather than a clean
             // horizon. Two materials meeting on an exact line is the single
             // most artificial-looking thing a layered generator can do.
-            let m = if y >= bottom - 2 && noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < 0.25 {
-                ctx.gravel
-            } else if is_valley_floor && y < top + 2 {
-                ctx.sand
+            let depth = y - top;
+            // A gradational contact rather than a horizon.
+            //
+            // Soil does not stop and rock start at a line; the bottom of a
+            // profile is stones in earth, getting stonier down. Drawn as a
+            // clean boundary — which is what a two-row dither at a flat 25%
+            // amounted to — the eye reads it as two materials stacked by a
+            // program, because that is what it is. The odds ramp from nothing
+            // four cells up to near-certain at the base, so the transition
+            // has depth to it and no two columns break at the same row.
+            let into_contact = (bottom - y).max(0);
+            let stony = if into_contact <= CONTACT_DEPTH {
+                1.0 - into_contact as f32 / (CONTACT_DEPTH + 1) as f32
             } else {
-                ctx.soil
+                0.0
             };
-            world.set(x, y, Cell::new(m, loose_shade(ctx, Purpose::Shade, x, y)));
+            let (m, shade) = if noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < stony * 0.85 {
+                (ctx.gravel, loose_shade(ctx, Purpose::Dither, x, y))
+            } else if is_valley_floor && y < top + 2 {
+                (ctx.sand, loose_shade(ctx, Purpose::Shade, x, y))
+            } else {
+                (ctx.soil, soil_shade(ctx, x, y, depth, bottom - top))
+            };
+            world.set(x, y, Cell::new(m, shade));
             n += 1;
         }
     }
     n
 }
+
+/// How many cells of the soil profile's base grade into stony ground. Not a
+/// tunable: it is a property of what a soil profile looks like, not of a
+/// particular world's style (`Reports/design-philosophy.md` §2a).
+const CONTACT_DEPTH: i32 = 4;
 
 /// A drop of at least this many cells counts as a cliff for the brow and
 /// talus passes. Below it the "face" is a slope, and hanging a lip off it
@@ -301,6 +376,416 @@ pub fn talus(ctx: &Ctx, world: &mut World) -> usize {
     }
     n
 }
+
+/// Standing water in every hollow the table reaches.
+///
+/// The only pass so far that has to see the whole world, and it is worth
+/// being precise about why: whether water stands at a column depends on the
+/// height of the *lowest rim* enclosing it, which can be any distance away.
+/// That is the classic trapped-water scan, and it is exactly the reasoning
+/// the coarse `(x, z)` map exists to take over (design doc §5) — until then
+/// this pass is honest debt rather than a solved problem, which is what its
+/// `GLOBAL` margin records.
+///
+/// Water is *born at its own level*, full, and flat. That is not an
+/// optimisation, it is the whole difference between a world that opens
+/// settled and one the player watches slosh for a minute: a flat, full pool
+/// is already at equilibrium, so no levelling transfer fires and the chunks
+/// sleep on the first sweep.
+pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    let w = ctx.terrain.w as usize;
+    if w == 0 {
+        return n;
+    }
+    // Rim heights sweeping in from each edge. Remember y-down: a *smaller*
+    // y is a taller barrier, so the running extreme is a minimum.
+    let mut left_rim = vec![i32::MAX; w];
+    let mut right_rim = vec![i32::MAX; w];
+    let mut running = i32::MAX;
+    for (x, rim) in left_rim.iter_mut().enumerate() {
+        running = running.min(ctx.plans[x].surface_y);
+        *rim = running;
+    }
+    running = i32::MAX;
+    for x in (0..w).rev() {
+        running = running.min(ctx.plans[x].surface_y);
+        right_rim[x] = running;
+    }
+
+    // Plan first, write second: the minimum-size rule below has to be able to
+    // reject a pool *before* any of it exists, and a film deleted after the
+    // fact would leave the chunks it touched awake for nothing.
+    //
+    // **Basins are grouped by topography, not by where water ends up.** That
+    // distinction is the whole correctness of this pass and it cost a
+    // debugging session to find. Grouping contiguous *wet* columns splits a
+    // basin in two wherever a submerged ridge pokes up between two deeper
+    // parts: each half then gets its own level, and since a hollow's two
+    // halves generally have different water tables, the two levels differ —
+    // so the first sweep flowed one into the other and 686 cells of water
+    // redistributed themselves. On screen that is a world that opens by
+    // visibly draining its own lake.
+    //
+    // A column is in a basin when its spill level is genuinely below its
+    // ground, and a submerged ridge satisfies that too, so grouping this way
+    // keeps the whole hollow together.
+    let spill: Vec<i32> = (0..w).map(|x| left_rim[x].max(right_rim[x])).collect();
+
+    let min_depth = ctx.terrain.params.pond_min_depth.max(0.0) as i32;
+    let min_width = ctx.terrain.params.pond_min_width.max(0.0) as i32;
+    let mut level = vec![i32::MAX; w];
+    let mut x = 0usize;
+    while x < w {
+        if spill[x] >= ctx.plans[x].surface_y {
+            x += 1;
+            continue;
+        }
+        let start = x;
+        // One level for the whole basin. A free surface is level; a sloped
+        // one is a head difference, and head differences flow.
+        //
+        // The level is the lower in elevation — the larger y — of the two
+        // constraints: the most restrictive rim anywhere on the basin, and
+        // the highest the table reaches inside it. Groundwater fills a hollow
+        // to the top of its table and no further than the rim.
+        let mut rim = i32::MIN;
+        let mut table_top = i32::MAX;
+        while x < w && spill[x] < ctx.plans[x].surface_y {
+            rim = rim.max(spill[x]);
+            table_top = table_top.min(ctx.plans[x].table_y);
+            x += 1;
+        }
+        let pool = rim.max(table_top);
+
+        // Reject pools too small to read as water. A one-cell film renders as
+        // a black line rather than as a pool, because `render.rs` dims a
+        // liquid toward black by fill -- so the thin ones do not look like
+        // shallow water, they look like a bug.
+        let deepest = (start..x).map(|i| ctx.plans[i].surface_y - pool).max().unwrap_or(0);
+        let wet_columns = (start..x).filter(|&i| pool < ctx.plans[i].surface_y).count() as i32;
+        if wet_columns < min_width || deepest < min_depth {
+            continue;
+        }
+        for (i, slot) in level.iter_mut().enumerate().take(x).skip(start) {
+            if pool < ctx.plans[i].surface_y {
+                *slot = pool;
+            }
+        }
+    }
+
+    for (x, &pool) in level.iter().enumerate() {
+        if pool == i32::MAX {
+            continue;
+        }
+        let plan = ctx.plans[x];
+        for y in pool.max(0)..plan.surface_y {
+            if world.get(x as i32, y).material != material::EMPTY {
+                continue;
+            }
+            // `aux` is left alone deliberately: on a `Liquid` cell `aux == 0`
+            // means **full**, and writing a literal fill here would be the
+            // documented way to manufacture a full cell out of nothing. The
+            // shade is varied because uniform-shade water renders visibly
+            // flat under the per-cell grain mode.
+            world.set(x as i32, y, Cell::new(ctx.water, loose_shade(ctx, Purpose::Shade, x as i32, y)));
+            n += 1;
+        }
+    }
+    n
+}
+
+/// The saturated zone: a moisture floor under the water table, ramping up
+/// through the capillary fringe above it.
+///
+/// **No liquid cells are placed inside the ground, ever.** A cell holds one
+/// material and there is no porosity, so saturated rock is rock whose field
+/// says it is wet — which is also why the underground cannot "fill with
+/// water" however high the table is set. The fear that a water table floods
+/// the world is answered by this pass's existence: the aquifer is a number
+/// per field block, and the only liquid anywhere is standing in open hollows.
+/// Write the soil-water profile the CA physics are at rest in: saturated
+/// ground at and below the water table, a two-step capillary fringe above
+/// it, and a saturated wetted perimeter around standing water.
+///
+/// **The reconciliation between "pools arrive already level" and real soil
+/// hydrology, and the merge that joined them is why it exists.** A pond
+/// rests on drinkable ground now: `update_soil_water`'s infiltration lets
+/// soil absorb an adjacent liquid, so a pond generated over *dry* soil
+/// spends its opening minutes drinking its own bed and banks — the world
+/// opens by visibly draining its lakes, and the at-rest guarantee
+/// (`tests/worldgen.rs`) fails on exactly the water cells the ponds pass
+/// placed. Hydrologically the dry ground was the lie: standing water
+/// persists where the ground around it is already saturated — a pond *is*
+/// the water table reaching daylight, and the ponds pass fills basins to
+/// the table, so writing that truth into the soil is authoring the
+/// equilibrium, not faking one.
+///
+/// The exact shape is forced by the two CA rules it must stand against,
+/// and deviating from it re-derives a churn this merge already paid for
+/// twice (see `SOIL_CAPILLARY_REST`'s own doc for the perpetual two-cell
+/// pump):
+///
+/// - **At and below the effective table: saturated.** The effective table
+///   is the column's own `table_y`, or the bed of any standing water in
+///   the column if that is higher — a pond outranks the smoothed table
+///   locally, being direct evidence of water at that height.
+/// - **Adjacent to any liquid cell: saturated.** The wetted perimeter.
+///   A merely-damp bank cell drinks its neighbouring water cell (bounded,
+///   but the at-rest test rightly counts the vanished water), and a full
+///   one cannot.
+/// - **At fringe distance one and two from the saturated zone: field
+///   capacity, then 240.** Distance is *Manhattan distance to the nearest
+///   saturated cell across the whole ground*, not rows-above-the-table in
+///   this column alone — capillary exchanges across all four faces, so on
+///   a slope or a terrace step the fringe wraps the saturated zone
+///   sideways exactly as it does upward, and a column-only fringe leaves a
+///   bare lateral edge that capillary then assembles at runtime (measured:
+///   84–108 frames of awake chunks on the terraced and rolling presets,
+///   against 31 with the fringe authored isotropically). Each step stays
+///   within `SOIL_CAPILLARY_REST` (380) of its neighbours in every
+///   direction, so the fringe stands; each stays at or under field
+///   capacity, so drainage has nothing to do.
+///
+/// Writes are `max` against what is already there, so the rules compose,
+/// and cells without `water_capacity` (sand, gravel, stone) are skipped in
+/// place — a sand pocket inside the saturated zone stays inert and
+/// exchanges nothing, which seals rather than leaks.
+pub fn soil_moisture(ctx: &Ctx, world: &mut World) -> usize {
+    let w = ctx.terrain.w as usize;
+    if w == 0 {
+        return 0;
+    }
+    // Standing water outranks the smoothed table locally: the bed of the
+    // lowest water cell caps the effective table from above.
+    let mut table: Vec<i32> = (0..w).map(|x| ctx.plans[x].table_y).collect();
+    for (x, t) in table.iter_mut().enumerate() {
+        for y in 0..ctx.terrain.h {
+            if world.materials.kind(world.get(x as i32, y).material) == material::MaterialKind::Liquid {
+                *t = (*t).min(y + 1);
+            }
+        }
+    }
+
+    // Manhattan distance to free water, by the classic two-pass transform
+    // over the whole ground. Seeds: liquid cells at -1 (the soil *touching*
+    // water is saturated, so water's neighbours must land at 0) and
+    // capacity-bearing cells at or below their column's table at 0. A
+    // per-column transform was tried first and left the wetted perimeter of
+    // every above-table pond unwrapped — its saturated bank cells were not
+    // seeds, so their outward neighbours computed as far-from-water, got no
+    // fringe, and capillary assembled one at runtime (rolling preset: 82
+    // frames of awake chunks against 31 once the ponds seed the transform).
+    let h = ctx.terrain.h as usize;
+    let far = i32::MAX / 2;
+    let idx = |x: usize, y: usize| y * w + x;
+    let mut d = vec![far; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let cell = world.get(x as i32, y as i32);
+            if world.materials.kind(cell.material) == material::MaterialKind::Liquid {
+                d[idx(x, y)] = -1;
+            } else if world.materials.get(cell.material).water_capacity > 0 {
+                let wetted = [(0, -1), (-1, 0), (1, 0), (0, 1)]
+                    .iter()
+                    .any(|&(dx, dy)| world.materials.kind(world.get(x as i32 + dx, y as i32 + dy).material) == material::MaterialKind::Liquid);
+                if wetted || (y as i32) >= table[x] {
+                    d[idx(x, y)] = 0;
+                }
+            }
+        }
+    }
+    // **Saturation is closed downward, and skipping this closure was a
+    // measured pump.** A saturated cell over an unsaturated one drains
+    // (gravity), and where standing water can refill the upper cell
+    // (infiltration at a pond's wetted edge), the pair cycles forever —
+    // watched in the sweep test's own diff: bank columns filling top-down
+    // at ~15 units a frame while the pond surface re-levelled what the
+    // banks drank. Hydrostatically the closure is just true: ground
+    // directly beneath saturated ground is saturated. A capacity-free cell
+    // (sand, stone) ends the chain and seals it.
+    for x in 0..w {
+        for y in 1..h {
+            if d[idx(x, y)] > 0 && d[idx(x, y - 1)] <= 0 && world.materials.get(world.get(x as i32, y as i32).material).water_capacity > 0 {
+                d[idx(x, y)] = 0;
+            }
+        }
+    }
+    for y in 0..h {
+        for x in 0..w {
+            let mut best = d[idx(x, y)];
+            if x > 0 {
+                best = best.min(d[idx(x - 1, y)] + 1);
+            }
+            if y > 0 {
+                best = best.min(d[idx(x, y - 1)] + 1);
+            }
+            d[idx(x, y)] = best;
+        }
+    }
+    for y in (0..h).rev() {
+        for x in (0..w).rev() {
+            let mut best = d[idx(x, y)];
+            if x + 1 < w {
+                best = best.min(d[idx(x + 1, y)] + 1);
+            }
+            if y + 1 < h {
+                best = best.min(d[idx(x, y + 1)] + 1);
+            }
+            d[idx(x, y)] = best;
+        }
+    }
+
+    let fringe_fraction = [material::SOIL_FIELD_CAPACITY as f32 / material::SOIL_SATURATED as f32, 0.24];
+    let mut n = 0;
+    for y in 0..h {
+        for x in 0..w {
+            let cell = world.get(x as i32, y as i32);
+            let capacity = world.materials.get(cell.material).water_capacity;
+            if capacity == 0 {
+                continue;
+            }
+            let target = match d[idx(x, y)] {
+                dist if dist <= 0 => capacity,
+                1 => (capacity as f32 * fringe_fraction[0]) as u16,
+                2 => (capacity as f32 * fringe_fraction[1]) as u16,
+                _ => continue,
+            };
+            if crate::sim::update::soil_moisture(cell) < target {
+                world.set(x as i32, y as i32, cell.with_aux(target));
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+pub fn moisture_init(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    let fringe = ctx.terrain.params.capillary_fringe.max(0.0);
+    // One write per field block rather than per cell: the field grid is
+    // 1/FIELD_SCALE resolution and writing every cell would do the same work
+    // sixty-four times.
+    let step = crate::sim::field::FIELD_SCALE;
+    let mut y = 0;
+    while y < ctx.terrain.h {
+        let mut x = 0;
+        while x < ctx.terrain.w {
+            let plan = ctx.plans[x as usize];
+            let floor = if y >= plan.table_y {
+                1.0
+            } else if fringe > 0.0 && (plan.table_y - y) as f32 <= fringe {
+                // Linear ramp up to saturation: the capillary fringe, where
+                // ground is damp above the table because water wicks up into
+                // it. This is the band roots should be able to find without
+                // growing into standing water and drowning.
+                let above = (plan.table_y - y) as f32;
+                0.15 + (1.0 - 0.15) * (1.0 - above / fringe)
+            } else if plan.table_y < ctx.terrain.h
+                && y >= plan.surface_y
+                && plan.soil_depth > 0
+                && y < plan.surface_y + plan.soil_depth
+            {
+                // Soil holds a little damp of its own, but only in a world
+                // that has groundwater to hold. Gated on the table being
+                // inside the world so that a preset which switches water off
+                // switches *all* of it off — `arid` reporting a few hundred
+                // damp cells would make the pivot lever a half-measure, and
+                // the whole point of that lever is that it is total.
+                0.15
+            } else {
+                0.0
+            };
+            if floor > 0.0 {
+                world.set_field_moisture_floor(x, y, floor);
+                n += 1;
+            }
+            x += step;
+        }
+        y += step;
+    }
+    n
+}
+
+/// Moss and tree seeds on ground that will support them.
+///
+/// The world arrives with life in it rather than waiting for the player to
+/// plant every blade — which matters for a reason beyond decoration. A world
+/// whose only vegetation is hand-placed grows *evenly spaced* vegetation,
+/// because that is how a person places things, and evenly spaced plants are
+/// the single most artificial-looking thing a side-view world can do.
+///
+/// So placement is **clustered, not uniform**: the density is multiplied by a
+/// low-frequency field that is then *squared*. Squaring is the whole device —
+/// it pushes most of the world below the planting threshold and concentrates
+/// the rest into stands, giving thickets and clearings instead of a scatter.
+/// Removing that square gives a uniform sprinkle, which is exactly the look
+/// this exists to avoid.
+///
+/// Seeds, not grown plants. What comes up, how tall it gets and how it leans
+/// are the organism substrate's business, and a generator that placed finished
+/// trees would be authoring an outcome the simulation is meant to produce.
+pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
+    let p = ctx.terrain.params;
+    if p.moss_density <= 0.0 && p.tree_density <= 0.0 {
+        return 0;
+    }
+    let mut n = 0;
+    // `Option`, not a sentinel. The first version used `i32::MIN` and never
+    // planted a single tree in any world: `x - i32::MIN` overflows, wraps
+    // negative in release, and fails the spacing test for every column
+    // forever. The counter found it -- the render just looked like a world
+    // where trees are rare.
+    let mut last_tree: Option<i32> = None;
+    for x in 0..ctx.terrain.w {
+        let ground = ctx.plans[x as usize].surface_y;
+        let above = ground - 1;
+        if above < 0 {
+            continue;
+        }
+        // Somewhere to stand, and space to stand in. The emptiness check
+        // also keeps anything from being planted in a pond, which is what
+        // should happen without a rule saying so.
+        let footing = world.get(x, ground).material;
+        if world.get(x, above).material != material::EMPTY {
+            continue;
+        }
+        let cluster = noise::fbm_1d(
+            ctx.terrain.seed,
+            Purpose::Life,
+            x as f32 / p.life_cluster_wavelength.max(1.0),
+            2,
+        );
+        let cluster = cluster * cluster;
+
+        // Trees want soil to root in; moss will take bare rock as well, which
+        // is what puts green on a cliff face where nothing else grows.
+        let on_soil = footing == ctx.soil || footing == ctx.sand;
+        if on_soil
+            && last_tree.is_none_or(|last| x - last >= TREE_SPACING)
+            && noise::unit(ctx.terrain.seed, Purpose::Life, x, 7) < p.tree_density * cluster
+            && world.plant_tree_species(x, above, "tree")
+        {
+            last_tree = Some(x);
+            n += 1;
+            continue;
+        }
+        if noise::unit(ctx.terrain.seed, Purpose::Life, x, 9) < p.moss_density * cluster {
+            world.plant_moss_seed(x, above);
+            n += 1;
+        }
+    }
+    n
+}
+
+/// Closest two tree seeds may be planted, in columns.
+///
+/// Not an aesthetic rule so much as an admission about the substrate: two
+/// seedlings a couple of cells apart compete for the same light and water and
+/// one of them simply fails, so planting them is spending generation on a
+/// plant that will not be there. Far enough apart to both have a chance, near
+/// enough that a stand still reads as a stand.
+const TREE_SPACING: i32 = 7;
 
 /// Sand and gravel lenses sealed inside the rock.
 ///

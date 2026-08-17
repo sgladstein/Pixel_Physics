@@ -53,35 +53,315 @@
         (GrowingTip, [
             Grow(
                 cost: 0.2,
-                branch_chance: 0.1,
+                // **Per branch order** -- trunk, limb, branch, twig. See
+                // organism::ByOrder: the list pads with its last value, so
+                // a one-value list is a species with no tiers and a
+                // two-value list is a shrub.
+                //
+                // A trunk that branches rarely under twigs that branch
+                // often is what makes a bole with a crown on it, and it
+                // costs no rule that has to decide which cells are trunk
+                // -- a cell cannot know that locally, which is why four
+                // successive support models failed trying to infer it from
+                // shape.
+                branch_chance: [0.03, 0.12, 0.2, 0.25],
                 continuation_weight: 0.7,
-                light_weight: 0.4,
+                // Twigs chase light hardest; the trunk mostly ignores it
+                // and goes up. Phototropism on the trunk is what made
+                // early stems wander toward whichever side happened to be
+                // brighter instead of standing up.
+                light_weight: [0.15, 0.3, 0.5, 0.6],
                 wind_weight: 0.2,
-                upward_weight: 0.1,
-                crowding_weight: 0.5,
+                // The trunk's straightness comes from here. Laterals get
+                // progressively less of it, so a limb leaves the trunk and
+                // stays out rather than curling back up alongside it --
+                // which is what produced the parallel-ropes look.
+                upward_weight: [0.9, 0.35, 0.1, 0.05],
+                // **The only thing bounding lateral spread**, and it has
+                // been re-derived twice because what it opposes got
+                // stronger both times.
+                //
+                // At any height bound a stand's light-optimal shape *is* a
+                // flat slab: `ambient_light_above` is per-column sky
+                // visibility, so a canopy one cell thick pressed against
+                // the ceiling has every column lit and income grows with
+                // width, which is unbounded. Growth follows light, so
+                // growth finds the slab. Real forests bound this the same
+                // way -- crown shyness is what stops a closed canopy being
+                // one organism. See `candidate_crowding` for why the term
+                // is deliberately owner-blind.
+                //
+                // Swept twice, 8 trees / 30,000 frames, thickest contiguous
+                // run of organism cells above ground. Trees sit 57 cells
+                // apart, so anything past that is two crowns fused:
+                //
+                //   before graded light   0.5 -> 136    1.5 -> 106
+                //                         3.0 ->  82    6.0 ->  39
+                //   after graded light    6.0 ->  78   12.0 ->  51
+                //                        20.0 ->  13   30.0 ->  39
+                //
+                // **Note the cliff, not a curve.** Past 12 the stand does
+                // not merely separate, it collapses -- median tree 2,620
+                // cells at 12.0 against 26 at 20.0. The usable band is
+                // narrow and sits just under the collapse, which is worth
+                // knowing before anyone reaches for this knob again.
+                //
+                // Tried and rejected on the way, both of which made fusion
+                // *worse* by pushing more growth into the ceiling: raising
+                // outer-tier `upward_weight`, and branching along the trunk
+                // at `branch_chance[0] = 0.09`. Three knobs failing the
+                // same way is the signal that the question is which one is
+                // load-bearing, not what values they take.
+                crowding_weight: 12.0,
                 max_active_tips: 14,
+                // Every 3rd growth step along a shoot leaves a Leaf behind.
+                // Untuned -- picked as the smallest interval that still
+                // reads as "leaves spaced along a stem" rather than "every
+                // cell is a leaf", and deliberately not tuned here: the one
+                // economy pass this phase gets happens after polarity lands
+                // (Reports/plant-substrate-v2-design.md §10 step 3), and
+                // tuning it twice is exactly what that sequencing exists to
+                // avoid.
+                // **A bare bole falls out of this line.** The trunk leafs
+                // every 12th step and a twig every other one, so foliage
+                // ends up on the outside of the crown without any rule
+                // about height or about what a "trunk" is. Not 0 on the
+                // trunk: a seedling is order 0 and nothing else, so a
+                // leafless trunk tier starves it before it can ever branch.
+                plastochron: [12, 5, 2, 2],
+                // A shoot only grows into open air. Reports/tree-rewrite-
+                // design.md §5 scopes growing-into-material to roots.
+                penetration_force: 0.0,
+                // Turgor-limited height. See Behavior::Grow's own docs and
+                // Reports/tree-extension-biology.md §2c: a shoot apex is
+                // limited by water potential falling with height, not by
+                // age or by running out of carbon.
+                //
+                // These three give a DERIVED ceiling rather than a cap:
+                //   h_max = (source - yield) / per_cell = 0.9 / 0.0075 = 120 rows
+                // Chosen so a mature tree sits well inside the harness sky
+                // (200 rows) instead of pinning against the world's top
+                // edge, which every scene has done so far and which voids
+                // any shape number taken from it.
+                // No two trees in a stand are the same tree. See
+                // Behavior::Grow::genotype_variance -- 8 trees measuring
+                // 127..131 rows tall was one tree drawn eight times.
+                // Extension fades over the top 30% of the turgor range
+                // instead of stopping on a line. See Behavior::Grow.
+                turgor_taper: 0.3,
+                // A seedling is order 0 and sees only the trunk tier, which
+                // is the sparsest one by design. See Behavior::Grow's
+                // juvenile_size: without this a seedling is handed the
+                // bole's economy and starves before it can branch.
+                // Momentum, so a stem sweeps instead of zig-zagging. See
+                // OrganismCell::heading -- scoring continuation against a
+                // one-cell local read is why growth looked erratic.
+                heading_inertia: 0.85,
+                // A 2D cross-section shows every twig, so one leaf cell per
+                // node renders as a bare skeleton with green specks. See
+                // Behavior::Grow::leaf_cluster.
+                leaf_cluster: 5,
+                juvenile_size: 60,
+                juvenile_plastochron: 0.25,
+                juvenile_branch: 1.5,
+                // [branch, upward, plastochron, turgor]. Widths set from a
+                // 64-genome study: at a flat 0.15 only turgor correlated
+                // with any outcome (r = -0.675 on height; the rest |r| <=
+                // 0.13), and the plastochron's integer rounding erased its
+                // variation entirely at the outer orders. The first three
+                // are widened to clear that.
+                // [branch, upward, plastochron, turgor, pipe_ratio, light].
+                // Widths from a 1,024-genome study. Quintile spread in tree
+                // size, low draw -> high draw:
+                //   branch    823 -> 2078   (2.5x, live)
+                //   plast    2443 ->  767   (3.2x, live, inverted)
+                //   turgor   1709 -> 1162   (1.5x, and r = -0.75 on height)
+                //   upward   1310 -> 1457   (flat -- INERT even at +/-40%)
+                // Upward is held at 0.0 rather than removed: salts are
+                // positional and renumbering rewrites every genome. The two
+                // new slots are the traits with the most silhouette left in
+                // them -- girth per unit foliage (stocky vs slender, until
+                // now identical on every tree) and phototropic gain
+                // (straight vs wandering).
+                // Widths from two 1,024-genome studies. Quintile spread in
+                // tree size, low draw -> high draw:
+                //   plast    2459 ->  634   3.9x, the strongest trait
+                //   branch    808 -> 2018   2.5x
+                //   turgor   1477 -> 1176   1.3x on size, r = -0.74 height
+                //   pipe     1537 -> 1247   weak, but stem 16.1 -> 12.7,
+                //                           correctly signed -- so widened
+                //   light    1386 1463 1369 1272 1394   DEAD at +/-50%
+                //   upward   1310 1460 1396 1388 1457   DEAD at +/-40%
+                //
+                // Both dead traits are held at 0.0 rather than removed:
+                // salts are positional and renumbering one rewrites every
+                // genome ever measured.
+                //
+                // **Phototropism being inert is a finding, not a tuning
+                // miss.** Since `field.rs` became a per-column sky cast the
+                // light field is very nearly uniform above the canopy, so a
+                // phototropic gradient has almost nothing to grab and
+                // light_weight steers by noise. Worth fixing at the field,
+                // not by widening this.
+                //
+                // branch is a genuine trade and 0.5 is the middle of it,
+                // measured at both ends. At 0.6 the stand establishes well
+                // and individuals drawing 1.6x fork near the ground, losing
+                // the bole-then-crown silhouette. At 0.35 the survivors look
+                // the best this branch has produced -- clean bole, rounded
+                // crown -- and six of eight failed to establish at all,
+                // against 35% failure stand-wide at 0.6.
+                //
+                // **The cause is worth writing down: a seedling branches to
+                // build leaf area.** Branching is how a small plant gets
+                // more shoots, more shoots is more foliage, and foliage is
+                // the whole income -- so narrowing the trait removes exactly
+                // the individuals that could establish. The real fix is not
+                // a width: branch_chance should be high while juvenile and
+                // low once established, which ByOrder cannot express,
+                // because order is position in the plant and not age.
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0),
+                turgor_source: 1.0,
+                turgor_yield: 0.1,
+                turgor_per_cell: 0.0075,
             ),
-            Photosynthesize(rate: 0.5),
+            Photosynthesize(
+                rate: 0.5,
+                // **OFF, and the measurement is why.** Shade abscission is
+                // the right mechanism for "too many leaves on the lower
+                // trunk" -- it is what makes a real bole bare, and it beats
+                // seasonality for the job. It does not work against *this*
+                // light channel, because the range of light a leaf sees is
+                // far too compressed to tell a buried leaf from a
+                // crown-edge one. Swept, 8 trees / 30,000 frames, mean
+                // leaves per tree:
+                //
+                //     off     411
+                //     0.05     50    -88%
+                //     0.12     38
+                //     0.25      0    every leaf in the world
+                //
+                // **Widening the light channel did not rescue it, and the
+                // second measurement found the real reason.** After
+                // `FieldTile::occupancy` made sky transmission graded --
+                // which genuinely did open the channel up, and roughly
+                // quintupled every tree -- 0.25 and even 0.6 still took the
+                // stand to exactly zero leaves.
+                //
+                // The gate is instantaneous, and `sky_light_amplitude` is a
+                // **day/night oscillator**. Every leaf in the world reads
+                // near zero at night, so any fixed threshold is a nightly
+                // extinction event. What abscission needs is light averaged
+                // over at least a full cycle -- a slow per-cell running mean
+                // -- and that is real work rather than a constant.
+                //
+                // Recorded on `PLAN.md` issue 0e (day/night phase sampling)
+                // rather than tuned: this is the third quantity on this
+                // branch to be sampled at an arbitrary phase of a 3,600-
+                // frame oscillator whose relaxation exceeds its own period.
+                shade_death: 0.0,
+            ),
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
+            Transpire(rate: 1.0),
             Grow(
                 cost: 0.25,
-                branch_chance: 0.04,
+                branch_chance: [0.04],
                 continuation_weight: 0.7,
-                light_weight: 0.0,
+                light_weight: [0.0],
                 wind_weight: 0.0,
-                upward_weight: 0.6,
+                upward_weight: [0.6],
                 crowding_weight: 0.0,
                 max_active_tips: 10,
+                // Roots grow by the same rule and must never leaf
+                // underground -- 0 disables the mechanism entirely, which is
+                // a real value here rather than "unset". See the field's own
+                // doc in organism.rs.
+                // Roots grow by the same rule and must never leaf
+                // underground. One value, so every order agrees.
+                plastochron: [0],
+                // **Roots read as small balls without this.** They run the
+                // same Grow as a shoot, so they had the same one-cell
+                // heading read and the same wandering -- but underground,
+                // with no phototropism to straighten them and every
+                // direction equally dark, the wander has nothing at all
+                // pulling it into a line. Slightly less than the shoot's,
+                // because a root really does follow moisture around
+                // obstacles rather than driving straight.
+                heading_inertia: 0.75,
+                // Real root axial growth pressure is on the order of
+                // 0.2-1.5 MPa; 1.2 puts this tree through loose soil (0.8)
+                // and sand (1.4 -- refused), and never through gravel
+                // (3.5) or any Solid. See Material::penetration_resistance.
+                penetration_force: 1.2,
             ),
         ]),
         (MatureBody, [
-            SecondaryThicken(pipe_ratio: 2.5),
+            // **Re-derived when the gate's denominator was corrected**, and
+            // the old 10.0 is not comparable. `thicken` used to divide the
+            // foliage above by the *whole row's* organism cells; it now
+            // divides by this stem's own contiguous run of woody cells,
+            // which is what the pipe model names. A branched tree has
+            // several runs across 53% of its occupied rows, so the old
+            // denominator over-read by roughly the run count and 10.0 was
+            // absorbing that factor. Left unchanged, the correction alone
+            // took the stand from 4,624 cells to 12,985 -- ropy columns.
+            //
+            // Swept, 8 trees / 30,000 frames, mean cells / stand leaves /
+            // median stem thickness above the base:
+            //
+            //     row-total 10   578   393    9    (the old baseline)
+            //     per-stem  10  1623   299   19    blob
+            //     per-stem  20   780   353    9
+            //     per-stem  30   657   455    9
+            //     per-stem  45   635   521    8    <-- here
+            //     per-stem  60   514   555    7
+            //     per-stem  90   450   626    7
+            //
+            // Monotone -- there is no interior optimum, so this is a shape
+            // knob picked by eye against the baseline it replaces. 45 is
+            // the value that reproduces the old stand's mass and trunk
+            // width (635 against 578; 48% of rows wider than one cell
+            // against 45%) while carrying a third more foliage, and it is
+            // the first setting to produce a tree with a bare bole, a
+            // clear fork and spreading limbs rather than a tapered spike.
+            //
+            // Girth is now bounded by crown size, which is the coupling the
+            // pipe model exists for: trunks look thin because the crown is
+            // sparse, and they will thicken on their own when it fills.
+            // Do not chase trunk width by lowering this.
+            SecondaryThicken(pipe_ratio: 110.0),
             StructuralAnchor,
+            // Mature root tissue transpires. Harmless on canopy MatureBody
+            // cells, which never have a soil neighbour to draw from -- see
+            // Behavior::Transpire.
+            Transpire(rate: 1.0),
+        ]),
+        // The bud bank -- CellType::DormantBud's own doc has why extension
+        // depositing buds, and nothing else depositing them, is the whole
+        // mechanism. A bud is stem tissue, so it anchors and thickens like
+        // any other MatureBody; the only thing it has that they do not is
+        // one flush.
+        (DormantBud, [
+            BudBreak(
+                // Roughly one growth step's worth. A flush should be a real
+                // decision the plant pays for out of the same pool Grow
+                // draws on, not free potential sitting on the shelf.
+                cost: 0.2,
+                // A one-in-five survival is what leaves a clear bole: a
+                // trunk cell is thickened past many times over a tree's
+                // life, so its buds are gone with near certainty, while a
+                // twig that never thickens keeps all of them. Not 0 --
+                // occasional survivors on a lower limb are what stop the
+                // crown being a single flat layer at the top.
+                thickening_survival: 0.2,
+            ),
+            StructuralAnchor,
+            SecondaryThicken(pipe_ratio: 110.0),
         ]),
         (Leaf, [
-            Photosynthesize(rate: 0.35),
+            Photosynthesize(rate: 0.35, shade_death: 0.0),
         ]),
     ],
 )

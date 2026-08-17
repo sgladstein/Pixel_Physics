@@ -263,10 +263,20 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
             // columns in an active chunk from this same pass that hasn't
             // been reinserted yet. Detected here instead, deferred to
             // `pending_demotions` below.
-            if world.get(x, y).managed() {
+            let old = world.get(x, y);
+            if old.managed() {
                 pending_demotions.push((x, y));
             }
             world.set_owned(x, y, cell);
+            // `set_owned` goes straight to `write_cell`, so it bypasses
+            // `World::set`'s organism bookkeeping exactly as the same-chunk
+            // path does -- the remote half of the same seam, and it has to
+            // be replayed here for the same reason. Missing this left a
+            // seed whose *last* fall step crossed a chunk boundary out of
+            // its own organism's cell list, which is a one-row-in-64 window
+            // and produced a sterile single cell rather than a tree. See
+            // `World::reindex_organism_cell`.
+            world.reindex_organism_cell(x, y, old.organism_id(), cell.organism_id());
         }
         for (coord, x, y) in outcome.dirty_touches {
             world.mark_dirty_at(coord, x, y);
@@ -286,6 +296,9 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
         }
         for site in outcome.pending_active_sites {
             world.schedule_active_site(site);
+        }
+        for (x, y, was, now) in outcome.organism_moves {
+            world.reindex_organism_cell(x, y, was, now);
         }
         pending_demotions.extend(outcome.demotions);
         pending_absorptions.extend(outcome.absorptions);
@@ -341,6 +354,25 @@ struct ChunkOutcome {
     /// again, since `World::absorb_liquid`'s own rasterization can write
     /// into a chunk the growing column just crossed into.
     absorptions: Vec<(i32, i32, u32)>,
+    /// Organism cell-list membership changes from *same-chunk* writes —
+    /// `(x, y, was_organism_id, now_organism_id)`.
+    ///
+    /// `World::set` maintains `OrganismState::cells` itself, but **neither
+    /// half of this function's write path goes through it**: a same-chunk
+    /// write lands in the worker's own `Chunk`, and a remote write is
+    /// replayed by `run_pass` through `World::set_owned`, which calls
+    /// `write_cell` directly. So both halves have to replay the
+    /// bookkeeping — this queue covers the same-chunk half, and `run_pass`
+    /// covers the remote one at the point of replay.
+    ///
+    /// An earlier revision of this comment claimed remote writes were
+    /// replayed through `World::set` and fixed only the same-chunk half.
+    /// They are not, and the surviving half of the bug had a one-row-in-64
+    /// window: a seed whose *last* fall step crossed a chunk boundary
+    /// vanished from its cell list and grew into a single sterile cell.
+    /// Caught by independent review, not by the suite. See
+    /// `World::reindex_organism_cell`.
+    organism_moves: Vec<(i32, i32, u16, u16)>,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -404,6 +436,8 @@ struct ChunkView<'w> {
     demotions: Vec<(i32, i32)>,
     /// See `ChunkOutcome::absorptions`'s own doc.
     absorptions: Vec<(i32, i32, u32)>,
+    /// See `ChunkOutcome::organism_moves`'s own doc.
+    organism_moves: Vec<(i32, i32, u16, u16)>,
 }
 
 impl<'w> ChunkView<'w> {
@@ -421,6 +455,7 @@ impl<'w> ChunkView<'w> {
             pending_active_sites: Vec::new(),
             demotions: Vec::new(),
             absorptions: Vec::new(),
+            organism_moves: Vec::new(),
         }
     }
 
@@ -442,6 +477,7 @@ impl<'w> ChunkView<'w> {
             pending_active_sites: self.pending_active_sites,
             demotions: self.demotions,
             absorptions: self.absorptions,
+            organism_moves: self.organism_moves,
         }
     }
 
@@ -509,8 +545,15 @@ impl CellSurface for ChunkView<'_> {
             // that ordering matters: a body can span two same-parity active
             // chunks, and resolving mid-loop could look up a body whose
             // other columns live in a chunk not yet reinserted).
-            if self.chunk.get_world(x, y).managed() {
+            let old = self.chunk.get_world(x, y);
+            if old.managed() {
                 self.demotions.push((x, y));
+            }
+            // Same reason the disturbance check above is queued here: this
+            // write never passes through `World::set`, so the organism
+            // cell-list bookkeeping that lives there has to be replayed.
+            if old.organism_id() != cell.organism_id() {
+                self.organism_moves.push((x, y, old.organism_id(), cell.organism_id()));
             }
             let reach = self.world.materials.get(cell.material).sweep_reach();
             let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;

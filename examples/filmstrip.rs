@@ -42,7 +42,9 @@
 
 use std::collections::HashSet;
 
-use pixel_physics::render::{GrainMode, Renderer};
+use pixel_physics::render::{FieldOverlay, GrainMode, OrganismOverlay, Renderer};
+mod common;
+
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::particle::ParticleSystem;
@@ -53,6 +55,19 @@ use pixel_physics::sim::{explosion, material, parallel, update};
 const WIDTH: i32 = 512;
 const HEIGHT: i32 = 320;
 const FLOOR_THICKNESS: i32 = 8;
+
+/// Ground level for the plant scenes, in world rows from the top.
+///
+/// Chosen against `field.rs`'s measured light profile, not by eye: at the
+/// current `LIGHT_DECAY` the reading crosses `Germinate`'s `0.1` threshold
+/// roughly **75** cells below open sky, and `ambient_light_above` samples a
+/// further `FIELD_SCALE` (8) rows *above* the cell it is asked about. `40`
+/// leaves most of that band as headroom, so a seed here germinates on
+/// light margin rather than on the edge of it -- and so a canopy growing
+/// upward from here has somewhere lit to grow into. Do not deepen this
+/// without re-reading `LIGHT_DECAY`'s own doc; a scene where nothing
+/// germinates looks identical to a scene where growth is broken.
+const TREE_GROUND_Y: i32 = 40;
 
 /// Water with a varied `shade`, the way the brush lays it down
 /// (`World::paint_capsule` rolls a random shade per cell). The scenes below
@@ -176,6 +191,108 @@ fn build(args: &Args) -> World {
                     w.set(x, y, water_at(x, y));
                 }
             }
+        }
+        // M16 plants. A single seed on a stone shelf with a puddle beside
+        // it -- deliberately the same geometry as the committed live
+        // verification shots (`docs/screenshots/tree-rewrite-live-
+        // verification/`), so a sheet from this scene can be compared
+        // directly against the artifact the owner's "still a tiny tree, one
+        // cell thick, ~18 cells, no leaves, no roots" report was made about
+        // rather than against a fresh scene nobody has a prior on.
+        //
+        // **The shelf height is load-bearing, not cosmetic.** `Germinate`'s
+        // light gate reads `field_at(x, y - FIELD_SCALE).light`, and
+        // `field.rs`'s `LIGHT_DECAY` puts the `0.1` crossing roughly 75
+        // world cells below open sky. The ordinary `stone_floor` at
+        // `HEIGHT - 8` is 300+ cells down and a seed there never germinates
+        // at all -- which is exactly how the ported tree tests started
+        // failing when they kept the old system's y=100-150 planting depth
+        // (see `PLAN.md`'s tree-rewrite step 7 entry). `TREE_GROUND_Y` sits
+        // comfortably inside the lit band with headroom, per this repo's
+        // "set bars from measurement with headroom" convention.
+        "tree" => {
+            for x in 0..WIDTH {
+                for y in TREE_GROUND_Y..(TREE_GROUND_Y + 6) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            w.plant_tree(200, TREE_GROUND_Y - 1);
+            w.paint_circle(150, TREE_GROUND_Y - 4, 7, material::WATER);
+        }
+        // The same shelf, but a soil bed over a water table and several
+        // seeds spaced across it. This is the scene the later phases are
+        // aimed at -- roots growing into soil, soil moisture being drunk
+        // down, canopies competing for light -- and today it should show
+        // *none* of that, which is the point of shooting it now: it is the
+        // before-picture for work that has not started.
+        "forest" => {
+            // `soil` has no `material::` constant of its own -- it was
+            // appended to `EMBEDDED` deliberately (see that array's own
+            // comment on why inserting rather than appending would
+            // renumber the well-known ids), so it is looked up by name
+            // like `wood` and `moss` already are elsewhere.
+            let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+            for x in 0..WIDTH {
+                for y in (TREE_GROUND_Y + 40)..(TREE_GROUND_Y + 46) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+                // Soil all the way down to the stone.
+                //
+                // An earlier version buried a band of free `water` in the
+                // lower soil as a stand-in water table. That does not work
+                // and the reason is worth keeping: `soil` is a `Powder` and
+                // sinks through `Liquid`, so within a few hundred frames the
+                // soil had swapped places with the water and the "table" was
+                // a film lying on the *surface* — with every seed then
+                // germinating onto water rather than soil, and no root ever
+                // starting. Correct physics, useless scene, and it read as a
+                // root bug.
+                //
+                // A real water table needs moisture held *inside* soil
+                // cells, which is Decision 3 (§4a, per-cell fill in a
+                // `Powder`'s own `aux`). Until that lands the honest scene
+                // is dry soil, and the puddle below is on the surface where
+                // it will stay put.
+                // Starts at field capacity -- damp, the way real ground
+                // between rain events is, and the state a root system
+                // actually lives in. `Powder` aux is moisture now
+                // (`material::SOIL_SATURATED`, where 0 means *dry*, the
+                // opposite of a liquid's fill), and a scene of bone-dry
+                // soil would sit below the wilting point where `Absorb`
+                // correctly credits nothing at all.
+                for y in TREE_GROUND_Y..(TREE_GROUND_Y + 40) {
+                    w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            w.paint_circle(260, TREE_GROUND_Y - 3, 6, material::WATER);
+            // Dropped from well above the ground on purpose: a seed is a
+            // Powder, so this exercises the fall and landing rather than
+            // pre-placing each seed on the surface.
+            for x in [80, 200, 320, 440] {
+                w.plant_tree(x, TREE_GROUND_Y - 25);
+            }
+        }
+        // **A scene built for growing plants, rather than one built for
+        // particle physics and reused.** `Reports/tree-architecture-
+        // research.md` §6: every judgement about tree shape up to this
+        // point was made in `forest`, which puts ground at y=40 in a
+        // 320-tall world -- 40 rows of sky against 280 of dirt, because it
+        // was laid out when depth was the interesting axis. Trees reached
+        // that ceiling and could only spread sideways, and the resulting
+        // silhouette was read as "canopies merge into a slab" and chased
+        // as a plant bug for two sessions. Measured: at 40 rows of sky the
+        // widest above-ground row is 56 cells; at 70 it is **7**.
+        //
+        // So this scene inverts the proportions -- a deep sky over a soil
+        // bed just thick enough for a real root system -- and is the one
+        // to judge plant *shape* in. `forest` is kept as it is: it is
+        // still the right scene for root/soil work, and every earlier
+        // sheet was shot in it.
+        // Built from `common::PlantScene`, the same code `plant_probe`
+        // uses -- see that module for why these two harnesses may not build
+        // their own worlds any more.
+        "grove" => {
+            return common::PlantScene::default().build();
         }
         // The sandbox's *real* starting terrain, built by the same
         // `app::build_terrain` the running game calls -- not a replica, so
@@ -334,6 +451,9 @@ fn build(args: &Args) -> World {
             println!("worldcrack {name} seed {} -- cut at ({x}, {})", args.seed, surface + args.dig);
             if args.dig > 0 {
                 pixel_physics::sim::rigid::mine(&mut w, x, surface + args.dig, args.dig);
+            }
+            if args.relax {
+                pixel_physics::sim::structural::compute_world_distances(&mut w);
             }
         }
         // The reference room `B` stamps, standing on the app's real terrain
@@ -646,7 +766,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride"
         ),
     }
     w
@@ -670,6 +790,16 @@ struct Args {
     /// itself does, because the app has only one number for both.
     wall: i32,
     dig: i32,
+    /// `relax=1` -- run a **converged** distance pass straight after the
+    /// dig, instead of letting the scheduled relaxation reconverge over the
+    /// following frames.
+    ///
+    /// The instrument for one specific question: is a failure real, or is
+    /// it a cell judged mid-convergence against a stale distance? Those look
+    /// identical in an image and `load.rs` has been bitten by the
+    /// distinction before. Answered for the dig cascade: no, staleness is
+    /// not the cause -- see `Reports/next-session-handoff.md` 1b.
+    relax: bool,
     /// `span=N` -- how wide `scene=room` is drawn, outer edge to outer
     /// edge. The knob the whole "what can a player actually build" question
     /// turns on, and the reason it is a knob rather than a constant: a
@@ -685,6 +815,16 @@ struct Args {
     parallel_driver: bool,
     out: String,
     grain: GrainMode,
+    /// `channel=` -- render the sheet through one of `render.rs`'s debug
+    /// overlays instead of ordinary material colour. The whole reason the
+    /// plant work needs this harness: resource, canopy density and (later)
+    /// vein conductance are per-cell scalars that decide plant shape and
+    /// have **never been drawn**, which is how `tree-rewrite-design.md`
+    /// §2b's self-avoidance mechanism shipped inert past two design
+    /// reviews. A contact sheet in a channel shows both what the value is
+    /// and how it evolves across the tiles, which is the question.
+    organism_overlay: OrganismOverlay,
+    field_overlay: FieldOverlay,
     /// Write an animated GIF of every frame in the range instead of a grid.
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
@@ -692,6 +832,19 @@ struct Args {
     /// `explode=x,y,radius,strength,frame` -- fire one `explosion::trigger`
     /// at the given frame. Repeatable, for several blasts in one run.
     explosions: Vec<(i32, i32, i32, f32, usize)>,
+    /// `cut=x,y,w,h,frame` -- erase a rectangle at the given frame.
+    ///
+    /// **A surgical alternative to `explode`, and it exists because the
+    /// blast was the wrong instrument for the question.** Asking "does a
+    /// damaged tree respond" with `explode=224,175,6,2.0` vaporised the
+    /// whole tree: a trunk here is two or three cells wide, so any blast
+    /// big enough to reach across it is big enough to remove everything
+    /// nearby, and what the sheet showed was a debris pile rather than a
+    /// severed stem. A rectangle removes exactly what is named, delivers no
+    /// impulse and no heat, and leaves the rest of the plant untouched --
+    /// which is what isolates the *physiological* response from the
+    /// mechanical one.
+    cuts: Vec<(i32, i32, i32, i32, usize)>,
     /// `load=x,y` -- print `sim::load::evaluate` at that cell for every
     /// tile. Repeatable. The structural counterpart of the `bodies` line:
     /// an image says a shelf is still up, and only a number says whether it
@@ -764,8 +917,11 @@ fn parse() -> Args {
         parallel_driver: true,
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
         grain: GrainMode::Position,
+        organism_overlay: OrganismOverlay::Off,
+        field_overlay: FieldOverlay::Off,
         gif: false,
         explosions: Vec::new(),
+        cuts: Vec::new(),
         probes: Vec::new(),
         loadmap: false,
         repeat: 1,
@@ -775,6 +931,7 @@ fn parse() -> Args {
         min_bodies: None,
         wall: 3,
         dig: 3,
+        relax: false,
         span: 200,
     };
     for arg in std::env::args().skip(1) {
@@ -802,9 +959,29 @@ fn parse() -> Args {
                     other => panic!("unknown grain {other:?}"),
                 }
             }
+            // One flag for both overlay families, resolved by name: they are
+            // one question ("which channel am I looking at") from the
+            // caller's side, and keeping them as two arguments would invite
+            // setting both and getting a sheet that is hard to attribute.
+            "channel" => match v {
+                "off" => {}
+                "celltype" => a.organism_overlay = OrganismOverlay::CellType,
+                "resource" => a.organism_overlay = OrganismOverlay::Resource,
+                "canopy" => a.organism_overlay = OrganismOverlay::CanopyDensity,
+                "vein" => a.organism_overlay = OrganismOverlay::VeinConductance,
+                "soil" => a.organism_overlay = OrganismOverlay::SoilMoisture,
+                "light" => a.field_overlay = FieldOverlay::Light,
+                "moisture" => a.field_overlay = FieldOverlay::Moisture,
+                "temperature" => a.field_overlay = FieldOverlay::Temperature,
+                "pressure" => a.field_overlay = FieldOverlay::Pressure,
+                other => panic!(
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure"
+                ),
+            },
             "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),
             "wall" => a.wall = v.parse().expect("wall"),
             "dig" => a.dig = v.parse().expect("dig"),
+            "relax" => a.relax = v != "false",
             "span" => a.span = v.parse().expect("span"),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
@@ -820,6 +997,11 @@ fn parse() -> Args {
                 let n: Vec<f32> = v.split(',').map(|s| s.parse().expect("explode")).collect();
                 assert_eq!(n.len(), 5, "explode=x,y,radius,strength,frame");
                 a.explosions.push((n[0] as i32, n[1] as i32, n[2] as i32, n[3], n[4] as usize));
+            }
+            "cut" => {
+                let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("cut")).collect();
+                assert_eq!(n.len(), 5, "cut=x,y,w,h,frame");
+                a.cuts.push((n[0], n[1], n[2], n[3], n[4] as usize));
             }
             "crop" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
@@ -837,6 +1019,43 @@ fn parse() -> Args {
 /// index-matching makes this safe to call both inside the stepping loop and
 /// immediately before a capture, which is what lets `frame=0` work at all
 /// (with `start=0` the loop body never runs before the first tile).
+/// Erase every scheduled cut whose frame has arrived, draining it so it
+/// cannot fire twice -- same shape as `fire_due_explosions`, and called
+/// from the same three places for the same reason.
+///
+/// Reports what it actually removed rather than what it was asked to
+/// remove. "Did the cut land on the tree" is a counter question, not a
+/// picture question: a rectangle a few cells off the trunk looks identical
+/// on a contact sheet to one that severed it, and this branch has already
+/// spent a session reading a collapse as a feature that had never once
+/// executed.
+fn fire_due_cuts(world: &mut World, pending: &mut Vec<(i32, i32, i32, i32, usize)>, now: usize) {
+    let mut i = 0;
+    while i < pending.len() {
+        if pending[i].4 <= now {
+            let (x, y, w, h, _) = pending.remove(i);
+            let mut removed = 0;
+            let mut organism_cells = 0;
+            for cy in y..y + h {
+                for cx in x..x + w {
+                    let cell = world.get(cx, cy);
+                    if cell.material == material::EMPTY {
+                        continue;
+                    }
+                    removed += 1;
+                    if cell.organism_id() != 0 {
+                        organism_cells += 1;
+                    }
+                    world.set(cx, cy, Cell::EMPTY);
+                }
+            }
+            println!("  cut: ({x}, {y}) {w}x{h} at frame {now} -- removed {removed} cells, {organism_cells} of them living tissue");
+        } else {
+            i += 1;
+        }
+    }
+}
+
 fn fire_due_explosions(
     world: &mut World,
     particles: &mut ParticleSystem,
@@ -1205,8 +1424,11 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
     let mut world = build(args);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
+    renderer.organism_overlay = args.organism_overlay;
+    renderer.field_overlay = args.field_overlay;
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
+    let mut pending_cuts = args.cuts.clone();
     let mut blasts = explosion::Blasts::new();
     let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield);
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
@@ -1236,10 +1458,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
             let target = args.start + i * args.every;
             while step_no < target {
                 fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+                fire_due_cuts(&mut world, &mut pending_cuts, step_no);
                 advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome);
                 step_no += 1;
             }
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+            fire_due_cuts(&mut world, &mut pending_cuts, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
 
@@ -1303,6 +1527,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
         let target = args.start + captured * args.every;
         while step_no < target {
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+            fire_due_cuts(&mut world, &mut pending_cuts, step_no);
             let began = std::time::Instant::now();
             advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome);
             let ms = began.elapsed().as_secs_f64() * 1000.0;
@@ -1320,6 +1545,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
             step_no += 1;
         }
         fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+        fire_due_cuts(&mut world, &mut pending_cuts, step_no);
         // `force_full`, not the dirty-rect path: this must draw the whole
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.
