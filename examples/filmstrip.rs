@@ -48,6 +48,7 @@ mod common;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::particle::ParticleSystem;
+use pixel_physics::sim::pheromone::{Channel, DEPOSIT};
 use pixel_physics::sim::world::World;
 use pixel_physics::sim::rng;
 use pixel_physics::sim::{explosion, material, parallel, update};
@@ -117,6 +118,34 @@ fn build(args: &Args) -> World {
                 for y in 20..200 {
                     w.set(x, y, water_at(x, y));
                 }
+            }
+        }
+        // Stage 2 of the creature milestone: two synthetic trails on the
+        // pheromone planes, over ordinary terrain, so the overlay ramps can
+        // be judged **against a real signal**. An empty plane renders as a
+        // flat ramp floor, which is correct and proves nothing -- the
+        // failure this scene exists to catch is a trail that is present in
+        // the data and unreadable on screen, which is exactly how the
+        // canopy-density sheet came to read as blank.
+        //
+        // Look at it with `channel=pheromone_a` and `channel=pheromone_b`.
+        "pheromone" => {
+            stone_floor(&mut w);
+            for x in 40..470 {
+                for y in 200..floor_y {
+                    w.set(x, y, Cell::new(material::SAND, 0));
+                }
+            }
+            // Laid repeatedly, as ants would: a single deposit evaporates
+            // before it spreads (measured -- see pheromone.rs's DIFFUSE).
+            for i in 0..60u64 {
+                for x in 60..450 {
+                    w.deposit_pheromone(Channel::A, x, 190, DEPOSIT);
+                    let y = 150 + (x - 60) / 12;
+                    w.deposit_pheromone(Channel::B, x, y, DEPOSIT);
+                }
+                w.frame = i * 4;
+                w.step_pheromones();
             }
         }
         // A dense blob dropped into a walled pool: the displacement striping.
@@ -986,8 +1015,10 @@ fn parse() -> Args {
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
                 "pressure" => a.field_overlay = FieldOverlay::Pressure,
+                "pheromone_a" => a.field_overlay = FieldOverlay::PheromoneA,
+                "pheromone_b" => a.field_overlay = FieldOverlay::PheromoneB,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure, pheromone_a, pheromone_b"
                 ),
             },
             "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),

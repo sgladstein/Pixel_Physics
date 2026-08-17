@@ -15,6 +15,7 @@ use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::field::FIELD_SCALE;
 use pixel_physics::sim::material::{self, MaterialId};
 use pixel_physics::sim::particle::ParticleSystem;
+use pixel_physics::sim::pheromone::{Channel, DECAY_RHO, DEPOSIT, DIFFUSE, PHEROMONE_INTERVAL};
 use pixel_physics::sim::{parallel, update, Cell, World};
 
 fn main() {
@@ -251,6 +252,217 @@ fn main() {
     // still actively propagating -- the actual, measurable claim the issue
     // asked for, not just a passing unit test.
     field_sleep_scene();
+
+    // Stage 2 of the creature milestone: the stigmergy substrate, rendered
+    // and measured before anything reads it.
+    pheromone_decay_scene();
+    trail_follow_scene();
+}
+
+/// A painted blob must **spread, fade and disappear**, and the plane must
+/// then go back to costing nothing.
+///
+/// Both halves matter and only one of them is visible. The picture shows
+/// the spread; only the tile counter can say whether a drained plane is
+/// still being swept every pass (`CLAUDE.md`: "did it fire at all" needs a
+/// counter). Modelled on `field_sleep_scene` above, at the sandbox's own
+/// 512x320 scale, because the settled cost is what the hard gate in
+/// `Reports/creature-direction.md` §9d is set against.
+fn pheromone_decay_scene() {
+    println!("\n=== pheromone: a blob spreads, drains to zero, and the plane goes back to sleep ===");
+    let mut world = World::new(Rect::new(0, 0, 511, 319));
+    world.end_step();
+
+    let (cx, cy, r) = (256i32, 160i32, 20i32);
+    for y in (cy - r)..=(cy + r) {
+        for x in (cx - r)..=(cx + r) {
+            if (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r {
+                world.deposit_pheromone(Channel::A, x, y, 200);
+            }
+        }
+    }
+
+    let print_plane = |world: &World, label: &str| {
+        // Downsampled 8x, one character per block, so a 512-wide plane fits
+        // a terminal. Peak within the block, not the mean -- a trail is one
+        // cell wide and a mean would erase it.
+        println!("{label} (plane max {}):", world.pheromones.plane(Channel::A).max());
+        for by in 0..14 {
+            let row: String = (0..64)
+                .map(|bx| {
+                    let mut peak = 0u8;
+                    for dy in 0..8 {
+                        for dx in 0..8 {
+                            peak = peak.max(world.pheromone_at(Channel::A, bx * 8 + dx, cy - 56 + by * 8 + dy));
+                        }
+                    }
+                    match peak {
+                        0 => ' ',
+                        1..=15 => '.',
+                        16..=63 => ':',
+                        64..=127 => 'o',
+                        128..=199 => 'O',
+                        _ => '#',
+                    }
+                })
+                .collect();
+            println!("|{row}|");
+        }
+    };
+
+    print_plane(&world, "at deposit");
+    let mut worst_active = std::time::Duration::ZERO;
+    let mut previous_max = world.pheromones.plane(Channel::A).max();
+    for frame in 0..600 {
+        let started = std::time::Instant::now();
+        world.step_pheromones();
+        worst_active = worst_active.max(started.elapsed());
+        world.frame += 1;
+        let now = world.pheromones.plane(Channel::A).max();
+        assert!(now <= previous_max, "frame {frame}: plane max rose from {previous_max} to {now} with nothing depositing");
+        previous_max = now;
+        if frame == 40 {
+            print_plane(&world, "after 40 frames");
+        }
+    }
+    print_plane(&world, "after 600 frames");
+    assert_eq!(
+        world.pheromones.plane(Channel::A).max(),
+        0,
+        "the plane must drain to exactly zero -- a fixed point above zero is a permanent ghost trail"
+    );
+
+    // The settled cost, which is what the hard gate is on.
+    let tiles_before = world.pheromones.stats.tiles_processed;
+    let mut worst_settled = std::time::Duration::ZERO;
+    for _ in 0..300 {
+        let started = std::time::Instant::now();
+        world.step_pheromones();
+        worst_settled = worst_settled.max(started.elapsed());
+        world.frame += 1;
+    }
+    println!(
+        "passes {}, tiles processed while active {}, tiles processed once settled {} (must be 0)",
+        world.pheromones.stats.passes,
+        tiles_before,
+        world.pheromones.stats.tiles_processed - tiles_before
+    );
+    println!(
+        "worst pass while spreading: {:.4} ms; worst pass once settled: {:.4} ms (hard gate: settled < 0.5 ms)",
+        worst_active.as_secs_f64() * 1000.0,
+        worst_settled.as_secs_f64() * 1000.0,
+    );
+    assert_eq!(
+        world.pheromones.stats.tiles_processed, tiles_before,
+        "a drained plane must process zero tiles -- pheromone sleep is what keeps the pass off a settled world"
+    );
+    assert!(
+        worst_settled.as_secs_f64() * 1000.0 < 0.5,
+        "settled pheromone pass cost {:.4} ms, over the 0.5 ms gate",
+        worst_settled.as_secs_f64() * 1000.0
+    );
+}
+
+/// One Jones follower on a synthetic bent trail. **The proof that anything
+/// can read the plane back**, before any creature depends on it.
+///
+/// Prints the path over the trail and both numbers: proximity *and* how
+/// much of the trail was actually travelled. Proximity alone is the
+/// Stage-0 trap -- a follower pinned at the start scored 0.988 on it while
+/// going nowhere.
+fn trail_follow_scene() {
+    println!("\n=== pheromone: a follower tracks a bent trail (diffuse {DIFFUSE}, rho {DECAY_RHO}, SO 6) ===");
+    let (w, h) = (256i32, 160i32);
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+
+    // The same geometry `pheromone.rs`'s own sweep uses: a horizontal run
+    // with a bend, so tracking has to survive a turn rather than a straight
+    // line a follower could hold by doing nothing at all.
+    let trail_y_at = |x: i32| -> Option<i32> {
+        match x {
+            30..=127 => Some(80),
+            128..=219 => Some(80 + (x - 128) * 30 / 92),
+            _ => None,
+        }
+    };
+    let lay = |world: &mut World| {
+        for x in 30..220 {
+            if let Some(y) = trail_y_at(x) {
+                world.deposit_pheromone(Channel::B, x, y, DEPOSIT);
+            }
+        }
+    };
+    for _ in 0..30 {
+        lay(&mut world);
+        world.step_pheromones();
+        world.frame += PHEROMONE_INTERVAL;
+    }
+
+    const SO: i32 = 6;
+    let dirs = pixel_physics::sim::creature::DIRS;
+    let (mut px, mut py) = (34i32, 80i32);
+    let mut heading: u8 = 0;
+    let (mut on_trail, mut furthest, mut path) = (0usize, 34i32, Vec::new());
+    let steps = 400;
+    for step in 0..steps {
+        let sense = |h: u8, px: i32, py: i32| {
+            let (dx, dy) = dirs[h as usize % 8];
+            world.pheromone_at(Channel::B, px + dx * SO, py + dy * SO) as f32 / 255.0
+        };
+        let mut scores = [sense((heading + 1) % 8, px, py), sense(heading, px, py), sense((heading + 7) % 8, px, py)];
+        // Rescaled across the candidate set -- the discrimination is in the
+        // difference, not the level. Measured: 0.580 -> 0.817 on-trail.
+        let hi = scores.iter().copied().fold(f32::MIN, f32::max);
+        let lo = scores.iter().copied().fold(f32::MAX, f32::min);
+        for v in &mut scores {
+            *v = (*v - lo) / (hi - lo + 1e-6);
+        }
+        let mut rng = pixel_physics::sim::rng::stream(world.seed, 1, step as u64, 0);
+        let pick = pixel_physics::sim::creature::choose_weighted(&scores, pixel_physics::sim::creature::CHOICE_EXPLORATION_K, rng.unit_f32());
+        heading = match pick {
+            0 => (heading + 1) % 8,
+            2 => (heading + 7) % 8,
+            _ => heading,
+        };
+        let (dx, dy) = dirs[heading as usize];
+        px = (px + dx).clamp(1, w - 2);
+        py = (py + dy).clamp(1, h - 2);
+        path.push((px, py));
+        if let Some(ty) = trail_y_at(px) {
+            if (py - ty).abs() <= 2 {
+                on_trail += 1;
+                furthest = furthest.max(px);
+            }
+        }
+        lay(&mut world);
+        world.step_pheromones();
+        world.frame += PHEROMONE_INTERVAL;
+    }
+
+    // The picture: `-` is the trail, `*` where the follower walked it, `+`
+    // where it wandered off. Two world columns per character, so a 256-wide
+    // world fits a terminal.
+    let walked: std::collections::HashSet<(i32, i32)> = path.iter().copied().collect();
+    for y in 70..118 {
+        let row: String = (24..232)
+            .step_by(2)
+            .map(|x| {
+                let on = walked.contains(&(x, y)) || walked.contains(&(x + 1, y));
+                let is_trail = trail_y_at(x) == Some(y) || trail_y_at(x + 1) == Some(y);
+                match (on, is_trail) {
+                    (true, true) => '*',
+                    (true, false) => '+',
+                    (false, true) => '-',
+                    (false, false) => ' ',
+                }
+            })
+            .collect();
+        println!("|{row}|");
+    }
+    let on = on_trail as f32 / steps as f32;
+    let traversed = (furthest - 34) as f32 / (219.0 - 34.0);
+    println!("on-trail {on:.3} of {steps} steps, traversed {traversed:.3} of the trail; deposits {}", world.pheromones.stats.deposits_b);
+    println!("(one seed; the guard in pheromone.rs gates the 6-seed mean -- measured 0.817 on-trail / 0.961 traversed, against a 0.050 no-trail control)");
 }
 
 /// Issue #4: measures the field grid's own worst-frame cost twice on the

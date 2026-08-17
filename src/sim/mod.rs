@@ -37,6 +37,12 @@
 //!   off it exceeds what its section can hold. See
 //!   `Reports/fracture-mechanics-design.md` for why reach was the wrong
 //!   question
+//! * `pheromone` — two world-sized u8 planes at CA resolution, the
+//!   stigmergy substrate creatures deposit into and read back. Deliberately
+//!   *not* a sixth `field` channel: at `FIELD_SCALE = 8` two trails four
+//!   cells apart produce a bit-identical field, measured
+//!   (`creature.rs`'s resolution experiment), so path selection — the
+//!   entire mechanism — would be impossible
 //! * `creature` — M18 Phase 1, cell-based creatures (a burrowing worm),
 //!   dispatched from `scheduler` like plant growth and structural checks;
 //!   fire/burning is deliberately not reimplemented here, since `fire.rs`
@@ -65,6 +71,7 @@ pub mod material;
 pub mod organism;
 pub mod parallel;
 pub mod particle;
+pub mod pheromone;
 pub mod plant;
 pub mod player;
 pub mod rigid;

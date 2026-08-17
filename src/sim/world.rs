@@ -20,6 +20,7 @@ use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::liquid::{self, LiquidBody};
 use super::material::{self, MaterialId, MaterialKind, MaterialRegistry};
 use super::organism::{self, OrganismState, SpeciesId, SpeciesRegistry};
+use super::pheromone::{Channel, Pheromones};
 use super::rng::Rng;
 use super::scheduler::{self, ActiveSite};
 use super::surface::CellSurface;
@@ -177,6 +178,14 @@ pub struct World {
     /// normal case) resolves to `None` via `organism`/`organism_mut`
     /// rather than silently reading a *different*, unrelated organism's
     /// state once the slot is recycled.
+    /// The two stigmergy planes (`Reports/creature-direction.md` §5) —
+    /// ~640 KB at 512x320, and CA resolution rather than `FIELD_SCALE`,
+    /// for the measured reason in `pheromone.rs`'s module doc.
+    ///
+    /// A `World` field rather than something creatures own, for the same
+    /// reason `fields` is: the signal outlives whoever deposited it, which
+    /// is the entire point of stigmergy.
+    pub pheromones: Pheromones,
     organisms: Vec<OrganismSlot>,
     free_organism_slots: Vec<u16>,
     /// How many times a reused slot's 4-bit generation has wrapped back to
@@ -340,6 +349,7 @@ impl World {
             free_body_slots: Vec::new(),
             body_index: HashMap::new(),
             species: SpeciesRegistry::builtin(),
+            pheromones: Pheromones::new(bounds),
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
             organism_generation_wraps: 0,
@@ -373,6 +383,26 @@ impl World {
     /// deliberately separate from the CA sweep — see `field::step`.
     pub fn step_fields(&mut self) {
         field::step(self);
+    }
+
+    /// Advance both pheromone planes. Its own frame phase, and callers
+    /// call it **every** frame like `step_fields` — the
+    /// `PHEROMONE_INTERVAL` gate lives inside, so no caller has to know
+    /// the interval exists.
+    pub fn step_pheromones(&mut self) {
+        self.pheromones.step(self.frame);
+    }
+
+    /// Add to a pheromone channel at `(x, y)`. Out-of-world deposits are
+    /// dropped silently.
+    pub fn deposit_pheromone(&mut self, channel: Channel, x: i32, y: i32, amount: u8) {
+        self.pheromones.deposit(channel, x, y, amount);
+    }
+
+    /// Read a pheromone channel at `(x, y)`. Nearest-cell — the plane is
+    /// already at CA resolution. Out of world reads 0.
+    pub fn pheromone_at(&self, channel: Channel, x: i32, y: i32) -> u8 {
+        self.pheromones.sample(channel, x, y)
     }
 
     /// Advance the M16 active-site schedule by one step. Its own frame

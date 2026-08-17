@@ -65,6 +65,13 @@ use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
+/// Index 0 = east, then counterclockwise on screen (y grows downward, so
+/// `(1, -1)` is up-and-right). **The one heading table** — see
+/// `OrganismState::heading`: headings are a discrete 0..8 compass index, a
+/// turn of ±1 is exactly 45 degrees (the Physarum literature default), and
+/// no decision in this engine goes anywhere near `sin_cos` (P-19).
+pub const DIRS: [(i32, i32); 8] = [(1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1)];
+
 const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
 /// Which draw a creature is making, as the fourth key of `rng::stream` —
@@ -161,7 +168,7 @@ const WORM_HEAT_THRESHOLD_ABOVE_AMBIENT: f32 = 25.0;
 /// candidate scoring 0 against one scoring 1 is chosen `0.01 / 1.22`, about
 /// **0.8% of ticks** — enough that a worm never gets deterministically
 /// wedged, small enough that fleeing a fire still looks purposeful.
-const CHOICE_EXPLORATION_K: f32 = 0.1;
+pub const CHOICE_EXPLORATION_K: f32 = 0.1;
 
 /// Plant a worm at `(x, y)` if the position is available and both the
 /// `worm` material and the `worm` species are loaded. Returns the site to
@@ -226,7 +233,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
 ///
 /// Slice-generic because the worm offers up to four candidates and the ants
 /// will offer three (ahead, ahead-left, ahead-right).
-fn choose_weighted(scores: &[f32], k: f32, draw: f32) -> usize {
+pub fn choose_weighted(scores: &[f32], k: f32, draw: f32) -> usize {
     let mut total = 0.0;
     for &s in scores {
         let b = k + s.max(0.0);

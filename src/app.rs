@@ -909,6 +909,11 @@ impl App {
         self.blasts.step(&mut self.world, &mut self.particles);
         self.particles.step(&mut self.world);
         self.world.step_fields();
+        // Beside the field step, and for the same reason: a coarse
+        // environmental channel with its own cadence, decoupled from the CA
+        // sweep. `step_pheromones` gates itself on `PHEROMONE_INTERVAL`, so
+        // this is called every frame like its neighbour above.
+        self.world.step_pheromones();
     }
 
     /// `cursor`, when present, is a screen position (framebuffer pixels,
