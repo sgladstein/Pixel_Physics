@@ -992,6 +992,7 @@ const EMBEDDED: &[&str] = &[
     // milestone's pair: the creature and the material it calls home.
     include_str!("../../assets/materials/ant.ron"),
     include_str!("../../assets/materials/nest.ron"),
+    include_str!("../../assets/materials/beetle.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

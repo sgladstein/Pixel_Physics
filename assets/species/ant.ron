@@ -24,7 +24,7 @@
         // cell or needs a chain at play zoom; two is the cheapest thing
         // that is unambiguously a *body* with a front, and it is one
         // number here to change once that has been looked at.
-        body_cells: 2,
+        body: Chain(2),
         tick_interval: 6,
 
         // Scaled from the worm's researched numbers (creature.rs's WORM_*

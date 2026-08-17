@@ -1135,3 +1135,47 @@ been representative once.
 Also: the scene's print window was cropping the canopy, i.e. cropping the
 food out of a foraging scene. A scene that cannot be judged by eye is not
 doing its job.
+
+### 13h. Width, and the refuge that falls out of it
+
+`BodyPlan` splits movement into two rules on the same substrate: `Chain(n)`
+*follows* (the body steps into the head's old cells, which is why it flows
+over any terrain and why it is exactly one cell wide -- a path has no
+width), and `Rigid(offsets)` *translates* (every cell shifts by the same
+offset, so it can be any shape).
+
+**D1 rejected rotation, not width.** Translating one cell is a passability
+check; rotating is the hard half -- a rotated shape does not land on the
+grid cleanly. And gravity spares us it: a walking creature has a canonical
+up, so it needs only facing-left and facing-right, which is a **mirror of
+the authored template**.
+
+`beetle.ron` is the first non-chain body: a 2x2 rigid block that eats ants.
+Three properties, and none of them is code that knows what a beetle is:
+
+* **It cannot enter a one-cell tunnel an ant walks through.** Purely
+  because a rigid body's passability check covers every cell of it. This is
+  the refuge, with no hiding logic anywhere -- and it is the property D1's
+  rejection of rigid bodies was assumed to have cost us.
+* **It eats ants with no predation code.** `food:` is a list of material
+  names and "ant" is a material, so the existing eat verb does it. Found by
+  accident: an isolation test put both in one world and the ant vanished.
+* **`dig_force: 0.3`** is below soil's 0.8, so it cannot dig where an ant
+  (1.0) can. A second, independent asymmetry.
+
+Two things the tests had to be rescued from, both of which were the scene
+rather than the mechanism:
+
+* A beetle on a short floor **run-and-tumbled off the end and fell out of
+  the world**. It has no pheromone instincts, so it cannot sense food at
+  range; whether a predator can *find* prey is a different question from
+  whether eating one works, and conflating them made the test measure the
+  first while claiming the second.
+* Predator and prey in one world **confounded the tunnel-geometry test** --
+  the beetle ate the ant. One creature per world when the claim is
+  geometric.
+
+And a real behaviour note: a beetle near full energy **carries** its prey
+rather than eating it, because carry-versus-eat branches on
+`hunger_fraction`. Asserting `eats` alone made the test depend on the
+predator's energy budget rather than on predation.

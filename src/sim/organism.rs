@@ -616,6 +616,80 @@ pub struct SpeciesDef {
     pub creature: Option<CreatureDef>,
 }
 
+/// How a creature's cells are arranged, and therefore how they move.
+///
+/// **These are two movement rules, not one with a parameter**, and the
+/// split is the same call `organism.rs` already makes for `Divide` versus
+/// `Grow`. A chain *follows*: the body steps into the head's old
+/// positions, which is why it flows over any terrain and why it is exactly
+/// one cell wide — a path has no width. A rigid body *translates*: every
+/// cell shifts by the same offset, so it can be any shape, and it gets
+/// stuck where a chain would not.
+///
+/// **Decision D1 rejected rotation, not width.** Re-read it: "translating
+/// *or rotating* a shape through a falling-sand world is an unsolved hard
+/// problem". Translating by one cell is a passability check. Rotating is
+/// the hard half — a rotated shape does not land on the grid cleanly and
+/// you get aliasing, self-overlap and cells appearing from nowhere. And
+/// gravity spares us it entirely: a walking creature has a canonical up,
+/// so it only ever needs facing-left and facing-right, which is a **mirror
+/// of the template**, not rotation maths.
+///
+/// The trade is real and it is the point. A wide body handles rough ground
+/// badly — often no legal position at all — where a chain flows over
+/// anything. That cost is also what makes a wide predator unable to follow
+/// a one-cell-wide ant into its tunnel, with no "hiding" code anywhere.
+#[derive(Clone, Deserialize)]
+pub enum BodyPlan {
+    /// `n` cells in a following chain, head first. 1 is the worm, 2-3 an
+    /// ant. Owner open question #1 lives here: how many cells does a
+    /// creature need to read at play zoom?
+    Chain(u8),
+    /// Cell offsets from the head, authored **facing east**; the west-facing
+    /// form is this mirrored in x. `(0, 0)` is the head and is implicit —
+    /// list only the rest. y grows downward, matching the grid.
+    Rigid(Vec<(i8, i8)>),
+}
+
+impl BodyPlan {
+    /// Cell offsets from the head, head first, in the given facing.
+    pub fn offsets(&self, facing_west: bool) -> Vec<(i32, i32)> {
+        let mut out = vec![(0, 0)];
+        match self {
+            // A chain is laid out behind the head along the facing, which
+            // is only its *initial* shape — after one step the body is
+            // wherever the head has been.
+            BodyPlan::Chain(n) => {
+                for i in 1..*n as i32 {
+                    out.push((if facing_west { i } else { -i }, 0));
+                }
+            }
+            BodyPlan::Rigid(cells) => {
+                for &(dx, dy) in cells {
+                    out.push((if facing_west { -(dx as i32) } else { dx as i32 }, dy as i32));
+                }
+            }
+        }
+        out
+    }
+
+    pub fn is_rigid(&self) -> bool {
+        matches!(self, BodyPlan::Rigid(_))
+    }
+
+    /// How many cells this body occupies.
+    pub fn len(&self) -> usize {
+        match self {
+            BodyPlan::Chain(n) => *n as usize,
+            BodyPlan::Rigid(cells) => cells.len() + 1,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
 /// A creature species' body plan, instincts and metabolism.
 ///
 /// Separate from `cell_types` because these are properties of the
@@ -623,12 +697,8 @@ pub struct SpeciesDef {
 /// cell types it uses, and one genome however many cells it has.
 #[derive(Clone, Deserialize)]
 pub struct CreatureDef {
-    /// Body length in cells, head included. 1 is the worm; ants are 2-3.
-    ///
-    /// Owner open question #1 (`Reports/creature-direction.md` §12): is an
-    /// ant readable at one cell, or is a chain the minimum read at play
-    /// zoom? Species data either way, so the answer is one number here.
-    pub body_cells: u8,
+    /// What this creature is made of, and how it moves.
+    pub body: BodyPlan,
     /// Frames between decisions.
     pub tick_interval: u64,
     pub start_energy: f32,
@@ -932,6 +1002,7 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/species/tree.ron"),
     include_str!("../../assets/species/worm.ron"),
     include_str!("../../assets/species/ant.ron"),
+    include_str!("../../assets/species/beetle.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

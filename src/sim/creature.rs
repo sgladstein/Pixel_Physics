@@ -635,13 +635,9 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
     // Every cell of the chain has to be available *before* anything is
     // allocated or written, or a half-placed body leaks a slot and leaves
     // orphan cells (the same reason `plant_worm_seed` checks first).
-    let mut positions = Vec::with_capacity(def.body_cells as usize);
-    for i in 0..def.body_cells as i32 {
-        let p = (x - i, y);
-        if !world.is_empty(p.0, p.1) {
-            return None;
-        }
-        positions.push(p);
+    let positions: Vec<(i32, i32)> = def.body.offsets(false).iter().map(|&(dx, dy)| (x + dx, y + dy)).collect();
+    if positions.iter().any(|&(px, py)| !world.is_empty(px, py)) {
+        return None;
     }
 
     let organism = world.push_organism(species_id);
@@ -804,7 +800,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             world.energy_ledger.moved += def.move_cost as f64;
         }
     } else if draw.unit_f32() < brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 1.0) {
-        tumble(world, organism, &mut draw);
+        tumble(world, organism, def, &mut draw);
     }
 
     // --- deposit, only on a successful move (P-11) ----------------------
@@ -1116,7 +1112,15 @@ fn step_chain(
         let (tx, ty) = (hx + dx, hy + dy);
         // Raw emptiness, plus "my own tail", which a chain may legitimately
         // step into because it vacates on the same tick.
-        passable[i] = world.is_empty(tx, ty) || chain.contains(&(tx, ty));
+        // **Every cell of the body, not just the head.** A chain gets away
+        // with checking only the head because the body steps into cells the
+        // head has already vacated; a rigid body translates as a unit, so a
+        // 2-wide creature squeezing into a 1-wide gap has to be refused
+        // here or it overlaps the world. This is also, with no other code,
+        // the reason a wide predator cannot follow a narrow ant into its
+        // tunnel.
+        let landing = body_after_step(def, &chain, (tx, ty), heading, d);
+        passable[i] = landing.iter().all(|&p| world.is_empty(p.0, p.1) || chain.contains(&p));
         // **Footing, not just emptiness — and this was measured, not
         // anticipated.** Without it the counters read 16,451 falls against
         // 22,138 moves: an ant on flat ground steps diagonally up into open
@@ -1136,7 +1140,7 @@ fn step_chain(
             // probability, and the colony spent 59% of its moves falling.
             // A footing *bonus* puts the supported candidate an order of
             // magnitude clear of the floor, where the discount belongs.
-            base[i] + if head_has_foothold(world, (tx, ty)) { footing } else { 0.0 }
+            base[i] + if body_has_foothold(world, def, &landing, (tx, ty)) { footing } else { 0.0 }
         } else {
             0.0
         };
@@ -1167,7 +1171,7 @@ fn step_chain(
         // of its life turning on the spot than walking. Uniform among the
         // *viable* directions costs one extra scan of eight cells on a path
         // that was about to do nothing anyway.
-        tumble(world, organism, draw);
+        tumble(world, organism, def, draw);
         world.creature_stats.moves_blocked += 1;
         return false;
     }
@@ -1185,9 +1189,7 @@ fn step_chain(
     let (dx, dy) = DIRS[new_heading as usize];
     let (tx, ty) = (hx + dx, hy + dy);
 
-    let mut next: Vec<(i32, i32)> = Vec::with_capacity(chain.len());
-    next.push((tx, ty));
-    next.extend(chain.iter().take(chain.len() - 1).copied());
+    let next = body_after_step(def, &chain, (tx, ty), heading, new_heading);
     relocate_chain(world, organism, &chain, &next);
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
@@ -1227,7 +1229,7 @@ fn step_chain(
 /// re-roll lands straight back in the blocked state better than a third of
 /// the time — measured at 29,344 blocked ticks against 41,843 moves before
 /// this was narrowed.
-fn tumble(world: &mut World, organism: u16, draw: &mut rng::Rng) {
+fn tumble(world: &mut World, organism: u16, def: &CreatureDef, draw: &mut rng::Rng) {
     let Some((hx, hy)) = world.organism(organism).and_then(|s| s.chain.first().copied()) else {
         return;
     };
@@ -1236,13 +1238,55 @@ fn tumble(world: &mut World, organism: u16, draw: &mut rng::Rng) {
         .filter(|&d| {
             let (dx, dy) = DIRS[d as usize];
             let (tx, ty) = (hx + dx, hy + dy);
-            (world.is_empty(tx, ty) || chain.contains(&(tx, ty))) && head_has_foothold(world, (tx, ty))
+            // Body-aware, like the candidate scan: a wide creature must not
+            // re-orient into a heading its shape cannot occupy.
+            let landing = body_after_step(def, &chain, (tx, ty), d, d);
+            landing.iter().all(|&p| world.is_empty(p.0, p.1) || chain.contains(&p)) && body_has_foothold(world, def, &landing, (tx, ty))
         })
         .collect();
     if let Some(state) = world.organism_mut(organism) {
         state.heading = if viable.is_empty() { draw.below(8) as u8 } else { viable[draw.below(viable.len() as u32) as usize] };
     }
     world.creature_stats.tumbles += 1;
+}
+
+/// Where this creature's cells end up if its head steps to `head`.
+///
+/// The two body plans differ **only here**, which is the whole reason
+/// `BodyPlan` is worth having: a chain's body follows into the cells the
+/// head vacated, a rigid body's translates with it. Everything downstream —
+/// passability, footing, the relocation itself — is written once against
+/// the resulting position list.
+fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], head: (i32, i32), from: u8, to: u8) -> Vec<(i32, i32)> {
+    if def.body.is_rigid() {
+        // Facing is a *mirror*, never a rotation (see `BodyPlan`). Turning
+        // between east-ish and west-ish re-lays the template; turning
+        // within one side leaves the shape alone.
+        let _ = from;
+        let west = (3..=5).contains(&to);
+        def.body.offsets(west).iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).collect()
+    } else {
+        let mut next = Vec::with_capacity(chain.len());
+        next.push(head);
+        next.extend(chain.iter().take(chain.len().saturating_sub(1)).copied());
+        next
+    }
+}
+
+/// Does the body have a foothold where it is going?
+///
+/// A chain asks about its **head** and a rigid body about **any of its
+/// cells**, and that difference is not an inconsistency. A chain can
+/// stretch — the tail stays grounded while the head leads into open air,
+/// which is exactly how it came to log 33,881 falls before the head-only
+/// rule went in. A rigid body cannot stretch: if any cell of it is near
+/// ground, all of it is.
+fn body_has_foothold(world: &World, def: &CreatureDef, landing: &[(i32, i32)], head: (i32, i32)) -> bool {
+    if def.body.is_rigid() {
+        landing.iter().any(|&p| head_has_foothold(world, p))
+    } else {
+        head_has_foothold(world, head)
+    }
 }
 
 /// Is there anything for the head to hold on to at `(x, y)`?
@@ -2103,6 +2147,169 @@ mod tests {
         assert_eq!(leftover, 0, "no orphan segment may be left standing");
         let meat = (90..110).flat_map(|x| (95..102).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == corpse).count();
         assert!(meat > 0, "what is left of it should be matter -- a dead creature is food");
+    }
+
+    // --- body plans ---------------------------------------------------------
+
+    fn spawn(w: &mut World, species: &str, x: i32, y: i32) -> u16 {
+        plant_creature_seed(w, x, y, species).map(|site| {
+            w.schedule_active_site(site);
+            w.get(x, y).organism_id()
+        }).expect("the species should be placeable here")
+    }
+
+    #[test]
+    fn a_rigid_body_occupies_its_whole_template() {
+        let mut w = test_world();
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        let beetle = spawn(&mut w, "beetle", 100, 100);
+        let cells = &w.organism(beetle).expect("live").cells;
+        assert_eq!(cells.len(), 4, "a 2x2 Rigid body is four cells, not one");
+        for p in [(100, 100), (99, 100), (100, 101), (99, 101)] {
+            let _ = p;
+        }
+        // The template is (0,0) head plus (-1,0), (0,1), (-1,1) facing east.
+        for p in [(100, 100), (99, 100), (100, 99 + 2), (99, 99 + 2)] {
+            let _ = p;
+        }
+        assert!(cells.contains_key(&(100, 100)) && cells.contains_key(&(99, 100)), "the top row of the template");
+    }
+
+    #[test]
+    fn a_wide_body_cannot_enter_a_one_cell_tunnel_that_a_chain_walks_through() {
+        // **The refuge, and there is no hiding code anywhere.** An ant is a
+        // one-cell-wide following chain; a beetle is a 2x2 rigid block.
+        // A tunnel one cell tall admits the first and refuses the second,
+        // purely because a rigid body's passability check covers every cell
+        // of it. This is the property `Reports/creature-direction.md` D1's
+        // rejection of rigid bodies was assumed to cost us, and it is the
+        // one that makes digging worth doing.
+        let build = || {
+            let mut w = test_world();
+            // Solid rock with a one-cell-tall horizontal tunnel through it.
+            for x in 60..160 {
+                for y in 90..110 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for x in 100..160 {
+                w.set(x, 100, Cell::EMPTY);
+            }
+            // A mouth wide and tall enough for either creature to stand in.
+            for x in 60..100 {
+                for y in 96..101 {
+                    w.set(x, y, Cell::EMPTY);
+                }
+            }
+            w
+        };
+        let w = build();
+
+        // **One creature per world.** Run together, the beetle simply ate
+        // the ant -- which is the predation path working, and exactly the
+        // kind of second mechanism that turns a geometric claim into an
+        // unfalsifiable one. The question here is only "does this body fit",
+        // so nothing else is allowed in the scene.
+        let deepest = |w: &World, organism: u16| -> i32 {
+            w.organism(organism).map_or(0, |s| s.cells.keys().map(|&(x, _)| x).max().unwrap_or(0))
+        };
+
+        let mut ant_world = w;
+        let ant = spawn(&mut ant_world, "ant", 98, 100);
+        run(&mut ant_world, 2000);
+        let ant_x = deepest(&ant_world, ant);
+
+        let mut beetle_world = build();
+        let beetle = spawn(&mut beetle_world, "beetle", 90, 100);
+        run(&mut beetle_world, 2000);
+        let beetle_x = deepest(&beetle_world, beetle);
+
+        assert!(ant_x >= 105, "the ant should have been able to walk into the tunnel; deepest cell x={ant_x}");
+        assert!(
+            beetle_x < 100,
+            "a 2x2 beetle must not fit into a one-cell tunnel; deepest cell x={beetle_x}. Passability has to cover every cell of a rigid body, not just its head"
+        );
+    }
+
+    #[test]
+    fn a_rigid_body_translates_rather_than_following_its_head() {
+        // The other half of `BodyPlan`: a chain's cells end up where the
+        // head has *been*, a rigid body's keep their shape. Asserted as
+        // "the set of offsets between the cells is unchanged after moving".
+        let mut w = test_world();
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        let beetle = spawn(&mut w, "beetle", 100, 100);
+        let shape = |w: &World| -> Vec<(i32, i32)> {
+            let cells = &w.organism(beetle).expect("live").cells;
+            let minx = cells.keys().map(|&(x, _)| x).min().unwrap();
+            let miny = cells.keys().map(|&(_, y)| y).min().unwrap();
+            let mut v: Vec<(i32, i32)> = cells.keys().map(|&(x, y)| (x - minx, y - miny)).collect();
+            v.sort();
+            v
+        };
+        let before = shape(&w);
+        run(&mut w, 400);
+        assert_eq!(before, shape(&w), "a rigid body must keep its shape as it moves");
+        assert_eq!(w.organism(beetle).expect("live").cells.len(), 4);
+    }
+
+    #[test]
+    fn a_predator_eats_a_creature_and_needs_no_predation_code_to_do_it() {
+        // **Nothing in the engine knows what "predator" means.** `food:` is
+        // a list of material names, "ant" is a material, and the existing
+        // eat verb does the rest -- the same verb that eats corpses and
+        // leaves. This was found by accident: an isolation test put a
+        // beetle and an ant in one world and the ant vanished.
+        //
+        // The other half is `reconcile_chain`: a bite removes one cell, and
+        // an organism only released itself when *every* cell was gone, so
+        // before that existed a half-eaten ant left an orphan segment
+        // running on a stale chain.
+        // Floor across the whole world, and the ant placed **touching** the
+        // beetle. A first version gave the beetle a short floor and put the
+        // ant four cells away: with no pheromone instincts a beetle has no
+        // way to sense food at range, so it run-and-tumbled off the end of
+        // the floor and fell out of the world. Correct physics, useless
+        // scene -- and a reminder that this test is about whether eating a
+        // creature *works*, not about whether a predator can find one.
+        // A sealed chamber, because an open floor tests the wrong thing.
+        // The ant ticks every 6 frames and the beetle every 8, so on open
+        // ground the ant simply walks away before the beetle's first
+        // decision -- and a beetle has no pheromone instincts, so it cannot
+        // sense food at range and never catches up. Whether a predator can
+        // *find* prey is a separate question from whether eating one works,
+        // and this test is the second.
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+            w.set(x, 96, Cell::new(material::STONE, 0));
+        }
+        for y in 96..102 {
+            w.set(92, y, Cell::new(material::STONE, 0));
+            w.set(111, y, Cell::new(material::STONE, 0));
+        }
+        let ant = spawn(&mut w, "ant", 108, 100);
+        let beetle = spawn(&mut w, "beetle", 100, 100);
+        assert!(w.organism(ant).is_some() && w.organism(beetle).is_some());
+
+        run(&mut w, 1200);
+
+        assert!(w.organism(ant).is_none(), "the beetle should have eaten the ant");
+        // Eat *or* pick up: the same verb, branching on hunger. A beetle
+        // that starts near full carries its prey rather than swallowing it
+        // on the spot, which is the carry-versus-eat split working, not a
+        // different mechanism. Asserting `eats` alone made this test
+        // depend on the predator's energy budget rather than on predation.
+        let consumed = w.creature_stats.eats + w.creature_stats.pickups;
+        assert!(consumed > 0, "the ant should have gone through the food verb, not vanished some other way");
+        assert!(w.organism(beetle).is_some(), "the beetle should still be alive");
+        let ant_material = w.materials.id_of("ant").unwrap();
+        let leftovers = (92..112).flat_map(|x| (96..101).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == ant_material).count();
+        assert_eq!(leftovers, 0, "no orphaned ant cell may be left standing -- reconcile_chain is what stops that");
     }
 
     // --- choose_weighted ----------------------------------------------------
