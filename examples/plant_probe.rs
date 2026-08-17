@@ -203,6 +203,39 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         }
     }
 
+    // **Population first, and the ensemble only over *established* plants.**
+    //
+    // Reproduction changed what `per_organism` contains. A stand of 8 planted
+    // trees now holds hundreds of organisms, most of them single-cell seeds
+    // lying on the ground waiting for light -- so every ensemble statistic
+    // taken over the raw map reports the seed bank, not the trees. It read
+    // `cells median 1` on a run whose canopy was plainly full.
+    //
+    // A seed is an organism and should be counted as one; it is just not a
+    // *plant* yet, and mixing the two answers neither question. Population
+    // and generations are reported on their own below, and the ensemble is
+    // filtered to anything that actually grew.
+    const ESTABLISHED: usize = 20;
+    {
+        let seeds = per_organism.values().filter(|v| v.0 < ESTABLISHED).count();
+        let grown = per_organism.len() - seeds;
+        let mut gens: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+        for id in per_organism.keys() {
+            if let Some(st) = w.organism_state(*id) {
+                *gens.entry(st.generation).or_insert(0) += 1;
+            }
+        }
+        let total_seeds: u32 = per_organism.keys().filter_map(|id| w.organism_state(*id).map(|s| s.seeds_set)).sum();
+        println!(
+            "
+population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds} seeds or seedlings; {total_seeds} seeds set in total",
+            per_organism.len()
+        );
+        let hist: Vec<String> = gens.iter().map(|(g, n)| format!("gen {g}: {n}")).collect();
+        println!("  generations  [{}]", hist.join(", "));
+    }
+    per_organism.retain(|_, v| v.0 >= ESTABLISHED);
+
     if trees > 1 {
         let sizes: Vec<usize> = per_organism.values().map(|v| v.0).collect();
         let leaves: Vec<usize> = per_organism.values().map(|v| v.1).collect();
@@ -405,8 +438,8 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
                     // asked for, and this is the number that says so.
                     let mean_angle = if s.lateral_departures > 0 { s.departure_angle_sum / s.lateral_departures as f32 } else { 0.0 };
                     format!(
-                        "{id}: forks {} plag {} rigid {} lat {} angle {mean_angle:.0}deg",
-                        s.sympodial_forks, s.plagiotropic_steps, s.rigid_steps, s.lateral_departures
+                        "{id}: gen {} seeds {} forks {} plag {} rigid {} lat {} angle {mean_angle:.0}deg",
+                        s.generation, s.seeds_set, s.sympodial_forks, s.plagiotropic_steps, s.rigid_steps, s.lateral_departures
                     )
                 })
             })

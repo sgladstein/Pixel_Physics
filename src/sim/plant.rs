@@ -348,6 +348,15 @@ pub fn genotype(world: &World, organism_id: u16, slot: usize, variance: f32) -> 
 /// save/load stability, so it is deliberately not done — a repeat in the
 /// same spot, seasons apart, is not a visible defect.
 pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
+    // **An inherited genome is not redrawn.** This function keys on where
+    // a seed came to rest, which is right for one a scene or the player
+    // planted and is exactly wrong for one another plant set: redrawing
+    // would erase the parent's genome at the moment of germination and
+    // leave a population that breeds but does not inherit. See
+    // `set_seed`.
+    if world.organism(organism_id).is_some_and(|s| s.inherited) {
+        return;
+    }
     let world_seed = world.seed;
     let mut draws = [0.0f32; organism::GENOTYPE_TRAITS];
     for (slot, draw) in draws.iter_mut().enumerate() {
@@ -432,6 +441,87 @@ fn banded_shade(world: &World, organism_id: u16, material: material::MaterialId,
         // uniform-over-the-whole-palette draw.
         _ => rng.below(palette_len) as u8,
     }
+}
+
+/// **How far one generation's genome drifts from its parent's**, per trait,
+/// on the `-1..=1` unit-draw scale the genotype uses.
+///
+/// This is the only source of new variation in a breeding population, and it
+/// sets the whole tempo: too small and a stand is a clone army that cannot
+/// respond to selection, too large and offspring are uncorrelated with their
+/// parents, which is not heredity at all — it is the position-keyed redraw
+/// this mechanism exists to replace, wearing a family tree.
+///
+/// 0.08 is one twelfth of the full trait range per generation. Deliberately
+/// small: `genotype_variance` widths are already the *phenotypic* spread a
+/// species shows, so a draw only has to move a little to land a visibly
+/// different individual, and clusters need drift slow enough that selection
+/// can hold a morph together against it.
+///
+/// **Untuned against an outcome**, and it should be swept once a breeding
+/// population runs long enough to measure allele spread per generation.
+const MUTATION_SIGMA: f32 = 0.08;
+
+/// Set one seed from `(x, y)`, carrying this parent's genome forward.
+///
+/// **This is the heredity channel, and until now there was none.** Every
+/// genotype in the engine was drawn from `(world seed, germination
+/// coordinate)` — the *place*, not the parent — so offspring of a
+/// well-adapted plant were no more like it than any stranger, and selection
+/// had nothing to accumulate on. A stand could be culled by drought for a
+/// thousand generations and never get more drought-tolerant.
+///
+/// The seed is placed as a `Powder`, so it falls and rolls from wherever it
+/// was set exactly as a planted seed does, and germinates by the same
+/// light-and-moisture gate. Nothing downstream needs to know it had a
+/// parent except `seed_genotype`, which must not redraw over the genome
+/// this copies in.
+fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, rng: &mut Rng) -> bool {
+    let Some((species, draws, generation, foliage, bark)) = world
+        .organism(parent_id)
+        .map(|s| (s.species, s.genotype_draws, s.generation, s.foliage_band, s.bark_band))
+    else {
+        return false;
+    };
+    let Some(seed_material) = world.materials.id_of("seed") else {
+        return false;
+    };
+    // Somewhere open beside the parent cell. Deliberately *any* free
+    // neighbour rather than a chosen direction: a seed is a falling powder,
+    // so where it ends up is the world's business, not the plant's.
+    let spots: Vec<(i32, i32)> = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).filter(|&(nx, ny)| world.is_empty(nx, ny)).collect();
+    if spots.is_empty() {
+        return false;
+    }
+    let (sx, sy) = spots[rng.below(spots.len() as u32) as usize];
+
+    let child = world.push_organism(species);
+    let shades = world.materials.get(seed_material).palette.len().max(1) as u32;
+    let shade = rng.below(shades) as u8;
+    if let Some(state) = world.organism_mut(child) {
+        // Each trait drifts independently, so a genome is not a single
+        // dial: two offspring of one parent can differ on branching and
+        // agree on height, which is what lets a population explore corners
+        // of the trait space rather than sliding along one diagonal.
+        for (dst, src) in state.genotype_draws.iter_mut().zip(draws.iter()) {
+            let jitter = (rng.below(2_000) as f32 / 1_000.0 - 1.0) * MUTATION_SIGMA;
+            *dst = (*src + jitter).clamp(-1.0, 1.0);
+        }
+        // Colour is inherited outright for now. It is *not* yet a mutable
+        // locus, so it cannot evolve — see `Reports/plant-appearance-
+        // design.md` §7, which flags moving it onto the genome as the step
+        // that makes "do visuals change with evolution" answerable.
+        state.foliage_band = foliage;
+        state.bark_band = bark;
+        state.inherited = true;
+        state.generation = generation.saturating_add(1);
+    }
+    world.set(sx, sy, Cell::new(seed_material, shade).with_organism_id(child).with_aux(organism::pack_cell_type(CellType::Seed)));
+    world.schedule_active_site(reschedule_organism(sx, sy, child, 0, 0, world.frame + SEED_TICK_INTERVAL));
+    if let Some(parent) = world.organism_mut(parent_id) {
+        parent.seeds_set += 1;
+    }
+    true
 }
 
 /// Stamp a fresh cell's hydraulic path length as one step further from the
@@ -826,6 +916,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             // bud's own tick -- and a `DormantBud` carries no active site
             // at all, so this arm is unreachable in practice.
             Behavior::BudBreak { .. } => {}
+            // Same shape as `SecondaryThicken` below: seed set is driven
+            // from the whole-organism upkeep walk, not from an active site,
+            // so that a mature cell does not have to stay on the schedule
+            // just to check whether it can breed.
+            Behavior::Reproduce { .. } => {}
             Behavior::Divide { cost, damp_chance, dry_chance, shade_sensitive } => {
                 if resource < cost {
                     continue; // temporary resource shortfall -- try again next tick, not a dead end
@@ -2652,6 +2747,19 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 Behavior::Transpire { rate } => {
                     transpire(world, cx, cy, rate);
                 }
+                Behavior::Reproduce { seed_cost, seed_chance, seed_maturity } => {
+                    // Runs on every `MatureBody` cell, so the *organism's*
+                    // seed rate is this chance times its canopy size -- a
+                    // big tree out-breeds a small one with no rule saying
+                    // so, which is the coupling that makes selection on
+                    // size mean anything.
+                    if seed_chance > 0.0 && shoot_cells >= seed_maturity {
+                        let carbon = world.organism_cell(cx, cy).map_or(0.0, |c| c.carbon);
+                        if carbon >= seed_cost && rng.chance(seed_chance) && set_seed(world, cx, cy, organism_id, &mut rng) {
+                            write_carbon(world, cx, cy, carbon - seed_cost);
+                        }
+                    }
+                }
                 Behavior::SecondaryThicken { pipe_ratio } => {
                     // **The support this cell actually carries**, from the
                     // basipetal pass, replacing "leaves in the rows above
@@ -3855,7 +3963,35 @@ mod tests {
         // work, because it asks the question the test is named for.
         let mut w = test_world();
         plant_tree_on_ground(&mut w, 50, 20);
+        // **Scoped to the individual, because the world now breeds.** This
+        // counted every `wood` cell in the world, which was the same thing
+        // as "this tree" only while a scene's plants were the only plants
+        // there would ever be. With `Behavior::Reproduce` the stand recruits
+        // offspring indefinitely, so a world-wide count never holds still
+        // and the test asserted something it no longer measured -- the
+        // question is whether *a tree* stops growing, not whether a
+        // *population* does.
         let wood = w.materials.id_of("wood").unwrap();
+        let subject = w.get(50, 20).organism_id();
+        assert_ne!(subject, 0, "the seed should own its own cell right after planting");
+        let subject_wood = |w: &World| -> usize {
+            let Some(b) = w.bounds() else { return 0 };
+            let mut n = 0;
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    // Woody cells only, matching what `count(&w, wood)`
+                    // measured. Counting every cell the organism owns
+                    // includes its leaves, and abscission sheds and regrows
+                    // those forever -- a count that never holds still by
+                    // design, which is not what "stopped growing" means.
+                    let c = w.get(x, y);
+                    if c.organism_id() == subject && c.material == wood {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
 
         const WINDOW: usize = 5_000;
         const BUDGET: usize = 120_000;
@@ -3864,7 +4000,7 @@ mod tests {
         while frames < BUDGET && stable_windows < 2 {
             run_with_fields(&mut w, WINDOW);
             frames += WINDOW;
-            let n = count(&w, wood);
+            let n = subject_wood(&w);
             peak = peak.max(n);
             stable_windows = if n == previous { stable_windows + 1 } else { 0 };
             previous = n;
@@ -4518,8 +4654,20 @@ mod tests {
                 // ceiling: no tree may exceed it, and at least one should
                 // approach it. A mean would be dominated by the
                 // establishment failures instead.
+                // **Planted individuals only.** Seeds are a `Powder` and can
+                // come to rest *on a branch*, germinate there and grow from a
+                // collar high in another plant's canopy -- so the world's
+                // topmost organism cell stopped being a statement about the
+                // turgor ceiling the moment reproduction landed. The claim is
+                // that a plant cannot out-grow its own hydraulic budget, and
+                // generation 0 is the set this scene planted at ground level.
                 let top = (b.min_y..=b.max_y)
-                    .find(|&y| (b.min_x..=b.max_x).any(|x| w.get(x, y).organism_id() != 0))
+                    .find(|&y| {
+                        (b.min_x..=b.max_x).any(|x| {
+                            let id = w.get(x, y).organism_id();
+                            id != 0 && w.organism_state(id).is_some_and(|s| s.generation == 0)
+                        })
+                    })
                     .unwrap_or(ground);
                 ground - top
             })

@@ -647,6 +647,40 @@ pub enum Behavior {
     /// derivation, `pipe_ratio` deliberately a per-species parameter
     /// rather than a universal constant per that section's own discussion
     /// of the theory's documented limits.
+    /// **Set seed.** The heredity channel: a mature plant spends carbon
+    /// to place a `Seed` cell carrying its own genome, drifted by
+    /// `plant::MUTATION_SIGMA`.
+    ///
+    /// A whole-organism event expressed per cell on purpose. It runs on
+    /// every `MatureBody` cell, so a plant's seed rate is its canopy
+    /// size times `seed_chance` -- a big tree out-breeds a small one
+    /// with no rule saying so, and no whole-plant query either.
+    Reproduce {
+        /// **Carbon price of setting one seed.** Paid out of the cell that
+        /// sets it, like every other growth cost, so a plant that cannot
+        /// afford to reproduce does not.
+        #[serde(default)]
+        seed_cost: f32,
+        /// Chance per organism tick that an eligible cell sets a seed.
+        ///
+        /// Small on purpose: this runs on every `MatureBody` cell of every
+        /// plant, so the *organism's* seed rate is this times its canopy
+        /// size — which is the coupling wanted. A big tree should out-breed
+        /// a small one without a rule saying so.
+        ///
+        /// `0.0` disables reproduction, which is the default and what moss
+        /// and any species predating this get.
+        #[serde(default)]
+        seed_chance: f32,
+        /// Shoot cells a plant needs before it sets any seed at all.
+        ///
+        /// Without it a seedling reproduces on its first mature cell and
+        /// the world fills with dynasties of two-cell plants that never
+        /// pay the cost of growing up — selection for instant reproduction,
+        /// which is a real evolutionary attractor and a boring one.
+        #[serde(default)]
+        seed_maturity: u32,
+    },
     SecondaryThicken { pipe_ratio: f32 },
     /// A `Seed` cell's transition to `GrowingTip`/`RootTip`, checked on a
     /// schedule against local field readings. `instant: true` is a
@@ -903,6 +937,24 @@ pub struct OrganismState {
     /// palette the material has — the pre-band look.
     pub foliage_band: u8,
     pub bark_band: u8,
+    /// **This individual's genome came from a parent, not from where it
+    /// landed.** `plant::seed_genotype` redraws a genotype from
+    /// `(world seed, germination coordinate)` — which is right for a seed
+    /// the player or a scene planted, and *destroys heredity* for a seed
+    /// another plant set. This flag is what tells the two apart, and it is
+    /// the whole difference between a population that evolves and one that
+    /// re-rolls itself every generation.
+    pub inherited: bool,
+    /// How many ancestors deep this individual is. 0 for anything planted;
+    /// a seed's parent's value plus one otherwise.
+    ///
+    /// Purely diagnostic and worth the two bytes: "did reproduction happen"
+    /// is exactly the kind of discrete event a contact sheet cannot show,
+    /// and a stand that looks lush while every plant reads generation 0 is
+    /// a stand where nothing has bred.
+    pub generation: u16,
+    /// Seeds this organism has set. The other half of the same question.
+    pub seeds_set: u32,
 }
 
 /// How many independently-jittered traits a genotype carries — the width of
