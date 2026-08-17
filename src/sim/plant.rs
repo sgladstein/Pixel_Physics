@@ -557,8 +557,22 @@ fn is_damp(world: &World, x: i32, y: i32) -> bool {
 ///
 /// `CLAUDE.md`'s "fixing a bug often exposes a constant that was
 /// compensating for it", one level up: it exposed a whole mechanism.
+///
+/// **Noon-equivalent, not raw** — `field::noon_equivalent_light`, which
+/// rescales the reading by the sky's current output so the same occlusion
+/// reads the same number at any hour. Every economic decision routes
+/// through this function (income, the bud-break gate, bud siting, `q`,
+/// germination, moss's shade preference), and every one of them was
+/// sampling a 20:1 day/night oscillator: the live frontier measured 71
+/// tips at noon against 28 at night on the same stand, and shade
+/// abscission was unusable at any fixed threshold because every leaf in
+/// the world reads near zero at midnight. What a plant should respond to
+/// is *how shaded it is*, not *what time it is* — the day/night cycle
+/// stays real in the field and on screen, and stops aliasing into the
+/// economy. `phototropism_dir` deliberately stays raw: it compares two
+/// readings, so the phase factor cancels.
 pub fn ambient_light_above(world: &World, x: i32, y: i32) -> f32 {
-    world.field_at(x, y).light
+    super::field::noon_equivalent_light(world.field_at(x, y).light, world.frame)
 }
 
 /// Lower ambient light reads as more shaded, which favours spreading —
@@ -2783,29 +2797,33 @@ mod tests {
         // stone) reads as having nowhere to grow from, and a colony can
         // only ever be a single-cell-wide line hugging the original rock,
         // never thickening into a real patch.
+        // **The scene is aligned so the upward step under test is a *damp*
+        // step.** `FIELD_SCALE` is 8, so field blocks span rows 40..47 and
+        // 48..55; the puddle at row 50 keeps the whole 48..55 block damp,
+        // and the seed at 49 grows its first upward cell into row 48 --
+        // same damp block, `damp_chance` territory. Two earlier layouts sat
+        // one row higher, which put the first upward step across the block
+        // boundary into dry readings, so the mechanism this test names
+        // (growing over one's own cells) was gated behind a `dry_chance`
+        // x `shade_factor` lottery at ~2e-4 per check. That made the test a
+        // coin flip twice: once when an unrelated change shifted the RNG
+        // stream, and again when phase-free light removed the nightly
+        // darkness boost the 24,000-frame version had silently relied on
+        // (measured: topmost row 47 of a 40..48 assertion, 31 cells --
+        // passing on the boundary). The lottery was never the point; the
+        // traversal was. Measured on this layout: topmost row 48 with 25
+        // cells at 6,000 frames, via the damp path -- a rate, not a roll.
         let mut w = test_world();
         for x in 5..35 {
-            w.set(x, 50, Cell::new(material::STONE, 0));
+            w.set(x, 51, Cell::new(material::STONE, 0));
         }
-        w.set(5, 49, Cell::new(material::STONE, 0)); // walls -- keep the
-        w.set(34, 49, Cell::new(material::STONE, 0)); // puddle from draining off the sides
+        w.set(5, 50, Cell::new(material::STONE, 0)); // walls -- keep the
+        w.set(34, 50, Cell::new(material::STONE, 0)); // puddle from draining off the sides
         for x in 10..30 {
-            w.set(x, 49, Cell::new(material::WATER, 0));
+            w.set(x, 50, Cell::new(material::WATER, 0));
         }
-        w.plant_moss_seed(20, 48);
-        // 24000 frames, not the 6000 this originally used. Growing *up* off
-        // the water's own row is only reachable via `moss.ron`'s
-        // `dry_chance` (0.002), further multiplied by `shade_factor` (down
-        // to 0.1) -- rows 47 and up sit in a different 8-cell field block
-        // than the water at row 49, so they are never `is_damp`. That makes
-        // the effective per-check chance as low as 2e-4, and at 6000 frames
-        // the expected number of successful upward divisions is around 1:
-        // the test was a coin flip on the RNG stream rather than a real
-        // check, and it duly flipped the first time an unrelated change
-        // (liquid's wider `sweep_reach`) shifted that stream. Verified at
-        // 24000 the colony reaches row 46 with ~313 cells, comfortably
-        // clear of the boundary rather than sitting on it.
-        run_with_fields(&mut w, 24000);
+        w.plant_moss_seed(20, 49);
+        run_with_fields(&mut w, 6000);
 
         let moss = w.materials.id_of("moss").unwrap();
         // The seed sits at row 48; nothing above row 48 has a stone
@@ -2814,7 +2832,13 @@ mod tests {
         // growing over another moss cell of its own organism. Any moss
         // found there is proof the patch thickened, not just spread
         // sideways hugging the water's own row.
-        let thickened = (5..35).any(|x| (40..48).any(|y| w.get(x, y).material == moss));
+        // The seed sits at row 49; nothing above row 49 has a stone
+        // neighbour at all (stone is only at 51 and the wall tops at 50,
+        // water fills 50) -- the *only* way moss reaches row 48 or higher
+        // is by growing over another cell of its own organism. Any moss
+        // there is proof the patch thickened rather than only hugging the
+        // water's own row.
+        let thickened = (5..35).any(|x| (42..49).any(|y| w.get(x, y).material == moss));
         assert!(thickened, "moss never thickened into a 2D patch, only ever grew along the original rock");
     }
 

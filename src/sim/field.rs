@@ -744,6 +744,35 @@ pub fn sun_rising(frame: u64) -> bool {
     phase >= 0.5
 }
 
+/// A light reading rescaled to **what it would be at noon** under the same
+/// occlusion — the phase-free form of the channel, for anything that makes
+/// a *decision* off a light read.
+///
+/// The light channel oscillates 20:1 over every day (`sky_light_amplitude`),
+/// and that oscillation is the single deepest measurement hazard on the
+/// plant branch: three separate quantities were tuned at an arbitrary phase
+/// of it, the live tip count swung 71 → 28 between noon and night on the
+/// *same* stand, shade abscission was impossible at any fixed threshold
+/// (every leaf in the world reads near zero at night, so any cutoff is a
+/// nightly extinction event), and `q_peak` latched noon-only values.
+///
+/// Dividing a reading by the sky's *current* output and rescaling by its
+/// peak removes the oscillation while moving nothing at noon — the factor
+/// is exactly 1.0 there, so every constant derived against noon behaviour
+/// keeps its meaning. The oscillator is a pure function of the frame, so
+/// this costs no storage and no per-cell state; it is the free version of
+/// the per-cell running mean `PLAN.md` 0e originally sketched.
+///
+/// Clamped to `MAX_LIGHT`: nothing can intercept more than full sun. The
+/// clamp also bounds the two ways a raw reading legitimately exceeds the
+/// sky's current output — the field lags the amplitude by its diffusion
+/// time constant at dusk (~15% for ~60 frames), and fire floods its own
+/// block via `add_light` — so a burning canopy at midnight reads as "full
+/// sun", which is the right answer for a plant and for the fire.
+pub(crate) fn noon_equivalent_light(light: f32, frame: u64) -> f32 {
+    (light / sky_light_amplitude(frame) * MAX_LIGHT).clamp(0.0, MAX_LIGHT)
+}
+
 /// Top-of-world light boundary condition — architecture report §2's sky
 /// source, now driven by §5h's day/night oscillator (`sky_light_amplitude`)
 /// rather than a flat `MAX_LIGHT`. The counterpart to fire's local light
