@@ -11,8 +11,17 @@ then this. `Reports/destruction-plan.md` holds the wider backlog and the
 
 ## 0. Where things stand
 
-`master`, 407 tests, clippy clean, **eight** acceptance cases gating in CI
-via `scripts/acceptance.sh`.
+`master`, **519 lib tests**, clippy clean, **13** acceptance cases gating in
+CI via `scripts/acceptance.sh` (five of them on procedural terrain), plus
+`scripts/seedsweep.sh` as the instrument the suite cannot be.
+
+`field::a_sealed_room_holds_pressure_better_than_open_ground` fails on
+master and belongs to another area.
+
+Landed this session: one spoil model for every digger (`3084b7b`), and
+confined rock cracking in place instead of falling in on itself
+(`c709b4c`). **The live problem is §1a-NEW: caves cannot actually be dug,
+because the gnome will not walk into his own tunnel.**
 
 The destruction model is right and working: torque vs capacity, section
 failure, load flow over parallel supports, crack-driven detachment, a
@@ -188,6 +197,83 @@ preset and seed from the title bar, where they clicked, and `D` or `C`.
 
 ---
 
+## 1a-NEW. START HERE: the gnome cannot get into his own tunnel
+
+**The owner's stated next priority, in their words: "we need to go back to
+making sure we can dig a cave."** It does not work, the reproduction is one
+command, and the cause is *movement*, not digging.
+
+```
+target/release/examples/filmstrip.exe scene=tunnel yield=0.0 \
+    start=120 every=40 count=8 zoom=1 out=target/filmstrips/probe.png
+```
+
+```
+gnome: at (178, 300), grounded, bites 15 (0 displaced), 518 dusted
+gnome: at (178, 300), grounded, bites 20 (0 displaced), 518 dusted
+...
+gnome: at (178, 300), grounded, bites 50 (0 displaced), 518 dusted
+```
+
+He cuts a bore about 25 cells deep into the cliff face at x=180, walks up
+to the mouth of it, and **stops there forever**. From bite ~15 onward the
+dust total never moves again: he takes 110 further bites and removes **zero
+cells** between them, because every bite lands inside the bore he already
+opened. He never once crosses x=180 into it.
+
+`target/filmstrips/tunnel-clean.png` (zoom 8) is the picture, and it is
+unambiguous: a clean open tunnel, and a gnome standing outside it.
+
+### What has been ruled out, by measurement
+
+- **Spoil silting the bore up.** The obvious reading, and wrong: this
+  reproduction is at `yield=0.0`, where *nothing* is left behind and the
+  bore is completely empty. The stall is worst there.
+- **Aim.** `face_toward` reaches past loose material to the first hard
+  cell, and `examples/filmstrip.rs`'s tunnel script already aims at
+  `cx + dig_reach * 2` — a previous session fixed exactly the failure where
+  a nearer aim point made bites land in the open bore. The aim is fine; he
+  is simply too far away to reach the face.
+
+### The spoil sweep, which points at the answer
+
+`scene=tunnel`, 125 bites, where he ended up (he starts at x=150):
+
+| yield | ends at | dusted | note |
+|---|---|---|---|
+| 0.0 (CLEAN) | **178** | 518 | never enters; bore completely empty |
+| 0.2 | **192** | 604 | furthest of any setting |
+| 0.35 (DUST, default) | 189 | 484 | |
+| 0.55 (SPOIL) | 173 | 206 | |
+
+**More rubble gets him *further*, up to a point.** That is the tell, and it
+inverts the obvious hypothesis. With spoil on the floor he climbs into the
+bore and keeps working; with a spotless tunnel he stands at the lip. So the
+bore's floor is not something he can walk onto from outside — rubble is
+acting as a ramp, and it is the only reason a tunnel advances at all today.
+`examples/filmstrip.rs`'s own script comment already recorded the extreme
+version of this ("at `yield=1.0` he travelled furthest of any setting purely
+by walking up rubble"), and it was read as a measurement artifact rather
+than as the bug it is.
+
+### Where to look
+
+`player::step`'s ground handling and `step_up` (default 4). A bite is
+centred on his own centre with radius 7, so the bore spans roughly
+`cy-7 .. cy+7` while the outside ground is at his feet — the mouth is a
+lip, and something about crossing it is refusing. Instrument his `x` and
+`grounded` per frame at the moment he first touches x=179; do not reason
+about the geometry from the contact sheet, because the sheet cannot show
+which of "blocked", "stepped and pushed back" or "never tried" is
+happening.
+
+**Do not fix this by tuning `dig_yield`.** The sweep above is exactly the
+knob-that-moves-the-number-in-both-directions shape this file warns about:
+0.2 beats both 0.0 and 0.55, which means it is reading the wrong quantity.
+Spoil is compensating for a movement bug.
+
+---
+
 ## 1c. OPEN: a big strike unzips the surface sideways
 
 The dig cascade and the small-strike cascade are fixed (see `df78bc7`,
@@ -261,7 +347,38 @@ rather than prevention: hundreds of small events over a thousand frames is
 what looks bad, not the total. The owner has said explicitly that some
 chaining would be *good* if it looked better.
 
-### 1c-i. Why the unzip looks wrong: confined rock has nowhere to go
+### 1c-i. DONE: confined rock has nowhere to go — shipped
+
+**Built and landed.** `structural::crush_in_place`, gated on
+`World::crush_confined` (default on, and a runtime switch so an A/B is one
+binary). A failing region with no air anywhere against it now cracks where
+it stands instead of displacing. Keyed on the outcome, never the criterion,
+with `a_confined_failure_still_fails_it_just_cannot_travel` guarding the
+distinction from the retired anchor model.
+
+Seed sweep, 24 runs, `scripts/seedsweep.sh <verb> confine=0|1`:
+
+| | rock destroyed p90 | median | cells lost p90 |
+|---|---|---|---|
+| `strike=12` off → on | 1,754 → **1,236** | 23 → **0** | 792 → **617** |
+| `strike=20` off → on | 1,907 → **1,532** | 819 → **0** | 905 → **398** |
+
+Read the four dead ends in commit `c709b4c`'s message before touching the
+crack pattern — three of them were wrong *on screen* while the arithmetic
+was fine, including a lattice that drew visible graph paper across a
+hillside, and one was a near no-op that produced bit-identical images
+across two complete rewrites and was only ever visible to a counter
+(`FailureCounts::crushed_cells`).
+
+**Still open here:** the owner's read of the shipped version is that the
+fissures are "criss cross irregular lines" rather than "a spreading crack
+from a boulder". The sub-cell walker landed after that comment and is a
+real improvement — cracks now curve and fork from one origin instead of
+crossing as straight strokes from many — but it has not been re-judged by
+the owner. **Show them `target/filmstrips/roll-crack.png` before doing more
+work on the look.**
+
+### 1c-i (original note). Why the unzip looks wrong: confined rock has nowhere to go
 
 **The owner's framing, and it is the most useful thing said about this
 defect:** *"one of the issues with unzipping is that it is stone in the
@@ -412,12 +529,21 @@ Reproduce with `scene=worldcrack preset=flat dig=4 tunnel=N`.
 
 ### Suggested order
 
-1. **One spoil model for every digger** -- move it into `rigid::mine` so the
-   `D` key, the gnome and the creatures share it; add `VOID` at 0.0.
-2. **Height in the criterion** (requirement 2). The single biggest gap between
-   the model and what the owner expects.
-3. **Warning band** (requirement 3) -- also fixes 1c's nibbling.
-4. **The site backlog**, folded into whichever of those touches the scheduler.
+1. ~~**One spoil model for every digger.**~~ **Done** (`3084b7b`). The
+   thinning lives in `rigid::mine` now, so the sandbox cut, the gnome and
+   the creatures share it; `App::mine` passes `player_tuning.dig_yield`.
+   Note the sandbox mining key is **`H`**, not `D` — `D` runs the gnome
+   right, and the wiki records the rebind. No `VOID` mode was added because
+   `SPOIL_MODES` already has **CLEAN at 0.0**, which is the same thing under
+   a name that was already shipped.
+2. **The gnome cannot get into his own tunnel** — see §1a-NEW, which is now
+   the owner's stated priority and blocks everything else about caves.
+3. **Height in the criterion** (requirement 2). The single biggest gap
+   between the model and what the owner expects.
+4. **Warning band** (requirement 3) -- also fixes 1c's nibbling.
+5. **The site backlog**, folded into whichever of those touches the
+   scheduler. Still real and still climbing: `scene=tunnel` sits at ~11,000
+   pending sites, and the big-strike scenes reach 15,000-16,000.
 
 ## 2. What is still wrong
 
@@ -522,9 +648,38 @@ Carried over, still true:
 
 ## 4. The measurement loop
 
+**Two instruments, and the second one is not optional.** The acceptance
+suite is blind by construction to procedural terrain — two load-model
+changes have already shipped green through it — so `seedsweep.sh` runs
+*before* a model change, not after.
+
 ```
 cargo build --release --example filmstrip
-bash scripts/acceptance.sh                     # eight cases, mechanism-asserting
+bash scripts/acceptance.sh                     # 13 cases, mechanism-asserting
+bash scripts/seedsweep.sh strike=12            # 6 presets x 4 seeds, order statistics
+bash scripts/seedsweep.sh dig=6 confine=0      # any filmstrip arg rides along
+```
+
+**A failure count is not a damage count.** `filmstrip` now censuses Solid
+and Powder before and after and prints
+`cells lost since the cut: N (rock -X, rubble +Y)` per tile, with a
+`max_lost=` gate. Read the split: rock turning to rubble is *damage* and
+moves nothing out of the world; rubble leaving is *removal*. A run can chew
+a whole surface layer to gravel with `lost` near zero.
+
+Counting every non-empty cell instead was tried and lies — it reported
+`canyon` *gaining* 167 cells on a run where nothing failed, because a
+`Liquid` cell spreading into two half-full ones is +1 occupancy at
+unchanged volume.
+
+**Frame timings on this machine are currently very noisy.** One unchanged
+scene measured 20.53-50.90 ms across three runs in one command, and the
+acceptance timing bars flaked on a *different* scene each run, including
+`crackflat0`, which has no structural failures at all. The mechanism
+assertions were stable throughout. Re-measure the baseline in the same
+session before believing any timing regression, and prefer `repeat=3`.
+
+```
 target/release/examples/filmstrip.exe scene=room wall=8 dig=1 \
     start=2 every=8 count=6 crop=100,120,280,200 zoom=2 loadmap=1 \
     out=target/filmstrips/room.png
