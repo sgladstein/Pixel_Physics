@@ -186,6 +186,81 @@ Still open with the owner: whether the hillside scar *is* what they saw, or
 whether there is a case `worldcrack` does not cover. Needed to tell — the
 preset and seed from the title bar, where they clicked, and `D` or `C`.
 
+---
+
+## 1c. OPEN: a big strike unzips the surface sideways
+
+The dig cascade and the small-strike cascade are fixed (see `df78bc7`,
+`fcc9873`, both on master). **Large strikes are not.** This is what is left
+of the owner's "they chain too far and too much" and it has its own
+mechanism.
+
+### Reproduction
+
+```
+target/release/examples/filmstrip.exe scene=worldcrack preset=flat seed=24301     strike=12 start=2 every=250 count=6 crop=180,190,200,120 zoom=4     out=target/filmstrips/bigstrike.png
+```
+
+`strike=` was added for this (`0aa354d`); nothing in the repo had ever struck
+generated terrain before, which is why a dig-shaped fix measured clean while
+the hammer was still eating the world.
+
+| blow | rolling | flat | canyon |
+|---|---|---|---|
+| strike=6 (the minimum) | 0 | 0 | 48 |
+| strike=12 | 40 | 12,283 | 12,662 |
+| strike=20 | 12,752 | 18,502 | 8,282 |
+
+### Look at it first: it is a *lateral* unzip, not a crater
+
+`bigstrike.png`. Frame 2 looks right -- a clean star of fissures round a
+small crater, which is the verb doing its job. Then over the next thousand
+frames the damage **travels sideways along the surface layer**, well past
+the blow, while the deep interior never moves at all. It is not the crater
+growing and it is not a front from the impact: it is the top ten or fifteen
+rows peeling away horizontally.
+
+Read the region sizes next to it: mean 87 falling to 49, largest 835. Those
+are not dust -- the pieces are reasonable. There are just hundreds of
+events, 153 by frame 752 and climbing, which is why it "lasts a while".
+
+### Ruled out by measurement
+
+- **Crack rays.** `CRACK_RAYS` 5 -> 0, i.e. a strike that scores no cracks at
+  all: `strike=12` on flat is still **10,852** cells against 12,283 with
+  them. Cracks are not what scales a big blow. Do not spend time on
+  `CRACK_REACH` or ray counts.
+- **Detaching only near the impact** (`DETACH_REACH`, letting the crack run
+  its full length but unbracing only within one bite of the blow): flat
+  16,634 -> 12,283, but `strike=20` on flat went 10,541 -> 18,502. Moves the
+  number in both directions, so by this file's own rule it is reading the
+  wrong quantity.
+
+### The hypothesis that fits the picture
+
+`strike` loosens a **chip disc of radius 2r/3** -- for a radius-20 blow that
+is ~400 cells that lose the 12x attachment bonus at once, and the area grows
+as the *square* of the brush while the bite grows linearly. In a thin
+surface layer that produces a wide, shallow, wholly-unbraced sheet.
+
+Then the lateral unzip is `failing_region` taking a whole section: capacity
+goes as section squared, so when a section fails the cell beside the new
+hole has its own section cut short, drops in capacity, fails in turn, and
+the process walks along the layer. Deep rock is immune because its sections
+are long in every direction; a surface sheet has nowhere to go.
+
+That is the same *shape* as the room unzip that `0b5b175` fixed with the
+column-moment clamp, in a different place, and it should probably be
+attacked the same way: find the quantity that is being charged to a cell
+that does not own it.
+
+**Do not start by tuning the chip radius.** Check first whether the sideways
+walk is even legitimate -- a detached surface sheet genuinely has little
+holding it -- and if it is, the question becomes pacing and granularity
+rather than prevention: hundreds of small events over a thousand frames is
+what looks bad, not the total. The owner has said explicitly that some
+chaining would be *good* if it looked better.
+
 ## 2. What is still wrong
 
 ### 2a. `wall=3 span=200` collapses untouched while 2 and 5 stand
