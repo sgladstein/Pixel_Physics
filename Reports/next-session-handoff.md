@@ -261,6 +261,106 @@ rather than prevention: hundreds of small events over a thousand frames is
 what looks bad, not the total. The owner has said explicitly that some
 chaining would be *good* if it looked better.
 
+---
+
+## 1d. OWNERSHIP CHANGE: the gnome and creatures are now structural work
+
+**Stated by the owner, and it reframes the milestone:** *"you can take over
+the gnome mechanism. that and creatures are what really dig in the game they
+need to work with your structural mechanics."*
+
+So `src/sim/player.rs` joins `load.rs` / `structural.rs` / `rigid.rs` as this
+area's files. The player's `D` key is a *sandbox* verb; the gnome and the
+creatures are what actually excavate in play, and they are the diggers the
+structural model has to be correct for.
+
+### Where the two systems already agree
+
+`scene=tunnel` (the gnome held-digging into a cliff, written by the M9
+session) runs **zero structural failures over 1,000+ frames** with the
+bearing model in place. His bore opens and stays open. Nothing here is on
+fire.
+
+### What is wrong, measured
+
+**Pending sites climb 233 -> 11,190 and keep climbing**, on a scene with no
+failures at all. That is the structural scheduler re-examining a bore that
+has already settled, forever, and held-digging is the case that generates it.
+`load-model-fit-review.md` predicted this shape ("a settled, standing,
+motionless foreground structure costs a 12,000-cell walk on a repeating
+schedule"). It is a real cost and it belongs to whoever owns this area now.
+
+**Two diggers, two spoil models.** `player::dig` calls `rigid::mine` and then
+applies `thin_to_dust(.., tuning.dig_yield)`; `App::mine` calls `rigid::mine`
+and takes whatever falls out. So the gnome honours `dig_yield` and the `D`
+key ignores it. Same one-number-two-verbs shape as `brush_radius` (2c).
+
+### The owner's requirements for tunnels, stated this session
+
+1. **Small tunnels self-sustaining; big ones need built support, like a mine.**
+2. **Collapse must depend on height, not only span.** *"a super short tunnel
+   should be able to have a longer span. ant tunnel vs digging a mine."*
+   Today height does not enter the criterion at all -- a roof is judged purely
+   as a span, which is why the engine and the intuition disagree. The textbook
+   form is Terzaghi's rock load, where the load a roof carries scales with
+   *(width + height)* rather than the full overburden: an ant tunnel carries
+   almost nothing and can run a long way, a gallery carries much more and
+   cannot. It drops into the existing capacity arithmetic.
+3. **Collapse must be obvious and delayed**, so the player can get supports in
+   first. Same warning-band machinery the big-strike nibbling (1c) needs.
+4. **Rock and compacted soil must dig differently.** Mostly a data question,
+   except soil is a `Powder` and not load-bearing at all, so "compacted soil
+   you can tunnel through" wants to be its own material or state.
+
+### Spoil: decided, and the options that were weighed
+
+The owner asked for **vanish now, with the alternatives recorded as future
+plans**. Then the M9 session turned out to have already built the better
+version, so *do not hardcode vanish*:
+
+- `Tuning::dig_yield`, 0.0-1.0, live in the tunables panel, with named
+  `SpoilMode`s cycled on **F2** -- `DUST` 0.35 ("a third stays as rubble, the
+  rest blows away"), `SPOIL` 0.55 ("half stays - tunnels silt up behind you").
+- **Vanish is `dig_yield = 0.0`.** It wants a named `VOID` mode, not a code
+  change.
+- A blanket vanish inside `rigid::mine` was written, measured and **reverted**:
+  it breaks `player::at_full_yield_nothing_leaves_the_world`, whose contract is
+  "at yield 1.0 a dig may move material but never delete it", and it drops
+  `roomcut` to 2 overload failures against its bar of 5.
+
+Future options, recorded rather than discarded:
+
+- **Bulking inverse** -- yield less spoil than was cut. Real rock bulks ~1.5x,
+  so inverting it is one tunable. *This is what `dig_yield` already is.*
+- **Eject toward the mouth** -- spoil displaced back along the tunnel axis,
+  heaping outside the hole. `displace()` and `nearest_free` already exist.
+- **Low repose spoil** -- debris that runs flat along the floor instead of
+  heaping to the roof. Stacks with the above.
+- **Spoil as a carried resource** -- mining yields the material that pays for
+  the supports a long tunnel needs. Closes the loop requirement 1 opens, and
+  waits for supports to exist.
+
+### Measured tunnel envelope (with spoil vanishing, `dig=4`)
+
+| length | rolling | flat |
+|---|---|---|
+| ~36 | holds | holds |
+| ~72 | holds | holds |
+| ~108 | holds | 10,010 cells |
+| ~180 | holds | 6,785 cells |
+
+`rolling` holds throughout because the bore sits under far more cover.
+Reproduce with `scene=worldcrack preset=flat dig=4 tunnel=N`.
+
+### Suggested order
+
+1. **One spoil model for every digger** -- move it into `rigid::mine` so the
+   `D` key, the gnome and the creatures share it; add `VOID` at 0.0.
+2. **Height in the criterion** (requirement 2). The single biggest gap between
+   the model and what the owner expects.
+3. **Warning band** (requirement 3) -- also fixes 1c's nibbling.
+4. **The site backlog**, folded into whichever of those touches the scheduler.
+
 ## 2. What is still wrong
 
 ### 2a. `wall=3 span=200` collapses untouched while 2 and 5 stand
