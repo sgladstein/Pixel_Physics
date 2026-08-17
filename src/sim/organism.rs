@@ -1022,6 +1022,17 @@ impl SpeciesRegistry {
         &self.species[id.0 as usize]
     }
 
+    /// Overwrite a species' starting genome — **for ablation harnesses
+    /// only**, and it is worth having rather than hand-editing `.ron`
+    /// between runs for two reasons. Editing an asset changes nothing
+    /// until the next build (the `include_str!` gotcha that has produced
+    /// whole invalid sweeps here), and a sweep that has to rebuild between
+    /// points cannot vary a knob within one process, so it cannot hold
+    /// everything else fixed.
+    pub fn set_genome(&mut self, id: SpeciesId, genome: Vec<f32>) {
+        self.species[id.0 as usize].genome = genome;
+    }
+
     pub fn id_of(&self, name: &str) -> Option<SpeciesId> {
         self.by_name.get(name).copied()
     }

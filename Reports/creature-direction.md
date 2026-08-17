@@ -1051,3 +1051,60 @@ them four apart.
 Next, in order: raise the exploration range (a dispersal drive, or letting
 ants pass over one another), then re-run `forage_loop` and `double_bridge`,
 whose assertions are still printed notes rather than guards.
+
+### 13f. The landscape was flat because the economy was broken (2026-08-17)
+
+An ablation harness (`examples/ant_ablation.rs`) was built to answer one
+question: **is the authored brain doing anything, or is the substrate?** It
+varies only the genome, holds everything else fixed, and reports *behaviour*
+rather than event totals -- because the scene counters (moves, pickups)
+cannot tell a colony vibrating on the spot from one commuting, cannot tell
+five busy ants from fifty, and say nothing about spatial range, which was
+the thing actually failing. That had been diagnosed by reading an ascii
+picture, because no number described it.
+
+**Two of the first five metrics were measuring the initial condition.** A
+colony with a genome of literally zero connections, which provably never
+moves a cell, scored "range 118" and "left the nest 0.63" -- both reporting
+where ants had been *placed*. Only the zero-genome control exposed it.
+
+**With a finite corpse pile, eight of ten authored instincts produced
+bit-identical behaviour.** So three constants moved into the genome as
+outputs -- `Persist` (an anonymous 0.15 that decided milling versus
+commuting), `Tumble`, `Caution` -- and even then only `Tumble` had leverage.
+
+**Terrain matters, but less than it first appeared.** On a hand-built ridge
+profile `Persist` swung travel 2.2x; on *generated* terrain, almost
+nothing. The hand-built profile was a special case, caught only because the
+generated arm was run as a check. Baseline behaviour does improve hugely on
+real terrain (coverage 49 -> 1670 over control).
+
+**The finding that reframes the milestone: the loop was never broken, the
+food distribution was.** Trees regrow leaves; a corpse pile does not.
+Adding "leaf" to the food list -- open question #2, answered herbivory, and
+no new code at all:
+
+| food source | foraged | pickups | deliveries |
+|---|---|---|---|
+| finite corpse pile | 0.05 | 2.5 | **0** |
+| regrowing leaves | **0.39** | **44.8** | **28.8** |
+
+13b's diagnosis was correct and 13e's fix necessary. The reason the loop
+still would not close is that almost no ant ever found food, and a colony
+cannot demonstrate a foraging loop it never enters.
+
+**The fitness landscape now has slope.** Single weight changes move
+deliveries 28-99%, and four *beat* the authored genome: `Caution=lo` 55.0,
+`Tumble=lo` 41.2, `Persist=hi` 39.0, `-Bias->EmitA` 37.0, against authored
+28.8. The hand-tuned ant is measurably suboptimal and simple mutations find
+better -- exactly the gradient selection needs, and it did not exist a day
+ago.
+
+Two further results: `Bias->EmitA` is **net-negative in both economies** --
+the nest-scent homing mechanism is paid for and not returning.
+`Crowding->Move` looked inert in the flat corpse-pile world and is
+load-bearing with a real economy (removing it costs 69% of deliveries).
+
+The lesson to keep: **an ablation in a broken economy measures nothing.**
+Every conclusion drawn from the corpse-pile world was wrong or
+unfalsifiable.

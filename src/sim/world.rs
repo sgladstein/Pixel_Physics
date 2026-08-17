@@ -112,6 +112,8 @@ pub struct CreatureStats {
     /// alone cannot.
     pub nest_visits: u64,
     pub deaths: u64,
+    /// Creatures that lost a body cell and survived it.
+    pub injuries: u64,
 }
 
 /// Where every joule went. See `World::energy_ledger`.

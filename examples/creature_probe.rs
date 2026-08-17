@@ -28,7 +28,7 @@ const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "bias", "pheroA_f", "pheroA_lr", "pheroB_f", "pheroB_lr", "moist_f", "moist_lr", "light", "temp", "food_adj", "at_nest", "energy",
     "carrying", "crowd", "pheroA_along", "pheroB_along",
 ];
-const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["turn", "move", "emitA", "emitB", "dig", "drop"];
+const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["turn", "move", "emitA", "emitB", "dig", "drop", "persist", "tumble", "caution"];
 
 fn main() {
     let mut frames = 6000usize;

@@ -444,6 +444,43 @@ fn release_if_bodyless(world: &mut World, organism: u16) {
     }
 }
 
+/// Reconcile a creature's `chain` with the cells it actually still owns,
+/// and kill it outright if the head is gone.
+///
+/// **The prerequisite for anything eating anything.** Removing a cell —
+/// a bite, a brush, an explosion, a falling rock — empties it from the
+/// organism's list at the `World::set` seam, but `chain` is a *separate*
+/// sequence and nothing was reconciling the two. An organism only released
+/// itself when *every* cell was gone, so biting the head off a two-cell ant
+/// left an orphaned segment standing in the world, owned by a live
+/// organism, driving decisions from a stale chain whose first entry was a
+/// cell that no longer existed.
+///
+/// Losing the head is death, not a shortening: the head is the deciding
+/// cell, it carries the heading, and it is the position the active site is
+/// scheduled at. Losing a trailing segment is just an injury.
+///
+/// Returns whether the creature is still alive.
+fn reconcile_chain(world: &mut World, organism: u16) -> bool {
+    let Some(state) = world.organism(organism) else {
+        return false;
+    };
+    let (chain, owned) = (state.chain.clone(), state.cells.clone());
+    let surviving: Vec<(i32, i32)> = chain.iter().copied().filter(|p| owned.contains_key(p)).collect();
+    if surviving.is_empty() || surviving.first() != chain.first() {
+        // Head gone (or nothing left at all): the rest is meat.
+        creature_dies(world, organism);
+        return false;
+    }
+    if surviving.len() != chain.len() {
+        if let Some(state) = world.organism_mut(organism) {
+            state.chain = surviving;
+        }
+        world.creature_stats.injuries += 1;
+    }
+    true
+}
+
 /// Energy cost to move into `target_material` at `(x, y)`, or `None` if
 /// it's not enterable at all. `Solid` (stone), `Liquid` (not modelled as
 /// aquatic this milestone), `Plant` and other `Creature` cells are all
@@ -543,27 +580,31 @@ const AHEAD_RIGHT: u8 = 7;
 /// where the field is the mechanism, and it is not crossed by an ant
 /// noticing the ants it is standing among.
 const CROWDING_RADIUS: i32 = 2;
-/// How strongly a candidate with a foothold is preferred over one into
-/// thin air. Added to the candidate's score, not multiplied into it — see
-/// `step_chain` for the measurement that decided which.
+/// Full-scale value of `BrainOutput::Caution` — how strongly a candidate
+/// with a foothold can be preferred over one into thin air, when a genome
+/// asks for the maximum. A silent output lands at half this, which is the
+/// 0.6 that used to be hardcoded.
 ///
-/// A bonus rather than a veto: an ant must still be able to walk off a
-/// ledge, and forbidding it outright would be the "gate whether something
-/// happens" mistake that `CLAUDE.md` warns a size cap must never make.
-const FOOTING_BONUS: f32 = 0.6;
+/// A bonus rather than a veto, at every setting: a creature must still be
+/// able to walk off a ledge, and forbidding it outright would be the "gate
+/// whether something happens" mistake `CLAUDE.md` warns a size cap must
+/// never make.
+const FOOTING_MAX: f32 = 1.2;
 
-/// Chance that a failed move roll also re-orients the creature.
-///
-/// **Not 1.0, and the difference matters more than it looks.** "How often
-/// do I step" and "how often do I change my mind" are different questions,
-/// and conflating them makes a creature that fails half its move rolls
-/// change heading half the time — a diffusive random walk, which is the
-/// worst possible way to *find* anything. Measured at 1.0: food discovery
-/// collapsed from 33 pickups to 1, because the persistent run that covers
-/// ground had been destroyed. At 0.35 a creature still runs in roughly
-/// straight lines and still re-orients often enough for the gradient term
-/// to steer it.
-const TUMBLE_ON_FAILED_MOVE: f32 = 0.35;
+/// Full-scale value of `BrainOutput::Persist`. A silent output lands at
+/// 1.0, which is deliberately **much** higher than the `0.15` this
+/// replaced: that literal was arbitrary, and it is the number that decides
+/// whether a creature commutes or mills. Handing it to the genome and
+/// letting measurement pick is the entire point of the change.
+const PERSIST_MAX: f32 = 2.0;
+
+// `TUMBLE_ON_FAILED_MOVE` is gone: it is `BrainOutput::Tumble` now. The
+// lesson it recorded still stands and is worth keeping — "how often do I
+// step" and "how often do I change my mind" are different questions, and
+// conflating them (tumbling on *every* failed move) collapsed food
+// discovery from 33 pickups to 1 by destroying the persistent run that
+// covers ground. What changed is that a creature can now be selected for
+// its answer instead of being told mine.
 
 /// Chance that a failed move roll also re-orients the creature.
 ///
@@ -701,7 +742,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     };
     let cell = world.get(x, y);
     if cell.material != material_id || cell.organism_id() != organism {
-        release_if_bodyless(world, organism);
+        // **Reconcile, do not merely release.** The active site sits on the
+        // *head*, so losing the head lands here — and `release_if_bodyless`
+        // would find the trailing segments still present, decline to free
+        // anything, and drop the site. The creature would then never tick
+        // again: not dead, not scheduled, just an orphan standing in the
+        // world forever. `reconcile_chain` is what knows that a missing
+        // head is death rather than an injury.
+        reconcile_chain(world, organism);
         return Vec::new();
     }
     if cell.is_burning() {
@@ -710,6 +758,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         return vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + def.tick_interval }];
     }
 
+    // Something may have eaten, burned or erased part of this creature
+    // since its last tick. Reconcile before deciding anything, or it makes
+    // decisions from a chain describing cells that are no longer there.
+    if !reconcile_chain(world, organism) {
+        return Vec::new();
+    }
     let heading = world.organism(organism).map_or(0, |s| s.heading);
     let inputs = sense(world, x, y, organism, heading, def);
     let (outputs, active_synapses) = {
@@ -749,7 +803,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             spent += def.move_cost;
             world.energy_ledger.moved += def.move_cost as f64;
         }
-    } else if draw.unit_f32() < TUMBLE_ON_FAILED_MOVE {
+    } else if draw.unit_f32() < brain::unit_scale(outputs[brain::BrainOutput::Tumble as usize], 1.0) {
         tumble(world, organism, &mut draw);
     }
 
@@ -930,7 +984,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         if let Some((fxx, fyy, food)) = adjacent_food(world, x, y, def) {
             if draw.unit_f32() < dig_urge {
                 let hungry = world.organism(organism).is_some_and(|s| s.energy < def.start_energy * def.hunger_fraction);
+                // If the mouthful belonged to somebody, tell them. Without
+                // this the victim keeps running on a chain that includes
+                // the cell just removed from it.
+                let victim = world.get(fxx, fyy).organism_id();
                 world.set(fxx, fyy, Cell::EMPTY);
+                if victim != 0 && victim != organism {
+                    reconcile_chain(world, victim);
+                }
                 if hungry {
                     if let Some(state) = world.organism_mut(organism) {
                         state.energy += def.eat_energy;
@@ -1039,7 +1100,15 @@ fn step_chain(
     // authored lateral-to-turn instinct needs in order to steer.
     let turn = outputs[brain::BrainOutput::Turn as usize];
     let dirs = [(heading + AHEAD_LEFT) % 8, heading, (heading + AHEAD_RIGHT) % 8];
-    let base = [turn.max(0.0), 0.15, (-turn).max(0.0)];
+    // **Persistence and caution come from the brain, not from literals.**
+    // The straight-ahead score used to be an anonymous `0.15` and the
+    // foothold preference a `FOOTING_BONUS` const; together they decided
+    // essentially everything a creature did, which is why an ablation found
+    // eight of ten authored instincts bit-identical. See
+    // `brain::BrainOutput::Persist`.
+    let persist = brain::unit_scale(outputs[brain::BrainOutput::Persist as usize], PERSIST_MAX);
+    let footing = brain::unit_scale(outputs[brain::BrainOutput::Caution as usize], FOOTING_MAX);
+    let base = [turn.max(0.0), persist, (-turn).max(0.0)];
     let mut scores = [0.0f32; 3];
     let mut passable = [false; 3];
     for (i, &d) in dirs.iter().enumerate() {
@@ -1067,7 +1136,7 @@ fn step_chain(
             // probability, and the colony spent 59% of its moves falling.
             // A footing *bonus* puts the supported candidate an order of
             // magnitude clear of the floor, where the discount belongs.
-            base[i] + if head_has_foothold(world, (tx, ty)) { FOOTING_BONUS } else { 0.0 }
+            base[i] + if head_has_foothold(world, (tx, ty)) { footing } else { 0.0 }
         } else {
             0.0
         };
@@ -1084,7 +1153,7 @@ fn step_chain(
     // An ant that can see no footing ahead turns to look somewhere else,
     // which is what a real one does and what makes it stop walking off
     // ledges. The cost is that ants cannot cross a gap; ants do not.
-    let footing_ahead = passable.iter().zip(&scores).any(|(&p, &s)| p && s > FOOTING_BONUS * 0.5);
+    let footing_ahead = passable.iter().zip(&scores).any(|(&p, &s)| p && s > footing * 0.5);
     if !passable.iter().any(|&p| p) || !footing_ahead {
         // Turn to a new heading and **deposit nothing this tick** (P-11,
         // enforced by the caller's `moved` flag). A blocked agent that
@@ -1106,7 +1175,7 @@ fn step_chain(
     // Zero out anything without footing now that at least one candidate
     // has some: the discount was never the mechanism, the choice is.
     for (i, s) in scores.iter_mut().enumerate() {
-        if !passable[i] || *s <= FOOTING_BONUS * 0.5 {
+        if !passable[i] || *s <= footing * 0.5 {
             *s = 0.0;
         }
     }
@@ -1982,6 +2051,58 @@ mod tests {
 
         assert_eq!(w.organism(heir).expect("the heir is live").energy, 999.0, "a stale creature site must not have spent the energy of the organism that inherited its slot");
         assert!(w.active_site_count() <= 1, "the stale site should have dropped itself rather than rescheduling");
+    }
+
+    // --- partial body loss --------------------------------------------------
+
+    /// Build a two-cell ant on a stone floor and hand back its handle.
+    fn ant_on_a_floor(w: &mut World, x: i32) -> u16 {
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        w.plant_ant(x, 100);
+        w.get(x, 100).organism_id()
+    }
+
+    #[test]
+    fn losing_a_trailing_segment_is_an_injury_not_a_death() {
+        let mut w = test_world();
+        let ant = ant_on_a_floor(&mut w, 100);
+        let tail = w.organism(ant).expect("live").chain[1];
+        assert_eq!(w.organism(ant).expect("live").chain.len(), 2);
+
+        w.set(tail.0, tail.1, Cell::EMPTY); // bitten off
+        run(&mut w, 20);
+
+        let state = w.organism(ant).expect("an ant that lost its tail should still be alive");
+        assert_eq!(state.chain.len(), 1, "the chain must shrink to what the ant actually still owns");
+        assert_eq!(w.creature_stats.injuries, 1);
+        assert_eq!(w.creature_stats.deaths, 0);
+    }
+
+    #[test]
+    fn losing_the_head_kills_the_creature_and_frees_its_slot() {
+        // **The bug this exists for.** An organism only released itself
+        // when *every* cell was gone, so removing the head left a live
+        // organism driving decisions from a stale chain whose first entry
+        // was a cell that no longer existed -- and an orphan segment
+        // standing in the world forever. Predation is unbuildable until
+        // this holds.
+        let mut w = test_world();
+        let ant = ant_on_a_floor(&mut w, 100);
+        let head = w.organism(ant).expect("live").chain[0];
+
+        w.set(head.0, head.1, Cell::EMPTY);
+        run(&mut w, 20);
+
+        assert!(w.organism(ant).is_none(), "losing the head should kill the creature");
+        assert!(w.live_organism_ids().is_empty(), "and free its slot");
+        let corpse = w.materials.id_of("corpse").unwrap();
+        let ant_material = w.materials.id_of("ant").unwrap();
+        let leftover = (90..110).flat_map(|x| (95..101).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == ant_material).count();
+        assert_eq!(leftover, 0, "no orphan segment may be left standing");
+        let meat = (90..110).flat_map(|x| (95..102).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == corpse).count();
+        assert!(meat > 0, "what is left of it should be matter -- a dead creature is food");
     }
 
     // --- choose_weighted ----------------------------------------------------

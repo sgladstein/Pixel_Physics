@@ -57,7 +57,19 @@
         // "leaf" to this list -- herbivory needs no new code, because a
         // Leaf cell is just a cell and the plant discovers the loss
         // through its own connectivity check.
-        food: ["corpse", "seed"],
+        // **"leaf" is the renewable half, and it is the whole food web.**
+        // Trees do not reproduce yet -- seeds are only ever hand-planted --
+        // but a living tree *regrows leaves* continuously, so a stand of
+        // trees is a food source that replenishes while a corpse pile is
+        // not. Without something that regrows, every run is a death march
+        // and selection is on who starves last, which is degenerate.
+        //
+        // This was owner open question #2 (herbivory from day one, or
+        // detritus only until plant damage has been watched once). Answered
+        // herbivory, and it needed no new code at all: a Leaf cell is just
+        // a cell, and the plant finds out it has lost one through its own
+        // connectivity check. That is the interaction nobody had to write.
+        food: ["corpse", "seed", "leaf"],
         nest: "nest",
 
         // Against Material::penetration_resistance, the pattern roots

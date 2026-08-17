@@ -34,15 +34,15 @@ use serde::Deserialize;
 
 pub const BRAIN_INPUTS: usize = 16;
 pub const BRAIN_HIDDEN: usize = 4;
-pub const BRAIN_OUTPUTS: usize = 6;
+pub const BRAIN_OUTPUTS: usize = 9;
 
 /// The genome: one flat `Vec<f32>` in four contiguous positional blocks.
 ///
 /// ```text
-/// [0..96)     input -> output   (16 x 6)  -- the authored "taxis gains"
-/// [96..160)   input -> hidden   (16 x 4)
-/// [160..164)  hidden self-recurrence      (4)
-/// [164..188)  hidden -> output  (4 x 6)
+/// [0..144)    input -> output   (16 x 9)  -- the authored "taxis gains"
+/// [144..208)  input -> hidden   (16 x 4)
+/// [208..212)  hidden self-recurrence      (4)
+/// [212..248)  hidden -> output  (4 x 9)
 /// ```
 ///
 /// **Grown once, by appending inputs 14 and 15**, after the lateral
@@ -61,11 +61,11 @@ pub const BRAIN_OUTPUTS: usize = 6;
 /// silently reinterprets every individual that already exists as a
 /// different animal. Growing the scaffold later means **appending** blocks,
 /// never inserting.
-pub const GENOME_LEN: usize = 188;
+pub const GENOME_LEN: usize = 248;
 
-const IO_END: usize = BRAIN_INPUTS * BRAIN_OUTPUTS; // 96
-const IH_END: usize = IO_END + BRAIN_INPUTS * BRAIN_HIDDEN; // 160
-const HH_END: usize = IH_END + BRAIN_HIDDEN; // 164
+const IO_END: usize = BRAIN_INPUTS * BRAIN_OUTPUTS; // 144
+const IH_END: usize = IO_END + BRAIN_INPUTS * BRAIN_HIDDEN; // 208
+const HH_END: usize = IH_END + BRAIN_HIDDEN; // 212
 
 /// A weight whose magnitude is below this is **no connection**: skipped in
 /// evaluation *and* exempt from the synapse tax.
@@ -74,6 +74,15 @@ const HH_END: usize = IH_END + BRAIN_HIDDEN; // 164
 /// it a weight can only ever get small, never absent, so a brain accumulates
 /// vestigial links that each cost a multiply and a metabolic charge forever.
 pub const W_EPS: f32 = 0.01;
+
+/// Map an output in `(-1, 1)` onto `(0, scale)` — for the outputs that are
+/// *magnitudes* rather than signed drives (`Persist`, `Tumble`,
+/// `Caution`). A silent connection reads 0 and lands at half scale, so a
+/// creature with nothing authored still behaves rather than freezing.
+#[inline]
+pub fn unit_scale(out: f32, scale: f32) -> f32 {
+    ((out + 1.0) * 0.5).clamp(0.0, 1.0) * scale
+}
 
 /// Fast sigmoid, output in `(-1, 1)`.
 ///
@@ -167,6 +176,31 @@ pub enum BrainOutput {
     Dig = 4,
     /// Gates the drop action.
     Drop = 5,
+    /// How strongly to keep going straight, against the turn bias.
+    ///
+    /// **These last three were constants in `creature.rs`, and moving them
+    /// here is the point rather than a tidy-up.** An ablation over the
+    /// authored genome found eight of ten instincts produced *bit-identical*
+    /// behaviour: the brain was riding along while hardcoded locomotion
+    /// policy did the deciding. A genome that cannot change what a creature
+    /// does is a genome selection cannot act on, so evolution would have
+    /// been a random walk on a plateau — and we would not have been able to
+    /// tell that from evolution being broken.
+    ///
+    /// This one was an anonymous `0.15` in the candidate scoring, and it is
+    /// the single number that decides milling versus commuting — the
+    /// behaviour actually failing (median net displacement was 2% of path
+    /// length). It had no business being a literal.
+    Persist = 6,
+    /// P(re-orient | the move roll failed). Was `TUMBLE_ON_FAILED_MOVE`.
+    /// As an output rather than a constant it can be *modulated* — tumble
+    /// more when crowded, less when on a good gradient — which a constant
+    /// cannot express at all.
+    Tumble = 7,
+    /// How strongly a foothold is preferred over open air. Was
+    /// `FOOTING_BONUS`, and at 0.6 against a turn signal capped at 1.0 it
+    /// was swamping the steering it competed with.
+    Caution = 8,
 }
 
 /// One authored connection, as a species file writes it:
@@ -303,9 +337,9 @@ mod tests {
         // The slot-layout law made mechanical: if someone changes a size
         // const without re-deriving the blocks, the genome silently gains
         // or loses a tail and every stored individual is reinterpreted.
-        assert_eq!(IO_END, 96);
-        assert_eq!(IH_END, 160);
-        assert_eq!(HH_END, 164);
+        assert_eq!(IO_END, 144);
+        assert_eq!(IH_END, 208);
+        assert_eq!(HH_END, 212);
         assert_eq!(GENOME_LEN, HH_END + BRAIN_HIDDEN * BRAIN_OUTPUTS);
     }
 
