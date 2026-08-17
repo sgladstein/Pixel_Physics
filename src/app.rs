@@ -1320,6 +1320,7 @@ impl App {
             "",
             "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
             "  CLICK NEAR THE GNOME: HE DIGS (FURTHER AWAY: BRUSH AS EVER)",
+            "  IN WATER: W STROKE UP    S SWIM DOWN",
             "C STRIKE ROCK    H DIG (PRECISE CUT)",
             "F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    J PLANT WORM",

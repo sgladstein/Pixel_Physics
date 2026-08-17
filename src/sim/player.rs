@@ -46,6 +46,13 @@ const DEPENETRATE_REACH: i32 = 4;
 const SPOIL_THROW: i32 = 4;
 const BURIED_THROW: i32 = 16;
 
+/// How far below the feet a falling chunk body still counts as the floor
+/// he is standing on. Matches `rigid`'s per-axis fall clamp of 6, because
+/// that is exactly how far a platform can have moved between the body step
+/// and the player step — any smaller and a fast-falling slab drops out
+/// from under a passenger it should be carrying.
+const PLATFORM_STICK: i32 = 6;
+
 /// Everything about how the character *feels*, live-tunable under the
 /// panel's PLAYER group and persisted to `assets/player.ron`. The same
 /// shape as `explosion::Tuning` and for the same reason: these numbers
@@ -99,6 +106,27 @@ pub struct Tuning {
     /// second: fast enough to feel like digging, slow enough that each
     /// bite's crack/impulse feedback reads individually.
     pub dig_cooldown: u8,
+    /// How many rows of him may be buried in loose powder before it stops
+    /// counting as wading and starts counting as being stuck. 2 of his 6
+    /// rows — about knee-deep — so a drift slows him without swallowing
+    /// him, and a pile deeper than that pushes back.
+    pub wade_rows: u8,
+    /// Horizontal speed multiplier while any powder overlaps him. Slogging
+    /// through a drift should cost something, or wading is only a visual.
+    pub wade_slowdown: f32,
+    /// Vertical acceleration in water, as a multiple of `gravity`.
+    /// Negative: he is lighter than water and rises. -0.3 rises slowly
+    /// enough to read as floating up rather than as a balloon.
+    pub buoyancy: f32,
+    /// Per-tick velocity multiplier in water, both axes. Water should eat
+    /// momentum — this is what stops a dive from carrying him to the
+    /// bottom of a pool and what makes swimming feel unlike running.
+    pub swim_damp: f32,
+    /// Upward velocity one swimming stroke adds (`W`), or downward (`S`).
+    pub stroke_impulse: f32,
+    /// Ticks between strokes. Long enough that swimming reads as a series
+    /// of pulls rather than a thruster.
+    pub stroke_cooldown: u8,
 }
 
 impl Default for Tuning {
@@ -117,6 +145,12 @@ impl Default for Tuning {
             dig_reach: 14,
             dig_radius: 4,
             dig_cooldown: 8,
+            wade_rows: 2,
+            wade_slowdown: 0.4,
+            buoyancy: -0.3,
+            swim_damp: 0.9,
+            stroke_impulse: 0.8,
+            stroke_cooldown: 10,
         }
     }
 }
@@ -187,6 +221,15 @@ pub struct Player {
     /// Ticks until the next dig bite may land. Sim state rather than UI
     /// state, so a replayed input sequence digs on the same ticks.
     dig_cooldown: u8,
+    /// His head is in liquid: swimming rather than falling. Public
+    /// because it is the difference between two entirely different
+    /// control schemes and a harness reporting "he is in the water"
+    /// cannot infer it from position alone.
+    pub swimming: bool,
+    /// Loose powder overlaps him: slowed, and sunk into it.
+    pub wading: bool,
+    /// Ticks until the next swimming stroke may fire.
+    stroke_cooldown: u8,
 }
 
 impl Player {
@@ -203,6 +246,9 @@ impl Player {
             jump_buffer: 0,
             jump_was_held: false,
             dig_cooldown: 0,
+            swimming: false,
+            wading: false,
+            stroke_cooldown: 0,
         }
     }
 
@@ -224,32 +270,125 @@ impl Player {
     }
 }
 
-/// Whether the cell at `(x, y)` stops the character. Powder deliberately
-/// blocks in phase 1: it means the gnome stands *on* sand piles and
-/// climbs them by step-up along the angle of repose, which is
-/// correct-feeling and free — wading and sinking are phase 3. Liquid and
-/// gas pass through (he sinks; swimming is phase 3 too). Raw material
-/// kind rather than `is_empty`, so a managed liquid body's container
-/// cells (materially empty) read as passable space, which is what they
-/// look like.
-fn blocks(world: &World, x: i32, y: i32) -> bool {
-    if !world.in_bounds(x, y) {
-        return true; // OUT_OF_BOUNDS is solid: world-edge walls for free
-    }
-    matches!(
-        world.materials.kind(world.get(x, y).material),
-        MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant | MaterialKind::Creature
-    )
+/// How a single cell treats the character.
+///
+/// The split is what phase 3 is: through phase 2 powder was simply a wall,
+/// which made the gnome walk on top of sand as if it were pavement. Powder
+/// is now `Soft` — it stops him the way a drift does, by being something he
+/// stands *in* up to a point rather than something he stands *on*. Liquid
+/// and gas are free space and always were; buoyancy, not collision, is what
+/// makes water hold him up.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Footing {
+    /// Nothing here: empty, gas, or liquid.
+    Free,
+    /// Loose powder. Passable at the feet (see `WADE_ROWS`), a wall above.
+    Soft,
+    /// Rock, plants, creatures, a chunk body, or the world edge.
+    Hard,
 }
 
-/// Whether the whole `PLAYER_WIDTH` x `PLAYER_HEIGHT` rectangle with
-/// top-left `(x, y)` is free of blocking cells. 18 reads; the sweep calls
-/// this a handful of times per tick, which is noise next to one chunk.
-fn rect_clear(world: &World, x: i32, y: i32) -> bool {
+/// Chunk-body cells near the player this tick, gathered once so the
+/// collision predicate can see them.
+///
+/// M9's own acceptance line asks that he "stands on a tumbling rigid
+/// body", and bodies live off-grid in `world.chunk_bodies` — a grid read
+/// cannot see one, so before this a slab passed straight through him.
+/// Gathered per tick rather than tested per cell on purpose: the predicate
+/// runs ~18 times per position sample and several samples per tick, and
+/// scanning every body's every cell that often would be the one expensive
+/// thing in an otherwise free character. Bodies are few and usually zero,
+/// in which case this allocates nothing and costs one `is_empty` check.
+struct Bodies {
+    /// Cell position and the index of the body it belongs to, sorted by
+    /// position so the predicate binary-searches. Sorted rather than
+    /// hashed because the count is tiny and the order must be stable for
+    /// determinism. The index is what makes *riding* possible as
+    /// distinct from merely colliding: it says which body is underfoot.
+    cells: Vec<((i32, i32), usize)>,
+}
+
+impl Bodies {
+    /// Body cells within `margin` of the rectangle at `(x, y)` — a window
+    /// wide enough to cover this tick's whole sweep, including step-up
+    /// and depenetration.
+    fn near(world: &World, x: i32, y: i32, margin: i32) -> Self {
+        let (lo_x, lo_y) = (x - margin, y - margin);
+        let (hi_x, hi_y) = (x + PLAYER_WIDTH + margin, y + PLAYER_HEIGHT + margin);
+        let mut cells = Vec::new();
+        for (i, body) in world.chunk_bodies.iter().enumerate() {
+            for cell in &body.cells {
+                let (cx, cy) = body.cell_position(cell);
+                if cx >= lo_x && cx <= hi_x && cy >= lo_y && cy <= hi_y {
+                    cells.push(((cx, cy), i));
+                }
+            }
+        }
+        cells.sort_unstable();
+        Self { cells }
+    }
+
+    fn none() -> Self {
+        Self { cells: Vec::new() }
+    }
+
+    /// Which body occupies `(x, y)`, if any.
+    fn at(&self, x: i32, y: i32) -> Option<usize> {
+        if self.cells.is_empty() {
+            return None;
+        }
+        self.cells
+            .binary_search_by_key(&(x, y), |&(pos, _)| pos)
+            .ok()
+            .map(|i| self.cells[i].1)
+    }
+
+    fn holds(&self, x: i32, y: i32) -> bool {
+        self.at(x, y).is_some()
+    }
+}
+
+/// What the cell at `(x, y)` is, to the character. Raw material kind
+/// rather than `is_empty`, so a managed liquid body's container cells
+/// (materially empty) read as the water they look like.
+fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
+    if !world.in_bounds(x, y) {
+        return Footing::Hard; // OUT_OF_BOUNDS is solid: world-edge walls for free
+    }
+    if bodies.holds(x, y) {
+        return Footing::Hard;
+    }
+    match world.materials.kind(world.get(x, y).material) {
+        MaterialKind::Solid | MaterialKind::Plant | MaterialKind::Creature => Footing::Hard,
+        MaterialKind::Powder => Footing::Soft,
+        _ => Footing::Free,
+    }
+}
+
+/// Anything at all here, wadeable or not — the predicate for aiming a
+/// dig, where sand is every bit as much a face to cut as rock is.
+fn blocks_dig(world: &World, x: i32, y: i32) -> bool {
+    footing(world, &Bodies::none(), x, y) != Footing::Free
+}
+
+/// Whether the rectangle with top-left `(x, y)` is somewhere the gnome may
+/// stand: no hard blocker anywhere in it, and loose powder only in the
+/// bottom `wade` rows.
+///
+/// That second clause is the wade. Allowing powder at the feet and not at
+/// the chest is what makes him sink into a drift to about the knee and
+/// stop, rather than either walking on its surface (phase 1and2) or sinking
+/// through it as if it were air. It is also, deliberately, the same
+/// predicate `depenetrate` uses, so sand arriving around his boots is not
+/// treated as an invasion needing a shove — only sand up to his chest is.
+fn rect_free(world: &World, bodies: &Bodies, x: i32, y: i32, wade: i32) -> bool {
+    let chest = PLAYER_HEIGHT - wade;
     for dy in 0..PLAYER_HEIGHT {
         for dx in 0..PLAYER_WIDTH {
-            if blocks(world, x + dx, y + dy) {
-                return false;
+            match footing(world, bodies, x + dx, y + dy) {
+                Footing::Hard => return false,
+                Footing::Soft if dy < chest => return false,
+                _ => {}
             }
         }
     }
@@ -262,13 +401,20 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     let Some(mut p) = world.player.take() else {
         return;
     };
+    let wade = tuning.wade_rows as i32;
+    // Body cells near him, once. The margin covers this tick's whole
+    // sweep — the furthest he can travel plus the depenetration reach —
+    // so the window is gathered before he moves and is still valid after.
+    let (xi, yi) = p.rect_origin();
+    let reach = tuning.fall_clamp.max(tuning.run_max).ceil() as i32 + DEPENETRATE_REACH + 1;
+    let bodies = Bodies::near(world, xi, yi, reach);
 
     // Free an invaded rectangle first, so this tick's movement starts
     // from a legal position: sand that fell into us, a body that settled
     // on us. Shortest clear push wins; up is tried first at each distance
     // because material arrives from above, and "on top of the pile" is
     // the right place to end up.
-    depenetrate(world, &mut p);
+    depenetrate(world, &bodies, &mut p, wade);
 
     if p.buried {
         // Entombed: no movement, no jump, velocities dead. Coyote and the
@@ -279,11 +425,28 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         p.coyote = p.coyote.saturating_sub(1);
         p.jump_buffer = p.jump_buffer.saturating_sub(1);
         p.dig_cooldown = p.dig_cooldown.saturating_sub(1);
+        p.stroke_cooldown = p.stroke_cooldown.saturating_sub(1);
         p.jump_was_held = input.jump_held;
         world.player = Some(p);
         return;
     }
     p.dig_cooldown = p.dig_cooldown.saturating_sub(1);
+    p.stroke_cooldown = p.stroke_cooldown.saturating_sub(1);
+
+    // Which medium he is in, decided before anything reads it.
+    //
+    // Swimming keys off the *head* row rather than any overlap, and that
+    // is the whole reason a surface exists to swim at: standing chest-deep
+    // in a pool with his head in air, he still walks and jumps normally,
+    // and it is only going under that hands control to the strokes. Wading
+    // keys off any overlap at all, because powder round the boots should
+    // already be slowing him.
+    let (xi, yi) = p.rect_origin();
+    p.swimming = (0..PLAYER_WIDTH)
+        .any(|dx| world.in_bounds(xi + dx, yi) && world.materials.kind(world.get(xi + dx, yi).material) == MaterialKind::Liquid);
+    p.wading = !p.swimming
+        && (0..PLAYER_HEIGHT)
+            .any(|dy| (0..PLAYER_WIDTH).any(|dx| footing(world, &bodies, xi + dx, yi + dy) == Footing::Soft));
 
     // --- intent to velocity ---
     let accel = if p.grounded { tuning.run_accel } else { tuning.run_accel * tuning.air_control };
@@ -298,7 +461,8 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         }
         _ => {}
     }
-    p.vx = p.vx.clamp(-tuning.run_max, tuning.run_max);
+    let top_speed = if p.wading { tuning.run_max * tuning.wade_slowdown } else { tuning.run_max };
+    p.vx = p.vx.clamp(-top_speed, top_speed);
 
     if input.jump_pressed {
         p.jump_buffer = tuning.jump_buffer_frames;
@@ -310,19 +474,49 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     } else {
         p.coyote = p.coyote.saturating_sub(1);
     }
-    if p.jump_buffer > 0 && p.coyote > 0 {
+    if p.swimming {
+        // Coyote is kept alive the whole time he is under.
+        //
+        // This is what gets him *out* of a pool rather than bobbing at its
+        // edge forever: buoyancy lifts him until his head clears, at which
+        // point `swimming` goes false with him still airborne and nothing
+        // grounded — without this, the jump he presses at the surface has
+        // nothing to fire against. With it, breaking the surface leaves a
+        // few frames in which `W` is a real jump, and he hops onto the
+        // bank. The same window makes a stroke-and-vault out of a flooded
+        // tunnel work.
+        p.coyote = tuning.coyote_frames;
+    }
+    if p.jump_buffer > 0 && p.coyote > 0 && !p.swimming {
         p.vy = -tuning.jump_impulse;
         p.jump_buffer = 0;
         p.coyote = 0;
     }
     // Variable height: releasing the key on the way up halves the rise,
     // once, on the release edge.
-    if p.jump_was_held && !input.jump_held && p.vy < 0.0 {
+    if p.jump_was_held && !input.jump_held && p.vy < 0.0 && !p.swimming {
         p.vy *= 0.5;
     }
     p.jump_was_held = input.jump_held;
 
-    p.vy = (p.vy + tuning.gravity).min(tuning.fall_clamp);
+    if p.swimming {
+        // Strokes, not thrust: `W` pulls up and `S` pulls down, each on
+        // the same cooldown, so holding a key gives a rhythm of pulls
+        // with a drift between them rather than a smooth ascent. Buoyancy
+        // does the rest, and damping is what makes water feel like water
+        // — a dive loses its speed instead of carrying him to the bottom.
+        if p.stroke_cooldown == 0 && (input.jump_held || input.down) {
+            let pull = if input.down { tuning.stroke_impulse } else { -tuning.stroke_impulse };
+            p.vy += pull;
+            p.stroke_cooldown = tuning.stroke_cooldown;
+        }
+        p.vy += tuning.gravity * tuning.buoyancy;
+        p.vx *= tuning.swim_damp;
+        p.vy *= tuning.swim_damp;
+        p.jump_buffer = 0;
+    } else {
+        p.vy = (p.vy + tuning.gravity).min(tuning.fall_clamp);
+    }
 
     // --- the sweep: substepped at <= 1 cell, X (with step-up) then Y ---
     // Same anti-tunnelling shape as `rigid::advance` and for the same
@@ -334,7 +528,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         if step_x != 0.0 {
             let next_x = p.x + step_x;
             let (nxi, nyi) = (next_x.round() as i32, p.y.round() as i32);
-            if rect_clear(world, nxi, nyi) {
+            if rect_free(world, &bodies, nxi, nyi, wade) {
                 p.x = next_x;
             } else {
                 // Step-up: try the same horizontal move lifted by up to
@@ -343,7 +537,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
                 let mut climbed = false;
                 if p.grounded {
                     for lift in 1..=tuning.step_up as i32 {
-                        if rect_clear(world, nxi, nyi - lift) {
+                        if rect_free(world, &bodies, nxi, nyi - lift, wade) {
                             p.x = next_x;
                             p.y -= lift as f32;
                             climbed = true;
@@ -359,7 +553,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         if step_y != 0.0 {
             let next_y = p.y + step_y;
             let (nxi, nyi) = (p.x.round() as i32, next_y.round() as i32);
-            if rect_clear(world, nxi, nyi) {
+            if rect_free(world, &bodies, nxi, nyi, wade) {
                 p.y = next_y;
             } else {
                 // Landing or head bonk: the vertical axis dies, the
@@ -370,9 +564,70 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         }
     }
 
-    // Grounded: any blocker in the row directly under the feet.
+    // Grounded: anything at all in the row directly under the feet —
+    // rock, a chunk body, or packed powder. `Soft` counts here even
+    // though it does not count in `rect_free`, and the asymmetry is the
+    // wade: sand is something he stands on *and* sinks into, so it must
+    // both let him in and hold him up. A body counts because M9 asks him
+    // to stand on a tumbling one, and `bodies` is why that can be seen.
     let (xi, yi) = p.rect_origin();
-    p.grounded = (0..PLAYER_WIDTH).any(|dx| blocks(world, xi + dx, yi + PLAYER_HEIGHT));
+    p.grounded = !p.swimming
+        && (0..PLAYER_WIDTH).any(|dx| footing(world, &bodies, xi + dx, yi + PLAYER_HEIGHT) != Footing::Free);
+
+    // Riding a body, which needs two rules rather than the one the plan
+    // expected. Both are recorded because both were found by measurement.
+    //
+    // 1. **Seeing the body is not enough.** A falling body clamps at
+    //    `rigid`'s 6.0 per axis and the gnome clamps at 4.0, so every
+    //    platform he stood on outran him: `scene=ride` had him airborne
+    //    for the whole descent, falling *alongside* the slab he was meant
+    //    to be standing on. He adopts the body's downward speed when it
+    //    exceeds his own, and its horizontal drift always. Adopted, never
+    //    added — this is a floor moving under him, not a push.
+    //
+    // 2. **The contact is already broken by the time he is stepped.**
+    //    `step_chunk_bodies` runs before this, so a body that was under
+    //    his feet at the top of the frame has *already* descended up to
+    //    its own clamp, and the grounded probe finds empty air where the
+    //    platform was. Probing a window as deep as that clamp, and
+    //    settling him back onto the body when he finds it there, is what
+    //    keeps a ride continuous instead of a fall punctuated by
+    //    landings. The snap is a cell-scale correction of the kind
+    //    `depenetrate` already makes, and only ever downward onto a
+    //    surface that is genuinely there.
+    let mut carrier = if p.grounded {
+        (0..PLAYER_WIDTH).find_map(|dx| bodies.at(xi + dx, yi + PLAYER_HEIGHT))
+    } else {
+        None
+    };
+    if carrier.is_none() && !p.swimming && !p.grounded && p.vy >= 0.0 {
+        for drop in 1..=PLATFORM_STICK {
+            let row = yi + PLAYER_HEIGHT + drop;
+            let Some(i) = (0..PLAYER_WIDTH).find_map(|dx| bodies.at(xi + dx, row)) else {
+                continue;
+            };
+            // Any body that is not itself rising, rather than only one
+            // already outrunning him. Requiring it to be *faster* than
+            // him missed the moment that matters: when a shelf first
+            // gives way, it and its passenger both start from rest, so
+            // neither is faster, and by the time the slab had pulled
+            // ahead it was already further than this window reaches. He
+            // then spent the whole collapse in free fall beside it.
+            let catchable = world.chunk_bodies.get(i).is_some_and(|b| b.vy >= 0.0);
+            if catchable && rect_free(world, &bodies, xi, row - PLAYER_HEIGHT, wade) {
+                p.y = (row - PLAYER_HEIGHT) as f32;
+                p.grounded = true;
+                carrier = Some(i);
+            }
+            break; // the first body below is the one he is riding, or none is
+        }
+    }
+    if let Some(body) = carrier.and_then(|i| world.chunk_bodies.get(i)) {
+        if body.vy > p.vy {
+            p.vy = body.vy;
+        }
+        p.x += body.vx;
+    }
 
     world.player = Some(p);
 }
@@ -500,7 +755,7 @@ fn face_toward(world: &World, from: (i32, i32), aim: (i32, i32), reach: i32) -> 
     for i in 1..=steps {
         let t = (i as f32).min(limit);
         let cell = (from.0 + (sx * t).round() as i32, from.1 + (sy * t).round() as i32);
-        if blocks(world, cell.0, cell.1) {
+        if blocks_dig(world, cell.0, cell.1) {
             return cell;
         }
         last = cell;
@@ -552,24 +807,54 @@ fn displace_disc(world: &mut World, p: &Player, cx: i32, cy: i32, radius: i32, s
                     continue;
                 }
                 'rings: for ring in (radius + 1).max(1)..=search {
+                    // Spoil only ever lands somewhere it can rest.
+                    //
+                    // Nearest-empty alone put *bars and L-shapes of sand
+                    // hanging in open sky* above a gnome digging out of a
+                    // pile: the ring walk lays cells along a perimeter,
+                    // and when the whole perimeter is airborne the result
+                    // is a one-cell-thick line drawn in mid-air, tracing
+                    // the ring itself. It falls on the next CA tick, so
+                    // it lives for a frame — and a frame is enough to
+                    // read as fake, which is the standard this project
+                    // holds itself to.
+                    //
+                    // Requiring something underneath is also the more
+                    // honest rule: a digger throws spoil onto a heap, not
+                    // into the air. Material with nowhere resting to go
+                    // simply stays in the bore, the same conservative
+                    // answer this function already gives for a sealed
+                    // pocket.
                     for (rx, ry) in ring_offsets(ring) {
                         let (nx, ny) = (cx + rx, cy + ry);
                         if inside_player(p, nx, ny) {
                             continue; // not back into the gnome
                         }
-                        if world.in_bounds(nx, ny) && world.is_empty(nx, ny) {
-                            let moving = world.get(x, y);
-                            world.set(nx, ny, moving);
-                            world.set(x, y, super::cell::Cell::EMPTY);
-                            moved += 1;
-                            break 'rings;
+                        if !world.in_bounds(nx, ny) || !world.is_empty(nx, ny) {
+                            continue;
                         }
+                        if footing(world, &Bodies::none(), nx, ny + 1) == Footing::Free {
+                            continue; // nothing under it: that is a floating cell
+                        }
+                        move_cell(world, (x, y), (nx, ny));
+                        moved += 1;
+                        break 'rings;
                     }
                 }
             }
         }
     }
     moved
+}
+
+/// Move one cell wholesale, preserving everything it carries — `aux`
+/// (liquid fill), shade, temperature. Written as a helper because getting
+/// this wrong in one of two copies is how a dig starts manufacturing full
+/// water cells out of near-empty ones.
+fn move_cell(world: &mut World, from: (i32, i32), to: (i32, i32)) {
+    let moving = world.get(from.0, from.1);
+    world.set(to.0, to.1, moving);
+    world.set(from.0, from.1, super::cell::Cell::EMPTY);
 }
 
 /// The cells exactly `ring` away in Chebyshev distance, top row first,
@@ -599,15 +884,15 @@ fn inside_player(p: &Player, x: i32, y: i32) -> bool {
 /// each distance (see `step`'s call-site comment), then sideways, then
 /// down — down last because being squeezed downward through a floor gap
 /// is the least expected outcome of being landed on.
-fn depenetrate(world: &World, p: &mut Player) {
+fn depenetrate(world: &World, bodies: &Bodies, p: &mut Player, wade: i32) {
     let (xi, yi) = p.rect_origin();
-    if rect_clear(world, xi, yi) {
+    if rect_free(world, bodies, xi, yi, wade) {
         p.buried = false;
         return;
     }
     for d in 1..=DEPENETRATE_REACH {
         for (dx, dy) in [(0, -d), (-d, 0), (d, 0), (0, d)] {
-            if rect_clear(world, xi + dx, yi + dy) {
+            if rect_free(world, bodies, xi + dx, yi + dy, wade) {
                 p.x += dx as f32;
                 p.y += dy as f32;
                 p.buried = false;
@@ -767,7 +1052,7 @@ mod tests {
         let p = world.player.as_ref().unwrap();
         assert!(!p.buried, "one intruding cell should be escapable");
         let (nx, ny) = p.rect_origin();
-        assert!(rect_clear(&world, nx, ny), "the rect should be clear after depenetration");
+        assert!(rect_free(&world, &Bodies::none(), nx, ny, Tuning::default().wade_rows as i32), "the rect should be clear after depenetration");
 
         // Entomb him completely: buried, and motionless.
         let (xi, yi) = world.player.as_ref().unwrap().rect_origin();
@@ -912,23 +1197,244 @@ mod tests {
     }
 
     #[test]
-    fn spoil_never_lands_inside_the_gnome() {
+    fn a_dig_never_buries_the_digger() {
         let mut world = world_with_cliff();
         world.player = Some(Player::at(66, 84));
         let tuning = Tuning::default();
-        for _ in 0..40 {
-            dig(&mut world, (74, 84), &tuning);
-            let p = world.player.as_ref().unwrap();
-            let (x0, y0, x1, y1) = p.bounds();
-            for y in y0..=y1 {
-                for x in x0..=x1 {
-                    assert!(
-                        world.get(x, y).material == material::EMPTY,
-                        "spoil was shoved into the gnome's own rectangle at ({x}, {y})"
-                    );
-                }
+        let wade = tuning.wade_rows as i32;
+        for i in 0..40 {
+            // Legal *before* the bite, so the assertion after it is about
+            // the bite and not about where he had already walked.
+            let (bx, by) = world.player.as_ref().unwrap().rect_origin();
+            if !rect_free(&world, &Bodies::none(), bx, by, wade) {
+                continue;
             }
+            dig(&mut world, (74, 84), &tuning);
+            let (ax, ay) = world.player.as_ref().unwrap().rect_origin();
+            assert!(
+                rect_free(&world, &Bodies::none(), ax, ay, wade),
+                "bite {i} shoved spoil into a position the gnome was standing in"
+            );
             tick(&mut world, PlayerInput::default());
+        }
+    }
+
+    /// A pool of water in a stone basin, surface at `surface_y`.
+    fn world_with_pool(surface_y: i32) -> World {
+        let mut world = world_with_floor();
+        for y in surface_y..88 {
+            for x in 40..90 {
+                world.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        world
+    }
+
+    #[test]
+    fn he_sinks_into_a_deep_drift_but_only_to_the_knee() {
+        let mut world = world_with_floor();
+        // A deep, flat bed of sand — not a pile, so there is no slope for
+        // step-up to climb and the only question is how far in he goes.
+        for y in 70..88 {
+            for x in 0..=127 {
+                world.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+        world.player = Some(Player::at(64, 40));
+        for _ in 0..200 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let p = world.player.as_ref().unwrap();
+        let (_, _, _, feet) = p.bounds();
+        let wade = Tuning::default().wade_rows as i32;
+        // The surface is y=70, so resting *on* it puts his feet at 69.
+        // Wading `wade` rows sinks him exactly that far in, and no
+        // further — the point of the rule is that a drift has a bottom.
+        assert_eq!(feet, 69 + wade, "expected to sink {wade} rows into the bed, feet at {feet}");
+        assert!(p.wading, "standing in sand should read as wading");
+        assert!(p.grounded, "sand still holds him up");
+        assert!(!p.buried, "knee-deep is not buried");
+    }
+
+    #[test]
+    fn wading_is_slower_than_running_on_rock() {
+        let mut world = world_with_floor();
+        world.player = Some(Player::at(10, 84));
+        for _ in 0..90 {
+            tick(&mut world, PlayerInput { right: true, ..Default::default() });
+        }
+        let on_rock = world.player.as_ref().unwrap().x - 10.0;
+
+        let mut world = world_with_floor();
+        for y in 84..88 {
+            for x in 0..=127 {
+                world.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+        world.player = Some(Player::at(10, 80));
+        for _ in 0..90 {
+            tick(&mut world, PlayerInput { right: true, ..Default::default() });
+        }
+        let through_sand = world.player.as_ref().unwrap().x - 10.0;
+        assert!(
+            through_sand < on_rock * 0.75,
+            "wading ({through_sand:.1}) should cost real speed against running ({on_rock:.1})"
+        );
+        assert!(through_sand > 0.0, "but he should still be able to move");
+    }
+
+    #[test]
+    fn he_floats_up_to_the_surface_rather_than_sinking() {
+        let mut world = world_with_pool(60);
+        // Dropped in from above, so he arrives with real downward speed
+        // and the damping has something to eat.
+        world.player = Some(Player::at(64, 30));
+        let mut deepest = 0.0f32;
+        for _ in 0..400 {
+            tick(&mut world, PlayerInput::default());
+            deepest = deepest.max(world.player.as_ref().unwrap().y);
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(deepest > 60.0, "he should actually get into the water, deepest {deepest:.1}");
+        assert!(
+            p.y < deepest - 3.0,
+            "buoyancy should carry him back up: sank to {deepest:.1}, resting at {:.1}",
+            p.y
+        );
+        // At rest he floats with his head at the surface, not on the
+        // bottom of an 88-deep basin.
+        assert!(p.y < 66.0, "expected to settle near the surface, at y={:.1}", p.y);
+    }
+
+    #[test]
+    fn strokes_drive_him_down_and_the_cooldown_paces_them() {
+        let mut world = world_with_pool(60);
+        world.player = Some(Player::at(64, 62));
+        for _ in 0..30 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let floating = world.player.as_ref().unwrap().y;
+        for _ in 0..120 {
+            tick(&mut world, PlayerInput { down: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.swimming, "still in the pool");
+        assert!(p.y > floating + 4.0, "holding S should pull him under: {floating:.1} -> {:.1}", p.y);
+    }
+
+    #[test]
+    fn breaking_the_surface_leaves_a_window_to_jump_out() {
+        let mut world = world_with_pool(60);
+        world.player = Some(Player::at(64, 62));
+        for _ in 0..60 {
+            tick(&mut world, PlayerInput::default());
+        }
+        // Floating at the surface: a jump press must fire a real jump,
+        // which is what the swimming coyote refresh exists for.
+        //
+        // Measured at the *apex*, not at the end of the run. The first
+        // version of this read his position 40 ticks later and failed on
+        // a gnome who had jumped clear, arced, and splashed back in —
+        // which is the behaviour it exists to check, reported as its
+        // absence.
+        let before = world.player.as_ref().unwrap().y;
+        let mut apex = before;
+        for _ in 0..40 {
+            tick(&mut world, PlayerInput { jump_pressed: true, jump_held: true, ..Default::default() });
+            apex = apex.min(world.player.as_ref().unwrap().y);
+        }
+        assert!(
+            apex < before - 6.0,
+            "expected a real jump out of the water, not a stroke: {before:.1} -> apex {apex:.1}"
+        );
+    }
+
+    #[test]
+    fn a_chunk_body_is_something_he_can_stand_on() {
+        use crate::sim::rigid::{BodyCell, ChunkBody};
+        let mut world = world_with_floor();
+        // A slab hanging in mid-air as a body, well above the floor.
+        let mut cells = Vec::new();
+        for dx in 0..24 {
+            for dy in 0..3 {
+                cells.push(BodyCell { dx, dy, material: material::STONE, shade: 0 });
+            }
+        }
+        world.chunk_bodies.push(ChunkBody::at(cells, 50.0, 60.0));
+        world.player = Some(Player::at(60, 40));
+        for _ in 0..120 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let p = world.player.as_ref().unwrap();
+        let (_, _, _, feet) = p.bounds();
+        assert!(p.grounded, "he should have landed on the slab, not fallen through it");
+        assert!(
+            feet < 62,
+            "expected to be standing on the slab's top at y=60, feet at {feet} (the floor is at 88)"
+        );
+    }
+
+    #[test]
+    fn he_rides_a_falling_slab_down_instead_of_being_left_behind() {
+        use crate::sim::rigid::{self, BodyCell, ChunkBody};
+        let mut world = World::new(Rect::new(0, 0, 127, 255));
+        for y in 248..=255 {
+            for x in 0..=127 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        let mut cells = Vec::new();
+        for dx in 0..24 {
+            for dy in 0..3 {
+                cells.push(BodyCell { dx, dy, material: material::STONE, shade: 0 });
+            }
+        }
+        // Already at `rigid`'s fall clamp of 6 — faster than the gnome's
+        // own 4, which is the case that used to leave him behind. Placed
+        // in *contact*: his feet at 38, the slab's top at 39. That is
+        // what `PLATFORM_STICK` is sized for — one body step opens a gap
+        // of exactly the clamp, and no more. A passenger who starts a
+        // cell clear of a slab already at full speed is not catching it,
+        // and should not.
+        world.chunk_bodies.push(ChunkBody::falling(cells, 50.0, 39.0, 6.0));
+        world.player = Some(Player::at(60, 36));
+
+        // Twelve ticks, not the whole descent, and the bound is physical
+        // rather than chosen: bodies *tumble*. `spin` accumulates over a
+        // fall and this slab tips onto its end partway down, at which
+        // point a 24-wide platform becomes 3 wide and genuinely is no
+        // longer under him. Being thrown off a slab that rolls is right,
+        // so the assertion covers the stretch before it rolls.
+        let tuning = Tuning::default();
+        let start_y = world.player.as_ref().unwrap().y;
+        let mut grounded_ticks = 0;
+        for _ in 0..12 {
+            // Both, in `App::update`'s order: bodies move, then he does.
+            // The order is the whole difficulty — see `step`'s comment.
+            rigid::step_chunk_bodies(&mut world);
+            step(&mut world, PlayerInput::default(), &tuning);
+            if world.player.as_ref().unwrap().grounded {
+                grounded_ticks += 1;
+            }
+        }
+        let p = world.player.as_ref().unwrap();
+        assert_eq!(grounded_ticks, 12, "he should be standing on the slab throughout the flat part of the ride");
+        // The load-bearing measurement: he descended further than falling
+        // could possibly have carried him. His own terminal speed is
+        // `fall_clamp` (4/tick, so 48 in twelve ticks) and the slab's is
+        // `rigid`'s 6, so anything past 48 can only be the platform
+        // carrying him. This is what fails if the carry is removed and
+        // the collision check left in.
+        let fell = p.y - start_y;
+        let own_terminal = tuning.fall_clamp * 12.0;
+        assert!(
+            fell > own_terminal + 8.0,
+            "expected to be carried past his own terminal fall ({own_terminal}), descended only {fell:.0}"
+        );
+        // And standing on *it*, not the floor far below.
+        if let Some(top) = world.chunk_bodies.first().map(|b| b.y.round() as i32) {
+            let (_, _, _, feet) = p.bounds();
+            assert!((feet - top).abs() <= 2, "expected his feet at the slab top {top}, found {feet}");
         }
     }
 

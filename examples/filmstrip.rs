@@ -264,6 +264,63 @@ fn build(args: &Args) -> World {
             }
             w.player = Some(pixel_physics::sim::player::Player::at(256, floor_y - 4));
         }
+        // M9 phase 3: water. He is dropped into a walled pool from a
+        // height and the script runs the three things swimming has to get
+        // right in order -- he sinks under his own momentum, floats back
+        // up rather than walking the bottom, is pulled under again by
+        // held `S`, and finally jumps clear of the surface. The last of
+        // those is the one that needed a mechanism of its own (the coyote
+        // window while submerged); the rest is buoyancy and damping.
+        "swim" => {
+            stone_floor(&mut w);
+            for y in 150..floor_y {
+                for x in 180..190 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+                for x in 330..340 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for x in 190..330 {
+                for y in 190..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            w.player = Some(pixel_physics::sim::player::Player::at(260, 120));
+        }
+        // M9's other acceptance line: "stands on a tumbling rigid body".
+        // The `undercut` recipe with a passenger -- a shelf cut off its
+        // support, which the structural pass promotes to a chunk body and
+        // drops. He is standing on it when it goes. Bodies live off-grid,
+        // so before phase 3 a grid read could not see one and the shelf
+        // fell straight through him; what this sheet is read for is
+        // whether he rides it down and is still on top when it lands.
+        "ride" => {
+            stone_floor(&mut w);
+            for y in 120..260 {
+                for x in 0..90 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // A *short* shelf. The full 120-cell `undercut` span shatters
+            // into twenty-odd bodies the moment it goes, which is correct
+            // for that scene (it exists to show a big collapse) and
+            // useless for this one: there is no raft to ride, only debris
+            // to fall through. Sized down until it promotes as a couple
+            // of coherent pieces.
+            for y in 150..158 {
+                for x in 90..186 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+            for x in 92..184 {
+                for y in 155..158 {
+                    w.paint_capsule((x, y), (x, y), 0, material::EMPTY, 1.0);
+                }
+            }
+            w.player = Some(pixel_physics::sim::player::Player::at(150, 143));
+        }
         "worldcrack" => {
             let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
             if let Some(e) = err {
@@ -589,7 +646,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride"
         ),
     }
     w
@@ -866,6 +923,11 @@ enum Script {
     Tunnel,
     /// `scene=bury`: stand still until the sand lands, then dig out.
     Bury,
+    /// `scene=swim`: sink, float, pull under with `S`, then jump clear.
+    Swim,
+    /// `scene=ride`: no input at all — the shelf under him gives way and
+    /// the only question is whether he goes with it.
+    Ride,
 }
 
 impl Gnome {
@@ -873,6 +935,8 @@ impl Gnome {
         let script = match scene {
             "tunnel" => Script::Tunnel,
             "bury" => Script::Bury,
+            "swim" => Script::Swim,
+            "ride" => Script::Ride,
             _ => Script::Course,
         };
         Self { script, ..Default::default() }
@@ -899,11 +963,21 @@ impl Gnome {
             // against rock, which is itself worth seeing on the sheet.
             Script::Tunnel => PlayerInput { right: true, ..Default::default() },
             Script::Bury => PlayerInput::default(),
+            // Three acts, on a fixed clock so two sheets compare: fall in
+            // and float (to 150), pull under (to 260), then stroke up and
+            // jump out.
+            Script::Swim => PlayerInput {
+                down: (150..260).contains(&step_no),
+                jump_held: step_no >= 260,
+                jump_pressed: step_no >= 260,
+                ..Default::default()
+            },
+            Script::Ride => PlayerInput::default(),
         };
         // Aim: straight ahead at his own height for the tunnel, and
         // anywhere at all while buried, since a buried bite auto-aims.
         let digging = match self.script {
-            Script::Course => false,
+            Script::Course | Script::Swim | Script::Ride => false,
             Script::Tunnel => true,
             Script::Bury => step_no > 90,
         };
@@ -932,7 +1006,17 @@ impl Gnome {
             "    gnome: at ({:.0}, {:.0}), {}, bites {} ({} cells displaced)",
             p.x,
             p.y,
-            if p.buried { "BURIED" } else { "free" },
+            if p.buried {
+                "BURIED"
+            } else if p.swimming {
+                "swimming"
+            } else if p.wading {
+                "wading"
+            } else if p.grounded {
+                "grounded"
+            } else {
+                "airborne"
+            },
             self.bites,
             self.displaced
         );

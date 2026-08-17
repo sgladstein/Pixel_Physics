@@ -30,7 +30,7 @@ cargo test
 | `T` | Plant a tree seed under the brush (M16 debug tool) |
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `J` | Plant a worm under the brush (M18 debug tool; was `W` before the gnome claimed WASD) |
-| `U` | Summon the gnome at the cursor, or dismiss him (M9). While he exists: `A`/`D` run, `W` jump (tap for a hop, hold for full height), and left-click *near him* digs instead of painting — the near face along the aim, on his own cooldown, spoil shoved clear rather than deleted. Beyond his reach the brush paints as ever. All feel numbers tunable under `O` -> PLAYER |
+| `U` | Summon the gnome at the cursor, or dismiss him (M9). While he exists: `A`/`D` run, `W` jump (tap for a hop, hold for full height), and left-click *near him* digs instead of painting — the near face along the aim, on his own cooldown, spoil shoved clear rather than deleted. Beyond his reach the brush paints as ever. He wades knee-deep in powder, swims in liquid (`W` strokes up, `S` down, and breaking the surface leaves a window to jump out), and rides a falling chunk body rather than being left behind by it. All feel numbers tunable under `O` -> PLAYER |
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
 | `N` | Toggle the structural stress view — every load-bearing cell tinted green at rest through red at its limit |
 | `H` | Dig — a precise cut that loosens and cracks the rock around it, unlike the eraser (was `D`, which now runs the gnome right) |

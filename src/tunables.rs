@@ -245,6 +245,15 @@ pub fn from_player(t: &Player) -> Vec<Tunable> {
         Tunable::integer(g, c, "dig_reach", t.dig_reach as f32, 2.0, 40.0, 1.0),
         Tunable::integer(g, c, "dig_radius", t.dig_radius as f32, 1.0, 12.0, 1.0),
         Tunable::integer(g, c, "dig_cooldown", t.dig_cooldown as f32, 1.0, 30.0, 1.0),
+        Tunable::integer(g, c, "wade_rows", t.wade_rows as f32, 0.0, 5.0, 1.0),
+        Tunable::float(g, c, "wade_slowdown", t.wade_slowdown, 0.1, 1.0, 0.05),
+        // Negative is the useful half of this range: he floats. Positive
+        // values are left reachable on purpose so the panel can answer
+        // "what if he sank" without a rebuild.
+        Tunable::float(g, c, "buoyancy", t.buoyancy, -1.0, 0.5, 0.05),
+        Tunable::float(g, c, "swim_damp", t.swim_damp, 0.5, 1.0, 0.01),
+        Tunable::float(g, c, "stroke_impulse", t.stroke_impulse, 0.1, 2.5, 0.05),
+        Tunable::integer(g, c, "stroke_cooldown", t.stroke_cooldown as f32, 1.0, 40.0, 1.0),
     ]
 }
 
@@ -268,6 +277,12 @@ pub fn apply_player(t: &mut Player, name: &str, value: f32) {
         // not "fast digging" but a bore that opens faster than the eye
         // can read and a frame cost 8x what was measured.
         "dig_cooldown" => t.dig_cooldown = value.max(1.0).round() as u8,
+        "wade_rows" => t.wade_rows = value.max(0.0).round() as u8,
+        "wade_slowdown" => t.wade_slowdown = value,
+        "buoyancy" => t.buoyancy = value,
+        "swim_damp" => t.swim_damp = value,
+        "stroke_impulse" => t.stroke_impulse = value,
+        "stroke_cooldown" => t.stroke_cooldown = value.max(1.0).round() as u8,
         _ => {}
     }
 }
