@@ -64,6 +64,11 @@ pub enum Purpose {
     Life = 11,
     /// Dithered material transitions.
     Dither = 12,
+    /// Regional layout: where the places of a world are and what kind they
+    /// are.
+    Region = 13,
+    /// Dune crests in arid country.
+    Dune = 14,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

@@ -19,15 +19,34 @@ three keys for moving between worlds:
 **R** rebuilds the world you are already in, discarding anything you have
 done to it.
 
+## A world is several places
+
+A world is not one kind of country with the numbers turned up or down. It is
+cut into **two to five regions** along its width, and each one is its own
+place: its own height, its own ruggedness, its own dryness, its own depth of
+loose cover, its own tendency to break into benches. Crossing a world means
+crossing from one into another — a dry sandy flat rising to a benched
+escarpment, falling into a wooded basin with a lake in it.
+
+The change happens over a stretch rather than at a line, so regions meet at
+**escarpments**: a band of steep, bare ground between two areas of gentler
+country. That is why the flat parts carry deep soil and the steep parts are
+bare rock — cover only stays where the ground is gentle enough to hold it.
+
+**Dryness** is the axis you will notice most. A dry region carries sand
+instead of soil, shapes itself into dunes, has its water table far below the
+surface, and grows very little; a wet one is deep-soiled, green, and likely to
+hold standing water. Both can occur in the same world.
+
+Every world is laid out differently. What is guaranteed is not a particular
+shape but a particular amount of *relief*: the regions of a world always
+differ enough in height to give you high ground and low ground. Where they
+are, and what kind of places they turn out to be, is the seed's business.
+
 ## What a world is made of
 
-Looking at a world from the side, it is a cross-section — you are seeing the
-ground the way a cut bank or a quarry face shows it, not the way a map does.
-
-**The surface** always has real shape to it. Every world contains at least one
-substantial ridge and one valley, rather than a flat line with bumps, so there
-is always high ground and low ground within reach. On top of that sit smaller
-hills, and finer roughness over those.
+**The surface** always has real shape to it: the regional layout sets the big
+form, smaller hills sit on top of that, and finer roughness on top of those.
 
 **Bluffs and benches** appear in patches: flat steps cut into a hillside with
 steeper faces between them. They are not scattered arbitrarily — they follow
@@ -109,10 +128,6 @@ How much life a world starts with is a preset property. **Wetland** is
 thickest, **arid** has none at all, and **flat** — the structural test bed —
 is deliberately empty so that nothing is standing on it.
 
-Trees currently grow as thin stems rather than filling out into trunks. That
-is a known limit of how plants grow, not of where they were planted, and it
-is why a grown world still looks sparser than it should.
-
 ## Worlds arrive settled
 
 A newly generated world is already at rest. Nothing slumps, avalanches or
@@ -122,14 +137,20 @@ scree only heaps where there is level ground beneath it to heap on.
 
 ## The presets
 
-- **Rolling** — the reference landscape: a ridge, a valley, benched bluffs in
-  patches, and a good depth of soil.
+A preset does not fix a world — it biases one. It sets how dry the world runs
+on average, how much its regions are allowed to differ, and the general scale
+of its relief; the seed decides the rest, so two worlds on the same preset are
+genuinely different places.
+
+- **Rolling** — the reference landscape: mixed country, mostly soil, benched
+  bluffs in patches, and a fair chance of water.
 - **Terraced** — benched country, with steps over most of the relief rather
   than in occasional patches.
 - **Canyon** — deep relief and big vertical faces, thin soil, tall scree.
 - **Wetland** — low, gentle, deep-soiled ground.
-- **Arid** — high relief, thin soil, plenty of scree and buried pockets, and
-  no water anywhere.
+- **Arid** — desert: a sand sheet with dune crests, low relief, the water
+  table far below the surface, and almost nothing growing. Occasionally a
+  less dry region sneaks in, which reads as an oasis.
 - **Legacy** — the old hand-built practice terrain: a flat floor and three
   ledges. Not a landscape, but a known shape, useful for comparing against.
 

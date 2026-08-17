@@ -19,6 +19,7 @@
 
 use super::noise::{self, Purpose};
 use super::params::WorldgenParams;
+use super::region::{Character, RegionMap};
 
 /// What one column of the world contains, in cell coordinates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,7 +48,47 @@ pub struct Terrain<'a> {
     pub h: i32,
     /// Tangent of soil's angle of repose, from the material registry.
     pub soil_tan: f32,
+    /// Tangent of sand's, for the columns that carry sand instead.
+    pub sand_tan: f32,
+    /// The places this world is made of. See `region.rs`.
+    pub regions: RegionMap,
 }
+
+impl<'a> Terrain<'a> {
+    pub fn new(seed: u64, params: &'a WorldgenParams, w: i32, h: i32, soil_tan: f32, sand_tan: f32) -> Self {
+        let regions = RegionMap::new(seed, params, w);
+        Self { seed, params, w, h, soil_tan, sand_tan, regions }
+    }
+
+    /// What kind of place this column is in.
+    pub fn character(&self, x: i32) -> Character {
+        self.regions.sample(x)
+    }
+
+    /// Whether this column is dry enough to carry sand rather than soil.
+    ///
+    /// A threshold rather than a blend because the *material* is discrete:
+    /// a column holds sand or it holds soil, and half-way is not a thing the
+    /// grid can express. The blend that matters happens either side of it —
+    /// aridity itself varies smoothly, so the sand/soil boundary lands
+    /// wherever the terrain happens to cross the line and comes out ragged
+    /// rather than ruled.
+    pub fn is_sandy(&self, x: i32) -> bool {
+        self.character(x).aridity > SAND_ARIDITY
+    }
+
+    /// Repose tangent for whatever loose cover this column carries.
+    pub fn cover_tan(&self, x: i32) -> f32 {
+        if self.is_sandy(x) {
+            self.sand_tan
+        } else {
+            self.soil_tan
+        }
+    }
+}
+
+/// Aridity past which loose cover is sand rather than soil.
+const SAND_ARIDITY: f32 = 0.62;
 
 impl Terrain<'_> {
     /// Where the elevation curve is sampled, after domain warping.
@@ -61,39 +102,81 @@ impl Terrain<'_> {
         x as f32 + p.warp_strength * noise::fbm_1d_c(self.seed, Purpose::Warp, x as f32 / p.warp_wavelength, 2)
     }
 
-    /// The base relief wave: one full period across `w`.
+    /// The macro silhouette: where the regions of this world sit.
     ///
-    /// **The phase is fixed, not seeded, and that is load-bearing.** It is
-    /// what guarantees the composition requirement — a ridge and a valley in
-    /// frame at every seed, rather than the statistically uniform wiggle that
-    /// fBm alone produces and that makes every side-view world of this genre
-    /// look the same.
+    /// **This used to be one sine with a fixed phase**, and that was the
+    /// single biggest reason every world looked the same. It was fixed
+    /// deliberately, to guarantee a ridge and a valley in frame at every
+    /// seed; it did, and it put them in the *same place* every time, so the
+    /// first thing anyone sees never varied. Amplitude knobs could not fix
+    /// that, because the shape was not a parameter.
     ///
-    /// A **sine**, not a cosine, and the difference is the whole composition.
-    /// A cosine peaks at both world edges and troughs in the middle, which
-    /// produces one enormous symmetric bowl — rendered, it reads as a crater,
-    /// not as landscape, and there is no ridge anywhere the player can stand
-    /// on. A sine puts a ridge a quarter of the way across and a valley three
-    /// quarters across, both entirely inside the frame, with the edges at
-    /// mid-height. Two landforms rather than one, and neither of them cut in
-    /// half by the world edge.
-    ///
-    /// **When the world grows past one screen** (M10 streaming), `w` here
-    /// must stop being world width and become a fixed composition wavelength
-    /// of roughly one window, or the whole world will flatten into a single
-    /// enormous hill. Ultimately this entire term is the placeholder that the
-    /// coarse `(x, z)` map replaces (design doc §5), at which point carrying
-    /// composition at traversal scale becomes that map's job.
+    /// Now the shape comes from the regional layout (`region.rs`): each
+    /// region draws its own elevation, and the blend between them is the
+    /// skyline. The composition guarantee moved with it, and is stronger for
+    /// being about relief rather than about a silhouette — `RegionMap::new`
+    /// enforces a minimum spread between the highest and lowest region, so a
+    /// flat draw is stretched rather than shipped.
     fn base_wave(&self, x: i32) -> f32 {
-        let period = self.w.max(1) as f32;
-        self.params.relief_amplitude * (std::f32::consts::TAU * x as f32 / period).sin()
+        self.params.relief_amplitude * self.character(x).elev
+    }
+
+    /// Dune shaping for arid country: asymmetric waves, steep on the lee.
+    ///
+    /// Dry country needs its own *shape*, not just its own material. Sand
+    /// dunes are the one landform whose asymmetry is obvious at a glance —
+    /// a long windward ramp and a short steep slip face — and reproducing it
+    /// is what stops a desert reading as "the same hills, yellow".
+    ///
+    /// The steep side is deliberately kept just under sand's angle of repose:
+    /// a slip face at the real angle is right in principle and avalanches on
+    /// the first frame, which is the whole reason `soil_slope_cutoff` exists.
+    fn dunes(&self, x: i32, aridity: f32) -> f32 {
+        let p = self.params;
+        if p.dune_amplitude <= 0.0 || aridity <= SAND_ARIDITY {
+            return 0.0;
+        }
+        // Fades in past the sand threshold rather than switching on, or the
+        // edge of a desert is a wall of dunes.
+        let strength = ((aridity - SAND_ARIDITY) / (1.0 - SAND_ARIDITY)).clamp(0.0, 1.0);
+        let wavelength = p.dune_wavelength.max(8.0);
+        // The slip face may not be steeper than the sand can stand on.
+        //
+        // Not a nicety: the first version drew dunes at a real dune's angle,
+        // which is sand's angle of repose, and the cover pass then refused to
+        // put sand on them -- so the *shape* of a dune was cut into bare
+        // stone and the desert came out as grey spikes with sand clinging in
+        // patches. A landform made of a material has to be a shape that
+        // material can hold. The fall occupies `FALL` of the period, so this
+        // is the amplitude at which that fall sits exactly at the cover
+        // cutoff, and the amplitude is clamped to it whatever the preset asks.
+        const FALL: f32 = 0.45;
+        let max_slope = p.soil_slope_cutoff * self.sand_tan;
+        let ceiling = max_slope * FALL * wavelength;
+        let amplitude = p.dune_amplitude.min(ceiling);
+        let phase = x as f32 / wavelength + noise::fbm_1d_c(self.seed, Purpose::Dune, x as f32 / 180.0, 2) * 0.6;
+        let saw = phase - phase.floor();
+        // A long windward ramp and a shorter lee fall, both eased so the
+        // crest is a crest and not a corner.
+        let profile = if saw < 1.0 - FALL {
+            let t = saw / (1.0 - FALL);
+            t * t * (3.0 - 2.0 * t)
+        } else {
+            let t = (saw - (1.0 - FALL)) / FALL;
+            1.0 - t * t * (3.0 - 2.0 * t)
+        };
+        (profile - 0.5) * amplitude * strength
     }
 
     /// Surface elevation in cells, **+up**, before conversion to a row.
     pub fn elev(&self, x: i32) -> f32 {
         let p = self.params;
+        let ch = self.character(x);
         let wx = self.warped_x(x);
-        let hills = p.hill_amplitude * noise::fbm_1d_c(self.seed, Purpose::Height, wx / p.hill_wavelength, 4);
+        // Hills scale with the region's own ruggedness, so smooth country and
+        // broken country can sit in the same world.
+        let hills =
+            p.hill_amplitude * ch.relief * noise::fbm_1d_c(self.seed, Purpose::Height, wx / p.hill_wavelength, 4);
         let detail =
             p.detail_amplitude * noise::fbm_1d_c(self.seed, Purpose::Detail, x as f32 / p.detail_wavelength, 2);
         // Detail is added *after* terracing, not before. Snapping a surface
@@ -103,7 +186,7 @@ impl Terrain<'_> {
         // and the whole feature reads as cut from a solid rather than
         // weathered out of one. Applied afterwards, the same noise roughens
         // the treads and ragged the lips.
-        self.terraced(x, self.base_wave(x) + hills) + detail
+        self.terraced(x, self.base_wave(x) + hills) + detail + self.dunes(x, ch.aridity)
     }
 
     /// How far the sedimentary banding is displaced at this column: a steady
@@ -146,7 +229,8 @@ impl Terrain<'_> {
         // time, so a threshold anywhere near that terraces most of the world
         // and the result reads as a flight of stairs rather than as a bluff.
         // Bluffs want to be occasional.
-        let m = p.terrace_strength * noise::smoothstep(0.62, 0.82, mask);
+        let m = (p.terrace_strength * self.character(x).resistance).clamp(0.0, 1.0)
+            * noise::smoothstep(0.62, 0.82, mask);
         if m <= 0.0 {
             return e;
         }
@@ -219,7 +303,11 @@ impl Terrain<'_> {
         // powder resting on a slope shallower than its angle of repose cannot
         // avalanche, so soil placed under this rule never moves. Bare rock on
         // the steep faces is the same rule read as a picture.
-        let cutoff = (p.soil_slope_cutoff * self.soil_tan).max(0.0);
+        let ch = self.character(x);
+        // The repose of whatever this column actually carries. A sandy column
+        // gated against soil's angle would place sand on ground steeper than
+        // sand can hold, and the world would avalanche on frame one.
+        let cutoff = (p.soil_slope_cutoff * self.cover_tan(x)).max(0.0);
         // The neighbourhood slope, not the immediate one: a bench is flat at
         // the exact column and the drop is two cells away. Still an upper
         // bound on the true local slope, so the at-rest guarantee this gate
@@ -237,7 +325,15 @@ impl Terrain<'_> {
             // creep is negligible until a slope approaches repose.
             let taper = 1.0 - (steepness / cutoff).powi(2);
             let jitter = 3.0 * noise::fbm_1d_c(self.seed, Purpose::Soil, x as f32 / 37.0, 2);
-            let depth = (p.soil_depth * taper + jitter).max(0.0).round() as i32;
+            // Regional sediment supply, and dry country holding less of it --
+            // except where it is dry *enough* to be sand, which piles deeper
+            // than soil does rather than thinner. A desert is not bare rock.
+            let supply = if ch.aridity > SAND_ARIDITY {
+                ch.sediment * 1.35
+            } else {
+                ch.sediment * (1.0 - ch.aridity * 0.55)
+            };
+            let depth = (p.soil_depth * supply * taper + jitter).max(0.0).round() as i32;
             // Where the blanket has already worn thin, let the rock through
             // entirely rather than leaving a one- or two-cell skin over it.
             //
@@ -254,7 +350,10 @@ impl Terrain<'_> {
             }
         };
 
-        let table_y = (self.datum() - p.table_damping * self.low_elev(x) + p.table_offset).round() as i32;
+        // Dry country's water table sits deeper, which is most of what makes
+        // a desert a desert: no pools in the hollows, and nothing green.
+        let table_drop = p.table_offset + ch.aridity * p.aridity_table_drop;
+        let table_y = (self.datum() - p.table_damping * self.low_elev(x) + table_drop).round() as i32;
 
         // A perturbed band so the world floor is not a ruler line (there are
         // no straight horizontal edges in this world except water surfaces).
@@ -268,7 +367,51 @@ impl Terrain<'_> {
     /// every pass, since several passes need their neighbours' plans and
     /// recomputing the noise per lookup would be the generator's whole cost.
     pub fn plan_all(&self) -> Vec<ColumnPlan> {
-        (0..self.w).map(|x| self.plan(x)).collect()
+        let mut plans: Vec<ColumnPlan> = (0..self.w).map(|x| self.plan(x)).collect();
+        self.taper_cover(&mut plans);
+        plans
+    }
+
+    /// Thin the loose cover toward wherever it runs out, so its own free face
+    /// obeys repose.
+    ///
+    /// The per-column slope gate answers "is this *ground* too steep to hold
+    /// cover". It cannot answer the other question: on the level top of an
+    /// escarpment the ground is flat, the gate is happy, and the blanket's
+    /// exposed side is a vertical wall of powder whose top grain rolls off
+    /// the first time it is looked at. Two cells did exactly that, found by
+    /// the at-rest sweep and invisible in any render.
+    ///
+    /// So cover may only deepen by one repose-step per column away from bare
+    /// ground. Bare columns are already zero, so the limit propagates outward
+    /// from every cliff lip and every steep face, and the blanket reaches an
+    /// edge at nothing — which is what soil does at a scarp anyway.
+    ///
+    /// Two sweeps rather than a per-column rule because the constraint is
+    /// inherently about a *run* of columns. Its reach is bounded — a 26-cell
+    /// blanket at half a cell per column resolves within about fifty columns
+    /// — so this stays chunk-local with a declared margin rather than being
+    /// the sort of global pass that has to wait for the coarse map.
+    fn taper_cover(&self, plans: &mut [ColumnPlan]) {
+        let cutoff = self.params.soil_slope_cutoff;
+        // Accumulated as a float and rounded once at the end. Rounding the
+        // *step* was the first version, and a step of 0.5 rounds to 1 -- a
+        // one-cell-per-column taper is a 45 degree face, which is steeper
+        // than any powder here stands at. It cost exactly one rolling grain
+        // in one arid seed, which is the size of defect this sweep exists to
+        // catch.
+        let mut depth: Vec<f32> = plans.iter().map(|c| c.soil_depth as f32).collect();
+        for x in 1..depth.len() {
+            let step = (cutoff * self.cover_tan(x as i32)).max(0.05);
+            depth[x] = depth[x].min(depth[x - 1] + step);
+        }
+        for x in (0..depth.len().saturating_sub(1)).rev() {
+            let step = (cutoff * self.cover_tan(x as i32)).max(0.05);
+            depth[x] = depth[x].min(depth[x + 1] + step);
+        }
+        for (plan, d) in plans.iter_mut().zip(depth) {
+            plan.soil_depth = d.max(0.0).floor() as i32;
+        }
     }
 }
 
@@ -277,7 +420,7 @@ mod tests {
     use super::*;
 
     fn terrain(seed: u64, params: &WorldgenParams) -> Terrain<'_> {
-        Terrain { seed, params, w: 512, h: 320, soil_tan: 33.0_f32.to_radians().tan() }
+        Terrain::new(seed, params, 512, 320, 33.0_f32.to_radians().tan(), 34.0_f32.to_radians().tan())
     }
 
     #[test]
