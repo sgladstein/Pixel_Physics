@@ -2149,17 +2149,44 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             match behavior {
                 Behavior::Photosynthesize { rate, shade_death } => {
                     let light = ambient_light_above(world, cx, cy);
-                    // Abscission. Checked before the credit, so a leaf that
-                    // is being shed does not also earn on the tick it dies.
+                    // Abscission — **a graded pressure, not a threshold**,
+                    // chosen on a fair paired measurement and not on the
+                    // first one. The first sweep read as "any setting
+                    // collapses the stand", which was a confound: the shed
+                    // used to schedule a structural check, and mid-crown
+                    // checks amputate (see `shed_stranded_leaves`). With
+                    // the check out, a hard threshold works too — 20,044
+                    // cells at cutoff 0.5 against 20,213 graded — and
+                    // graded wins on the things a threshold cannot do:
+                    // better crown separation (fused run 37 vs 55; the
+                    // culled-on-a-line canopy re-spreads), a better-lit
+                    // standing canopy (median 2.68 vs 2.15), no
+                    // synchronized culls when a shadow arrives (a shading
+                    // event thins over ~a thousand frames — leaves going,
+                    // not a shelf being swept), and robustness to
+                    // transient dips (dusk lag, a passing occluder) that a
+                    // line converts into same-tick loss. The cube keeps
+                    // anything better than half-lit effectively permanent.
+                    // `shade_death` is the chance per tick at total
+                    // darkness; 0.0 stays off.
                     //
-                    // The cell is emptied rather than turned to wood: a
-                    // shed leaf is gone, and leaving `MatureBody` behind
-                    // would have shading foliage silently thicken the stem
-                    // it hung from -- the pipe model reading a leaf as
-                    // xylem, which this branch already fixed once.
-                    if shade_death > 0.0 && light < shade_death && organism::cell_type(world.get(cx, cy).aux()) == Some(CellType::Leaf) {
-                        world.set(cx, cy, Cell::EMPTY);
-                        continue;
+                    // Checked before the credit, so a leaf being shed does
+                    // not also earn on the tick it dies. The cell is
+                    // emptied rather than turned to wood: leaving
+                    // `MatureBody` behind would have shading foliage
+                    // silently thicken the stem it hung from — the pipe
+                    // model reading a leaf as xylem, fixed once already.
+                    if shade_death > 0.0 && organism::cell_type(world.get(cx, cy).aux()) == Some(CellType::Leaf) {
+                        let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
+                        if rng.chance(shade_death * darkness * darkness * darkness) {
+                            world.set(cx, cy, Cell::EMPTY);
+                            // Reclaim any spray this stranded. NOT a
+                            // structural check -- see
+                            // `shed_stranded_leaves` for the measured 26x
+                            // reason.
+                            shed_stranded_leaves(world, cx, cy, organism_id);
+                            continue;
+                        }
                     }
                     resource = (resource + rate * light).min(organism::RESOURCE_SCALE);
                 }
@@ -2212,6 +2239,83 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
 /// Everything else is upkeep, and runs from `step_organisms`.
 fn is_frontier(cell_type: CellType) -> bool {
     matches!(cell_type, CellType::Seed | CellType::GrowingTip | CellType::RootTip)
+}
+
+/// After a leaf is shed, drop any of its neighbouring leaves that no
+/// longer connect to the plant.
+///
+/// A cluster is several cells and only the first touches the stem
+/// (deliberately — `Grow`'s cluster placement keeps foliage off the
+/// apex), so shedding a stem-adjacent leaf can strand the rest of its
+/// spray in the air. Structural checks are reactive and will never look
+/// at them, so without this they float forever.
+///
+/// **Not `schedule_structural_check_around`, and the difference was
+/// measured at 26x.** The organism support search is hop-bounded, so a
+/// structural check fired mid-crown reads any branch further than the
+/// span limit from the roots as unsupported and converts it to deadwood —
+/// scheduling checks from abscission amputated every tree's upper crown,
+/// and the whole shedding mechanism measured as "collapses the stand at
+/// any setting" (772 cells against 20,213 at the same rate, the only
+/// difference being the check). Recorded here because Phase 3's damage
+/// work will meet the same landmine: any mid-crown disturbance today
+/// over-amputates, and that is the support model's bound, not the
+/// disturbance's size.
+///
+/// A bounded component walk over *leaves only* asks exactly the question
+/// shedding raises — "does this spray still hang from anything" — and
+/// cannot touch wood. The cap is generous against the cluster size and
+/// conservative on overflow: a component too big to survey completely is
+/// left standing, not deleted.
+fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_id: u16) {
+    const COMPONENT_CAP: usize = 32;
+    let mut visited: Vec<(i32, i32)> = Vec::new();
+    for (sdx, sdy) in NEIGHBOURS_8 {
+        let start = (x + sdx, y + sdy);
+        if visited.contains(&start) {
+            continue;
+        }
+        let c = world.get(start.0, start.1);
+        if c.organism_id() != organism_id || organism::cell_type(c.aux()) != Some(CellType::Leaf) {
+            continue;
+        }
+        let mut component = vec![start];
+        let mut queue = vec![start];
+        let mut anchored = false;
+        let mut overflowed = false;
+        while let Some((qx, qy)) = queue.pop() {
+            for (dx, dy) in NEIGHBOURS_8 {
+                let pos = (qx + dx, qy + dy);
+                let n = world.get(pos.0, pos.1);
+                if n.organism_id() != organism_id {
+                    continue;
+                }
+                if organism::cell_type(n.aux()) == Some(CellType::Leaf) {
+                    if !component.contains(&pos) {
+                        if component.len() >= COMPONENT_CAP {
+                            overflowed = true;
+                            continue;
+                        }
+                        component.push(pos);
+                        queue.push(pos);
+                    }
+                } else {
+                    // Wood, a tip, a bud: the spray still hangs from the
+                    // plant.
+                    anchored = true;
+                }
+            }
+            if anchored {
+                break;
+            }
+        }
+        if !anchored && !overflowed {
+            for &(lx, ly) in &component {
+                world.set(lx, ly, Cell::EMPTY);
+            }
+        }
+        visited.extend(component);
+    }
 }
 
 /// Draw water from adjacent soil and lose it to the air.

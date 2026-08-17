@@ -466,7 +466,9 @@ pub enum Behavior {
     /// this codebase is.
     Photosynthesize {
         rate: f32,
-        /// Light below which this leaf is **shed**, `0.0` disabling it.
+        /// Shedding **pressure** in deep shade: the chance per organism
+        /// tick that a fully-dark leaf is shed, scaled down steeply
+        /// (cubed) as light rises. `0.0` disables it.
         ///
         /// **This is what clears a bole, and it is the mechanism the shape
         /// was missing rather than seasons.** A leaf that intercepts almost
@@ -475,6 +477,25 @@ pub enum Behavior {
         /// lift. It is why a forest tree carries leaves only where light
         /// reaches and why its lower trunk is bare, and it happens all year
         /// rather than once a season.
+        ///
+        /// **A rate, not a light threshold.** The first threshold died to
+        /// the day/night oscillator (every leaf reads near zero at
+        /// midnight, so any fixed cutoff was a nightly extinction event);
+        /// noon-equivalent light fixed that. A threshold on the phase-free
+        /// reading is then genuinely workable — measured at 20,044 cells
+        /// against graded's 20,213 on the same stand — and graded is kept
+        /// for what a line cannot do: it thins a darkening region over
+        /// many ticks instead of culling it the tick it crosses, which
+        /// measured as better crown separation (fused run 37 vs 55) and a
+        /// better-lit standing canopy, shrugs off transient dips a line
+        /// converts into same-tick loss, and reads as leaves going rather
+        /// than a shelf being swept.
+        ///
+        /// One measurement hazard is recorded on `plant::
+        /// shed_stranded_leaves` because it will bite again: the first
+        /// sweep of *both* forms read as "any setting collapses the
+        /// stand", and the collapse was a structural check the shed used
+        /// to schedule, not the shedding.
         ///
         /// Reaching for seasonality here would be the wrong tool twice
         /// over: the *shape* it is wanted for comes from shading and not

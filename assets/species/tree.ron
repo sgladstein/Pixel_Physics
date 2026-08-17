@@ -227,38 +227,9 @@
             ),
             Photosynthesize(
                 rate: 0.5,
-                // **OFF, and the measurement is why.** Shade abscission is
-                // the right mechanism for "too many leaves on the lower
-                // trunk" -- it is what makes a real bole bare, and it beats
-                // seasonality for the job. It does not work against *this*
-                // light channel, because the range of light a leaf sees is
-                // far too compressed to tell a buried leaf from a
-                // crown-edge one. Swept, 8 trees / 30,000 frames, mean
-                // leaves per tree:
-                //
-                //     off     411
-                //     0.05     50    -88%
-                //     0.12     38
-                //     0.25      0    every leaf in the world
-                //
-                // **Widening the light channel did not rescue it, and the
-                // second measurement found the real reason.** After
-                // `FieldTile::occupancy` made sky transmission graded --
-                // which genuinely did open the channel up, and roughly
-                // quintupled every tree -- 0.25 and even 0.6 still took the
-                // stand to exactly zero leaves.
-                //
-                // The gate is instantaneous, and `sky_light_amplitude` is a
-                // **day/night oscillator**. Every leaf in the world reads
-                // near zero at night, so any fixed threshold is a nightly
-                // extinction event. What abscission needs is light averaged
-                // over at least a full cycle -- a slow per-cell running mean
-                // -- and that is real work rather than a constant.
-                //
-                // Recorded on `PLAN.md` issue 0e (day/night phase sampling)
-                // rather than tuned: this is the third quantity on this
-                // branch to be sampled at an arbitrary phase of a 3,600-
-                // frame oscillator whose relaxation exceeds its own period.
+                // A live tip photosynthesises but is not foliage to shed --
+                // shedding pressure belongs to the Leaf entry below, and a
+                // GrowingTip is the frontier itself.
                 shade_death: 0.0,
             ),
         ]),
@@ -361,7 +332,51 @@
             SecondaryThicken(pipe_ratio: 110.0),
         ]),
         (Leaf, [
-            Photosynthesize(rate: 0.35, shade_death: 0.0),
+            // **Crown lift, finally on.** shade_death spent this branch's
+            // whole history disabled, and the road to 0.03 is three
+            // separate findings, each of which changed what the number
+            // means:
+            //
+            // 1. As a threshold on raw light it was a nightly extinction
+            //    event -- the light channel oscillates 20:1 over each day,
+            //    every leaf reads near zero at midnight, and any fixed
+            //    cutoff sheds the world. Fixed by the economy reading
+            //    noon-equivalent light (phase-free by construction).
+            // 2. The first sweeps of the phase-free gate read "any setting
+            //    collapses the stand" -- a confound. Shedding used to
+            //    schedule a structural check, and mid-crown checks amputate
+            //    (the organism support search is hop-bounded, so high
+            //    branches read as unsupported): 772 cells against 20,213 at
+            //    the same rate, from that one line. Stranded sprays are now
+            //    reclaimed by a leaves-only component walk instead
+            //    (`plant::shed_stranded_leaves`).
+            // 3. This is a **pressure, not a threshold**: the chance per
+            //    organism tick that a leaf in total darkness is shed,
+            //    falling with the cube of its light. A threshold on the
+            //    phase-free reading genuinely works too (20,044 cells at
+            //    cutoff 0.5); graded kept better crown separation (fused
+            //    run 37 vs 55), a better-lit canopy, and thins a darkening
+            //    region over ~a thousand frames instead of culling it on a
+            //    line -- leaves going, not a shelf being swept.
+            //
+            // Swept with the full mechanism, 8 trees / 30,000 frames:
+            // cells / leaves / median leaf light / thickest fused run
+            // (57-cell spacing):
+            //
+            //     off     29,258   11,179   0.09   83
+            //     0.01    21,964    3,614   1.64   51
+            //     0.03    23,593    2,336   2.93   40    <-- here
+            //     0.1     16,021    1,467   3.75   58
+            //
+            // 0.03 is a genuine interior optimum -- most mass AND best
+            // separation AND a lit canopy -- which almost no sweep on this
+            // branch has ever had. Off, two-thirds of all foliage sits
+            // below 0.5 noon-equivalent light earning nothing, and that
+            // dead interior mass is what re-fused the crowns. By eye
+            // (target/filmstrips/p13-shed-grove.png): bare boles, foliage
+            // tufted at the crown, the first sheet where wood reads as
+            // wood.
+            Photosynthesize(rate: 0.35, shade_death: 0.03),
         ]),
     ],
 )
