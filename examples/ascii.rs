@@ -251,6 +251,7 @@ fn main() {
     // still actively propagating -- the actual, measurable claim the issue
     // asked for, not just a passing unit test.
     field_sleep_scene();
+    field_scaling_scene();
 }
 
 /// Issue #4: measures the field grid's own worst-frame cost twice on the
@@ -285,6 +286,71 @@ fn field_sleep_scene() {
         worst_active.as_secs_f64() * 1000.0,
         worst_settled.as_secs_f64() * 1000.0,
     );
+}
+
+/// How the field grid's cost scales with world size, and — the number that
+/// actually matters for a bigger world — what a *localised* disturbance costs.
+///
+/// `field_sleep_scene` above measures the two easy cases: a world-wide
+/// disturbance, and a fully settled world (which hits `field::step`'s global
+/// early-out and costs nothing). Neither is the case a large world lives in.
+///
+/// The case that decides whether the world can grow is **one small thing
+/// happening somewhere**: a gnome running in a corner, a fire, a trickle of
+/// sand. `field::step`'s gate is world-global — `active_chunk_count() == 0 &&
+/// fields_settled()` — so a single active chunk anywhere makes all seven
+/// passes run over *every* resident chunk. That is O(world) per frame for
+/// O(1) of activity, and it is what `PLAN.md` issue #4 is really about.
+///
+/// Reported per size so the scaling is visible rather than asserted.
+fn field_scaling_scene() {
+    println!("
+=== field: cost vs world size (issue #4 baseline) ===");
+    println!("{:>12}  {:>10}  {:>10}  {:>10}", "size", "settled", "local", "global");
+    for &(w, h) in &[(512, 320), (1024, 640), (2048, 1280)] {
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        world.end_step();
+
+        // Settled: the global early-out should make this free at any size.
+        for _ in 0..8 {
+            world.step_fields();
+        }
+        let mut settled = std::time::Duration::ZERO;
+        for _ in 0..60 {
+            let t = std::time::Instant::now();
+            world.step_fields();
+            settled = settled.max(t.elapsed());
+        }
+
+        // Localised: one small impulse re-applied in a corner every frame, so
+        // exactly one tile has any reason to be awake. Today this costs the
+        // same as the global case; after per-tile sleeping it should cost
+        // roughly the same as `settled` regardless of world size.
+        let mut local = std::time::Duration::ZERO;
+        for _ in 0..60 {
+            world.add_pressure_impulse(24, 24, 4, 40.0);
+            let t = std::time::Instant::now();
+            world.step_fields();
+            local = local.max(t.elapsed());
+        }
+
+        // Global: a disturbance big enough to wake the world, for reference.
+        let mut global = std::time::Duration::ZERO;
+        world.add_pressure_impulse(w / 2, h / 2, (w / 4).max(8), 400.0);
+        for _ in 0..60 {
+            let t = std::time::Instant::now();
+            world.step_fields();
+            global = global.max(t.elapsed());
+        }
+
+        println!(
+            "{:>12}  {:>8.3}ms  {:>8.3}ms  {:>8.3}ms",
+            format!("{w}x{h}"),
+            settled.as_secs_f64() * 1000.0,
+            local.as_secs_f64() * 1000.0,
+            global.as_secs_f64() * 1000.0,
+        );
+    }
 }
 
 /// Prints pressure magnitude as a density ramp, one character per field cell
