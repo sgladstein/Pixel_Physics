@@ -415,10 +415,13 @@ pub struct Renderer {
     /// *nothing* to the dirty region, which is what keeps a settled
     /// world's zero-cost frames zero-cost with a character idle in them.
     last_player_rect: Option<Rect>,
-    /// World coordinate displayed at the top-left pixel. Fixed at the origin
-    /// for M2; M10 moves it with the player.
+    /// World coordinate displayed at the top-left pixel. Moved by
+    /// [`Renderer::follow`] once there is a player to follow.
     pub camera_x: i32,
     pub camera_y: i32,
+    /// The camera as last painted, so a move can force a full redraw. Same
+    /// role as `last_zoom_state`, and for the same reason.
+    last_camera: Option<(i32, i32)>,
     /// Draws chunk boundaries tinted by whether the chunk will be swept next
     /// frame. This is the primary way to confirm sleeping actually works.
     pub show_chunk_overlay: bool,
@@ -539,6 +542,7 @@ impl Renderer {
             last_player_rect: None,
             camera_x: 0,
             camera_y: 0,
+            last_camera: None,
             show_chunk_overlay: false,
             zoom: 1,
             zoom_out_stride: 1,
@@ -581,6 +585,67 @@ impl Renderer {
     /// than being independently adjustable: zooming in past `zoom_out_
     /// stride > 1` counts down the stride back to 1 before `zoom` itself
     /// starts climbing, and symmetrically the other way, so the key pair
+    /// How many world cells the viewport spans, at the current scale.
+    ///
+    /// Zoom and zoom-out are one continuous control (see `adjust_zoom`), so
+    /// this has to consult both: a 512-pixel viewport shows 512 cells at 1:1,
+    /// 256 at zoom 2, and 1024 at stride 2.
+    pub fn visible_span(&self, viewport: (u32, u32)) -> (i32, i32) {
+        let (w, h) = (viewport.0 as i32, viewport.1 as i32);
+        if self.zoom > 1 {
+            (w / self.zoom, h / self.zoom)
+        } else {
+            let stride = self.zoom_out_stride.max(1);
+            (w * stride, h * stride)
+        }
+    }
+
+    /// Centre the view on a world position, clamped inside the world.
+    ///
+    /// A **dead zone** rather than a hard centring: the camera only moves once
+    /// the target has drifted away from the middle, and then only far enough
+    /// to bring it back to the edge of that zone. Hard centring would move the
+    /// camera on almost every frame the player is walking, and a camera move
+    /// forces a full redraw (see `draw`) — so a strictly-centred view would
+    /// repaint the whole screen every frame anyone was moving, which is the
+    /// dirty-rect skip paid away for nothing.
+    ///
+    /// Clamped to the world so the view never shows the void beyond it; on a
+    /// world smaller than the viewport the clamp collapses and the camera
+    /// simply sits at the origin.
+    pub fn follow(&mut self, target: (i32, i32), viewport: (u32, u32), bounds: Option<Rect>) {
+        let (span_x, span_y) = self.visible_span(viewport);
+        let centre_x = self.camera_x + span_x / 2;
+        let centre_y = self.camera_y + span_y / 2;
+        let dead_x = (span_x / 6).max(1);
+        let dead_y = (span_y / 6).max(1);
+
+        // Leaving the zone **re-centres**, rather than dragging the camera
+        // just far enough to put the target back on the boundary. Dragging to
+        // the boundary leaves it sitting exactly on the edge, so the very next
+        // step crosses again and the camera moves every single frame anyone is
+        // walking — which is a full-screen repaint every frame, the precise
+        // cost the dead zone exists to avoid. Re-centring buys a whole zone of
+        // travel before the next move.
+        let mut cam_x = self.camera_x;
+        let mut cam_y = self.camera_y;
+        if (target.0 - centre_x).abs() > dead_x {
+            cam_x = target.0 - span_x / 2;
+        }
+        if (target.1 - centre_y).abs() > dead_y {
+            cam_y = target.1 - span_y / 2;
+        }
+
+        if let Some(b) = bounds {
+            // `max` before `min` so a world narrower than the viewport pins to
+            // its own origin rather than to a negative coordinate.
+            cam_x = cam_x.min(b.max_x - span_x + 1).max(b.min_x);
+            cam_y = cam_y.min(b.max_y - span_y + 1).max(b.min_y);
+        }
+        self.camera_x = cam_x;
+        self.camera_y = cam_y;
+    }
+
     /// reads as a single "more/less zoom" control, not two separate ones a
     /// player has to understand are different mechanisms.
     pub fn adjust_zoom(&mut self, delta: i32) {
@@ -678,6 +743,16 @@ impl Renderer {
         let scale_changed = self.last_zoom_state != Some(zoom_state);
         self.last_zoom_state = Some(zoom_state);
 
+        // A camera move invalidates every byte already in the buffer, exactly
+        // as a scale change does — every pixel now shows a different world
+        // cell. `last_zoom_state` exists for precisely that reason and the
+        // camera had no equivalent, because until now nothing ever moved it.
+        // Without this the dirty-rect skip repaints only the touched chunks
+        // and scrolls a frozen, smeared world past them.
+        let camera = (self.camera_x, self.camera_y);
+        let camera_moved = self.last_camera != Some(camera);
+        self.last_camera = Some(camera);
+
         // One full redraw when the organism channel changes, and — for the
         // channels that read the sidecar rather than `Cell::aux` — one every
         // frame, since those values change with no chunk dirtied. See
@@ -734,14 +809,16 @@ impl Renderer {
         // quantised key is for. Through most of a day that is no frames at
         // all; through a sunrise it is a modest fraction of them, which is
         // the one time of day worth repainting for.
-        let bounds = world.bounds();
-        self.sky = Sky::at(
-            world.frame,
-            bounds.map_or(0, |b| b.min_x),
-            bounds.map_or(1, |b| b.max_x),
-            bounds.map_or(0, |b| b.min_y),
-            bounds.map_or(1, |b| b.max_y),
-        );
+        // Built from the **visible** rect, not the world's.
+        //
+        // The gradient puts its horizon band a fraction of the way down its
+        // span and the moon crosses that span over a night. Keyed to a world
+        // much larger than the viewport, the horizon lands far off screen and
+        // the moon is visible for a sliver of the night — the sky would
+        // quietly stop working at exactly the moment the world grew.
+        let (vx0, vy0) = self.screen_to_world(0, 0);
+        let (vx1, vy1) = self.screen_to_world(width as i32 - 1, height as i32 - 1);
+        self.sky = Sky::at(world.frame, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1));
         self.daylight = sky::daylight_level(world.frame);
         self.rebuild_horizon(world, touched);
         let sky_key = self.sky.key();
@@ -750,6 +827,7 @@ impl Renderer {
 
         let full = force_full
             || scale_changed
+            || camera_moved
             || sky_changed
             || organism_overlay_changed
             || organism_overlay_is_live
@@ -1864,6 +1942,78 @@ mod tests {
         r.camera_x = 100;
         r.camera_y = -20;
         assert_eq!(r.screen_to_world(5, 7), (105, -13));
+    }
+
+    #[test]
+    fn the_two_mappings_agree_under_a_camera_at_every_scale() {
+        // `screen_to_world` had the only camera test in the file, and the
+        // camera had never moved in anger. Every draw pass goes through
+        // `world_to_screen` instead, so a disagreement between the two would
+        // put the gnome, the moon and every chunk border in the wrong place
+        // while the one tested function stayed right.
+        for (zoom, stride) in [(1, 1), (2, 1), (4, 1), (1, 2), (1, 4)] {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.zoom_out_stride = stride;
+            r.camera_x = 640;
+            r.camera_y = 384;
+            for (sx, sy) in [(0, 0), (13, 29), (100, 60)] {
+                // Round-tripped as an *identity on the world cell*, not on the
+                // screen pixel: at zoom > 1 several pixels share a cell, so
+                // asserting the pixel comes back unchanged would be asserting
+                // the quantisation rather than the agreement.
+                let (wx, wy) = r.screen_to_world(sx, sy);
+                let back = r.world_to_screen(wx, wy).expect("a visible cell maps back on screen");
+                assert_eq!(
+                    r.screen_to_world(back.0, back.1),
+                    (wx, wy),
+                    "zoom {zoom} stride {stride}: screen ({sx},{sy}) -> world ({wx},{wy}) -> screen {back:?} -> a different cell"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn follow_keeps_the_target_on_screen_and_inside_the_world() {
+        let world = Rect::new(0, 0, 2047, 767);
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        for target in [(20, 20), (1000, 400), (2040, 760), (0, 0), (1024, 384)] {
+            // Settled, not single-shot: the dead zone deliberately closes only
+            // part of the gap per call, so one call after a long jump leaves
+            // the target off screen and would be testing the wrong thing.
+            for _ in 0..8 {
+                r.follow(target, viewport, Some(world));
+            }
+            let (sx, sy) = r.visible_span(viewport);
+            assert!(
+                target.0 >= r.camera_x && target.0 < r.camera_x + sx,
+                "target x {} off screen: camera {} span {sx}", target.0, r.camera_x
+            );
+            assert!(
+                target.1 >= r.camera_y && target.1 < r.camera_y + sy,
+                "target y {} off screen: camera {} span {sy}", target.1, r.camera_y
+            );
+            // Never shows the void outside the world.
+            assert!(r.camera_x >= world.min_x && r.camera_x + sx - 1 <= world.max_x, "camera x {} escaped the world", r.camera_x);
+            assert!(r.camera_y >= world.min_y && r.camera_y + sy - 1 <= world.max_y, "camera y {} escaped the world", r.camera_y);
+        }
+    }
+
+    #[test]
+    fn follow_holds_still_inside_the_dead_zone() {
+        // The camera forces a full redraw when it moves, so a strictly-centred
+        // view would repaint the whole screen on every frame the player walked
+        // — the dirty-rect skip paid away for nothing.
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        let world = Rect::new(0, 0, 2047, 767);
+        for _ in 0..8 {
+            r.follow((1024, 384), viewport, Some(world));
+        }
+        let settled = (r.camera_x, r.camera_y);
+        r.follow((1024 + 8, 384 + 4), viewport, Some(world));
+        assert_eq!((r.camera_x, r.camera_y), settled, "a small step moved the camera");
     }
 
     #[test]
