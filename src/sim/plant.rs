@@ -880,6 +880,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 genotype_variance,
                 sympodial,
                 tropism,
+                branch_angle,
+                internode,
             } => {
                 // Per-order parameters resolved once, against *this cell's*
                 // own order. A tip reads only its own tier -- no traversal,
@@ -1132,6 +1134,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // *sample* from the positive-scoring set -- never a
                 // deterministic best-direction pick, which is what would
                 // actually curve-fit a silhouette.
+                // Hoisted out of the candidate loop: this is a property of
+                // the cell's own age, not of the direction being scored.
+                let rigid_step = internode.at(order) > 0 && (plastochron as u32) < internode.at(order) as u32;
                 let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
                 for (dx, dy) in NEIGHBOURS_8 {
                     let (nx, ny) = (x + dx, y + dy);
@@ -1163,10 +1168,34 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     // side-effect of score arithmetic. A candidate with no
                     // positively-preferred direction still fails the filter
                     // and that is correct: boxed in is a real dead end.
-                    let preference = dot(dir, heading) * continuation_weight
-                        + dot(dir, photo) * light_weight
-                        + dot(dir, wind) * wind_weight
-                        + dot(dir, gravity_or_water) * upward_weight;
+                    // **The straightness budget.** Inside its first
+                    // `internode` steps a fresh lateral scores on
+                    // continuation *alone* -- the light, wind and tropism
+                    // terms get no vote -- so it leaves along its departure
+                    // direction and stays there for a set run before the
+                    // environment starts steering it.
+                    //
+                    // This is the missing shape primitive, and `branch_angle`
+                    // is inert without it: the engine models a branch as a
+                    // biased random walk, so a lateral that departed at 90
+                    // degrees was re-scored against `upward_weight` and the
+                    // tier reference on its very next step and bent straight
+                    // back alongside the trunk. That is the parallel-ropes
+                    // look, and it is why these two landed as one change
+                    // rather than as two independently-judgeable ones
+                    // (`Reports/plant-appearance-design.md` §2.3-2.4).
+                    //
+                    // Costs no per-cell state: a lateral is rescheduled with
+                    // `plastochron: 0`, so the lineage step the active site
+                    // already carries *is* its age in cells.
+                    let preference = if rigid_step {
+                        dot(dir, heading) * continuation_weight
+                    } else {
+                        dot(dir, heading) * continuation_weight
+                            + dot(dir, photo) * light_weight
+                            + dot(dir, wind) * wind_weight
+                            + dot(dir, gravity_or_water) * upward_weight
+                    };
                     let score = preference / (1.0 + density * crowding_weight);
                     if score > 0.0 {
                         candidates.push((nx, ny, score));
@@ -1374,9 +1403,126 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     && rng.chance(branch_chance)
                     && world.organism_active_tip_count(organism_id, cell_type) + 1 < max_active_tips as usize
                 {
-                    let alt: Vec<(i32, i32, f32)> = candidates.into_iter().filter(|&(nx, ny, _)| (nx, ny) != (tx, ty)).collect();
+                    // **A lateral gets its own candidate set, and this is
+                    // the third and deepest layer of the branch-angle
+                    // problem.** It used to reuse `candidates`, which is
+                    // the *primary* scoring's survivors -- and that set is
+                    // filtered on `score > 0` against a preference carrying
+                    // `upward_weight` (0.9 on a trunk). A near-horizontal
+                    // step off a vertical axis scores about zero on every
+                    // term and does not survive the filter, so a wide
+                    // departure was not merely unlikely, it was **not in
+                    // the set at all**.
+                    //
+                    // Two measured attempts landed before this was found,
+                    // both of which "worked" and neither of which moved the
+                    // number: weighting the primary score by angular
+                    // closeness gave a mean achieved departure of 40
+                    // degrees against a 70 degree target, and discarding
+                    // the score entirely in favour of closeness gave 48.
+                    // The set was the constraint, not the weighting --
+                    // `CLAUDE.md`'s "two fixes failing the same way means
+                    // the approach is wrong, not the tuning", and the
+                    // achieved-angle counter is the only reason it was
+                    // visible.
+                    //
+                    // So an angled lateral scores over every growable
+                    // neighbour. Only for the angled path: a species with
+                    // no `branch_angle` keeps the old set and the old
+                    // uniform draw exactly.
+                    let target = branch_angle.at(order);
+                    let alt: Vec<(i32, i32, f32)> = if target > 0.0 {
+                        NEIGHBOURS_8
+                            .iter()
+                            .map(|&(dx, dy)| (x + dx, y + dy))
+                            .filter(|&(nx, ny)| (nx, ny) != (tx, ty) && growable(world, nx, ny, penetration_force))
+                            .map(|(nx, ny)| (nx, ny, 1.0))
+                            .collect()
+                    } else {
+                        candidates.into_iter().filter(|&(nx, ny, _)| (nx, ny) != (tx, ty)).collect()
+                    };
                     if !alt.is_empty() {
-                        let (bx, by, _) = alt[rng.below(alt.len() as u32) as usize];
+                        // **The departure angle.** This used to be
+                        // `alt[rng.below(alt.len())]` -- a uniform draw over
+                        // whatever open neighbours were left, so branching
+                        // *rate* was per-order species data and branching
+                        // *angle* was noise, in an engine whose whole
+                        // silhouette is made of branches. See
+                        // `Behavior::Grow::branch_angle`.
+                        //
+                        // Scored, then sampled -- never an argmax. A
+                        // deterministic best-direction pick is exactly what
+                        // would curve-fit a silhouette, which is the
+                        // objection the primary candidate loop above raises
+                        // about itself, and it applies just as much here.
+                        //
+                        // The 8-neighbourhood quantises the achievable
+                        // angles to multiples of 45 degrees, so this is a
+                        // target the candidates are ranked against and not a
+                        // value that can be hit; the weight falls off with
+                        // the angular error rather than selecting on it.
+                        let (bx, by, _) = if target <= 0.0 {
+                            alt[rng.below(alt.len() as u32) as usize]
+                        } else {
+                            let weighted: Vec<(i32, i32, f32)> = alt
+                                .iter()
+                                .map(|&(nx, ny, _)| {
+                                    let dir = normalize(((nx - x) as f32, (ny - y) as f32));
+                                    // Angle between this step and the axis
+                                    // it is leaving, in degrees.
+                                    let cos = dot(dir, heading).clamp(-1.0, 1.0);
+                                    let degrees = cos.acos().to_degrees();
+                                    // Falls off over 45 degrees, one
+                                    // neighbourhood step, so the preferred
+                                    // direction is clearly favoured and its
+                                    // neighbours stay reachable.
+                                    let closeness = 1.0 / (1.0 + ((degrees - target).abs() / 45.0));
+                                    // **The primary candidate score is
+                                    // deliberately discarded here, and
+                                    // measurement is why.** Multiplying by
+                                    // it gave a mean achieved departure of
+                                    // 40 degrees against a 70 degree
+                                    // target: that score carries
+                                    // `upward_weight` (0.9 on a trunk), so
+                                    // a near-horizontal candidate is
+                                    // already heavily penalised by it and
+                                    // the closeness term could not lift it
+                                    // back. The lever fired -- the counter
+                                    // proved that -- and did almost
+                                    // nothing, which is this project's
+                                    // signature failure.
+                                    //
+                                    // A branch's departure angle is a
+                                    // *developmental* property, not an
+                                    // environmental one: the primary child
+                                    // is what continues the axis by
+                                    // scoring light and gravity, and the
+                                    // lateral is what the architecture
+                                    // places. So the lateral scores on
+                                    // angle, and only crowding still gets a
+                                    // vote -- it must not be pushed into a
+                                    // wall. Recomputed rather than
+                                    // recovered from the score, which costs
+                                    // up to seven reads on a branch event;
+                                    // branching is rare (about 200 events
+                                    // per plant per 30,000 frames) so this
+                                    // is not on the hot path.
+                                    let density = candidate_crowding(world, nx, ny);
+                                    (nx, ny, closeness / (1.0 + density * crowding_weight))
+                                })
+                                .collect();
+                            let total: f32 = weighted.iter().map(|&(_, _, s)| s).sum();
+                            let mut pick = (rng.below(10_000) as f32 / 10_000.0) * total;
+                            let mut chosen = weighted[0];
+                            for &c in &weighted {
+                                if pick < c.2 {
+                                    chosen = c;
+                                    break;
+                                }
+                                pick -= c.2;
+                            }
+                            chosen
+                        };
                         if growable(world, bx, by, penetration_force) {
                             let branch_shade = banded_shade(world, organism_id, cell.material, Band::Bark, &mut rng);
                             let branch_cell =
@@ -1397,8 +1543,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // curls back parallel to the trunk, which is
                             // the parallel-ropes look this branch already
                             // fixed once through `upward_weight`.
+                            let departure = normalize(((bx - x) as f32, (by - y) as f32));
                             if let Some(slot) = world.organism_cell_mut(bx, by) {
-                                slot.heading = normalize(((bx - x) as f32, (by - y) as f32));
+                                slot.heading = departure;
+                            }
+                            // The achieved angle, not a count of attempts --
+                            // see `OrganismState::departure_angle_sum`.
+                            if let Some(state) = world.organism_mut(organism_id) {
+                                state.lateral_departures += 1;
+                                state.departure_angle_sum += dot(departure, heading).clamp(-1.0, 1.0).acos().to_degrees();
                             }
                             deposit_canopy(world, bx, by, GROW_CANOPY_DEPOSIT);
                             // No structural check here either -- see the
@@ -1442,6 +1595,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 if cell_type == CellType::GrowingTip && tropism.at(order) == organism::Tropism::Plagiotropic {
                     if let Some(state) = world.organism_mut(organism_id) {
                         state.plagiotropic_steps += 1;
+                    }
+                }
+                // Same for the straightness budget: a species can declare
+                // an `internode` that never binds, and the sheet cannot
+                // tell that apart from one that does.
+                if rigid_step {
+                    if let Some(state) = world.organism_mut(organism_id) {
+                        state.rigid_steps += 1;
                     }
                 }
 

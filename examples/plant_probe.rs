@@ -382,7 +382,20 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         ids.sort_unstable();
         let counters: Vec<String> = ids
             .iter()
-            .filter_map(|&id| w.organism_state(id).map(|s| format!("{id}: forks {} plag {}", s.sympodial_forks, s.plagiotropic_steps)))
+            .filter_map(|&id| {
+                w.organism_state(id).map(|s| {
+                    // The *achieved* mean departure angle, not a count of
+                    // how often the scoring ran -- see
+                    // `OrganismState::departure_angle_sum`. An 8-neighbour
+                    // lattice cannot always give a species the angle it
+                    // asked for, and this is the number that says so.
+                    let mean_angle = if s.lateral_departures > 0 { s.departure_angle_sum / s.lateral_departures as f32 } else { 0.0 };
+                    format!(
+                        "{id}: forks {} plag {} rigid {} lat {} angle {mean_angle:.0}deg",
+                        s.sympodial_forks, s.plagiotropic_steps, s.rigid_steps, s.lateral_departures
+                    )
+                })
+            })
             .collect();
         println!("  architecture events  [{}]", counters.join(", "));
     }

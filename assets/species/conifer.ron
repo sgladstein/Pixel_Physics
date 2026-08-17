@@ -57,6 +57,18 @@
                 turgor_taper: 0.25,
                 // A conifer leader barely wanders.
                 heading_inertia: 0.8,
+                // **Tiers leave the bole near-perpendicular and run.** This
+                // is the fir silhouette stated as data rather than hoped
+                // for from `tropism` alone: 85 degrees off the leader, then
+                // ten cells before light or gravity get a vote.
+                //
+                // Worth watching against the open lean bug (§4 of the
+                // night-session handoff): a tier that holds its departure
+                // direction for ten steps cannot be walked sideways by the
+                // sign-of-heading ratchet in that time. If the lean
+                // survives this it is not accumulated drift.
+                branch_angle: [85.0, 60.0, 45.0, 45.0],
+                internode: [0, 10, 5, 3],
                 // Needle sprays read smaller than broadleaf clusters -- the
                 // ratio against `tree`'s is what carries that, so both moved
                 // together when foliage volume was raised (see tree.ron's

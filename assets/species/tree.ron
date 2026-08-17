@@ -169,6 +169,22 @@
                 // OrganismCell::heading -- scoring continuation against a
                 // one-cell local read is why growth looked erratic.
                 heading_inertia: 0.85,
+                // **Limbs leave the trunk wide and finer branches leave
+                // shallower**, which is the real pattern and also the one
+                // that opens a crown: a lateral departing at 70 degrees is
+                // out of the trunk's own column immediately.
+                //
+                // Index 0 is read by a *trunk* cell making a limb, so this
+                // list is "the angle at which each tier throws its
+                // children", not "the angle this tier left at".
+                branch_angle: [70.0, 60.0, 50.0, 45.0],
+                // The trunk gets **no** straightness budget on purpose: it
+                // should keep answering to light and gravity every step,
+                // which is what stands it up. Everything else holds its
+                // departure direction for a real run first -- that is the
+                // difference between a limb and a meander, and without it
+                // `branch_angle` is undone on the lateral's next step.
+                internode: [0, 6, 4, 3],
                 // A 2D cross-section shows every twig, so one leaf cell per
                 // node renders as a bare skeleton with green specks. See
                 // Behavior::Grow::leaf_cluster.

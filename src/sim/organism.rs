@@ -465,6 +465,54 @@ pub enum Behavior {
         /// Orthotropic everywhere reproduces the old hardcoded `(0, -1)`.
         #[serde(default = "all_orthotropic")]
         tropism: ByOrder<Tropism>,
+        /// **The angle, in degrees, at which a new lateral leaves its
+        /// parent axis** — measured between the parent's `heading` and the
+        /// step the lateral takes.
+        ///
+        /// Branch angle is a top-tier silhouette parameter in every prior
+        /// art for procedural trees (L-systems, Weber–Penn, space
+        /// colonization) and this engine had **no parameter for it at
+        /// all**: the lateral was `alt[rng.below(alt.len())]`, a uniform
+        /// draw over whatever open neighbours were left. Branching *rate*
+        /// was per-order species data; branching *angle* was noise. See
+        /// `Reports/plant-appearance-design.md` §2.3.
+        ///
+        /// Growth is on an 8-neighbourhood, so the achievable angles are
+        /// multiples of 45° and this is a *target* that the candidate set
+        /// is scored against, not a value that can be hit exactly. It is
+        /// still a weighted sample and never an argmax — a deterministic
+        /// best-direction pick is what would curve-fit a silhouette, which
+        /// is the objection the candidate loop's own doc raises.
+        ///
+        /// `0.0` means unset and restores the uniform draw.
+        ///
+        /// **Useless without `internode`**, which is why they landed
+        /// together: a lateral that leaves at 90° is re-scored against
+        /// `upward_weight` and the tier reference on its very next step and
+        /// bends straight back alongside the trunk. That is the
+        /// parallel-ropes look, and an angle alone does not touch it.
+        #[serde(default)]
+        branch_angle: ByOrder<f32>,
+        /// **How many steps a fresh lateral holds its departure direction**
+        /// before the light, wind and tropism terms get a vote.
+        ///
+        /// The straightness budget, and the missing shape primitive: this
+        /// engine models a branch as a biased random walk and nothing in it
+        /// represented a branch as an *object* with a length and a
+        /// direction. Coefficients change the statistics of a meander; they
+        /// cannot change what a meander is (§2.4 of the same report). An
+        /// internode is a straight run, and a crown of straight runs
+        /// leaving at an angle is what a tree looks like.
+        ///
+        /// Counted in the lineage step the active site already carries, so
+        /// this costs **no new per-cell state**: a lateral is rescheduled
+        /// with `plastochron: 0`, so its lineage step *is* its age in
+        /// cells.
+        ///
+        /// `0` means unset and restores the old always-score-everything
+        /// behaviour.
+        #[serde(default)]
+        internode: ByOrder<u8>,
         /// Mechanical resistance, in MPa, this cell type can force its way
         /// through — a `RootTip` converts a `Powder` neighbour whose
         /// `Material::penetration_resistance` is *below* this into root
@@ -823,6 +871,22 @@ pub struct OrganismState {
     /// Growth steps taken under a plagiotropic reference — says whether a
     /// species' `tropism` tiers ever actually ran.
     pub plagiotropic_steps: u32,
+    /// Growth steps taken inside a lateral's `internode` straightness
+    /// budget — zero means the budget never bound and the shape is still
+    /// the old free meander.
+    pub rigid_steps: u32,
+    /// Laterals launched, and the sum of the angles they actually left at.
+    ///
+    /// **The mean of these two is the counter that matters for
+    /// `branch_angle`**, and it is deliberately the *achieved* angle rather
+    /// than a count of how often the scoring ran. Growth is on an
+    /// 8-neighbourhood, so a species asking for 90° cannot always get it;
+    /// a counter that only said "the angle code executed 400 times" would
+    /// be true and useless, which is the failure this project keeps
+    /// rediscovering. A mean of 47° against a target of 90° says the lever
+    /// is weak — which no contact sheet could tell you.
+    pub lateral_departures: u32,
+    pub departure_angle_sum: f32,
     /// **This individual's colour**, as absolute band indices into the
     /// `leaf` and `wood` palettes — drawn once at germination by
     /// `plant::seed_genotype`, from the same (world seed, germination
@@ -1066,6 +1130,16 @@ impl<T: Copy> ByOrder<T> {
     /// reading it from a species file (tests, and `Default`).
     pub fn uniform(value: T) -> Self {
         Self { values: [value; BRANCH_ORDERS] }
+    }
+}
+
+/// Every tier at `T`'s own default — what `#[serde(default)]` on a
+/// `ByOrder` field means, and for `branch_angle`/`internode` the zero is
+/// deliberately the "unset, keep the old behaviour" value rather than a
+/// neutral one.
+impl<T: Copy + Default> Default for ByOrder<T> {
+    fn default() -> Self {
+        Self::uniform(T::default())
     }
 }
 
