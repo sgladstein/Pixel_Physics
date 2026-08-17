@@ -1179,3 +1179,53 @@ And a real behaviour note: a beetle near full energy **carries** its prey
 rather than eating it, because carry-versus-eat branches on
 `hunger_fraction`. Asserting `eats` alone made the test depend on the
 predator's energy budget rather than on predation.
+
+### 13i. Readiness check: the metrics are ready, the ecology is not
+
+Before spending an hour sampling random genomes, three questions were asked
+of the setup: is now the time, is the environment right, are the metrics
+right? Two of the three were no, and finding that out cost minutes instead
+of an hour.
+
+**The metrics work.** `examples/creature_space.rs` treats *survival* as the
+only outcome -- deliberately, because it is strategy-agnostic: a sessile
+leaf-camper and a wide-ranging forager are judged on the same number, and
+it encodes no opinion about how an ant ought to live. Everything else
+(`travelled`, `commute`, `feeding`, `depth`) is a **descriptor**: what a
+genome did, never how well. Diversity is behaviour-space coverage over
+those four axes, which is MAP-Elites' measure and answers "how many
+distinguishable ways" without ranking them against a target.
+
+**The environment is not ready, and the reason is structural.** Four
+attempts, each caught by the smoke test rather than by reasoning:
+
+1. Abundant food, no predator -> every genome scored survival 0.91,
+   including the zero genome *which cannot move*. An outcome identical for
+   every behaviour is not an outcome.
+2. Start energy 260 -> an idle ant outlived the run, so doing nothing was
+   cheaper than living and the zero genome won outright.
+3. Start energy 150 -> zero still won (0.923); the budget has to fall
+   *below* the run length, not near it.
+4. Start energy 90, danger moved in among the colony, food brought into
+   reach -> **bit-identical output**. Neither the beetles nor the trees
+   were ever part of the loop.
+
+That last one exposed the real dynamic: **"corpse" is in the ant food list,
+so a starved ant feeds the ants around it and a colony sustains itself on
+its own dead without foraging at all.** Removing corpses from the menu
+dropped the forager from 0.361 to 0.237 while the zero genome stayed at
+exactly 0.554, which confirms it.
+
+**And even without cannibalism, immobility wins: 0.554 against 0.237.**
+Movement is a pure cost with an unreliable payoff -- at this food density
+the expected return on a foraging trip is negative, so the best strategy
+available is to do nothing. Sampling random genomes in this environment
+would faithfully measure which genome moved least, and would have looked
+like a result.
+
+**The next experiment is therefore not the genome sweep**, it is a sweep of
+the energy economy itself: `eat_energy`, `move_cost` and food density,
+looking for the band where foraging pays *and* food is still scarce. That
+band may be narrow and it may not exist at the current numbers; either
+answer is worth having, and it is cheap. The genome sweep goes after it,
+in an environment that can tell strategies apart.

@@ -1104,6 +1104,20 @@ impl SpeciesRegistry {
         self.species[id.0 as usize].genome = genome;
     }
 
+    /// Overwrite a species' creature parameters — **harness only**, same
+    /// caveat as `set_genome`.
+    ///
+    /// Needed because a scene cannot create scarcity without control of the
+    /// energy budget. `ant.ron`'s 900 starting energy against an idle cost
+    /// of 0.10 is roughly 7,500 ticks of life, and a sampling run is 1,000:
+    /// nothing can starve inside it, so every genome scored the same
+    /// survival — including one with no connections at all, which cannot
+    /// move. An environment where the outcome is identical for every
+    /// behaviour measures nothing.
+    pub fn set_creature(&mut self, id: SpeciesId, def: CreatureDef) {
+        self.species[id.0 as usize].creature = Some(def);
+    }
+
     pub fn id_of(&self, name: &str) -> Option<SpeciesId> {
         self.by_name.get(name).copied()
     }
