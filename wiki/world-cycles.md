@@ -25,6 +25,11 @@ through the middle of the night, and sets before sunrise. It carries a faint
 halo, so it lights the piece of sky it is in rather than sitting on top of it
 like a sticker.
 
+Sky is only drawn where there is actually sky. Open space *inside* the ground
+— a cave, a blast cavity, the space under an overhang — is unlit rock, dark
+at noon as much as at midnight. Anything else would mean daylight showing
+through the middle of a mountain.
+
 **The ground is lit by the time of day too.** Rock, soil and water all darken
 through the evening and brighten at dawn, and they pick up the colour of the
 sky while they do it — everything goes warm under a sunset and cold under a

@@ -43,6 +43,7 @@ pub mod legacy;
 pub mod noise;
 pub mod params;
 pub mod passes;
+pub mod region;
 
 use crate::sim::material::MaterialId;
 use crate::sim::structural;
@@ -116,6 +117,8 @@ pub struct Ctx<'a> {
     pub sand: MaterialId,
     pub gravel: MaterialId,
     pub water: MaterialId,
+    /// Tangent of gravel's angle of repose, for the scree pass.
+    pub gravel_tan: f32,
 }
 
 impl<'a> Ctx<'a> {
@@ -134,10 +137,12 @@ impl<'a> Ctx<'a> {
         // never places soil steeper than this, and an edit to `soil.ron` that
         // the generator did not see would quietly break it.
         let soil_tan = world.materials.get(soil).friction_angle.to_radians().tan();
+        let sand_tan = world.materials.get(sand).friction_angle.to_radians().tan();
+        let gravel_tan = world.materials.get(gravel).friction_angle.to_radians().tan();
         let terrain =
-            Terrain { seed, params, w: bounds.max_x + 1, h: bounds.max_y + 1, soil_tan };
+            Terrain::new(seed, params, bounds.max_x + 1, bounds.max_y + 1, soil_tan, sand_tan);
         let plans = terrain.plan_all();
-        Self { terrain, plans, stone, soil, sand, gravel, water }
+        Self { terrain, plans, stone, soil, sand, gravel, water, gravel_tan }
     }
 }
 

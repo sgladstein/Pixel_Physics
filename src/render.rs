@@ -18,6 +18,11 @@ use crate::sim::world::World;
 
 /// Colour shown for positions outside the world.
 const VOID: [u8; 4] = [12, 12, 16, 255];
+
+/// What empty space *inside* the ground looks like: unlit rock behind the
+/// opening. Dark enough to read as depth, light enough to stay separate from
+/// `VOID` and from a night sky.
+const UNDERGROUND: [u8; 4] = [31, 29, 33, 255];
 const CHUNK_BORDER_ACTIVE: [u8; 4] = [80, 200, 120, 255];
 const CHUNK_BORDER_SETTLED: [u8; 4] = [60, 60, 70, 255];
 
@@ -512,6 +517,17 @@ pub struct Renderer {
     /// Where the moon was painted last frame, so its old pixels get cleaned
     /// up. Same device as `last_body_rects`.
     last_moon_rect: Option<Rect>,
+    /// Topmost non-empty row per world column — the skyline.
+    ///
+    /// Empty space above it is open air and draws as sky; empty space below
+    /// it is *inside the ground* and draws as unlit rock. Without this every
+    /// void drew as sky, so blasting a cavity under a mountain showed blue
+    /// daylight through the middle of it, and so did every cave and every
+    /// undercut. Reported from play, and obvious in hindsight: "empty" and
+    /// "open to the sky" are not the same question.
+    horizon: Vec<i32>,
+    /// World x the `horizon` entries start at.
+    horizon_origin: i32,
 }
 
 impl Renderer {
@@ -534,6 +550,8 @@ impl Renderer {
             last_sky_key: None,
             daylight: sky::LIGHT_LEVELS,
             last_moon_rect: None,
+            horizon: Vec::new(),
+            horizon_origin: 0,
         }
     }
 
@@ -725,6 +743,7 @@ impl Renderer {
             bounds.map_or(1, |b| b.max_y),
         );
         self.daylight = sky::daylight_level(world.frame);
+        self.rebuild_horizon(world, touched);
         let sky_key = self.sky.key();
         let sky_changed = self.last_sky_key != Some(sky_key);
         self.last_sky_key = Some(sky_key);
@@ -938,9 +957,9 @@ impl Renderer {
     }
 
     /// The M9 character, drawn last of the off-grid passes so he reads in
-    /// front of debris. A hardcoded colored-cell sprite for now — pointed
-    /// hat, face, tunic, boots — which is enough to judge movement feel;
-    /// a real sprite is later polish, not a phase-1 question.
+    /// front of debris. A hardcoded colored-cell sprite (`GNOME_SPRITE`),
+    /// which is enough to judge movement feel; a real sprite with
+    /// animation frames is later polish.
     fn draw_player(&self, world: &World, frame: &mut [u8], width: u32, height: u32) {
         let Some(player) = &world.player else { return };
         let (ox, oy) = player.rect_origin();
@@ -958,6 +977,48 @@ impl Renderer {
                 }
             }
         }
+    }
+
+    /// Re-find the skyline, for the columns that can have changed.
+    ///
+    /// A full rescan is one pass over the world and would be paid on every
+    /// frame anything moves. Only columns inside a touched chunk can have a
+    /// new skyline, so the usual cost is a couple of chunk widths; the full
+    /// scan happens once, when the cache does not exist yet or the world
+    /// changed size.
+    fn rebuild_horizon(&mut self, world: &World, touched: &HashSet<ChunkCoord>) {
+        let Some(b) = world.bounds() else {
+            self.horizon.clear();
+            return;
+        };
+        let width = b.width() as usize;
+        let scan = |world: &World, x: i32| {
+            (b.min_y..=b.max_y)
+                .find(|&y| world.get(x, y).material != material::EMPTY)
+                .unwrap_or(i32::MAX)
+        };
+        if self.horizon.len() != width || self.horizon_origin != b.min_x {
+            self.horizon = (0..width as i32).map(|i| scan(world, b.min_x + i)).collect();
+            self.horizon_origin = b.min_x;
+            return;
+        }
+        for coord in touched {
+            let cb = coord.bounds();
+            for x in cb.min_x.max(b.min_x)..=cb.max_x.min(b.max_x) {
+                let i = (x - b.min_x) as usize;
+                self.horizon[i] = scan(world, x);
+            }
+        }
+    }
+
+    /// Whether this position is open to the sky, rather than a void inside
+    /// the ground.
+    fn under_sky(&self, x: i32, y: i32) -> bool {
+        let i = x - self.horizon_origin;
+        if i < 0 || i as usize >= self.horizon.len() {
+            return true;
+        }
+        y < self.horizon[i as usize]
     }
 
     fn cell_colour(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
@@ -1007,7 +1068,15 @@ impl Renderer {
             // Deliberately *inside* the bounds check above, so the void
             // outside the world keeps its own colour and stays
             // distinguishable from a dark night sky.
-            base = self.sky.colour_at(x, y);
+            base = if self.under_sky(x, y) {
+                self.sky.colour_at(x, y)
+            } else {
+                // Inside the ground: unlit rock, not daylight. Constant
+                // rather than following the sky, because a cave is dark at
+                // noon as well -- and deliberately distinct from the `VOID`
+                // outside the world, which is a different kind of nothing.
+                UNDERGROUND
+            };
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
             // temperature very much propagate through vacuum) rather than

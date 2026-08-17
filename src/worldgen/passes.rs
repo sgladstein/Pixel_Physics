@@ -173,6 +173,11 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
         // per-chunk generation unchanged.
         let is_valley_floor =
             ctx.terrain.slope(x) < 0.1 && ctx.terrain.elev(x) < -0.45 * p.relief_amplitude;
+        // Dry country carries sand instead of soil, all the way down rather
+        // than as a skin over it: a desert whose dunes sit on a soil profile
+        // reads as a costume over the same world, which is exactly the
+        // sameness this regional layer exists to break.
+        let sandy = ctx.terrain.is_sandy(x);
         for y in top..bottom {
             // A dithered band where soil meets stone, rather than a clean
             // horizon. Two materials meeting on an exact line is the single
@@ -195,7 +200,7 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
             };
             let (m, shade) = if noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < stony * 0.85 {
                 (ctx.gravel, loose_shade(ctx, Purpose::Dither, x, y))
-            } else if is_valley_floor && y < top + 2 {
+            } else if sandy || (is_valley_floor && y < top + 2) {
                 (ctx.sand, loose_shade(ctx, Purpose::Shade, x, y))
             } else {
                 (ctx.soil, soil_shade(ctx, x, y, depth, bottom - top))
@@ -212,6 +217,9 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
 /// particular world's style (`Reports/design-philosophy.md` §2a).
 const CONTACT_DEPTH: i32 = 4;
 
+/// Longest run the talus pass will walk looking for the foot of a fall.
+const MAX_FALL: i32 = 120;
+
 /// A drop of at least this many cells counts as a cliff for the brow and
 /// talus passes. Below it the "face" is a slope, and hanging a lip off it
 /// would read as a mistake rather than as an overhang.
@@ -220,20 +228,29 @@ const CLIFF_DROP: i32 = 6;
 /// Cliff edges as `(edge_x, direction, drop)`, where `direction` is +1 when
 /// the ground falls away to the right and -1 when it falls to the left.
 fn cliff_edges(plans: &[ColumnPlan], w: i32) -> Vec<(i32, i32, i32)> {
+    // Measured over a short run, not between neighbours.
+    //
+    // Adjacent columns were enough when the macro shape was one smooth wave
+    // with terrace snaps cut into it: a snap is a single-column jump. Once
+    // the skyline came from regional escarpments, the steep ground was spread
+    // over several columns and no pair of neighbours differed by six -- so
+    // `talus` wrote nothing at all in any world, and scree and overhangs
+    // silently left the game. The test that counts per-pass output is what
+    // said so; every render still looked like a plausible world.
+    const RUN: i32 = 4;
     let mut edges = Vec::new();
+    let at = |x: i32| plans[x.clamp(0, w - 1) as usize].surface_y;
     for x in 0..w {
-        let here = plans[x as usize].surface_y;
-        if x + 1 < w {
-            let drop = plans[(x + 1) as usize].surface_y - here;
-            if drop >= CLIFF_DROP {
-                edges.push((x, 1, drop));
-            }
+        let here = at(x);
+        // The edge is the last high column, so look ahead a run and take the
+        // fall to the lowest of it.
+        let right = (1..=RUN).map(|d| at(x + d)).max().unwrap_or(here) - here;
+        if right >= CLIFF_DROP && at(x + 1) >= here {
+            edges.push((x, 1, right));
         }
-        if x > 0 {
-            let drop = plans[(x - 1) as usize].surface_y - here;
-            if drop >= CLIFF_DROP {
-                edges.push((x, -1, drop));
-            }
+        let left = (1..=RUN).map(|d| at(x - d)).max().unwrap_or(here) - here;
+        if left >= CLIFF_DROP && at(x - 1) >= here {
+            edges.push((x, -1, left));
         }
     }
     edges
@@ -300,78 +317,95 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
 /// The wedge recedes one cell of height per two cells out, a slope of 0.5
 /// against gravel's 45° repose, so it is comfortably at rest by construction.
 pub fn talus(ctx: &Ctx, world: &mut World) -> usize {
-    let mut n = 0;
     let p = ctx.terrain.params;
     if p.talus_max_height <= 0.0 {
-        return n;
+        return 0;
     }
-    for (x, dir, drop) in cliff_edges(&ctx.plans, ctx.terrain.w) {
-        let peak = (p.talus_max_height as i32).min(drop / 2);
+    let w = ctx.terrain.w;
+    let ground = |x: i32| ctx.plans[x.clamp(0, w - 1) as usize].surface_y;
+
+    // Heap height per column, before it is made to stand up.
+    let mut heap = vec![0i32; w as usize];
+    for (x, dir, _) in cliff_edges(&ctx.plans, w) {
+        // Walk to the foot of the fall. Scree collects at the bottom of a
+        // slope, and the column beside a cliff edge is the top of one — a
+        // distinction that did not exist while every cliff was a
+        // single-column terrace snap, and that made this pass write nothing
+        // at all once escarpments fell over tens of columns.
+        let mut foot = x + dir;
+        let mut guard = 0;
+        while guard < MAX_FALL {
+            let next = foot + dir;
+            if next < 0 || next >= w || ground(next) <= ground(foot) {
+                break;
+            }
+            foot = next;
+            guard += 1;
+        }
+        if foot < 0 || foot >= w || foot == x {
+            continue;
+        }
+        let fall = ground(foot) - ground(x);
+        let peak = (p.talus_max_height as i32).min(fall / 2);
         if peak <= 0 {
             continue;
         }
-        // The apron is planned in full and validated before a single cell is
-        // written, because the only shape that stays put is one whose toe
-        // tapers to nothing.
-        //
-        // Two earlier versions avalanched, both for the same underlying
-        // reason and neither visible in a render. Following each column's own
-        // ground gave the wedge the ground's slope on top of its own, coming
-        // out steeper than gravel's repose. Cutting the wedge short where the
-        // footing got steep replaced that with a five-cell vertical face at
-        // the toe, which simply moved the free surface rather than removing
-        // it. The honest answer is that below a *continuously* steep face —
-        // a canyon wall — there is nowhere for scree to accumulate at all,
-        // and the pass should decline rather than approximate.
-        let foot = x + dir;
-        if foot < 0 || foot >= ctx.terrain.w {
+        // Deepest against the slope, thinning away from it. Overlapping
+        // aprons take the larger rather than summing, so two cliffs sharing a
+        // basin do not stack into a mound taller than either.
+        for step in 0..(peak * 2) {
+            let tx = foot + dir * step;
+            if tx < 0 || tx >= w {
+                break;
+            }
+            let h = peak - step / 2;
+            if h <= 0 {
+                break;
+            }
+            heap[tx as usize] = heap[tx as usize].max(h);
+        }
+    }
+
+    // **Make the heap stand up, rather than trusting the geometry that drew
+    // it.** This pass had four separate at-rest failures, each a different
+    // exposed free face — a wedge inheriting the ground's slope, a toe cut
+    // off into a vertical face, an apron standing proud of gently rising
+    // ground — and each fix produced the next. Four failures of the same kind
+    // is the signal `CLAUDE.md` names: the approach was wrong, not the
+    // tuning. Deriving a stable shape from cliff geometry means enumerating
+    // every way terrain can undercut it, and the enumeration was never done.
+    //
+    // So the shape is no longer derived. The apron's *top surface* is taken
+    // as a profile and clamped, by the same two-sweep repose taper the soil
+    // blanket uses, until no part of it is steeper than gravel stands at.
+    // Whatever the geometry above proposes, what gets written is a surface
+    // that cannot avalanche — a property of the sweep rather than of the
+    // case analysis.
+    let step = (p.soil_slope_cutoff * ctx.gravel_tan).max(0.05);
+    // Work in +up elevation so "steeper" is one comparison, not two.
+    let mut top: Vec<f32> = (0..w).map(|x| -(ground(x) as f32) + heap[x as usize] as f32).collect();
+    for x in 1..top.len() {
+        top[x] = top[x].min(top[x - 1] + step);
+    }
+    for x in (0..top.len().saturating_sub(1)).rev() {
+        top[x] = top[x].min(top[x + 1] + step);
+    }
+
+    let mut n = 0;
+    for x in 0..w {
+        let height = (top[x as usize] + ground(x) as f32).floor() as i32;
+        if height <= 0 {
             continue;
         }
-        let base_y = ctx.plans[foot as usize].surface_y;
-        // The apron's top surface: one cell of fall per two cells out, a
-        // slope of 0.5 against gravel's 45° repose.
-        let top_at = |step: i32| base_y - (peak - step / 2);
-        let mut plan: Vec<(i32, i32, i32)> = Vec::new(); // (tx, top_y, ground)
-        let mut prev_ground = base_y;
-        let mut tapered = false;
-        for step in 0..=(peak * 2) {
-            let tx = x + dir * (step + 1);
-            if tx < 0 || tx >= ctx.terrain.w {
-                break;
+        let g = ground(x);
+        for y in (g - height).max(0)..g {
+            // Open air only. The apron heaps against the face and on top of
+            // the ground; it never eats into either.
+            if world.get(x, y).material != material::EMPTY {
+                continue;
             }
-            let ground = ctx.plans[tx as usize].surface_y;
-            // A further drop inside the footprint would leave the apron
-            // hanging over it.
-            if (ground - prev_ground).abs() > 1 {
-                break;
-            }
-            prev_ground = ground;
-            let top_y = top_at(step);
-            if top_y >= ground {
-                // The apron's surface has met the ground: it has thinned to
-                // nothing of its own accord, which is the only ending that
-                // leaves no free face.
-                tapered = true;
-                break;
-            }
-            plan.push((tx, top_y, ground));
-        }
-        // No taper means the ground fell away as fast as the apron did and
-        // the two never met. Scree there would end in a cliff of its own.
-        if !tapered {
-            continue;
-        }
-        for (tx, top_y, ground) in plan {
-            for y in top_y.max(0)..ground {
-                // Open air only. The apron heaps *against* the face and on
-                // top of the ground; it never eats into either, so every
-                // cell it writes is resting on something solid.
-                if world.get(tx, y).material != material::EMPTY {
-                    continue;
-                }
-                world.set(tx, y, Cell::new(ctx.gravel, loose_shade(ctx, Purpose::Pocket, tx, y)));
-                n += 1;
-            }
+            world.set(x, y, Cell::new(ctx.gravel, loose_shade(ctx, Purpose::Pocket, x, y)));
+            n += 1;
         }
     }
     n
@@ -402,12 +436,21 @@ pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {
     // y is a taller barrier, so the running extreme is a minimum.
     let mut left_rim = vec![i32::MAX; w];
     let mut right_rim = vec![i32::MAX; w];
-    let mut running = i32::MAX;
+    // The world edge is a wall, not an outlet. Reads outside the world return
+    // a solid sentinel, so water genuinely cannot leave -- but this sweep used
+    // to start from the edge column's own ground, which treats the edge as a
+    // spillway. While the macro shape was one fixed wave the low point was
+    // always interior and it never mattered; once regions could put the low
+    // ground at an edge, those worlds drained and `wetland` generated no water
+    // at all. Starting from the highest ground in the world makes the edges as
+    // tall as the tallest barrier, which is the wall they actually are.
+    let wall = ctx.plans.iter().map(|c| c.surface_y).min().unwrap_or(0);
+    let mut running = wall;
     for (x, rim) in left_rim.iter_mut().enumerate() {
         running = running.min(ctx.plans[x].surface_y);
         *rim = running;
     }
-    running = i32::MAX;
+    running = wall;
     for x in (0..w).rev() {
         running = running.min(ctx.plans[x].surface_y);
         right_rim[x] = running;
@@ -760,17 +803,23 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
 
         // Trees want soil to root in; moss will take bare rock as well, which
         // is what puts green on a cliff face where nothing else grows.
-        let on_soil = footing == ctx.soil || footing == ctx.sand;
+        // Trees want soil specifically. Sand is footing enough for moss to
+        // cling to but not for a tree to root in, which is what keeps a
+        // desert looking like a desert without a rule saying "no trees in
+        // deserts" -- the material already says it.
+        let on_soil = footing == ctx.soil;
+        // ...and dry country thins what grows even where soil remains.
+        let dryness = 1.0 - ctx.terrain.character(x).aridity;
         if on_soil
             && last_tree.is_none_or(|last| x - last >= TREE_SPACING)
-            && noise::unit(ctx.terrain.seed, Purpose::Life, x, 7) < p.tree_density * cluster
+            && noise::unit(ctx.terrain.seed, Purpose::Life, x, 7) < p.tree_density * cluster * dryness
             && world.plant_tree_species(x, above, "tree")
         {
             last_tree = Some(x);
             n += 1;
             continue;
         }
-        if noise::unit(ctx.terrain.seed, Purpose::Life, x, 9) < p.moss_density * cluster {
+        if noise::unit(ctx.terrain.seed, Purpose::Life, x, 9) < p.moss_density * cluster * dryness {
             world.plant_moss_seed(x, above);
             n += 1;
         }
@@ -786,7 +835,6 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
 /// plant that will not be there. Far enough apart to both have a chance, near
 /// enough that a stand still reads as a stand.
 const TREE_SPACING: i32 = 7;
-
 /// Sand and gravel lenses sealed inside the rock.
 ///
 /// Loose material the player only finds by digging, and which behaves the

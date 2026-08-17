@@ -111,6 +111,30 @@ pub struct WorldgenParams {
     /// Ponds narrower than this are not generated, for the same reason.
     pub pond_min_width: f32,
 
+    // ---- regional variation ----
+    /// How dry this world is on average, `0` lush to `1` desert.
+    ///
+    /// One axis moving four things — loose cover from soil toward sand, the
+    /// water table down, dune shaping on, and what can grow thinned out —
+    /// because that is what makes a place read as *dry*, rather than as four
+    /// unrelated settings that happen to coincide.
+    pub aridity: f32,
+    /// Height of dune crests in country dry enough to be sand. Zero disables.
+    pub dune_amplitude: f32,
+    /// Spacing of those crests.
+    pub dune_wavelength: f32,
+    /// Extra cells the water table drops in fully arid country, on top of
+    /// `table_offset`. This is what stops a desert having ponds in it.
+    pub aridity_table_drop: f32,
+    /// How far the regions of a world stray from the preset, `0`..`1`.
+    ///
+    /// Zero makes a world uniform end to end, which is what a structural test
+    /// bed needs and what every world used to be. Above zero the world is cut
+    /// into two to five regions that each draw their own elevation and
+    /// character — see `region.rs` for why this is the difference between
+    /// "different numbers" and "a different world".
+    pub region_variation: f32,
+
     // ---- life ----
     /// Per-column moss probability scale. Zero disables plant scatter.
     pub moss_density: f32,
@@ -132,7 +156,7 @@ impl Default for WorldgenParams {
     fn default() -> Self {
         Self {
             sky_rows: 95.0,
-            relief_amplitude: 36.0,
+            relief_amplitude: 46.0,
             hill_amplitude: 30.0,
             hill_wavelength: 150.0,
             detail_amplitude: 2.5,
@@ -142,7 +166,7 @@ impl Default for WorldgenParams {
             terrace_step: 26.0,
             terrace_strength: 0.9,
             mask_wavelength: 150.0,
-            soil_depth: 16.0,
+            soil_depth: 26.0,
             soil_slope_cutoff: 0.8,
             bedrock_band: 4.0,
             strata_thickness: 9.0,
@@ -156,6 +180,11 @@ impl Default for WorldgenParams {
             capillary_fringe: 24.0,
             pond_min_depth: 2.0,
             pond_min_width: 4.0,
+            aridity: 0.35,
+            dune_amplitude: 14.0,
+            dune_wavelength: 46.0,
+            aridity_table_drop: 90.0,
+            region_variation: 0.75,
             moss_density: 0.10,
             tree_density: 0.26,
             life_cluster_wavelength: 70.0,
