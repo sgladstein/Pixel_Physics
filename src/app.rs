@@ -87,6 +87,13 @@ pub struct App {
     /// `jump_pressed` is cleared after the first simulated tick so a
     /// catch-up burst cannot fire one press several times.
     pub player_input: player::PlayerInput,
+    /// Which `player::MOVEMENT_FEELS` / `WATER_FEELS` entry is live.
+    /// Indices rather than copies of the numbers, so the status line can
+    /// name the active one — a mode you cannot see is the failure this
+    /// codebase keeps relearning, and a *feel* selector you cannot see is
+    /// worse, since the whole point is reporting back which one won.
+    pub movement_feel: usize,
+    pub water_feel: usize,
     pub renderer: Renderer,
     pub brush_radius: i32,
     /// Index into `paintable`, not a `MaterialId`, so cycling wraps cleanly.
@@ -210,6 +217,27 @@ pub enum Tool {
     /// Drag out a straight run of the current brush width. Beams,
     /// diagonals, bracing.
     Line,
+    /// The gnome's dig (M9 phase 2). Freehand like `Brush`, but the left
+    /// button cuts rock at his arm's length toward the cursor instead of
+    /// laying material down.
+    ///
+    /// **A mode, after proximity gating failed in play.** The first
+    /// version had no tool of its own: while a gnome existed, a left
+    /// click *within `dig_reach` of him* dug and anything further painted.
+    /// Reported from the first playtest as "I cannot dig. The mouse
+    /// either makes sand/material or erases it" — and correctly, because
+    /// at zoom 1 that reach is a fourteen-*pixel* bullseye around a 3x6
+    /// pixel character, with no indication it is there and the ordinary
+    /// brush as the failure mode. Nothing on screen said a second verb
+    /// existed, so the verb effectively did not.
+    ///
+    /// The general lesson is one `CLAUDE.md` already states about size
+    /// caps: a reach may bound *where* something happens and must never
+    /// decide *whether* it happens. Reach now only clamps the bite along
+    /// the aim ray; the tool decides the verb, is named in the persistent
+    /// HUD label like every other tool, and is switched to automatically
+    /// when a gnome is summoned.
+    Dig,
 }
 
 /// Frames a `toast` stays up — two seconds at the sandbox's fixed 60 Hz.
@@ -295,6 +323,8 @@ impl App {
             blasts: explosion::Blasts::with_tuning(explosion::Tuning::load()),
             player_tuning: player::Tuning::load(),
             player_input: player::PlayerInput::default(),
+            movement_feel: 0,
+            water_feel: 0,
             renderer: Renderer::new(),
             brush_radius: 6,
             selected,
@@ -390,13 +420,45 @@ impl App {
         self.show_toast(text);
     }
 
+    /// `L` — cycle the gnome's movement feel. See `player::MovementFeel`
+    /// for why this is a runtime selector rather than a decided number.
+    ///
+    /// Overwrites whatever the PLAYER tunables currently hold for the
+    /// fields it owns, and says so: the two are the coarse and fine
+    /// halves of the same job, and silently keeping a hand-swept value
+    /// while announcing a preset name would make the label a lie.
+    pub fn cycle_movement_feel(&mut self) {
+        self.movement_feel = (self.movement_feel + 1) % player::MOVEMENT_FEELS.len();
+        let feel = &player::MOVEMENT_FEELS[self.movement_feel];
+        feel.apply(&mut self.player_tuning);
+        let line = format!(
+            "JUMP FEEL: {} - {} (rise ~{:.0} CELLS)",
+            feel.name,
+            feel.note.to_uppercase(),
+            feel.jump_cells()
+        );
+        self.show_toast(&line);
+    }
+
+    /// `Y` — cycle how water handles him. See `player::WaterFeel`.
+    pub fn cycle_water_feel(&mut self) {
+        self.water_feel = (self.water_feel + 1) % player::WATER_FEELS.len();
+        let feel = &player::WATER_FEELS[self.water_feel];
+        feel.apply(&mut self.player_tuning);
+        let line = format!("WATER FEEL: {} - {}", feel.name, feel.note.to_uppercase());
+        self.show_toast(&line);
+    }
+
     /// `Z` — cycle the build gesture. See `App::tool`.
     pub fn cycle_tool(&mut self) {
         self.tool = match self.tool {
             Tool::Brush => Tool::Rect,
             Tool::Rect => Tool::Room,
             Tool::Room => Tool::Line,
-            Tool::Line => Tool::Brush,
+            // Dig sits in the cycle only while there is a gnome to do it,
+            // rather than being a mode you can select and have do nothing.
+            Tool::Line if self.world.player.is_some() => Tool::Dig,
+            Tool::Line | Tool::Dig => Tool::Brush,
         };
         self.drag_from = None;
         self.show_toast(match self.tool {
@@ -404,6 +466,7 @@ impl App {
             Tool::Rect => "TOOL: RECTANGLE - DRAG OUT A SOLID BLOCK",
             Tool::Room => "TOOL: ROOM - HOLLOW, BRUSH SETS WALL THICKNESS",
             Tool::Line => "TOOL: LINE - DRAG OUT A BEAM",
+            Tool::Dig => "TOOL: DIG - LMB CUTS AT THE GNOME'S ARM'S LENGTH",
         });
     }
 
@@ -452,7 +515,8 @@ impl App {
             Tool::Line => {
                 self.world.paint_capsule_as(a, b, self.brush_radius, m, density);
             }
-            Tool::Brush => {}
+            // Freehand tools commit as the cursor moves, not on release.
+            Tool::Brush | Tool::Dig => {}
         }
     }
 
@@ -902,6 +966,7 @@ impl App {
             Tool::Rect => format!("{} R{} - RECT", self.selected_name(), self.brush_radius),
             Tool::Room => format!("{} R{} - ROOM", self.selected_name(), self.brush_radius),
             Tool::Line => format!("{} R{} - LINE", self.selected_name(), self.brush_radius),
+            Tool::Dig => "GNOME DIG - LMB CUT, RMB ERASE, Z FOR THE BRUSH".to_string(),
         };
         hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
         // Directly above the persistent brush label, so a mode change reads
@@ -946,21 +1011,43 @@ impl App {
                         render::put(frame, WIDTH, HEIGHT, x, y, YELLOW);
                     }
                 }
-                Tool::Brush => {}
+                Tool::Brush | Tool::Dig => {}
             }
         }
 
         if let Some((sx, sy)) = cursor {
+            // Under the dig tool the cursor ring moves to where the *bite*
+            // will land, not where the mouse is.
+            //
+            // This is the other half of the fix for "I cannot dig". A
+            // reach-limited verb aimed with a free cursor is invisible
+            // without it: point past his arms and the cut lands somewhere
+            // you did not click, point into a hillside and it lands on
+            // the near face, and with a ring drawn under the mouse both
+            // read as the game ignoring the click. Drawn from
+            // `player::bite_point`, the same function `dig` aims with, so
+            // the marker cannot drift from the cut. Sized to
+            // `dig_radius`, so the ring also says how big a bite is.
+            let dig_marker = match (self.tool, &self.world.player) {
+                (Tool::Dig, Some(p)) => {
+                    let aim = self.renderer.screen_to_world(sx, sy);
+                    let at = player::bite_point(&self.world, p, aim, &self.player_tuning);
+                    self.renderer.world_to_screen(at.0, at.1).map(|s| (s, self.player_tuning.dig_radius as i32))
+                }
+                _ => None,
+            };
+            let ((cx, cy), radius) = dig_marker.unwrap_or(((sx, sy), self.brush_radius));
             // Brush outline preview -- always on while the cursor is in the
             // window, scaled to match whatever `render.rs`'s own zoom is
             // doing so the ring actually matches the area a click would
             // paint, not the unscaled brush_radius regardless of zoom.
             let screen_radius = if self.renderer.zoom > 1 {
-                self.brush_radius * self.renderer.zoom
+                radius * self.renderer.zoom
             } else {
-                (self.brush_radius / self.renderer.zoom_out_stride.max(1)).max(1)
+                (radius / self.renderer.zoom_out_stride.max(1)).max(1)
             };
-            render::draw_circle_outline(frame, WIDTH, HEIGHT, sx, sy, screen_radius, WHITE);
+            let ring = if dig_marker.is_some() { YELLOW } else { WHITE };
+            render::draw_circle_outline(frame, WIDTH, HEIGHT, cx, cy, screen_radius, ring);
 
             if self.show_hover_inspector {
                 self.draw_hover_inspector(frame, sx, sy, YELLOW);
@@ -1321,6 +1408,7 @@ impl App {
             "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
             "  CLICK NEAR THE GNOME: HE DIGS (FURTHER AWAY: BRUSH AS EVER)",
             "  IN WATER: W STROKE UP    S SWIM DOWN",
+            "  L JUMP FEEL    Y WATER FEEL  (CYCLE AND SAY WHICH IS BEST)",
             "C STRIKE ROCK    H DIG (PRECISE CUT)",
             "F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    J PLANT WORM",
@@ -1406,27 +1494,23 @@ impl App {
     /// Paint the area the brush swept between two screen positions, so a fast
     /// drag leaves one continuous stroke rather than a row of blobs.
     pub fn paint_stroke(&mut self, from: (i32, i32), to: (i32, i32), erase: bool) {
-        // M9 phase 2: while the gnome exists, the left button *near him*
-        // is his dig — reach-limited, on his own cooldown, spoil shoved
-        // aside rather than deleted (`player::dig`). Beyond reach the
-        // brush paints as ever, so the sandbox tools stay usable with him
-        // on screen; while he is buried, any left click digs him out
-        // regardless of where the cursor is, because a rescue should not
-        // require pixel-hunting the mound he is inside. The right button
-        // stays the eraser everywhere. Gated here rather than in
-        // `main.rs`'s `paint_now` for the reason that function's own
-        // comment gives: one gate on the operation, three call sites.
-        if !erase {
-            if let Some(p) = &self.world.player {
-                let target = self.renderer.screen_to_world(to.0, to.1);
-                let (cx, cy) = p.center();
-                let (dx, dy) = (target.0 - cx, target.1 - cy);
-                let reach = self.player_tuning.dig_reach as i32;
-                if p.buried || dx * dx + dy * dy <= reach * reach {
-                    player::dig(&mut self.world, target, &self.player_tuning);
-                    return;
-                }
-            }
+        // M9 phase 2: under `Tool::Dig`, the left button is the gnome's
+        // dig rather than the brush — on his own cooldown, cutting the
+        // near face along the aim, spoil shoved aside rather than deleted
+        // (`player::dig`). The right button stays the eraser, which is
+        // also the rescue if he digs himself somewhere impossible.
+        //
+        // Keyed on the *tool*, not on how close the cursor is to him.
+        // See `Tool::Dig`'s own doc for the playtest that killed the
+        // proximity version: a reach may bound where a verb lands and
+        // must never decide whether it happens, or the verb is invisible.
+        // Gated here rather than in `main.rs`'s `paint_now` for the
+        // reason that function's own comment gives: one gate on the
+        // operation, three call sites.
+        if !erase && self.tool == Tool::Dig && self.world.player.is_some() {
+            let target = self.renderer.screen_to_world(to.0, to.1);
+            player::dig(&mut self.world, target, &self.player_tuning);
+            return;
         }
         let m = if erase {
             material::EMPTY
@@ -1531,12 +1615,23 @@ impl App {
     /// (held-key movement, the PLAYER tunables) is inert without one.
     pub fn summon_player(&mut self, screen_x: i32, screen_y: i32) {
         if self.world.player.take().is_some() {
+            // Dig without a digger is a mode that does nothing, so the
+            // brush comes back with him gone.
+            if self.tool == Tool::Dig {
+                self.tool = Tool::Brush;
+            }
             self.message = Some("gnome dismissed".into());
             return;
         }
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         self.world.player = Some(player::Player::at(x, y));
-        self.message = Some("gnome summoned — A/D run, W jump, click near him to dig, U dismiss".into());
+        // Switched into the dig tool on arrival rather than left for the
+        // player to find. A verb nobody knows exists is a verb that does
+        // not exist — see `Tool::Dig` — and arriving in it also makes the
+        // persistent HUD label say what the mouse now does.
+        self.tool = Tool::Dig;
+        self.message =
+            Some("gnome summoned — A/D run, W jump, LMB dig, L jump feel, Y water feel, U dismiss".into());
     }
 
     /// How much of the brush to fill per application.
@@ -1571,7 +1666,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1589,6 +1684,19 @@ impl App {
                 String::new()
             } else {
                 format!(" — grain {}", self.renderer.grain.label())
+            },
+            // Same rule as grain: silent until someone is actually
+            // comparing, then named, because the whole value of a
+            // selector is being able to report which one you liked.
+            match (self.movement_feel, self.water_feel) {
+                (0, 0) => String::new(),
+                (m, 0) => format!(" — jump {}", player::MOVEMENT_FEELS[m].name),
+                (0, w) => format!(" — water {}", player::WATER_FEELS[w].name),
+                (m, w) => format!(
+                    " — jump {} — water {}",
+                    player::MOVEMENT_FEELS[m].name,
+                    player::WATER_FEELS[w].name
+                ),
             },
             // Uncommitted asset edits, so a value saved mid-playtest is a
             // glance rather than an audit. Silent when git can't answer.
@@ -1701,6 +1809,52 @@ mod tests {
             let m = id(&app, name);
             assert!(app.paintable.contains(&m), "{name} is not paintable");
         }
+    }
+
+    /// The guard for the M9 bug that reached a playtest: the dig existed,
+    /// had seven passing unit tests, and **could not be performed with
+    /// the mouse**, because the only route to it was a click within
+    /// `dig_reach` world cells of a character a few pixels tall. Every
+    /// test called `player::dig` directly and so proved nothing about the
+    /// path a player actually uses.
+    ///
+    /// So this one goes through `paint_stroke`, the function the mouse
+    /// reaches, from a cursor position deliberately far from him.
+    #[test]
+    fn a_click_far_from_the_gnome_still_digs_rather_than_painting() {
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        // A wall to his right, and open ground to stand on.
+        for y in 40..70 {
+            for x in 0..120 {
+                app.world.set(x, y, Cell::EMPTY);
+            }
+        }
+        for x in 0..120 {
+            app.world.set(x, 70, Cell::new(stone, 0).with_attached(true));
+        }
+        for y in 40..70 {
+            for x in 45..120 {
+                app.world.set(x, y, Cell::new(stone, 0).with_attached(true));
+            }
+        }
+        app.summon_player(30, 64);
+        assert_eq!(app.tool, Tool::Dig, "summoning must arrive in the dig tool, or nothing announces the verb");
+
+        let count_stone = |app: &App| {
+            (40..70).map(|y| (0..120).filter(|&x| app.world.get(x, y).material == stone).count()).sum::<usize>()
+        };
+        let before = count_stone(&app);
+        // Well past `dig_reach` and past the wall's near face: the case
+        // the shipped version silently painted on. The bite is clamped
+        // back onto the face, which is inside his reach, so rock goes.
+        app.paint_stroke((110, 64), (110, 64), false);
+        let after = count_stone(&app);
+        assert!(after < before, "a far click should have cut rock: {before} -> {after}");
+
+        // And the brush is still reachable: `Z` off the dig tool paints.
+        app.cycle_tool();
+        assert_ne!(app.tool, Tool::Dig, "Z must get the player out of the dig tool");
     }
 
     #[test]

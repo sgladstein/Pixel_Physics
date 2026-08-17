@@ -221,22 +221,43 @@ const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 const CRACK_DARKEN: u16 = 110;
 
 /// The gnome's colored-cell sprite, `PLAYER_HEIGHT` rows of
-/// `PLAYER_WIDTH`, top to bottom: hat tip, hat brim, face, tunic x2,
-/// boots with a gap between them. `None` cells are transparent — the
-/// world shows through, which is what keeps a 3x6 block reading as a
-/// figure rather than a crate.
+/// `PLAYER_WIDTH`, top to bottom: a pointed hat over a bearded face, a
+/// tunic with arms, a belt, and legs with a gap between the boots. `None`
+/// cells are transparent — the world shows through, which is what keeps a
+/// filled rectangle reading as a figure rather than a crate.
+///
+/// Grown from 3x6 to 5x10 on a playtest note ("can we make the gnome a
+/// little bigger"). The extra rows are what buy the readable silhouette:
+/// at 3x6 there was exactly one row for the face and none at all for
+/// arms, so every feature had to be a full-width band.
 const GNOME_HAT: [u8; 4] = [204, 62, 48, 255];
 const GNOME_FACE: [u8; 4] = [232, 186, 148, 255];
+const GNOME_BEARD: [u8; 4] = [226, 226, 226, 255];
 const GNOME_TUNIC: [u8; 4] = [74, 138, 70, 255];
+const GNOME_BELT: [u8; 4] = [82, 54, 34, 255];
 const GNOME_BOOT: [u8; 4] = [108, 76, 46, 255];
-const GNOME_SPRITE: [[Option<[u8; 4]>; 3]; 6] = [
-    [None, Some(GNOME_HAT), None],
-    [Some(GNOME_HAT), Some(GNOME_HAT), Some(GNOME_HAT)],
-    [Some(GNOME_FACE), Some(GNOME_FACE), Some(GNOME_FACE)],
-    [Some(GNOME_TUNIC), Some(GNOME_TUNIC), Some(GNOME_TUNIC)],
-    [Some(GNOME_TUNIC), Some(GNOME_TUNIC), Some(GNOME_TUNIC)],
-    [Some(GNOME_BOOT), None, Some(GNOME_BOOT)],
-];
+const GNOME_SPRITE: [[Option<[u8; 4]>; 5]; 10] = {
+    // Local aliases, so the table below stays a picture you can read.
+    const H: Option<[u8; 4]> = Some(GNOME_HAT);
+    const F: Option<[u8; 4]> = Some(GNOME_FACE);
+    const W: Option<[u8; 4]> = Some(GNOME_BEARD);
+    const T: Option<[u8; 4]> = Some(GNOME_TUNIC);
+    const L: Option<[u8; 4]> = Some(GNOME_BELT);
+    const B: Option<[u8; 4]> = Some(GNOME_BOOT);
+    const X: Option<[u8; 4]> = None;
+    [
+        [X, X, H, X, X],
+        [X, H, H, H, X],
+        [H, H, H, H, H],
+        [X, F, F, F, X],
+        [X, W, W, W, X],
+        [T, T, T, T, T],
+        [T, T, L, T, T],
+        [X, T, T, T, X],
+        [X, B, X, B, X],
+        [B, B, X, B, B],
+    ]
+};
 
 pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.

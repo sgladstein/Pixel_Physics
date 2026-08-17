@@ -24,11 +24,20 @@
 use super::material::MaterialKind;
 use super::world::World;
 
-/// Character extent in cells. 3x6 on a 512x320 world reads gnome-scale
-/// (a worm is 1 cell, trees are tens), and fits through the 9-cell bore a
-/// radius-4 `rigid::mine` carves — the tunnel size phase 2 digs.
-pub const PLAYER_WIDTH: i32 = 3;
-pub const PLAYER_HEIGHT: i32 = 6;
+/// Character extent in cells. 5x10 on a 512x320 world reads gnome-scale
+/// (a worm is 1 cell, trees are tens) while still being large enough to
+/// have a silhouette, and fits upright through the 11-cell bore a
+/// radius-5 `rigid::mine` carves — `dig_radius` and this are a pair, and
+/// a bore narrower than he is tall is a tunnel he has to be shoved
+/// through by depenetration.
+///
+/// Was 3x6, grown on the first playtest ("can we make the gnome a little
+/// bigger"). Everything scaled with it rather than only the constants:
+/// `step_up` and `wade_rows` are fractions of his height, not absolute
+/// distances, so leaving them alone would have made a bigger gnome trip
+/// on smaller things and wade shallower.
+pub const PLAYER_WIDTH: i32 = 5;
+pub const PLAYER_HEIGHT: i32 = 10;
 
 /// How far the depenetration pass will push to free an invaded rectangle
 /// before giving up and declaring the player buried. Small on purpose: a
@@ -89,25 +98,26 @@ pub struct Tuning {
     /// Ticks a jump press is remembered while airborne, so landing within
     /// the buffer jumps immediately.
     pub jump_buffer_frames: u8,
-    /// Tallest ledge, in cells, walked up without jumping. 2 rather than
-    /// 1 because `rigid::mine` leaves rubble and worldgen terrain is
-    /// rough — a 1-cell step-up feels sticky on exactly the ground this
-    /// game produces.
+    /// Tallest ledge, in cells, walked up without jumping. Kept at about
+    /// a third of his height because `rigid::mine` leaves rubble and
+    /// worldgen terrain is rough — a step-up any shorter feels sticky on
+    /// exactly the ground this game produces.
     pub step_up: u8,
     /// How far from the gnome's centre a dig can land, in cells. The dig
     /// point is clamped onto this circle along the aim ray, so clicking
     /// across the map digs at arm's length toward the cursor rather than
     /// doing nothing.
     pub dig_reach: u8,
-    /// Radius of one dig bite. 4 bores a 9-cell hole — two overlapping
-    /// bites make a tunnel a 3x6 gnome walks through upright.
+    /// Radius of one dig bite. 5 bores an 11-cell hole — clearance for a
+    /// 10-tall gnome to walk through his own tunnel upright rather than
+    /// being shoved along it by the depenetration pass.
     pub dig_radius: u8,
     /// Ticks between bites while the button is held. 8 is ~7 bites a
     /// second: fast enough to feel like digging, slow enough that each
     /// bite's crack/impulse feedback reads individually.
     pub dig_cooldown: u8,
     /// How many rows of him may be buried in loose powder before it stops
-    /// counting as wading and starts counting as being stuck. 2 of his 6
+    /// counting as wading and starts counting as being stuck. 3 of his 10
     /// rows — about knee-deep — so a drift slows him without swallowing
     /// him, and a pile deeper than that pushes back.
     pub wade_rows: u8,
@@ -141,11 +151,11 @@ impl Default for Tuning {
             fall_clamp: 4.0,
             coyote_frames: 6,
             jump_buffer_frames: 4,
-            step_up: 2,
-            dig_reach: 14,
-            dig_radius: 4,
+            step_up: 3,
+            dig_reach: 22,
+            dig_radius: 5,
             dig_cooldown: 8,
-            wade_rows: 2,
+            wade_rows: 3,
             wade_slowdown: 0.4,
             buoyancy: -0.3,
             swim_damp: 0.9,
@@ -154,6 +164,167 @@ impl Default for Tuning {
         }
     }
 }
+
+/// A named set of movement numbers, cycled live with `L`.
+///
+/// This exists because of a playtest answer, and the answer was the right
+/// one: asked how the jump felt, the owner said *"honest, not sure — if
+/// you could make some jump modes that I could toggle through and tell
+/// you the best, that would be easier."* Which is `CLAUDE.md`'s own rule
+/// for exactly this situation — for "does this feel right", ship a
+/// runtime selector rather than argue a number — and it settled the grain
+/// question in minutes after stills and argument had failed.
+///
+/// The first entry is current behaviour, so cycling away and back is
+/// always possible, and the active one is named on screen. Everything
+/// here is also reachable individually under `O` -> PLAYER; these are the
+/// coarse "pick a character" step before that fine tuning.
+pub struct MovementFeel {
+    pub name: &'static str,
+    /// What this one trades, in the player's terms — shown on screen.
+    pub note: &'static str,
+    pub gravity: f32,
+    pub jump_impulse: f32,
+    pub fall_clamp: f32,
+    pub run_accel: f32,
+    pub run_max: f32,
+    pub air_control: f32,
+}
+
+impl MovementFeel {
+    pub fn apply(&self, t: &mut Tuning) {
+        t.gravity = self.gravity;
+        t.jump_impulse = self.jump_impulse;
+        t.fall_clamp = self.fall_clamp;
+        t.run_accel = self.run_accel;
+        t.run_max = self.run_max;
+        t.air_control = self.air_control;
+    }
+
+    /// Rise of a full jump in cells, `v^2 / 2g` — quoted on screen
+    /// because "how high" is the thing being judged and counting pixels
+    /// off a moving character is not a reasonable thing to ask.
+    pub fn jump_cells(&self) -> f32 {
+        self.jump_impulse * self.jump_impulse / (2.0 * self.gravity)
+    }
+}
+
+pub const MOVEMENT_FEELS: [MovementFeel; 5] = [
+    MovementFeel {
+        name: "PLANNED",
+        note: "the built default",
+        gravity: 0.15,
+        jump_impulse: 2.0,
+        fall_clamp: 4.0,
+        run_accel: 0.13,
+        run_max: 1.3,
+        air_control: 0.5,
+    },
+    MovementFeel {
+        name: "FLOATY",
+        note: "long hang, slow fall, easy to steer in the air",
+        gravity: 0.10,
+        jump_impulse: 1.9,
+        fall_clamp: 2.6,
+        run_accel: 0.10,
+        run_max: 1.2,
+        air_control: 0.8,
+    },
+    MovementFeel {
+        name: "SNAPPY",
+        note: "quick up, quick down, little hang",
+        gravity: 0.24,
+        jump_impulse: 2.6,
+        fall_clamp: 5.5,
+        run_accel: 0.22,
+        run_max: 1.6,
+        air_control: 0.45,
+    },
+    MovementFeel {
+        name: "HEAVY",
+        note: "weighty: slow to start, hard to stop, drops like rock",
+        gravity: 0.34,
+        jump_impulse: 2.6,
+        fall_clamp: 6.0,
+        run_accel: 0.10,
+        run_max: 1.5,
+        air_control: 0.25,
+    },
+    MovementFeel {
+        name: "BOUNDER",
+        note: "big arcs — clears two of his own heights",
+        gravity: 0.16,
+        jump_impulse: 2.6,
+        fall_clamp: 4.5,
+        run_accel: 0.16,
+        run_max: 1.5,
+        air_control: 0.6,
+    },
+];
+
+/// The same idea for water, cycled with `Y`, after the first playtest
+/// reported the swimming as the thing that was off: *"Water is off, with
+/// swimming, I didn't like the buoyancy."*
+///
+/// The spread is deliberately across the *model*, not just its strength,
+/// because "didn't like the buoyancy" has two opposite readings and
+/// guessing which costs a whole round trip: he may have meant it lifts
+/// him too eagerly (nothing to do, he pops up on his own) or that it
+/// fights him (he cannot stay down). `CORK` and `DIVER` sit at those two
+/// extremes and `TREAD` removes automatic vertical motion entirely, so
+/// whichever it was, one of these is the answer.
+pub struct WaterFeel {
+    pub name: &'static str,
+    pub note: &'static str,
+    pub buoyancy: f32,
+    pub swim_damp: f32,
+    pub stroke_impulse: f32,
+    pub stroke_cooldown: u8,
+}
+
+impl WaterFeel {
+    pub fn apply(&self, t: &mut Tuning) {
+        t.buoyancy = self.buoyancy;
+        t.swim_damp = self.swim_damp;
+        t.stroke_impulse = self.stroke_impulse;
+        t.stroke_cooldown = self.stroke_cooldown;
+    }
+}
+
+pub const WATER_FEELS: [WaterFeel; 4] = [
+    WaterFeel {
+        name: "PLANNED",
+        note: "the built default: floats up on its own",
+        buoyancy: -0.3,
+        swim_damp: 0.9,
+        stroke_impulse: 0.8,
+        stroke_cooldown: 10,
+    },
+    WaterFeel {
+        name: "TREAD",
+        note: "no automatic rise or sink — he stays where you leave him",
+        buoyancy: 0.0,
+        swim_damp: 0.86,
+        stroke_impulse: 1.1,
+        stroke_cooldown: 8,
+    },
+    WaterFeel {
+        name: "DIVER",
+        note: "sinks slowly; staying up is something you do",
+        buoyancy: 0.18,
+        swim_damp: 0.84,
+        stroke_impulse: 1.3,
+        stroke_cooldown: 7,
+    },
+    WaterFeel {
+        name: "CORK",
+        note: "pops to the surface fast; strokes only steer",
+        buoyancy: -0.85,
+        swim_damp: 0.93,
+        stroke_impulse: 0.6,
+        stroke_cooldown: 12,
+    },
+];
 
 impl Tuning {
     /// Where the panel persists these, beside the other asset files.
@@ -444,9 +615,24 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     let (xi, yi) = p.rect_origin();
     p.swimming = (0..PLAYER_WIDTH)
         .any(|dx| world.in_bounds(xi + dx, yi) && world.materials.kind(world.get(xi + dx, yi).material) == MaterialKind::Liquid);
-    p.wading = !p.swimming
-        && (0..PLAYER_HEIGHT)
-            .any(|dy| (0..PLAYER_WIDTH).any(|dx| footing(world, &bodies, xi + dx, yi + dy) == Footing::Soft));
+    // How *deep* in the powder, not merely whether. Reported from the
+    // first playtest: "sand and dirt felt the same, which was just a
+    // little slower than rock. It just felt like it changed my speed" —
+    // which is exactly what a binary flag produces, a debuff rather than
+    // a depth. Counting the rows of him that are in it and scaling the
+    // slowdown by that gives the graded outcome the ethos asks for: a
+    // scuff through the top of a drift barely registers, ankle-deep drags
+    // a little, knee-deep is a slog.
+    let soaked = (0..PLAYER_HEIGHT)
+        .filter(|&dy| (0..PLAYER_WIDTH).any(|dx| footing(world, &bodies, xi + dx, yi + dy) == Footing::Soft))
+        .count() as f32;
+    p.wading = !p.swimming && soaked > 0.0;
+    let wade_drag = if p.wading {
+        let t = (soaked / wade.max(1) as f32).clamp(0.0, 1.0);
+        1.0 + (tuning.wade_slowdown - 1.0) * t
+    } else {
+        1.0
+    };
 
     // --- intent to velocity ---
     let accel = if p.grounded { tuning.run_accel } else { tuning.run_accel * tuning.air_control };
@@ -461,7 +647,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         }
         _ => {}
     }
-    let top_speed = if p.wading { tuning.run_max * tuning.wade_slowdown } else { tuning.run_max };
+    let top_speed = tuning.run_max * wade_drag;
     p.vx = p.vx.clamp(-top_speed, top_speed);
 
     if input.jump_pressed {
@@ -657,7 +843,6 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
     let mut p = world.player.take()?;
     let bite = if p.dig_cooldown == 0 {
         p.dig_cooldown = tuning.dig_cooldown;
-        let (cx, cy) = p.center();
         // Buried, the bite auto-aims *above his head* rather than at his
         // own centre, and the difference is the whole escape. Centred on
         // himself, the disc reaches as far below his feet as above his
@@ -669,12 +854,7 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
         // buried digger actually works and the direction `depenetrate`
         // already prefers, so the two pull the same way and he climbs out
         // a few cells per bite.
-        let (_, y0, _, _) = p.bounds();
-        let at = if p.buried {
-            (cx, y0 - 1)
-        } else {
-            face_toward(world, (cx, cy), aim, tuning.dig_reach as i32)
-        };
+        let at = bite_point(world, &p, aim, tuning);
         let radius = tuning.dig_radius as i32;
         crate::sim::rigid::mine(world, at.0, at.1, radius);
         // How far spoil may be thrown, and the two cases genuinely differ.
@@ -703,6 +883,25 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
     };
     world.player = Some(p);
     bite
+}
+
+/// Where a bite aimed at `aim` would land, without digging anything.
+///
+/// Public, and shared with `dig` rather than reimplemented, because the
+/// renderer draws this spot as the dig cursor. The first playtest reported
+/// the dig as simply absent, and the deeper cause under the missing tool
+/// (see `app::Tool::Dig`) is that *nothing on screen said where a cut
+/// would go* — a reach-limited verb aimed with a free cursor is invisible
+/// unless it shows you its own reach. Two copies of this rule would mean
+/// the marker and the cut could disagree, which is worse than no marker.
+pub fn bite_point(world: &World, p: &Player, aim: (i32, i32), tuning: &Tuning) -> (i32, i32) {
+    let (cx, cy) = p.center();
+    if p.buried {
+        // Buried digs upward whatever the cursor says — see `dig`.
+        let (_, y0, _, _) = p.bounds();
+        return (cx, y0 - 1);
+    }
+    face_toward(world, (cx, cy), aim, tuning.dig_reach as i32)
 }
 
 /// What one bite actually did. Returned rather than kept private because

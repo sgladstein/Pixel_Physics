@@ -281,7 +281,9 @@ impl Handler {
         // `about_to_wait`), the first version of this guarded only the
         // press, and a fourth call site added later would reintroduce the
         // same bug. One gate on the operation itself cannot be missed.
-        if self.app.tool != pixel_physics::app::Tool::Brush {
+        // Brush and Dig both commit freehand as the cursor moves; the
+        // drag-out tools do not.
+        if !matches!(self.app.tool, pixel_physics::app::Tool::Brush | pixel_physics::app::Tool::Dig) {
             return;
         }
         let erase = self.erasing;
@@ -390,6 +392,8 @@ impl Handler {
             KeyCode::KeyI => self.app.toggle_hover_inspector(),
             KeyCode::KeyN => self.app.toggle_stress_view(),
             KeyCode::KeyZ => self.app.cycle_tool(),
+            KeyCode::KeyL => self.app.cycle_movement_feel(),
+            KeyCode::KeyY => self.app.cycle_water_feel(),
             KeyCode::Tab => self.app.toggle_palette(),
             KeyCode::Slash => self.app.toggle_help(),
             KeyCode::KeyO => self.app.toggle_tunables(),
