@@ -94,6 +94,11 @@ pub struct CreatureStats {
     pub spawned: u64,
     pub moves: u64,
     pub moves_blocked: u64,
+    /// Heading re-rolls — the tumble half of run-and-tumble. High is not a
+    /// fault: it is what a creature does while it is looking for a
+    /// gradient, and the ratio against `moves` is the readout on whether
+    /// the colony is searching or commuting.
+    pub tumbles: u64,
     pub falls: u64,
     pub eats: u64,
     pub pickups: u64,

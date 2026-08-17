@@ -32,18 +32,27 @@
 
 use serde::Deserialize;
 
-pub const BRAIN_INPUTS: usize = 14;
+pub const BRAIN_INPUTS: usize = 16;
 pub const BRAIN_HIDDEN: usize = 4;
 pub const BRAIN_OUTPUTS: usize = 6;
 
 /// The genome: one flat `Vec<f32>` in four contiguous positional blocks.
 ///
 /// ```text
-/// [0..84)     input -> output   (14 x 6)  -- the authored "taxis gains"
-/// [84..140)   input -> hidden   (14 x 4)
-/// [140..144)  hidden self-recurrence      (4)
-/// [144..168)  hidden -> output  (4 x 6)
+/// [0..96)     input -> output   (16 x 6)  -- the authored "taxis gains"
+/// [96..160)   input -> hidden   (16 x 4)
+/// [160..164)  hidden self-recurrence      (4)
+/// [164..188)  hidden -> output  (4 x 6)
 /// ```
+///
+/// **Grown once, by appending inputs 14 and 15**, after the lateral
+/// sensors turned out to be identically zero on a horizontal surface (see
+/// `BrainInput::PheroAAlong`). Every pre-existing slot kept its index and
+/// its meaning, which is what the law below actually protects; the flat
+/// block offsets moved, which is unavoidable when the scaffold grows and
+/// is harmless only because nothing persists a genome yet. **Once stage 4
+/// puts heritable genomes in flight this becomes a migration, not an
+/// edit.**
 ///
 /// **Slots are positional and must never be renumbered or reordered.** The
 /// same law the plant genome already lives under (`organism.rs`'s
@@ -52,11 +61,11 @@ pub const BRAIN_OUTPUTS: usize = 6;
 /// silently reinterprets every individual that already exists as a
 /// different animal. Growing the scaffold later means **appending** blocks,
 /// never inserting.
-pub const GENOME_LEN: usize = 168;
+pub const GENOME_LEN: usize = 188;
 
-const IO_END: usize = BRAIN_INPUTS * BRAIN_OUTPUTS; // 84
-const IH_END: usize = IO_END + BRAIN_INPUTS * BRAIN_HIDDEN; // 140
-const HH_END: usize = IH_END + BRAIN_HIDDEN; // 144
+const IO_END: usize = BRAIN_INPUTS * BRAIN_OUTPUTS; // 96
+const IH_END: usize = IO_END + BRAIN_INPUTS * BRAIN_HIDDEN; // 160
+const HH_END: usize = IH_END + BRAIN_HIDDEN; // 164
 
 /// A weight whose magnitude is below this is **no connection**: skipped in
 /// evaluation *and* exempt from the synapse tax.
@@ -116,6 +125,30 @@ pub enum BrainInput {
     /// authored genome ever has a zero gain here, that is the first thing
     /// to suspect when trails stop adapting.
     Crowding = 13,
+    /// **Pheromone gradient along the heading**: how much more channel A
+    /// there is at the forward sensor than underfoot, normalized to
+    /// `-1..1`, so a weak trail and a strong one both give a usable
+    /// reading.
+    ///
+    /// **This exists because the lateral inputs do not work on a surface.**
+    /// `PheroALateral`/`PheroBLateral` sample ahead-left and ahead-right at
+    /// the full sensor offset, which in a side-view world where creatures
+    /// walk on the ground puts both of them in open air — measured with
+    /// `examples/creature_probe.rs`, an ant standing on a cell holding
+    /// `A = 27` read `pheroA_lr` of exactly 0.000. The Jones/Physarum
+    /// sensor triad assumes agents in open 2D; this engine is not that.
+    ///
+    /// A scalar "is it getting better in the direction I am already going"
+    /// is what a surface-dweller can actually measure, and it is enough:
+    /// paired with a tumble on a failed move it gives run-and-tumble
+    /// chemotaxis, which is how bacteria solve exactly this problem without
+    /// being able to steer at all.
+    ///
+    /// The lateral inputs are kept, unwired, rather than removed. They are
+    /// correct for anything moving in open space (a flier, a swimmer) and
+    /// removing a slot is the one thing the positional law forbids.
+    PheroAAlong = 14,
+    PheroBAlong = 15,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -270,9 +303,9 @@ mod tests {
         // The slot-layout law made mechanical: if someone changes a size
         // const without re-deriving the blocks, the genome silently gains
         // or loses a tail and every stored individual is reinterpreted.
-        assert_eq!(IO_END, 84);
-        assert_eq!(IH_END, 140);
-        assert_eq!(HH_END, 144);
+        assert_eq!(IO_END, 96);
+        assert_eq!(IH_END, 160);
+        assert_eq!(HH_END, 164);
         assert_eq!(GENOME_LEN, HH_END + BRAIN_HIDDEN * BRAIN_OUTPUTS);
     }
 

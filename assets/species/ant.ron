@@ -122,6 +122,14 @@
             // takes thousands of frames to cross its own scene. Measured
             // at 0.7: 3634 moves and *zero* food found in 2000 frames.
             // 2.0 gives P(move) = 0.67.
+            // Baseline restlessness. Dropping this to 1.0 to leave the
+            // gradient more room was tried and cost more than it bought:
+            // an empty ant with no trail to read runs at P = 0.50 instead
+            // of 0.67, and food discovery -- which is a *search*, and
+            // depends on covering ground -- fell to a single pickup in
+            // 12,000 frames. The gradient gets its authority from the
+            // hidden gain below instead, which only applies when there is
+            // actually a gradient to read.
             (Bias, Move, 2.0),
             // Stop when there is food to deal with.
             // -1.5, not -0.8: against the Bias of 2.0 this leaves P(move)
@@ -177,48 +185,67 @@
         // **The gate a single layer cannot express**, authored as weights
         // rather than special-cased in code (report §4c's stated fallback).
         //
-        // "Follow B when empty-handed, A when laden" is a *product*, and a
-        // linear layer has no product. A single sigmoid unit cannot AND a
-        // signed signal with a gate either — saturate it and it fires on
-        // the signal alone. What works is a **symmetric pair** per channel:
-        // two units sharing a gate, with opposite polarity on the signal,
-        // wired to `Turn` with opposite signs.
+        // These four units were first wired to gate *steering* -- follow B
+        // empty-handed, A when laden -- and gating worked while the signal
+        // did not: on flat ground both lateral sensors sit in open air, so
+        // the thing being gated was identically zero (report §13b). They
+        // now gate the **run** instead, on the along-heading gradient,
+        // which is what a surface-dweller can actually read.
         //
-        // Ungated, both units saturate to the *same* value and their two
-        // contributions cancel exactly. Gated, they swing apart and
-        // reinforce. Worked through for unit pair 0/1 (channel A, gated on
-        // Carrying), with squash(x) = x/(1+|x|):
+        // A single sigmoid cannot AND a *signed* signal with a gate --
+        // saturate it and it fires on the signal alone. What works is a
+        // **symmetric pair** per channel: two units sharing a gate, with
+        // opposite polarity on the signal, wired to the output with
+        // opposite signs. Ungated, both saturate to the same value and
+        // cancel exactly; gated, they swing apart and reinforce. Worked
+        // through for pair 0/1, with squash(x) = x/(1+|x|):
         //
-        //   not carrying, A_lat 0    : both squash(-5) = -0.833 -> 0.000
-        //   not carrying, A_lat +0.5 : -0.667 and -0.889        -> +0.222
-        //   carrying,     A_lat 0    : both squash(0)  =  0.000 ->  0.000
-        //   carrying,     A_lat +0.5 : +0.750 and -0.750        -> +1.500
+        //   not carrying, A_along  0   : both squash(-5) = -0.833 ->  0.000
+        //   carrying,     A_along  0   : both squash( 0) =  0.000 ->  0.000
+        //   carrying,     A_along +0.5 : +0.750 and -0.750         -> +1.500
+        //   carrying,     A_along -0.5 : -0.750 and +0.750         -> -1.500
         //
-        // So a laden ant steers hard along nest scent and an empty one
-        // barely feels it. Pair 2/3 is the same shape with the gate
-        // inverted, so channel B steers an empty ant and is suppressed once
-        // it picks something up.
+        // So a laden ant runs while the nest scent is strengthening ahead
+        // of it and tumbles when it is not. Pair 2/3 is the same with the
+        // gate inverted, so an empty ant runs up the food trail.
+        // **Gate offsets of 30, and the size is the whole point.** A
+        // symmetric pair cancels *exactly* only when both units sit at the
+        // same point on the curve, so an ungated pair always leaks a
+        // little of the signal it is supposed to be ignoring -- and a
+        // little, applied every tick for thousands of ticks, is not
+        // little. At an offset of 5 the leak was 0.27 and empty ants
+        // clustered on the nest immediately; at 12 it was 0.09 and the
+        // colony still collapsed back onto the nest over 12,000 frames,
+        // visible as channel A in the middle third falling from 8,667 to
+        // 798 as the ants retreated. At 30 both units sit at -0.967 and
+        // -0.971 and the leak is 0.004, while the *gated* swing is
+        // unchanged at 1.5 -- deep saturation costs the gate nothing and
+        // buys the cancellation.
         hidden_wiring: [
-            // units 0,1 -- channel A, gated ON carrying
-            (Bias,          0, -5.0),
-            (Carrying,      0,  5.0),
-            (PheroALateral, 0,  6.0),
-            (Bias,          1, -5.0),
-            (Carrying,      1,  5.0),
-            (PheroALateral, 1, -6.0),
-            // units 2,3 -- channel B, gated OFF carrying
-            (Bias,          2, -1.0),
-            (Carrying,      2, -5.0),
-            (PheroBLateral, 2,  6.0),
-            (Bias,          3, -1.0),
-            (Carrying,      3, -5.0),
-            (PheroBLateral, 3, -6.0),
+            // units 0,1 -- channel A along the heading, gated ON carrying
+            (Bias,        0, -30.0),
+            (Carrying,    0,  30.0),
+            (PheroAAlong, 0,   6.0),
+            (Bias,        1, -30.0),
+            (Carrying,    1,  30.0),
+            (PheroAAlong, 1,  -6.0),
+            // units 2,3 -- channel B along the heading, gated OFF carrying
+            (Carrying,    2, -30.0),
+            (PheroBAlong, 2,   6.0),
+            (Carrying,    3, -30.0),
+            (PheroBAlong, 3,  -6.0),
         ],
+        // 2.5 against a baseline of 2.0, so the gated pair can drive the
+        // run probability the whole way to zero rather than merely dent
+        // it: a laden ant heading away from the nest computes
+        // squash(2.0 - 3.75) < 0, clamps to P(move) = 0 and does nothing
+        // but tumble until it is pointed somewhere better, while one
+        // heading home runs at 0.84. That ratio is the homing mechanism.
         hidden_outputs: [
-            (0, Turn,  1.0),
-            (1, Turn, -1.0),
-            (2, Turn,  1.0),
-            (3, Turn, -1.0),
+            (0, Move,  2.5),
+            (1, Move, -2.5),
+            (2, Move,  2.5),
+            (3, Move, -2.5),
         ],
     )),
 )

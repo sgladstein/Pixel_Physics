@@ -1638,6 +1638,14 @@ impl App {
         self.world.plant_worm(x, y);
     }
 
+    /// Found an ant colony on the ground under a screen position — `Y`.
+    /// See `World::found_colony`; a colony, not an ant, because fifty is
+    /// roughly where ants start behaving like ants.
+    pub fn found_colony(&mut self, screen_x: i32, screen_y: i32) {
+        let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
+        self.world.found_colony(x, y);
+    }
+
     /// Summon the gnome at a screen position, or dismiss him if already
     /// present — `U`. Opt-in by design: the sandbox stays a pure tool
     /// until a character is asked for, and everything character-shaped

@@ -1,7 +1,7 @@
 # Ants
 
-*Fresh as of the first ant milestone (stages 0–3). The colony forages,
-digs and builds; it does not yet reliably carry food home — see "What is
+*Fresh as of the first ant milestone. The colony forages, digs, builds and
+carries food home; it is not good at finding food far away — see "What is
 not finished" at the bottom.*
 
 An ant is a small dark creature, one or two cells long, that walks on
@@ -55,7 +55,13 @@ corpse. A corpse is food. Ants that die in a fire become the next colony's
 dinner, and none of that needed to be written down anywhere — it falls out
 of ants being ordinary matter.
 
-## Watching what they smell
+## Placing a colony, and watching what they smell
+
+Press **Y** to found a colony on the ground under the cursor: it lays a nest
+patch along whatever surface is there and stands about fifty ants on it.
+Fifty, not one, because fewer than that does not look like ants. It follows
+the terrain, so it works on a hillside or in a cave mouth as well as on flat
+ground.
 
 The two scents are invisible. Press **V** to cycle the field overlays past
 the usual ones to **PHEROMONE A** (the home scent, magenta) and **PHEROMONE
@@ -66,14 +72,22 @@ dark field rather than like nothing at all.
 
 ## What is not finished
 
-Ants find food, pick it up, and lay a food trail that draws others in. What
-they cannot yet do reliably is **find their way home carrying it**. A laden
-ant knows home is somewhere behind it and has no way to act on that: it can
-turn a little left or a little right, but on flat ground it cannot work out
-which way along the ground it should go, so it tends to wander on rather
-than turn back. Expect to see food picked up and carried around, and only
-occasionally delivered.
+A laden ant does find its way home, and it does it the way a bacterium does
+rather than the way you might expect: it cannot smell which *side* home is
+on, so instead it keeps walking while the home scent is getting stronger,
+and stops and turns on the spot when it is not. Watch one long enough and
+you will see it wander, catch the scent, and then travel in a fairly
+straight line back.
+
+What a colony is still bad at is **finding food in the first place**. Ants
+do not range far from home, so a food pile well away from the nest may
+simply never be discovered. Put food within reach of the colony and the
+whole loop runs; put it across the map and they will not find it.
+
+One thing worth knowing: ants cannot walk through each other, and cannot
+stand on each other either. A colony packed shoulder to shoulder jams
+solid — which is why **Y** spaces them out.
 
 Digging, building, eating, burning and trail-laying all work as described.
-Colonies also do not yet have queens, eggs or new ants — the ants you place
-are the ants you get.
+Colonies do not yet have queens, eggs or new ants — the ants you place are
+the ants you get.

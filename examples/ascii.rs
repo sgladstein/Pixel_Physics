@@ -1058,7 +1058,7 @@ fn forage_loop_scene() {
     // A wide home patch, not a doorway: nest scent is refreshed wherever
     // ants touch it, so the colony's *home range* is what the gradient is
     // anchored to.
-    for x in 16..120 {
+    for x in 16..90 {
         world.set(x, floor, Cell::new(nest, 0).with_attached(true));
     }
     // **Within the nest scent's reach, and that is a real limit worth
@@ -1070,7 +1070,7 @@ fn forage_loop_scene() {
     // too small for a sensor to tell apart. Carriers arrived, picked up,
     // and milled: 28 pickups, 0 deliveries. A colony's foraging radius is
     // a real quantity in this design and this scene stays inside it.
-    for x in 135..170 {
+    for x in 250..300 {
         for y in (floor - 5)..floor {
             world.set(x, y, Cell::new(corpse, 0));
         }
@@ -1085,7 +1085,7 @@ fn forage_loop_scene() {
     // them used to spawn inside it, silently fail their availability check
     // and never exist, which the live-organism count gave away as 57.
     for i in 0..55 {
-        world.plant_ant(20 + i * 2, floor - 1);
+        world.plant_ant(24 + i * 4, floor - 1);
     }
 
     let print_state = |world: &World, label: &str| {

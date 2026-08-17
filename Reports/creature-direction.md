@@ -997,3 +997,57 @@ that does not exist.
 * "Eat if energy below full" makes every creature permanently hungry and
   deletes carrying entirely. A `hunger_fraction` (0.5) is the real
   parameter.
+
+### 13e. Homing, built (2026-08-17, after §13b)
+
+§13b's two candidate fixes were both built, and the mechanism works. What
+is left is a different problem from the one that was diagnosed.
+
+**The scaffold grew by two inputs**, `PheroAAlong` / `PheroBAlong` (slots
+14, 15): the pheromone at the forward sensor minus the pheromone underfoot,
+normalized by their sum so it is scale-free. Appended, never inserted —
+every existing slot kept its index and meaning. `GENOME_LEN` 168 → 188.
+Lawful only because nothing persists a genome yet; after stage 4 this
+becomes a migration.
+
+**Movement gained a tumble.** A failed move roll re-orients the creature
+with probability `TUMBLE_ON_FAILED_MOVE = 0.35`, choosing uniformly among
+headings that actually have footing. With `Move` driven by the
+along-gradient, that is run-and-tumble chemotaxis: run while it improves,
+re-orient at random when it does not. No steering is involved, which is the
+point — there is nothing on a surface to steer on.
+
+**The ant's four hidden units were repurposed** from gating *steering* (a
+signal that is identically zero, §13b) to gating the *run*. Verified with
+the probe, which is the only instrument that could have shown it:
+
+```
+carrier:   pheroA_along -0.750  carrying +1.000  ->  move -0.688 (clamps to 0)
+empty ant: pheroA_along +0.270  carrying +0.000  ->  move +0.663
+```
+
+A laden ant pointed away from home refuses to step and tumbles until it is
+pointed somewhere better; an empty one ignores the nest scent entirely and
+keeps its baseline run. That is the gate working and the leak cancelled.
+
+**Two things this cost, both worth recording.** Tumbling on *every* failed
+move destroys the persistent run that finds food (33 pickups → 1); "how
+often do I step" and "how often do I change my mind" are different
+questions. And a symmetric gate pair only cancels exactly at equal
+activation, so an ungated pair leaks: at offset 5 the leak was 0.27 and
+emptied the foraging range immediately, at 12 it was 0.09 and the colony
+still drifted home over 12,000 frames. 30 puts both units at -0.967 vs
+-0.971 and costs the gate nothing.
+
+**What is still not demonstrated: food discovery, not homing.** The colony
+reaches ~1 pickup per run because its eastern front stalls around 200 cells
+out and the food sits beyond it. A separate finding explains part of it:
+**a dense line of ants gridlocks**, because a creature is neither a
+foothold nor passable, so ants founded shoulder to shoulder simply stop
+(27,386 blocked ticks, and a picture showing an unbroken wall of them).
+Colonies need more corridor than they occupy — `found_colony` now spaces
+them four apart.
+
+Next, in order: raise the exploration range (a dispersal drive, or letting
+ants pass over one another), then re-run `forage_loop` and `double_bridge`,
+whose assertions are still printed notes rather than guards.

@@ -551,6 +551,31 @@ const CROWDING_RADIUS: i32 = 2;
 /// ledge, and forbidding it outright would be the "gate whether something
 /// happens" mistake that `CLAUDE.md` warns a size cap must never make.
 const FOOTING_BONUS: f32 = 0.6;
+
+/// Chance that a failed move roll also re-orients the creature.
+///
+/// **Not 1.0, and the difference matters more than it looks.** "How often
+/// do I step" and "how often do I change my mind" are different questions,
+/// and conflating them makes a creature that fails half its move rolls
+/// change heading half the time — a diffusive random walk, which is the
+/// worst possible way to *find* anything. Measured at 1.0: food discovery
+/// collapsed from 33 pickups to 1, because the persistent run that covers
+/// ground had been destroyed. At 0.35 a creature still runs in roughly
+/// straight lines and still re-orients often enough for the gradient term
+/// to steer it.
+const TUMBLE_ON_FAILED_MOVE: f32 = 0.35;
+
+/// Chance that a failed move roll also re-orients the creature.
+///
+/// **Not 1.0, and the difference matters more than it looks.** "How often
+/// do I step" and "how often do I change my mind" are different questions,
+/// and conflating them makes a creature that fails half its move rolls
+/// change heading half the time — a diffusive random walk, which is the
+/// worst possible way to *find* anything. Measured at 1.0: food discovery
+/// collapsed from 33 pickups to 1, because the persistent run that covers
+/// ground had been destroyed. At 0.35 a creature still runs in roughly
+/// straight lines and still re-orients often enough for the gradient term
+/// to steer it.
 /// Divisor turning that count into a 0..1-ish input.
 const CROWDING_SCALE: f32 = 8.0;
 
@@ -599,12 +624,66 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
     Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + def.tick_interval })
 }
 
+/// How wide a founded colony's nest patch is, in cells, and how far apart
+/// its ants stand.
+///
+/// **Ants need more corridor than they occupy.** Founded shoulder to
+/// shoulder they gridlock: a creature is not a foothold and cannot be
+/// walked through, so a dense line of them simply stops moving — measured
+/// at 27,386 blocked ticks against a single pickup, with the picture
+/// showing an unbroken wall of ants. Four cells apart for a two-cell body
+/// leaves each one somewhere to go.
+const COLONY_HALF_WIDTH: i32 = 26;
+const COLONY_ANT_SPACING: i32 = 4;
+/// Grasse's threshold, in practice: below about fifty, a colony looks
+/// broken even when the code is right (P-15). A key that placed one ant
+/// would mostly teach people that ants do not work.
+const COLONY_ANTS: i32 = 52;
+
 impl World {
-    /// Place an ant at `(x, y)` — the debug/scene entry point, mirroring
+    /// Place an ant at `(x, y)` — the scene-level entry point, mirroring
     /// `plant_worm`.
     pub fn plant_ant(&mut self, x: i32, y: i32) {
         if let Some(site) = plant_creature_seed(self, x, y, "ant") {
             self.schedule_active_site(site);
+        }
+    }
+
+    /// **Found a colony** on whatever ground is under `(x, y)` — the `Y`
+    /// key, and the only ant entry point worth having in the app.
+    ///
+    /// Places a nest patch by converting the surface it finds, then stands
+    /// fifty-odd ants on it. Terrain-following rather than a fixed
+    /// rectangle, so it works on a hillside, in a cave mouth, or on the
+    /// flat preset without the caller having to know which.
+    ///
+    /// The nest is *surface* material, deliberately: built as a block
+    /// sitting on the ground, arriving ants were simply blocked by its
+    /// face and never got home.
+    pub fn found_colony(&mut self, x: i32, y: i32) {
+        let Some(nest) = self.materials.id_of("nest") else {
+            return;
+        };
+        // The surface height in each column, searched downward from the
+        // cursor: whatever the first non-empty cell is, that is the ground.
+        let surface = |world: &World, cx: i32| -> Option<i32> {
+            (y..(y + 96)).find(|&cy| !matches!(world.materials.kind(world.get(cx, cy).material), MaterialKind::Empty | MaterialKind::Gas))
+        };
+        for cx in (x - COLONY_HALF_WIDTH)..=(x + COLONY_HALF_WIDTH) {
+            if let Some(sy) = surface(self, cx) {
+                let cell = self.get(cx, sy);
+                // Only ground gets converted -- painting over water or a
+                // creature would be a surprise.
+                if matches!(self.materials.kind(cell.material), MaterialKind::Solid | MaterialKind::Powder) {
+                    self.set(cx, sy, Cell::new(nest, 0).with_attached(cell.attached()));
+                }
+            }
+        }
+        for i in 0..COLONY_ANTS {
+            let cx = x - COLONY_HALF_WIDTH + i * COLONY_ANT_SPACING;
+            if let Some(sy) = surface(self, cx) {
+                self.plant_ant(cx, sy - 1);
+            }
         }
     }
 }
@@ -656,6 +735,12 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     act(world, x, y, organism, def, &outputs, &mut draw);
 
     // --- move -----------------------------------------------------------
+    // **Run, or tumble.** `Move` is the run probability, and the brain
+    // drives it from the along-heading gradient: a laden ant walking away
+    // from the nest scent computes a low `Move`, fails the roll, and
+    // re-orients. That is the whole of the homing mechanism — there is no
+    // steering toward the nest anywhere, because on a surface there is
+    // nothing to steer on (`brain::BrainInput::PheroAAlong`).
     let p_move = outputs[brain::BrainOutput::Move as usize].clamp(0.0, 1.0);
     let mut moved = false;
     if draw.unit_f32() < p_move {
@@ -664,6 +749,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             spent += def.move_cost;
             world.energy_ledger.moved += def.move_cost as f64;
         }
+    } else if draw.unit_f32() < TUMBLE_ON_FAILED_MOVE {
+        tumble(world, organism, &mut draw);
     }
 
     // --- deposit, only on a successful move (P-11) ----------------------
@@ -735,6 +822,18 @@ fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &Creatu
         let r = world.pheromone_at(channel, rx, ry) as f32 / 255.0;
         inputs[front_slot as usize] = f;
         inputs[lateral_slot as usize] = r - l;
+    }
+
+    // **The along-heading gradient**, which is the one a surface-dweller
+    // can actually read. Normalized by the sum rather than scaled by a
+    // constant, so it is scale-free: a faint trail and a saturated one both
+    // produce a usable -1..1, which matters because a trail's absolute
+    // height varies by two orders of magnitude over its life. The `+ 1.0`
+    // makes an empty pair read exactly 0 instead of dividing by zero.
+    for (channel, slot) in [(Channel::A, I::PheroAAlong), (Channel::B, I::PheroBAlong)] {
+        let here = world.pheromone_at(channel, x, y) as f32;
+        let ahead = world.pheromone_at(channel, fx, fy) as f32;
+        inputs[slot as usize] = (ahead - here) / (ahead + here + 1.0);
     }
 
     let moisture_at = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture / WORM_MOISTURE_SATURATION;
@@ -999,16 +1098,7 @@ fn step_chain(
         // of its life turning on the spot than walking. Uniform among the
         // *viable* directions costs one extra scan of eight cells on a path
         // that was about to do nothing anyway.
-        let viable: Vec<u8> = (0..8u8)
-            .filter(|&d| {
-                let (dx, dy) = DIRS[d as usize];
-                let (tx, ty) = (hx + dx, hy + dy);
-                (world.is_empty(tx, ty) || chain.contains(&(tx, ty))) && head_has_foothold(world, (tx, ty))
-            })
-            .collect();
-        if let Some(state) = world.organism_mut(organism) {
-            state.heading = if viable.is_empty() { draw.below(8) as u8 } else { viable[draw.below(viable.len() as u32) as usize] };
-        }
+        tumble(world, organism, draw);
         world.creature_stats.moves_blocked += 1;
         return false;
     }
@@ -1051,6 +1141,39 @@ fn step_chain(
     }
     let _ = material_id;
     true
+}
+
+/// Pick a new heading at random from the directions that actually lead
+/// somewhere — **the tumble**.
+///
+/// Named for what it is: the second half of run-and-tumble chemotaxis. A
+/// creature that cannot steer toward a gradient can still *follow* one, by
+/// running while things improve and re-orienting at random when they do
+/// not. Bacteria solve exactly this problem exactly this way, and it is the
+/// only mechanism available to something whose lateral sensors read zero
+/// (see `brain::BrainInput::PheroAAlong`).
+///
+/// Uniform among the **viable** directions, not among all eight. On flat
+/// ground three of the eight point upward into open air, so a uniform
+/// re-roll lands straight back in the blocked state better than a third of
+/// the time — measured at 29,344 blocked ticks against 41,843 moves before
+/// this was narrowed.
+fn tumble(world: &mut World, organism: u16, draw: &mut rng::Rng) {
+    let Some((hx, hy)) = world.organism(organism).and_then(|s| s.chain.first().copied()) else {
+        return;
+    };
+    let chain = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
+    let viable: Vec<u8> = (0..8u8)
+        .filter(|&d| {
+            let (dx, dy) = DIRS[d as usize];
+            let (tx, ty) = (hx + dx, hy + dy);
+            (world.is_empty(tx, ty) || chain.contains(&(tx, ty))) && head_has_foothold(world, (tx, ty))
+        })
+        .collect();
+    if let Some(state) = world.organism_mut(organism) {
+        state.heading = if viable.is_empty() { draw.below(8) as u8 } else { viable[draw.below(viable.len() as u32) as usize] };
+    }
+    world.creature_stats.tumbles += 1;
 }
 
 /// Is there anything for the head to hold on to at `(x, y)`?
