@@ -331,7 +331,16 @@ fn build(args: &Args) -> World {
             let x = WIDTH / 2;
             let surface = (0..HEIGHT).find(|&y| w.get(x, y).material != material::EMPTY).expect("ground somewhere under mid-width");
             println!("worldcrack {name} seed {} -- cut at ({x}, {})", args.seed, surface + args.dig);
-            if args.dig > 0 {
+            // The verb matters more than the radius.  pulverizes a
+            // core, loosens a chip zone *and* scores cracks out to three
+            // times its radius -- and a crack severs a support path rather
+            // than merely weakening it, so it manufactures pieces that have
+            // to find a new way to the ground.  is the quiet cut. The
+            // owner plays with the hammer, and nothing here covered it.
+            if args.strike > 0 {
+                let force = args.strike as f32 * 0.9;
+                pixel_physics::sim::rigid::strike(&mut w, x, surface + args.strike, args.strike, force);
+            } else if args.dig > 0 {
                 pixel_physics::sim::rigid::mine(&mut w, x, surface + args.dig, args.dig);
             }
             if args.relax {
@@ -666,6 +675,8 @@ struct Args {
     /// itself does, because the app has only one number for both.
     wall: i32,
     dig: i32,
+    /// Strike radius for scene=worldcrack. Zero means dig instead.
+    strike: i32,
     /// `relax=1` -- run a **converged** distance pass straight after the
     /// dig, instead of letting the scheduled relaxation reconverge over the
     /// following frames.
@@ -806,6 +817,7 @@ fn parse() -> Args {
         min_bodies: None,
         wall: 3,
         dig: 3,
+        strike: 0,
         relax: false,
         span: 200,
     };
@@ -855,6 +867,7 @@ fn parse() -> Args {
             "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),
             "wall" => a.wall = v.parse().expect("wall"),
             "dig" => a.dig = v.parse().expect("dig"),
+            "strike" => a.strike = v.parse().expect("strike"),
             "relax" => a.relax = v != "false",
             "span" => a.span = v.parse().expect("span"),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
