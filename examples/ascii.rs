@@ -16,7 +16,7 @@ use pixel_physics::sim::field::FIELD_SCALE;
 use pixel_physics::sim::material::{self, MaterialId};
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::pheromone::{Channel, DECAY_RHO, DEPOSIT, DIFFUSE, PHEROMONE_INTERVAL};
-use pixel_physics::sim::{parallel, update, Cell, World};
+use pixel_physics::sim::{parallel, rng, update, Cell, World};
 
 fn main() {
     scene("sand piling on a floor", 78, 30, 400, |w| {
@@ -1032,60 +1032,69 @@ fn plant_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&m
 /// number that separates them.
 fn forage_loop_scene() {
     println!("\n=== ants: the foraging loop (nest, food pile, 60 ants) ===");
-    let (w, h) = (320i32, 120i32);
+    let (w, h) = (512i32, 120i32);
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let floor = h - 8;
     let nest = world.materials.id_of("nest").expect("nest is compiled in");
-    let corpse = world.materials.id_of("corpse").expect("corpse is compiled in");
+    let leaf = world.materials.id_of("leaf").expect("leaf is compiled in");
     let ant = world.materials.id_of("ant").expect("ant is compiled in");
 
-    for x in 0..w {
-        for y in floor..h {
-            world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
-        }
+    // **Real generated terrain, the configuration the loop was actually
+    // verified under.** Two cheaper stand-ins were tried and both were
+    // worse than the thing they stood in for: a flat floor is degenerate
+    // (an ant there has one legal step, so it is not deciding anything --
+    // 248 distinct cells visited against 1,670 on real terrain), and a
+    // hand-built ridge profile produced one-column cliffs that ants walked
+    // off constantly. `examples/ant_ablation.rs` measures 28.8 deliveries
+    // per run on generated terrain across four seeds; this scene shows the
+    // same thing rather than a simplification of it.
+    let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
+    if let Some(e) = err {
+        println!("worldgen presets unavailable ({e}); skipping the foraging scene");
+        return;
     }
-    // The nest on the left, the food well away on the right: the distance
-    // is what makes a trail worth having. Under 50 ants a colony scene
-    // looks broken with correct code (P-15, Grasse's threshold), so this
-    // runs 60.
-    // **The nest is a patch of the floor, not a block on it.** Built as a
-    // wall, ants arriving home were simply blocked by it: the forward
-    // candidates from ground level are all inside the wall, so they
-    // randomised their heading against its face instead of getting home,
-    // and `deliveries` stayed at 0 while `pickups` climbed. Flush with the
-    // surface, an ant walks over it and `AtNest` fires from the cell
-    // underfoot.
+    let Some(params) = presets.get(&presets.default_name()) else { return };
+    pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: 1 });
+    // The surface is whatever the generator left, per column.
+    let surface = |world: &World, x: i32| -> i32 {
+        (0..h)
+            .find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder))
+            .unwrap_or(h - 1)
+    };
+
     // A wide home patch, not a doorway: nest scent is refreshed wherever
     // ants touch it, so the colony's *home range* is what the gradient is
     // anchored to.
     for x in 16..90 {
-        world.set(x, floor, Cell::new(nest, 0).with_attached(true));
+        let sy = surface(&world, x);
+        world.set(x, sy, Cell::new(nest, 0).with_attached(true));
     }
-    // **Within the nest scent's reach, and that is a real limit worth
-    // stating rather than tuning around.** The homing gradient only
-    // extends as far as an ant with nest memory left can carry it, and it
-    // is a u8 plane, so past a certain distance channel A is not merely
-    // weak but *quantised to zero* -- measured at 261 across the far third
-    // against 4,364 at the nest, which is a 17:1 gradient made of values
-    // too small for a sensor to tell apart. Carriers arrived, picked up,
-    // and milled: 28 pickups, 0 deliveries. A colony's foraging radius is
-    // a real quantity in this design and this scene stays inside it.
-    for x in 250..300 {
-        for y in (floor - 5)..floor {
-            world.set(x, y, Cell::new(corpse, 0));
-        }
+    // **A stand of trees, not a pile of corpses, and this is the change
+    // that made the loop close at all.** A corpse pile is finite and
+    // concentrated: almost no ant ever found it, so the colony could not
+    // demonstrate a foraging loop it never entered -- 2.5 pickups and *zero*
+    // deliveries per run. Trees regrow their leaves continuously and spread
+    // them over a wide area, which is both a renewable food source and a
+    // findable one. Same ants, same brain, same code: 44.8 pickups and 28.8
+    // deliveries.
+    //
+    // Herbivory needed no new code -- a `Leaf` cell is just a cell, and the
+    // tree discovers it has lost one through its own connectivity check.
+    for i in 0..6 {
+        let x = 230 + i * 40;
+        let sy = surface(&world, x);
+        world.plant_tree(x, sy - 1);
     }
-    // **One row, not a stack.** Spawned three deep, the counters read 2501
-    // falls against 3634 moves: an ant standing on another ant is not
-    // standing on anything (Creature is not Solid/Powder/Plant), so the
-    // pile spent the run collapsing into itself instead of foraging. That
-    // is correct behaviour badly staged -- CLAUDE.md's "a scene that
-    // contradicts the code will look like a bug in the code".
-    // Starting on and beside the nest, clear of the food pile: three of
-    // them used to spawn inside it, silently fail their availability check
-    // and never exist, which the live-organism count gave away as 57.
+    // Let the stand actually grow before the ants arrive; a seedling has no
+    // leaves to eat.
+    for _ in 0..2400 {
+        world.step_active_sites();
+        world.step_fields();
+    }
     for i in 0..55 {
-        world.plant_ant(24 + i * 4, floor - 1);
+        let ax = 24 + i * 4;
+        let sy = surface(&world, ax);
+        world.plant_ant(ax, sy - 1);
     }
 
     let print_state = |world: &World, label: &str| {
@@ -1104,7 +1113,7 @@ fn forage_loop_scene() {
             st.nest_visits,
             st.deaths
         );
-        let food_left = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == corpse).count();
+        let food_left = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == leaf).count();
         let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
         let phero_a: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::A, x, y) as u64).sum();
         // **In thirds, not as one total.** A homing gradient that points
@@ -1142,7 +1151,9 @@ fn forage_loop_scene() {
             band(Channel::B, w / 3, 2 * w / 3),
             band(Channel::B, 2 * w / 3, w),
         );
-        for y in (floor - 26)..h {
+        // Wide enough to include the canopy: the trees are the food, and a
+        // scene that crops them out cannot be judged by eye at all.
+        for y in (floor - 56)..h {
             let row: String = (0..w)
                 .step_by(2)
                 .map(|x| {
@@ -1152,7 +1163,7 @@ fn forage_loop_scene() {
                             Some('a')
                         } else if c.material == nest {
                             Some('N')
-                        } else if c.material == corpse {
+                        } else if c.material == leaf {
                             Some('f')
                         } else if c.material != material::EMPTY {
                             Some(glyph(c.material))
@@ -1192,15 +1203,24 @@ fn forage_loop_scene() {
     // ground the ahead-left and ahead-right sensors both sit in open air, so
     // the lateral input is identically zero and a laden ant has no way to
     // express "turn around".
+    // **A guard again, not a printed note.** This assertion was demoted
+    // when the loop would not close -- carriers picked food up and never
+    // got home. Both halves of that were real and both are fixed: homing
+    // needed the along-heading gradient and the tumble (report §13e), and
+    // the loop needed a food source ants could actually *find*, which a
+    // finite corpse pile never was (§13f). Measured 28.8 deliveries per run
+    // across 4 seeds; the bar sits far below that, because outcome spread
+    // here is large and a bar near the measurement flakes.
     let st = world.creature_stats;
     assert!(st.moves > 0, "no ant ever moved");
     assert!(st.pickups > 0, "no ant ever picked food up -- the outbound half of the loop is broken");
     assert!(st.nest_visits > 0, "no ant ever reached the nest");
     let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
     assert!(phero_b > 0, "carriers laid no food trail at all");
-    println!(
-        "  KNOWN GAP: deliveries {} (report §9a asks for > 0). Carriers pick up and lay trail; they cannot steer home on flat ground. Diagnosis in Reports/creature-direction.md §13.",
-        st.deliveries
+    assert!(
+        st.deliveries > 0,
+        "no ant completed the loop: {} pickups but nothing delivered home. This is report §9a's own criterion",
+        st.pickups
     );
 
     // The census. Any imbalance is a bug now and an evolutionary attractor
