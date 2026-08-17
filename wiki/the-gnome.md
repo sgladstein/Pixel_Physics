@@ -62,6 +62,13 @@ while playing, from "nothing is lost, and you can barely dig" to "the
 rock simply goes"; the middle settings are the ones that leave you
 walking over your own diggings in a tunnel that still opens.
 
+That balance is not his alone — it is what *mining* does, whoever is
+doing it. The sandbox cut (`H`) digs by the same setting, so a hole you
+make with the cursor and a hole he makes with a pick behave the same way
+in the same rock. They used to disagree: his bites opened tunnels while
+the cursor's only ever loosened rock in place, which meant the tool you
+tested a cave with was not the tool that dug it.
+
 He bites at a steady rate rather than continuously, so holding the button
 reads as a series of blows rather than a beam.
 

@@ -1609,9 +1609,15 @@ impl App {
     /// Cut rock away precisely under the cursor — the *mining* verb, as
     /// distinct from the eraser, which deletes matter and tells the
     /// structural model nothing. See `rigid::mine`.
+    ///
+    /// Spoil comes from `player_tuning.dig_yield`, the same number the
+    /// gnome digs by and `F2` cycles. It used to take whatever fell out
+    /// instead, so the sandbox verb and the character dug different holes
+    /// in the same rock — `brush_radius`'s one-number-two-verbs bug in a
+    /// second place.
     pub fn mine(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
-        crate::sim::rigid::mine(&mut self.world, x, y, self.brush_radius);
+        crate::sim::rigid::mine(&mut self.world, x, y, self.brush_radius, self.player_tuning.dig_yield);
     }
 
     /// Plant a tree seed at a screen position — M16 debug tool. See

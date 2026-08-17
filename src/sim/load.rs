@@ -172,14 +172,19 @@ const MAX_SECTION: i64 = 40;
 /// fracture has taken away.
 const CRACK_FACES: i64 = 4;
 
-/// How much of its bending capacity a cell keeps when the only thing under
-/// it is loose grain. Not zero -- a pile does carry weight, and zeroing it
-/// would shatter debris the moment it landed, which is the bug
-/// `rests_on_ground` exists to prevent.
 /// The middle-third rule: a reaction that cannot pull must stay within the
-/// kern, so a footing of width B resists at most `N * B / 6`.
+/// kern, so a footing of width B resists at most `N * B / 6`. See
+/// `bearing_moment`, which is what rock standing on loose grain is judged
+/// by now.
+///
+/// `GRANULAR_CAPACITY_DIVISOR` stood here beside it -- a flat 64x cut to
+/// the bending capacity of anything bedded on powder. It is gone rather
+/// than merely unused: `bearing_moment` replaced it, and its own doc
+/// records why (it was a counterweight for `structural::tick` rooting
+/// eagerly on powder, and once the rooting was fixed it had nothing left
+/// to cancel). Left as a dead constant it read as a lever someone might
+/// still reach for, which is the opposite of true.
 const KERN_DENOMINATOR: i64 = 6;
-const GRANULAR_CAPACITY_DIVISOR: i64 = 64;
 
 /// What one cell carries and what it can carry. Everything the failure test
 /// looks at, in one struct, so the hover inspector and the criterion cannot

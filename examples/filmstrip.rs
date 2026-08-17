@@ -50,6 +50,7 @@ use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::world::World;
 use pixel_physics::sim::rng;
+use pixel_physics::sim::material::MaterialKind;
 use pixel_physics::sim::{explosion, material, parallel, update};
 
 const WIDTH: i32 = 512;
@@ -468,13 +469,13 @@ fn build(args: &Args) -> World {
                 let step = args.dig * 2 + 1;
                 let depth = surface + args.dig * 3;
                 for i in 0..args.tunnel {
-                    pixel_physics::sim::rigid::mine(&mut w, x + i * step, depth, args.dig);
+                    pixel_physics::sim::rigid::mine(&mut w, x + i * step, depth, args.dig, args.dig_yield);
                 }
             } else if args.strike > 0 {
                 let force = args.strike as f32 * 0.9;
                 pixel_physics::sim::rigid::strike(&mut w, x, surface + args.strike, args.strike, force);
             } else if args.dig > 0 {
-                pixel_physics::sim::rigid::mine(&mut w, x, surface + args.dig, args.dig);
+                pixel_physics::sim::rigid::mine(&mut w, x, surface + args.dig, args.dig, args.dig_yield);
             }
             if args.relax {
                 pixel_physics::sim::structural::compute_world_distances(&mut w);
@@ -745,7 +746,7 @@ fn build(args: &Args) -> World {
             // even stands untouched, and that has to be established before
             // any number from a cut means anything.
             if args.dig > 0 {
-                pixel_physics::sim::rigid::mine(&mut w, x0, (y0 + y1) / 2, args.dig);
+                pixel_physics::sim::rigid::mine(&mut w, x0, (y0 + y1) / 2, args.dig, args.dig_yield);
             }
         }
         // A thin shelf cantilevered off a thick pillar, with the join then
@@ -928,6 +929,28 @@ struct Args {
     /// "nothing anywhere is over 1.0" on a scene that visibly stands is
     /// exactly that check.
     loadmap: bool,
+    /// `max_lost=N` -- exit non-zero if the world ended with more than N
+    /// cells fewer than it started with.
+    ///
+    /// **A failure count is not a damage count**, and this is the number
+    /// that closes that gap. `FailureCounts` counts cells that *failed*,
+    /// and a failed cell that became rubble is still standing there --
+    /// `CLAUDE.md` records two digs whose event counts looked comparable
+    /// removing 894 and 23,042 cells, with nothing in the engine able to
+    /// tell them apart. This is the census it asks for: how much material
+    /// the world actually holds, before and after.
+    ///
+    /// The baseline is taken **after** the scene is built, so a scene's
+    /// own cut is not counted: this measures what the *simulation*
+    /// subsequently ate, which is the quantity that separates 894 from
+    /// 23,042. Deliberately so, and it is what makes the bar safe to gate
+    /// on -- the bite is a constant that moves whenever `yield` is
+    /// retuned, and a guard that moved with it would need re-baselining on
+    /// every legitimate spoil change while staying just as blind to a
+    /// cascade. A gnome scene is the exception by construction: he digs
+    /// during the run, so his bites do count, and `world holds` on his own
+    /// report line is the number to read there.
+    max_lost: Option<i64>,
 }
 
 fn parse() -> Args {
@@ -957,6 +980,7 @@ fn parse() -> Args {
         max_failures: None,
         max_frame_ms: None,
         min_bodies: None,
+        max_lost: None,
         wall: 3,
         dig: 3,
         strike: 0,
@@ -1017,6 +1041,7 @@ fn parse() -> Args {
             "span" => a.span = v.parse().expect("span"),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
+            "max_lost" => a.max_lost = Some(v.parse().expect("max_lost")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
             "loadmap" => a.loadmap = v != "false",
@@ -1392,9 +1417,16 @@ fn report_loads(world: &World, args: &Args) {
 /// that is supposed to stand must show that nothing fired
 /// (`max_failures`), which is only meaningful once the same binary has
 /// demonstrated it can fire at all on the collapsing scenes.
-fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usize) -> bool {
+fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usize, cells_before: (i64, i64)) -> bool {
     let f = world.structural_failures;
     let mut ok = true;
+    if let Some(max) = args.max_lost {
+        let lost = (cells_before.0 + cells_before.1) - occupied(world);
+        if lost > max {
+            println!("  FAIL: expected the world to lose at most {max} cells after the cut, lost {lost}");
+            ok = false;
+        }
+    }
     if let Some(limit) = args.max_frame_ms {
         if best_ms > limit {
             println!("  FAIL: worst frame {best_ms:.2} ms over the {limit:.1} ms budget (best of {} runs)", args.repeat);
@@ -1437,23 +1469,29 @@ fn main() {
     for _ in 1..args.repeat {
         samples.push(run_once(&args, false).0);
     }
-    let (last_ms, world, peak_bodies) = run_once(&args, true);
+    let (last_ms, world, peak_bodies, cells_before) = run_once(&args, true);
     samples.push(last_ms);
     let best = samples.iter().cloned().fold(f64::INFINITY, f64::min);
     if args.repeat > 1 {
         let worst = samples.iter().cloned().fold(0.0, f64::max);
         println!("worst frame over {} runs: {best:.2} ms (spread {best:.2}-{worst:.2})", args.repeat);
     }
-    if !check_expectations(&world, &args, best, peak_bodies) {
+    if !check_expectations(&world, &args, best, peak_bodies, cells_before) {
         std::process::exit(1);
     }
 }
 
-/// One full run. Returns its worst frame in ms and the finished world.
-/// `render` is false for the extra timing samples, which do not need an
-/// image and should not pay for one.
-fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
+/// One full run. Returns its worst frame in ms, the finished world, the
+/// peak concurrent body count and how much material the world held *before*
+/// the first step. `render` is false for the extra timing samples, which do
+/// not need an image and should not pay for one.
+fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64)) {
     let mut world = build(args);
+    // Censused before the first step and after the last, because a failure
+    // count cannot answer "how much did this eat" -- see `Args::max_lost`.
+    // Taken here rather than in `build` so it includes whatever the scene
+    // cut on construction: the dig is part of what the run costs.
+    let cells_before = census(&world);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
     renderer.organism_overlay = args.organism_overlay;
@@ -1537,7 +1575,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
         // apply to it.
         // The gif branch is for watching motion, not measuring: no
         // per-frame timing and no body sampling, so it reports neither.
-        return (0.0, world, 0);
+        return (0.0, world, 0, cells_before);
     }
 
     let mut captured = 0usize;
@@ -1636,6 +1674,19 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
             f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
         );
         println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
+        // How much the world has actually *lost* since the cut was made,
+        // which the failure counts above cannot say: a failed cell that
+        // became rubble is still standing there. Printed per tile rather
+        // than once at the end so the trajectory is visible -- a run that
+        // has stopped eating and one that is still going look identical in
+        // a single total. See `Args::max_lost`.
+        let (solid, powder) = census(&world);
+        println!(
+            "    cells lost since the cut: {} (rock {:+}, rubble {:+})",
+            (cells_before.0 + cells_before.1) - (solid + powder),
+            solid - cells_before.0,
+            powder - cells_before.1
+        );
         // Pieces or grit. A region below `MIN_FRACTURE_CELLS` is not
         // fractured at all -- it falls through to per-cell conversion,
         // which *is* powder -- so a run whose failures average 1 or 2
@@ -1663,5 +1714,50 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
             .expect("writing the contact sheet");
         println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
     }
-    (worst_ms, world, peak_bodies)
+    (worst_ms, world, peak_bodies, cells_before)
+}
+
+/// How much rock and rubble the world is holding: `Solid` and `Powder`
+/// only.
+///
+/// **Liquids and gases are excluded, and that is not tidiness -- counting
+/// them makes the metric lie.** The first version counted every non-empty
+/// cell and reported `canyon` *gaining* 167 cells over a run in which
+/// nothing failed at all. A `Liquid` cell holds continuous fill, so one
+/// full cell spreading into two half-full ones is +1 occupancy at
+/// unchanged volume, and a preset with standing water manufactures
+/// occupancy all run just by settling. That is `CLAUDE.md`'s "ask what a
+/// metric counts when nothing is wrong" catching a bad metric on the case
+/// that is fine, before it was trusted about a case that is not.
+///
+/// `Solid` + `Powder` is also exactly the right *question*: destruction
+/// turns rock into rubble and rubble into nothing, and both of those are
+/// in this number while neither is in a failure count.
+///
+/// `Cell::is_empty()` is managed-aware -- a promoted liquid body's
+/// container cells are materially empty and still read as not-empty -- so
+/// this asks the material directly.
+/// Returned split into `(solid, powder)` because the two answer different
+/// questions and the split is the whole reading of a destruction run.
+/// Rock turning to rubble is **damage** and moves nothing out of the world;
+/// rubble disappearing is **removal**. A single total cannot tell a slab
+/// that shattered in place from one that was carried off, and those are
+/// exactly the two things the confinement rule exists to separate.
+fn census(world: &World) -> (i64, i64) {
+    let (mut solid, mut powder) = (0i64, 0i64);
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            match world.materials.kind(world.get(x, y).material) {
+                MaterialKind::Solid => solid += 1,
+                MaterialKind::Powder => powder += 1,
+                _ => {}
+            }
+        }
+    }
+    (solid, powder)
+}
+
+fn occupied(world: &World) -> i64 {
+    let (solid, powder) = census(world);
+    solid + powder
 }

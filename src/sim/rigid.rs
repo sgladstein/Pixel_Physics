@@ -818,7 +818,32 @@ fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, ray
 /// shoves the air, and what it frees is handed to `fracture` rather than
 /// deleted. Deliberately *not* a blast -- no minimum radius, no thrown
 /// slabs, no cracks running twenty cells. A chisel, not a hammer.
-pub fn mine(world: &mut World, cx: i32, cy: i32, radius: i32) {
+///
+/// # `spoil_yield`, and why it lives here rather than in one caller
+///
+/// The fraction of the bite that stays behind as rubble; the rest leaves
+/// the world. It is here because **every digger has to share one spoil
+/// model**, and for a while they did not: `player::dig` mined and then
+/// thinned by `Tuning::dig_yield`, while `App::mine` mined and took
+/// whatever fell out. So the gnome honoured the knob and the `D` key
+/// ignored it -- the same one-number-two-verbs shape as `brush_radius`,
+/// and a real problem now that the gnome and the creatures are the things
+/// that actually excavate: they and the sandbox verb would have dug
+/// different holes in the same rock.
+///
+/// **This is a parameter and not a constant on purpose.** A blanket
+/// vanish written into this function was measured and reverted: it breaks
+/// `player::at_full_yield_nothing_leaves_the_world`, whose contract is
+/// that at yield 1.0 a dig may *move* material but never delete it, and
+/// which is the promise that keeps the eraser from creeping back in
+/// through the mining verb. Vanishing is `spoil_yield = 0.0`, a setting,
+/// not a rule -- see `player::SPOIL_MODES`.
+///
+/// Returns how many cells actually left the world, which is what a caller
+/// needs to report a bite: it is not derivable from the radius, because
+/// the disc may be part air already and because a material with no
+/// `breaks_into` is declined rather than deleted.
+pub fn mine(world: &mut World, cx: i32, cy: i32, radius: i32, spoil_yield: f32) -> usize {
     let radius = radius.max(1);
     let mut loosened = Vec::new();
     for dy in -radius..=radius {
@@ -836,7 +861,7 @@ pub fn mine(world: &mut World, cx: i32, cy: i32, radius: i32) {
         }
     }
     if loosened.is_empty() {
-        return;
+        return 0;
     }
     // Short, so a chisel weakens what it is cutting through without
     // fissuring the whole wall the way a swing does.
@@ -848,6 +873,71 @@ pub fn mine(world: &mut World, cx: i32, cy: i32, radius: i32) {
         world.schedule_structural_check_around(x, y);
     }
     world.add_pressure_impulse(cx, cy, radius.max(2), loosened.len() as f32 * MINE_PRESSURE);
+    // Last, so everything above sees the full bite as rubble. That
+    // ordering is not incidental: it is exactly what `player::dig` did
+    // when the thinning lived there, so moving it in here changes the
+    // gnome's behaviour by nothing at all while giving the `D` key the
+    // model it never had.
+    thin_to_spoil(world, &loosened, spoil_yield)
+}
+
+/// Keep a `spoil_yield` fraction of the freshly broken cells and let the
+/// rest leave the world.
+///
+/// # Why a dig has to remove volume at all
+///
+/// `mine` conserves cells -- rock becomes rubble in place -- so without
+/// this a bore holds exactly the volume the rock did and nothing has been
+/// dug. Reported from the second playtest in those words: "the material
+/// breaks but goes nowhere, so you cannot really make a cave." Shoving the
+/// pieces aside only works while there is somewhere to shove them, and
+/// inside a massif there is not.
+///
+/// # Why an even stride and not a random subset
+///
+/// Two reasons, and the second is the one that matters. A random subset
+/// clumps, so a bore comes out with lumps of surviving rubble in some
+/// places and clean holes in others, which reads as the cut having missed.
+/// And a stride consumes no RNG at all, keeping the dig out of
+/// `world.rng`'s draw order entirely, so a replayed input sequence cannot
+/// diverge here -- determinism is required, per `PLAN.md`.
+///
+/// # Why the removed cells are not thrown as particles
+///
+/// That was tried first, for exactly the right reason: material blinking
+/// out of existence is the "no debris, no consequence" failure this
+/// project has rejected before. It does not work. `ParticleSystem`
+/// particles *land*, writing themselves back into the grid, so the puff
+/// quietly undid the removal -- measured on `scene=tunnel`, 941 cells
+/// dusted and 119 actually gone from the world. The debris requirement is
+/// met by the kept fraction instead, which is real rubble at the digger's
+/// feet, plus the pressure impulse above for smoke and grit to react to.
+fn thin_to_spoil(world: &mut World, fresh: &[(i32, i32)], spoil_yield: f32) -> usize {
+    let total = fresh.len();
+    if total == 0 {
+        return 0;
+    }
+    let keep = ((total as f32) * spoil_yield.clamp(0.0, 1.0)).round() as usize;
+    if keep >= total {
+        return 0; // yield 1.0: a dig may move material, never delete it
+    }
+    let mut dusted = 0usize;
+    let mut kept_so_far = 0usize;
+    for (i, &(x, y)) in fresh.iter().enumerate() {
+        // Bresenham-style: keep this one if the running quota crosses an
+        // integer here. Spreads `keep` survivors evenly across `total`.
+        let quota = (i + 1) * keep / total;
+        if quota > kept_so_far {
+            kept_so_far = quota;
+            continue;
+        }
+        if world.materials.kind(world.get(x, y).material) != MaterialKind::Powder {
+            continue; // `shatter_to_rubble` declined this one (no `breaks_into`)
+        }
+        world.set(x, y, Cell::EMPTY);
+        dusted += 1;
+    }
+    dusted
 }
 
 /// How far a chisel's fissures run past its own bite, and how many. Both
@@ -1641,7 +1731,10 @@ mod tests {
         let before = count_material(&w, material::STONE);
         assert_eq!(w.field_at(30, 45).pressure, 0.0, "test setup: starts at ambient pressure");
 
-        mine(&mut w, 30, 45, 4);
+        // Yield 1.0: this test is about the cut *telling* the structure,
+        // not about spoil, so nothing is allowed to leave the world and
+        // confuse the counts below.
+        mine(&mut w, 30, 45, 4, 1.0);
 
         assert!(count_material(&w, material::STONE) < before, "digging removed nothing");
         // The three things the eraser does not do, which are the whole
@@ -1653,6 +1746,67 @@ mod tests {
             c.material == material::STONE && !c.attached()
         }));
         assert!(loosened, "the rock around the cut is still claiming to be intact");
+    }
+
+    /// One spoil model, and it is the *verb's*, not the caller's.
+    ///
+    /// The bug this guards: `player::dig` thinned by `Tuning::dig_yield`
+    /// and `App::mine` did not, so the gnome and the `D` key dug different
+    /// holes in the same rock. Now that the gnome and the creatures are
+    /// what actually excavate, the sandbox verb agreeing with them is the
+    /// whole point -- so the assertion is on `mine` itself, which is the
+    /// one place all three go through.
+    ///
+    /// Both ends are checked deliberately. At 1.0 nothing may leave, which
+    /// is the promise that stops the eraser creeping back in through the
+    /// mining verb; at 0.0 the bite must actually go, which is the promise
+    /// that a cave can exist at all -- `mine` conserves cells, so without
+    /// thinning a bore holds exactly the volume the rock did.
+    #[test]
+    fn one_spoil_model_governs_every_digger() {
+        let solid = |yield_fraction: f32| {
+            let mut w = test_world();
+            for y in 20..50 {
+                for x in 10..50 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            crate::sim::structural::compute_world_distances(&mut w);
+            let before = occupied_cells(&w);
+            let dusted = mine(&mut w, 30, 45, 4, yield_fraction);
+            (before - occupied_cells(&w), dusted)
+        };
+
+        let (gone_at_full, dusted_at_full) = solid(1.0);
+        assert_eq!(gone_at_full, 0, "at yield 1.0 a dig may move material but never delete it");
+        assert_eq!(dusted_at_full, 0, "and it must not claim to have dusted any");
+
+        let (gone_at_void, dusted_at_void) = solid(0.0);
+        assert!(gone_at_void > 0, "at yield 0.0 the bite must actually leave, or no cave can ever open");
+        assert_eq!(gone_at_void, dusted_at_void, "the returned count is what left the world");
+
+        // Graded, not binary: the whole reason this is a fraction is that
+        // the owner is undecided between "rock simply goes" and "collecting
+        // the rubble is the game", and the middle has to be reachable.
+        let (gone_at_half, _) = solid(0.5);
+        assert!(
+            gone_at_half > 0 && gone_at_half < gone_at_void,
+            "yield 0.5 removed {gone_at_half}, which is not between 0 and the full bite of {gone_at_void}"
+        );
+    }
+
+    /// Cells of anything that is not air, counted raw: `Cell::is_empty()`
+    /// is managed-aware and would answer a different question.
+    fn occupied_cells(world: &World) -> usize {
+        let mut n = 0;
+        for y in 0..64 {
+            for x in 0..64 {
+                if world.get(x, y).material != material::EMPTY {
+                    n += 1;
+                }
+            }
+        }
+        n
     }
 
     #[test]

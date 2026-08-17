@@ -920,13 +920,15 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
         // a few cells per bite.
         let at = bite_point(world, &p, aim, tuning);
         let radius = tuning.dig_radius as i32;
-        // Which cells are about to become rubble, recorded before the cut
-        // so the thinning below can tell *fresh* spoil from sand that was
-        // already lying in the bore. Thinning old spoil too would delete
-        // material the player poured there themselves.
-        let fresh = solid_cells_in_disc(world, at.0, at.1, radius);
-        crate::sim::rigid::mine(world, at.0, at.1, radius);
-        let dusted = thin_to_dust(world, &fresh, tuning.dig_yield);
+        // The thinning used to live here, over a `fresh` set this function
+        // collected before the cut. It is inside `rigid::mine` now, over
+        // the cells `mine` itself broke, so the `D` key and the creatures
+        // dig the same hole the gnome does -- see `rigid::mine`'s
+        // `spoil_yield`. The distinction that set existed for is kept
+        // there: only *freshly* broken cells are thinned, never sand that
+        // was already lying in the bore, which would delete material the
+        // player poured in themselves.
+        let dusted = crate::sim::rigid::mine(world, at.0, at.1, radius, tuning.dig_yield);
         // How far spoil may be thrown, and the two cases genuinely differ.
         //
         // A bite at a rock face only ever needs to shove material a cell or
@@ -955,77 +957,16 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
     bite
 }
 
-/// Cells in the bite disc that `mine` is about to turn into rubble —
-/// solid, and not the bedrock it refuses to break.
-fn solid_cells_in_disc(world: &World, cx: i32, cy: i32, radius: i32) -> Vec<(i32, i32)> {
-    let mut out = Vec::new();
-    for dy in -radius..=radius {
-        for dx in -radius..=radius {
-            if dx * dx + dy * dy > radius * radius {
-                continue;
-            }
-            let (x, y) = (cx + dx, cy + dy);
-            if !world.in_bounds(x, y) {
-                continue;
-            }
-            let cell = world.get(x, y);
-            if world.materials.kind(cell.material) == MaterialKind::Solid
-                && cell.material != super::material::BEDROCK
-            {
-                out.push((x, y));
-            }
-        }
-    }
-    out
-}
+// `solid_cells_in_disc` stood here: the set of cells a bite was about to
+// break, collected *before* the cut so the thinning could tell fresh spoil
+// from sand already lying in the bore. `rigid::mine` keeps that
+// distinction itself now -- it thins the cells it actually broke -- so
+// there is nothing left for a caller to pre-compute.
 
-/// Keep a `yield_fraction` of the freshly broken cells and blow the rest
-/// away as dust.
-///
-/// The kept cells are picked by an evenly spread stride rather than at
-/// random. Two reasons, and the second is the one that matters: a random
-/// subset clumps, so a bore comes out with lumps of surviving rubble in
-/// some places and clean holes in others, which reads as the cut having
-/// missed; and a stride consumes no RNG at all, keeping the dig out of
-/// `world.rng`'s draw order entirely so a replayed input sequence cannot
-/// diverge here.
-///
-/// The removed cells are **not** thrown as particles, and that was tried
-/// first for exactly the right reason — material blinking out of
-/// existence is the "no debris, no consequence" failure this project has
-/// rejected before. It does not work: `ParticleSystem` particles *land*,
-/// writing themselves back into the grid, so the puff quietly undid the
-/// removal. Measured on `scene=tunnel`: 941 cells dusted, 119 actually
-/// gone from the world. The debris requirement is met by the kept
-/// fraction instead, which is real rubble at his feet, plus the pressure
-/// impulse `mine` already writes for smoke and grit to react to.
-fn thin_to_dust(world: &mut World, fresh: &[(i32, i32)], yield_fraction: f32) -> usize {
-    if fresh.is_empty() {
-        return 0;
-    }
-    let total = fresh.len();
-    let keep = ((total as f32) * yield_fraction.clamp(0.0, 1.0)).round() as usize;
-    if keep >= total {
-        return 0;
-    }
-    let mut dusted = 0usize;
-    let mut kept_so_far = 0usize;
-    for (i, &(x, y)) in fresh.iter().enumerate() {
-        // Bresenham-style: keep this one if the running quota crosses an
-        // integer here. Spreads `keep` survivors evenly across `total`.
-        let quota = (i + 1) * keep / total;
-        if quota > kept_so_far {
-            kept_so_far = quota;
-            continue;
-        }
-        if world.materials.kind(world.get(x, y).material) != MaterialKind::Powder {
-            continue; // `mine` declined this one (no `breaks_into`)
-        }
-        world.set(x, y, super::cell::Cell::EMPTY);
-        dusted += 1;
-    }
-    dusted
-}
+// `thin_to_dust` used to live here. It is `rigid::thin_to_spoil` now, so
+// that every digger -- the gnome, the `D` key, and the creatures -- shares
+// one spoil model rather than the gnome honouring `dig_yield` while the
+// sandbox verb ignored it.
 
 /// Where a bite aimed at `aim` would land, without digging anything.
 ///
@@ -1447,6 +1388,31 @@ mod tests {
         (0..h).map(|y| (0..w).filter(|&x| world.get(x, y).material != material::EMPTY).count()).sum()
     }
 
+    /// Cells in the bite disc that `mine` is about to break — solid, and
+    /// not the bedrock it refuses to break.
+    ///
+    /// A test-side replica now: the production copy went when the thinning
+    /// moved into `rigid::mine`, which knows the cells it broke without
+    /// anyone pre-computing them. Kept here because the assertion below is
+    /// specifically "roughly `1 - dig_yield` of what was *broken* left",
+    /// and that ratio needs the denominator.
+    fn solid_cells_in_disc(world: &World, cx: i32, cy: i32, radius: i32) -> usize {
+        let mut n = 0;
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                let (x, y) = (cx + dx, cy + dy);
+                if dx * dx + dy * dy > radius * radius || !world.in_bounds(x, y) {
+                    continue;
+                }
+                let cell = world.get(x, y);
+                if world.materials.kind(cell.material) == MaterialKind::Solid && cell.material != material::BEDROCK {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
     /// Stone across the right half, from the surface down — a cliff face
     /// to tunnel into, with the gnome standing on the floor beside it.
     fn world_with_cliff() -> World {
@@ -1466,7 +1432,7 @@ mod tests {
         let tuning = Tuning::default();
         let before = occupied_cells(&world);
         let bite_at = bite_point(&world, world.player.as_ref().unwrap(), (76, 78), &tuning);
-        let broken = solid_cells_in_disc(&world, bite_at.0, bite_at.1, tuning.dig_radius as i32).len();
+        let broken = solid_cells_in_disc(&world, bite_at.0, bite_at.1, tuning.dig_radius as i32);
         let bite = dig(&mut world, (76, 78), &tuning).expect("a fresh gnome digs immediately");
         assert_eq!(bite.at.0, 70, "the bite lands on the near face, not behind it at the cursor");
         assert!(bite.displaced > 0, "biting into solid stone should shove spoil clear");
