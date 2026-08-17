@@ -1142,6 +1142,23 @@ impl World {
         self.fields_settled = settled;
     }
 
+    /// How many field tiles are still unconverged.
+    ///
+    /// The quantity `field::step` itself branches on, exposed because it is
+    /// the only honest way to ask "has this disturbance gone away". Measuring
+    /// the same question through summed pressure fails: the field's own
+    /// background relaxation is an order of magnitude larger than a gust, so
+    /// a disturbance that never disperses and one that disperses slowly are
+    /// indistinguishable by pressure and perfectly distinct by this.
+    /// See `weather::tests::a_gust_disperses`, which exists because of it.
+    /// Test-only: nothing in the engine branches on the *count*, only on
+    /// `fields_settled()`, and exposing it more widely would invite someone
+    /// to build a per-frame decision on a full scan of the tile map.
+    #[cfg(test)]
+    pub(crate) fn unsettled_field_tiles(&self) -> usize {
+        self.fields.values().filter(|t| !t.settled()).count()
+    }
+
     pub(crate) fn fields_ref(&self) -> &HashMap<ChunkCoord, FieldTile> {
         &self.fields
     }
