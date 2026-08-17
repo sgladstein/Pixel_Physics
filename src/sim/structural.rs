@@ -953,7 +953,7 @@ fn detach_around(world: &mut World, x: i32, y: i32, r: i32) {
 /// the reason `DETACH_DEPTH` is not 1. A one-cell band around a fissure
 /// makes everything that later breaks away a one-cell sheet, and pieces can
 /// only be as thick as the loosened rock they came from.
-const CRACK_DETACH_DEPTH: i32 = 2;
+const CRACK_DETACH_DEPTH: i32 = 1;
 
 /// Loosen the rock around a fracture at `(x, y)`. See `detach_around`.
 pub fn detach_around_crack(world: &mut World, x: i32, y: i32) {
