@@ -350,6 +350,10 @@ const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 /// How far a fractured cell is darkened, out of 256. Dark enough to read as
 /// a break at a glance, light enough that a scored face is still obviously
 /// rock rather than a hole.
+/// What fully saturated ground is scaled to, out of 256. Soaked soil is
+/// distinctly darker than dry and still legibly soil -- taking it much
+/// lower turns a rained-on hillside into a silhouette.
+const DAMP_DARKEN: u32 = 150;
 const CRACK_DARKEN: u16 = 110;
 
 /// The gnome's colored-cell sprite, `PLAYER_HEIGHT` rows of
@@ -818,7 +822,13 @@ impl Renderer {
         // quietly stop working at exactly the moment the world grew.
         let (vx0, vy0) = self.screen_to_world(0, 0);
         let (vx1, vy1) = self.screen_to_world(width as i32 - 1, height as i32 - 1);
-        self.sky = Sky::at(world.frame, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1));
+        // Weather is read once here and reused for the sky and the drawn
+        // precipitation below, so the two cannot disagree about what the
+        // sky is doing -- a downpour drawn against a clear blue gradient
+        // being the obvious way that goes wrong.
+        let weather = crate::sim::weather::at(world.seed, world.frame);
+        self.sky = Sky::at(world.frame, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
+            .muted(sky::overcast(weather.intensity));
         self.daylight = sky::daylight_level(world.frame);
         self.rebuild_horizon(world, touched);
         let sky_key = self.sky.key();
@@ -833,6 +843,14 @@ impl Renderer {
             || organism_overlay_is_live
             || self.field_overlay != FieldOverlay::Off
             || self.show_chunk_overlay
+            // Falling precipitation moves every frame and moves *everywhere*,
+            // so there is no dirty rectangle that describes it and the whole
+            // frame has to be repainted while it falls. Accepted knowingly:
+            // rain is an event, the world is busy during one, and the cost
+            // ends when the rain does. This is exactly the cost that made
+            // `ParticleSystem` the wrong vehicle -- there it would have been
+            // permanent instead.
+            || weather.is_precipitating()
             || !particles.is_empty();
 
         // Where the gnome is on screen this frame. Tracked through *both*
@@ -942,6 +960,10 @@ impl Renderer {
             n
         };
 
+        // Over the world, not just over sky cells: rain falls in *front* of
+        // the rock as well as against the sky. Drawn after the cells and
+        // before the gnome, so he is in the weather rather than behind it.
+        self.draw_precipitation(weather, world.frame, (vx0, vy0), (vx1, vy1), frame, width, height);
         self.draw_particles(world, particles, frame, width, height);
         self.draw_chunk_bodies(world, frame, width, height);
         self.draw_player(world, frame, width, height);
@@ -951,6 +973,90 @@ impl Renderer {
         }
 
         recomputed
+    }
+
+    /// Draw the falling half of the weather.
+    ///
+    /// The geometry comes from `sky::drops` in **world** coordinates and is
+    /// projected here, which is what keeps the pattern anchored to the world
+    /// as the camera pans. Doing it the other way round -- hashing against
+    /// screen position -- is cheaper, and makes the entire rainfield slide
+    /// sideways whenever the gnome walks.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_precipitation(
+        &self,
+        weather: crate::sim::weather::Weather,
+        world_frame: u64,
+        (vx0, vy0): (i32, i32),
+        (vx1, vy1): (i32, i32),
+        frame: &mut [u8],
+        width: u32,
+        height: u32,
+    ) {
+        use crate::sim::weather::Precipitation;
+        let fall = match weather.kind {
+            Precipitation::None => return,
+            Precipitation::Rain => sky::Fall::Rain,
+            Precipitation::Snow => sky::Fall::Snow,
+        };
+        for drop in sky::drops(world_frame, fall, weather.intensity, weather.wind, (vx0, vy0), (vx1, vy1)) {
+            // Walked in **world** space from tail to head -- downward, the
+            // way it falls -- so the walk can stop at the ground. Drawn in
+            // screen space by projecting each sample, rather than walking
+            // screen pixels, because the question "has this hit anything
+            // yet" is a world question and only the world has an answer.
+            //
+            // `world_to_screen` returns `None` off-screen and a streak with
+            // one end just outside the view is ordinary, so the projection
+            // is done by hand and `blend` clips per pixel.
+            let project = |wx: f32, wy: f32| {
+                (
+                    (wx.round() as i32 - self.camera_x) / self.zoom_out_stride * self.zoom,
+                    (wy.round() as i32 - self.camera_y) / self.zoom_out_stride * self.zoom,
+                )
+            };
+            let (hx, hy) = (drop.from.0 - drop.to.0, drop.from.1 - drop.to.1);
+            let (px, py) = project(drop.from.0, drop.from.1);
+            let (qx, qy) = project(drop.to.0, drop.to.1);
+            let steps = (px - qx).abs().max((py - qy).abs()).max(1);
+            let colour = [drop.colour[0] as u8, drop.colour[1] as u8, drop.colour[2] as u8, 255];
+            let mut landed = None;
+            for i in 0..=steps {
+                let t = i as f32 / steps as f32;
+                let (wx, wy) = (drop.to.0 + hx * t, drop.to.1 + hy * t);
+                // **Precipitation stops at the ground.** Without this every
+                // streak is drawn straight down through the rock, so it
+                // rains at the bottom of a mine -- reported from play as the
+                // first thing wrong with it. The horizon cache this asks is
+                // the same one that stopped sky being drawn behind dug rock,
+                // which is the same question in the other direction: what
+                // can the sky reach?
+                if !self.under_sky(wx.round() as i32, wy.round() as i32) {
+                    landed = Some((wx, wy));
+                    break;
+                }
+                let (sx, sy) = project(wx, wy);
+                // Brightest at the head and fading up the tail, so a streak
+                // reads as moving rather than as a rigid dash.
+                blend(frame, width, height, sx, sy, colour, drop.alpha * (0.35 + t * 0.65));
+            }
+
+            // What it looks like when it arrives. A drop that simply stopped
+            // would read as rain being erased by the ground rather than
+            // meeting it -- and the ethos here is that an effect with no
+            // visible consequence is not finished. Snow settles instead of
+            // splashing, so it gets none.
+            if let (Some((wx, wy)), sky::Fall::Rain) = (landed, fall) {
+                let spread = self.zoom.max(1);
+                for dx in -spread..=spread {
+                    let (sx, sy) = project(wx + dx as f32, wy - 1.0);
+                    // Falls off from the centre, so a splash is a small burst
+                    // and not a dash of the same width as the streak.
+                    let fade = 1.0 - (dx.abs() as f32 / (spread + 1) as f32);
+                    blend(frame, width, height, sx, sy, colour, drop.alpha * 0.85 * fade);
+                }
+            }
+        }
     }
 
     /// The screen-space rect a world-space rect maps to at the current
@@ -1120,6 +1226,27 @@ impl Renderer {
                 (base[0] as u16 * CRACK_DARKEN / 256) as u8,
                 (base[1] as u16 * CRACK_DARKEN / 256) as u8,
                 (base[2] as u16 * CRACK_DARKEN / 256) as u8,
+                base[3],
+            ];
+        }
+        // Wet ground is dark ground. Saturation already existed on every
+        // powder that can hold water -- infiltration writes it, roots read
+        // it -- and until now it was drawn *only* by a debug overlay, so a
+        // rainstorm could soak a hillside with nothing on screen changing at
+        // all. That is the same failure as invisible cracks above, and the
+        // same one-line shape of fix.
+        //
+        // Darkening rather than tinting blue: damp soil is the same soil,
+        // and a blue cast reads as a different material rather than as the
+        // same one being wet.
+        let saturation = crate::sim::update::soil_moisture(cell);
+        if saturation > 0 {
+            let t = saturation as u32 * (256 - DAMP_DARKEN) / material::SOIL_SATURATED.max(1) as u32;
+            let scale = (256 - t) as u16;
+            base = [
+                (base[0] as u16 * scale / 256) as u8,
+                (base[1] as u16 * scale / 256) as u8,
+                (base[2] as u16 * scale / 256) as u8,
                 base[3],
             ];
         }

@@ -39,6 +39,7 @@ struct Args {
     shots: usize,
     frame: usize,
     settle: usize,
+    rain: String,
     out: String,
 }
 
@@ -52,6 +53,7 @@ fn main() {
         // cycle and is where stars and the moon are.
         frame: 600,
         settle: 60,
+        rain: String::new(),
         out: "target/filmstrips/viewshot.png".to_string(),
     };
     for arg in std::env::args().skip(1) {
@@ -62,6 +64,11 @@ fn main() {
             "shots" => a.shots = v.parse::<usize>().expect("shots=N").max(1),
             "frame" => a.frame = v.parse().expect("frame=N"),
             "settle" => a.settle = v.parse().expect("settle=N"),
+            // `rain=1` jumps the world clock to a frame this seed is actually
+            // raining hard at, rather than making the reader guess one. Most
+            // frames are clear by design, so without this a rain render is
+            // mostly a render of no rain.
+            "rain" => a.rain = v.to_string(),
             "out" => a.out = v.to_string(),
             _ => panic!("unknown argument {arg:?}"),
         }
@@ -78,6 +85,48 @@ fn main() {
     let build = std::time::Instant::now();
     pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: a.seed as u64 });
     let build_ms = build.elapsed().as_secs_f64() * 1000.0;
+
+    // `rain=wet` / `rain=dry` pick a frame that is *both* the weather asked
+    // for and the same time of day, so the two renders differ by the weather
+    // and by nothing else. Without the second half the comparison is
+    // worthless: the first attempt at this landed the wet render at midnight
+    // and produced a picture that was darker for entirely the wrong reason.
+    //
+    // The frame chosen is the one the settle loop will *end* on, not the one
+    // it starts from, because that is the frame actually rendered.
+    if !a.rain.is_empty() {
+        use pixel_physics::sim::{field, weather};
+        let day = field::DAY_NIGHT_PERIOD_FRAMES;
+        let want_wet = a.rain != "dry";
+        let want_kind = match a.rain.as_str() {
+            "snow" => Some(weather::Precipitation::Snow),
+            "wet" => Some(weather::Precipitation::Rain),
+            _ => None,
+        };
+        let end = |start: u64| start + a.settle as u64;
+        let noonish = |f: u64| field::sun_elevation(end(f)) > 0.85;
+        let chosen = (0..weather::WEATHER_EPOCH_FRAMES * 40)
+            .step_by(30)
+            .filter(|&f| noonish(f))
+            .filter(|&f| weather::at(world.seed, end(f)).is_precipitating() == want_wet)
+            .filter(|&f| want_kind.is_none_or(|k| weather::at(world.seed, end(f)).kind == k))
+            .max_by(|&x, &y| {
+                let (a, b) = (weather::at(world.seed, end(x)).intensity, weather::at(world.seed, end(y)).intensity);
+                if want_wet { a.total_cmp(&b) } else { b.total_cmp(&a) }
+            })
+            .unwrap_or_else(|| panic!("no near-noon {} frame found for seed {}", a.rain, world.seed));
+        world.frame = chosen;
+        let w = weather::at(world.seed, end(chosen));
+        println!(
+            "frame {chosen} -> renders at {}: {:?} intensity {:.2}, wind {:+.2}, sun {:+.2} (day {})",
+            end(chosen),
+            w.kind,
+            w.intensity,
+            w.wind,
+            field::sun_elevation(end(chosen)),
+            end(chosen) / day
+        );
+    }
 
     // Let it settle before looking. Generated terrain is meant to be at rest
     // by construction, so anything still moving here is worth seeing in the

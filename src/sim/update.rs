@@ -69,6 +69,11 @@ pub(crate) fn step_monolithic(world: &mut World) {
 
 pub fn step(world: &mut World) {
     world.begin_step();
+    // Weather before the sweep, so rain landing this frame is material the
+    // sweep then moves -- rather than a drop that sits for a frame before
+    // anything notices it. Both drivers, deliberately: `CLAUDE.md`'s "two
+    // drivers, and the app runs the parallel one".
+    super::weather::step(world);
 
     // Sweeping right-to-left on alternate frames cancels the directional bias
     // that a fixed scan order would otherwise bake into every pile and flow.
