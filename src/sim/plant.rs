@@ -198,7 +198,15 @@ fn candidate_crowding(world: &World, x: i32, y: i32) -> f32 {
     if count == 0 {
         0.0
     } else {
-        sum / count as f32
+        // Normalised so 1.0 means "beside a fresh deposit" — the same
+        // move as `INCOME_PER_NODE`'s `L_node`, applied to the crowding
+        // currency. Raw `canopy_density` is denominated in
+        // `GROW_CANOPY_DEPOSIT`s and decay steps, so `crowding_weight` had
+        // to be an order of magnitude larger than its sibling weights to
+        // mean anything, and moved whenever the deposit or the decay
+        // cadence did. In deposit units the weight reads beside
+        // `continuation_weight` and friends, and survives both.
+        sum / count as f32 / GROW_CANOPY_DEPOSIT
     }
 }
 
@@ -1687,20 +1695,33 @@ pub fn step_organisms(world: &mut World) {
 /// `Reports/tree-architecture-research.md` §0b. Left as a constant only
 /// because it has one caller and one species; the moment a second plant
 /// form wants a different foliage economy it belongs in the `.ron`.
-/// **Per leaf *cell*, so it must move when `leaf_cluster` does — and when
-/// the light model changes.** Cut again, 0.01 -> 0.004, when
-/// `FieldTile::occupancy` made sky transmission graded: a canopy that used
-/// to read as a solid wall now passes light in proportion to how full it
-/// is, so the same foliage earns far more. Left alone, mean tree size went
-/// 793 -> 4,983 cells and the stand fused.
-/// A cluster
-/// is a correction to the visual scale of foliage against wood, not a
-/// change to the plant's economy: one plastochron node is still one leaf
-/// spray and should still earn one spray's worth. Left at 0.05 while
-/// `tree.ron` went to five cells per node, the stand's income went up
-/// fivefold and eight trees fused into a hedge (median tree 280 leaves ->
-/// 1,556, and every crown touching its neighbours).
-const LEAF_INCOME_PER_TICK: f32 = 0.004;
+///
+/// **Denominated per NODE, and that unit is the end of a treadmill.** Its
+/// predecessor (`LEAF_INCOME_PER_TICK`, per leaf *cell* of raw field
+/// light) was re-derived every time anything upstream moved: 0.05 → 0.01
+/// when `leaf_cluster` went to five cells per node (income quintupled and
+/// eight trees fused into a hedge), 0.01 → 0.004 when occupancy made sky
+/// transmission graded (the same foliage earned far more, mean tree
+/// 793 → 4,983 and the stand fused). Neither change was a change to the
+/// plant's biology, and both invalidated the constant anyway — a units
+/// problem, not a coupling problem.
+///
+/// So the currency is now `L_node = MAX_LIGHT × leaf_cluster`: what one
+/// healthy node's spray intercepts in open sky at noon. Income is
+/// `intercepted / L_node × INCOME_PER_NODE`, which is invariant under
+/// `MAX_LIGHT`, `leaf_cluster`, and the light model — a node still earns
+/// one node's worth through all of them — and the number is readable:
+/// carbon per fully-lit node per tick. 0.08 is the old operating point
+/// expressed in the new unit (0.004 × 20), not a re-tune.
+const INCOME_PER_NODE: f32 = 0.08;
+
+/// The canonical light unit: what one node's spray intercepts in open sky
+/// at noon. See `INCOME_PER_NODE` — every constant that used to be
+/// denominated in raw summed field light divides by this instead, which is
+/// what makes them survive light-model and cluster-size changes.
+fn l_node(leaf_cluster: u8) -> f32 {
+    crate::sim::field::MAX_LIGHT * leaf_cluster.max(1) as f32
+}
 
 /// Flush at most one dormant bud into a `GrowingTip`, if the light the
 /// plant is intercepting can support another one.
@@ -1838,9 +1859,9 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // growth step, and the species' tip-concurrency cap -- all read from
     // the species' own `GrowingTip` `Grow`, so a species cannot set them
     // inconsistently.
-    let (Some((cost, max_active_tips)), Some(bud_cost)) = (
+    let (Some((cost, max_active_tips, leaf_cluster)), Some(bud_cost)) = (
         world.species.get(species_id).behaviors(CellType::GrowingTip).iter().find_map(|b| match b {
-            Behavior::Grow { cost, max_active_tips, .. } => Some((*cost, *max_active_tips)),
+            Behavior::Grow { cost, max_active_tips, leaf_cluster, .. } => Some((*cost, *max_active_tips, *leaf_cluster)),
             _ => None,
         }),
         world.species.get(species_id).behaviors(CellType::DormantBud).iter().find_map(|b| match b {
@@ -1894,7 +1915,8 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // past it — under-enforcement the tripwire test caught (16 against 14)
     // the moment multiplicative crowding let crowded tips live long enough
     // for the cap to matter at all. One gate, both creators of frontier.
-    let supportable = ((intercepted * LEAF_INCOME_PER_TICK / cost).floor() as usize).min(max_active_tips as usize);
+    let supportable =
+        ((intercepted / l_node(leaf_cluster) * INCOME_PER_NODE / cost).floor() as usize).min(max_active_tips as usize);
     if tips >= supportable {
         return;
     }
@@ -1946,6 +1968,19 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     if state.cells.is_empty() {
         return;
     }
+    // The species' own node size, for the income currency — see
+    // `INCOME_PER_NODE`. A species with no shoot `Grow` has no light
+    // economy to allocate.
+    let leaf_cluster = world
+        .species
+        .get(state.species)
+        .behaviors(CellType::GrowingTip)
+        .iter()
+        .find_map(|b| match b {
+            Behavior::Grow { leaf_cluster, .. } => Some(*leaf_cluster),
+            _ => None,
+        })
+        .unwrap_or(1);
     // Sorted for the same determinism reason `transport` sorts: `cells` is
     // a `HashMap` and `f32` addition is not associative.
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
@@ -2003,7 +2038,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     // leaves shrinks every tip's share until none can afford `cost`, and
     // extension stops without anything being killed or capped. Shed a limb
     // and the survivors' share rises again.
-    let income = intercepted * LEAF_INCOME_PER_TICK;
+    let income = intercepted / l_node(leaf_cluster) * INCOME_PER_NODE;
     let stock: f32 = donors.iter().map(|&(x, y)| world.carbon_at(x, y)).sum();
     let pool = income.min(stock);
     let share = pool / frontier.len() as f32;
@@ -2067,16 +2102,16 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // the genome lives on `Grow`, so it is read from the species' own
     // `GrowingTip` here rather than duplicated onto a second behaviour --
     // one plant, one genotype.
-    let pipe_variance = world
+    let (pipe_variance, upkeep_leaf_cluster) = world
         .species
         .get(species_id)
         .behaviors(CellType::GrowingTip)
         .iter()
         .find_map(|b| match b {
-            Behavior::Grow { genotype_variance, .. } => Some(genotype_variance[4]),
+            Behavior::Grow { genotype_variance, leaf_cluster, .. } => Some((genotype_variance[4], *leaf_cluster)),
             _ => None,
         })
-        .unwrap_or(0.0);
+        .unwrap_or((0.0, 1));
 
     let bud_survival = world
         .species
@@ -2228,7 +2263,14 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // me". The row scan was a geometric filter standing in
                     // for a topological one: a limb on the far side of the
                     // plant counted toward a stem it does not supply.
-                    let carried = world.organism_cell(cx, cy).map_or(0.0, |c| c.q_peak);
+                    //
+                    // In **nodes**, not raw summed light — `q_peak / L_node`
+                    // — so `pipe_ratio` reads as "nodes of foliage per cell
+                    // of stem width", a number with a literature analogue
+                    // (a Huber-value cousin), and survives the changes that
+                    // forced its four historical re-derivations (10 → 45 →
+                    // 22 → 110), two of which were pure unit conversions.
+                    let carried = world.organism_cell(cx, cy).map_or(0.0, |c| c.q_peak) / l_node(upkeep_leaf_cluster);
                     // Hoisted out of the call: `genotype` borrows the world
                     // and `thicken` takes it mutably.
                     let jittered_ratio = pipe_ratio * genotype(world, organism_id, 4, pipe_variance);
@@ -3154,9 +3196,9 @@ mod tests {
         // A trunk cell at the cap (the richest), a bud holding real
         // carbon, and enough sunlit foliage that the whole-plant gate
         // supports one more tip than the zero that exist. `supportable`
-        // is ⌊intercepted · LEAF_INCOME_PER_TICK / cost⌋ = ⌊intercepted/50⌋
-        // at tree.ron's numbers, so fifteen leaves under a noon sky
-        // (~4.0 each) clear it with margin.
+        // is ⌊intercepted / L_node · INCOME_PER_NODE / cost⌋ =
+        // ⌊intercepted / 50⌋ at tree.ron's numbers, so fifteen leaves
+        // under a noon sky (~4.0 each) clear it with margin.
         place(&mut w, (100, 20), wood, organism_id, CellType::MatureBody, (4.0, 0.0));
         place(&mut w, (101, 20), wood, organism_id, CellType::DormantBud, (3.0, 0.0));
         for i in 0..15 {

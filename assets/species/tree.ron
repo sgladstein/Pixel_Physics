@@ -104,12 +104,20 @@
                 //
                 // Stand mass is flat across the whole range -- the knob no
                 // longer costs trees, it only moves separation -- and the
-                // smallest tree at 20.0 is 2,811 cells where the subtract
-                // form's was 26. Separation bottoms at 20.0 and drifts back
-                // up at 30.0; nothing anywhere collapses. Interim value
-                // pending P1.5's normalisation pass, which re-scales this
-                // term into [0,1] alongside the other economy constants.
-                crowding_weight: 20.0,
+                // smallest tree at 20.0-equivalent is 2,811 cells where the
+                // subtract form's was 26. Separation bottoms at
+                // 20.0-equivalent and drifts back up at 30.0-equivalent;
+                // nothing anywhere collapses.
+                //
+                // **30.0 here is the sweep's chosen 20.0, converted.**
+                // `candidate_crowding` now reports density in fresh-deposit
+                // units (divided by `GROW_CANOPY_DEPOSIT`, 1.5), so the
+                // weight scales by 1.5 to hold the same behaviour; the
+                // sweep table above is in the old raw unit. In deposit
+                // units this weight survives changes to the deposit size
+                // and the decay cadence, which are exactly what forced its
+                // three historical re-derivations.
+                crowding_weight: 30.0,
                 max_active_tips: 14,
                 // Every 3rd growth step along a shoot leaves a Leaf behind.
                 // Untuned -- picked as the smallest interval that still
@@ -279,40 +287,31 @@
             ),
         ]),
         (MatureBody, [
-            // **Re-derived when the gate's denominator was corrected**, and
-            // the old 10.0 is not comparable. `thicken` used to divide the
-            // foliage above by the *whole row's* organism cells; it now
-            // divides by this stem's own contiguous run of woody cells,
-            // which is what the pipe model names. A branched tree has
-            // several runs across 53% of its occupied rows, so the old
-            // denominator over-read by roughly the run count and 10.0 was
-            // absorbing that factor. Left unchanged, the correction alone
-            // took the stand from 4,624 cells to 12,985 -- ropy columns.
+            // **Nodes of foliage per cell of stem width** -- the pipe model
+            // gate, in the `L_node` currency (`plant::INCOME_PER_NODE`'s
+            // doc has the unit). 5.5 is the previous operating point
+            // converted, not a re-tune: the gate compared `q_peak` in raw
+            // summed light against 110, and `110 / L_node(=4.0 x 5)` is
+            // 5.5 -- "a stem widens once it carries about five and a half
+            // fully-lit nodes per cell of width", which is finally a
+            // sentence a person can check against a picture.
             //
-            // Swept, 8 trees / 30,000 frames, mean cells / stand leaves /
-            // median stem thickness above the base:
+            // The number's history is the treadmill the unit ends, four
+            // values through three meaning-changes: 10 (dividing by the
+            // whole row's cells -- a limb elsewhere on the row suppressed
+            // the trunk, 53% of rows had several runs), 45 (per-stem run
+            // denominator, the first setting with a bare bole and a clear
+            // fork; its sweep lived here for a long time), 22 (the
+            // numerator became summed intercepted light when girth went
+            // topological -- git 1874f3c has that sweep), 110 (leaf_cluster
+            // quintupled the same light). The last two were pure unit
+            // conversions; in nodes they never happen.
             //
-            //     row-total 10   578   393    9    (the old baseline)
-            //     per-stem  10  1623   299   19    blob
-            //     per-stem  20   780   353    9
-            //     per-stem  30   657   455    9
-            //     per-stem  45   635   521    8    <-- here
-            //     per-stem  60   514   555    7
-            //     per-stem  90   450   626    7
-            //
-            // Monotone -- there is no interior optimum, so this is a shape
-            // knob picked by eye against the baseline it replaces. 45 is
-            // the value that reproduces the old stand's mass and trunk
-            // width (635 against 578; 48% of rows wider than one cell
-            // against 45%) while carrying a third more foliage, and it is
-            // the first setting to produce a tree with a bare bole, a
-            // clear fork and spreading limbs rather than a tapered spike.
-            //
-            // Girth is now bounded by crown size, which is the coupling the
+            // Girth is bounded by crown size, which is the coupling the
             // pipe model exists for: trunks look thin because the crown is
-            // sparse, and they will thicken on their own when it fills.
-            // Do not chase trunk width by lowering this.
-            SecondaryThicken(pipe_ratio: 110.0),
+            // sparse, and thicken on their own when it fills. Do not chase
+            // trunk width by lowering this.
+            SecondaryThicken(pipe_ratio: 5.5),
             StructuralAnchor,
             // Mature root tissue transpires. Harmless on canopy MatureBody
             // cells, which never have a soil neighbour to draw from -- see
@@ -339,7 +338,7 @@
                 thickening_survival: 0.2,
             ),
             StructuralAnchor,
-            SecondaryThicken(pipe_ratio: 110.0),
+            SecondaryThicken(pipe_ratio: 5.5),
         ]),
         (Leaf, [
             // **Crown lift, finally on.** shade_death spent this branch's
