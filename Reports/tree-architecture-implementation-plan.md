@@ -466,10 +466,18 @@ inert; establishment failure is competition rather than genotype.
   the germination gate is unreachable, phototropism inverts for ~45% of
   each day/night cycle, and caves light up. The likely fix is to decouple
   *reach* from *amplitude* rather than move the constant.
-- **`canopy_density` reads max 0.000** at end of run — decay erases it
+- ~~**`canopy_density` reads max 0.000** at end of run — decay erases it
   before anything reads it, so `crowding_weight` is inert and the crown
-  shyness change landed on a dead channel. Fix the decay cadence or the
-  read, then re-evaluate crown shyness.
+  shyness change landed on a dead channel.~~ **Withdrawn — the channel is
+  live.** The crown-shyness sweeps are the disproof: 0.5 → 136 cells
+  against 20.0 → 13 is not a knob reading a dead channel. `crowding_weight`
+  is consulted at *candidate-evaluation time during growth*, when the
+  deposit beside a tip is fresh; an end-of-run standing readout of a signal
+  with a per-tick half-life necessarily reads ~0 once growth has stopped,
+  which is `CLAUDE.md`'s standing-state-vs-event trap taken in the wrong
+  direction. (The probe reads max 1.5 — one fresh deposit — while trees are
+  still growing.) What is genuinely wrong with the term is its *scale*, not
+  its liveness: see the review reports on normalising it into `[0,1]`.
 
 ---
 

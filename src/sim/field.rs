@@ -99,99 +99,50 @@ const HEAT_DIFFUSION_RATE: f32 = 0.2;
 /// right without being physically accurate. Revisit if M6's rendering needs
 /// something better.
 const LIGHT_DIFFUSION_RATE: f32 = 0.3;
-/// **Retuned again, 0.997 → 0.9997, because air was attenuating sunlight.**
-/// Measured in a *completely empty* world with no occluder anywhere
-/// (`print_light_versus_depth`), the old value read 4.00 at the surface and
-/// **0.16 at depth 128** — falling below `Germinate`'s own 0.1 gate by
-/// about depth 145 in vacuum. That is not shading, it is distance through
-/// clear air, and real air does not do it.
+/// Per-step decay on the **diffusive** light component only.
 ///
-/// It was the binding constraint on how large a plant could ever get, and
-/// nothing about the plants themselves ever was. Same trees, same code, at
-/// `ground=70` changing only this constant: median height **21 → 65**,
-/// biomass **1,271 → 15,362**. It also meant *no* scene depth worked — a
-/// shallow ground gave a tree a ceiling to spread against, and a deep one
-/// gave it darkness — which is why `plant_probe`'s own doc had recorded
-/// "~70 is the deepest ground that still germinates" as a fact of life.
+/// **Read this before reaching for it to change how bright the world is:
+/// direct sunlight does not pass through here at all any more.**
+/// `apply_sky` casts sun down each column and takes a `max`, so daylight's
+/// reach is set by occlusion (`FieldTile::occupancy`) and never by this
+/// constant. What decays here is the *bounce*: lateral bleed that softens
+/// a canopy's shadow instead of leaving a hard stencil edge at field
+/// resolution, and point sources like fire.
 ///
-/// At 0.9997 the same probe reads 1.79 at depth 96 and 0.41 at 288: air is
-/// close to transparent over a world height, and a gradient survives.
-/// Attenuation now comes from occlusion, which is where it belongs — this
-/// function's own `blocked` handling — rather than from distance.
+/// So the tuning question this constant answers is "how far does light
+/// spill sideways from where it lands", and the answer wanted is *not
+/// far* — a glow, not a second sun. 0.95 gives a handful of blocks.
 ///
-/// **Costs, measured paired in one session rather than assumed.** The
-/// previous retune recorded an unverified worry that convergence would slow
-/// and asked for a live perf re-check "before this ships broadly"; this is
-/// that check. CA+field parallel stress, min of 3: **10.027 → 10.061 ms**,
-/// i.e. nothing. The field still sleeps after convergence (settled worst
-/// frame 0.0002 ms) and the dirty-rect render skip still reads 0.000 ms.
+/// ## The history, because it is the part that keeps being re-derived
 ///
-/// ## The A/B that should have justified this in the first place
+/// This constant used to carry sunlight, and was pushed 0.85 → 0.997 →
+/// 0.9997 chasing the consequences. Everything below is why it is not
+/// carrying it now, and why moving it back would be a mistake:
 ///
-/// The change above was argued from a *depth profile*, and an adversarial
-/// review established that the profile was measured on an unconverged
-/// field at an uncontrolled day/night phase — so the stated premise ("a
-/// tree cannot be planted more than a couple of field rows from open sky")
-/// was not sound, and the doc claims disagree with each other (20 rows in
-/// one place, ~145 in another, for the *same* constant).
+/// - Air attenuating sunlight is not a thing air does, but a
+///   diffusion-with-decay model has no way to say so: at 0.997 an
+///   *empty* world read 4.00 at the surface and 0.16 at depth 128,
+///   crossing `Germinate`'s 0.1 gate in vacuum. Illumination was a
+///   function of distance from the world's top edge.
+/// - That made height its own reward, so every scene ended with its trees
+///   pinned against the boundary, and it made scene depth a cliff rather
+///   than a curve — no ground depth was both well-lit and un-ceilinged.
+/// - The value was then outcome-justified at 0.9997 on a 25x tree-size
+///   difference, honestly measured and still treating the symptom.
 ///
-/// The measurement nobody had taken is the one on tree outcomes, 8 trees /
-/// 30,000 frames:
+/// `apply_sky`'s column cast (`Reports/tree-architecture-implementation-
+/// plan.md` §0f) fixed the cause: **clear air does not attenuate sunlight,
+/// occluders do.** With sunlight off this channel the old value was doing
+/// nothing but spreading every point source across the whole world, and
+/// 0.95 — close to the original local-glow reading — is what a bounce
+/// term should be. The three recorded side effects of the 0.9997 era went
+/// with it: the germination gate is reachable again, the deep field no
+/// longer inverts for half of every day/night cycle, and caves stay dark.
 ///
-/// | | `ground=96` | `ground=200` |
-/// |---|---|---|
-/// | **0.9997** | 3,147 cells | 14,459 cells |
-/// | 0.997 | **126 cells** | **8 cells** |
-///
-/// **At 0.997 a tree at `ground=200` does not grow at all** — 8 cells is
-/// bare germination — and at 96 it reaches a 126-cell stub. So the value
-/// stands, on a 25x outcome difference, *despite* the reasoning that
-/// originally produced it being wrong. Recorded that way round deliberately:
-/// a right answer reached by a bad measurement is still a bad measurement,
-/// and the next person to touch this should re-derive rather than trust it.
-///
-/// ## Known bad side effects, not yet addressed
-///
-/// The same review measured three consequences of this value that are real
-/// and are *not* fixed by it being outcome-justified:
-///
-/// - **`Germinate`'s 0.1 light gate is now unreachable** anywhere with sky
-///   access — converged, light never crosses 0.1 in 300 rows of open air at
-///   either phase. The gate has degraded into "am I sealed in rock", and
-///   seeds germinate 200 rows down.
-/// - **The deep field never converges within a day/night period** (relaxation
-///   ~3,300 steps against `DAY_NIGHT_PERIOD_FRAMES` 3,600), so for ~45% of
-///   every cycle the profile *inverts* near the surface — at midnight `y=0`
-///   reads 0.2 while `y=48` reads 0.93. `phototropism_dir` therefore points
-///   **downward** across the top ~70 rows for nearly half of every day, and
-///   `light_weight` is the second-largest term in `Grow`'s blend.
-/// - **Caves light up.** Through a `FIELD_SCALE`-aligned 24-wide shaft,
-///   light reads 0.18 at 156 rows underground and 150 cells into a tunnel —
-///   above the germination gate.
-///
-/// The right fix is probably to decouple *reach* from *amplitude* rather
-/// than to move this constant back: the outcome gain comes from light
-/// arriving at depth, while all three side effects come from the whole
-/// field being brighter. That is a separate change and is not attempted
-/// here.
-///
-/// Retuned from an original 0.85 ("diffuse fast, decay hard," a genuine
-/// local-glow-only reading) to 0.997, by explicit owner request: outdoor
-/// sunlight reaching real depth is more realistic than requiring every
-/// tree to be planted within a couple of field rows of open sky, which the
-/// original steep decay effectively forced (`Germinate`'s own light gate
-/// made that a hard requirement, not just an aesthetic one, once the tree
-/// rewrite made light-gated germination real). At the old value, light
-/// crossed below a `0.1` reading roughly 20 world cells below open sky; at
-/// this value, roughly 75 (see the git history for the exact depth-probe
-/// numbers this was tuned against). The real cost: convergence to a static
-/// sky amplitude now takes roughly 100x longer (`the_sky_keeps_cycling_
-/// through_day_and_night_even_after_the_field_goes_quiet`'s own updated
-/// doc has the specifics) — the field-sleep optimization (issue #4) stays
-/// correct, it just spends more real frames awake near each day/night
-/// peak/trough before qualifying. A live perf re-check against the stress
-/// scene is worth doing before this ships broadly; not done as part of
-/// this change.
+/// One live symptom of that era survives and is *not* this constant's
+/// doing: `Germinate`'s gate is degenerate in the other direction now,
+/// because powders and liquids are transparent to `occupancy`, so a
+/// buried seed still passes it. See `rebuild_blocked`.
 const LIGHT_DECAY: f32 = 0.95;
 
 /// Humidity spreads through air more readily than it evaporates away, unlike

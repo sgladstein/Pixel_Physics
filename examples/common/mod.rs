@@ -49,32 +49,29 @@ pub const SEED_DROP: i32 = 25;
 /// settled worst frame in `examples/ascii` reads 0.0002 ms — so headroom
 /// is bought cheaply.
 ///
-/// # There is currently no depth that is both well-lit and un-ceilinged
+/// # The depth cliff is fixed, and the fix was not a number here
 ///
-/// Measured, 8 trees / 30,000 frames, varying only `ground_y`:
+/// This scene used to carry a table showing that **no** ground depth was
+/// both well-lit and un-ceilinged — 8,529 cells with 3 rows of clearance
+/// at `ground=200`, against 8 cells and nothing germinating at 400. A
+/// cliff, not a curve.
 ///
-/// | ground | cells | clearance at end |
-/// |---|---|---|
-/// | 200 | 8,529 | **3 rows** |
-/// | 250 | 179 | 196 rows |
-/// | 300 | 62 | 295 rows |
-/// | 400 | 8 (nothing germinated) | 399 rows |
+/// The cause was the light model, not this constant: `field.rs` seeded
+/// light on the topmost chunk's top row and diffused it downward, so light
+/// got *brighter* as a tree climbed — an unbounded reward for growing into
+/// the world's top edge, which is where every scene ended up pinned.
+/// `apply_sky`'s per-column cast (`Reports/tree-architecture-
+/// implementation-plan.md` §0f) removed it: open air reads the same at any
+/// depth, and shade comes from what is in the way.
 ///
-/// A cliff, not a curve. Below ~220 rows of depth there is enough light for
-/// vigorous growth and the tree fills the sky; past it there is not enough
-/// light to grow at all.
+/// What bounds height now is the plant's own turgor budget, which is a
+/// *derived* ceiling around 120 rows — so `ground_y: 200` leaves roughly 78
+/// rows of clearance and the tree, not the scene, is the limit.
 ///
-/// **The cause is structural, and no choice of this constant fixes it.**
-/// `field.rs` seeds light on the topmost chunk's top row and diffuses it
-/// downward, so **light gets brighter as a tree climbs** — an unbounded
-/// incentive to grow toward the world's top edge, which is exactly where
-/// every scene has ended up pinned. Real sunlight is uniform above the
-/// canopy; the gradient belongs *under* occluders, not in open air.
-///
-/// So `Reports/tree-architecture-implementation-plan.md` Phase 0b cannot be
-/// completed by picking a number here. It is blocked on the light model,
-/// and until that lands **every shape conclusion carries a ceiling caveat**
-/// — check `canopy_top` in the output and discard runs that reach row 0.
+/// **`canopy_top` is still worth checking on every run.** A ceiling would
+/// still void a shape conclusion; it is simply no longer the expected
+/// outcome. A run whose canopy reaches row 0 should be discarded, not
+/// interpreted.
 pub struct PlantScene {
     pub width: i32,
     pub height: i32,

@@ -390,10 +390,9 @@ const MAX_BEHAVIORS_PER_CELL_TYPE: usize = 8;
 /// nothing worth measuring.
 const SEED_TICK_INTERVAL: u64 = 4;
 
-/// How far below its recorded position to look for a seed that has fallen.
-/// Generous against `SEED_TICK_INTERVAL`'s own bound (roughly one cell per
-/// frame), so a seed dropped down a long shaft is still found.
-const SEED_FALL_SEARCH: i32 = 12;
+// `SEED_FALL_SEARCH` lived here and is gone with the search cone it
+// bounded -- `relocated_seed` reads the organism's own cell list now, which
+// has no reach limit to tune and no gaps to fall through.
 
 /// Consecutive checks that found nothing to do (`Divide` found no growable
 /// candidate) an organism cell tolerates before it stops rescheduling
@@ -551,34 +550,43 @@ fn has_growable_neighbour(world: &World, x: i32, y: i32, organism_id: u16) -> bo
 
 /// Where this organism's seed actually is, given a site that says `(x, y)`.
 ///
-/// A seed is a `Powder` now, so it falls, rolls and settles somewhere other
-/// than where it was planted — but its `ActiveSite` still names the planting
-/// position. Rather than teach the scheduler to follow a moving cell (which
-/// wants the per-organism cell list Decision 2 builds, and is the right fix
-/// later), a seed that has left its recorded position is looked for
-/// directly below it, in the narrow cone a falling grain can reach.
+/// A seed is a `Powder`, so it falls, rolls and settles somewhere other than
+/// where it was planted — but its `ActiveSite` still names the planting
+/// position. **This asks the organism's own cell list**, which is the fix
+/// the previous version's doc said was "the right fix later": that list
+/// exists now (Decision 2), is maintained at the single `World::set` seam
+/// under both drivers, and a seed organism holds exactly one cell.
+///
+/// The search cone it replaces had holes. It probed `x + dx * dy.min(2)`
+/// for `dx ∈ {0, -1, 1}`, so it covered columns `x, x±1` at depth 1 and
+/// `x, x±2` — never `x±1` — at every depth beyond that. A seed that fell
+/// two or more rows while drifting exactly one column (four frames of
+/// `Powder` motion; a topple off a slope does it) was missed, its site
+/// died, and the organism became a permanently inert seed cell. Rare on
+/// flat harness ground, and waiting for the first sloped scene.
 ///
 /// Deliberately seed-only. Every other organism cell is immovable, so
 /// nothing else can go missing this way and nothing else pays for the
-/// search.
-fn relocated_seed(world: &World, x: i32, y: i32, organism_id: u16) -> Option<(i32, i32)> {
-    for dy in 1..=SEED_FALL_SEARCH {
-        for dx in [0, -1, 1] {
-            let (nx, ny) = (x + dx * dy.min(2), y + dy);
-            let c = world.get(nx, ny);
-            if c.organism_id() == organism_id && organism::cell_type(c.aux()) == Some(CellType::Seed) {
-                return Some((nx, ny));
-            }
-        }
-    }
-    None
+/// lookup.
+fn relocated_seed(world: &World, organism_id: u16) -> Option<(i32, i32)> {
+    let state = world.organism(organism_id)?;
+    // Row-major minimum rather than "whatever the map yields first":
+    // `cells` is a `HashMap`, and `PLAN.md` requires same-build
+    // determinism. One entry in the seed case, so the ordering costs
+    // nothing and stops a future multi-cell caller from being a flake.
+    state
+        .cells
+        .keys()
+        .copied()
+        .filter(|&(sx, sy)| organism::cell_type(world.get(sx, sy).aux()) == Some(CellType::Seed))
+        .min_by_key(|&(sx, sy)| (sy, sx))
 }
 
 fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_ticks: u8, plastochron: u8) -> Vec<ActiveSite> {
     // A seed that fell out from under its own site: pick the search back up
     // wherever it landed instead of dropping the organism on the floor.
     if world.get(x, y).organism_id() != organism_id {
-        if let Some((sx, sy)) = relocated_seed(world, x, y, organism_id) {
+        if let Some((sx, sy)) = relocated_seed(world, organism_id) {
             return vec![reschedule_organism(sx, sy, organism_id, stale_ticks, plastochron, world.frame + SEED_TICK_INTERVAL)];
         }
     }
@@ -1438,7 +1446,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     }
 
     // An ungerminated seed keeps the fast cadence -- it may still be
-    // falling, and `relocated_seed`'s search bound assumes it.
+    // falling, and germination should follow it down promptly rather than
+    // 45 frames after it lands. No longer a *correctness* requirement:
+    // `relocated_seed` reads the cell list and finds a seed wherever it
+    // went, however long it fell.
     let interval = if cell_type == CellType::Seed { SEED_TICK_INTERVAL } else { ORGANISM_TICK_INTERVAL };
     // **A cell that is no longer a frontier leaves the schedule.** Its
     // upkeep runs from `step_organisms` over the organism's own cell list.
@@ -3863,10 +3874,13 @@ mod tests {
     /// the first row of chunk row 1, written from a cell in chunk row 0.
     /// That single step is the only remote write in the whole fall.
     ///
-    /// The y=128 boundary would do the same but cannot be used: `field.rs`'s
-    /// `LIGHT_DECAY` puts `Germinate`'s threshold around 75 rows below open
-    /// sky, so a seedling there is too dark to grow and the test would fail
-    /// for a reason that has nothing to do with the seam.
+    /// The y=128 boundary would do the same and is no longer ruled out for
+    /// the reason this comment used to give — that `LIGHT_DECAY` put
+    /// `Germinate`'s threshold ~75 rows below open sky, so a seedling there
+    /// was too dark to grow. `apply_sky`'s column cast retired that: open
+    /// air reads full brightness at any depth. The seam under test is the
+    /// same either way, so the geometry stays as measured rather than being
+    /// moved for its own sake.
     #[test]
     fn a_seed_landing_across_a_chunk_boundary_stays_in_its_cell_list() {
         let mut w = test_world();

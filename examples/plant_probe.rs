@@ -409,12 +409,10 @@ vein conductance (max face per cell), {}..{}:",
     let max_resource = cells.iter().map(|c| c.3).fold(0.0f32, f32::max);
     println!("\nmax resource {max_resource:.3} / {:.1}", organism::RESOURCE_SCALE);
     println!("max canopy   {max_canopy:.3} / {:.1}", organism::CANOPY_DENSITY_SCALE);
-    // `with_canopy_density` packs into 4 bits, so 15 steps span the scale --
-    // the number to compare the decay ladder above against, and the concrete
-    // version of `plant-substrate-v2-design.md` §3a's claim that this channel
-    // is quantization-limited rather than behaviour-limited.
-    println!(
-        "one quantization step of canopy density is {:.3} (4 bits, 15 steps)",
-        organism::CANOPY_DENSITY_SCALE / 15.0
-    );
+    // The 4-bit packing this used to report on is gone -- `canopy_density`
+    // is a plain `f32` on `OrganismCell` since the sidecar migration, so
+    // there is no quantum and the decay reaches zero. What is worth
+    // printing instead is what a *fresh* deposit is worth, since the
+    // interesting reading is how far above that floor a crowded spot sits.
+    println!("one fresh canopy deposit is 1.500 (GROW_CANOPY_DEPOSIT), decaying by half per organism tick");
 }
