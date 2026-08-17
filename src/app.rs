@@ -1394,6 +1394,42 @@ impl App {
     /// this UI-improvement pass added — `/` (labelled `?` in-app, since
     /// `/` itself has no glyph reserved for it and `?` is what a player
     /// actually looks for).
+    ///
+    /// Kept as data rather than drawn inline so a test can read it. The
+    /// panel is the only place several keys are documented and it drifts
+    /// silently — the line describing the gnome's dig outlived the
+    /// mechanism it described by two commits, still telling players to
+    /// click *near him* long after proximity meant anything.
+    fn help_lines() -> [&'static str; 25] {
+        [
+            "LEFT CLICK PAINT    RIGHT CLICK ERASE",
+            "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
+            "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
+            "",
+            "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
+            "  SUMMONING ARMS HIS DIG: LMB CUTS AT THE YELLOW RING, RMB ERASES",
+            "  IN WATER: W STROKE UP    S SWIM DOWN",
+            "  F3 JUMP FEEL  F4 WATER FEEL  F2 SPOIL (CYCLE, SAY WHICH IS BEST)",
+            "C STRIKE ROCK    H DIG (PRECISE CUT)",
+            "F IGNITE    P BURST    X EXPLODE",
+            "T PLANT TREE    M PLANT MOSS    J PLANT WORM",
+            "",
+            "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
+            "N STRESS VIEW (GREEN AT REST, RED AT ITS LIMIT)",
+            "Z TOOL: BRUSH / RECT / ROOM / LINE / GNOME DIG",
+            "B STAMP A 200x160 REFERENCE ROOM (BRUSH = WALL THICKNESS)",
+            "F1 CHUNK OVERLAY    G WATER GRAIN",
+            "L ORGANISM OVERLAY  (CELL TYPE/RESOURCE/CANOPY)",
+            "",
+            "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
+            "             ENTER PIN AND CLOSE, S SAVE)",
+            "  PINNED: LEFT/RIGHT ADJUST LIVE, ESC RELEASE",
+            "K A/B EXPERIMENT    F5 RELOAD ASSETS",
+            "",
+            "? THIS HELP    ESC CLOSE",
+        ]
+    }
+
     fn draw_help(&self, frame: &mut [u8]) {
         const BG: [u8; 4] = [10, 10, 16, 255];
         const WHITE: [u8; 4] = [225, 228, 235, 255];
@@ -1413,33 +1449,7 @@ impl App {
             render::put(frame, WIDTH, HEIGHT, left, y, ACCENT);
             render::put(frame, WIDTH, HEIGHT, right - 1, y, ACCENT);
         }
-        let lines = [
-            "LEFT CLICK PAINT    RIGHT CLICK ERASE",
-            "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
-            "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
-            "",
-            "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
-            "  CLICK NEAR THE GNOME: HE DIGS (FURTHER AWAY: BRUSH AS EVER)",
-            "  IN WATER: W STROKE UP    S SWIM DOWN",
-            "  F3 JUMP FEEL  F4 WATER FEEL  F2 SPOIL (CYCLE, SAY WHICH IS BEST)",
-            "C STRIKE ROCK    H DIG (PRECISE CUT)",
-            "F IGNITE    P BURST    X EXPLODE",
-            "T PLANT TREE    M PLANT MOSS    J PLANT WORM",
-            "",
-            "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
-            "N STRESS VIEW (GREEN AT REST, RED AT ITS LIMIT)",
-            "Z TOOL: BRUSH / RECT / ROOM / LINE  (DRAG OUT A SHAPE)",
-            "B STAMP A 200x160 REFERENCE ROOM (BRUSH = WALL THICKNESS)",
-            "F1 CHUNK OVERLAY    G WATER GRAIN",
-            "L ORGANISM OVERLAY  (CELL TYPE/RESOURCE/CANOPY)",
-            "",
-            "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
-            "             ENTER PIN AND CLOSE, S SAVE)",
-            "  PINNED: LEFT/RIGHT ADJUST LIVE, ESC RELEASE",
-            "K A/B EXPERIMENT    F5 RELOAD ASSETS",
-            "",
-            "? THIS HELP    ESC CLOSE",
-        ];
+        let lines = Self::help_lines();
         for (i, line) in lines.iter().enumerate() {
             hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 8 + i as i32 * 10, line, WHITE);
         }
@@ -1883,6 +1893,29 @@ mod tests {
         // And the brush is still reachable: `Z` off the dig tool paints.
         app.cycle_tool();
         assert_ne!(app.tool, Tool::Dig, "Z must get the player out of the dig tool");
+    }
+
+    /// The help panel is the only place several keys are documented, and
+    /// it drifts silently: the line describing the gnome's dig outlived
+    /// the mechanism it described by two commits, still telling players
+    /// to click *near him* long after proximity stopped meaning
+    /// anything. Nothing failed, because nothing checks prose.
+    ///
+    /// This checks the part that can be checked mechanically — that the
+    /// keys the panel advertises for the character are the keys `main.rs`
+    /// binds — and is the reason to update the panel in the same change
+    /// as a rebind rather than afterwards.
+    #[test]
+    fn the_help_panel_names_the_keys_the_gnome_actually_uses() {
+        let help = App::help_lines().join("
+");
+        for key in ["U SUMMON", "F3 JUMP FEEL", "F4 WATER FEEL", "F2 SPOIL", "GNOME DIG"] {
+            assert!(help.contains(key), "help panel no longer mentions {key:?}");
+        }
+        assert!(
+            !help.contains("CLICK NEAR THE GNOME"),
+            "the proximity-gated dig is gone; the help must not still describe it"
+        );
     }
 
     #[test]
