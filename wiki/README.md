@@ -22,6 +22,8 @@ as wrong, the game has moved past this page, not the other way round.
   vaporizes, what's thrown, what catches light, and what's left behind.
 - [**Structural Collapse**](structural-collapse.md) — what keeps a structure
   standing, what makes it give way, and how to build one on purpose.
+- [**Weather**](weather.md) — rain, snow, wind and storms: when they
+  happen, what they leave behind, and why snow never lasts.
 - [**Day, Night, and Decay**](world-cycles.md) — the day/night cycle, and
   how burnt ground slowly turns back into something that can support life.
 - [**The Gnome**](the-gnome.md) — the summonable character: running,
