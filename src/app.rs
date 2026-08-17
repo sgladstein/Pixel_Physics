@@ -19,10 +19,24 @@ use crate::sim::world::World;
 use crate::tunables::{self, Tunable, TunableGroup};
 use crate::worldgen::{self, WorldgenPresets};
 
-/// Simulation resolution, in cells. The window is larger; `pixels` scales the
-/// framebuffer up, which is what gives the chunky pixel look.
+/// Viewport resolution, in cells — the framebuffer `pixels` scales up, which
+/// is what gives the chunky pixel look. **Not the size of the world.**
+///
+/// These two were one pair of constants doing both jobs, which was fine only
+/// while the world happened to be exactly one screen. The camera
+/// (`Renderer::follow`) is what separates them.
 pub const WIDTH: u32 = 512;
 pub const HEIGHT: u32 = 320;
+
+/// Size of the world itself, in cells.
+///
+/// Wider than the viewport so there is somewhere to walk to, and only a little
+/// taller: depth costs as much per cell as width and the interesting part of a
+/// world is its surface, so height buys less than width does. Worldgen keeps
+/// its regions window-sized as this grows (`worldgen::region`), so a wider
+/// world is more places rather than the same places stretched.
+pub const WORLD_WIDTH: u32 = 2048;
+pub const WORLD_HEIGHT: u32 = 640;
 
 /// Fraction of the brush filled per application for loose material. Low enough
 /// that a moving brush lays down separated grains, high enough that a stationary
@@ -282,7 +296,7 @@ fn dirty_asset_count() -> Option<usize> {
 
 impl App {
     pub fn new() -> Self {
-        let mut world = World::new(Rect::new(0, 0, WIDTH as i32 - 1, HEIGHT as i32 - 1));
+        let mut world = World::new(Rect::new(0, 0, WORLD_WIDTH as i32 - 1, WORLD_HEIGHT as i32 - 1));
 
         // Load over the compiled-in set, so edits made before launch apply and
         // a broken assets directory still leaves a working engine. Species
@@ -486,7 +500,12 @@ impl App {
     /// Begin a drag-out gesture, for the tools that commit on release.
     pub fn begin_drag(&mut self, screen_x: i32, screen_y: i32) {
         if self.tool != Tool::Brush {
-            self.drag_from = Some((screen_x, screen_y));
+            // Stored in **world** coordinates. Screen coordinates were fine
+            // while the view could not move; with a camera following the
+            // gnome, a drag begun before he walks would silently re-anchor to
+            // a different world cell than the one under the cursor when the
+            // button went down.
+            self.drag_from = Some(self.renderer.screen_to_world(screen_x, screen_y));
         }
     }
 
@@ -496,7 +515,7 @@ impl App {
         let Some(from) = self.drag_from.take() else { return };
         let m = if erase { material::EMPTY } else { self.selected_material() };
         let density = self.emission_density(m, erase);
-        let a = self.renderer.screen_to_world(from.0, from.1);
+        let a = from; // already world space -- see `begin_drag`
         let b = self.renderer.screen_to_world(screen_x, screen_y);
         match self.tool {
             // Filled by sweeping capsules row by row rather than by a
@@ -581,8 +600,14 @@ impl App {
         // Sit it on the ground rather than at the cursor's height: a room
         // floating in mid-air is a different structural question (and a
         // much easier one) than a room standing on something.
+        // Bounded by the *world*, not the viewport: with a camera, the
+        // bottom of the screen is not the bottom of the world, and this
+        // walk would stop in mid-air wherever the view happened to end.
+        // An unbounded world has no floor to find and no sides to refuse
+        // against, so the room is always placeable there.
+        let world = self.world.bounds().unwrap_or(Rect::new(i32::MIN / 2, i32::MIN / 2, i32::MAX / 2, i32::MAX / 2));
         let mut floor = cy;
-        while floor < HEIGHT as i32 - 1 && self.world.get(cx, floor + 1).material == material::EMPTY {
+        while floor < world.max_y && self.world.get(cx, floor + 1).material == material::EMPTY {
             floor += 1;
         }
         let half = REFERENCE_ROOM_SPAN / 2;
@@ -595,7 +620,7 @@ impl App {
         // Say so instead: the whole value of this key is that its answer
         // means the same thing every time.
         let margin = self.brush_radius;
-        if top - margin < 0 || cx - half - margin < 0 || cx + half + margin >= WIDTH as i32 {
+        if top - margin < world.min_y || cx - half - margin < world.min_x || cx + half + margin > world.max_x {
             self.show_toast(format!(
                 "NO ROOM FOR A {}x{} REFERENCE HERE - NEEDS CLEAR SKY AND SIDES",
                 REFERENCE_ROOM_SPAN, REFERENCE_ROOM_HEIGHT
@@ -943,6 +968,15 @@ impl App {
             || self.active_toast().is_some()
             || self.show_stress
             || self.drag_from.is_some();
+        // The view follows the gnome. Here rather than in `update` on purpose:
+        // the camera is view state, so it belongs on the rendered frame rather
+        // than inside the fixed-timestep catch-up loop, where it would run
+        // several times per frame and could not affect determinism either way.
+        if let Some(player) = &self.world.player {
+            let target = player.center();
+            let bounds = self.world.bounds();
+            self.renderer.follow(target, (WIDTH, HEIGHT), bounds);
+        }
         let touched = self.world.take_touched_chunks();
         self.renderer.draw(&self.world, &self.particles, &touched, frame, (WIDTH, HEIGHT), force_full);
         self.draw_hud(frame, cursor);
@@ -1512,11 +1546,17 @@ impl App {
 
     /// Paint at a screen position. `erase` swaps the brush for vacuum.
     pub fn paint(&mut self, screen_x: i32, screen_y: i32, erase: bool) {
-        self.paint_stroke((screen_x, screen_y), (screen_x, screen_y), erase);
+        let p = self.renderer.screen_to_world(screen_x, screen_y);
+        self.paint_stroke(p, p, erase);
     }
 
     /// Paint the area the brush swept between two screen positions, so a fast
     /// drag leaves one continuous stroke rather than a row of blobs.
+    /// Both endpoints are **world** cells, not screen pixels. They were
+    /// screen pixels while the view could not move; with a camera, the
+    /// caller holds the previous point across frames, and a screen point
+    /// held across a camera move names a different cell each frame — the
+    /// stroke would smear backwards as the gnome walked.
     pub fn paint_stroke(&mut self, from: (i32, i32), to: (i32, i32), erase: bool) {
         // M9 phase 2: under `Tool::Dig`, the left button is the gnome's
         // dig rather than the brush — on his own cooldown, cutting the
@@ -1532,8 +1572,7 @@ impl App {
         // reason that function's own comment gives: one gate on the
         // operation, three call sites.
         if !erase && self.tool == Tool::Dig && self.world.player.is_some() {
-            let target = self.renderer.screen_to_world(to.0, to.1);
-            player::dig(&mut self.world, target, &self.player_tuning);
+            player::dig(&mut self.world, to, &self.player_tuning);
             return;
         }
         let m = if erase {
@@ -1541,11 +1580,17 @@ impl App {
         } else {
             self.selected_material()
         };
-        let from = self.renderer.screen_to_world(from.0, from.1);
-        let to = self.renderer.screen_to_world(to.0, to.1);
         let density = self.emission_density(m, erase);
         self.world
             .paint_capsule_as(from, to, self.brush_radius, m, density);
+    }
+
+    /// Screen pixel to world cell. Exposed so callers that hold a point
+    /// *across frames* (a paint stroke, a drag) can store it in world
+    /// space, which is the only space that still means the same thing
+    /// after the camera has moved.
+    pub fn to_world(&self, screen: (i32, i32)) -> (i32, i32) {
+        self.renderer.screen_to_world(screen.0, screen.1)
     }
 
     /// Force-ignite the brush area at a screen position. See
@@ -1793,6 +1838,23 @@ mod tests {
     /// layout rather than relaxed into "some stone somewhere": these tests
     /// are about a known shape standing up, and a version that passed against
     /// any terrain would have stopped testing the thing it was written for.
+    /// The bottom row of the **world**, which since the world grew past the
+    /// viewport is no longer `HEIGHT - 1`. Tests that name the floor's exact
+    /// rows have to ask the world where its floor is.
+    fn world_bottom(app: &App) -> i32 {
+        app.world.bounds().expect("the app's world is bounded").max_y
+    }
+
+    /// Every world cell. The scans below used `0..WIDTH x 0..HEIGHT`, which
+    /// was the whole world only while the world was exactly one screen; on a
+    /// world four screens wide they would have quietly searched the
+    /// top-left corner and reported "nothing anywhere" about a quarter of a
+    /// quarter of it.
+    fn world_cells(app: &App) -> impl Iterator<Item = (i32, i32)> {
+        let b = app.world.bounds().expect("the app's world is bounded");
+        (b.min_x..=b.max_x).flat_map(move |x| (b.min_y..=b.max_y).map(move |y| (x, y)))
+    }
+
     fn legacy_app() -> App {
         let mut app = App::new();
         app.worldgen_preset = worldgen::LEGACY.to_string();
@@ -2035,7 +2097,7 @@ mod tests {
         // terrain nonetheless stands.
         let mut app = legacy_app();
         let stone = id(&app, "stone");
-        let h = HEIGHT as i32;
+        let h = world_bottom(&app) + 1;
 
         // The ledges are the interesting case. They reach bedrock only
         // through the wall they are cut into, and attachment buys them the
@@ -2086,7 +2148,7 @@ mod tests {
         // `breaks_into` cannot quietly turn this into a check for a material
         // the engine no longer produces.
         let debris = app.world.materials.get(stone).breaks_into.expect("stone must define a breaks_into");
-        let crumbled = (0..WIDTH as i32).any(|x| (0..h).any(|y| app.world.get(x, y).material == debris));
+        let crumbled = world_cells(&app).any(|(x, y)| app.world.get(x, y).material == debris);
         assert!(!crumbled, "some terrain broke free despite nothing disturbing it");
     }
 
@@ -2169,8 +2231,10 @@ mod tests {
         // headroom the room actually needs.
         let half = REFERENCE_ROOM_SPAN / 2;
         let need = REFERENCE_ROOM_HEIGHT + app.brush_radius;
-        let ground_at = |app: &App, x: i32| (0..HEIGHT as i32).find(|&y| app.world.get(x, y).material != material::EMPTY);
-        let cx = (half + app.brush_radius..WIDTH as i32 - half - app.brush_radius)
+        let bounds = app.world.bounds().expect("bounded world");
+        let ground_at =
+            |app: &App, x: i32| (bounds.min_y..=bounds.max_y).find(|&y| app.world.get(x, y).material != material::EMPTY);
+        let cx = (half + app.brush_radius..bounds.max_x - half - app.brush_radius)
             .find(|&x| ground_at(&app, x).is_some_and(|g| g > need))
             .expect("no column in the generated world has room for a reference room");
         let ground = ground_at(&app, cx).expect("ground at the chosen column");
@@ -2210,7 +2274,7 @@ mod tests {
         let mut app = App::new();
         let stone = id(&app, "stone");
         let count_stone =
-            |app: &App| (0..WIDTH as i32).flat_map(|x| (0..HEIGHT as i32).map(move |y| (x, y))).filter(|&(x, y)| app.world.get(x, y).material == stone).count();
+            |app: &App| world_cells(app).filter(|&(x, y)| app.world.get(x, y).material == stone).count();
 
         let before = count_stone(&app);
         // Hard against the left edge: the room's own span cannot fit
@@ -2235,7 +2299,7 @@ mod tests {
         let mut app = App::new();
         let stone = id(&app, "stone");
         let count_stone = |app: &App| {
-            (0..WIDTH as i32).flat_map(|x| (0..HEIGHT as i32).map(move |y| (x, y))).filter(|&(x, y)| app.world.get(x, y).material == stone).count()
+            world_cells(app).filter(|&(x, y)| app.world.get(x, y).material == stone).count()
         };
 
         // Cycle to `flat` the way F7 does rather than reaching past the
@@ -2447,12 +2511,12 @@ mod tests {
         // down -- the bottom two rows are literal bedrock, the anchor
         // `structural.rs` keys on.
         assert_eq!(
-            app.world.get(10, HEIGHT as i32 - 1).material,
+            app.world.get(10, world_bottom(&app)).material,
             material::BEDROCK,
             "reset lost the bedrock floor"
         );
         assert_eq!(
-            app.world.get(10, HEIGHT as i32 - 3).material,
+            app.world.get(10, world_bottom(&app) - 2).material,
             stone,
             "reset lost the stone floor"
         );

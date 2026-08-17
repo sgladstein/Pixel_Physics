@@ -287,11 +287,16 @@ impl Handler {
             return;
         }
         let erase = self.erasing;
+        // Held in **world** coordinates. The camera follows the gnome, so
+        // the same screen pixel is a different cell one frame later; a
+        // stroke anchored in screen space would drag its tail across the
+        // world every time he moved.
+        let world_pos = self.app.to_world(pos);
         match self.last_paint {
-            Some(prev) => self.app.paint_stroke(prev, pos, erase),
+            Some(prev) => self.app.paint_stroke(prev, world_pos, erase),
             None => self.app.paint(pos.0, pos.1, erase),
         }
-        self.last_paint = Some(pos);
+        self.last_paint = Some(world_pos);
     }
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {

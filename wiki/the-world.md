@@ -158,5 +158,23 @@ genuinely different places.
 
 Rivers, springs, rain and evaporation — water currently sits where it was
 generated and does not cycle. Caves, and plant cover that arrives with the
-world rather than being planted by hand. Worlds are also currently a fixed
-size — one screen wide — rather than continuing as you travel.
+world rather than being planted by hand. Worlds are also still a fixed
+size — a large one, but bounded — rather than continuing indefinitely as
+you travel.
+
+## How big a world is
+
+A world is several screens across and about twice a screen deep, so most of
+it is somewhere you have to go rather than somewhere you can see. What is
+on screen is a **view** of it, not the whole of it: walk to the edge of
+the picture and the view travels with you.
+
+Landscape is composed to a fixed scale rather than stretched to fit, so a
+bigger world is *more places*, not the same places drawn larger. Roughly
+every screen's width is somewhere the country changes character — a dry
+run of dunes gives way to a soil-covered rise, a rise breaks into an
+escarpment — so walking is rewarded at about the rate you can walk.
+
+Depth is mostly rock for now. It is there so that caves and mining have
+somewhere to be, and until those land, the lower half of a world is a
+quarry rather than a destination.

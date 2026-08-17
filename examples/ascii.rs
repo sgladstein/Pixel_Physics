@@ -623,6 +623,36 @@ fn terrain_generation_cost() {
         gen_without_pass.as_secs_f64() * 1000.0,
         (gen_with_pass.saturating_sub(gen_without_pass)).as_secs_f64() * 1000.0,
     );
+
+    // ...and at the size the app actually ships, which is the number that
+    // decides whether `R` and `F6` feel instant or feel like a stall. The
+    // 512x320 figures above stay because they are the historical series;
+    // this is the live one. Generation is O(area), so four times the area
+    // should cost four times as much -- what this watches for is a *worse*
+    // than linear term, which is what `compute_world_distances` would
+    // contribute if its per-cell `World::get` started missing chunk lookups.
+    let (ww, wh) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
+    let mut big = World::new(Rect::new(0, 0, ww - 1, wh - 1));
+    let start = std::time::Instant::now();
+    pixel_physics::worldgen::generate(&mut big, spec());
+    let big_with_pass = start.elapsed();
+
+    let mut big_bare = World::new(Rect::new(0, 0, ww - 1, wh - 1));
+    let start = std::time::Instant::now();
+    pixel_physics::worldgen::generate_only(&mut big_bare, spec());
+    let big_without_pass = start.elapsed();
+
+    let area_ratio = (ww as f64 * wh as f64) / (512.0 * 320.0);
+    let cost_ratio = big_with_pass.as_secs_f64() / gen_with_pass.as_secs_f64().max(f64::EPSILON);
+    println!(
+        "{ww}x{wh} generated terrain -- THE SHIPPED WORLD SIZE ({name}, seed 1): {:.2} ms to build and relax, \
+         {:.2} ms to place alone -- structural pass {:.2} ms. That is {cost_ratio:.2}x the 512x320 build for \
+         {area_ratio:.1}x the area, so the build scales {} in world area. Paid on start, R, F6, F7 and F8.",
+        big_with_pass.as_secs_f64() * 1000.0,
+        big_without_pass.as_secs_f64() * 1000.0,
+        (big_with_pass.saturating_sub(big_without_pass)).as_secs_f64() * 1000.0,
+        if cost_ratio > area_ratio * 1.35 { "WORSE THAN LINEARLY" } else { "linearly" },
+    );
 }
 
 fn structural_scene(title: &str, w: i32, h: i32) {
