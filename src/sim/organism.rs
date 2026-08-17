@@ -116,6 +116,35 @@ pub enum CellType {
     /// as it treats `MatureBody`. The only difference is that it still has
     /// one thing left it may do, once.
     DormantBud = 5,
+    /// **A creature's deciding cell** — the one that senses, chooses a move
+    /// and carries the heading; the body follows it snake-fashion
+    /// (`Reports/creature-direction.md` D1/§3c).
+    ///
+    /// A creature is an organism like any other, which is the whole point:
+    /// `Cell::organism_id` carries the generational handle, `OrganismState`
+    /// carries the state, and the species comes from `SpeciesRegistry`.
+    /// The parallel `CreatureState`/`Cell::aux`-index scheme this replaced
+    /// had no generations, no reclamation and a `u16` overflow guarded only
+    /// by a `debug_assert` — every one of those already solved here, which
+    /// is why it was retired rather than extended
+    /// (`Reports/organism-substrate-design.md` opens on exactly that
+    /// failure: a third private solution to per-organism state).
+    ///
+    /// Movement is **code, not a `Behavior`**. A `Behavior` is something a
+    /// species composes onto a cell type from data; deciding where to step
+    /// is the one thing creature.rs owns, and there is nothing for a
+    /// species to compose about it yet.
+    Head = 6,
+    /// A creature's trailing body cell. No behavior of its own — it goes
+    /// where the cell in front of it was (`creature::chain_move`).
+    ///
+    /// Unused while the worm is the only creature (a one-cell chain), and
+    /// added alongside `Head` deliberately rather than later: the two are
+    /// one decision about what a creature is made of, and `aux`'s low four
+    /// bits are a **positional, never-renumbered** encoding, so adding a
+    /// variant between them afterwards would be the renumbering that
+    /// encoding forbids.
+    Segment = 7,
 }
 
 /// One behavior a cell type can carry, composed freely by species data —
@@ -733,6 +762,43 @@ pub struct OrganismState {
     /// All-zero is "exactly the species mean", which is what an organism
     /// that has not germinated yet reads as, and what moss stays at.
     pub genotype_draws: [f32; GENOTYPE_TRAITS],
+
+    // --- creature fields (`Reports/creature-direction.md` §3b) ----------
+    //
+    // Empty/zero for every plant, and cheap enough that a per-species
+    // split would cost more in dispatch than it saves in bytes.
+    //
+    // **The report lists seven fields here; three of them are these.** The
+    // other four — `carrying: Option<MaterialId>`, `since_nest: u16`,
+    // `brain_state: [f32; BRAIN_HIDDEN]` and `genome: Vec<f32>` — arrive
+    // with the ants in stage 3, when there is code that reads them. Two of
+    // the four cannot even be spelled until stage 3 defines the brain
+    // constants. Written down here so the next session does not have to
+    // re-derive the list or wonder whether the omission was an oversight.
+    /// **Chain order, head first.** Plants leave it empty.
+    ///
+    /// `cells` is *membership* and this is *sequence* — a distinction only
+    /// movement needs, and the reason it is a second field rather than a
+    /// different view of the same one. A body follows its head by each
+    /// segment stepping into its predecessor's old position, which is a
+    /// question about order that a `HashMap` cannot answer.
+    pub chain: Vec<(i32, i32)>,
+    /// The head's facing, as a **discrete 0..8 compass index** into
+    /// `creature::DIRS` — never a float vector.
+    ///
+    /// Three problems die at once (`creature-direction.md` §4a): no
+    /// `sin_cos`, which `Reports/emergent-world-architecture.md` §8d names
+    /// as a cross-platform determinism trap; a turn of ±1 is exactly 45°,
+    /// the Physarum literature's default rotation angle; and every sensor
+    /// offset comes from one const table instead of a rounding rule.
+    ///
+    /// Stamped but unread while the worm is the only creature — its move
+    /// is a 4-neighbour choice with no facing. The ants read it.
+    pub heading: u8,
+    /// Energy budget. `creature::CreatureState`'s scalar, relocated — the
+    /// entire contents of the parallel per-creature storage this substrate
+    /// replaced.
+    pub energy: f32,
 }
 
 /// How many independently-jittered traits a genotype carries — the width of
@@ -746,7 +812,11 @@ pub struct SpeciesRegistry {
     by_name: HashMap<String, SpeciesId>,
 }
 
-const EMBEDDED: &[&str] = &[include_str!("../../assets/species/moss.ron"), include_str!("../../assets/species/tree.ron")];
+const EMBEDDED: &[&str] = &[
+    include_str!("../../assets/species/moss.ron"),
+    include_str!("../../assets/species/tree.ron"),
+    include_str!("../../assets/species/worm.ron"),
+];
 
 /// Where the loader looks for species files, relative to the working
 /// directory — mirrors `material::ASSET_DIR`.
@@ -989,6 +1059,8 @@ pub fn cell_type(aux: u16) -> Option<CellType> {
         3 => Some(CellType::Leaf),
         4 => Some(CellType::RootTip),
         5 => Some(CellType::DormantBud),
+        6 => Some(CellType::Head),
+        7 => Some(CellType::Segment),
         _ => None,
     }
 }
@@ -1801,6 +1873,18 @@ mod tests {
     }
 
     #[test]
+    fn builtin_includes_worm_with_a_head_and_a_segment() {
+        // P-7: a species that exists only in `assets/species` silently does
+        // not exist for `cargo test` or for any run without an assets
+        // directory beside the binary, and `plant_worm_seed` would return
+        // `None` forever with nothing to point at.
+        let reg = SpeciesRegistry::builtin();
+        let worm = reg.get(reg.id_of("worm").expect("worm.ron must be in EMBEDDED, not just on disk"));
+        assert!(worm.behaviors(CellType::Head).is_empty(), "movement is creature.rs's code, not a composed Behavior");
+        assert!(worm.behaviors(CellType::Segment).is_empty());
+    }
+
+    #[test]
     fn an_unknown_species_name_is_none_not_a_panic() {
         let reg = SpeciesRegistry::builtin();
         assert!(reg.id_of("nonexistent-species").is_none());
@@ -1808,7 +1892,20 @@ mod tests {
 
     #[test]
     fn cell_type_round_trips_through_aux() {
-        for ty in [CellType::Seed, CellType::GrowingTip, CellType::MatureBody, CellType::Leaf, CellType::RootTip] {
+        // Every variant, and it must stay every variant: this list was
+        // silently missing `DormantBud` from the day that type was added,
+        // so the encoding of a live cell type went unasserted for a whole
+        // milestone. `Head`/`Segment` land here with the same care.
+        for ty in [
+            CellType::Seed,
+            CellType::GrowingTip,
+            CellType::MatureBody,
+            CellType::Leaf,
+            CellType::RootTip,
+            CellType::DormantBud,
+            CellType::Head,
+            CellType::Segment,
+        ] {
             assert_eq!(cell_type(pack_cell_type(ty)), Some(ty));
         }
     }
@@ -1869,14 +1966,14 @@ mod tests {
 
     #[test]
     fn an_unrecognized_type_bit_pattern_is_none() {
-        // 0-5 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud, so
-        // the first unassigned pattern is 6. Deliberately the *next* one
-        // rather than a far-away value: what this guards is that adding a
-        // variant does not silently start aliasing a stale bit pattern onto
-        // it, and the pattern that has just become valid is the one that
-        // proves the boundary moved with the enum.
-        assert_eq!(cell_type(5), Some(CellType::DormantBud));
-        assert_eq!(cell_type(6), None);
+        // 0-7 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud/Head/
+        // Segment, so the first unassigned pattern is 8. Deliberately the
+        // *next* one rather than a far-away value: what this guards is that
+        // adding a variant does not silently start aliasing a stale bit
+        // pattern onto it, and the pattern that has just become valid is
+        // the one that proves the boundary moved with the enum.
+        assert_eq!(cell_type(7), Some(CellType::Segment));
+        assert_eq!(cell_type(8), None);
         assert_eq!(cell_type(15), None);
     }
 

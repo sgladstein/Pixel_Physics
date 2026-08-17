@@ -28,6 +28,25 @@
 //!    `MOSS_STALE_LIMIT`, which exists because moss has no energy stat to
 //!    let staleness resolve itself).
 //!
+//! **A creature is an organism** (`Reports/creature-direction.md` §3a).
+//! State lives in `OrganismState`, identity is the generational handle in
+//! `Cell::organism_id`, the species comes from `SpeciesRegistry`
+//! (`worm.ron`), and the cell's `aux` holds a `CellType` like every other
+//! organism cell. The parallel scheme this replaced — a `CreatureState`
+//! vector indexed by a raw `u16` written into `Cell::aux` — had no
+//! generations (a site outliving its creature read whoever had been
+//! allocated that index since), no reclamation (`World::creatures` never
+//! shrank, and fire writing a corpse over a worm leaked its entry for the
+//! life of the process), and a `u16` overflow guarded only by a
+//! `debug_assert`. All three were already solved by the organism
+//! substrate, which is why this was **retired rather than extended**:
+//! extending it would have been the third private solution to
+//! per-organism state, the exact failure `Reports/organism-substrate-
+//! design.md` opens on.
+//!
+//! Movement is code here, not a composed `Behavior`, and `worm.ron`
+//! declares both its cell types with empty behavior lists to say so.
+//!
 //! Known simplification, not yet built: the Marginal Value Theorem's
 //! patch-leaving rule (leave once local intake drops below the
 //! environment's running average) needs a maintained average-intake
@@ -41,6 +60,7 @@
 
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::material::{self, MaterialKind};
+use super::organism::{pack_cell_type, CellType};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
@@ -135,55 +155,117 @@ const WORM_ENERGY_FROM_EATING: f32 = 8.0;
 /// slightly warm ground.
 const WORM_HEAT_THRESHOLD_ABOVE_AMBIENT: f32 = 25.0;
 
-/// Per-creature state too large for `Cell::aux`'s `u16` — mirrors
-/// `plant::TreeState`'s reasoning. Never shrinks; entries are indexed by
-/// `ActiveKind::Creature` and never reassigned. Indexed by `u16`, not `u32`
-/// like `TreeState`, because `Cell::aux` (also a `u16`) stores this same
-/// index directly, per its own documented meaning for
-/// `MaterialKind::Creature` — unlike a tree's growth stage, "which creature
-/// owns this cell" has to round-trip through the cell itself, so the index
-/// space is bounded by what `aux` can hold.
-pub struct CreatureState {
-    energy: f32,
-}
+/// How strongly a worm is allowed to pick the *wrong* neighbour.
+///
+/// The additive term `k` in `choose_weighted`'s `(k + s)²`. At `0.1`, a
+/// candidate scoring 0 against one scoring 1 is chosen `0.01 / 1.22`, about
+/// **0.8% of ticks** — enough that a worm never gets deterministically
+/// wedged, small enough that fleeing a fire still looks purposeful.
+const CHOICE_EXPLORATION_K: f32 = 0.1;
 
-/// Plant a worm at `(x, y)` if it's empty and the `worm` material is
-/// loaded. Returns the site to schedule, or nothing if either precondition
-/// failed.
+/// Plant a worm at `(x, y)` if the position is available and both the
+/// `worm` material and the `worm` species are loaded. Returns the site to
+/// schedule, or nothing if any precondition failed.
 pub fn plant_worm_seed(world: &mut World, x: i32, y: i32) -> Option<ActiveSite> {
     let worm_id = world.materials.id_of("worm")?;
+    let worm_species = world.species.id_of("worm")?;
+    // P-3: `is_empty` is the **managed-aware** check, and it is the right
+    // one here on purpose. The question being asked is "is this position
+    // available", not "is there material here" -- a promoted liquid body's
+    // container cells are materially empty and are *not* available. The two
+    // checks differ exactly when liquid bodies go live, so which one this
+    // is has to be a decision rather than a habit.
+    //
+    // Before `push_organism`, so refusing to plant does not leak a slot.
     if !world.is_empty(x, y) {
         return None;
     }
-    // The id first, because the shade draw is keyed on it -- see
+    // The handle first, because the shade draw is keyed on it -- see
     // `RNG_SLOT_SHADE`. Ordering the other way round would need a
     // placeholder identity, which is how position-keyed draws get
     // reintroduced by accident.
-    let creature_id = world.push_creature(CreatureState { energy: WORM_START_ENERGY });
+    let organism = world.push_organism(worm_species);
     let shades = world.materials.get(worm_id).palette.len().max(1) as u32;
-    let shade = rng::stream(world.seed, creature_id as u64, world.frame, RNG_SLOT_SHADE).below(shades) as u8;
-    world.set(x, y, Cell::new(worm_id, shade).with_aux(creature_id));
-    Some(ActiveSite { x, y, kind: ActiveKind::Creature { creature: creature_id }, next_frame: world.frame + WORM_TICK_INTERVAL })
+    let shade = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_SHADE).below(shades) as u8;
+    world.set(x, y, Cell::new(worm_id, shade).with_organism_id(organism).with_aux(pack_cell_type(CellType::Head)));
+    if let Some(state) = world.organism_mut(organism) {
+        state.energy = WORM_START_ENERGY;
+        // A worm is a chain of one. Ants are 2-3; nothing here assumes the
+        // length is 1 except `worm_tick`'s own 4-neighbour candidate set.
+        state.chain = vec![(x, y)];
+    }
+    Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + WORM_TICK_INTERVAL })
 }
 
 /// Dispatch a due `ActiveKind::Creature` site to `worm_tick`. `scheduler::step`
 /// never routes any other `ActiveKind` here.
 pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
-    let ActiveKind::Creature { creature } = site.kind else {
+    let ActiveKind::Creature { organism } = site.kind else {
         unreachable!("scheduler::step only routes ActiveKind::Creature to creature::tick");
     };
-    worm_tick(world, site.x, site.y, creature)
+    worm_tick(world, site.x, site.y, organism)
 }
 
-fn worm_tick(world: &mut World, x: i32, y: i32, creature_id: u16) -> Vec<ActiveSite> {
+/// Pick an index from `scores` with probability proportional to
+/// `(k + max(sᵢ, 0))²` — Deneubourg's nonlinear choice, with squaring as
+/// the nonlinearity so there is no `exp` anywhere near a decision (P-19:
+/// transcendentals are the named cross-platform determinism trap).
+///
+/// **Never replace this with `min_by`/`max_by`/argmax.** That is a specific,
+/// published failure (`Reports/stigmergy-research.md` §2, P-10): the noise
+/// is load-bearing, not a nuisance term. Deterministic selection removes the
+/// exploration every trail-laying mechanism depends on, and it removes it
+/// invisibly — the agents still move, they just stop finding anything. The
+/// version of this function that shipped before was an `Iterator::min_by`,
+/// which additionally returns the *first* minimum on a tie, so a worm whose
+/// neighbours read equal always fled west.
+///
+/// `k > 0` keeps exploration alive when every score is ~0, which is the
+/// common case: an undisturbed field reads flat, and a follower with no
+/// signal must still wander rather than freeze.
+///
+/// Slice-generic because the worm offers up to four candidates and the ants
+/// will offer three (ahead, ahead-left, ahead-right).
+fn choose_weighted(scores: &[f32], k: f32, draw: f32) -> usize {
+    let mut total = 0.0;
+    for &s in scores {
+        let b = k + s.max(0.0);
+        total += b * b;
+    }
+    if total <= 0.0 {
+        return 0;
+    }
+    let mut t = draw * total;
+    for (i, &s) in scores.iter().enumerate() {
+        let b = k + s.max(0.0);
+        if t < b * b {
+            return i;
+        }
+        t -= b * b;
+    }
+    // Only reachable on floating-point drift at the very top of the range.
+    scores.len() - 1
+}
+
+fn worm_tick(world: &mut World, x: i32, y: i32, organism: u16) -> Vec<ActiveSite> {
+    // A stale handle: this worm's slot was freed, and may since have been
+    // handed to something else entirely. Drop the site silently -- that is
+    // precisely what the generational scheme exists to make safe, and it is
+    // what the old raw-index scheme could not do at all.
+    if world.organism(organism).is_none() {
+        return Vec::new();
+    }
     let Some(worm_id) = world.materials.id_of("worm") else {
         return Vec::new();
     };
     let cell = world.get(x, y);
     // The cell may have burned into a corpse (fire.rs, uniformly for every
     // material kind), been erased by the brush, or been cleared by an
-    // explosion by the time this tick is due -- nothing left to move.
-    if cell.material != worm_id {
+    // explosion by the time this tick is due -- nothing left to move. The
+    // `organism_id` half also catches the case where something else has
+    // since been written here that merely happens to be worm material.
+    if cell.material != worm_id || cell.organism_id() != organism {
+        release_if_bodyless(world, organism);
         return Vec::new();
     }
     // The move below (`worm_tick`'s `Cell::new(worm_id, cell.shade)...`)
@@ -195,8 +277,18 @@ fn worm_tick(world: &mut World, x: i32, y: i32, creature_id: u16) -> Vec<ActiveS
     // defer instead, the same as `structural::tick` does, and let `fire.rs`
     // (which runs independently, every visited CA frame) finish deciding
     // this worm's fate before creature.rs touches it again.
+    //
+    // **Kept, even though the move below now carries the whole `Cell` and
+    // so no longer strips the flag.** Two independent guards against one
+    // bug is not the reason; the reason is that this one is also a
+    // behavioural statement -- a burning worm stops choosing and burns --
+    // and removing it is a behaviour change this migration deliberately is
+    // not making. Note the consequence for testing: because a burning worm
+    // never reaches the move, `a_burning_worm_keeps_burning...` cannot fail
+    // if the move regresses to a `Cell::new` rebuild. See
+    // `a_moving_worm_carries_its_whole_cell`, which is the guard that can.
     if cell.is_burning() {
-        return vec![ActiveSite { x, y, kind: ActiveKind::Creature { creature: creature_id }, next_frame: world.frame + WORM_TICK_INTERVAL }];
+        return vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + WORM_TICK_INTERVAL }];
     }
 
     // C. elegans-style thermotaxis: read the local ambient field, and if
@@ -225,28 +317,36 @@ fn worm_tick(world: &mut World, x: i32, y: i32, creature_id: u16) -> Vec<ActiveS
         // No separate dormancy tracking needed: unlike moss (which has no
         // energy stat), a permanently-trapped worm's own starvation is what
         // eventually stops it being rescheduled.
-        return apply_energy_delta(world, x, y, creature_id, -WORM_IDLE_COST);
+        return apply_energy_delta(world, x, y, organism, -WORM_IDLE_COST);
     }
 
+    let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MOVE);
     let (tx, ty, cost) = if fleeing {
         // Move toward whichever reachable neighbour reads coolest --
         // descending the field's temperature gradient is the entire
         // mechanism, same as the real AFD neuron comparing against a
         // remembered set-point.
+        //
         // Bilinear, not block-nearest (architecture §6a) — every candidate
         // here is only 1 cell from `(x, y)`, well inside the same
         // `FIELD_SCALE`-sided field block `field_at` would read, which
-        // otherwise makes every candidate compare temperature-equal and
-        // `min_by` silently degenerate into "always pick the first
-        // neighbour" instead of real gradient descent.
-        *candidates
-            .iter()
-            .min_by(|a, b| {
-                let ta = world.field_at_bilinear(a.0 as f32, a.1 as f32).temperature;
-                let tb = world.field_at_bilinear(b.0 as f32, b.1 as f32).temperature;
-                ta.partial_cmp(&tb).unwrap()
-            })
-            .expect("candidates is non-empty here")
+        // otherwise makes every candidate compare temperature-equal.
+        //
+        // **Scored and sampled, not argmin.** The coolest candidate scores
+        // 1.0 and the hottest 0.0, normalized across whatever spread this
+        // particular set of neighbours happens to have, so the choice is
+        // about the *shape* of the local gradient rather than its
+        // magnitude. `choose_weighted`'s own doc carries the never-argmax
+        // law and what the `min_by` that used to be here cost. A flat
+        // reading (`t_max == t_min`) scores every candidate 0 and the
+        // choice falls through to uniform exploration, which is the
+        // correct answer to "no gradient" and is what the old code got
+        // exactly wrong.
+        let temps: Vec<f32> = candidates.iter().map(|c| world.field_at_bilinear(c.0 as f32, c.1 as f32).temperature).collect();
+        let t_max = temps.iter().copied().fold(f32::MIN, f32::max);
+        let t_min = temps.iter().copied().fold(f32::MAX, f32::min);
+        let scores: Vec<f32> = temps.iter().map(|t| (t_max - t) / (t_max - t_min + 1e-6)).collect();
+        candidates[choose_weighted(&scores, CHOICE_EXPLORATION_K, draw.unit_f32())]
     } else {
         // Foraging: prefer burrowing into powder (food) over drifting
         // through open space when both are available, picked at random
@@ -260,23 +360,58 @@ fn worm_tick(world: &mut World, x: i32, y: i32, creature_id: u16) -> Vec<ActiveS
             .filter(|c| world.materials.kind(world.get(c.0, c.1).material) == MaterialKind::Powder)
             .collect();
         let pool: &[(i32, i32, f32)] = if powder.is_empty() { &candidates } else { &powder };
-        pool[rng::stream(world.seed, creature_id as u64, world.frame, RNG_SLOT_MOVE).below(pool.len() as u32) as usize]
+        pool[draw.below(pool.len() as u32) as usize]
     };
 
     let target = world.get(tx, ty);
     let ate = world.materials.kind(target.material) == MaterialKind::Powder;
 
-    // Move: the worm cell (carrying its own creature id in aux) takes the
-    // target position; whatever was there is left behind at the worm's old
-    // position -- an earthworm's actual ingest-ahead, cast-behind burrowing
-    // behaviour (see the research file), simplified to "the material passes
-    // through" rather than modelling digested organic content separately.
-    let moved_worm = Cell::new(worm_id, cell.shade).with_aux(creature_id).with_temperature(cell.temperature());
+    // Move: the worm cell takes the target position; whatever was there is
+    // left behind at the worm's old position -- an earthworm's actual
+    // ingest-ahead, cast-behind burrowing behaviour (see the research file),
+    // simplified to "the material passes through" rather than modelling
+    // digested organic content separately.
+    //
+    // **P-1: the two whole `Cell` values are swapped, not rebuilt.** The
+    // version before this one wrote `Cell::new(worm_id, cell.shade)...`,
+    // which silently dropped `FLAG_BURNING` and the burn timer -- a worm
+    // survived every fire it caught, simply by taking its next step. That
+    // was patched twice (a `.with_temperature` here, a burning-defer
+    // above); swapping the cells deletes the whole bug class at the root
+    // instead, and it is the difference between a fix and a fix per field:
+    // a chain creature moves N cells per step, so anything a rebuild
+    // forgets is forgotten N times.
+    //
+    // Serial active-site phase, so plain `World::set` is correct and
+    // `MAX_REACH` does not bind. Organism membership is maintained at that
+    // seam automatically (`World::set` -> `reindex_organism_cell`): the
+    // first write drops `(x, y)`, the second inserts `(tx, ty)`. The moved
+    // cell therefore gets a fresh, zeroed `OrganismCell` sidecar -- a
+    // documented limitation of that seam, and harmless here because a worm
+    // carries no per-cell scalars.
     world.set(x, y, target);
-    world.set(tx, ty, moved_worm);
+    world.set(tx, ty, cell);
+    if let Some(state) = world.organism_mut(organism) {
+        state.chain = vec![(tx, ty)];
+    }
 
     let delta = if ate { WORM_ENERGY_FROM_EATING - cost } else { -cost };
-    apply_energy_delta(world, tx, ty, creature_id, delta)
+    apply_energy_delta(world, tx, ty, organism, delta)
+}
+
+/// Release an organism whose last cell has left the world — burned into a
+/// corpse, erased by the brush, blown up.
+///
+/// **This closes a leak the old scheme had no way to close.**
+/// `World::creatures` never shrank and nothing told it a creature was gone,
+/// so fire writing a corpse over a worm left its `CreatureState` allocated
+/// for the life of the process. Here it costs one emptiness check, because
+/// `World::set`'s own seam already dropped the cell from the organism's
+/// list at the moment it changed hands.
+fn release_if_bodyless(world: &mut World, organism: u16) {
+    if world.organism(organism).is_some_and(|state| state.cells.is_empty()) {
+        world.free_organism(organism);
+    }
 }
 
 /// Energy cost to move into `target_material` at `(x, y)`, or `None` if
@@ -302,27 +437,38 @@ fn move_cost(world: &World, x: i32, y: i32, target_material: material::MaterialI
 /// Apply an energy delta, then either reschedule the worm (if it survived)
 /// or kill it (turn its cell into a corpse, stop tracking it). `(x, y)` is
 /// the worm's *current* position — already moved, if this tick moved it.
-fn apply_energy_delta(world: &mut World, x: i32, y: i32, creature_id: u16, delta: f32) -> Vec<ActiveSite> {
-    let energy = {
-        let state = world.creature_mut(creature_id);
-        state.energy += delta;
-        state.energy
+fn apply_energy_delta(world: &mut World, x: i32, y: i32, organism: u16, delta: f32) -> Vec<ActiveSite> {
+    let Some(state) = world.organism_mut(organism) else {
+        return Vec::new(); // freed mid-tick; nothing left to charge
     };
+    state.energy += delta;
+    let energy = state.energy;
     if energy <= 0.0 {
-        die(world, x, y, creature_id);
+        die(world, x, y, organism);
         return Vec::new();
     }
-    vec![ActiveSite { x, y, kind: ActiveKind::Creature { creature: creature_id }, next_frame: world.frame + WORM_TICK_INTERVAL }]
+    vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + WORM_TICK_INTERVAL }]
 }
 
-fn die(world: &mut World, x: i32, y: i32, creature_id: u16) {
-    let Some(corpse_id) = world.materials.id_of("corpse") else {
-        return;
-    };
-    let shades = world.materials.get(corpse_id).palette.len().max(1) as u32;
-    let shade = rng::stream(world.seed, creature_id as u64, world.frame, RNG_SLOT_DEATH).below(shades) as u8;
-    let temp = world.get(x, y).temperature();
-    world.set(x, y, Cell::new(corpse_id, shade).with_temperature(temp));
+/// Turn a starved worm into matter and give its slot back.
+///
+/// The corpse is written **without** an organism id: a dead worm is not a
+/// member of anything, it is `corpse` — a `Powder` that falls, rolls, burns
+/// and decays like any other, which is the whole reason death here needs no
+/// creature-specific code. `World::set`'s seam drops the cell from the
+/// organism's list as that write lands, which is what leaves the list empty
+/// and the slot safe to release.
+fn die(world: &mut World, x: i32, y: i32, organism: u16) {
+    if let Some(corpse_id) = world.materials.id_of("corpse") {
+        let shades = world.materials.get(corpse_id).palette.len().max(1) as u32;
+        let shade = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_DEATH).below(shades) as u8;
+        let temp = world.get(x, y).temperature();
+        world.set(x, y, Cell::new(corpse_id, shade).with_temperature(temp));
+    }
+    // Unconditional, including the no-corpse-material case: the slot must
+    // come back either way, and any worm cell left standing is then inert
+    // matter whose next due site drops itself on the stale-handle check.
+    world.free_organism(organism);
 }
 
 impl World {
@@ -341,6 +487,7 @@ mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
     use crate::sim::field;
+    use crate::sim::organism;
     use crate::sim::scheduler;
     use crate::sim::update;
 
@@ -618,15 +765,28 @@ mod tests {
             assert_eq!(w.get(80, y).material, material::STONE, "the worm entered/displaced the stone wall");
         }
         // A positive check, not just the negative one above: confirms a
-        // worm was actually created and did something (moved and/or
-        // starved into a corpse), so this test can't pass vacuously the
-        // way an earlier version of this suite did when `plant_worm` was
-        // accidentally called on already-occupied ground (see README.md's
-        // M18 status section).
+        // worm was actually created and did something, so this test can't
+        // pass vacuously the way an earlier version of this suite did when
+        // `plant_worm` was accidentally called on already-occupied ground
+        // (see README.md's M18 status section).
+        //
+        // **"Something exists" was still vacuous, and the break-check
+        // caught it.** Stubbing `worm_tick` to return immediately left this
+        // test green: the worm never moved, never starved, and sat exactly
+        // where it was planted, satisfying both the stone assertion and an
+        // existence check. Requiring that it *left the seed cell* is what
+        // makes deleting the mechanism fail here (P-24). Note the sand
+        // census would not do it — the move swaps two whole cells, so the
+        // sand the worm burrows through is displaced behind it rather than
+        // consumed, and the world's sand count is conserved exactly.
         let worm_id = w.materials.id_of("worm").unwrap();
         let corpse_id = w.materials.id_of("corpse").unwrap();
-        let existed = (81..150).any(|x| (90..110).any(|y| { let m = w.get(x, y).material; m == worm_id || m == corpse_id }));
-        assert!(existed, "no worm or corpse found anywhere -- was one ever actually created?");
+        let is_creature = |x: i32, y: i32| {
+            let m = w.get(x, y).material;
+            m == worm_id || m == corpse_id
+        };
+        assert!((81..150).any(|x| (90..110).any(|y| is_creature(x, y))), "no worm or corpse found anywhere -- was one ever actually created?");
+        assert!(!is_creature(100, 100), "the worm never left the cell it was planted in -- it did not burrow at all");
     }
 
     #[test]
@@ -668,14 +828,27 @@ mod tests {
         }
         w.set(100, y, Cell::EMPTY); // clear the seed cell -- plant_worm no-ops on occupied ground
         w.plant_worm(100, y);
-        // Heat the east end of the corridor sharply -- the worm starts
-        // inside the hot zone, so it should flee west from tick one rather
-        // than foraging randomly first. Radius is in world cells but
-        // `add_heat` paints in field-cell units (`FIELD_SCALE` = 8 world
-        // cells each), so this needs to be generously larger than the
-        // 35-cell distance from the heat centre to the worm's start (100)
-        // to actually reach it, not just look large in world units.
-        w.add_heat(135, y, 48, 400.0);
+        // **A ramp, one field cell at a time — because the disc this
+        // replaced contained no gradient at all.** The previous version
+        // called `add_heat(135, y, 48, 400.0)` and its own comment reasoned
+        // that a large radius was needed "to actually reach" the worm. It
+        // did reach it, and `paint_field` paints a *flat* value inside the
+        // radius, so the entire corridor read 400 degrees uniformly. Every
+        // neighbour compared equal, and the worm "fled" west only because
+        // `Iterator::min_by` returns the first minimum on a tie and
+        // `NEIGHBOURS_4` lists west first — the exact degeneracy the test
+        // below this one exists to catch. It passed for a whole milestone
+        // while testing nothing, and it failed the moment the choice became
+        // a real weighted sample: with no gradient, the correct behaviour is
+        // to explore, and an exploring worm starves in a sand corridor.
+        //
+        // `radius: 0` paints exactly one field cell (`field_radius = radius
+        // / FIELD_SCALE` = 0, and the loop still runs once), so stepping by
+        // FIELD_SCALE gives one authored value per field cell and a
+        // genuinely monotone west-cooling profile across the whole corridor.
+        for x in (40..=136).step_by(field::FIELD_SCALE as usize) {
+            w.add_heat(x, y, 0, (x - 40) as f32 * 4.0);
+        }
         run(&mut w, 300);
 
         let worm_id = w.materials.id_of("worm").unwrap();
@@ -713,25 +886,43 @@ mod tests {
         // both still floor to the painted cell, keeping the old
         // "same-block, so tied, so always-west" bug fully in play if this
         // change were ever reverted.
-        let mut w = test_world();
-        let y = 100;
-        for x in 60..120 {
-            w.set(x, y - 1, Cell::new(material::STONE, 0));
-            w.set(x, y + 1, Cell::new(material::STONE, 0));
-        }
-        // Field cell (11, *) spans world x 88..=95; radius 4 (< FIELD_SCALE
-        // = 8) paints only the one field cell containing (88, 100). Field
-        // cell (12, *) -- world x 96..=103, immediately east -- stays
-        // ambient.
-        w.add_heat(88, y, 4, 400.0);
-        w.plant_worm(93, y); // 5 cells into the painted cell, 2 short of its eastern edge
-        run(&mut w, 300);
+        // **Swept over eight world seeds, and that is the strengthening this
+        // test needed to survive the choice becoming probabilistic.** Under
+        // the old `min_by`, the block-nearest bug produced a *deterministic*
+        // always-west, so one run separated it from a working gradient read
+        // cleanly. Under a weighted sample, the same bug produces a tie —
+        // and a tie is a coin flip, so a single run agrees with the correct
+        // answer half the time and the test degrades into a 50% flake that
+        // catches nothing (P-24: a guard must be able to fail for the
+        // *replacement*). Eight independent worms make the sabotage's
+        // signature — a fair coin — separable from a real gradient's, at
+        // p ≈ 3.5% for 7-of-8 by chance.
+        let mut went_east = 0;
+        for seed in 0..8u64 {
+            let mut w = test_world();
+            w.seed = 0xC0FFEE + seed;
+            let y = 100;
+            for x in 60..120 {
+                w.set(x, y - 1, Cell::new(material::STONE, 0));
+                w.set(x, y + 1, Cell::new(material::STONE, 0));
+            }
+            // Field cell (11, *) spans world x 88..=95; radius 4 (<
+            // FIELD_SCALE = 8) paints only the one field cell containing
+            // (88, 100). Field cell (12, *) -- world x 96..=103,
+            // immediately east -- stays ambient.
+            w.add_heat(88, y, 4, 400.0);
+            w.plant_worm(93, y); // 5 cells into the painted cell, 2 short of its eastern edge
+            run(&mut w, 300);
 
-        let worm_id = w.materials.id_of("worm").unwrap();
-        let fx = (60..120)
-            .find(|&x| w.get(x, y).material == worm_id)
-            .expect("worm should still be alive and somewhere in the corridor");
-        assert!(fx > 93, "worm at x={fx} did not move toward the cooler cell immediately to its east");
+            let worm_id = w.materials.id_of("worm").unwrap();
+            let fx = (60..120)
+                .find(|&x| w.get(x, y).material == worm_id)
+                .expect("worm should still be alive and somewhere in the corridor");
+            if fx > 93 {
+                went_east += 1;
+            }
+        }
+        assert!(went_east >= 7, "only {went_east}/8 worms moved toward the cooler cell to their east -- a block-nearest read makes both neighbours tie, which is a coin flip, not a gradient");
     }
 
     #[test]
@@ -753,6 +944,10 @@ mod tests {
         let corpse_id = w.materials.id_of("corpse").unwrap();
         assert_eq!(w.get(100, 100).material, corpse_id, "a permanently trapped worm should have starved into a corpse");
         assert_eq!(w.active_site_count(), 0, "a dead worm should not still be scheduled");
+        // The half the old scheme could not do at all: the state comes back.
+        // `World::creatures` never shrank, so a dead worm's entry stayed
+        // allocated for the life of the process.
+        assert!(w.live_organism_ids().is_empty(), "a dead worm's organism slot should have been returned to the free list");
     }
 
     #[test]
@@ -830,6 +1025,19 @@ mod tests {
         let corpse_id = w.materials.id_of("corpse").unwrap();
         assert_eq!(w.get(100, 100).material, corpse_id, "a burned-out worm should become a corpse, via worm.ron's own burns_into");
         assert!(!w.get(100, 100).is_burning());
+
+        // Fire takes the cell without telling creature.rs anything. The slot
+        // still has to come back -- via the emptiness check on the *next*
+        // due tick, since the corpse write went through `World::set`'s seam
+        // and emptied the organism's cell list on its way past. A few more
+        // frames than the burnout itself, because that tick has to arrive.
+        for _ in 0..(WORM_TICK_INTERVAL as usize * 3) {
+            w.begin_step();
+            scheduler::step(&mut w);
+            w.end_step();
+        }
+        assert!(w.live_organism_ids().is_empty(), "a worm consumed by fire should have released its organism slot -- the leak the old CreatureState vector could not close");
+        assert_eq!(w.active_site_count(), 0, "and its site should have dropped itself");
     }
 
     #[test]
@@ -857,5 +1065,163 @@ mod tests {
         w.plant_worm(50, 50);
         assert_eq!(w.get(50, 50).material, material::STONE);
         assert_eq!(w.active_site_count(), 0);
+        // And it must not have leaked a slot on the way to refusing. The
+        // emptiness check is deliberately *before* `push_organism` for
+        // exactly this: a brush dragged across stone would otherwise burn
+        // through the 4,095-slot ceiling without ever creating a worm.
+        assert!(w.live_organism_ids().is_empty(), "a refused planting must not leave an organism allocated");
+    }
+
+    // --- what joining the organism substrate had to preserve, and what it
+    // --- newly makes true ---------------------------------------------------
+
+    #[test]
+    fn a_moving_worm_carries_its_whole_cell() {
+        // **The P-1 guard that can actually fail.** Its sibling,
+        // `a_burning_worm_keeps_burning...`, cannot: the burning-defer above
+        // means a burning worm never reaches the move at all, so
+        // reintroducing a `Cell::new(worm_id, shade)` rebuild leaves that
+        // test green (verified, not assumed -- see the commit). This one
+        // watches a property the rebuild destroys on an *ordinary* move.
+        //
+        // Temperature is the observable: it is carried on the `Cell`, it is
+        // not derivable from the material, and the old rebuild needed an
+        // explicit `.with_temperature(...)` to preserve it -- so deleting
+        // that patch, or swapping the whole-cell move back for a rebuild,
+        // both fail here. Which is the point: a chain creature moves N cells
+        // per step, and anything a rebuild forgets is forgotten N times.
+        let mut w = test_world();
+        for y in 99..=101 {
+            for x in 95..110 {
+                w.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+        w.set(100, 100, Cell::EMPTY);
+        w.plant_worm(100, 100);
+        let marked = w.get(100, 100).with_temperature(137);
+        w.set(100, 100, marked);
+        assert_eq!(w.get(100, 100).temperature(), 137, "the marker should be on the cell before the run");
+
+        let worm_id = w.materials.id_of("worm").unwrap();
+        run(&mut w, WORM_TICK_INTERVAL as usize * 3);
+
+        let (fx, fy) = (95..110)
+            .flat_map(|x| (99..=101).map(move |y| (x, y)))
+            .find(|&(x, y)| w.get(x, y).material == worm_id)
+            .expect("the worm should still be alive");
+        assert_ne!((fx, fy), (100, 100), "the worm should have moved, or this proves nothing");
+        assert_eq!(w.get(fx, fy).temperature(), 137, "a moved worm must arrive with its own temperature -- the move swaps whole Cells, it does not rebuild one");
+        assert_eq!(organism::cell_type(w.get(fx, fy).aux()), Some(CellType::Head), "and with its CellType, which now lives in the same aux the rebuild used to overwrite");
+    }
+
+    #[test]
+    fn a_worm_stays_a_head_cell_through_the_organism_upkeep_pass() {
+        // Creatures joining the organism substrate means `plant::step_
+        // organisms` now iterates a worm every ORGANISM_TICK_INTERVAL
+        // frames, running transport, allocation, support accumulation, bud
+        // break and upkeep over it. All of those are gated on behaviors or
+        // cell types a worm does not have, so all of them should be no-ops
+        // -- **proven, not assumed**, because the failure mode is loud
+        // (CLAUDE.md: a structural check scheduled mid-organism amputates
+        // it) and it would present as "creature.rs is broken".
+        let mut w = test_world();
+        for x in 40..160 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        w.plant_worm(100, 100);
+        let organism = w.get(100, 100).organism_id();
+        assert_ne!(organism, 0, "the worm should own its cell");
+
+        // Long enough for many organism ticks, and for the CA sweep to have
+        // had every chance to interact with the cell.
+        for _ in 0..600 {
+            update::step(&mut w);
+            scheduler::step(&mut w);
+        }
+
+        let worm_id = w.materials.id_of("worm").unwrap();
+        let (fx, fy) = (40..160)
+            .flat_map(|x| (60..101).map(move |y| (x, y)))
+            .find(|&(x, y)| w.get(x, y).material == worm_id)
+            .expect("the worm should have survived 600 frames on open ground");
+        assert_eq!(organism::cell_type(w.get(fx, fy).aux()), Some(CellType::Head), "the upkeep pass must not have retired, thickened or converted a creature cell");
+        assert_eq!(w.get(fx, fy).organism_id(), organism, "and must not have re-owned it");
+        assert_eq!(w.organism(organism).expect("still live").cells.len(), 1, "a one-cell chain should own exactly one cell after all that");
+    }
+
+    #[test]
+    fn a_stale_creature_site_after_slot_reuse_drops_silently() {
+        // The generational property, at the creature dispatch. The old
+        // scheme stored a raw index with no generation, so a site outliving
+        // its creature indexed straight into whoever had been allocated that
+        // slot since -- and `creature_mut` would have handed it out happily.
+        use crate::sim::scheduler::{ActiveKind, ActiveSite};
+
+        let mut w = test_world();
+        for x in 40..160 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        w.plant_worm(100, 100);
+        let doomed = w.get(100, 100).organism_id();
+        w.set(100, 100, Cell::EMPTY); // erased by the brush, say
+        w.free_organism(doomed);
+
+        let heir = w.species.id_of("worm").expect("worm species");
+        let heir = w.push_organism(heir);
+        assert_eq!(doomed & 0x0FFF, heir & 0x0FFF, "the test needs the heir to inherit the slot");
+        if let Some(state) = w.organism_mut(heir) {
+            state.energy = 999.0;
+        }
+
+        w.schedule_active_site(ActiveSite { x: 100, y: 100, kind: ActiveKind::Creature { organism: doomed }, next_frame: w.frame + 1 });
+        run(&mut w, 10); // must not panic
+
+        assert_eq!(w.organism(heir).expect("the heir is live").energy, 999.0, "a stale creature site must not have spent the energy of the organism that inherited its slot");
+        assert!(w.active_site_count() <= 1, "the stale site should have dropped itself rather than rescheduling");
+    }
+
+    // --- choose_weighted ----------------------------------------------------
+
+    #[test]
+    fn choose_weighted_prefers_the_strong_score_without_ever_excluding_the_weak_one() {
+        // The two halves of P-10 in one test: the mechanism has to *prefer*,
+        // or it is a random walk, and it has to keep a real tail, or it is an
+        // argmax with extra arithmetic and the exploration the whole
+        // stigmergy mechanism runs on is gone.
+        let scores = [0.0, 1.0];
+        let picks: Vec<usize> = (0..1000).map(|i| choose_weighted(&scores, CHOICE_EXPLORATION_K, i as f32 / 1000.0)).collect();
+        let strong = picks.iter().filter(|&&p| p == 1).count();
+        assert!((970..1000).contains(&strong), "the strong candidate should win about 99.2% of draws at k = 0.1, got {strong}/1000");
+        assert!(strong < 1000, "the weak candidate must remain reachable -- an argmax here kills exploration silently");
+    }
+
+    #[test]
+    fn choose_weighted_is_uniform_when_every_score_is_flat() {
+        // "No signal" must mean "explore", not "always pick the first
+        // candidate". The `min_by` this replaced returned the first minimum
+        // on a tie, which is how the worm came to always flee west, and how
+        // `a_worm_flees_a_hot_field_reading` came to pass for a whole
+        // milestone against a scene with no gradient in it.
+        let scores = [0.0, 0.0, 0.0, 0.0];
+        let mut counts = [0usize; 4];
+        for i in 0..4000 {
+            counts[choose_weighted(&scores, CHOICE_EXPLORATION_K, i as f32 / 4000.0)] += 1;
+        }
+        for (i, &c) in counts.iter().enumerate() {
+            assert!((900..1100).contains(&c), "candidate {i} drawn {c}/4000 times; a flat field should be sampled uniformly");
+        }
+    }
+
+    #[test]
+    fn choose_weighted_never_indexes_out_of_bounds() {
+        // The `draw` comes from `Rng::unit_f32`, which is bounded above by
+        // 1.0 but the cumulative sum is floating-point: a draw at the very
+        // top of the range can fall past the last bucket by an ulp.
+        for n in 1..=4 {
+            let scores = vec![0.5f32; n];
+            for draw in [0.0, 0.5, 0.999_999, 1.0] {
+                assert!(choose_weighted(&scores, CHOICE_EXPLORATION_K, draw) < n, "n={n} draw={draw}");
+            }
+        }
     }
 }

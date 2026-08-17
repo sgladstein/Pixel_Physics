@@ -288,6 +288,14 @@ const CELL_TYPE_ROOT_TIP: [f32; 3] = [255.0, 150.0, 60.0];
 /// note on the canopy-density sheet that read as blank because a mid-range
 /// value moved one colour byte from 139 to 155.
 const CELL_TYPE_DORMANT_BUD: [f32; 3] = [80.0, 255.0, 255.0];
+/// A creature's deciding cell and its trailing body. Loud, and loudly
+/// *different from each other*: the question this overlay has to answer for
+/// a chain is "where is the head", and a head-and-tail drawn in two shades
+/// of one hue is unreadable at the one-or-two-cell size a creature actually
+/// occupies. Pure white against a mid grey is the widest separation
+/// available that is also unlike every plant colour above.
+const CELL_TYPE_HEAD: [f32; 3] = [255.0, 255.0, 255.0];
+const CELL_TYPE_SEGMENT: [f32; 3] = [130.0, 130.0, 140.0];
 
 /// Flat blend for `OrganismOverlay::CellType`. High, but short of 1.0 on
 /// purpose: keeping a little of the underlying material colour through
@@ -1308,6 +1316,8 @@ impl Renderer {
                     Some(organism::CellType::Leaf) => CELL_TYPE_LEAF,
                     Some(organism::CellType::RootTip) => CELL_TYPE_ROOT_TIP,
                     Some(organism::CellType::DormantBud) => CELL_TYPE_DORMANT_BUD,
+                    Some(organism::CellType::Head) => CELL_TYPE_HEAD,
+                    Some(organism::CellType::Segment) => CELL_TYPE_SEGMENT,
                     None => [255.0, 0.0, 0.0],
                 };
                 (colour, CELL_TYPE_BLEND)

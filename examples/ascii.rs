@@ -622,7 +622,18 @@ fn creature_scene(title: &str, w: i32, h: i32, frames: usize) {
     let worm_id = world.materials.id_of("worm");
     let corpse_id = world.materials.id_of("corpse");
     let print_state = |world: &World, label: &str| {
-        println!("{label} ({} active sites still pending):", world.active_site_count());
+        // The "did it fire" number beside the picture (CLAUDE.md): a worm
+        // is an organism now, so a live organism count says whether the
+        // substrate is holding it -- and, on the second panel, whether
+        // death actually returned the slot. A picture cannot show either;
+        // an inert worm cell and a live one draw identically.
+        let worms = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| Some(world.get(x, y).material) == worm_id).count();
+        let corpses = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| Some(world.get(x, y).material) == corpse_id).count();
+        println!(
+            "{label}: {} live organisms, {worms} worm cells, {corpses} corpse cells, {} active sites still pending",
+            world.live_organism_count(),
+            world.active_site_count()
+        );
         for y in 0..h {
             let row: String = (0..w)
                 .map(|x| {

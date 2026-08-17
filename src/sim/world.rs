@@ -16,7 +16,6 @@ use std::collections::{BinaryHeap, HashMap};
 
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
-use super::creature::CreatureState;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::liquid::{self, LiquidBody};
 use super::material::{self, MaterialId, MaterialKind, MaterialRegistry};
@@ -158,13 +157,12 @@ pub struct World {
     /// existing `smallvec` dependency and a body touching more than a
     /// couple of chunks is rare enough not to justify adding one.
     body_index: HashMap<ChunkCoord, Vec<BodyId>>,
-    /// M18: per-creature state (currently just its energy budget) — see
-    /// `creature::CreatureState`. Never shrinks, mirroring `trees` above;
-    /// indexed by `u16`, not `u32` like `trees`, because `Cell::aux` (also
-    /// a `u16`) stores this same index directly per its own documented
-    /// meaning for `MaterialKind::Creature` — unlike a tree's growth stage,
-    /// "which creature owns this cell" has to round-trip through the cell.
-    creatures: Vec<CreatureState>,
+    // M18's `creatures: Vec<CreatureState>` is **gone**, not moved. A
+    // creature is an organism now (`Reports/creature-direction.md` §3a), so
+    // its state lives in `organisms` below with everything else's. The
+    // parallel vector had no generations, no reclamation and a `u16`
+    // overflow guarded only by a `debug_assert`; `push_creature` and
+    // `creature_mut` went with it.
     /// Species data for organism-owned cells — see `organism.rs`. Loaded
     /// with the compiled-in set by default, same as `materials`; `App::new`
     /// overlays the assets directory the same way it does for materials.
@@ -341,7 +339,6 @@ impl World {
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
             body_index: HashMap::new(),
-            creatures: Vec::new(),
             species: SpeciesRegistry::builtin(),
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
@@ -389,6 +386,18 @@ impl World {
         // their upkeep runs here, once per organism. See
         // `plant::step_organisms`.
         super::plant::step_organisms(self);
+    }
+
+    /// How many organism slots are currently allocated.
+    ///
+    /// The "did it fire" counter for anything that creates or destroys an
+    /// organism — a harness can print it beside a picture, which is the one
+    /// thing a picture cannot show: a worm cell whose organism has leaked
+    /// and one whose organism is live draw identically (`CLAUDE.md`). It is
+    /// also the direct readout on `free_organism` doing its job, since a
+    /// missing release shows up here as a count that only ever climbs.
+    pub fn live_organism_count(&self) -> usize {
+        self.organisms.iter().filter(|slot| slot.state.is_some()).count()
     }
 
     /// Every live organism's encoded id.
@@ -608,17 +617,6 @@ impl World {
         self.pending_structural_checks.remove(&(x, y));
     }
 
-    /// Store a new creature's state and return its stable id.
-    pub(crate) fn push_creature(&mut self, creature: CreatureState) -> u16 {
-        debug_assert!(self.creatures.len() < u16::MAX as usize, "creature index would overflow u16 -- Cell::aux can't address more than 65535 live creature slots");
-        self.creatures.push(creature);
-        (self.creatures.len() - 1) as u16
-    }
-
-    pub(crate) fn creature_mut(&mut self, id: u16) -> &mut CreatureState {
-        &mut self.creatures[id as usize]
-    }
-
     /// Allocate a new organism. Checks `free_organism_slots` first (bumping
     /// the reused slot's generation) before ever growing `organisms` —
     /// issue #8's actual fix, and live now that `free_organism` below
@@ -641,6 +639,11 @@ impl World {
             // The species mean until something germinates and draws — see
             // `OrganismState::genotype_draws`.
             genotype_draws: [0.0; organism::GENOTYPE_TRAITS],
+            // Creature fields: a plant is a chainless, headingless organism
+            // with no energy budget of its own, and stays at these.
+            chain: Vec::new(),
+            heading: 0,
+            energy: 0.0,
         };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];

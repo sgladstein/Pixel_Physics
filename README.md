@@ -802,9 +802,11 @@ both regression tests against the exact numbers — but they're now data
 and a generational allocator (`World::push_organism`/`organism`, issue
 #8's own "generational indices with a free list" direction) replace the
 material-name check (`world.get(x,y).material != moss_id`) the old code
-used to detect a disturbed tip. Trees and the worm are **not** retrofitted
-yet — `TreeState`/`CreatureState` are untouched, deliberately deferred;
-see `PLAN.md`'s note on why moss alone was the right scope for one pass.
+used to detect a disturbed tip. Trees and the worm were **not** retrofitted
+in that pass, deliberately; see `PLAN.md`'s note on why moss alone was the
+right scope for one. Both have since joined — the tree rewrite, and then
+the worm (`Reports/creature-direction.md` stage 1), which retired
+`CreatureState` entirely.
 
 **Trees** use space colonization (already-committed citation) for canopy
 shape, extended with two more mechanisms from the deep-dive research pass
@@ -1050,10 +1052,13 @@ Debug tool: `J` plants a worm at the brush (moved off `W` when the gnome
 claimed WASD).
 
 **A worm is one `MaterialKind::Creature` cell, dispatched from the M16
-scheduler exactly like a plant tip** — a new `ActiveKind::Creature { creature
-}` variant, indexing `World`'s creature-state storage (currently just an
-energy budget, `creature::CreatureState`), checked every `WORM_TICK_INTERVAL`
-(6 frames). `Creature` is excluded from the CA sweep's movement dispatch, the
+scheduler exactly like a plant tip** — an `ActiveKind::Creature { organism }`
+variant carrying the same generational handle a plant's site does, checked
+every `WORM_TICK_INTERVAL` (6 frames). It was originally a raw index into a
+parallel `World::creatures` vector; that scheme is gone
+(`Reports/creature-direction.md` stage 1) and a creature is now an organism
+like any other — state in `OrganismState`, identity in `Cell::organism_id`,
+species in `worm.ron`, and its slot returned on death. `Creature` is excluded from the CA sweep's movement dispatch, the
 same as `Solid`/`Plant` — a worm is relocated explicitly, by writing through
 the ordinary `World::get`/`set`, never by the sweep itself.
 
@@ -1146,8 +1151,9 @@ only, never by the target's own `is_burning()` state) — physically backwards
 for a mechanism sold as fire avoidance, though not a crash or data-corruption
 bug. Two smaller, non-blocking observations were also addressed: a
 `debug_assert` guarding `push_creature`'s `u16` index against silent
-wraparound past 65,535 live creatures (unreachable today, cheap to guard
-regardless), and a positive existence assertion added to
+wraparound past 65,535 live creatures (since superseded: `push_creature` is
+gone, and the organism allocator's 12-bit index has its own bound and a
+generation-wrap counter), and a positive existence assertion added to
 `a_worm_burrows_through_sand_but_never_enters_stone`, which previously only
 checked the stone wall was undisturbed and could have passed vacuously the
 same way the three tests above did, for an unrelated reason, in the future.
