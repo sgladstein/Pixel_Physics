@@ -470,7 +470,7 @@ fn build(args: &Args) -> World {
             // player digging at their own pace lets each bite settle before
             // the next, so this is the harsher reading of the same verb.
             if args.tunnel > 0 {
-                let step = args.dig * 2 + 1;
+                let step = args.step.unwrap_or(args.dig).max(1);
                 let depth = surface + args.depth.unwrap_or(args.dig * 3);
                 for i in 0..args.tunnel {
                     pixel_physics::sim::rigid::mine(&mut w, x + i * step, depth, args.dig, args.dig_yield);
@@ -933,6 +933,20 @@ struct Args {
     /// "nothing anywhere is over 1.0" on a scene that visibly stands is
     /// exactly that check.
     loadmap: bool,
+    /// `step=N` -- how far apart consecutive `tunnel=` bites are placed.
+    /// Defaults to `dig`, i.e. each bite overlaps the last by half.
+    ///
+    /// It used to be `dig * 2 + 1`, and that was **not a tunnel**. A disc
+    /// of radius r is `2r + 1` across on its centre line and narrower
+    /// everywhere else, so centres spaced `2r + 1` apart leave solid rock
+    /// standing between every pair of bites. Dumped, four bites came out
+    /// as four separate chambers joined only near the floor, with 2-4 cell
+    /// pillars between them -- a string of beads. It looked like a row of
+    /// circles because it *was* a row of circles, and every measurement of
+    /// "does a tunnel hold" was really measuring a row of small caverns
+    /// separated by thin pillars, which is about the least representative
+    /// geometry available.
+    step: Option<i32>,
     /// `depth=N` -- how far below the surface a `worldcrack` tunnel is
     /// driven, in cells. Defaults to `dig * 3`.
     ///
@@ -1021,6 +1035,7 @@ fn parse() -> Args {
         max_lost: None,
         dump: None,
         depth: None,
+        step: None,
         confine: true,
         wall: 3,
         dig: 3,
@@ -1084,6 +1099,7 @@ fn parse() -> Args {
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
             "max_lost" => a.max_lost = Some(v.parse().expect("max_lost")),
             "depth" => a.depth = Some(v.parse().expect("depth")),
+            "step" => a.step = Some(v.parse().expect("step")),
             "dump" => {
                 let n: Vec<i32> = v.split(',').map(|p| p.parse().expect("dump=x,y,w,h")).collect();
                 assert_eq!(n.len(), 4, "dump=x,y,w,h");

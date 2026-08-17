@@ -295,72 +295,96 @@ file's own rule says means it is reading the wrong quantity. Do not tune
 
 ---
 
-## 1a-ii. Can a cave be dug and hold? Yes — with a measured envelope
+## 1a-ii. Can a cave be dug and hold? Yes, and roof cover is what decides
 
-The owner's scoping, after the wedging above: *"you don't have to get him
-in the cave, just want to make sure a cave can be dug and not collapse."*
+The owner's scoping: *"you don't have to get him in the cave, just want to
+make sure a cave can be dug and not collapse."*
 
-**It can.** `scene=worldcrack dig=4 tunnel=N` drives a bore into generated
-terrain with the same `rigid::mine` the sandbox cut and the gnome use.
-Swept over six presets x three seeds, reading *rock destroyed* (the census
-split — see §4 — because a failure count cannot tell a collapse from
-settling):
+**It can.** `scene=worldcrack dig=4 tunnel=N depth=D` drives a bore with
+the same `rigid::mine` the sandbox cut and the gnome use. A ~145-cell
+corridor at `depth=18` is still a tunnel at frame 1,800 — dumped rather
+than eyeballed: solid rock roof, open passage, spoil underfoot.
 
-| tunnel | length | rock destroyed: median | p90 | max |
-|---|---|---|---|---|
-| `tunnel=8` | ~72 cells | **4** | 37 | 40 |
-| `tunnel=16` | ~144 cells | 13 | 966 | 1,219 |
+```
+    213 ########################################
+    214 ##.###.###.###.###.###.###.###.###.###.#   scalloped ceiling
+    215 ........................................   open
+    218 ........................................
+    219 .oo..oo..oo...oo.oo...oo..oo..oo..oo.oo.   spoil on the floor
+    222 ##o###o###o###o###o###o###o###o###o###o#   floor
+```
 
-So a ~70-cell cave at a 9-cell bore holds on **every preset and seed
-tested**, and stays open: `target/filmstrips/cave8.png` is four frames to
-1,800 and the bore is still there, not filled, not sagged. A ~145-cell
-cave holds on most seeds and collapses on `flat` and `arid`.
+### It was a row of circles, and that invalidated the first envelope
 
-A long gallery needing support is the *intended* behaviour (§1d
-requirement 1, "small tunnels self-sustaining; big ones need built
-support, like a mine"), so the collapse at 145 cells is not in itself a
-bug. **What is wrong is which ones collapse.**
+The owner spotted it on sight. `tunnel=` spaced its bites `dig * 2 + 1`
+apart, and **a disc of radius r is `2r+1` across only on its centre
+line**, narrower everywhere else — so centres spaced `2r+1` apart leave
+solid rock standing between every pair. Dumped, four bites came out as
+four separate chambers joined only near the floor, with 2-4 cell pillars
+between them:
 
-### The envelope is non-monotonic in bore size
+```
+    214 ####.########.########.########.####
+    215 ##.....####.....####.....####.....##
+    216 #.......##.......##.......##.......#
+```
 
-At **fixed depth** (`depth=18`, new arg) and fixed ~145-cell length on
-`flat`, rock destroyed by bore size:
+So every "does a tunnel hold" number measured before this was really
+measuring **a row of small caverns separated by thin pillars**, which is
+about the least representative geometry available and fails by crushing
+the pillars rather than by dropping a roof. `step=` now defaults to `dig`
+(half-overlap) and produces a continuous corridor.
 
-| bore | seed 1 | seed 7 |
+**This retracts the non-monotonic bore result** recorded here earlier (24
+/ 744 / 14 cells of rock for bores of 5 / 9 / 13). With a real corridor at
+fixed depth, *every* bore size holds ~145 cells with **zero** rock
+destroyed. There was nothing wrong with the criterion; there was something
+wrong with the scene. Cross-check any other conclusion that rests on
+`tunnel=` before this commit.
+
+### What actually governs it: roof cover
+
+`preset=flat seed=7`, bore 9, ~140-cell corridor:
+
+| depth | rock destroyed | what the dump shows at frame 900 |
 |---|---|---|
-| 5 cells | 24 | 24 |
-| 9 cells | **744** | **269** |
-| 13 cells | 14 | 14 |
+| 6 | 64 | roof gone, open to the sky, bore full of rubble |
+| 12 | 402 | roof gone, partly open to the sky |
+| 18 | **0** | intact roof, passage still open |
 
-Small holds, medium collapses, large holds. By this file's own rule a knob
-that moves a number in both directions means the criterion is **reading
-the wrong quantity** — the same signal as §2a's `wall=3`, and worth
-suspecting the same cause. Note the roof thickness varies only mildly
-across those three (16, 14, 12 cells), so it is not simply cover.
+Read the third column, not the second. A 2-cell roof and an 8-cell roof
+both come down *completely*; the shallow one merely has less rock in it to
+lose, so `rock destroyed` reads lower for the worse outcome. That is a
+metric conflating "how completely did it fail" with "how much material was
+involved", and it is the same trap as counting failures instead of
+damage — one level up. **A cave-survival metric wants to ask whether there
+is still a void at tunnel depth with rock above it**, and nothing measures
+that yet; `dump=` is the stopgap.
 
-**Measure this with `depth=` from now on.** Without it the scene couples
-bore size to depth (`depth = surface + dig * 3`), and the first run of this
-comparison duly showed a 13-cell gallery holding where a 5-cell ant tunnel
-collapsed — the exact inverse of the owner's expectation — because the big
-bore was also being driven three times deeper. A knob that drags something
-else along with it is not a knob.
+So the behaviour is sensible: thin cover collapses, thick cover holds, and
+a long gallery near the surface needs support — which is §1d requirement 1
+already working.
 
-### Confinement helps here, modestly
+### Two measurement traps in this scene, both hit
 
-`tunnel=16 dig=4` on `flat`, rock destroyed, `confine=0` -> `confine=1`:
-1,262 -> 1,152 (seed 1) and 1,028 -> 944 (seed 7). Real but small; the
-cave-in case is exactly where displacement *should* still happen, so this
-is the expected size of effect rather than a disappointment.
+- **Length is clipped by the world.** The bore starts at `WIDTH / 2` and
+  runs right, so past ~64 bites at `step=4` it runs off the edge:
+  `tunnel=70` and `tunnel=110` returned *bit-identical* numbers (22 / 388
+  / 0 across three depths). Identical output across settings is the
+  knob-not-connected tell. Keep total length under ~250 cells, or start
+  the bore further left.
+- **`depth` used to be coupled to `dig`** (`surface + dig * 3`), so a
+  bore-size comparison silently varied cover as well. `depth=` exists to
+  hold it.
 
 ### Still not in the model at all: height
 
 §1d requirement 2 — *"a super short tunnel should be able to have a longer
 span. ant tunnel vs digging a mine"* — has no representation in the
 criterion, which judges a roof purely as a span. Terzaghi's rock load
-(load scaling with *width + height* rather than full overburden) is the way
-in and drops into the existing capacity arithmetic. The non-monotonicity
-above should be understood first, since it suggests the span term itself is
-not measuring what it thinks.
+(scaling with *width + height* rather than full overburden) is the way in.
+The ground is now clear to build it: the geometry is a real tunnel and the
+span term is not, after all, misbehaving.
 
 ---
 
