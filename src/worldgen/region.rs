@@ -80,11 +80,28 @@ impl Character {
     }
 }
 
-/// Fewest and most regions a world is cut into. Two is enough to be a
-/// journey; past five, at one screen wide, each region is too narrow to
-/// establish itself and the world reads as noise rather than as places.
+/// Fewest and most regions **per window** of world. Two is enough to be a
+/// journey; past five, each region is too narrow to establish itself and the
+/// stretch reads as noise rather than as places.
+///
+/// Per window, not per world, and that distinction is what lets the world
+/// grow. Spreading a fixed two-to-five regions across whatever width the world
+/// happens to be means a world four times wider gets regions four times
+/// longer: the same count of places, each taking four screens to cross, so
+/// travelling stops revealing anything. Scaling the count with width keeps the
+/// *density* of change constant, which is what a player actually experiences.
 const MIN_REGIONS: i32 = 2;
 const MAX_REGIONS: i32 = 5;
+
+/// The width those per-window counts are expressed against — roughly one
+/// screen at 1:1. Composition is a property of what fits in view, so this is
+/// the natural unit; see `column::Terrain::base_wave` for the same reasoning
+/// applied to the macro silhouette.
+const COMPOSITION_WINDOW: f32 = 512.0;
+
+/// Ceiling on total regions, so an enormous world cannot spend its whole
+/// generation budget drawing region characters nobody will visit in one run.
+const MAX_TOTAL_REGIONS: i32 = 64;
 
 /// How far apart the highest and lowest region must sit, in units of
 /// `elev`. The composition guarantee: below this the world is a plain, and
@@ -133,8 +150,12 @@ impl RegionMap {
         }
 
         let span = (MAX_REGIONS - MIN_REGIONS + 1) as f32;
-        let count = MIN_REGIONS + (noise::unit(seed, Purpose::Region, 0, 0) * span) as i32;
-        let count = count.clamp(MIN_REGIONS, MAX_REGIONS);
+        let per_window = MIN_REGIONS + (noise::unit(seed, Purpose::Region, 0, 0) * span) as i32;
+        let per_window = per_window.clamp(MIN_REGIONS, MAX_REGIONS);
+        // Regions per *window*, scaled up by how many windows wide the world
+        // is. At the original 512 this is exactly the old behaviour.
+        let windows = (w as f32 / COMPOSITION_WINDOW).max(1.0);
+        let count = ((per_window as f32 * windows).round() as i32).clamp(MIN_REGIONS, MAX_TOTAL_REGIONS);
 
         let mut centres = Vec::with_capacity(count as usize);
         for i in 0..count {
@@ -291,6 +312,53 @@ mod tests {
         let lo = arid.iter().cloned().fold(f32::MAX, f32::min);
         let hi = arid.iter().cloned().fold(f32::MIN, f32::max);
         assert!(hi - lo > 0.1, "aridity barely changes across the world: {lo:.2}..{hi:.2}");
+    }
+
+    #[test]
+    fn regions_stay_window_sized_as_the_world_grows() {
+        // The property that lets the world get bigger without getting duller.
+        // A fixed count spread over any width means a four-times-wider world
+        // has regions four screens across, so walking reveals a quarter as
+        // much. What must hold constant is regions *per window*, not per
+        // world.
+        let p = params();
+        for &w in &[512, 1024, 2048, 4096] {
+            let map = RegionMap::new(9, &p, w);
+            let per_window = map.len() as f32 / (w as f32 / COMPOSITION_WINDOW);
+            assert!(
+                (MIN_REGIONS as f32..=MAX_REGIONS as f32).contains(&per_window),
+                "{w} wide: {} regions is {per_window:.1} per window, outside {MIN_REGIONS}..{MAX_REGIONS}",
+                map.len()
+            );
+        }
+    }
+
+    #[test]
+    fn a_wide_world_still_changes_character_within_a_screen() {
+        // The guarantee restated at the scale a player experiences it: pick
+        // any window-sized span of a large world and it should contain real
+        // relief, not just the world as a whole. Checked as a proportion
+        // rather than for every span, because a genuinely broad plateau is a
+        // legitimate landform and demanding variation everywhere would forbid
+        // it.
+        let p = params();
+        let w = 4096;
+        let map = RegionMap::new(4, &p, w);
+        let window = COMPOSITION_WINDOW as i32;
+        let mut varied = 0;
+        let mut windows = 0;
+        for start in (0..w - window).step_by(window as usize / 2) {
+            let lo = (start..start + window).map(|x| map.sample(x).elev).fold(f32::MAX, f32::min);
+            let hi = (start..start + window).map(|x| map.sample(x).elev).fold(f32::MIN, f32::max);
+            windows += 1;
+            if hi - lo > 0.25 {
+                varied += 1;
+            }
+        }
+        assert!(
+            varied * 4 >= windows * 3,
+            "only {varied} of {windows} window-sized spans have any relief in them"
+        );
     }
 
     #[test]
