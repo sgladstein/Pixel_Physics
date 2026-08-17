@@ -261,6 +261,64 @@ rather than prevention: hundreds of small events over a thousand frames is
 what looks bad, not the total. The owner has said explicitly that some
 chaining would be *good* if it looked better.
 
+### 1c-i. Why the unzip looks wrong: confined rock has nowhere to go
+
+**The owner's framing, and it is the most useful thing said about this
+defect:** *"one of the issues with unzipping is that it is stone in the
+middle of a mountain falling in on itself. it doesn't look right. if it
+happens in a cave and causes a cave in, or a cliff side falls over, that
+makes sense — but in solid rock you should just have cracks that propagate
+and maybe break rock into small pieces that for the most part stay where
+they are."*
+
+That is a physical statement and the model does not contain it. Rock deep in
+a massif is confined on every side: when it fails it cannot displace, because
+there is nowhere for it to move. It fractures **in place**. Material only
+actually travels where there is a free face for it to travel into -- a cave,
+a cliff, a crater, the hole you just dug.
+
+Today `structural::tick` produces the same outcome either way: the region
+converts to debris and the debris falls, whether it is at a cliff edge or
+eighty cells inside a mountain. That is the mid-mountain collapse the owner
+is seeing, and it is why it reads as fake even when the arithmetic that
+produced it is right.
+
+**The rule this suggests: key the failure *outcome* on the free space
+available, not the failure *criterion*.**
+
+- A failing region with a void adjacent to it (or beneath it) displaces:
+  fragments promote to bodies, rubble falls, the collapse plays out. Cave-in,
+  cliff calving, roof drop -- all still work.
+- A failing region with no free face has nowhere to go: it **scores cracks**
+  and at most breaks into pieces that stay put. Visible damage, no
+  displacement, no debris manufactured inside solid rock.
+
+Two reasons to expect this to help more than it costs:
+
+1. It is the same lever that killed the dig cascade. Making failures leave
+   `EMPTY` instead of rubble took every seed to zero (§1b), because a failure
+   that manufactures no loose material cannot undermine its neighbours. A
+   confined failure that only cracks manufactures nothing *by construction* --
+   the damping is a side effect of getting the picture right.
+2. It gives the crack-propagation behaviour the wiki already promises
+   ("striking the same spot again drives existing fissures deeper... so a span
+   you can't chew through can still be *worked* until it gives") a reason to
+   fire in the one place it currently does not.
+
+**This is NOT the retired confinement model.** `load-model-handoff.md` §6.1
+retired "confinement as an anchor" -- inferring *support* from burial, which
+made thick rock immune to failing at all and is on the do-not-retry list.
+This is the opposite end of the pipeline: confinement decides what a failure
+*produces*, never whether it happens. A buried cell can still be judged, can
+still be over capacity, and can still fail; it just cannot fall into rock
+that is already there. Keep that distinction explicit in any implementation,
+because the two are one word apart and one of them is a dead end.
+
+Likely also the answer to 1c's lateral surface unzip: a thin surface sheet
+has a free face above it along its whole length, which is exactly where
+displacement is permitted -- so the fix may narrow that case rather than
+remove it, and the remaining question there becomes pacing.
+
 ---
 
 ## 1d. OWNERSHIP CHANGE: the gnome and creatures are now structural work
