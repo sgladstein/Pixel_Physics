@@ -41,10 +41,32 @@
 
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::material::{self, MaterialKind};
+use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
 const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+
+/// Which draw a creature is making, as the fourth key of `rng::stream` —
+/// so two decisions taken by the same creature on the same frame do not
+/// share a sequence.
+///
+/// **Slots are positional and append-only**, the same law the plant genome
+/// and `CellType`'s discriminants live under: renumbering one silently
+/// re-rolls every creature decision in the engine, which reads as "the
+/// worms behave differently now" with nothing to point at.
+///
+/// **Keyed on the creature's own identity, never on its position.** A
+/// fitness-relevant draw keyed on where something is makes *location* a
+/// hidden inherited variable, which `Reports/plant-simulation-research.md`
+/// §7d names as the confound that manufactures spurious evolution results
+/// — and this module is the one that will shortly have heredity attached
+/// to it. `plant.rs`'s `(id, x, y, frame)` keying is the shape **not** to
+/// copy here; fixing it for plants is its own migration
+/// (`Reports/creature-direction.md` §2c).
+const RNG_SLOT_SHADE: u64 = 0;
+const RNG_SLOT_MOVE: u64 = 1;
+const RNG_SLOT_DEATH: u64 = 2;
 
 /// Frames between a worm's movement decisions. Faster than plant growth
 /// (20-45 frames) — a worm actively moving through the world reads as more
@@ -133,9 +155,13 @@ pub fn plant_worm_seed(world: &mut World, x: i32, y: i32) -> Option<ActiveSite> 
     if !world.is_empty(x, y) {
         return None;
     }
-    let shades = world.materials.get(worm_id).palette.len().max(1) as u32;
-    let shade = world.rng.below(shades) as u8;
+    // The id first, because the shade draw is keyed on it -- see
+    // `RNG_SLOT_SHADE`. Ordering the other way round would need a
+    // placeholder identity, which is how position-keyed draws get
+    // reintroduced by accident.
     let creature_id = world.push_creature(CreatureState { energy: WORM_START_ENERGY });
+    let shades = world.materials.get(worm_id).palette.len().max(1) as u32;
+    let shade = rng::stream(world.seed, creature_id as u64, world.frame, RNG_SLOT_SHADE).below(shades) as u8;
     world.set(x, y, Cell::new(worm_id, shade).with_aux(creature_id));
     Some(ActiveSite { x, y, kind: ActiveKind::Creature { creature: creature_id }, next_frame: world.frame + WORM_TICK_INTERVAL })
 }
@@ -234,7 +260,7 @@ fn worm_tick(world: &mut World, x: i32, y: i32, creature_id: u16) -> Vec<ActiveS
             .filter(|c| world.materials.kind(world.get(c.0, c.1).material) == MaterialKind::Powder)
             .collect();
         let pool: &[(i32, i32, f32)] = if powder.is_empty() { &candidates } else { &powder };
-        pool[world.rng.below(pool.len() as u32) as usize]
+        pool[rng::stream(world.seed, creature_id as u64, world.frame, RNG_SLOT_MOVE).below(pool.len() as u32) as usize]
     };
 
     let target = world.get(tx, ty);
@@ -283,18 +309,18 @@ fn apply_energy_delta(world: &mut World, x: i32, y: i32, creature_id: u16, delta
         state.energy
     };
     if energy <= 0.0 {
-        die(world, x, y);
+        die(world, x, y, creature_id);
         return Vec::new();
     }
     vec![ActiveSite { x, y, kind: ActiveKind::Creature { creature: creature_id }, next_frame: world.frame + WORM_TICK_INTERVAL }]
 }
 
-fn die(world: &mut World, x: i32, y: i32) {
+fn die(world: &mut World, x: i32, y: i32, creature_id: u16) {
     let Some(corpse_id) = world.materials.id_of("corpse") else {
         return;
     };
     let shades = world.materials.get(corpse_id).palette.len().max(1) as u32;
-    let shade = world.rng.below(shades) as u8;
+    let shade = rng::stream(world.seed, creature_id as u64, world.frame, RNG_SLOT_DEATH).below(shades) as u8;
     let temp = world.get(x, y).temperature();
     world.set(x, y, Cell::new(corpse_id, shade).with_temperature(temp));
 }
@@ -328,6 +354,207 @@ mod tests {
             scheduler::step(w);
             w.end_step();
         }
+    }
+
+    /// **A measurement, not a guard** (hence `#[ignore]`): can a
+    /// Jones-style gradient follower track a one-cell trail carried on a
+    /// `FIELD_SCALE`-resolution channel?
+    ///
+    /// `Reports/stigmergy-research.md` §6 sets a hard floor — gradient
+    /// following needs a sensor offset that actually *resolves* differences
+    /// — and `Reports/creature-direction.md` §2a asks for this to be
+    /// answered before the pheromone substrate is designed, because
+    /// discovering it afterwards means debugging a milling colony with
+    /// nothing to say whether the fault is the brain, the deposit or the
+    /// grid.
+    ///
+    /// The stand-in channel is **moisture**, deliberately: adding a field
+    /// channel for a throwaway experiment would be the more expensive way
+    /// to learn the same thing. A row of `WATER` makes
+    /// `apply_moisture_sources` pin every 8x8 block containing liquid to
+    /// `MAX_MOISTURE`, so a one-cell trail reads back as an eight-cell-tall
+    /// saturated block-row with a real gradient only at its edges. That
+    /// smearing *is* the thing under test.
+    ///
+    /// **Four numbers, because "stays near the trail" alone cannot tell the
+    /// answers apart** — `CLAUDE.md`'s "ask what a metric counts when
+    /// nothing is wrong", which this experiment walked straight into on its
+    /// first run (0.988 within 2 cells, and a follower that had advanced 21
+    /// cells along a 208-cell trail in 400 steps: pinned, not commuting).
+    ///
+    /// 1. **within 2 cells** — the tracking question as asked.
+    /// 2. **within 4 cells** — anywhere inside the smeared 8-cell block. A
+    ///    follower that merely drifts inside the smear looks identical to
+    ///    one tracking the trail at the zoom (1) is read at.
+    /// 3. **along-trail progress** — net displacement over path length. A
+    ///    follower oscillating on the spot scores ~1.0 on (1) while going
+    ///    nowhere, which is not what "follows a trail" has to mean for an
+    ///    ant that must actually commute.
+    /// 4. **the no-trail control** — the same follower on a world with no
+    ///    water in it. If the control also scores well, (1) is measuring
+    ///    the starting position, not the mechanism.
+    ///
+    /// The **separation** probe is separate and needs no follower at all:
+    /// paint one trail, then two trails four cells apart, and compare the
+    /// moisture profiles they produce. If the two are indistinguishable the
+    /// question is settled regardless of how well anything tracks, because
+    /// two ant routes four cells apart is the ordinary case, not the edge
+    /// one.
+    ///
+    /// **Decision rule.** The default plan (`creature-direction.md` §5a) is
+    /// a dedicated CA-resolution pheromone plane per channel. Only robust
+    /// tracking **and** surviving separation justifies the cheaper sixth
+    /// `FieldCell` channel instead. Run it with:
+    ///
+    /// `cargo test --lib pheromone_resolution_experiment -- --ignored --nocapture`
+    ///
+    /// ## Measured 2026-08-17 — the answer is the CA-resolution plane
+    ///
+    /// | | one trail | no-trail control |
+    /// |---|---|---|
+    /// | within 2 cells | **0.988** | 0.023 |
+    /// | within 4 cells | 0.993 | 0.032 |
+    /// | along-trail progress | **0.052** | 0.262 |
+    ///
+    /// Separation: largest difference between the one-trail and the
+    /// two-trails-four-cells-apart moisture profile, over the 17 rows
+    /// spanning the trail, was **0.0000** — bit-identical, every row.
+    ///
+    /// Three readings, and the second and third are what decide it:
+    ///
+    /// - **Gradient following at offset 8 does work**, in the only sense
+    ///   the first row measures: the follower finds the wet band and stays
+    ///   in it, 43x the control rate. Taken alone this is the "surprise,
+    ///   reconsider" result §2a anticipated.
+    /// - **It cannot commute along the trail.** Along-trail progress is
+    ///   0.052 against the random walk's 0.262 — the follower makes
+    ///   headway *five times worse than chance*, because it is pinned
+    ///   oscillating at the block edge (21 cells advanced along a 208-cell
+    ///   trail in 400 steps). An ant that cannot travel a trail has not
+    ///   followed it, whatever the proximity number says. Note also that
+    ///   the sensed maximum sits at y = 96, four cells off the trail it
+    ///   came from: the smear does not even peak where the signal is.
+    /// - **Separation is not marginal, it is zero.** Two trails four cells
+    ///   apart are not merely hard to tell apart at `FIELD_SCALE = 8`;
+    ///   they produce the identical field, so no sensor offset, no
+    ///   interpolation and no brain can ever distinguish them. Two routes
+    ///   four cells apart is the ordinary case for a colony, not an edge
+    ///   one, and path *selection* between competing routes is the entire
+    ///   mechanism (`stigmergy-research.md` §2).
+    ///
+    /// So the default stands, on stronger evidence than "the literature
+    /// says it may not work": Stage 2 builds dedicated per-channel planes
+    /// at CA resolution. The sixth `FieldCell` channel is refuted, not
+    /// merely unattractive.
+    #[test]
+    #[ignore = "a measurement, not a guard -- prints numbers, asserts nothing"]
+    fn pheromone_resolution_experiment_offset8_tracking() {
+        /// Index 0 = east, then counterclockwise on screen (y grows
+        /// downward, so `(1, -1)` is up-and-right). The same table
+        /// `creature-direction.md` §4a fixes for headings, kept local
+        /// because nothing outside this experiment uses it yet.
+        const DIRS: [(i32, i32); 8] = [(1, 0), (1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1)];
+        /// Sensor offset, in world cells. 8 = exactly `FIELD_SCALE`, the
+        /// smallest offset that can straddle two field blocks at all.
+        const SO: i32 = 8;
+        const TRAIL_Y: i32 = 100;
+        const STEPS: usize = 400;
+
+        /// Paint `rows` as one-cell water trails, then settle the field.
+        /// Field only -- never the CA sweep, or the water falls and the
+        /// trail being measured stops existing (`CLAUDE.md`: a scene that
+        /// contradicts the code looks like a bug in the code).
+        fn trail_world(rows: &[i32]) -> World {
+            let mut w = World::new(Rect::new(0, 0, 255, 199));
+            for &y in rows {
+                for x in 24..232 {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+            for _ in 0..60 {
+                field::step(&mut w);
+            }
+            w
+        }
+
+        /// One Jones follower run. Returns
+        /// `(within 2, within 4, net |dx| / path length)`.
+        fn follow(w: &World, label: &str) -> (f32, f32, f32) {
+            let (mut px, mut py) = (40.0f32, 108.0f32);
+            let start_x = px;
+            let mut heading: u8 = 0;
+            let (mut near_trail, mut in_band, mut path) = (0usize, 0usize, 0.0f32);
+            for step in 0..STEPS {
+                let sense = |h: u8| {
+                    let (dx, dy) = DIRS[h as usize % 8];
+                    w.field_at_bilinear(px + (dx * SO) as f32, py + (dy * SO) as f32).moisture
+                };
+                let f = sense(heading);
+                let l = sense((heading + 1) % 8);
+                let r = sense((heading + 7) % 8);
+
+                // Jones: steer toward the strongest of the three; on a tie,
+                // choose randomly among the tied options rather than
+                // falling through to a fixed preference. Deterministic
+                // tie-breaking is the named regression here (P-10) and it
+                // would also make this measurement a lie: inside the
+                // saturated block every sample is identical, so a fixed
+                // rule would report whatever that rule happens to do rather
+                // than what a follower does.
+                let best = f.max(l).max(r);
+                let mut tied: [u8; 3] = [0; 3];
+                let mut n = 0;
+                for (i, v) in [(0u8, f), (1, l), (2, r)] {
+                    if (v - best).abs() < 1e-6 {
+                        tied[n] = i;
+                        n += 1;
+                    }
+                }
+                let pick = tied[crate::sim::rng::stream(w.seed, 0, step as u64, 0).below(n as u32) as usize];
+                heading = match pick {
+                    1 => (heading + 1) % 8,
+                    2 => (heading + 7) % 8,
+                    _ => heading,
+                };
+
+                let (dx, dy) = DIRS[heading as usize];
+                px = (px + dx as f32).clamp(1.0, 254.0);
+                py = (py + dy as f32).clamp(1.0, 198.0);
+                path += 1.0;
+
+                let off = (py - TRAIL_Y as f32).abs();
+                if off <= 2.0 {
+                    near_trail += 1;
+                }
+                if off <= 4.0 {
+                    in_band += 1;
+                }
+            }
+            let (near, band) = (near_trail as f32 / STEPS as f32, in_band as f32 / STEPS as f32);
+            let progress = (px - start_x).abs() / path;
+            println!("  {label:<22} within2 {near:.3}  within4 {band:.3}  along-trail {progress:.3}  ended ({px:.0}, {py:.0})");
+            (near, band, progress)
+        }
+
+        println!("pheromone resolution experiment (moisture stand-in, FIELD_SCALE = 8, SO = {SO}, trail at y = {TRAIL_Y}):");
+        let tracked = follow(&trail_world(&[TRAIL_Y]), "one trail");
+        let control = follow(&trail_world(&[]), "no-trail control");
+
+        // Separation: does a second trail four cells away change anything a
+        // sensor can read? Sampled straight off the field, no follower
+        // involved -- if the profiles match, no brain and no offset can
+        // tell the two routes apart.
+        let one = trail_world(&[TRAIL_Y]);
+        let two = trail_world(&[TRAIL_Y - 4, TRAIL_Y]);
+        println!("  separation probe (column x = 128, moisture by row):");
+        let mut worst_gap = 0.0f32;
+        for y in (TRAIL_Y - 8)..=(TRAIL_Y + 8) {
+            let (a, b) = (one.field_at_bilinear(128.0, y as f32).moisture, two.field_at_bilinear(128.0, y as f32).moisture);
+            worst_gap = worst_gap.max((a - b).abs());
+            println!("    y={y:>3}  one trail {a:.3}   two trails 4 apart {b:.3}");
+        }
+        println!("  largest difference one-trail vs two-trails-4-apart: {worst_gap:.4}");
+        println!("  tracking {:.3} vs control {:.3}; along-trail progress {:.3}", tracked.0, control.0, tracked.2);
     }
 
     #[test]

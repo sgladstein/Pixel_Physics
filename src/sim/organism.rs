@@ -1880,6 +1880,132 @@ mod tests {
         assert_eq!(cell_type(15), None);
     }
 
+    // --- the generational allocator, both ends ------------------------------
+    //
+    // `encode_organism_id`/`decode_organism_id` are private to `world.rs`, so
+    // everything here asserts through the public surface: what a caller can
+    // observe is what has to be right.
+
+    #[test]
+    fn freeing_an_organism_recycles_its_slot() {
+        use crate::sim::chunk::Rect;
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        let first = w.push_organism(species);
+        assert!(w.organism(first).is_some());
+        w.free_organism(first);
+        assert!(w.organism(first).is_none(), "a freed id must stop resolving");
+
+        let second = w.push_organism(species);
+        assert!(w.organism(second).is_some());
+        assert_ne!(first, second, "the reused slot must hand back a *different* encoded id -- same index, bumped generation");
+        // The slot index is the low 12 bits; the reuse must be a genuine
+        // reuse of that index rather than growth, or the free list is not
+        // doing its job and the 4,095-slot ceiling is still reachable.
+        assert_eq!(first & 0x0FFF, second & 0x0FFF, "the second push should have reused the freed slot index, not grown the vec");
+        assert!(w.organism(first).is_none(), "the old id must still read stale after the slot was recycled");
+    }
+
+    #[test]
+    fn freeing_twice_is_a_no_op() {
+        // The double-free guard. Without `state.is_none()`, the second free
+        // pushes the same index onto the free list again and the next two
+        // pushes both get the same slot -- two live organisms sharing one
+        // `OrganismState`, which is the worst failure this allocator has.
+        use crate::sim::chunk::Rect;
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        let first = w.push_organism(species);
+        w.free_organism(first);
+        w.free_organism(first);
+
+        let a = w.push_organism(species);
+        let b = w.push_organism(species);
+        assert_ne!(a, b, "a double free must not hand the same slot to two live organisms");
+        assert_ne!(a & 0x0FFF, b & 0x0FFF, "a double free must not put one slot index on the free list twice");
+        assert!(w.organism(a).is_some() && w.organism(b).is_some());
+    }
+
+    #[test]
+    fn freeing_a_stale_or_zero_id_is_silently_ignored() {
+        use crate::sim::chunk::Rect;
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        w.free_organism(0); // "no organism" -- must not touch slot 0's storage
+        w.free_organism(1234); // never allocated
+
+        let live = w.push_organism(species);
+        w.free_organism(live);
+        let reused = w.push_organism(species);
+        // The stale handle for the previous generation must not be able to
+        // free the organism that now holds the slot.
+        w.free_organism(live);
+        assert!(w.organism(reused).is_some(), "a stale free must not release the live organism that inherited the slot");
+    }
+
+    #[test]
+    fn a_stale_site_on_a_reused_slot_drops_silently() {
+        // The whole point of the generational scheme
+        // (`Reports/organism-substrate-design.md` §6): a scheduled site
+        // outliving its organism must resolve to nothing and disappear, not
+        // panic and not act on whoever inherited the slot.
+        use crate::sim::chunk::Rect;
+        use crate::sim::scheduler::{self, ActiveKind, ActiveSite};
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let moss_material = w.materials.id_of("moss").expect("moss is compiled in");
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        let doomed = w.push_organism(species);
+        w.set(5, 5, Cell::new(moss_material, 0).with_organism_id(doomed).with_aux(pack_cell_type(CellType::GrowingTip)));
+        w.free_organism(doomed);
+
+        let heir = w.push_organism(species);
+        assert_eq!(doomed & 0x0FFF, heir & 0x0FFF, "the test needs the heir to actually inherit the slot");
+
+        w.schedule_active_site(ActiveSite { x: 5, y: 5, kind: ActiveKind::Organism { organism: doomed, stale_ticks: 0, plastochron: 0 }, next_frame: 1 });
+        for _ in 0..4 {
+            w.begin_step();
+            scheduler::step(&mut w); // must not panic
+            w.end_step();
+        }
+
+        assert_eq!(w.active_site_count(), 0, "a site whose organism is gone should drop itself, not reschedule forever");
+        assert!(w.organism(heir).expect("the heir is live").cells.is_empty(), "a stale site must not have grown cells for the organism that inherited its slot");
+    }
+
+    #[test]
+    fn generation_wrap_is_counted() {
+        // P-8. The 4-bit generation wraps after 16 reuses, at which point a
+        // reference stale by exactly that many reuses aliases a live
+        // organism again. Accepted, but it should be a *counted* quantity
+        // rather than a footnote -- 17 allocate/free cycles is one wrap.
+        use crate::sim::chunk::Rect;
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        assert_eq!(w.organism_generation_wraps, 0);
+        let first = w.push_organism(species); // generation 0
+        w.free_organism(first);
+        // Generations 1..=15: fifteen reuses, none of them a wrap.
+        for _ in 0..15 {
+            let id = w.push_organism(species);
+            assert_ne!(id, first, "generations 1..15 must all encode differently from generation 0");
+            w.free_organism(id);
+        }
+        assert_eq!(w.organism_generation_wraps, 0, "fifteen reuses stay inside the 4-bit space");
+
+        // The sixteenth reuse is the wrap -- and the aliasing it warns
+        // about is real, which is exactly why it is worth counting: the
+        // very first id reads live again.
+        let wrapped = w.push_organism(species);
+        assert_eq!(w.organism_generation_wraps, 1, "the sixteenth reuse of one slot should have wrapped its generation exactly once");
+        assert_eq!(first, wrapped, "after sixteen reuses the encoded id repeats -- the accepted limitation, asserted so it stays known");
+    }
+
     // --- diffuse_resource --------------------------------------------------
 
     #[test]

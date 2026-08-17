@@ -181,6 +181,17 @@ pub struct World {
     /// state once the slot is recycled.
     organisms: Vec<OrganismSlot>,
     free_organism_slots: Vec<u16>,
+    /// How many times a reused slot's 4-bit generation has wrapped back to
+    /// zero — see `push_organism`, which is the only writer.
+    ///
+    /// A wrap is the single case the generational check cannot catch: a
+    /// reference stale by exactly 16 reuses reads as live again. That was
+    /// accepted (`encode_organism_id`'s doc) on the grounds that it needs a
+    /// bug compounded with exactly the wrong reuse count — but "accepted"
+    /// should mean "known quantity", not "unobservable". With creatures
+    /// allocating on their own schedule this is the number that says
+    /// whether the assumption still holds at play rates.
+    pub organism_generation_wraps: u32,
     /// M13/issue #4: whether the field grid has already converged to a
     /// fixed point (every cell within `field::step`'s settle epsilon of its
     /// previous value). `field::step` skips its whole five-pass solve when
@@ -334,6 +345,7 @@ impl World {
             species: SpeciesRegistry::builtin(),
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
+            organism_generation_wraps: 0,
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
@@ -609,12 +621,16 @@ impl World {
 
     /// Allocate a new organism. Checks `free_organism_slots` first (bumping
     /// the reused slot's generation) before ever growing `organisms` —
-    /// nothing populates that list yet in this pass (no `free_organism`
-    /// exists yet either; see the comment a few methods down for why), so
-    /// this always takes the growth branch today, but the reuse path is
-    /// real, correct code, not a stub — issue #8's actual fix, ready the
-    /// moment a future caller needs it. Returns the encoded `organism_id`
-    /// to stamp onto `Cell::organism_id`.
+    /// issue #8's actual fix, and live now that `free_organism` below
+    /// populates that list.
+    ///
+    /// **The generation bump lives here and only here.** Freeing does not
+    /// bump; reuse does. Two bumps per life-cycle would spend the 4 bits at
+    /// double rate for no extra staleness detection, since nothing can hold
+    /// a reference to a slot between the free and the reuse that the free
+    /// alone would have invalidated.
+    ///
+    /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
         let state = OrganismState {
             species,
@@ -632,6 +648,18 @@ impl World {
             // -- see `encode_organism_id`'s own doc for why this bound was
             // accepted rather than widening `Cell` a third time.
             slot.generation = (slot.generation + 1) & GENERATION_MASK;
+            // P-8: the wrap is the one moment a stale id can alias a live
+            // organism again, so count it rather than leaving it a
+            // theoretical footnote -- "how often does this actually
+            // happen" should be a number the engine can answer. Always-on
+            // rather than the design report's debug-only suggestion: a u32
+            // add on the allocation path is free next to the HashMap the
+            // same function just built, and a counter that only exists in
+            // debug builds cannot tell you anything about a long release
+            // session, which is the only place the count gets interesting.
+            if slot.generation == 0 {
+                self.organism_generation_wraps += 1;
+            }
             slot.state = Some(state);
             encode_organism_id(slot_index, slot.generation)
         } else {
@@ -678,21 +706,47 @@ impl World {
         slot.state.as_mut()
     }
 
-    // `free_organism` (return a slot to `free_organism_slots`, the other
-    // half of issue #8's actual fix) is not here yet, deliberately: no
-    // species retrofitted so far needs it. Moss's `Divide` never
-    // touches `OrganismState` after creation (its resource scalar lives
-    // entirely in `Cell::aux`, not here), and detecting "this organism has
-    // no cells left" cheaply needs a real anchor/tip list to search from
-    // (`reachable_from_anchors`) or a live cell count — both real,
-    // deliberately deferred work for the tree retrofit (which already
-    // needs exactly this, generalizing `reclaim_if_tree_is_fully_dead`).
-    // Adding either method now with no caller would be dead code by this
-    // crate's own standard, not a head start; `decode_organism_id`'s
-    // generation check is already fully exercised by `organism`'s own
-    // tests above, so the one thing actually worth verifying now — that a
-    // stale id can never silently alias a reused slot — has real coverage
-    // regardless of when `free_organism` itself lands.
+    /// Return an organism's slot to the free list — the other half of
+    /// issue #8's fix, and `Reports/organism-substrate-design.md` §6's
+    /// generational allocator finally closed at both ends.
+    ///
+    /// **Why it exists now, having deliberately not existed before.** The
+    /// note this replaces recorded that no retrofitted species needed it:
+    /// moss's `Divide` never touches `OrganismState` after creation, and
+    /// trees are planted by hand, so `organisms` growing forever was a
+    /// bounded leak nobody could reach. Creatures end that. A colony that
+    /// lays eggs allocates on its own schedule, and the 12-bit slot index
+    /// caps concurrent organisms at 4,095 — one long session of a laying
+    /// queen exhausts it (`Reports/creature-direction.md` §2b).
+    ///
+    /// Generation-checked exactly like `organism`/`organism_mut`: a stale
+    /// id, or one already freed, is a **silent no-op** — never a panic, and
+    /// never a second push of the same index onto the free list, which
+    /// would hand the same slot to two live organisms. `state.is_none()`
+    /// is that double-free guard, and it is load-bearing rather than
+    /// defensive: the natural creature call site ("my cell list went
+    /// empty, release me") can genuinely fire twice, once from the death
+    /// path and once from the next scheduled tick finding nothing left.
+    ///
+    /// **The generation is not bumped here**, despite the design report's
+    /// §2b wording. `push_organism`'s reuse branch already bumps on
+    /// *reuse*, so bumping here as well would advance it twice per
+    /// life-cycle and burn the 4-bit space at double rate. One bump per
+    /// reuse, in exactly one place.
+    pub(crate) fn free_organism(&mut self, organism_id: u16) {
+        let (slot_index, generation) = decode_organism_id(organism_id);
+        if slot_index == 0 {
+            return;
+        }
+        let Some(slot) = self.organisms.get_mut((slot_index - 1) as usize) else {
+            return;
+        };
+        if slot.generation != generation || slot.state.is_none() {
+            return;
+        }
+        slot.state = None;
+        self.free_organism_slots.push(slot_index);
+    }
 
     // --- Liquid heightfield bodies (`Reports/liquid-heightfield-
     // design.md`, step 1 of §11's build order: the ownership substrate and
