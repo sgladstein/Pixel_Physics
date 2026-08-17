@@ -176,6 +176,9 @@ const CRACK_FACES: i64 = 4;
 /// it is loose grain. Not zero -- a pile does carry weight, and zeroing it
 /// would shatter debris the moment it landed, which is the bug
 /// `rests_on_ground` exists to prevent.
+/// The middle-third rule: a reaction that cannot pull must stay within the
+/// kern, so a footing of width B resists at most `N * B / 6`.
+const KERN_DENOMINATOR: i64 = 6;
 const GRANULAR_CAPACITY_DIVISOR: i64 = 64;
 
 /// What one cell carries and what it can carry. Everything the failure test
@@ -765,9 +768,27 @@ fn detached_piece(world: &World, x: i32, y: i32, memo: &mut AnchorMemo, budget: 
 /// Ordered outward from `(x, y)` and capped at `MAX_SECTION`.
 fn section_cells(world: &World, x: i32, y: i32, parent: Option<(i32, i32)>) -> Vec<(i32, i32)> {
     // Support from below/above travels vertically, so the resisting section
-    // is horizontal, and vice versa. No parent (an anchor, or mid-
-    // convergence) keeps the old vertical reading.
-    let vertical_path = parent.is_some_and(|(px, _)| px == x);
+    // is horizontal, and vice versa.
+    //
+    // A cell with *no* parent is either an anchor or mid-convergence, and
+    // those two want opposite readings. An anchor resting on ground is
+    // supported from directly below: the load path is vertical and the
+    // resisting section is horizontal, exactly as it would be if the cell
+    // beneath were rock and had become its parent. Reading it vertically
+    // instead measured the section *down the hole it stands beside* and
+    // returned 1 to 3 cells -- which is where the dig cascade's
+    // `capacity 2 / 8 / 18` came from. The identical slab cell scored up to
+    // 1600x weaker for being propped on its own rubble rather than on
+    // stone, so a crater rim ate itself one course at a time. Measured on
+    // `scene=worldcrack preset=flat seed=7`: 23,042 cells lost to one
+    // radius-6 hole in dead-level homogeneous rock.
+    //
+    // Mid-convergence keeps the old vertical reading -- it has no support
+    // direction yet to be perpendicular to.
+    let vertical_path = match parent {
+        Some((px, _)) => px == x,
+        None => rests_on_ground(world, x, y),
+    };
     let (sx, sy) = if vertical_path { (1, 0) } else { (0, 1) };
     let mut out = vec![(x, y)];
     for dir in [-1, 1] {
@@ -910,10 +931,80 @@ pub fn capacity(world: &World, x: i32, y: i32) -> i64 {
     // of their state, not the cause of it, and the question worth asking is
     // why a homogeneous slab produces six hundred parentless section-1
     // cells around one hole at all.
-    if rests_on_ground(world, x, y) {
-        return (capacity / GRANULAR_CAPACITY_DIVISOR).max(1);
-    }
+    // **The answer to that last question, found later: because ground rooted
+    // eagerly.** `structural::tick` gave any cell with powder under it a
+    // distance of 0, so it had no parent *by construction* -- which is why
+    // this gate moved nothing when it was first tried. It was not wrong, it
+    // was premature: the condition it tests was universally true. With
+    // ground demoted to a last-resort root (see `tick`), a slab cell over
+    // its own rubble keeps its lateral parent, and the gate now separates
+    // the two cases it was always meant to separate: rock that is *spanning*
+    // and happens to touch grain, from rock the pile is genuinely all that
+    // holds up. Only the second is charged a pile's resistance to bending,
+    // which is about none.
+    // The granular case is no longer a division here. What a pile can do is a
+    // property of the *load* standing on it, not of the rock's own section,
+    // so it is applied in `evaluate_within` where the mass is known -- see
+    // `bearing_moment`.
     capacity
+}
+
+/// The moment a piece resting on loose ground can resist before it tips.
+///
+/// **A pile pushes; it cannot pull.** That single restriction is the whole
+/// model, and it is the standard no-tension (Winkler) bed: the ground's
+/// reaction may shift anywhere within the contact width to balance the load,
+/// but it can never become tension to hold an edge down. So the resultant
+/// has to stay inside the base, and once it leaves the middle third the far
+/// edge lifts and the piece rotates instead of resisting. That is the same
+/// kern argument the vertical-arm clamp above already runs on a column, which
+/// is why this belongs in the model rather than beside it.
+///
+/// The result is `N * B / 6` — and since `torque` is `N * eccentricity`, the
+/// criterion reduces to *is the centre of mass within a sixth of the contact
+/// width*, which is mass-independent and therefore scale-free. A chunk lying
+/// flat on rubble holds however heavy it is; a shelf reaching out past its
+/// own footing tips however light it is.
+///
+/// **This replaces `GRANULAR_CAPACITY_DIVISOR`**, a flat 64x cut that was
+/// really a counterweight for `structural::tick` rooting eagerly on powder
+/// (see the note there). With the rooting fixed, the divisor had nothing left
+/// to cancel and became pure overcorrection: `scene=roomcut` fell to 2
+/// overload failures against its bar of 5.
+fn bearing_moment(world: &World, x: i32, y: i32, mass: u32) -> i64 {
+    // The contact width is the *piece's* footing, not this one cell's.
+    //
+    // Counting only the cells whose own underside touches grain was tried
+    // first and is wrong twice over. A pile is lumpy, so a slab lying on its
+    // own rubble touches it in patches and read as several knife-edge
+    // footings a cell or two wide -- and a footing that narrow tips at any
+    // eccentricity past a sixth of a cell, so the slab was dismantled one
+    // cell at a time. It also ignores that a pile *conforms*: grain under a
+    // load punches and settles until the contact spreads, which this engine
+    // does anyway a few frames later, so judging the instantaneous patchy
+    // contact judges a state that is about to stop existing.
+    //
+    // So the footing is the run of rock at this row that has *anything*
+    // beneath it, grain or stone -- which is the width the piece actually
+    // stands on once the grain has settled. Measured on
+    // `scene=worldcrack preset=flat`, the patchy reading cost 48,109 cells to
+    // one dig against 894 for the bug it was meant to fix.
+    let mut base: i64 = 1;
+    for dir in [-1, 1] {
+        let mut step = 1;
+        while base < MAX_SECTION {
+            let (px, py) = (x + dir * step, y);
+            if !is_body_material(world, world.get(px, py).material) {
+                break;
+            }
+            if world.get(px, py + 1).material == super::material::EMPTY {
+                break; // this much of the run is bridging, not standing
+            }
+            base += 1;
+            step += 1;
+        }
+    }
+    (mass as i64 * base / KERN_DENOMINATOR).max(1)
 }
 
 /// What `(x, y)` carries and what it can carry, or `None` if it is not a
@@ -1039,13 +1130,32 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     // takes its support horizontally at the point that fails
     // (`worked`/`undercut`/`ligament` are all shelves and necks) and so is
     // untouched by this; `capped` and `terrain` can only get stronger.
-    if let Some(parent @ (px, _)) = support_parent(world, x, y) {
-        if px == x {
+    //
+    // A cell whose support *is* the ground gets the same treatment: it is a
+    // column one step long, passing its load into what it stands on, so it
+    // owes its own half-thickness rather than the eccentricity of whatever
+    // it carries. Without this a rubble-propped slab cell was charged a
+    // beam's moment against a capacity the granular divisor had already cut
+    // by 64 -- the other half of the crater-rim failure described on
+    // `section_cells`.
+    match support_parent(world, x, y) {
+        Some(parent @ (px, _)) if px == x => {
             let half = (section_cells(world, x, y, Some(parent)).len() as i64 / 2).max(1);
             torque = torque.min(mass as i64 * half);
         }
+        None if rests_on_ground(world, x, y) => {
+            let half = (section_cells(world, x, y, None).len() as i64 / 2).max(1);
+            torque = torque.min(mass as i64 * half);
+        }
+        _ => {}
     }
-    Some(Load { mass, moment, torque, capacity: capacity(world, x, y), supported, truncated })
+    // A piece the ground alone holds up is judged on what the ground can do,
+    // as well as on what the rock can do -- whichever gives first.
+    let mut capacity = capacity(world, x, y);
+    if support_parent(world, x, y).is_none() && rests_on_ground(world, x, y) {
+        capacity = capacity.min(bearing_moment(world, x, y, mass));
+    }
+    Some(Load { mass, moment, torque, capacity, supported, truncated })
 }
 
 /// The piece that comes away if `(x, y)` fails, or `None` if it holds.
@@ -1539,12 +1649,20 @@ mod tests {
 
         let load = evaluate(&w, 10, 30).expect("a powder-propped cell must be evaluated, not exempt");
         assert!(load.supported, "powder underneath keeps the chain alive — held is not the same as braced");
-        let full = capacity(&beam(20), 10, 30);
-        assert_eq!(
-            load.capacity,
-            (full / GRANULAR_CAPACITY_DIVISOR).max(1),
-            "a granular prop should provide a sliver of the section's capacity, not all of it"
-        );
+        // **Restated when the flat divisor was replaced by a bearing model.**
+        // The old form asserted `capacity == full / 64`, which pinned the
+        // arithmetic of a mechanism that no longer exists. What B2 actually
+        // claims is that a grain is not a brace, and that survives the
+        // change: a beam with a grain under it must be judged exactly as the
+        // same beam without one, because grain neither carries a moment nor
+        // shortens anything's path to an anchor. Comparing the two worlds
+        // states that directly, and it can still fail for the *replacement*
+        // artifact -- if powder ever again roots a cell at distance zero,
+        // the propped beam's load diverges from the bare one's immediately.
+        let bare = evaluate(&beam(20), 10, 30).expect("the same cell without the grain must also be evaluated");
+        assert_eq!(load.capacity, bare.capacity, "a grain underneath must not change what the rock can carry");
+        assert_eq!(load.mass, bare.mass, "a grain must not take any of the beam's weight");
+        assert_eq!(load.torque, bare.torque, "a grain must not relieve the beam's moment");
     }
 
     #[test]
@@ -1556,13 +1674,35 @@ mod tests {
         // beam now route their support through the false zero the prop
         // puts in the distance field) is far beyond what loose grains can
         // brace against turning.
+        // **Restated when ground stopped rooting eagerly.** The old form
+        // asserted that the *propped cell itself* fails, which was the
+        // symptom of the bug rather than the claim: the grain put a false
+        // zero in the distance field, both arms of the beam re-routed through
+        // it, and the cell then had to answer for a moment no pile could
+        // brace. `structural::tick` no longer roots on powder unless there is
+        // no other path, so there is no false zero to fail at -- and the
+        // guard has to be the claim itself, which is that the grain changes
+        // *nothing*. Asserting the old symptom now would demand a failure the
+        // fixed model is right not to produce.
         let mut w = beam(30);
         w.set(15, 31, Cell::new(material::SAND, 0));
         structural::compute_world_distances(&mut w);
+        let mut bare = beam(30);
+        structural::compute_world_distances(&mut bare);
 
-        let failure = failing_region(&w, 15, 30, &mut Cache::default(), &mut unbounded())
-            .expect("a long span propped on loose grains must fail at the prop");
-        assert_eq!(failure.mode, FailureMode::Overloaded, "the chain is alive — this is an overload, not a detachment");
-        assert!(!failure.region.is_empty(), "the failure must take the rock the prop was carrying with it");
+        for x in 0..=30 {
+            let propped = evaluate(&w, x, 30);
+            let plain = evaluate(&bare, x, 30);
+            assert_eq!(
+                propped.map(|l| (l.mass, l.torque, l.capacity, l.supported)),
+                plain.map(|l| (l.mass, l.torque, l.capacity, l.supported)),
+                "the grain under x=15 changed the beam at x={x} — it is acting as support again"
+            );
+            assert_eq!(
+                w.get(x, 30).aux(),
+                bare.get(x, 30).aux(),
+                "the grain moved x={x}'s distance to an anchor — that is the false zero B2 was about"
+            );
+        }
     }
 }

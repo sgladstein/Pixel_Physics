@@ -175,10 +175,27 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // unfallable -- its interior was still attached, so still held, no
     // matter how much was dug from beneath it. Terrain still stands because
     // the massif genuinely reaches bedrock, not because it is exempt.
-    let is_anchor = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK)
-        || is_resting_on_ground(world, x, y);
+    //
+    // **Ground is a last-resort root, not a preferred one**, and that
+    // distinction is the whole of the dig cascade. Rooting a cell at 0 the
+    // moment powder touches its underside makes it a *load sink*: every
+    // neighbour with a longer path re-routes its load into it, which is
+    // exactly "a sprinkle of sand under a beam holds the beam up". The
+    // divisor in `capacity` existed to cancel that -- two modelling errors
+    // roughly annulling each other, which is why tuning the divisor never
+    // worked and why gating it on `parent.is_none()` moved nothing: with
+    // ground rooting eagerly, *every* powder-backed cell was parentless.
+    //
+    // So a cell resting on powder relaxes from its neighbours like anything
+    // else, and only takes the root if that leaves it with no path at all.
+    // A slab cell over its own rubble keeps its lateral path and is judged
+    // on its own section; a chunk that has landed on a pile with nothing
+    // else to hold it still roots, still reads as supported, and still does
+    // not shatter. Measured on `scene=worldcrack preset=flat`, one radius-6
+    // dig, seeds 1 / 7 / 24301: 894 / 23,042 / 3,844 cells lost before.
+    let firm_anchor = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
 
-    let new_distance: u16 = if is_anchor {
+    let relaxed: u16 = if firm_anchor {
         0
     } else {
         let mut best = u16::MAX;
@@ -226,6 +243,10 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         }
         best
     };
+
+    // The last resort described above: nothing else holds this, so what it
+    // is standing on does.
+    let new_distance: u16 = if relaxed == u16::MAX && is_resting_on_ground(world, x, y) { 0 } else { relaxed };
 
     // Written *before* the failure test, not after, and the order is
     // load-bearing: `load::failing_region` reads stored distances, and the

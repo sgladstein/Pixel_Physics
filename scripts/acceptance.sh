@@ -100,6 +100,29 @@ run terrain  scene=terrain  start=2 every=90 count=4 crop=0,0,512,320 zoom=1 max
 run roomstands scene=room wall=5 dig=0 start=2 every=50 count=5 crop=100,120,280,200 zoom=2 max_failures=0   repeat=2 max_frame_ms=90
 run roomcut    scene=room wall=5 dig=3 start=2 every=50 count=5 crop=100,120,280,200 zoom=2 min_overloaded=5 repeat=2 max_frame_ms=90
 
+# 6. One dig into a *generated* world, on more than one seed. The case that
+#    the other seven are structurally blind to: every scene above builds
+#    hand-placed geometry at the default seed, so none of them can see a
+#    change that only misbehaves on procedural terrain. Two changes to the
+#    load model went green on all seven while eating tens of thousands of
+#    cells here -- the second of them fifty times more world than the bug it
+#    was fixing.
+#
+#    Two seeds, because outcomes are chaotic in the seed:  seed 7 and
+#    seed 1 differed 25x on identical preset parameters. Two is not a sweep;
+#    it is the cheapest thing that is not blind. The real instrument is a
+#    seeds= sweep over order statistics, and it is the next thing to build.
+#
+#     is the control -- an untouched generated world must not move at
+#    all -- and the bars come from measurement: the cut cases sat at 27,409
+#    and 23,042 cells before the bearing model and at 0 after, so 40 leaves
+#    room for legitimate rubble without admitting a cascade.
+run crackflat0  scene=worldcrack preset=flat   seed=7 dig=0 start=2 every=250 count=4 zoom=1 max_failures=0  repeat=2 max_frame_ms=$BUDGET_MS
+run crackcan0   scene=worldcrack preset=canyon seed=7 dig=0 start=2 every=250 count=4 zoom=1 max_failures=0  repeat=2 max_frame_ms=$BUDGET_MS
+run crackflat   scene=worldcrack preset=flat   seed=7 dig=6 start=2 every=250 count=4 zoom=1 max_failures=40 repeat=2 max_frame_ms=$BUDGET_MS
+run crackflat1  scene=worldcrack preset=flat   seed=1 dig=6 start=2 every=250 count=4 zoom=1 max_failures=40 repeat=2 max_frame_ms=$BUDGET_MS
+run crackcanyon scene=worldcrack preset=canyon seed=7 dig=6 start=2 every=250 count=4 zoom=1 max_failures=40 repeat=2 max_frame_ms=$BUDGET_MS
+
 # 6. A struck cliff throws pieces. Asserted as *bodies in flight*, not as
 #    overload failures: the mechanism here is the blow's own fracture, and
 #    an earlier bar on overload failures duly broke when an unrelated
