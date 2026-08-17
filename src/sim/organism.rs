@@ -233,14 +233,28 @@ pub enum Behavior {
         /// `upward_weight`) before `Reports/tree-rewrite-design.md` §2's
         /// MIZ1 hydrotropism switch overrides it.
         upward_weight: ByOrder<f32>,
-        /// Weight subtracting `canopy_density` (`with_canopy_density`/
-        /// `canopy_density` below) at each candidate — `Reports/tree-
+        /// Weight on `canopy_density` at each candidate — `Reports/tree-
         /// rewrite-design.md` §2b's self-avoidance term, the deposit-
         /// diffuse-decay-follow replacement for the old space-colonization
-        /// algorithm's private attractor point cloud. `0.0` disables
-        /// self-avoidance entirely (a root system has no citation in this
-        /// engine's own research for root-root avoidance, so `tree.ron`'s
-        /// `RootTip` sets this to `0.0` rather than inventing one).
+        /// algorithm's private attractor point cloud.
+        ///
+        /// **Divides the candidate's score (`preference / (1 + density *
+        /// weight)`), and used to subtract from it — the difference is
+        /// whether crowding can kill.** Subtraction plus the positive-score
+        /// filter meant a strong weight did not bias a crowded tip's
+        /// choice, it emptied the choice, and an emptied choice banks the
+        /// stale ticks that retire a lineage. That was the measured
+        /// collapse cliff the old `tree.ron` sweep warns about (median
+        /// tree 2,620 cells at 12.0 against 26 at 20.0) — arithmetic, not
+        /// ecology. As a divisor, crowding reorders at any strength and a
+        /// fully crowded tip takes its least-bad direction; the guard test
+        /// `a_crowded_tip_takes_its_least_bad_direction_instead_of_dying`
+        /// fails on the subtractive form, verified by putting it back.
+        ///
+        /// `0.0` disables self-avoidance entirely (a root system has no
+        /// citation in this engine's own research for root-root avoidance,
+        /// so `tree.ron`'s `RootTip` sets this to `0.0` rather than
+        /// inventing one).
         crowding_weight: f32,
         /// Cap on simultaneously-scheduled `GrowingTip`/`RootTip` active
         /// sites this organism may have of *this* cell type at once —
@@ -466,7 +480,9 @@ pub enum Behavior {
     /// this codebase is.
     Photosynthesize {
         rate: f32,
-        /// Light below which this leaf is **shed**, `0.0` disabling it.
+        /// Shedding **pressure** in deep shade: the chance per organism
+        /// tick that a fully-dark leaf is shed, scaled down steeply
+        /// (cubed) as light rises. `0.0` disables it.
         ///
         /// **This is what clears a bole, and it is the mechanism the shape
         /// was missing rather than seasons.** A leaf that intercepts almost
@@ -475,6 +491,25 @@ pub enum Behavior {
         /// lift. It is why a forest tree carries leaves only where light
         /// reaches and why its lower trunk is bare, and it happens all year
         /// rather than once a season.
+        ///
+        /// **A rate, not a light threshold.** The first threshold died to
+        /// the day/night oscillator (every leaf reads near zero at
+        /// midnight, so any fixed cutoff was a nightly extinction event);
+        /// noon-equivalent light fixed that. A threshold on the phase-free
+        /// reading is then genuinely workable — measured at 20,044 cells
+        /// against graded's 20,213 on the same stand — and graded is kept
+        /// for what a line cannot do: it thins a darkening region over
+        /// many ticks instead of culling it the tick it crosses, which
+        /// measured as better crown separation (fused run 37 vs 55) and a
+        /// better-lit standing canopy, shrugs off transient dips a line
+        /// converts into same-tick loss, and reads as leaves going rather
+        /// than a shelf being swept.
+        ///
+        /// One measurement hazard is recorded on `plant::
+        /// shed_stranded_leaves` because it will bite again: the first
+        /// sweep of *both* forms read as "any setting collapses the
+        /// stand", and the collapse was a structural check the shed used
+        /// to schedule, not the shedding.
         ///
         /// Reaching for seasonality here would be the wrong tool twice
         /// over: the *shape* it is wanted for comes from shading and not

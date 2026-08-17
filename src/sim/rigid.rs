@@ -407,6 +407,22 @@ pub struct ChunkBody {
 }
 
 impl ChunkBody {
+    /// A body placed directly, at rest. Test-only, and deliberately so:
+    /// production bodies only ever come from `try_promote_failing_region`
+    /// or `strike`, which derive velocity and spin from the break that
+    /// made them, and a constructor that let callers skip that would be a
+    /// way to create debris that never broke off anything.
+    #[cfg(test)]
+    pub fn at(cells: Vec<BodyCell>, x: f32, y: f32) -> Self {
+        Self { cells, x, y, vx: 0.0, vy: 0.0, spin: 0.0, stalled: 0, peak_speed: 0.0 }
+    }
+
+    /// The same, already falling. Test-only for the same reason.
+    #[cfg(test)]
+    pub fn falling(cells: Vec<BodyCell>, x: f32, y: f32, vy: f32) -> Self {
+        Self { vy, ..Self::at(cells, x, y) }
+    }
+
     /// Turn the whole body a quarter turn about its origin.
     ///
     /// `(dx, dy) -> (-dy, dx)`, which is exact on a grid: every cell lands

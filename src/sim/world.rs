@@ -103,6 +103,11 @@ pub struct World {
     /// `HashMap`. Distinct from `bodies` below, which is the liquid
     /// heightfield's own unrelated arena.
     pub chunk_bodies: Vec<crate::sim::rigid::ChunkBody>,
+    /// M9: the summoned character, if any — off-grid like `chunk_bodies`
+    /// and stepped in the same serial phase (`player::step`). On `World`
+    /// rather than `App` so the renderer (which takes `&World`) can draw
+    /// it and so the sim step stays a pure function of (world, input).
+    pub player: Option<crate::sim::player::Player>,
     /// M16: growing plant tips (and M17/M18's structural checks and
     /// creature ticks), due soonest at the top -- a min-heap keyed on
     /// `ActiveSite::next_frame`, see `scheduler::step`'s own doc for why
@@ -319,6 +324,7 @@ impl World {
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
             chunk_bodies: Vec::new(),
+            player: None,
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             bodies: Vec::new(),
@@ -499,27 +505,42 @@ impl World {
         self.active_sites.len()
     }
 
-    /// How many currently-scheduled `ActiveKind::Organism` sites belong to
-    /// `organism_id` and currently read as `cell_type` — `Behavior::Grow`'s
-    /// `max_active_tips` cap (`Reports/tree-rewrite-design.md` §5, the
-    /// restoration of the old `MAX_TIPS_PER_TREE`/`MAX_ROOTS_PER_TREE`
-    /// caps). A linear scan of the whole heap, not an indexed lookup —
-    /// there is no per-organism index to maintain, and an organism's own
-    /// tip/root count tops out in the dozens (the caller's own cap), a
-    /// negligible cost next to `Divide`/`Grow`'s own per-tick field reads.
-    /// Reads each candidate site's *current* cell rather than trusting the
-    /// scheduled `ActiveKind` alone, since `ActiveKind::Organism` doesn't
-    /// itself distinguish `GrowingTip` from `RootTip` — both dispatch
-    /// through the same variant, per `scheduler.rs`.
+    /// How many of `organism_id`'s cells currently read as `cell_type` —
+    /// `Behavior::Grow`'s `max_active_tips` cap (`Reports/tree-rewrite-
+    /// design.md` §5, the restoration of the old `MAX_TIPS_PER_TREE`/
+    /// `MAX_ROOTS_PER_TREE` caps).
+    ///
+    /// **Counts the organism's own cell list, and used to scan the
+    /// schedule heap — the difference is a bug the handoff kept a tripwire
+    /// for.** `open-bugs-handoff.md` §3: a site being dispatched is not on
+    /// the heap, so a heap scan undercounts by whatever is in flight, and
+    /// the cap under-enforces. Measured as unreachable when written (tip
+    /// retirement held one live tip per lineage, so a cap of 14 was never
+    /// approached) and left unfixed with a tripwire test — which fired the
+    /// session multiplicative crowding let crowded tips live: 19
+    /// simultaneous tips against the cap of 14, exactly as the handoff
+    /// predicted something eventually would.
+    ///
+    /// The fix is the one that handoff also predicted: Decision 2's cell
+    /// list is maintained at the single `World::set` seam under both
+    /// drivers (there are tests for the parallel paths), so a count over
+    /// it sees every tip no matter what the scheduler is doing, including
+    /// cells destroyed by fire mid-frame — the grid stays the single
+    /// source of truth for the type, the list only says where to look.
+    /// Cost is one `get` per organism cell per gate check, a few thousand
+    /// reads per frame on a grown stand; if that ever shows up in a
+    /// profile the next step is caching the type in the sidecar, which
+    /// buys speed at the price of a second copy of the truth.
     pub fn organism_active_tip_count(&self, organism_id: u16, cell_type: super::organism::CellType) -> usize {
-        self.active_sites
-            .iter()
-            .filter(|Reverse(site)| match site.kind {
-                scheduler::ActiveKind::Organism { organism, .. } if organism == organism_id => {
-                    let cell = self.get(site.x, site.y);
-                    cell.organism_id() == organism_id && super::organism::cell_type(cell.aux()) == Some(cell_type)
-                }
-                _ => false,
+        let Some(state) = self.organism(organism_id) else {
+            return 0;
+        };
+        state
+            .cells
+            .keys()
+            .filter(|&&(x, y)| {
+                let cell = self.get(x, y);
+                cell.organism_id() == organism_id && super::organism::cell_type(cell.aux()) == Some(cell_type)
             })
             .count()
     }

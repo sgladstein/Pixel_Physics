@@ -233,6 +233,40 @@ unreachable. Infiltration's conservation test passed against a version whose
 gate meant infiltration never ran at all. A test can pass because the code
 under it is dead, which looks exactly like passing because it is correct.
 
+### When every setting of a sweep fails the same way, suspect the sweep
+
+The sibling of "two fixes failing the same way means the approach is
+wrong", and it points the opposite direction. Eight settings across two
+*forms* of leaf abscission all collapsed the stand identically — which read
+as "the approach is wrong" and was not: a structural check had landed
+*with* the mechanism and was constant across every run, and it alone was
+the collapse (772 cells against 20,213 at the same setting, from that one
+line). A sweep only varies the knob; anything that rode along with the
+mechanism is part of every data point. Before condemning an approach, run
+the control that isolates it — the mechanism at its gentlest setting with
+every rider stripped out.
+
+And two more ways a sweep lies, both of which have produced whole invalid
+sweeps: identical *outputs* across settings mean the knob was never
+connected at all (see the `include_str!` gotcha below), and a pattern edit
+can vary more than its knob — `tree.ron` holds two `crowding_weight`
+lines, and a blind `sed` on the field name dragged the root's deliberate
+`0.0` along with the shoot's through every data point. Prove the edit
+touched only its target before trusting anything downstream of it.
+
+### A channel that oscillates by design must be divided out of decisions
+
+The light channel swings 20:1 over every day/night cycle by design, and a
+threshold sampled at an arbitrary phase of a designed oscillator is a
+different threshold every hour: the live tip count measured 71 at noon
+against 28 at night on the same stand, and any fixed abscission cutoff was
+a nightly extinction event. Every economic light read now goes through
+`field::noon_equivalent_light` — the oscillator is a pure function of the
+frame, so dividing it out costs no storage and is exact at noon.
+Temperature oscillates the same way and will need the same treatment the
+day anything gates on it. The cycle stays real on screen and in the field;
+it just must not alias into decisions.
+
 ### Compare two runs, not one run against a remembered number
 
 Outcomes here have enormous spread — twelve identical trees from one genome
@@ -448,6 +482,31 @@ consider it at all.
 - **A green suite does not prove a test ran.** Deleting an `#[ignore]` took
   the `#[test]` above it with it; the test compiled, was never collected, and
   the suite stayed green. Clippy's dead-code warning caught it, not the tests.
+- **Editing an asset `.ron` does nothing until the next build.** Materials
+  and species are compiled into the binary via `include_str!`; only the
+  app's F5 reload reads the directory, and headless harnesses do not. A
+  sweep that edits `tree.ron` and re-runs a prebuilt example produces
+  bit-identical "runs" — three of them, once, before anyone noticed the
+  knob was not connected. Identical output across settings is the tell;
+  rebuild between sweep points.
+- **A structural check scheduled mid-organism amputates it.** The organism
+  support search is hop-bounded, so a check fired high in a crown reads
+  everything past the span limit as unsupported and converts it to
+  deadwood. Growth deliberately schedules no checks; abscission scheduling
+  one collapsed every shedding sweep at every value (26x outcome
+  difference from the one line, and it masqueraded as "the mechanism is
+  wrong" through eight settings). Until the support search anchors
+  properly, do not add `schedule_structural_check_around` to a new
+  organism path without measuring what it destroys — and treat Phase 3
+  damage results as contaminated by this until it is fixed.
+- **Assert the property, not two instants fitted to one trajectory.**
+  `a_tree_eventually_stops_growing` compared wood counts at two fixed
+  frames and broke the moment genotypes were re-keyed — the tree at that
+  spot became a different individual that was simply still growing at the
+  first sample. A termination claim is "the count holds still across N
+  consecutive windows inside a budget set from a measured curve"; it
+  survives redraws and retunes because it asks the question the test is
+  named for.
 - The liquid heightfield bodies in `liquid.rs` are **test-only today** —
   nothing in production promotes a body, because automatic promotion was
   implemented and reverted over a real architectural gap. Bugs in that

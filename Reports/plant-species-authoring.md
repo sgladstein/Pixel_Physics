@@ -140,6 +140,20 @@ room.
 
 ## 7. Measurement discipline specific to plants
 
+Two sweep traps first, because both produced entire invalid sweeps on this
+branch and both are invisible in the output:
+
+- **Species files are compiled in (`include_str!`), so editing the `.ron`
+  and re-running a prebuilt harness sweeps nothing.** Three bit-identical
+  "runs" at three different `shade_death` values said so. Rebuild between
+  sweep points; identical output across settings is the tell.
+- **A pattern edit must prove it touched only its target.** `tree.ron`
+  holds two `crowding_weight` lines — the shoot's, and the root's
+  deliberate `0.0` — and a blind `sed` on the field name swept both, so a
+  "shoot crowding" sweep silently varied root behaviour at every point and
+  had to be discarded. Count the matches before trusting the sweep, or
+  edit by occurrence index.
+
 - **One plant is one draw, not a result.** Twelve individuals from one genome
   span 31 to 153 cells. Three separate unit tests on this branch asserted on
   a single grown tree, and all three broke the moment genotypes varied. Any

@@ -73,7 +73,25 @@ options: let an unsupported refused mover fall (fixes the 115 floating cells
 only), move a coherent body *as a body* (`rigid.rs` — the only thing that
 removes the premise), or accept it.
 
-### 3. Scheduler under-enforces `max_active_tips` (a tree bug) — measured, and it cannot bite yet
+### 3. Scheduler under-enforces `max_active_tips` — **FIXED, and the tripwire earned its keep**
+
+**Resolution (2026-08-17):** the tripwire fired exactly as this section
+predicted it would — the session multiplicative crowding stopped crowded
+tips from dying, simultaneous tips finally approached the cap, and the
+under-enforcement measured 19 against 14. Fixed by the route this section
+also predicted: `organism_active_tip_count` counts the organism's own
+cell list (Decision 2's sidecar, maintained at the `World::set` seam under
+both drivers) instead of scanning the schedule heap, so in-flight
+dispatch is no longer invisible. That took the overshoot to 16, and the
+remainder was a second gate nobody had needed before: `break_buds`
+creates frontier too and never checked the cap — `supportable` is now
+throttled by `max_active_tips`, one gate for both creators. The tripwire
+test asserts the cap holds through 8,000 frames and passes.
+
+The original finding, kept because its reasoning about *why it could not
+bite yet* was correct and is the reason the tripwire existed at all:
+
+### (was) Scheduler under-enforces `max_active_tips` (a tree bug) — measured, and it cannot bite yet
 
 Review finding. `scheduler::step` pops the entire due batch into `due_sites`
 *before* dispatching any of it, so `world.active_sites` does not hold the

@@ -29,10 +29,12 @@ cargo test
 | `C` | **Strike** the rock under the cursor — pulverizes the centre, loosens the rock around it and throws the pieces. Force scales with brush size. The destruction *verb*: erasing removes support but delivers no load, so before this nothing could fail from being hit |
 | `T` | Plant a tree seed under the brush (M16 debug tool) |
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
-| `W` | Plant a worm under the brush (M18 debug tool) |
+| `J` | Plant a worm under the brush (M18 debug tool; was `W` before the gnome claimed WASD) |
+| `U` | Summon the gnome at the cursor, or dismiss him (M9). Arrives in `Tool::Dig`, where left-click cuts the near rock face along the aim (the yellow ring shows where the bite lands and how big it is) and right-click still erases; `Z` cycles back to the brush. `A`/`D` run, `W` jump (tap for a hop, hold for full height). He wades knee-deep in powder — slowed in proportion to how deep — swims in liquid (`W` strokes up, `S` down, and breaking the surface leaves a window to jump out), and rides a falling chunk body rather than being left behind by it |
+| `F2` `F3` `F4` | Cycle the gnome's **jump feel**, **water feel** and **spoil mode** — named runtime selectors for the three things only play can settle. The active one is shown in the title bar once it differs from the default. Every underlying number is also sweepable under `O` -> PLAYER |
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
 | `N` | Toggle the structural stress view — every load-bearing cell tinted green at rest through red at its limit |
-| `D` | Dig — a precise cut that loosens and cracks the rock around it, unlike the eraser |
+| `H` | Dig — a precise cut that loosens and cracks the rock around it, unlike the eraser (was `D`, which now runs the gnome right) |
 | `Z` | Cycle the build tool — freehand brush, solid rectangle, hollow room, line |
 | `B` | Stamp a **reference room** — 200x160, standing on whatever ground is under the cursor, walls as thick as the brush. Deliberately sized at the measured edge of what the structural model holds (`Reports/next-session-handoff.md` §2b), so the open question "is a room this big a reasonable thing to want to build?" can be judged in the hand instead of argued from a contact sheet |
 | `V` | Cycle the field overlay: off → pressure → temperature → light → moisture → off |
@@ -41,7 +43,7 @@ cargo test
 | `Tab` | Toggle the material palette (swatch row, current selection outlined) |
 | `/` (shown as `?`) | Toggle the keybind help overlay |
 | `O` | Toggle the live tunables panel (§10 — browse/adjust/save material fields at runtime) |
-| `PageUp` / `PageDown` | Switch which tunables menu is shown (PHYSICS / VISUAL), while the panel is open. Split because a dozen materials times ten fields is one scroll of well over a hundred rows. |
+| `PageUp` / `PageDown` | Switch which tunables menu is shown (PHYSICS / VISUAL / EXPLOSION / PLAYER), while the panel is open. Split because a dozen materials times ten fields is one scroll of well over a hundred rows. |
 | `↑` / `↓` | Move the tunables selection (only while the panel is open) |
 | `←` / `→` | Adjust the selected tunable's live value by its own step (only while the panel is open) |
 | `Enter` | Save the selected tunable back to its `.ron` file, preserving comments (only while the panel is open) |
@@ -1044,7 +1046,8 @@ Built: M18 Phase 1, a cell-based creature — a burrowing worm (`creature.rs`).
 Grounded in real animal behaviour research, not invented rules; see
 `research/m18-creature-biology.md` for the full citations behind every
 mechanism below, and `PLAN.md`'s M18 section for the condensed version.
-Debug tool: `W` plants a worm at the brush.
+Debug tool: `J` plants a worm at the brush (moved off `W` when the gnome
+claimed WASD).
 
 **A worm is one `MaterialKind::Creature` cell, dispatched from the M16
 scheduler exactly like a plant tip** — a new `ActiveKind::Creature { creature
@@ -1514,7 +1517,7 @@ As of M18, a burrowing worm creature moves on its own schedule, eating
 through powder at a cost tied to the target's density, fleeing heat sensed
 through the M13 field, and dying (to fire, via M14's existing mechanism
 unmodified, or to starvation) into a destructible corpse — see M18 status
-above; `W` plants a worm at the brush.
+above; `J` plants a worm at the brush.
 
 Known limitations:
 

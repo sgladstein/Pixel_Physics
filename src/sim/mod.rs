@@ -46,6 +46,9 @@
 //!   squares, Douglas-Peucker simplification, `earcutr` triangulation and
 //!   the `rapier2d` collider/step/re-rasterize loop are not yet built —
 //!   see the module doc and `PLAN.md`'s M8 section.
+//! * `player` — M9, the summonable character: off-grid like a rigid body
+//!   but input-driven, never settling, and a ghost to the CA (its own
+//!   module doc has the trade-offs)
 //!
 //! Nothing below `update` knows about rendering, windowing or input.
 
@@ -63,6 +66,7 @@ pub mod organism;
 pub mod parallel;
 pub mod particle;
 pub mod plant;
+pub mod player;
 pub mod rigid;
 pub mod rng;
 pub mod scheduler;

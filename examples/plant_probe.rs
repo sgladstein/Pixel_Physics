@@ -406,6 +406,33 @@ vein conductance (max face per cell), {}..{}:",
         }
     }
 
+    // What leaves actually read, in noon-equivalent light -- the number
+    // every light-driven decision (income, bud break, abscission) is made
+    // from. `channel=light` shows *where* the shade is; this says *how
+    // much*, which is the half a threshold can be chosen from. Written the
+    // first time a shade_death sweep collapsed the stand at every value
+    // tried and nobody could say what a healthy leaf reads.
+    {
+        let mut leaf_light: Vec<f32> = cells
+            .iter()
+            .filter(|c| c.2 == Some(organism::CellType::Leaf))
+            .map(|c| pixel_physics::sim::plant::ambient_light_above(&w, c.0, c.1))
+            .collect();
+        if !leaf_light.is_empty() {
+            leaf_light.sort_by(f32::total_cmp);
+            let pct = |p: f32| leaf_light[((leaf_light.len() - 1) as f32 * p) as usize];
+            let below = |t: f32| leaf_light.iter().filter(|&&l| l < t).count();
+            println!(
+                "\nleaf light (noon-equivalent): min {:.2}  p10 {:.2}  p50 {:.2}  p90 {:.2}  max {:.2}",
+                leaf_light[0], pct(0.1), pct(0.5), pct(0.9), leaf_light[leaf_light.len() - 1]
+            );
+            println!(
+                "  below 0.5: {}   below 1.0: {}   below 1.5: {}   of {} leaves",
+                below(0.5), below(1.0), below(1.5), leaf_light.len()
+            );
+        }
+    }
+
     let max_canopy = cells.iter().map(|c| c.4).fold(0.0f32, f32::max);
     let max_resource = cells.iter().map(|c| c.3).fold(0.0f32, f32::max);
     println!("\nmax resource {max_resource:.3} / {:.1}", organism::RESOURCE_SCALE);
