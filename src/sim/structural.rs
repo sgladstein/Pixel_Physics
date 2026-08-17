@@ -110,7 +110,7 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
 use super::cell::Cell;
-use super::chunk::Rect;
+use super::chunk::{Rect, CHUNK_SIZE};
 use super::material::{self, MaterialId, MaterialKind};
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
@@ -1006,47 +1006,131 @@ fn schedule_solid_neighbours(world: &World, x: i32, y: i32) -> Vec<ActiveSite> {
 ///
 /// # Cost, as measured rather than as hoped
 ///
-/// **9.1 ms for the sandbox's 512x320 terrain (6,616 solid cells), paid
-/// once at generation and never per frame** — reported by
+/// Paid once at generation and never per frame — reported by
 /// `examples/ascii.rs`, which times it against the same terrain built
 /// without this pass so the figure is attributed rather than asserted.
+/// At the shipped 2048x640, measured with a probe splitting the two halves:
 ///
-/// The relaxation itself is the cheap half: cells inside bulk rock reach
-/// bedrock through free downward steps and settle immediately, so the
-/// search runs along free *surfaces* rather than through volumes. What
-/// dominates is the **seeding scan** — one `World::get` per cell across the
-/// whole world, hashed per lookup, which is issue #5's exact pattern
-/// ("~164k hashed `World::get` calls… index the chunk directly instead")
-/// showing up in a new place. So the honest claim is that the *search*
-/// scales with surface area while this function as written still scales
-/// with world volume.
+/// | | seeding scan | relaxation | total |
+/// |---|---|---|---|
+/// | via `World::get` | 193 ms | 386 ms | 579 ms |
+/// | via the flat mirror | not split | not split | 175 ms |
 ///
-/// That is acceptable precisely because it is one-off, and it stops being
-/// world-sized at all under M10 streaming, where this becomes a per-chunk
-/// pass (§6b: "a cheap BFS from bedrock, once per chunk", with anchor
-/// distance living on the coarse layer) and the scan is bounded by a chunk.
-/// If it ever needs to be faster before then, iterating chunks directly is
-/// the fix, not a cleverer search. It no-ops on an unbounded world rather
-/// than pretending to handle that case here.
+/// The split is from a temporary probe and was only needed to decide what
+/// to fix; the "after" figure is `examples/ascii.rs`'s, which is the number
+/// of record. 512x320 came down the same way, 76.2 ms to 15.0 ms.
+///
+/// **An earlier version of this doc named the seeding scan as the thing
+/// that dominates, and at 2048x640 that is the smaller half.** It was true
+/// on a one-screen world, where most cells are sky and the search really
+/// does run along free surfaces: cells inside bulk rock reach bedrock
+/// through free downward steps and settle immediately. A world that is
+/// mostly bulk rock inverts it — nearly every cell is relaxable, so the
+/// search runs through volume. Acting on the old claim would have fixed
+/// the third of the cost that was written down and left the rest.
+///
+/// Both halves were the same cost: `World::get` is a bounds check plus a
+/// `HashMap<ChunkCoord, Chunk>` lookup *per read*, and each cell is read
+/// five times over before the search starts (issue #5's "~164k hashed
+/// `World::get` calls… index the chunk directly instead", in a new place).
+/// So the world is mirrored into a flat `Vec<Cell>` filled by walking
+/// chunks directly, the whole search runs on array indices, and the world
+/// is touched again only to write results back.
+///
+/// This still scales with world *volume*, and that stops being true under
+/// M10 streaming, where it becomes a per-chunk pass (§6b: "a cheap BFS from
+/// bedrock, once per chunk", with anchor distance living on the coarse
+/// layer) and the scan is bounded by a chunk. It no-ops on an unbounded
+/// world rather than pretending to handle that case here.
 pub fn compute_world_distances(world: &mut World) {
     let Some(bounds) = world.bounds() else {
         return; // unbounded (M10) -- see the doc above
     };
 
+    // A flat mirror of the world, filled by walking chunks directly.
+    //
+    // Both loops below used `World::get` per cell, which is a bounds check
+    // plus a `HashMap<ChunkCoord, Chunk>` lookup *per read*, and each cell
+    // is read five times over (itself plus four neighbours) before the
+    // search even starts. That was affordable while the world was one
+    // screen. Measured at 2048x640, with the probe splitting the two
+    // halves:
+    //
+    //   seeding scan   193 ms
+    //   relaxation     386 ms
+    //
+    // Note which one is bigger, because the doc above used to claim the
+    // opposite. The seeding scan dominates on a *small* world, where most
+    // cells are sky; on a world that is mostly bulk rock, every solid cell
+    // is relaxable and the search runs through volume rather than along
+    // free surfaces, so the relaxation wins. Optimising only the scan --
+    // which is the fix the doc named -- would have bought a third of the
+    // problem and been reported as the whole of it.
+    //
+    // So the mirror serves both. Everything either loop needs is per-cell
+    // (material, organism id, the two crack bits, aux), so a `Vec<Cell>`
+    // indexed by position answers every read with a bounds-free array
+    // index, and the world is touched again only to write results back.
+    let w = (bounds.max_x - bounds.min_x + 1) as usize;
+    let h = (bounds.max_y - bounds.min_y + 1) as usize;
+    let idx = |x: i32, y: i32| (y - bounds.min_y) as usize * w + (x - bounds.min_x) as usize;
+    let inside = |x: i32, y: i32| x >= bounds.min_x && x <= bounds.max_x && y >= bounds.min_y && y <= bounds.max_y;
+
+    let mut cells = vec![Cell::EMPTY; w * h];
+    for chunk in world.chunks() {
+        let (ox, oy) = chunk.coord.origin();
+        for ly in 0..CHUNK_SIZE {
+            for lx in 0..CHUNK_SIZE {
+                let (x, y) = (ox + lx, oy + ly);
+                // A chunk may hang over the world edge; the mirror is
+                // exactly the bounds, so the overhang is dropped rather
+                // than wrapped into the opposite side.
+                if inside(x, y) {
+                    cells[idx(x, y)] = chunk.get_world(x, y);
+                }
+            }
+        }
+    }
+
+    // `is_relaxable` and the support costs both go through
+    // `world.materials`, which is borrowed immutably for the whole search
+    // while `world` itself must stay writable at the end. Resolved by
+    // answering both questions up front, per material id rather than per
+    // cell: there are a handful of materials and a million cells.
+    let material_count = world.materials.len();
+    let body: Vec<bool> = (0..material_count).map(|m| is_body_material(world, MaterialId(m as u16))).collect();
+    let costs: Vec<(u16, u16, u16)> = (0..material_count)
+        .map(|m| {
+            let mat = world.materials.get(MaterialId(m as u16));
+            (mat.support_cost_below, mat.support_cost_above, mat.support_cost_beside)
+        })
+        .collect();
+    let relaxable = |c: Cell| body.get(c.material.0 as usize).copied().unwrap_or(false) && c.organism_id() == 0;
+
     // Seed: anchors at 0, everything else at "unreachable" so a cell the
     // search never reaches ends up honestly unsupported rather than
     // accidentally reading as anchored.
+    let mut dist = vec![u16::MAX; w * h];
     let mut heap: BinaryHeap<Reverse<(u16, i32, i32)>> = BinaryHeap::new();
     for y in bounds.min_y..=bounds.max_y {
         for x in bounds.min_x..=bounds.max_x {
-            let cell = world.get(x, y);
-            if !is_relaxable(world, cell) {
+            if !relaxable(cells[idx(x, y)]) {
                 continue;
             }
-            let anchored = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
-            let distance = if anchored { 0 } else { u16::MAX };
-            world.set(x, y, cell.with_aux(distance));
+            // **Outside the world counts as bedrock.** `World::get` returns
+            // `Cell::OUT_OF_BOUNDS`, whose material *is* `BEDROCK`, so the
+            // world edge anchors everything against it -- the same rule that
+            // makes the edge a wall the gnome can stand on. The mirror has
+            // to reproduce that rather than treat off-world as nothing: a
+            // first version guarded these reads with a bounds check, which
+            // un-anchored every cell touching the edge and took six load
+            // tests down with it.
+            let anchored = NEIGHBOURS_4.iter().any(|&(dx, dy)| {
+                let (nx, ny) = (x + dx, y + dy);
+                !inside(nx, ny) || cells[idx(nx, ny)].material == material::BEDROCK
+            });
             if anchored {
+                dist[idx(x, y)] = 0;
                 heap.push(Reverse((0, x, y)));
             }
         }
@@ -1057,16 +1141,31 @@ pub fn compute_world_distances(world: &mut World) {
     // the same reason `ActiveSite`'s own `Ord` spells its tiebreak out
     // (issue #7 / determinism §8b).
     while let Some(Reverse((distance, x, y))) = heap.pop() {
-        if world.get(x, y).aux() != distance {
+        if dist[idx(x, y)] != distance {
             continue; // superseded by a shorter path already processed
         }
         for (dx, dy) in NEIGHBOURS_4 {
-            if edge_is_cracked(world, x, y, dx, dy) {
+            let (nx, ny) = (x + dx, y + dy);
+            if !inside(nx, ny) {
                 continue;
             }
-            let (nx, ny) = (x + dx, y + dy);
-            let neighbour = world.get(nx, ny);
-            if !is_relaxable(world, neighbour) {
+            // `edge_is_cracked` against the mirror. Each edge is owned by
+            // exactly one of the two cells it separates, so reaching left or
+            // up means asking the *neighbour* about its own right or down
+            // edge -- see that function, which stays as the world-reading
+            // version everything outside this pass uses.
+            let cracked = match (dx, dy) {
+                (1, 0) => cells[idx(x, y)].crack_right(),
+                (-1, 0) => cells[idx(nx, y)].crack_right(),
+                (0, 1) => cells[idx(x, y)].crack_down(),
+                (0, -1) => cells[idx(x, ny)].crack_down(),
+                _ => false,
+            };
+            if cracked {
+                continue;
+            }
+            let neighbour = cells[idx(nx, ny)];
+            if !relaxable(neighbour) {
                 continue;
             }
             // The cost is paid by the cell being *supported* -- so it reads
@@ -1075,18 +1174,34 @@ pub fn compute_world_distances(world: &mut World) {
             // used to reach it. `dy == -1` means (x, y) sits below the
             // neighbour, i.e. the neighbour is standing on it. Getting this
             // backwards would silently price towers as cantilevers.
-            let step = {
-                let m = world.materials.get(neighbour.material);
-                match dy {
-                    -1 => m.support_cost_below,
-                    1 => m.support_cost_above,
-                    _ => m.support_cost_beside,
-                }
+            let (below, above, beside) = costs[neighbour.material.0 as usize];
+            let step = match dy {
+                -1 => below,
+                1 => above,
+                _ => beside,
             };
             let candidate = distance.saturating_add(step);
-            if candidate < neighbour.aux() {
-                world.set(nx, ny, neighbour.with_aux(candidate));
+            if candidate < dist[idx(nx, ny)] {
+                dist[idx(nx, ny)] = candidate;
                 heap.push(Reverse((candidate, nx, ny)));
+            }
+        }
+    }
+
+    // Write back, only where the answer differs from what the cell already
+    // holds. On generated terrain that is nearly every solid cell, so this
+    // is not an optimisation so much as an assurance that a cell nothing
+    // decided about is left exactly as it was -- including its dirty state,
+    // which `World::set` is what maintains.
+    for y in bounds.min_y..=bounds.max_y {
+        for x in bounds.min_x..=bounds.max_x {
+            let cell = cells[idx(x, y)];
+            if !relaxable(cell) {
+                continue;
+            }
+            let d = dist[idx(x, y)];
+            if cell.aux() != d {
+                world.set(x, y, cell.with_aux(d));
             }
         }
     }
@@ -1434,6 +1549,46 @@ mod tests {
             scheduler::step(w);
             w.end_step();
         }
+    }
+
+    /// The rule that `compute_world_distances`'s flat mirror had to be told
+    /// about explicitly, and the one thing that cannot be inferred from the
+    /// cells themselves: **off-world reads are bedrock.** `World::get`
+    /// answers out-of-bounds with `Cell::OUT_OF_BOUNDS`, whose material is
+    /// `BEDROCK`, so a cell against the world edge is anchored by the edge.
+    ///
+    /// Six load tests failed when a rewrite bounds-checked those reads away,
+    /// which is coverage but not a statement: every one of them failed for a
+    /// reason several steps downstream of the cause, and the shared cause
+    /// was only obvious once all six were read together. This says it once.
+    #[test]
+    fn a_cell_against_the_world_edge_is_anchored_by_the_edge() {
+        let mut w = test_world();
+        let bounds = w.bounds().expect("test world is bounded");
+        // A column hard against the left wall with nothing below it: its only
+        // possible anchor is the edge itself. Deliberately nowhere near the
+        // bedrock floor, so a pass that reached the floor instead would give
+        // a large distance rather than zero.
+        for y in 4..12 {
+            w.set(bounds.min_x, y, Cell::new(material::STONE, 0));
+        }
+        compute_world_distances(&mut w);
+        assert_eq!(
+            w.get(bounds.min_x, 4).aux(),
+            0,
+            "a cell touching the world edge should be anchored at distance 0;              off-world reads must answer as bedrock the way `World::get` does"
+        );
+
+        // ...and the same column one cell in is *not* anchored, or the
+        // assertion above would pass on a pass that anchored everything.
+        for y in 4..12 {
+            w.set(bounds.min_x + 1, y, Cell::new(material::STONE, 0));
+        }
+        compute_world_distances(&mut w);
+        assert!(
+            w.get(bounds.min_x + 1, 4).aux() > 0,
+            "a cell one column in from the edge is supported *through* its neighbour, not by the edge"
+        );
     }
 
     #[test]
