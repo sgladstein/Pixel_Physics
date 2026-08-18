@@ -2493,6 +2493,53 @@ mod tests {
     }
 
     #[test]
+    fn a_disturbance_in_open_ground_disperses_rather_than_freezing() {
+        // **The guard the field did not have, and the absence of which cost
+        // most of a session.**
+        //
+        // Every other field test here asserts that a disturbance *arrives*
+        // somewhere. None asserted that one *goes away*. Those are different
+        // claims, and the difference is exactly where two separate bugs
+        // lived: an advection clamp that left blast pressure sitting where
+        // it was put forever (2.9 -> 2177.8 and every test still green), and
+        // a weather gust built as a pressure monopole that never
+        // reconverged. Both propagated perfectly. Neither dissipated.
+        //
+        // Stated as dispersal *ratio* rather than an absolute, so it survives
+        // retuning of the impulse, the damping and the coupling constants —
+        // what it pins is the shape of the behaviour, not its magnitude.
+        let region = |w: &World, half: i32| {
+            let mut total = 0.0;
+            let mut y = 128 - half;
+            while y <= 128 + half {
+                let mut x = 128 - half;
+                while x <= 128 + half {
+                    total += w.field_at(x, y).pressure.abs();
+                    x += super::FIELD_SCALE;
+                }
+                y += super::FIELD_SCALE;
+            }
+            total
+        };
+
+        let mut w = test_world();
+        w.add_pressure_impulse(128, 128, 4, 100.0);
+        step(&mut w);
+        let near_start = region(&w, 28);
+        assert!(near_start > 1.0, "the impulse never reached the field at all, so nothing below means anything");
+
+        for _ in 0..200 {
+            step(&mut w);
+        }
+        let near_end = region(&w, 28);
+        println!("open ground: {near_start:.3} in the impulse region -> {near_end:.3} after 200 steps");
+        assert!(
+            near_end < near_start * 0.25,
+            "pressure in open ground did not disperse ({near_start:.3} -> {near_end:.3}).              Nothing bounds or removes pressure except spreading out, so a reading that stays              high means transport has been broken -- check the advection back-trace clamp              (`ADVECTION_MAX_TILES`) before anything else, which is what it was last time."
+        );
+    }
+
+    #[test]
     fn a_disturbance_crosses_sleeping_regions_exactly_as_if_nothing_slept() {
         // **The test the per-tile solve exists to be checked by, and the only
         // shape that can catch its failure mode.**
