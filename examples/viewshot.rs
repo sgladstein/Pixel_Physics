@@ -40,6 +40,7 @@ struct Args {
     frame: usize,
     settle: usize,
     rain: String,
+    mine: bool,
     out: String,
 }
 
@@ -54,6 +55,7 @@ fn main() {
         frame: 600,
         settle: 60,
         rain: String::new(),
+        mine: false,
         out: "target/filmstrips/viewshot.png".to_string(),
     };
     for arg in std::env::args().skip(1) {
@@ -69,6 +71,12 @@ fn main() {
             // frames are clear by design, so without this a rain render is
             // mostly a render of no rain.
             "rain" => a.rain = v.to_string(),
+            // `mine=1` cuts narrow shafts down into the terrain after it has
+            // settled, which is the reproduction for "the sky follows the
+            // pick down a hole". Shafts of three different widths, because
+            // the failure was reported for a *narrow* one and a fix that only
+            // worked for narrow ones would be worth knowing about.
+            "mine" => a.mine = v != "0",
             "out" => a.out = v.to_string(),
             _ => panic!("unknown argument {arg:?}"),
         }
@@ -100,16 +108,21 @@ fn main() {
         let want_wet = a.rain != "dry";
         let want_kind = match a.rain.as_str() {
             "snow" => Some(weather::Precipitation::Snow),
+            // `rain=bolt` finds a frame where a strike is actually lit,
+            // which is a few frames in every few hundred -- a render aimed
+            // at "a storm" would essentially never contain one.
+            "bolt" => Some(weather::Precipitation::Rain),
             "wet" => Some(weather::Precipitation::Rain),
             _ => None,
         };
         let end = |start: u64| start + a.settle as u64;
         let noonish = |f: u64| field::sun_elevation(end(f)) > 0.85;
         let chosen = (0..weather::WEATHER_EPOCH_FRAMES * 40)
-            .step_by(30)
+            .step_by(if a.rain == "bolt" { 1 } else { 30 })
             .filter(|&f| noonish(f))
             .filter(|&f| weather::at(world.seed, end(f)).is_precipitating() == want_wet)
             .filter(|&f| want_kind.is_none_or(|k| weather::at(world.seed, end(f)).kind == k))
+            .filter(|&f| a.rain != "bolt" || weather::strike(world.seed, end(f), world.bounds()).is_some_and(|s| s.age <= 2))
             .max_by(|&x, &y| {
                 let (a, b) = (weather::at(world.seed, end(x)).intensity, weather::at(world.seed, end(y)).intensity);
                 if want_wet { a.total_cmp(&b) } else { b.total_cmp(&a) }
@@ -149,7 +162,15 @@ fn main() {
     // look exactly like four different hills.
     println!("world {}x{} ({name}, seed {}), built in {build_ms:.0} ms", WORLD_WIDTH, WORLD_HEIGHT, a.seed);
     for shot in 0..a.shots {
-        let x = ((shot as f32 + 0.5) / a.shots as f32 * WORLD_WIDTH as f32) as i32;
+        // Aimed at the strike when there is one: a bolt lands anywhere in a
+        // world four screens wide, so a shot framed anywhere else is a render
+        // of a flash with the interesting part outside it.
+        let aimed = pixel_physics::sim::weather::strike(world.seed, world.frame, world.bounds()).map(|s| s.x);
+        let x = match (a.mine, aimed) {
+            (true, _) => WORLD_WIDTH as i32 / 4,
+            (_, Some(sx)) => sx,
+            _ => ((shot as f32 + 0.5) / a.shots as f32 * WORLD_WIDTH as f32) as i32,
+        };
         let ground = (0..WORLD_HEIGHT as i32)
             .find(|&y| world.get(x, y).material != material::EMPTY)
             .unwrap_or(WORLD_HEIGHT as i32 / 2);
@@ -174,6 +195,34 @@ fn main() {
         // wrong when a viewport starts moving.
         let touched = world.take_touched_chunks();
         renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH, HEIGHT), shot == 0);
+
+        // Mined *between* draws, which is the sequence a player performs and
+        // the only one that reproduces the bug. Doing it before the first
+        // draw does not: the renderer's opening scan of the skyline would see
+        // the shaft already there and record its floor as the true ground, so
+        // the sky comes down the hole and the fix appears not to work. The
+        // reproduction has to contain the order of events, not just the
+        // final state.
+        if a.mine && shot == 0 {
+            for (i, w) in [1i32, 3, 8].iter().enumerate() {
+                let cx = cam_x + 140 + i as i32 * 90;
+                let top = (0..WORLD_HEIGHT as i32)
+                    .find(|&y| world.get(cx, y).material != material::EMPTY)
+                    .unwrap_or(0);
+                for x in cx - w / 2..=cx + w / 2 {
+                    for y in top..top + 150 {
+                        world.set(x, y, pixel_physics::sim::cell::Cell::EMPTY);
+                    }
+                }
+                println!("  mined a {w}-wide shaft at x={cx}, 150 deep from y={top}");
+            }
+            // One step, so the chunks register as touched. `World::set` alone
+            // does not populate `touched_chunks` -- that happens in
+            // `end_step` -- so without this the next draw's dirty-rect skip
+            // has nothing to repaint and the shafts are invisible for a
+            // reason that has nothing to do with the skyline.
+            pixel_physics::sim::parallel::step(&mut world);
+        }
 
         for y in 0..vh {
             let src = y * vw * 4;

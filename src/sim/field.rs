@@ -817,6 +817,22 @@ pub fn step(world: &mut World) {
 /// ten_thousand_frames` and the scene-based ascii checks are the actual
 /// authority on whether these are tight enough to matter, the same as every
 /// other tuning constant in this file.
+/// How far advection may back-trace, in field tiles.
+///
+/// Sized from what restores the physics, then justified: four tiles is where
+/// an impulse in open ground disperses exactly as it did before the awake set
+/// existed (sealed 61.71126, open 2.9185925 -- byte-identical to the
+/// pre-sleeping baseline), and one tile is not (open 80.8, still 27x too
+/// concentrated).
+///
+/// Going past the one-tile halo is safe because advection only ever *reads*
+/// through `sample`; it writes nothing outside its own tile, so an overlong
+/// back-trace costs accuracy and never correctness. And the accuracy it costs
+/// is small: `sample` answers `AMBIENT` for a tile outside `read`, and a tile
+/// outside `read` is one that has converged -- so ambient is approximately
+/// what is there anyway.
+const ADVECTION_MAX_TILES: i32 = 4;
+
 const SETTLE_EPSILON_PRESSURE: f32 = 0.01;
 const SETTLE_EPSILON_VELOCITY: f32 = 0.001;
 const SETTLE_EPSILON_TEMPERATURE: f32 = 0.02;
@@ -1592,17 +1608,32 @@ fn step_advection(
                 }
                 let here = sample(&pre_advection, bounds, wx, wy);
 
-                // Clamped to one field cell of back-trace per axis.
+                // Clamped to one *tile* of back-trace per axis — the width
+                // of the halo, which is what makes the clamp necessary and
+                // is therefore what sets its size.
                 //
                 // Velocity is damped but never bounded, so a blast peak (~86
-                // measured) would back-trace dozens of field cells — past the
-                // one-tile halo the awake set provides, into tiles this frame
-                // never populated, which `sample` reports as `AMBIENT`. The
-                // clamp is what makes a one-ring halo sufficient, and it costs
-                // only that very fast flow transports at one cell per step
-                // instead of many, which the `ADVECTION_BLEND` mix already
-                // smears out.
-                let max_step = FIELD_SCALE as f32;
+                // measured) would back-trace dozens of field cells, past the
+                // one-tile halo the awake set provides and into tiles this
+                // frame never populated, which `sample` reports as `AMBIENT`.
+                // A back-trace of up to one tile still lands inside the ring,
+                // which is in `read` and is populated, so this is the largest
+                // clamp the halo actually justifies.
+                //
+                // **It was `FIELD_SCALE` — one field cell — and that was a
+                // physics change dressed up as a safety margin.** The comment
+                // here used to claim it cost "only that very fast flow
+                // transports at one cell per step instead of many". That was
+                // wrong and never measured: an impulse in open ground stopped
+                // dispersing almost entirely, and total |pressure| left in the
+                // region around it after 200 steps went from 2.9 to 2177.8.
+                // Pressure from a blast simply stayed where it was put. The
+                // sealed-room test caught it and was misread as pre-existing
+                // for most of a session, because the obvious suspect was the
+                // sleeping this landed with -- and a probe on the awake set
+                // showed all 16 of 16 chunks solving every step, which is what
+                // finally pointed here instead.
+                let max_step = (FIELD_TILE_SIZE * FIELD_SCALE * ADVECTION_MAX_TILES) as f32;
                 let dx = (here.vx * FIELD_SCALE as f32).clamp(-max_step, max_step);
                 let dy = (here.vy * FIELD_SCALE as f32).clamp(-max_step, max_step);
                 let src_x = wx as f32 - dx;
@@ -1742,6 +1773,7 @@ mod tests {
         }
         let open_total = total_abs_pressure(&open, 128, 128, 28);
 
+        println!("sealed {sealed_total} open {open_total}");
         assert!(
             sealed_total > open_total,
             "sealed room ({sealed_total}) should retain more total pressure than open ground ({open_total})"
@@ -2458,6 +2490,53 @@ mod tests {
     /// between it and the far end.
     fn wide_world() -> World {
         World::new(Rect::new(0, 0, 1023, 255))
+    }
+
+    #[test]
+    fn a_disturbance_in_open_ground_disperses_rather_than_freezing() {
+        // **The guard the field did not have, and the absence of which cost
+        // most of a session.**
+        //
+        // Every other field test here asserts that a disturbance *arrives*
+        // somewhere. None asserted that one *goes away*. Those are different
+        // claims, and the difference is exactly where two separate bugs
+        // lived: an advection clamp that left blast pressure sitting where
+        // it was put forever (2.9 -> 2177.8 and every test still green), and
+        // a weather gust built as a pressure monopole that never
+        // reconverged. Both propagated perfectly. Neither dissipated.
+        //
+        // Stated as dispersal *ratio* rather than an absolute, so it survives
+        // retuning of the impulse, the damping and the coupling constants —
+        // what it pins is the shape of the behaviour, not its magnitude.
+        let region = |w: &World, half: i32| {
+            let mut total = 0.0;
+            let mut y = 128 - half;
+            while y <= 128 + half {
+                let mut x = 128 - half;
+                while x <= 128 + half {
+                    total += w.field_at(x, y).pressure.abs();
+                    x += super::FIELD_SCALE;
+                }
+                y += super::FIELD_SCALE;
+            }
+            total
+        };
+
+        let mut w = test_world();
+        w.add_pressure_impulse(128, 128, 4, 100.0);
+        step(&mut w);
+        let near_start = region(&w, 28);
+        assert!(near_start > 1.0, "the impulse never reached the field at all, so nothing below means anything");
+
+        for _ in 0..200 {
+            step(&mut w);
+        }
+        let near_end = region(&w, 28);
+        println!("open ground: {near_start:.3} in the impulse region -> {near_end:.3} after 200 steps");
+        assert!(
+            near_end < near_start * 0.25,
+            "pressure in open ground did not disperse ({near_start:.3} -> {near_end:.3}).              Nothing bounds or removes pressure except spreading out, so a reading that stays              high means transport has been broken -- check the advection back-trace clamp              (`ADVECTION_MAX_TILES`) before anything else, which is what it was last time."
+        );
     }
 
     #[test]

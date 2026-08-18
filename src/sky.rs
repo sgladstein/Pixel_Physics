@@ -750,3 +750,69 @@ pub fn drops(
 pub fn overcast(intensity: f32) -> f32 {
     (intensity * 0.85).clamp(0.0, 1.0)
 }
+
+/// Colour of a lightning bolt's core.
+const BOLT_COLOUR: [f32; 3] = [252.0, 250.0, 255.0];
+
+/// How far a bolt may wander sideways per cell of descent.
+const BOLT_WANDER: f32 = 0.55;
+
+/// One drawn piece of a bolt: where it starts, where it ends, and how heavy
+/// it is (`1.0` trunk, less for a branch).
+pub type BoltSegment = ((f32, f32), (f32, f32), f32);
+
+/// The polyline of a lightning bolt, in **world** coordinates, plus its
+/// branches.
+///
+/// Generated from `(id, segment)` rather than stepped, for the same reason
+/// the rain is: the whole of weather here is a pure function of the frame, so
+/// a bolt has no state to advance and a replay draws the same one. Branches
+/// hang off the trunk at hashed points and die out, because a bolt drawn as a
+/// single zigzag line reads as a crack in the screen rather than as
+/// lightning — the forking is most of the silhouette.
+///
+/// Returned as segments rather than a path so the caller can draw each with
+/// its own width: the trunk is thick and the branches thin, which is what
+/// gives it depth at this resolution.
+pub fn bolt(id: u64, x: i32, top_y: i32, ground_y: i32) -> Vec<BoltSegment> {
+    let mut out = Vec::new();
+    let span = (ground_y - top_y).max(1);
+    // Coarse segments: at play zoom a bolt is a few dozen pixels tall, and
+    // subdividing finer than this just costs work to draw a smoother line
+    // than lightning has.
+    let steps = (span / 6).clamp(4, 64);
+    let mut px = x as f32;
+    let mut py = top_y as f32;
+    for i in 0..steps {
+        let t = (i + 1) as f32 / steps as f32;
+        let ny = top_y as f32 + span as f32 * t;
+        // Wanders, but is pulled back toward the strike point as it nears the
+        // ground, so a bolt arrives roughly where it was aimed instead of
+        // drifting off across the sky.
+        let drift = (hash01(id as i32, i, 0xB017) - 0.5) * 2.0 * BOLT_WANDER * (ny - py);
+        let nx = (px + drift) * (1.0 - t * 0.35) + x as f32 * (t * 0.35);
+        out.push(((px, py), (nx, ny), 1.0));
+
+        // A branch, sometimes, heading off and downward and stopping short.
+        if hash01(id as i32, i, 0xB4A9) < 0.28 && i > 0 {
+            let dir = if hash01(id as i32, i, 0xB4AA) < 0.5 { -1.0 } else { 1.0 };
+            let len = span as f32 * (0.08 + hash01(id as i32, i, 0xB4AB) * 0.16);
+            let (mut bx, mut by) = (nx, ny);
+            for b in 0..3 {
+                let ex = bx + dir * len * 0.4 * (0.6 + hash01(id as i32, i * 8 + b, 0xB4AC));
+                let ey = by + len * 0.5;
+                out.push(((bx, by), (ex, ey), 0.45));
+                bx = ex;
+                by = ey;
+            }
+        }
+        px = nx;
+        py = ny;
+    }
+    out
+}
+
+/// Colour of a bolt segment.
+pub fn bolt_colour() -> [f32; 3] {
+    BOLT_COLOUR
+}

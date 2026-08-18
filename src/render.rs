@@ -353,6 +353,21 @@ const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 /// What fully saturated ground is scaled to, out of 256. Soaked soil is
 /// distinctly darker than dry and still legibly soil -- taking it much
 /// lower turns a rained-on hillside into a silhouette.
+/// How far to either side a column looks when deciding whether it is a shaft
+/// rather than open ground. A slot up to about twice this wide reads as
+/// inside the mountain; a genuine excavation wider than that reads as open,
+/// which is the right place for the line — the complaint was about a *narrow*
+/// strip of sky, and a quarry with sky over it is not wrong.
+/// How far a strike at full brightness pulls the frame toward white.
+///
+/// Set by eye against a render, downward: the first value (0.55) whited the
+/// scene out so completely that the terrain stopped being readable, which is
+/// what a camera does and not what an eye does. Enough to be unmistakable,
+/// little enough that you can still see what you are standing on.
+const FLASH_LIFT: f32 = 0.34;
+
+const SHAFT_REACH: i32 = 6;
+
 const DAMP_DARKEN: u32 = 150;
 const CRACK_DARKEN: u16 = 110;
 
@@ -535,6 +550,8 @@ pub struct Renderer {
     horizon: Vec<i32>,
     /// World x the `horizon` entries start at.
     horizon_origin: i32,
+    /// `horizon` with shafts filled back in — see `rebuild_sky_floor`.
+    sky_floor: Vec<i32>,
 }
 
 impl Renderer {
@@ -560,6 +577,7 @@ impl Renderer {
             last_moon_rect: None,
             horizon: Vec::new(),
             horizon_origin: 0,
+            sky_floor: Vec::new(),
         }
     }
 
@@ -851,6 +869,11 @@ impl Renderer {
             // `ParticleSystem` the wrong vehicle -- there it would have been
             // permanent instead.
             || weather.is_precipitating()
+            // A strike lifts every pixel in the frame, so the frame after one
+            // has to be repainted or the flash sticks around as a permanently
+            // brightened world.
+            || crate::sim::weather::strike(world.seed, world.frame, world.bounds()).is_some()
+            || crate::sim::weather::strike(world.seed, world.frame.wrapping_sub(1), world.bounds()).is_some()
             || !particles.is_empty();
 
         // Where the gnome is on screen this frame. Tracked through *both*
@@ -964,6 +987,9 @@ impl Renderer {
         // the rock as well as against the sky. Drawn after the cells and
         // before the gnome, so he is in the weather rather than behind it.
         self.draw_precipitation(weather, world.frame, (vx0, vy0), (vx1, vy1), frame, width, height);
+        if let Some(s) = crate::sim::weather::strike(world.seed, world.frame, world.bounds()) {
+            self.draw_lightning(s, (vx0, vy0), (vx1, vy1), frame, width, height);
+        }
         self.draw_particles(world, particles, frame, width, height);
         self.draw_chunk_bodies(world, frame, width, height);
         self.draw_player(world, frame, width, height);
@@ -1054,6 +1080,75 @@ impl Renderer {
                     // and not a dash of the same width as the streak.
                     let fade = 1.0 - (dx.abs() as f32 / (spread + 1) as f32);
                     blend(frame, width, height, sx, sy, colour, drop.alpha * 0.85 * fade);
+                }
+            }
+        }
+    }
+
+    /// A lightning strike: the flash over everything, then the bolt.
+    ///
+    /// The flash is a whole-frame lift rather than a light source, and that
+    /// is a deliberate limit rather than an approximation of one. A real
+    /// source would have to reach the light field, which oscillates on the
+    /// day cycle and which everything from moss to phototropism makes
+    /// decisions off -- a strike bright enough to see would read to a plant
+    /// as an instant of noon. Lightning is allowed to be a thing you see and
+    /// not a thing the world believes in.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_lightning(
+        &self,
+        s: crate::sim::weather::Strike,
+        (vx0, vy0): (i32, i32),
+        (vx1, vy1): (i32, i32),
+        frame: &mut [u8],
+        width: u32,
+        height: u32,
+    ) {
+        let project = |wx: f32, wy: f32| {
+            (
+                (wx.round() as i32 - self.camera_x) / self.zoom_out_stride * self.zoom,
+                (wy.round() as i32 - self.camera_y) / self.zoom_out_stride * self.zoom,
+            )
+        };
+        // Falls off with distance from the strike, so a bolt on the far side
+        // of the world lights the sky rather than the room you are standing
+        // in -- and so that walking toward a storm means something.
+        let centre = (vx0 + vx1) / 2;
+        let far = ((vx1 - vx0).max(1) * 3) as f32;
+        let near = 1.0 - ((s.x - centre).abs() as f32 / far).clamp(0.0, 1.0);
+        let lift = s.flash * near;
+        if lift > 0.01 {
+            for px in frame.chunks_exact_mut(4) {
+                for c in px.iter_mut().take(3) {
+                    // Toward white rather than a scaling, so already-bright
+                    // sky still visibly flashes instead of clipping and
+                    // sitting still.
+                    *c = (*c as f32 + (255.0 - *c as f32) * lift * FLASH_LIFT) as u8;
+                }
+            }
+        }
+
+        // The bolt itself only while the first stroke is bright; the later
+        // flicker is the sky lighting up with the channel already gone.
+        if s.age > 4 {
+            return;
+        }
+        let ground = (vy0..=vy1).find(|&y| !self.under_sky(s.x, y)).unwrap_or(vy1);
+        let colour = sky::bolt_colour();
+        let rgba = [colour[0] as u8, colour[1] as u8, colour[2] as u8, 255];
+        for (a, b, weight) in sky::bolt(s.id, s.x, vy0, ground) {
+            let (ax, ay) = project(a.0, a.1);
+            let (bx, by) = project(b.0, b.1);
+            let steps = (bx - ax).abs().max((by - ay).abs()).max(1);
+            for i in 0..=steps {
+                let (x, y) = (ax + (bx - ax) * i / steps, ay + (by - ay) * i / steps);
+                let alpha = weight * s.flash.max(0.6);
+                blend(frame, width, height, x, y, rgba, alpha);
+                // The trunk gets a second pixel of width and a soft edge; a
+                // one-pixel bolt is a hairline and reads as a scratch.
+                if weight > 0.9 {
+                    blend(frame, width, height, x + 1, y, rgba, alpha * 0.7);
+                    blend(frame, width, height, x - 1, y, rgba, alpha * 0.35);
                 }
             }
         }
@@ -1184,25 +1279,84 @@ impl Renderer {
         if self.horizon.len() != width || self.horizon_origin != b.min_x {
             self.horizon = (0..width as i32).map(|i| scan(world, b.min_x + i)).collect();
             self.horizon_origin = b.min_x;
+            self.rebuild_sky_floor(0, width as i32 - 1);
             return;
         }
+        let mut lo = i32::MAX;
+        let mut hi = i32::MIN;
         for coord in touched {
             let cb = coord.bounds();
             for x in cb.min_x.max(b.min_x)..=cb.max_x.min(b.max_x) {
                 let i = (x - b.min_x) as usize;
                 self.horizon[i] = scan(world, x);
+                lo = lo.min(i as i32);
+                hi = hi.max(i as i32);
             }
+        }
+        if lo <= hi {
+            // Widened by the reach, because a column's own skyline depends on
+            // its neighbours' — digging at `x` changes the answer for every
+            // column within reach of it.
+            self.rebuild_sky_floor(lo - SHAFT_REACH, hi + SHAFT_REACH);
+        }
+    }
+
+    /// The skyline used for drawing, which is **not** the topmost solid cell.
+    ///
+    /// Reported from play: mining the top of a column dropped that column's
+    /// horizon, so the sky came down the hole with the pick and a one-cell
+    /// shaft dug into a mountain drew a strip of bright sky to its middle.
+    /// "Can the sky reach this cell" is *true* down a shaft, and is simply
+    /// not the question the background is asking; what it wants is "is this
+    /// inside the ground".
+    ///
+    /// A column is inside the ground where the terrain to **both** sides
+    /// stands higher than it does. That distinguishes the two cases that
+    /// look alike from a single column:
+    ///
+    /// - a shaft has higher ground on both sides, so it is inside the
+    ///   mountain and draws dark;
+    /// - a cliff edge has higher ground on one side only, so the open air
+    ///   beside it is still sky — which a plain "lowest of my neighbours"
+    ///   rule gets wrong, painting a dark band along the foot of every
+    ///   cliff in the world.
+    ///
+    /// Deliberately **stateless** — a function of the world as it stands,
+    /// not of what the renderer saw earlier. A first version remembered the
+    /// highest the ground had ever been, which fixed the shaft and broke
+    /// `dirty_rect_skip_is_pixel_identical_to_a_full_redraw`, because a
+    /// skyline that depends on history cannot agree between a renderer that
+    /// has one and a fresh one that does not.
+    fn rebuild_sky_floor(&mut self, from: i32, to: i32) {
+        let n = self.horizon.len() as i32;
+        self.sky_floor.resize(self.horizon.len(), i32::MAX);
+        for i in from.max(0)..=to.min(n - 1) {
+            let own = self.horizon[i as usize];
+            let side = |range: std::ops::RangeInclusive<i32>| {
+                range.filter(|&j| j >= 0 && j < n).map(|j| self.horizon[j as usize]).min().unwrap_or(i32::MAX)
+            };
+            let left = side(i - SHAFT_REACH..=i - 1);
+            let right = side(i + 1..=i + SHAFT_REACH);
+            // Higher ground on both sides means this column is a slot in
+            // something, and the sky stops at the shallower of the two
+            // shoulders rather than following the slot down.
+            self.sky_floor[i as usize] = if left < own && right < own { left.max(right) } else { own };
         }
     }
 
     /// Whether this position is open to the sky, rather than a void inside
     /// the ground.
+    ///
+    /// Asks whether the cell is above where the ground has ever reached in
+    /// this column, **not** whether there is currently a clear path up. The
+    /// two differ exactly down a freshly dug shaft, and the second answer is
+    /// the one that renders a mine as a strip of sky.
     fn under_sky(&self, x: i32, y: i32) -> bool {
         let i = x - self.horizon_origin;
         if i < 0 || i as usize >= self.horizon.len() {
             return true;
         }
-        y < self.horizon[i as usize]
+        y < *self.sky_floor.get(i as usize).unwrap_or(&i32::MAX)
     }
 
     fn cell_colour(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
@@ -1738,6 +1892,40 @@ mod tests {
     use crate::sim::cell::Cell;
     use crate::sim::chunk::Rect;
     use crate::sim::material;
+
+    /// Reported from play: mining the top of a column dropped that column's
+    /// horizon and the sky came down the hole with the pick, so a one-cell
+    /// shaft dug into a mountain drew a strip of bright sky to its middle.
+    #[test]
+    fn digging_a_shaft_does_not_bring_the_sky_down_with_it() {
+        let mut world = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 40..128 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        let mut r = Renderer::new();
+        // **The order of events is the test.** Establishing the skyline
+        // before the shaft exists is what a player does and is the only
+        // sequence that reproduces this: mine first and the renderer's
+        // opening scan records the shaft floor as the true ground, the sky
+        // fills the hole, and a working fix looks broken.
+        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
+        for y in 40..100 {
+            world.set(64, y, Cell::EMPTY);
+        }
+        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
+
+        assert!(!r.under_sky(64, 90), "a cell deep inside a mined shaft is underground, not sky");
+        assert!(r.under_sky(64, 20), "open air above the terrain is still sky");
+        // Building *up* must still raise the skyline, or the rule is
+        // "the horizon never changes" rather than "it never falls".
+        for y in 20..40 {
+            world.set(64, y, Cell::new(material::STONE, 0));
+        }
+        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
+        assert!(!r.under_sky(64, 25), "stacking material up into the sky should take the skyline with it");
+    }
 
     #[test]
     fn circle_outline_lights_the_ring_but_not_the_centre() {
