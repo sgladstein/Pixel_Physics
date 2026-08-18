@@ -2019,7 +2019,30 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // A raw material test, not `world.is_empty`: the question is
                 // "is there anything holding this up", which is what
                 // `is_empty`'s managed-aware meaning does *not* answer.
-                let resting = world.get(x, y + 1).material != material::EMPTY;
+                // **A seed does not germinate resting on another plant.**
+                //
+                // `resting` accepted any non-empty cell below, and a branch
+                // is non-empty. Seeds are a `Powder`, so in a closed stand
+                // most of them never reach the ground at all -- they come to
+                // rest on the first limb that stops them and sprout there.
+                // Measured before this line existed: **430 of 487 organisms
+                // rooted above the soil, 410 of them more than 25 rows up**,
+                // and a time lapse shows the stand degrading from eight
+                // clean trees into a pile of trees growing out of trees.
+                //
+                // `moisture_threshold` looks like the designed answer and is
+                // not: field moisture at the soil *surface*, where a good
+                // seed lands, is as near zero as it is up a tree, so every
+                // non-zero setting blocked all germination equally (8
+                // established at 0.05, 0.2 and 0.5 alike -- only the
+                // originally planted trees). It cannot separate the cases.
+                //
+                // Material kind can, exactly. Soil, stone and gravel are
+                // ground; wood, leaf and rootwood are `Plant`, and a seed
+                // lying on living tissue is lying in a tree.
+                let below = world.get(x, y + 1);
+                let resting = below.material != material::EMPTY
+                    && world.materials.get(below.material).kind != crate::sim::material::MaterialKind::Plant;
                 let ready = resting
                     && (instant || {
                     let light = ambient_light_above(world, x, y);

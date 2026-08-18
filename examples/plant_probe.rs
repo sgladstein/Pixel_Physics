@@ -234,6 +234,39 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         let hist: Vec<String> = gens.iter().map(|(g, n)| format!("gen {g}: {n}")).collect();
         println!("  generations  [{}]", hist.join(", "));
 
+        // **Epiphytes: plants rooted above the ground.** A seed is a
+        // `Powder`, so it falls -- but it comes to rest on the first thing
+        // that stops it, and in a closed stand that is very often a branch.
+        // It then germinates there and grows from a collar high in another
+        // plant's canopy, which reads on a sheet as "a tree growing out of a
+        // tree" and is not something any rule intends.
+        //
+        // Counted rather than eyeballed because the two readings a contact
+        // sheet cannot separate are "a tall tree behind a short one" and "a
+        // tree standing on one". A collar well above the soil surface
+        // settles it.
+        let ground = ground_y();
+        let mut epiphytes = 0usize;
+        let mut deep = 0usize;
+        // Established plants only. Counting every organism included seeds
+        // still lying in the branches they landed on, which is a different
+        // fact -- a perched seed is not an epiphyte until it germinates,
+        // and conflating them made the fix look like it had done nothing.
+        for (id, v) in per_organism.iter() {
+            if v.0 < ESTABLISHED {
+                continue;
+            }
+            if let Some(collar) = w.organism_state(*id).and_then(|s| s.collar_y) {
+                if collar < ground - 3 {
+                    epiphytes += 1;
+                    if collar < ground - 25 {
+                        deep += 1;
+                    }
+                }
+            }
+        }
+        println!("  rooted above ground: {epiphytes} organisms ({deep} of them more than 25 rows up)");
+
         // **The clustering readout, and the whole point of discrete loci.**
         //
         // A continuous genome gives a Gaussian cloud however long it runs --
