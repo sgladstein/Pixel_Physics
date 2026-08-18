@@ -76,6 +76,29 @@
     // up nothing but itself and drops the moment its own attachment goes,
     // which is the closest this model gets to "not structural" without a
     // separate exemption in the traversal.
+    // Inert-path capacity, unchanged. A stray leaf cell that has lost its
+    // organism holds up nothing.
     max_unsupported_span: 1,
+    // **No `max_cantilever_reach`, which means opted out of the organism
+    // cantilever rule entirely** -- the default is `u16::MAX`.
+    //
+    // This field's ancestor was the `max_unsupported_span: 1` above, and it
+    // read correctly against the old support search, where the number was
+    // hops from the cell to the nearest ground contact and no code path
+    // ever scheduled a structural check on a leaf.
+    //
+    // `plant::anchor_support` changed what the number is measured against:
+    // it is now the cell's reach along its own load path from the plant's
+    // anchors, which for any leaf in a crown is tens of cells. The first run
+    // with checks actually firing took median leaves per tree from 1,376 to
+    // **1**, and the stand from 31,731 cells to 7,171 once the income went
+    // with them.
+    //
+    // Opting out does not exempt a leaf from *attachment*:
+    // `structural::organism_structural_tick` tests that first and
+    // separately, so cutting the twig a spray hangs from still brings the
+    // spray down. That is the property the note above actually wanted -- a
+    // leaf is not a load path -- now enforced rather than approximated by a
+    // small number.
     breaks_into: "deadwood",
 )

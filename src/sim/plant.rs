@@ -2176,6 +2176,12 @@ pub fn step_organisms(world: &mut World) {
         allocate_to_frontier(world, organism_id);
         // Before both of the passes that read it.
         accumulate_support(world, organism_id);
+        // After `accumulate_support` rather than before, and it does not
+        // matter which order they run in -- they share no state. Placed
+        // here so both structural passes sit together, and after
+        // `allocate_to_frontier` so a cell created this tick is already in
+        // the list being walked.
+        anchor_support(world, organism_id);
         // Before upkeep, so a bud that flushes this tick is already a
         // `GrowingTip` when `thicken` runs and can be counted as frontier
         // rather than thickened over on the same tick it woke up.
@@ -2305,6 +2311,175 @@ fn l_node(leaf_cluster: u8) -> f32 {
 /// One per tick on top of that is a *rate* limit, not the bound — it keeps
 /// a plant that has just been shaded from re-flushing its whole bud bank in
 /// a single tick, and it keeps this function's cost at one pass.
+/// Step onto tissue *above* the parent — the child is standing on it.
+///
+/// **Free, deliberately.** A vertical stem is in pure compression and
+/// should stand to any height, exactly as `a_stone_tower_stands_however_
+/// tall_it_gets` asserts for stone. A whole trunk therefore relaxes to 0.
+///
+/// `Material::support_cost_below` is clamped to `.max(1)` for the inert
+/// path, and `material.rs` explains why: there, a zero let a column relax
+/// to `aux == 0`, and `load::evaluate` treats distance 0 as *anchored*, so
+/// the structure became immune to every failure mode including hanging in
+/// mid-air. **That hole does not exist here, because this number does not
+/// answer "is it attached".** Attachment is `support == u16::MAX`, a
+/// separate question decided by whether the anchor walk reached the cell at
+/// all. A column of zeroes is a column that cannot fail *in bending*, which
+/// is correct; cut its base and every cell in it goes unreached and comes
+/// down regardless of its distance.
+const SUPPORT_COST_STANDING: u16 = 0;
+
+/// Step that moves sideways, diagonals included.
+///
+/// This is what makes the number a **cantilever** measure rather than a
+/// path length: a cell's distance is essentially its horizontal reach from
+/// the stem carrying it, which is what "unsupported span" has always meant
+/// for a branch. A 150-cell trunk reads 0 and an 8-cell limb reads 8.
+const SUPPORT_COST_REACH: u16 = 1;
+
+/// Extra charge when a child hangs *below* its parent.
+///
+/// Tension is dear, the same ordering `Material::support_cost_above`
+/// encodes for stone (`stone.ron` sets `above: 3` against `below: 1`).
+const SUPPORT_COST_HANGING: u16 = 2;
+
+/// Whether this cell is one of its organism's structural anchors.
+///
+/// Two ways to be anchored, and the second is new:
+///
+/// - **Touching `Solid` ground** — the rule the old bounded search used,
+///   and the direct generalization of the inert path's "touches BEDROCK".
+///   A trunk resting on stone is anchored exactly as a stone span touching
+///   bedrock is.
+/// - **Root tissue embedded in water-holding soil.** This is what finally
+///   makes `CellType::RootTip`'s own doc true — it has claimed since the
+///   substrate rewrite that "structural.rs's organism branch anchors its
+///   reachability search specifically on `RootTip` cells", and the code
+///   anchored on nothing of the sort. A root threaded through soil really
+///   does hold, which `update.rs`'s `reinforces_powder` already models from
+///   the soil's side (root-threaded soil holds a slope bare soil loses); this
+///   is the same fact read from the plant's side.
+///
+/// Discriminated by `reinforces_powder` rather than cell type, for the same
+/// reason `organism_upkeep` does it that way: a retired root and a retired
+/// branch are both `MatureBody`, and only the material tells them apart.
+fn is_structural_anchor(world: &World, x: i32, y: i32, organism_id: u16) -> bool {
+    let cell = world.get(x, y);
+    if cell.organism_id() != organism_id {
+        return false; // the list can outlive the grid by a tick
+    }
+    let root_tissue =
+        world.materials.get(cell.material).reinforces_powder || organism::cell_type(cell.aux()) == Some(CellType::RootTip);
+    NEIGHBOURS_4.iter().any(|&(dx, dy)| {
+        let n = world.get(x + dx, y + dy);
+        let m = world.materials.get(n.material);
+        m.kind == MaterialKind::Solid || (root_tissue && m.kind == MaterialKind::Powder && m.water_capacity > 0)
+    })
+}
+
+/// Recompute every cell's weighted distance to this organism's nearest
+/// anchor — **from the anchors outward**, once per organism per tick.
+///
+/// Replaces `structural::organism_is_supported`, which ran a fresh bounded
+/// BFS *outward from the cell being checked* on every structural check. See
+/// `OrganismCell::support` for the two defects that had, both of which this
+/// shape fixes rather than tunes: there is no span budget to run out of, so
+/// a check fired high in a crown no longer amputates it, and the walk is
+/// eight-connected like `Grow`, so a diagonal branch is not read as
+/// disconnected.
+///
+/// A Dijkstra rather than a plain BFS because the step costs are 0/1/2 —
+/// standing is free, reaching sideways costs, hanging costs most — the same
+/// weighting the inert path applies through `support_cost_below/beside/
+/// above`, and the same `BinaryHeap<Reverse<..>>` shape
+/// `structural::compute_world_distances` already uses. A plain queue would
+/// settle cells out of order and hand back distances that are merely
+/// plausible.
+///
+/// Cells the walk never reaches keep `u16::MAX`: they are no longer part of
+/// anything that touches the ground. Newly-unreached cells schedule their
+/// own structural check, which is what turns a cut trunk into a crown that
+/// comes down instead of one that floats and keeps growing.
+///
+/// Cost: one heap walk over a cell list per organism per
+/// `ORGANISM_TICK_INTERVAL`. The list is built and sorted here rather than
+/// shared with `accumulate_support` below, which needs a `collar_y` this
+/// pass must not depend on — an organism with no shoot still has to know
+/// whether it is attached.
+fn anchor_support(world: &mut World, organism_id: u16) {
+    let Some(state) = world.organism(organism_id) else { return };
+    if state.cells.is_empty() {
+        return;
+    }
+    // Sorted for the same determinism reason every other per-organism pass
+    // sorts: `cells` is a `HashMap` with no stable iteration order, and the
+    // heap's tie-break has to be a property of the world rather than of the
+    // hasher's seed.
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+
+    let mut dist = vec![u16::MAX; cells.len()];
+    let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(u16, i32, i32, usize)>> = std::collections::BinaryHeap::new();
+    for (i, &(x, y)) in cells.iter().enumerate() {
+        if is_structural_anchor(world, x, y, organism_id) {
+            dist[i] = 0;
+            heap.push(std::cmp::Reverse((0, y, x, i)));
+        }
+    }
+    while let Some(std::cmp::Reverse((d, _, _, i))) = heap.pop() {
+        if d > dist[i] {
+            continue; // a better path settled this cell already
+        }
+        let (x, y) = cells[i];
+        for (dx, dy) in NEIGHBOURS_8 {
+            let Some(&j) = index.get(&(x + dx, y + dy)) else { continue };
+            // `dy > 0` puts the child *below* its parent, so it hangs from
+            // it; `dy < 0` puts it above, standing on it. Sideways is
+            // charged separately, so a diagonal pays for the reach it makes
+            // as well as for the direction it went.
+            let vertical = if dy > 0 { SUPPORT_COST_HANGING } else { SUPPORT_COST_STANDING };
+            let step = vertical + if dx != 0 { SUPPORT_COST_REACH } else { 0 };
+            let next = d.saturating_add(step);
+            if next < dist[j] {
+                dist[j] = next;
+                let (nx, ny) = cells[j];
+                heap.push(std::cmp::Reverse((next, ny, nx, j)));
+            }
+        }
+    }
+
+    for (i, &(x, y)) in cells.iter().enumerate() {
+        let was = world.organism_cell(x, y).map_or(0, |c| c.support);
+        if let Some(slot) = world.organism_cell_mut(x, y) {
+            slot.support = dist[i];
+        }
+        // **A distance that rose is the signal, and only a rise.** Straight
+        // from the inert path's own reasoning (`structural::tick`): a
+        // distance that *fell* means a better load path was found and
+        // nothing can newly break because of it, so the falling half of a
+        // wavefront costs nothing; a rise is precisely the direction that
+        // can cause a failure.
+        //
+        // This is also the answer to a bug the first version of this pass
+        // had. Scheduling only on the `u16::MAX` transition caught
+        // detachment but never the cantilever case, and on the organism
+        // path a check that finds a cell supported returns *no* sites — so
+        // a beam whose only check fired before the organism's first tick
+        // read the default `support` of 0, declared itself fine, and was
+        // never asked again. The distance arrived a tick later with nothing
+        // left to consume it.
+        //
+        // A cell that is already unreached and stays unreached does not
+        // re-schedule: it is either about to be checked or has no
+        // `breaks_into` to become, and re-queuing the whole detached piece
+        // every tick would be a permanent load for as long as it existed.
+        if dist[i] > was {
+            world.schedule_structural_check(x, y);
+        }
+    }
+}
+
 /// Accumulate, basipetally, how much foliage each cell supports — the
 /// **basipetal pass** of `Reports/tree-architecture-implementation-plan.md`
 /// Phase 3, and Palubicki's `Q`.
@@ -4370,6 +4545,20 @@ mod tests {
         let wood = w.materials.id_of("wood").unwrap();
         let organism_id = w.push_organism(tree_species);
         let aux = organism::pack_cell_type(CellType::GrowingTip);
+        // **Standing on stone, which it did not need to be until
+        // `anchor_support` landed.** This is a lone wood cell in open sky,
+        // and the structural model has always said such a cell is
+        // unsupported; nothing ever asked, because growth deliberately
+        // schedules no structural checks and the old search only ran when
+        // something else disturbed the cell. The anchor pass now evaluates
+        // every organism cell once a tick, so the cell fell and the test
+        // read `resource = 0` from an empty cell.
+        //
+        // The scene was contradicting the code (`CLAUDE.md`), and the fix
+        // belongs in the scene: this test is about `Photosynthesize`
+        // reading light at its own position, and a floor below it changes
+        // nothing about the light arriving from above.
+        w.set(100, 21, Cell::new(material::STONE, 0));
         w.set(100, 20, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
         let site = reschedule_organism(100, 20, organism_id, 0, 0, w.frame + ORGANISM_TICK_INTERVAL);
         w.schedule_active_site(site);

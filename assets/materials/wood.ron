@@ -59,5 +59,8 @@
     // wood 8, steel 20") -- unused until item 9 gave `Plant` a place to
     // read it from.
     max_unsupported_span: 8,
+    // Reach, not capacity -- see MaterialDef::max_cantilever_reach. Measured
+    // max on a healthy 8-tree stand is 77; 96 is that with headroom.
+    max_cantilever_reach: 96,
     breaks_into: "deadwood",
 )

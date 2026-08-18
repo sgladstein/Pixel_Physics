@@ -1393,6 +1393,37 @@ pub struct OrganismCell {
     /// `Reports/tree-rewrite-design.md` §2b's crowding signal, clamped to
     /// `CANOPY_DENSITY_SCALE`.
     pub canopy_density: f32,
+    /// **Weighted distance to this organism's nearest structural anchor**,
+    /// recomputed once per organism tick by `plant::anchor_support`.
+    /// `u16::MAX` means *unreached* — nothing this cell is connected to
+    /// touches the ground, so the piece it belongs to has come off.
+    ///
+    /// This replaced `structural::organism_is_supported`, which ran a fresh
+    /// bounded BFS **outward from the cell being checked** on every check.
+    /// That was wrong twice, and neither was tuning:
+    ///
+    /// - It was bounded by `max_unsupported_span` (8 for `wood`) measured
+    ///   from the checked cell, so on a 150-cell tree any check fired in the
+    ///   crown could not reach the ground within the budget and read
+    ///   "unsupported". Scheduling one mid-organism amputated the canopy —
+    ///   772 cells against 20,213 from that single line — which is why
+    ///   growth and abscission both deliberately scheduled no checks at all.
+    /// - It traversed `NEIGHBOURS_4` while `Grow` places children at 8, so
+    ///   a diagonally-grown branch read as disconnected. Same rule
+    ///   `reachable_from_anchors` was already fixed for.
+    ///
+    /// Computing it **from the anchors outward**, once per organism, fixes
+    /// both: there is no span budget to run out of, a severed crown is
+    /// unreached however far away it is, and the per-check cost drops to a
+    /// field read.
+    ///
+    /// Two distinct questions come off this one number, and keeping them
+    /// distinct is the point: `== u16::MAX` is *attachment* (is this cell
+    /// still part of a piece that reaches ground), and `> effective_span` is
+    /// *cantilever* (is it too far out along its own load path for the load
+    /// it carries). A bare reachability bit would have silently superseded
+    /// the second rule while leaving its test green.
+    pub support: u16,
     /// Per-face carbon **efflux** conductance, indexed in `NEIGHBOURS_4`
     /// order — Decision 6 (`Reports/plant-substrate-v2-design.md` §7b).
     ///
@@ -1505,7 +1536,35 @@ impl Default for OrganismCell {
     /// therefore perfectly isotropic and differentiates only from flux it
     /// actually carried.
     fn default() -> Self {
-        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4], order: 0, q_peak: 0.0, heading: (0.0, 0.0), path_len: 0 }
+        // **`support` starts at 0 — "anchored" — and the opposite default
+        // is the dangerous one here.** `World::set` inserts a `default()`
+        // sidecar for every organism cell as it is created
+        // (`reindex_organism_cell`), so every cell a tree grows carries this
+        // value until its organism's next tick, up to
+        // `ORGANISM_TICK_INTERVAL` frames later. Defaulting to `u16::MAX`
+        // would mean *unreached*, which `organism_structural_tick` reads as
+        // "this piece has come off" — so any structural check landing in
+        // that window would shatter tissue that had simply not been walked
+        // yet.
+        //
+        // This is the mirror image of the terrain case
+        // `structural::compute_world_distances` records, where `aux = 0` on
+        // untouched rock was "a lie that happened to look right" and made
+        // the world immune. There, 0 meant *immune*; here, `u16::MAX` means
+        // *destroy on sight*. A rule whose action is destructive has to be
+        // biased toward the answer that defers, not the one that fires: an
+        // unwalked cell reads supported and is corrected within one organism
+        // tick, so failure is delayed, never falsely triggered.
+        Self {
+            carbon: 0.0,
+            canopy_density: 0.0,
+            support: 0,
+            carbon_conductance: [CONDUCTANCE_MIN; 4],
+            order: 0,
+            q_peak: 0.0,
+            heading: (0.0, 0.0),
+            path_len: 0,
+        }
     }
 }
 

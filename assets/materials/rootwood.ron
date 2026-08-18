@@ -43,5 +43,8 @@
     // Longer than trunk wood: a root is held on all sides by the soil it
     // grew through rather than cantilevered into open air.
     max_unsupported_span: 12,
+    // Reach, not capacity -- see MaterialDef::max_cantilever_reach. Roots are
+    // braced by the soil they thread, so they reach further than a branch.
+    max_cantilever_reach: 128,
     breaks_into: "deadwood",
 )

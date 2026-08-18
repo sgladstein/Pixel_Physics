@@ -735,6 +735,42 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
                 pct(depth_bands[4])
             );
             println!("  seeds standing: {surface_seeds} above the surface, {buried_seeds} buried (buried can never germinate)");
+
+            // **What `support` actually reads on a healthy tree.** The
+            // number changed meaning when the search was turned around to
+            // run from the anchors outward: it used to answer "is there
+            // ground within N hops of me" and now answers "how far out
+            // along my own load path do I sit". `max_unsupported_span` is
+            // read against it and was calibrated against the old meaning,
+            // so this distribution is what a new value has to be set from.
+            let mut supports: Vec<u16> = Vec::new();
+            let mut unreached = 0usize;
+            for y in 0..height {
+                for x in 0..width {
+                    if w.get(x, y).organism_id() == 0 {
+                        continue;
+                    }
+                    if let Some(c) = w.organism_cell(x, y) {
+                        if c.support == u16::MAX {
+                            unreached += 1;
+                        } else {
+                            supports.push(c.support);
+                        }
+                    }
+                }
+            }
+            if !supports.is_empty() {
+                supports.sort_unstable();
+                let at = |q: f32| supports[((supports.len() - 1) as f32 * q) as usize];
+                println!(
+                    "  support (cantilever reach from anchors): p50 {}  p90 {}  p99 {}  max {}; {} unreached",
+                    at(0.5),
+                    at(0.9),
+                    at(0.99),
+                    supports[supports.len() - 1],
+                    unreached
+                );
+            }
         }
     }
 
