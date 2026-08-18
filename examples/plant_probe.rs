@@ -607,6 +607,137 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
     println!("  thickest contiguous run, above ground: {} cells", widest_run(0..ground_y()));
     println!("  thickest contiguous run, below ground: {} cells (roots spread by design)", widest_run(ground_y()..height));
 
+    // **The root readout, and why "thickest run below ground" was not it.**
+    // That number is a *horizontal* run, so a root system that sprawls
+    // sideways in the top three rows and one that also goes down report the
+    // same 54 cells. The grove sheets show roots as pale lateral fences
+    // hugging the surface and nothing had ever measured whether that
+    // reading is right -- `CLAUDE.md`'s "an image says what and where; only
+    // a number says how much". The band histogram is the one that settles
+    // it: if every root cell lands in the top band, depth is the problem
+    // and no amount of tuning lateral behaviour touches it.
+    //
+    // Root tissue is identified the same way `organism_upkeep` does it --
+    // `reinforces_powder` (i.e. `rootwood`) or a live `RootTip` -- because a
+    // retired root and a retired branch are both `MatureBody` and cell type
+    // alone cannot tell them apart.
+    {
+        const ESTABLISHED: usize = 20;
+        let surface = ground_y();
+        let mut per_plant: std::collections::BTreeMap<u16, (usize, usize, i32, i32, i32, usize)> = std::collections::BTreeMap::new();
+        let mut depth_bands = [0usize; 5];
+        let mut root_total = 0usize;
+        let mut depths: Vec<i32> = Vec::new();
+        let (mut buried_seeds, mut surface_seeds) = (0usize, 0usize);
+        for y in 0..height {
+            for x in 0..width {
+                let c = w.get(x, y);
+                let id = c.organism_id();
+                if id == 0 {
+                    continue;
+                }
+                let is_root = w.materials.get(c.material).reinforces_powder
+                    || organism::cell_type(c.aux()) == Some(organism::CellType::RootTip);
+                // **Buried seeds, and whether they are a real leak.**
+                // `Reproduce` runs on every `MatureBody` cell, and a retired
+                // root cell is one -- so on the face of it a tree scatters
+                // seed underground, where light is ~0 and germination can
+                // never fire. `set_seed` needs an *empty* 8-neighbour
+                // though, and underground every neighbour is soil, so the
+                // path may be vacuous. Counted rather than reasoned about:
+                // an exactly-zero reading means the gate already closes it.
+                if organism::cell_type(c.aux()) == Some(organism::CellType::Seed) {
+                    if y >= surface {
+                        buried_seeds += 1;
+                    } else {
+                        surface_seeds += 1;
+                    }
+                }
+                let e = per_plant.entry(id).or_insert((0, 0, i32::MAX, i32::MIN, i32::MIN, 0));
+                e.0 += 1; // every cell, so root:shoot has a denominator
+                if !is_root {
+                    continue;
+                }
+                e.1 += 1;
+                e.2 = e.2.min(x);
+                e.3 = e.3.max(x);
+                e.4 = e.4.max(y);
+                // **Width, and the first version of this counted the wrong
+                // thing.** "Has a root cell to its left or right" reads
+                // *100%* for a purely horizontal one-cell filament, which is
+                // the shape in question -- it measures continuity along the
+                // run, not thickness across it. `CLAUDE.md`: ask what a
+                // metric counts when nothing is wrong.
+                //
+                // The 4-neighbour root count separates them without knowing
+                // which way the run points: an interior cell of a
+                // one-cell-wide filament has exactly 2 whichever direction
+                // it runs, an end has 1, and only a genuinely thickened root
+                // has 3 or 4. This is the quantity `thicken` is supposed to
+                // move.
+                let neighbours = [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)]
+                    .iter()
+                    .filter(|&&(dx, dy)| {
+                        let n = w.get(x + dx, y + dy);
+                        n.organism_id() == id && w.materials.get(n.material).reinforces_powder
+                    })
+                    .count();
+                if neighbours >= 3 {
+                    e.5 += 1;
+                }
+                // Soil rows only. A cell past the soil bed would otherwise
+                // clamp into the bottom band and read as "deep roots" when
+                // it is a root that has left the soil entirely.
+                if y >= surface && y < surface + common::SOIL_DEPTH {
+                    let band = (((y - surface) * 5) / common::SOIL_DEPTH).clamp(0, 4) as usize;
+                    depth_bands[band] += 1;
+                    root_total += 1;
+                }
+                depths.push(y - surface);
+            }
+        }
+        per_plant.retain(|_, v| v.0 >= ESTABLISHED);
+        if !per_plant.is_empty() && root_total > 0 {
+            let stat = |mut v: Vec<i64>| {
+                v.sort_unstable();
+                let sum: i64 = v.iter().sum();
+                (v[0], v[v.len() / 2], v[v.len() - 1], sum as f32 / v.len() as f32)
+            };
+            let roots = stat(per_plant.values().map(|v| v.1 as i64).collect());
+            let frac = stat(per_plant.values().map(|v| (v.1 * 100 / v.0.max(1)) as i64).collect());
+            let depth = stat(per_plant.values().map(|v| (v.4 - surface + 1) as i64).collect());
+            let spread = stat(per_plant.values().map(|v| (v.3 - v.2 + 1) as i64).collect());
+            let wide: usize = per_plant.values().map(|v| v.5).sum();
+            let root_cells: usize = per_plant.values().map(|v| v.1).sum();
+            println!("\nroot system ({} established plants, soil is {} rows deep):", per_plant.len(), common::SOIL_DEPTH);
+            println!("  root cells        min {:>4}  median {:>4}  max {:>4}  mean {:>7.1}", roots.0, roots.1, roots.2, roots.3);
+            println!("  root share of plant  min {:>3}%  median {:>3}%  max {:>3}%  mean {:>5.1}%", frac.0, frac.1, frac.2, frac.3);
+            println!("  deepest row below surface  min {:>3}  median {:>3}  max {:>3}  mean {:>5.1}", depth.0, depth.1, depth.2, depth.3);
+            println!("  lateral spread (cells)     min {:>3}  median {:>3}  max {:>3}  mean {:>5.1}", spread.0, spread.1, spread.2, spread.3);
+            depths.sort_unstable();
+            println!(
+                "  median root cell sits {} rows down; quartiles {} / {}",
+                depths[depths.len() / 2],
+                depths[depths.len() / 4],
+                depths[depths.len() * 3 / 4]
+            );
+            println!(
+                "  root cells with 3+ root neighbours: {}% (a 1-cell-wide run reads ~0 whichever way it points)",
+                wide * 100 / root_cells.max(1)
+            );
+            let pct = |n: usize| n * 100 / root_total.max(1);
+            println!(
+                "  depth histogram, surface->bedrock (% of all root cells): [{}, {}, {}, {}, {}]",
+                pct(depth_bands[0]),
+                pct(depth_bands[1]),
+                pct(depth_bands[2]),
+                pct(depth_bands[3]),
+                pct(depth_bands[4])
+            );
+            println!("  seeds standing: {surface_seeds} above the surface, {buried_seeds} buried (buried can never germinate)");
+        }
+    }
+
     if std::env::args().any(|a| a == "dump") {
         println!("{:>5} {:>5}  {:<12} {:>9} {:>9}", "x", "y", "type", "resource", "canopy");
         for (x, y, ty, resource, canopy) in &cells {
