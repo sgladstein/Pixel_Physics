@@ -400,10 +400,29 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
     };
     let foliage_band = pick(foliage, 64);
     let bark_band = pick(bark, 65);
+    // **Discrete alleles start at what the species file declares**, so an
+    // authored species is the point a population diverges *from* rather
+    // than an identity it is stuck with. The scaled loci start mid-range
+    // (index 1 of three), so a freshly planted stand is exactly the species
+    // as written and every morph is one mutation away in either direction.
+    let mut alleles = [0u8; organism::DISCRETE_LOCI];
+    alleles[organism::LOCUS_BRANCH_ANGLE] = 1;
+    alleles[organism::LOCUS_INTERNODE] = 1;
+    if let Some(id) = species_id {
+        let sp = world.species.get(id);
+        alleles[organism::LOCUS_FOLIAGE] = foliage_band.saturating_sub(sp.foliage_bands.first);
+        if let Some(Behavior::Grow { sympodial, tropism, .. }) =
+            sp.behaviors(CellType::GrowingTip).iter().find(|b| matches!(b, Behavior::Grow { .. }))
+        {
+            alleles[organism::LOCUS_SYMPODIAL] = u8::from(sympodial.at(1));
+            alleles[organism::LOCUS_TROPISM] = u8::from(tropism.at(1) == organism::Tropism::Plagiotropic);
+        }
+    }
     if let Some(state) = world.organism_mut(organism_id) {
         state.genotype_draws = draws;
         state.foliage_band = foliage_band;
         state.bark_band = bark_band;
+        state.alleles = alleles;
     }
 }
 
@@ -477,9 +496,9 @@ const MUTATION_SIGMA: f32 = 0.08;
 /// parent except `seed_genotype`, which must not redraw over the genome
 /// this copies in.
 fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, rng: &mut Rng) -> bool {
-    let Some((species, draws, generation, foliage, bark)) = world
+    let Some((species, draws, generation, parent_alleles, bark)) = world
         .organism(parent_id)
-        .map(|s| (s.species, s.genotype_draws, s.generation, s.foliage_band, s.bark_band))
+        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.bark_band))
     else {
         return false;
     };
@@ -494,6 +513,10 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, rng: &mut Rng) ->
         return false;
     }
     let (sx, sy) = spots[rng.below(spots.len() as u32) as usize];
+    let (foliage_first, foliage_count) = {
+        let sp = world.species.get(species);
+        (sp.foliage_bands.first, sp.foliage_bands.count)
+    };
 
     let child = world.push_organism(species);
     let shades = world.materials.get(seed_material).palette.len().max(1) as u32;
@@ -511,7 +534,22 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, rng: &mut Rng) ->
         // locus, so it cannot evolve — see `Reports/plant-appearance-
         // design.md` §7, which flags moving it onto the genome as the step
         // that makes "do visuals change with evolution" answerable.
-        state.foliage_band = foliage;
+        // **The discrete genes: inherited whole, mutated by jumping.** A
+        // locus that drifted would be a continuous axis wearing an integer
+        // and the population would smear back into one cloud; jumping is
+        // what lets a morph hold together between rare excursions.
+        state.alleles = parent_alleles;
+        for (locus, allele) in state.alleles.iter_mut().enumerate() {
+            if rng.chance(organism::DISCRETE_MUTATION_CHANCE) {
+                let n = organism::LOCUS_ALLELES[locus].max(1);
+                *allele = rng.below(n as u32) as u8;
+            }
+        }
+        // Foliage colour is a *locus* now, so it evolves with everything
+        // else -- Reports/plant-appearance-design.md §7 asked for exactly
+        // this, and it is why a cluster is visible rather than merely
+        // present in the numbers.
+        state.foliage_band = foliage_first + state.alleles[organism::LOCUS_FOLIAGE].min(foliage_count.saturating_sub(1));
         state.bark_band = bark;
         state.inherited = true;
         state.generation = generation.saturating_add(1);
@@ -992,8 +1030,13 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 juvenile_plastochron,
                 juvenile_branch,
                 genotype_variance,
-                sympodial,
-                tropism,
+                // **Read at planting, not here.** These two seed
+                // `LOCUS_SYMPODIAL` and `LOCUS_TROPISM` in `seed_genotype`,
+                // and growth then reads the *allele* -- so the species file
+                // sets where a population starts and mutation decides where
+                // it goes. An unmutated stand behaves exactly as authored.
+                sympodial: _,
+                tropism: _,
                 branch_angle,
                 internode,
             } => {
@@ -1005,6 +1048,25 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // top. Each trait reads its own slot -- two traits sharing
                 // one would move together, which is the "one tree scaled
                 // up" failure `genotype_variance` exists to avoid.
+                // **The discrete genes, applied.** A locus that does not
+                // reach a growth decision is an invisible gene, and this
+                // project has shipped that mistake before -- sympody,
+                // tropism and acrotony all fired, all counted, and moved
+                // nothing anyone could see. These four scale or override
+                // the species value at the point it is used.
+                let alleles = world.organism(organism_id).map(|s| s.alleles).unwrap_or([0; organism::DISCRETE_LOCI]);
+                let angle_scale = organism::BRANCH_ANGLE_ALLELES
+                    [(alleles[organism::LOCUS_BRANCH_ANGLE] as usize).min(organism::BRANCH_ANGLE_ALLELES.len() - 1)];
+                let internode_scale = organism::INTERNODE_ALLELES
+                    [(alleles[organism::LOCUS_INTERNODE] as usize).min(organism::INTERNODE_ALLELES.len() - 1)];
+                // The trunk is never sympodial and never plagiotropic
+                // whatever the allele says: order 0 is the axis that has to
+                // stand the plant up, and a sympodial trunk is a different
+                // mechanism (Leeuwenberg) that the species file, not a
+                // point mutation, should be choosing.
+                let sympodial_here = order > 0 && alleles[organism::LOCUS_SYMPODIAL] != 0;
+                let plagiotropic_here = order > 0 && alleles[organism::LOCUS_TROPISM] != 0;
+
                 // This cell's own distance from the collar, read once:
                 // the turgor gate below reads it, and every child
                 // created further down is one step further out.
@@ -1220,7 +1282,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     // at all. Exactly-vertical headings take +x,
                     // deterministically — rare (laterals leave sideways),
                     // and a coin would make replay diverge.
-                    match tropism.at(order) {
+                    // The allele decides, not the species file -- see
+                    // `plagiotropic_here`. The species value seeded the
+                    // allele at planting, so an unmutated stand behaves
+                    // exactly as authored.
+                    match if plagiotropic_here { organism::Tropism::Plagiotropic } else { organism::Tropism::Orthotropic } {
                         organism::Tropism::Orthotropic => (0.0, -1.0),
                         organism::Tropism::Plagiotropic => {
                             // Outward with a droop, not pure horizontal —
@@ -1264,7 +1330,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // actually curve-fit a silhouette.
                 // Hoisted out of the candidate loop: this is a property of
                 // the cell's own age, not of the direction being scored.
-                let rigid_step = internode.at(order) > 0 && (plastochron as u32) < internode.at(order) as u32;
+                let internode_here = ((internode.at(order) as f32) * internode_scale).round() as u32;
+                let rigid_step = internode_here > 0 && (plastochron as u32) < internode_here;
                 let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
                 for (dx, dy) in NEIGHBOURS_8 {
                     let (nx, ny) = (x + dx, y + dy);
@@ -1559,7 +1626,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     // neighbour. Only for the angled path: a species with
                     // no `branch_angle` keeps the old set and the old
                     // uniform draw exactly.
-                    let target = branch_angle.at(order);
+                    let target = branch_angle.at(order) * angle_scale;
                     let alt: Vec<(i32, i32, f32)> = if target > 0.0 {
                         NEIGHBOURS_8
                             .iter()
@@ -1706,7 +1773,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // Counted, because a sympodial run whose
                             // counter reads zero is a monopodial tree that
                             // happened to fork.
-                            if sympodial.at(order) {
+                            if sympodial_here {
                                 write_order(world, tx, ty, order.saturating_add(1));
                                 if let Some(slot) = world.organism_cell_mut(tx, ty) {
                                     slot.heading = step;
@@ -1722,7 +1789,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // The tropism counter -- a plagiotropic tier that never
                 // grew is invisible on a sheet, and "did it fire" needs a
                 // number.
-                if cell_type == CellType::GrowingTip && tropism.at(order) == organism::Tropism::Plagiotropic {
+                if cell_type == CellType::GrowingTip && plagiotropic_here {
                     if let Some(state) = world.organism_mut(organism_id) {
                         state.plagiotropic_steps += 1;
                     }

@@ -637,6 +637,7 @@ impl World {
             inherited: false,
             generation: 0,
             seeds_set: 0,
+            alleles: [0; organism::DISCRETE_LOCI],
             rigid_steps: 0,
             lateral_departures: 0,
             departure_angle_sum: 0.0,

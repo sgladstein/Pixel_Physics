@@ -955,6 +955,15 @@ pub struct OrganismState {
     pub generation: u16,
     /// Seeds this organism has set. The other half of the same question.
     pub seeds_set: u32,
+    /// **This individual's discrete genes** — see [`DISCRETE_LOCI`]. One
+    /// small integer per locus, inherited whole and mutated by *jumping*
+    /// rather than drifting, which is what makes a population clump instead
+    /// of smearing.
+    ///
+    /// For a planted seed these are seeded from the species file, so an
+    /// authored species is the *starting point* a population diverges from
+    /// rather than a fixed identity it is stuck with.
+    pub alleles: [u8; DISCRETE_LOCI],
 }
 
 /// How many independently-jittered traits a genotype carries — the width of
@@ -962,6 +971,66 @@ pub struct OrganismState {
 /// `OrganismState::genotype_draws`, which must agree because one indexes
 /// the other.
 pub const GENOTYPE_TRAITS: usize = 6;
+
+/// **Discrete genes, and why a continuous genome cannot produce species.**
+///
+/// `genotype_draws` jitters six scalars around a species mean. Run a
+/// population on that and you get a Gaussian cloud — *a spectrum*, by
+/// construction, however long it runs and however hard selection pushes.
+/// There is no setting of a continuous genome that yields two clumps.
+///
+/// Clusters need a locus that takes one of a few values and mutates by
+/// *jumping* between them. Then a population sits on a value, spreads
+/// continuously around it via `genotype_draws`, and occasionally throws an
+/// individual onto a neighbouring value — which either establishes and
+/// becomes a second cluster or does not. That is the shape of a species.
+///
+/// This is also what the botany says. `Reports/tree-architecture-variety-
+/// review.md` §3.0: Hallé's 23 architectural models are enumerated by a
+/// handful of *categorical* choices — monopodial/sympodial,
+/// orthotropic/plagiotropic — not by tuning scalars. The discrete axes were
+/// already in the engine as authored per-species constants; making them
+/// heritable alleles is what lets the simulation find combinations nobody
+/// wrote down.
+pub const DISCRETE_LOCI: usize = 5;
+
+/// Which band of its species' foliage range an individual wears. Proven to
+/// change pixels, which is why it is a locus at all.
+pub const LOCUS_FOLIAGE: usize = 0;
+/// Departure angle class — scales the species' `branch_angle`.
+pub const LOCUS_BRANCH_ANGLE: usize = 1;
+/// Straightness-budget class — scales the species' `internode`.
+pub const LOCUS_INTERNODE: usize = 2;
+/// Monopodial (0) or sympodial (1), overriding the species default.
+pub const LOCUS_SYMPODIAL: usize = 3;
+/// Orthotropic (0) or plagiotropic (1) on non-trunk tiers.
+pub const LOCUS_TROPISM: usize = 4;
+
+/// How many alleles each locus has. `LOCUS_FOLIAGE` is bounded by the
+/// species' own declared band count instead, so its entry is a ceiling.
+pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [6, 3, 3, 2, 2];
+
+/// Multipliers on the species' `branch_angle`, one per allele of
+/// `LOCUS_BRANCH_ANGLE`. Spread wide enough that the three are *visibly*
+/// different plants and not three tunings of one — on `tree`'s 70° trunk
+/// value these give roughly 28°, 70° and 112°: a fastigiate column, the
+/// species as authored, and a splayed low crown.
+pub const BRANCH_ANGLE_ALLELES: [f32; 3] = [0.4, 1.0, 1.6];
+
+/// Multipliers on the species' `internode`. A short budget lets the
+/// environment steer a lateral almost immediately (a meandering, twiggy
+/// habit); a long one holds it straight for a real run.
+pub const INTERNODE_ALLELES: [f32; 3] = [0.4, 1.0, 2.0];
+
+/// Chance that one locus jumps to a different allele when a seed is set.
+///
+/// **Much rarer than continuous drift, and that asymmetry is the mechanism.**
+/// `MUTATION_SIGMA` moves every trait a little every generation, which is
+/// what gives a cluster its internal spread; this fires seldom, which is
+/// what lets a cluster *persist* long enough to be one. Make it common and
+/// the discrete loci smear into just another continuous axis, which is the
+/// exact failure this whole construction exists to avoid.
+pub const DISCRETE_MUTATION_CHANCE: f32 = 0.03;
 
 pub struct SpeciesRegistry {
     species: Vec<Species>,

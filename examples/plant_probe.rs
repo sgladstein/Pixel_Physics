@@ -233,6 +233,41 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         );
         let hist: Vec<String> = gens.iter().map(|(g, n)| format!("gen {g}: {n}")).collect();
         println!("  generations  [{}]", hist.join(", "));
+
+        // **The clustering readout, and the whole point of discrete loci.**
+        //
+        // A continuous genome gives a Gaussian cloud however long it runs --
+        // a spectrum, which is exactly what was not wanted. Discrete alleles
+        // are supposed to make a population sit on a few combinations. That
+        // claim is only checkable as a *distribution over genotypes*: a
+        // healthy result is a handful of combinations holding most of the
+        // population, and the failure it must distinguish is every
+        // combination present in roughly equal numbers, which is a smear
+        // wearing integers.
+        //
+        // Counted over established plants only -- the seed bank is mostly
+        // one generation of unselected offspring and would swamp whatever
+        // selection has actually kept.
+        let mut morphs: std::collections::BTreeMap<[u8; organism::DISCRETE_LOCI], usize> = std::collections::BTreeMap::new();
+        for (id, v) in per_organism.iter() {
+            if v.0 < ESTABLISHED {
+                continue;
+            }
+            if let Some(st) = w.organism_state(*id) {
+                *morphs.entry(st.alleles).or_insert(0) += 1;
+            }
+        }
+        let mut ranked: Vec<_> = morphs.iter().collect();
+        ranked.sort_by(|a, b| b.1.cmp(a.1));
+        let established_total: usize = ranked.iter().map(|(_, n)| **n).sum();
+        println!(
+            "  morphs among established plants: {} distinct of {} plants  [foliage, angle, internode, sympodial, tropism]",
+            ranked.len(),
+            established_total
+        );
+        for (alleles, n) in ranked.iter().take(8) {
+            println!("    {alleles:?}  x{n}");
+        }
     }
     per_organism.retain(|_, v| v.0 >= ESTABLISHED);
 
