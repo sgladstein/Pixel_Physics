@@ -253,6 +253,7 @@ pub struct World {
     /// not. Being able to run the *same binary* both ways is what makes a
     /// before/after a measurement rather than a memory of an older build.
     pub arch_relief: bool,
+
     /// Per-frame caches for the load walks (`load::Cache`).
     /// Cleared by `scheduler::step` each frame and again by
     /// `structural::tick` the instant a break mutates the grid, since both

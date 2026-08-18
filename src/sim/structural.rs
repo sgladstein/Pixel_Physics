@@ -444,6 +444,18 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // The neighbours that were relying on this as a stepping stone need
         // to recompute too -- this is what turns a break into a *cascade*
         // rather than one isolated piece vanishing.
+        // **Measured inert on the big-strike scene, and kept anyway.**
+        // Switching this scheduling off entirely produced *bit-identical*
+        // output on `preset=flat seed=24301 strike=12` -- 95 overloaded
+        // and 75 unsupported failures either way, same regions, same
+        // cells -- and moved an 18-run seed sweep's worst case not at all
+        // (1,228 both ways). Every cell it schedules was already being
+        // scheduled by the distance-relaxation wavefront above, which is
+        // the *actual* route a collapse propagates by. Kept because it is
+        // the correct thing to do for a disturbance the relaxation does
+        // not reach, and costs nothing where the relaxation does; recorded
+        // because anyone hunting the chaining will come here first, as
+        // this session did, and it is not here.
         let mut next = propagate;
         next.extend(schedule_solid_neighbours(world, x, y));
         for &(fx, fy) in &region {

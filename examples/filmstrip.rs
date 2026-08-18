@@ -1014,6 +1014,7 @@ struct Args {
     /// `arch=0` -- turn off `World::arch_relief`, so a roof carries the
     /// whole column above it again. The control for the arching change.
     arch: bool,
+
 }
 
 fn parse() -> Args {

@@ -527,6 +527,42 @@ events, 153 by frame 752 and climbing, which is why it "lasts a while".
   number in both directions, so by this file's own rule it is reading the
   wrong quantity.
 
+### Ruled out this session: it is not the failure cascade
+
+The owner asked how simple this gets if **no chaining at all** is wanted.
+The obvious lever -- `structural::tick`'s `schedule_solid_neighbours` calls
+after a failure, four lines, the thing that makes a break provoke its
+neighbours -- was switched off and measured.
+
+**It does nothing.** `preset=flat seed=24301 strike=12` produced
+*bit-identical* output with the cascade disabled: 95 overloaded and 75
+unsupported failures either way, same region sizes, same cells lost. An
+18-run seed sweep moved its worst case not at all (1,228 both ways) and its
+p90 only from 1,152 to 879.
+
+**What actually propagates a collapse is the distance-relaxation
+wavefront**, at `tick`'s `if moved` branch: any change to the world sends
+distance changes across the whole affected structure, every touched cell
+reschedules itself *and its neighbours*, and each is judged once its
+distance settles. The failure cascade is a second route to cells the
+relaxation was already going to reach.
+
+So "no chaining" cannot be a deletion — the wavefront *is* the model, and
+removing it means distances never update. It has to be a **policy**:
+failures permitted only within a bounded distance and time of a player
+action, everything outside refused. That is genuinely small (a disturbance
+origin and radius on `World`, checked in `tick` before a failure is
+recorded — tens of lines) and it is the version worth building, because
+the same code spans the whole range from "no chaining" to current
+behaviour by turning one radius up.
+
+**It contradicts requirement 3, though**, and that is the real decision
+rather than the code: *"collapse must be obvious and delayed, so the player
+can get supports in first"* is a description of chaining. A cave-in that
+arrives a few seconds after you undermine it is the mechanic; a bounded
+radius around the blow removes it. The two wants are opposed and the owner
+has stated both.
+
 ### The hypothesis that fits the picture
 
 `strike` loosens a **chip disc of radius 2r/3** -- for a radius-20 blow that
