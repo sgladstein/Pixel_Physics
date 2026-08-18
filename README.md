@@ -132,6 +132,9 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                once per frame in their own phase, cost proportional to
                how much is growing rather than to world size
   plant.rs     M16: moss and tree/root growth, dispatched from scheduler.rs
+  evaporation.rs standing water drying up, dispatched from scheduler.rs --
+               a puddle goes and a lake does not, with nothing measuring
+               the size of a body of water
 src/render.rs  cells to pixels
 src/app.rs     sandbox state: brush, picker, terrain
 src/main.rs    window, input, fixed 60 Hz timestep
@@ -305,6 +308,26 @@ regression** — 28.0 ms serial / 8.3 ms parallel, statistically the same as
 the ~28 ms/~9 ms already on record. The scan itself was never the bottleneck
 in a scene this CA-heavy; if a future scene turns out to actually feel this
 cost, it's the first place to look.
+
+**Standing water dries up, and the moisture channel is what makes a lake
+different from a puddle** (`src/sim/evaporation.rs`). Water already
+humidifies the air above itself, so a wide body saturates that air and cannot
+evaporate into it while a thin puddle on bare rock sits in whatever is around
+and goes -- measured at 1.45 humidity over a six-cell puddle against 2.31
+over a 240-cell lake, settled, four rows deep. Nothing counts cells or floods
+a region. It runs on the **active-site scheduler**, not the CA sweep, and
+that is the whole reason it works: a settled chunk is not swept, and still
+water is exactly the state the sweep stops visiting. Built on the sweep
+first, it dried a lake faster than a puddle (7% against 1.7%) because a lake
+stays awake settling for longer. The sweep now only *schedules*.
+
+One fix in the field was a prerequisite: `step_diffusion`'s wall rule
+discarded the moisture source in any block that also held solid, so water in
+a rock basin humidified nothing at all -- 2.310 in the air above a body whose
+block was clear of stone against **0.000** for the identical body shifted
+three rows, for a body 240 cells wide. Moisture, and only moisture, now reads
+through a blocked neighbour that is itself a source; heat and light keep the
+strict wall rule the sealed-room guards depend on.
 
 **Both channels plants read are now also channels they write** (architecture
 §5g), which is what turns "moss reads shade" and "roots read moisture" from

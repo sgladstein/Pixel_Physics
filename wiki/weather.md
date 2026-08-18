@@ -61,9 +61,34 @@ and darkened. That means an overcast noon is flat white-grey and an
 overcast midnight is flat black, and heavy cloud hides the stars and the
 moon.
 
+## Standing water dries up
+
+A puddle left alone will shrink and disappear. A lake will not, and neither
+will the sea — and nothing anywhere is measuring how big they are. Water
+makes the air above it humid, and once that air is wet enough, nothing more
+will evaporate into it. A wide body of water makes its own damp air and
+sits under it; a thin puddle on bare rock cannot, so it goes.
+
+That means the same puddle behaves differently depending on where it is.
+One next to a lake lasts far longer than one out on its own. Several
+puddles close together shelter each other and all last longer than any of
+them would alone. And the drier the air, the faster any of them goes: a
+puddle disappears quickly in clear weather and barely moves while it is
+raining.
+
+Wind dries things out too, by carrying the damp air away — a gale takes a
+visible slice off any exposed water. It cannot empty a lake, though. Only
+the shallow edges of a big body of water are ever really exposed to it, so
+what a storm takes off a lake is the top of it, and the next rain puts it
+back.
+
+Water sealed under rock never dries at all, and neither does anything under
+a roof; there has to be open air above it for the water to go anywhere.
+
 ## What is not here yet
 
 Thunder — lightning flashes and forks, but the world is silent. Rain does
-not yet erode anything or fill rivers,
-and there are no seasons — a world's weather wanders but does not have a
-winter. Puddles do not evaporate on their own; they soak away or stay.
+not yet erode anything or fill rivers, and there are no seasons — a world's
+weather wanders but does not have a winter. Evaporated water is gone rather
+than banked: it does not come back as rain somewhere else, and the world's
+total water only goes down between showers.

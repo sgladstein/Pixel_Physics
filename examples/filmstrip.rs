@@ -190,6 +190,36 @@ fn build(args: &Args) -> World {
         // The same depth sweep in the other material the complaint named.
         // A liquid holds no angle of repose, so a crater here closes by
         // flowing rather than by avalanching.
+        // A puddle and a lake side by side, the same depth, so the only
+        // thing that differs is width -- `evaporation.rs`'s own paired
+        // scene, so a sheet from this can be read against what the guards
+        // measure rather than against a fresh scene nobody has a prior on.
+        // Walled, because an open puddle spreads away across the floor
+        // before the field registers it as a source at all, and the sheet
+        // would then be a picture of spreading.
+        //
+        // Both bodies sit in *one* world here where the tests use one each,
+        // and that is a real difference: the lake humidifies the puddle
+        // (1.82 above the puddle against 1.45 for the same puddle alone),
+        // so the puddle here dries somewhat slower than the guard's number.
+        // Worth it -- one image showing both is the whole point.
+        "evaporate" => {
+            let floor = 160;
+            for x in 0..WIDTH {
+                for y in floor..(floor + 6) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for (x0, width) in [(40, 6), (120, 240)] {
+                for y in (floor - 4)..floor {
+                    w.set(x0 - 1, y, Cell::new(material::STONE, 0));
+                    w.set(x0 + width, y, Cell::new(material::STONE, 0));
+                    for x in x0..(x0 + width) {
+                        w.set(x, y, water_at(x, y));
+                    }
+                }
+            }
+        }
         "waterbed" => {
             stone_floor(&mut w);
             for x in 20..492 {

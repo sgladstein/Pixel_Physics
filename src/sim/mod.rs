@@ -28,6 +28,11 @@
 //!   from the CA sweep, at a cost proportional to how much is growing
 //!   rather than to world size
 //! * `plant` — M16, moss and tree/root growth, dispatched from `scheduler`
+//! * `evaporation` — standing water drying up, dispatched from `scheduler`
+//!   for the same reason plant growth is: the thing it acts on is *still*
+//!   water, which is exactly what the CA sweep stops visiting. A puddle
+//!   dries and a lake does not, with nothing measuring the size of a body
+//!   of water — the humidity a body makes over itself does that
 //! * `structural` — M17, destructible building: solid cells track their
 //!   distance to an anchor, recomputed reactively via `scheduler`. That
 //!   distance is now purely a support-ordering potential — which way is
@@ -56,6 +61,7 @@ pub mod cell;
 pub mod chunk;
 pub mod creature;
 pub mod decay;
+pub mod evaporation;
 pub mod explosion;
 pub mod field;
 pub mod fire;

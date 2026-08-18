@@ -345,6 +345,20 @@ pub struct MaterialDef {
     /// first. Flagged rather than done.
     #[serde(default)]
     pub water_capacity: u16,
+    /// Whether standing cells of this `Liquid` dry up into the air above
+    /// them — `evaporation.rs`.
+    ///
+    /// Opt-in and off by default, so lava, oil and anything added later
+    /// keeps its volume unless it says otherwise, and so the flag reads at
+    /// the CA sweep's own dispatch site as a `Vec` index on a `Material` the
+    /// arm has already resolved, rather than an `id_of("water")` string hash
+    /// per liquid cell per frame (`CLAUDE.md`, "guard hot-path work at the
+    /// call site that already has the data").
+    ///
+    /// Meaningless on any kind but `Liquid`; nothing dispatches it
+    /// elsewhere.
+    #[serde(default)]
+    pub evaporates: bool,
     /// Whether this material reinforces a `Powder` it is embedded in, so
     /// that grain no longer falls — the Wu-Waldron apparent-cohesion effect
     /// roots have on soil (`update.rs`'s `root_reinforced`).
@@ -647,6 +661,8 @@ pub struct Material {
     pub penetration_resistance: f32,
     /// See `MaterialDef::water_capacity`.
     pub water_capacity: u16,
+    /// See `MaterialDef::evaporates`.
+    pub evaporates: bool,
     /// See `MaterialDef::reinforces_powder`.
     pub reinforces_powder: bool,
     /// Per-cell colour variation. A cell picks one entry when it is created and
@@ -887,6 +903,7 @@ impl From<MaterialDef> for Material {
             fill_dimming: def.fill_dimming,
             penetration_resistance: def.penetration_resistance,
             water_capacity: def.water_capacity,
+            evaporates: def.evaporates,
             reinforces_powder: def.reinforces_powder,
             palette: def
                 .colors
@@ -1040,6 +1057,7 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            evaporates: false,
             reinforces_powder: false,
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
@@ -1074,6 +1092,7 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            evaporates: false,
             reinforces_powder: false,
             colors: vec![[20, 20, 24]],
             flammability: 0.0,

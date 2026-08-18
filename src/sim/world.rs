@@ -138,6 +138,26 @@ pub struct World {
     /// re-schedules itself or a neighbour while running is a fresh
     /// request, not a stale one being silently dropped.
     pending_structural_checks: std::collections::HashSet<(i32, i32)>,
+    /// The same dedup index, for `ActiveKind::Evaporate`, and needed for a
+    /// reason that is about correctness rather than cost.
+    ///
+    /// The CA sweep asks for an evaporation site every frame that a settling
+    /// liquid cell fails to move with air above it, so the number of raw
+    /// requests a body produces is proportional to **how long it stays awake
+    /// settling**. That is exactly the quantity that made the reverted,
+    /// sweep-driven version of this mechanic take a lake apart faster than a
+    /// puddle (`Reports/weather-handoff.md` §1): a big body settles for
+    /// longer, so it would accumulate proportionally more duplicate sites
+    /// and evaporate proportionally faster, re-importing the size dependence
+    /// the whole design exists to avoid. Kept separate from the structural
+    /// set rather than merged into one keyed on kind, so the structural
+    /// path's behaviour is untouched.
+    ///
+    /// Kept in lockstep with `active_sites` the same way: marked in
+    /// `schedule_active_site` only when not already present, cleared in
+    /// `pop_due_active_site` before the tick runs, so a site that
+    /// reschedules itself is a fresh request rather than a dropped one.
+    pending_evaporation: std::collections::HashSet<(i32, i32)>,
     /// Backing storage for promoted `liquid::LiquidBody` bodies (`Reports/
     /// liquid-heightfield-design.md` §9a) — the `World::organisms` /
     /// `OrganismSlot` generational-slot pattern, reused rather than
@@ -389,6 +409,7 @@ impl World {
             player: None,
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
+            pending_evaporation: std::collections::HashSet::new(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
             body_index: HashMap::new(),
@@ -559,7 +580,24 @@ impl World {
             }
             self.mark_structural_check_pending(site.x, site.y);
         }
+        // See `pending_evaporation`'s own doc — this one is load-bearing for
+        // the *rate*, not only for the frame cost.
+        if matches!(site.kind, scheduler::ActiveKind::Evaporate { .. })
+            && !self.pending_evaporation.insert((site.x, site.y))
+        {
+            return;
+        }
         self.active_sites.push(Reverse(site));
+    }
+
+    /// Every pending active site, for tests that need to ask *what kind* is
+    /// scheduled rather than only how many — `evaporation.rs`'s guards, which
+    /// turn on the difference between a site retiring and a site staying on
+    /// the list at a zero rate. Order is the heap's internal one and carries
+    /// no meaning; every caller filters.
+    #[cfg(test)]
+    pub(crate) fn active_sites_for_test(&self) -> Vec<ActiveSite> {
+        self.active_sites.iter().map(|&Reverse(site)| site).collect()
     }
 
     /// Total pending active sites. The headline number for whether the
@@ -641,6 +679,9 @@ impl World {
         self.active_sites.pop();
         if let scheduler::ActiveKind::StructuralCheck = site.kind {
             self.clear_structural_check_pending(site.x, site.y);
+        }
+        if let scheduler::ActiveKind::Evaporate { .. } = site.kind {
+            self.pending_evaporation.remove(&(site.x, site.y));
         }
         Some(site)
     }
@@ -1007,6 +1048,14 @@ impl World {
     pub fn field_at_bilinear(&self, fx: f32, fy: f32) -> FieldCell {
         let fallback = self.field_at(fx.floor() as i32, fy.floor() as i32);
         field::sample_bilinear(&self.fields, self.bounds, fx, fy, fallback)
+    }
+
+    /// How strongly the field block covering this position sources moisture,
+    /// `0.0..=1.0`. See `field::moisture_source_at` — the point of reading
+    /// this rather than `field_at(..).moisture` is that it is rebuilt from
+    /// the CA grid every frame and never advected, so wind cannot move it.
+    pub(crate) fn field_moisture_source_at(&self, world_x: i32, world_y: i32) -> f32 {
+        field::moisture_source_at(&self.fields, self.bounds, world_x, world_y)
     }
 
     /// Whether the field cell covering this position is blocked by CA-solid
