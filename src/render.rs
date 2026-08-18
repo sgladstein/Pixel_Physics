@@ -353,6 +353,13 @@ const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 /// What fully saturated ground is scaled to, out of 256. Soaked soil is
 /// distinctly darker than dry and still legibly soil -- taking it much
 /// lower turns a rained-on hillside into a silhouette.
+/// How far to either side a column looks when deciding whether it is a shaft
+/// rather than open ground. A slot up to about twice this wide reads as
+/// inside the mountain; a genuine excavation wider than that reads as open,
+/// which is the right place for the line — the complaint was about a *narrow*
+/// strip of sky, and a quarry with sky over it is not wrong.
+const SHAFT_REACH: i32 = 6;
+
 const DAMP_DARKEN: u32 = 150;
 const CRACK_DARKEN: u16 = 110;
 
@@ -535,6 +542,8 @@ pub struct Renderer {
     horizon: Vec<i32>,
     /// World x the `horizon` entries start at.
     horizon_origin: i32,
+    /// `horizon` with shafts filled back in — see `rebuild_sky_floor`.
+    sky_floor: Vec<i32>,
 }
 
 impl Renderer {
@@ -560,6 +569,7 @@ impl Renderer {
             last_moon_rect: None,
             horizon: Vec::new(),
             horizon_origin: 0,
+            sky_floor: Vec::new(),
         }
     }
 
@@ -1184,25 +1194,84 @@ impl Renderer {
         if self.horizon.len() != width || self.horizon_origin != b.min_x {
             self.horizon = (0..width as i32).map(|i| scan(world, b.min_x + i)).collect();
             self.horizon_origin = b.min_x;
+            self.rebuild_sky_floor(0, width as i32 - 1);
             return;
         }
+        let mut lo = i32::MAX;
+        let mut hi = i32::MIN;
         for coord in touched {
             let cb = coord.bounds();
             for x in cb.min_x.max(b.min_x)..=cb.max_x.min(b.max_x) {
                 let i = (x - b.min_x) as usize;
                 self.horizon[i] = scan(world, x);
+                lo = lo.min(i as i32);
+                hi = hi.max(i as i32);
             }
+        }
+        if lo <= hi {
+            // Widened by the reach, because a column's own skyline depends on
+            // its neighbours' — digging at `x` changes the answer for every
+            // column within reach of it.
+            self.rebuild_sky_floor(lo - SHAFT_REACH, hi + SHAFT_REACH);
+        }
+    }
+
+    /// The skyline used for drawing, which is **not** the topmost solid cell.
+    ///
+    /// Reported from play: mining the top of a column dropped that column's
+    /// horizon, so the sky came down the hole with the pick and a one-cell
+    /// shaft dug into a mountain drew a strip of bright sky to its middle.
+    /// "Can the sky reach this cell" is *true* down a shaft, and is simply
+    /// not the question the background is asking; what it wants is "is this
+    /// inside the ground".
+    ///
+    /// A column is inside the ground where the terrain to **both** sides
+    /// stands higher than it does. That distinguishes the two cases that
+    /// look alike from a single column:
+    ///
+    /// - a shaft has higher ground on both sides, so it is inside the
+    ///   mountain and draws dark;
+    /// - a cliff edge has higher ground on one side only, so the open air
+    ///   beside it is still sky — which a plain "lowest of my neighbours"
+    ///   rule gets wrong, painting a dark band along the foot of every
+    ///   cliff in the world.
+    ///
+    /// Deliberately **stateless** — a function of the world as it stands,
+    /// not of what the renderer saw earlier. A first version remembered the
+    /// highest the ground had ever been, which fixed the shaft and broke
+    /// `dirty_rect_skip_is_pixel_identical_to_a_full_redraw`, because a
+    /// skyline that depends on history cannot agree between a renderer that
+    /// has one and a fresh one that does not.
+    fn rebuild_sky_floor(&mut self, from: i32, to: i32) {
+        let n = self.horizon.len() as i32;
+        self.sky_floor.resize(self.horizon.len(), i32::MAX);
+        for i in from.max(0)..=to.min(n - 1) {
+            let own = self.horizon[i as usize];
+            let side = |range: std::ops::RangeInclusive<i32>| {
+                range.filter(|&j| j >= 0 && j < n).map(|j| self.horizon[j as usize]).min().unwrap_or(i32::MAX)
+            };
+            let left = side(i - SHAFT_REACH..=i - 1);
+            let right = side(i + 1..=i + SHAFT_REACH);
+            // Higher ground on both sides means this column is a slot in
+            // something, and the sky stops at the shallower of the two
+            // shoulders rather than following the slot down.
+            self.sky_floor[i as usize] = if left < own && right < own { left.max(right) } else { own };
         }
     }
 
     /// Whether this position is open to the sky, rather than a void inside
     /// the ground.
+    ///
+    /// Asks whether the cell is above where the ground has ever reached in
+    /// this column, **not** whether there is currently a clear path up. The
+    /// two differ exactly down a freshly dug shaft, and the second answer is
+    /// the one that renders a mine as a strip of sky.
     fn under_sky(&self, x: i32, y: i32) -> bool {
         let i = x - self.horizon_origin;
         if i < 0 || i as usize >= self.horizon.len() {
             return true;
         }
-        y < self.horizon[i as usize]
+        y < *self.sky_floor.get(i as usize).unwrap_or(&i32::MAX)
     }
 
     fn cell_colour(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
@@ -1738,6 +1807,40 @@ mod tests {
     use crate::sim::cell::Cell;
     use crate::sim::chunk::Rect;
     use crate::sim::material;
+
+    /// Reported from play: mining the top of a column dropped that column's
+    /// horizon and the sky came down the hole with the pick, so a one-cell
+    /// shaft dug into a mountain drew a strip of bright sky to its middle.
+    #[test]
+    fn digging_a_shaft_does_not_bring_the_sky_down_with_it() {
+        let mut world = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 40..128 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        let mut r = Renderer::new();
+        // **The order of events is the test.** Establishing the skyline
+        // before the shaft exists is what a player does and is the only
+        // sequence that reproduces this: mine first and the renderer's
+        // opening scan records the shaft floor as the true ground, the sky
+        // fills the hole, and a working fix looks broken.
+        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
+        for y in 40..100 {
+            world.set(64, y, Cell::EMPTY);
+        }
+        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
+
+        assert!(!r.under_sky(64, 90), "a cell deep inside a mined shaft is underground, not sky");
+        assert!(r.under_sky(64, 20), "open air above the terrain is still sky");
+        // Building *up* must still raise the skyline, or the rule is
+        // "the horizon never changes" rather than "it never falls".
+        for y in 20..40 {
+            world.set(64, y, Cell::new(material::STONE, 0));
+        }
+        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
+        assert!(!r.under_sky(64, 25), "stacking material up into the sky should take the skyline with it");
+    }
 
     #[test]
     fn circle_outline_lights_the_ring_but_not_the_centre() {
