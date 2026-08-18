@@ -404,14 +404,59 @@ cells), wanted 90%` and `expected at least 50 overload failures, got 0`.
   bore-size comparison silently varied cover as well. `depth=` exists to
   hold it.
 
-### Still not in the model at all: height
+### Height (requirement 2): the ground is clear, and the reason it is
+### missing is geometric, not a bug
 
 §1d requirement 2 — *"a super short tunnel should be able to have a longer
-span. ant tunnel vs digging a mine"* — has no representation in the
-criterion, which judges a roof purely as a span. Terzaghi's rock load
-(scaling with *width + height* rather than full overburden) is the way in.
-The ground is now clear to build it: the geometry is a real tunnel and the
-span term is not, after all, misbehaving.
+span. ant tunnel vs digging a mine"* — is not met, and measured at **fixed
+roof cover** it currently runs the wrong way. `preset=flat`, cover 8 cells,
+~140-cell corridor, rock destroyed:
+
+| bore | seed 1 | seed 7 | bites to cut it |
+|---|---|---|---|
+| 5 cells (ant tunnel) | 937 | 1,608 | 70 |
+| 9 cells | 339 | 402 | 35 |
+| 13 cells (gallery) | 409 | 368 | 23 |
+
+The *small* tunnel does the most damage. Note the bite count, which is not
+a confound to remove — a narrower pick genuinely needs more bites to travel
+the same distance, and each one scores cracks and unbraces rock. That is
+most of what this table is showing, and it is the only route by which bore
+size reaches the model at all today.
+
+**Why bore size otherwise does nothing, and it is worth understanding
+before writing any code.** This engine is a 2D side view. A real mine
+gallery's roof spans its *width* — a few metres — however many kilometres
+long the drive is, because the rock either side supports it along the whole
+length. In 2D there is no "either side": a horizontal bore is a slot, and
+its roof genuinely spans the full length of the excavation. So the model is
+not wrong about the span it sees; the span it sees is real. The owner's
+intuition comes from three dimensions and **does not transfer by itself**.
+
+That reframes the fix. It is not "add height to the criterion" — it is
+"represent the out-of-plane abutment that a 2D cross-section throws away",
+and Terzaghi's rock load is exactly the standard way to do that: the roof
+carries a bounded height of rock `Hp ≈ k(B + Ht)` set by the arch that
+forms over the opening, rather than the whole overburden column, and
+critically **not scaling with the drive's length**. Concretely that means:
+
+- cap the overburden a roof cell carries at `Hp` derived from the *local
+  opening* (its width and height), not from the supported subtree, which
+  today reaches to the surface;
+- let the effective span be the opening rather than the unsupported run.
+
+An ant tunnel then holds a long drive because its `Hp` is small, and a
+gallery needs timber because its `Hp` is large — which is requirement 1 and
+requirement 2 falling out of one change.
+
+**Cost warning before anyone starts.** "The local opening's width and
+height" is not something the model has; computing it per cell per frame is
+a hot-path scan, and `is_structurally_interesting` exists precisely so
+interior rock is never walked. Whatever measures the opening has to be
+cached or derived from something already computed (the section walk is the
+obvious candidate). Build the measurement first as always, and note that
+the two instruments this needs already exist: `min_cave` for "is it still a
+cave" and `seedsweep.sh` for "did it eat the world".
 
 ---
 
