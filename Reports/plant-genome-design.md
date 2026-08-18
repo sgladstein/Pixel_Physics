@@ -1,0 +1,547 @@
+# The heritable genome: a slot map, proposed
+
+**STATUS: PROPOSAL — awaiting the owner's sign-off. Nothing has been
+edited.** Slots are positional forever: the slot index selects which stored
+draw a trait reads, so this table, once approved, is a contract. The final,
+signed-off map gets copied into `PLAN.md`'s settled decisions when the edit
+lands (not before — `PLAN.md` is a contested file and holds no unlanded
+promises).
+
+Audited against the committed tip of `plant-substrate-v2` (`16dcdc4`,
+"Support from the anchors outward"). The water economy was **in flight,
+uncommitted, in `.claude/worktrees/plant-v2`** while this was written
+(snapshot taken 2026-08-18 00:48); every reference to it below names its
+interface, not line numbers, and the landing session must re-verify those
+names against what actually committed. This document was produced in a
+separate worktree (`plant-genome` branch) — the audit is of committed code
+plus that one snapshot.
+
+---
+
+## 1. What exists, verified by reading
+
+Eleven loci. Every claim below was checked in the file, not carried over
+from the brief — and two of the brief's claims needed correcting (§1c, §7).
+
+### 1a. Six continuous slots — two dead everywhere, by measurement
+
+`OrganismState::genotype_draws: [f32; GENOTYPE_TRAITS]` (organism.rs:892,
+`GENOTYPE_TRAITS = 6` at :973). Drawn once at germination, uniform in
+[-1, 1], one independent rng stream per `(world seed, position, slot)`
+(plant.rs:361–368). Consumed as `1 + draw × variance` via
+`plant::genotype()` (plant.rs:321), variance read live from the species'
+`Behavior::Grow::genotype_variance`. Inherited offspring copy the parent's
+draws with ±`MUTATION_SIGMA` (0.08) uniform jitter, clamped to [-1, 1]
+(plant.rs:529–532).
+
+| slot | trait | consumer | tree / shrub / conifer variance | status |
+|---|---|---|---|---|
+| 0 | shoot `branch_chance` | plant.rs:1074 | 0.5 / 0.5 / 0.4 | live, r on size ≈ +2.5x quintile spread |
+| 1 | `upward_weight` | plant.rs:1076 | **0.0 / 0.0 / 0.0** | **dead — measured flat at ±40%, 1,024 genomes** |
+| 2 | `plastochron` | plant.rs:1077 | 0.4 / 0.4 / 0.3 | live, strongest trait (3.9x) |
+| 3 | `turgor_per_cell` | plant.rs:1095 | 0.18 / 0.18 / 0.15 | live, r(height) −0.72…−0.76, replicates |
+| 4 | `pipe_ratio` | plant.rs:3044 (`SecondaryThicken`, variance borrowed from the shoot `Grow` — "one plant, one genotype", plant.rs:2851) | 0.7 / 0.7 / 0.5 | live, correctly signed on stem width |
+| 5 | `light_weight` | plant.rs:1075 | **0.0 / 0.0 / 0.0** | **dead — measured flat at ±50%, and structurally: the per-column sky cast leaves almost no lateral light gradient to steer by (tree.ron's own note: "worth fixing at the field, not by widening this")** |
+
+Slots 1 and 5 are zero in **all three** Grow species, so they are dead
+everywhere, not just in `tree`. Moss uses `Divide`, carries no `Grow`, and
+is untouched by anything in this document.
+
+### 1b. Five discrete loci — one with no mechanical consequence
+
+`OrganismState::alleles: [u8; DISCRETE_LOCI]` (organism.rs:966,
+`DISCRETE_LOCI = 5` at :995). Inherited whole; each locus re-rolls
+uniformly over its allele range with `DISCRETE_MUTATION_CHANCE = 0.03`
+per seed (plant.rs:542–547). `LOCUS_ALLELES = [6, 3, 3, 2, 2]`.
+
+| slot | locus | alleles | consumer | consequence |
+|---|---|---|---|---|
+| 0 | `LOCUS_FOLIAGE` | 6 | foliage palette band (plant.rs:552) | **colour only — the one locus with no mechanical consequence** |
+| 1 | `LOCUS_BRANCH_ANGLE` | 3 — ×[0.4, 1.0, 1.6] | departure angle (plant.rs:1058) | ~28° / 70° / 112° on tree's trunk value |
+| 2 | `LOCUS_INTERNODE` | 3 — ×[0.4, 1.0, 2.0] | straightness budget (plant.rs:1060) | twiggy ↔ long straight runs |
+| 3 | `LOCUS_SYMPODIAL` | 2 | fork relabelling, order > 0 (plant.rs:1067) | axis-replacing forks |
+| 4 | `LOCUS_TROPISM` | 2 | tier reference, order > 0 (plant.rs:1068) | plagiotropic tiers |
+|   | *(not a locus)* `bark_band` | — | inherited outright, never mutates (plant.rs:553) | **a heritable-but-frozen channel — evolution cannot move bark at all** |
+
+The brief listed the discrete loci in a different order than their slots;
+the table above is the slot order and is the one that matters.
+
+**A latent mutation bias worth fixing while we are here:** `LOCUS_FOLIAGE`
+mutates uniformly over 6 alleles, but every current species declares
+`foliage_bands.count = 2` and the consumer clamps
+(`.min(count − 1)`, plant.rs:552) — so alleles 1–5 all render as the top
+band. A mutation at this locus lands on the top band five times as often
+as the bottom one. Nothing measured has depended on it yet; the re-key in
+§5 removes it by construction.
+
+### 1c. Roots — the gap is worse than the brief said
+
+The brief said a root's `branch_chance` reads slot 0, the same draw as the
+shoot's (plant.rs:1074 — verified, exactly as stated). But it undersold
+the situation: `genotype_variance` is `#[serde(default)]`
+(organism.rs:444), **no species' `RootTip` `Grow` declares one, and the
+default is all zeroes — so every root multiplier is exactly 1.0. Roots do
+not have shared genetic variation today; they have none at all.** Two
+independent fixes are therefore needed, and the slot map must provide for
+both: root parameters need *their own slots* (so root and shoot can
+diverge within one individual), and the root `Grow` needs a variance
+vector that is non-zero at those slots.
+
+### 1d. What "measured genomes" actually means here
+
+No genome is persisted anywhere. Draws regenerate deterministically from
+`(world seed, germination coordinate)`; alleles exist only at runtime.
+"Renumbering rewrites every genome ever measured" is about the *measurement
+record* — the study tables whose columns are named by slot. The current
+record is: two 1,024-genome studies (labels correct for their runs, and the
+strongest evidence that slots 1/5 are dead), and one megastudy that is
+already void (stale binary, 3 populations wearing 24 logs —
+`genetic-variability-study.md` §1) and must be re-run regardless of what is
+decided here.
+
+---
+
+## 2. The three tests, as applied
+
+1. **Does it change what a cell does, or only what a cell is labelled?**
+   Sympody, tropism and acrotony fired perfectly and moved nothing anyone
+   could see, because they relabel cells and the silhouette was set by
+   texture and colour. Every locus below names the *behavioural* site it
+   reaches — a rate, a cost, a threshold, a strength — and, where the
+   claim is visual, which pixels change.
+2. **Is there a measurable outcome it trades against?** Named per locus,
+   with the probe facility that measures it. A locus with no trade-off is
+   worse than a free parameter: selection saturates it in one direction
+   and it stops being variation at all.
+3. **Continuous or discrete?** The rule this proposal follows: **strategy
+   axes are discrete, quantitative gains are continuous.** Discrete loci
+   are what make clusters (jump mutation at 0.03/seed lets a morph persist;
+   drift would smear it — organism.rs:1027), and they are also what makes
+   a *readable* colour: a band is a discrete object, so a band-selecting
+   locus satisfies `plant-appearance-design.md` §7 by construction, where
+   any continuous hue derivation converges on mud.
+
+---
+
+## 3. The water-economy interface this design hooks into
+
+From the 00:48 snapshot of the in-flight work (names to re-verify at
+landing):
+
+- `OrganismState::water` — whole-plant stock; capacity =
+  `WATER_SCALE × root_cells` (`water_capacity_of`). Root mass *is* the
+  drought buffer.
+- `OrganismState::water_status` — the stomatal term, fraction of this
+  tick's transpirational demand met; multiplies every photosynthetic
+  credit and every leaf's contribution to intercepted light (Liebig).
+- `Behavior::Photosynthesize { transpiration, drought_death, .. }` —
+  demand per foliage cell scaled by its light; graded shedding on thirst
+  cubed.
+- `Behavior::Absorb { rate }` — credits **water**, runs on `RootTip` and
+  on mature root tissue, so uptake scales with root mass in contact with
+  damp soil.
+- `allocate_to_frontier` — functional balance: a root tip's share weight
+  is `ROOT_BIAS_AT_FULL_WATER (0.5) + (1 − water_status)`.
+- `break_root_tips` — root re-initiation from mature root tissue when
+  `water_status < 0.95`, candidate scored by adjacent available water
+  (hydrotropism as a placement decision).
+
+This is what makes root and leaf loci selectable: before it, a plant with
+no roots ran no deficit and there was nothing for these traits to buy.
+
+---
+
+## 4. The candidates, each against the three tests
+
+### 4.1 Wood density — IN, discrete (3 alleles)
+
+- **What a cell does:** two live consumers today, one visual.
+  *Strength:* `organism_structural_tick` computes
+  `effective_span = max_cantilever_reach − supported_load/LOAD_PER_SPAN_UNIT`
+  (structural.rs:409–425); the density multiplier scales
+  `max_cantilever_reach` per individual — dense wood holds a longer branch
+  under more piled load before it snaps to deadwood. *Cost:* the shoot
+  `Grow.cost` (and the thickening price — site to confirm in `thicken()`
+  at landing) scales with density — dense wood grows slower per unit
+  carbon. *Pixels:* `bark_band` derives from the allele (§6).
+- **Trade:** growth rate against breakage. Cheap wood outgrows dense wood
+  and loses more of itself to load and (goal 2, later) to storms and to
+  the root-plate-vs-stem comparison, which needs exactly this quantity on
+  the stem side.
+- **Measurement:** paired — stand cells/height at 30k frames (probe,
+  exists) against the loaded-branch span
+  (`a_loaded_branch_breaks_at_a_shorter_span_than_a_bare_one`'s quantity,
+  exists as a test scene). Deadwood conversion counts are visible in the
+  probe's census.
+- **Why discrete:** it is the pioneer-vs-dense *strategy* axis and the
+  bark readout wants bands. Alleles ×[0.75, 1.0, 1.35] on both reach and
+  cost, first pass, swept at landing. Fresh stands start at allele 1 = the
+  species as authored (the `BRANCH_ANGLE` precedent, plant.rs:409).
+
+### 4.2 Leaf construction economics — IN, by re-keying `LOCUS_FOLIAGE` (2 alleles)
+
+- **What a cell does:** allele scales `Photosynthesize.rate` up with
+  `transpiration` up (dark, expensive, acquisitive) or both down (pale,
+  cheap, conservative). Consumers: the credit sites (`organism_tick` and
+  `organism_upkeep` Photosynthesize arms) and the demand sum in
+  `organism_upkeep` — all live in the water snapshot.
+- **Trade:** carbon income against water demand, Liebig-mediated: dark
+  leaves win where light is the binding constraint (shade, wet), pale
+  leaves win where water is (bright, dry). Fully exercisable the day the
+  water economy lands, and *only* then — this locus is why the genome
+  session was sequenced after it.
+- **Measurement:** paired wet/dry stands (deep soil bed vs thin soil over
+  stone — the exact pair `roots-and-breakage-handoff.md` prescribes),
+  reading the probe's water-balance block (stomatal term, uptake, demand —
+  in the water session's probe additions) and foliage share (exists).
+- **Why this locus and not a new one:** the allele *already* selects the
+  foliage band (plant.rs:552) — the consumer exists and is the colour.
+  Re-keying means the same allele now also carries the rate/transpiration
+  pair, so the colour stops being a free gene and becomes the visible face
+  of a real one — which is `plant-appearance-design.md` §7's end state,
+  "a sick plant should look sick because it *is* sick", applied to
+  strategy: a dark tree is dark because its leaves are expensive. **This
+  is not a renumbering.** Allele values keep their colour meaning exactly;
+  they gain a mechanical one. `LOCUS_ALLELES[0]` drops 6 → 2 to match the
+  band count every species actually declares, which also removes the 5:1
+  mutation bias of §1b. Fresh stands keep their positional band draw
+  (plant.rs:413), so a first generation is a visible mixed-strategy stand
+  from frame one.
+- **Cost stated plainly:** pure-cosmetic heritable foliage colour ceases
+  to exist. Within-band tonal variation (4 steps per band) and the future
+  live-state modulation stay; *which band you are* becomes physiology. If
+  the owner wants colour to stay a free gene, the alternative is a new
+  `LOCUS_LEAF_ECONOMY` at discrete slot 5 with its own band mapping — one
+  more locus, and foliage tone then answers to two masters, which §7
+  argues against.
+
+### 4.3 Stomatal closure point — IN, continuous — with one seam flagged
+
+- **What a cell does:** a new species scalar (`stomatal_reserve`, the
+  stock fraction below which stomata begin closing; 0 = today's
+  behaviour), multiplied by this slot's draw. Consumed once per organism
+  tick where demand settles against stock (`organism_upkeep`'s balance
+  block in the snapshot): effective demand = demand × openness, openness
+  ramping 0→1 as `stock/capacity` rises through the threshold.
+- **Trade:** drought endurance against growth rate. A conservative
+  individual hoards its buffer — earns less in a mild shortage, still has
+  leaves after a long one. A profligate one earns flat-out until the tank
+  is dry.
+- **The seam (which quantity does the shedding rule read):** in the
+  snapshot, `drought_death` keys on `(1 − water_status)³`. If closure
+  lowers `water_status`, a conservative plant would *shed harder while
+  protecting its stock* — the lever would select against itself and the
+  trade inverts. For this locus to exist, shedding must key on the
+  **reserve state** (`1 − stock/capacity`) while earning keys on
+  status × openness. Leaves die of desiccation, not of prudence. This is a
+  one-line re-key in the water session's code and must be coordinated
+  with it — flagged here so the landing session does not build the dead
+  lever the three-tests discipline exists to catch.
+- **Measurement:** the same wet/dry pair as 4.2, plus a drought-onset
+  scene (soil drying out): foliage retention curve and final cells. The
+  probe's water block and per-plant leaf counts already carry both.
+- **Why continuous:** a threshold point on a 0–1 reserve is a
+  quantitative gain with a smooth response; there is no morph boundary in
+  it, and its visible face (pallor under stress) belongs to the live-state
+  appearance work, not to a band.
+
+### 4.4 Root branch chance — IN, continuous, own slot
+
+- **What a cell does:** the root `Grow` arm reads its `branch_chance`
+  multiplier from a root slot instead of slot 0 (the plant.rs:1074 edit —
+  the dispatch already knows the cell type). Root `Grow` gets a variance
+  vector non-zero at the root slots (§1c).
+- **Trade:** uptake surface and water capacity (`water_capacity_of` reads
+  `root_cells`) against carbon spent underground (root `Grow.cost` 0.25 a
+  cell) that the canopy never sees — bounded above by the existing
+  allometric cap (`MAX_ROOT_FRACTION`, plant.rs:1187).
+- **Measurement:** `root_cells`/`shoot_cells` (probe prints them; the root
+  readout landed in `ed28d16`), uptake/demand from the water block, and
+  paired growth under wet vs dry.
+- **Why continuous:** same character as shoot branching — a rate, already
+  proven to spread outcomes as a continuous draw.
+
+### 4.5 Root tropism gain — IN, continuous, own slot
+
+- **What a cell does:** the root's `upward_weight` multiplier moves to a
+  root slot. For a `RootTip` the reference this weights is already
+  *moisture-or-down* — `moisture_pull` when the gradient is strong enough,
+  `(0, 1)` otherwise (plant.rs:1266–1270) — so one slot genuinely is
+  "how hard this root follows water and gravity versus wandering", the
+  hydrotropic gain the night handoff queued, on a consumer that already
+  exists.
+- **Trade:** depth against spread. A high-gain root drives to the water
+  table and the deep buffer; a low-gain one wanders laterally near the
+  surface and catches rain first. Neither wins everywhere — that is the
+  trade.
+- **Measurement:** the root depth histogram (`ed28d16`'s readout — the one
+  that overturned "roots hug the surface") paired across a
+  surface-watered scene and a deep-table scene.
+- **Why continuous:** a steering weight; smooth, no morph boundary.
+
+### 4.6 Root:shoot allocation bias — IN, continuous, own slot
+
+- **What a cell does:** multiplies the root weight in
+  `allocate_to_frontier`'s functional balance (the
+  `ROOT_BIAS_AT_FULL_WATER + (1 − status)` term in the snapshot) — a
+  constitutively root-heavy individual versus a canopy-gambler, on top of
+  the plastic response the economy already provides.
+- **Trade:** the plainest one in plant ecology — canopy now against water
+  security later. Interacts with, and is bounded by, `MAX_ROOT_FRACTION`.
+- **Measurement:** root:shoot ratio distribution across a stand (probe),
+  and survival/foliage in the drought-onset scene against growth in the
+  wet one.
+- **Why continuous:** an investment fraction; the interesting population
+  outcome (bimodal strategies) should be allowed to *emerge* from
+  selection on a smooth axis rather than be imposed by allele design —
+  and if it never does, that is a finding about the landscape, visible in
+  the megastudy histograms.
+
+### 4.7 Root penetration force — IN, continuous — conditional on its cost
+
+- **What a cell does:** multiplies `penetration_force` (root `Grow`,
+  tree at 1.2) in `growable()` (plant.rs:81–94) against
+  `Material::penetration_resistance` — soil 0.8, sand 1.4, gravel 3.5.
+  The axis is qualitative and legible: today's tree roots soil only; a
+  high draw opens sand (dune-rooting morphs), a very high one gravel.
+- **The condition:** as a bare threshold this fails test 2 — more
+  penetration costs nothing, selection saturates it high, and it stops
+  varying. The companion (part of the same edit): root `Grow.cost` scales
+  with the entered material's resistance (soil ~1×, sand ~1.75×, gravel
+  ~4×, i.e. `resistance / soil's 0.8`). Then hard ground is *expensive*
+  ground, and penetration is a real strategy with a real bill. If the
+  owner prefers not to touch the root cost model yet, this slot should be
+  **deferred, not allocated dead** — appending it later costs nothing.
+- **Calibration bound:** tree's 1.2 sits 1.5× above soil's 0.8; variance
+  must keep the low tail above 0.8/1.2 ≈ 0.67 of the species value
+  (width ≤ ~0.3) unless "a draw that cannot root even in soil" is wanted
+  as a lethal. It is not proposed as one.
+- **Measurement:** root cell counts by substrate under a mixed
+  soil/sand/gravel bank scene (a filmstrip scene to add at landing), and
+  the depth histogram.
+
+### 4.8 Seed strategy — IN, discrete (3 alleles), with one small companion mechanism
+
+- **What a cell does:** allele scales `Reproduce.seed_cost` up while
+  scaling `seed_chance` down (few big seeds ↔ many small ones; middle =
+  authored). Consumer live at plant.rs:3015–3026. **Companion needed for
+  the benefit side:** today `seed_cost` is deducted from the parent
+  (plant.rs:3024) and *nothing reaches the child* — a big seed buys
+  nothing. The mechanism: the paid cost is written onto the seed cell as
+  carbon at `set_seed`, and germination keeps it as the seedling's
+  starting stake — the seed *is* its provisions. A staked seedling clears
+  the first-`Grow`-check-reads-zero hazard that tree.ron's own tuning
+  history documents, so provisioning connects directly to establishment.
+- **Trade:** offspring count against per-offspring establishment odds —
+  measurable *now* because establishment failure is a real, measured
+  phenomenon (5/16 tree, 4/16 conifer leafless in the megastudy).
+- **Measurement:** seeds standing + established count per genotype
+  (probe prints both), at stand density where establishment actually
+  fails.
+- **Fire/decay coupling, deferred honestly:** `seed.ron` has
+  `flammability: 0.5`, but flammability is per-material, not per-cell —
+  a per-allele fire resistance has no cheap hook. Seed *decay* does not
+  exist at all (the seed-bank leak is an open item). Neither blocks the
+  size↔number axis; both can join this locus later without renumbering.
+- **Why discrete:** r/K seeding is a strategy, and three alleles give the
+  authored middle plus both extremes as persistent morphs.
+
+### 4.9 Rejected / not candidates
+
+- **Widening sympody/tropism** — already loci; they relabel cells, and
+  their lesson is the reason for test 1.
+- **A juvenility locus** — the establishment fix landed as species data
+  (`juvenile_size/plastochron/branch`, plant.rs:1085–1090) after the
+  megastudy named it; genetic variation on top of it is speculative and
+  has no measured outcome it would trade against yet.
+- **Seed decay resistance** — no decay mechanism to hook (§4.8).
+- **Anything reading temperature** — the channel oscillates and nothing
+  divides it out yet (`CLAUDE.md`); a locus on it would alias the clock.
+
+---
+
+## 5. The two maps — the decision that needs the owner
+
+Both maps deliver the same fifteen live loci. They differ only in what
+happens to the two dead continuous slots, and the in-code doctrine is on
+opposite sides from the audit brief:
+
+- `organism.rs:422` (the variance field's own doc): *"Retire a dead trait
+  by setting its width to 0.0, not by removing its slot."* Slot 1 is named
+  there as exactly that case.
+- The brief: *"This is a re-mapping question, not an append."*
+
+**Map A — re-purpose (recommended).** Slots 1 and 5 take root meanings;
+`GENOTYPE_TRAITS` 6 → 9.
+
+The argument: a slot that never expressed rewrites no measured phenotype.
+Slots 1 and 5 were flat lines in every study that touched them — their
+draws never moved an outcome, so giving those draws a new meaning
+invalidates no result; the only casualty is two column labels in logs that
+are already superseded (the megastudy must re-run regardless, §1d). What
+re-purposing buys, permanently: no dead columns in every genotype table,
+every variance vector, and every future study of a genome that is about to
+nearly double in width. The doctrine comment gets amended in the same
+edit: *a slot dead by measurement in every species may be re-purposed
+once, with the measurement record re-baselined; a live slot, never.*
+`light_weight` and `upward_weight` become pure species data (their
+genotype multiplications were already no-ops via zero variance; the lines
+go). If the light field ever gains lateral structure, phototropic gain
+returns as a *new appended slot* — cheap, and honest about it being a new
+measurement.
+
+**Map B — append (doctrine-conservative).** Slots 1 and 5 stay dead at
+width 0.0; root traits take 6–10; `GENOTYPE_TRAITS` 6 → 11. Nothing ever
+changes meaning; every future table carries two inert columns and the
+genome is two slots wider for the same information.
+
+### Map A, in full (the recommendation)
+
+**Continuous — `GENOTYPE_TRAITS = 9`.** Draw semantics unchanged
+(uniform [-1, 1], ±0.08/generation). Variance first-pass values below are
+starting points for the landing sweeps, not tuned claims.
+
+| slot | trait | consumer | tree variance (first pass) |
+|---|---|---|---|
+| 0 | shoot branch chance | plant.rs:1074 (unchanged) | 0.5 |
+| 1 | **root branch chance** | root `Grow` arm, re-pointed | 0.5 |
+| 2 | shoot plastochron | unchanged | 0.4 |
+| 3 | turgor per cell | unchanged | 0.18 |
+| 4 | pipe ratio | unchanged | 0.7 |
+| 5 | **root tropism gain** | root `upward_weight` site, re-pointed | 0.4 |
+| 6 | **root:shoot allocation bias** | `allocate_to_frontier` root weight | 0.4 |
+| 7 | **stomatal closure point** | demand-settle in `organism_upkeep` | 0.5 |
+| 8 | **root penetration force** | `growable()` via root `Grow` | 0.25 (bounded — §4.7) |
+
+Slots 0, 2, 3, 4 keep their meanings exactly, so the one solid replicated
+result (turgor, r(height) ≈ −0.75) and the other live regressions remain
+comparable across the re-map. Variance for slots 6–8 lives on the shoot
+`Grow` vector per the `pipe_variance` precedent ("one plant, one
+genotype"); the root `Grow` vector carries 1 and 5 and is finally
+non-zero.
+
+**Discrete — `DISCRETE_LOCI = 7`.**
+
+| slot | locus | alleles | consequence |
+|---|---|---|---|
+| 0 | **`LOCUS_LEAF_ECONOMY`** (re-keyed `LOCUS_FOLIAGE`) | 2 — dark/acquisitive, pale/conservative | `Photosynthesize.rate` ×[1.2, 0.85], `transpiration` ×[1.5, 0.7] (first pass); foliage band = allele, exactly the existing consumer |
+| 1 | `LOCUS_BRANCH_ANGLE` | 3 | unchanged |
+| 2 | `LOCUS_INTERNODE` | 3 | unchanged |
+| 3 | `LOCUS_SYMPODIAL` | 2 | unchanged |
+| 4 | `LOCUS_TROPISM` | 2 | unchanged |
+| 5 | **`LOCUS_WOOD_DENSITY`** | 3 — ×[0.75, 1.0, 1.35] | `max_cantilever_reach` ×, wood carbon cost ×; bark band derives (§6) |
+| 6 | **`LOCUS_SEED_STRATEGY`** | 3 | `seed_cost` ×[2.0, 1.0, 0.5] with `seed_chance` ×[0.5, 1.0, 2.0]; cost provisions the seed cell |
+
+`LOCUS_ALLELES` becomes `[2, 3, 3, 2, 2, 3, 3]`. Fresh stands start:
+economy from the positional band draw (as today), density and seed
+strategy at allele 1 (= species as authored), so an unmutated stand
+behaves exactly as written and every morph is one jump away — the
+existing convention (plant.rs:403–410).
+
+**The count, and the answer to the brief's question:** sixteen loci —
+nine continuous, seven discrete — every one with a live behavioural
+consumer and a named measurement. Under Map B it is the same sixteen live
+loci wearing eighteen slots.
+
+---
+
+## 6. Appearance: the trait-derived half, under §7's constraint
+
+The constraint holds by construction: **the trait picks the band; nothing
+continuous touches hue.**
+
+- Foliage: band = leaf-economy allele via the consumer that already exists
+  (plant.rs:552). Dark band = acquisitive, pale = conservative, per
+  species range (every species declares two bands; the mapping is the
+  identity it already is).
+- Bark: `bark_band` stops being a free-inherited frozen field and derives
+  from the density allele, clamped into the species' declared bark range
+  exactly as foliage clamps today. First generation draws density
+  positionally (as bark does today), so day-one stands keep their bark
+  variety. The exact allele→band aesthetics (which band reads "dense" per
+  species) is a landing-session sheet judgment, not a design commitment.
+- Within-band stays reserved for state: the four tonal steps per band, and
+  the *live-state* modulation (drought pallor, bark darkening with age) —
+  which, contrary to the brief, **has not landed anywhere** (verified: no
+  such code at `16dcdc4`, none in the water snapshot). When it lands it
+  modulates within the band the genome chose, and the two halves compose
+  without either repainting the other.
+
+Pixels test, stated: this section moves colour bytes on every wood and
+foliage cell as a function of two mechanical alleles — the exact channel
+(texture and colour) that the sympody phase proved is what silhouettes are
+made of.
+
+---
+
+## 7. Corrections to the brief, for the record
+
+- "The live-state half already landed" — it has not (§6). The genome
+  session found no pallor/darkening code in the committed tree or the
+  water snapshot.
+- Roots do not merely *share* the shoot's draws; they have zero variation,
+  because the root `Grow`'s variance vector defaults to zeroes (§1c).
+- The discrete loci were listed out of slot order; `LOCUS_FOLIAGE` is
+  slot 0 (§1b).
+- The water economy was uncommitted and in flight during this audit, not
+  landed; this proposal's §3/§4 hooks are against its snapshot interface.
+
+---
+
+## 8. The one edit, and how it is verified
+
+**Sequencing:** the edit lands only after (a) the owner signs off on a map
+and (b) the water economy commits — four loci hook its interface. If the
+water session's final shape differs from the snapshot (§3), the affected
+rows come back here for a delta-check before landing, and the
+`drought_death` re-key of §4.3 is coordinated with it, not around it.
+
+Touches, in one commit: `organism.rs` (constants, allele tables, locus
+renames, the doctrine amendment), `plant.rs` (root slot re-pointing in the
+`Grow` arm, allocation/stomatal/penetration/provisioning consumers, band
+derivations), three species `.ron` (variance vectors — root and shoot —
+and the new species scalars), `examples/plant_probe.rs` (genotype table
+columns renamed to the new map, plus an allele-frequency line per discrete
+locus so morph dynamics are visible in logs), tests (each new locus gets
+its paired-comparison harness), `PLAN.md` (the final map, and that slots
+are positional forever), `wiki/` (there is still no `wiki/plants.md` —
+standing gap, this change is a reasonable trigger to finally write it).
+
+**Verification, per the brief plus this repo's own rules:**
+
+1. `cargo test --lib` and `cargo clippy --all-targets -- -D warnings`.
+2. **A paired comparison per locus** — each named in §4; a locus that
+   moves nothing does not keep its slot, and an exactly-zero delta means
+   *first* suspect the condition is degenerate (the granular-divisor
+   lesson), not that the lever is dead.
+3. **Look first:** one filmstrip sheet per discrete locus at fixed allele
+   (all-dark vs all-pale, all-dense vs all-light), judged by eye before
+   any regression is trusted — and the band counters printed beside the
+   sheets, because a recolour is invisible at contact-sheet zoom.
+4. **Rebuild before the megastudy** (`cargo build --release --examples`),
+   confirm the probe's first line echoes `worldseed=`, then re-run
+   `scripts/megastudy.sh` — the old regressions are against the old map
+   and the old (void) study; the re-run is the first real 8-seed study.
+   Gate cross-species claims on the shape descriptors, per
+   `genetic-variability-study.md` §6.
+5. The re-mapped slots' regressions get fresh columns; nothing is compared
+   across the re-map except slots 0/2/3/4, whose meanings did not move.
+
+---
+
+## 9. What the owner is being asked to decide
+
+1. **Map A (re-purpose, 9 continuous) or Map B (append, 11)?** §5.
+   Recommendation: A.
+2. **Re-key `LOCUS_FOLIAGE` to leaf economics** (colour becomes a readout,
+   cosmetic-only colour gene ceases to exist), **or add economics beside
+   it** and keep free cosmetic colour? §4.2. Recommendation: re-key.
+3. **Penetration force in** (with the resistance-scaled root cost that
+   makes it selectable) **or deferred**? §4.7. Recommendation: in.
+4. **Seed strategy in** (with cost-provisions-the-seed) **or deferred**?
+   §4.8. Recommendation: in.
+
+Everything else in the map is either unchanged or follows directly from
+the water economy's design intent, and the slot table in §5 becomes final
+— and goes into `PLAN.md`, marked positional forever — the moment these
+four calls are made.
