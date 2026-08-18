@@ -303,9 +303,20 @@ fn gust(world: &mut World, w: Weather) {
     // is simply wasted work.
     let span = bounds.max_y - bounds.min_y;
     let y = bounds.min_y + span / 8 + (r.next_u64() % (span / 4).max(1) as u64) as i32;
-    // Signed with the wind, so a squall pushes the way the weather says the
-    // air is going rather than merely shaking it.
-    world.add_pressure_impulse(x, y, GUST_RADIUS, GUST_STRENGTH * w.wind);
+    // **A dipole, not a single blob.** A lone positive impulse injects net
+    // pressure into a closed world, and there is nowhere for it to go: it
+    // drives velocity, velocity drives advection, and the tiles around it
+    // never reconverge. Measured -- a calm world left 0 field tiles
+    // unconverged and a gusty one left 4, permanently, which is the reverted
+    // steady wind's exact failure arriving by another route.
+    //
+    // What a gust physically is, is air moving *from* somewhere *to*
+    // somewhere. High pressure behind and low pressure ahead sums to zero,
+    // pushes the air between them along the wind, and leaves the field with
+    // nothing left over to keep solving once it has equalised.
+    let lead = (GUST_RADIUS as f32 * 1.5 * w.wind.signum()) as i32;
+    world.add_pressure_impulse(x, y, GUST_RADIUS, GUST_STRENGTH * w.wind.abs());
+    world.add_pressure_impulse(x + lead, y, GUST_RADIUS, -GUST_STRENGTH * w.wind.abs());
 }
 
 /// One frame of weather acting on the world.
@@ -506,130 +517,111 @@ mod tests {
         (from..from + WEATHER_EPOCH_FRAMES * 64).step_by(60).find(|&frame| f(at(seed, frame)))
     }
 
+    /// The guard this feature actually needs: a gust's disturbance must go
+    /// away, because that is the *only* thing separating it from the steady
+    /// wind term that was built here, measured at a permanent 3.55 ms/frame
+    /// on every scene, and reverted.
+    ///
+    /// Measured as **unconverged field tiles**, which is the quantity
+    /// `field::step` branches on. Three earlier attempts asked it through
+    /// summed pressure and each measured something else: an unsupported slab
+    /// falling (~16000 in both the windy and calm run), a world's
+    /// construction transient, and a background relaxation an order of
+    /// magnitude larger than the gust -- under which "never dispersed" and
+    /// "dispersed slowly" are the same reading. Tile convergence has none of
+    /// that noise: a tile is converged or it is not.
     #[test]
-    fn a_gust_disturbs_the_field() {
-        // **The guard against reintroducing the reverted steady wind.** That
-        // change cost 3.55 ms of settled-field time on every scene in the
-        // engine, permanently, because a uniform velocity in a bounded world
-        // drives itself: wall, divergence, pressure, more velocity, and
-        // `field::is_converged` never true again.
-        //
-        // Stated as a **paired comparison** rather than as "the field
-        // settles". A first version asserted `fields_settled()` outright and
-        // failed after 4000 solves -- on a world where the same loop does
-        // not settle with no weather in it at all, so the assertion was
-        // measuring the background and not the gust. Pairing a windy run
-        // against a calm one cancels whatever else the field is doing and
-        // leaves only the quantity this is about: does the disturbance a
-        // gust makes go away, or does it feed itself?
+    fn a_gust_disperses() {
         let seed = 4;
-        let pick = |want_wind: bool| {
-            (0..WEATHER_EPOCH_FRAMES * 40)
-                .step_by(30)
-                .find(|&f| {
-                    let w = at(seed, f);
-                    !w.is_precipitating() && (w.wind.abs() > GUST_THRESHOLD + 0.2) == want_wind
-                })
-                .expect("both a windy and a calm dry frame should exist")
-        };
-        // Total absolute pressure across the world -- a continuous quantity,
-        // not a count of disturbed cells, because counts give knife-edge
-        // margins and sums separate cleanly.
-        let energy = |w: &World| {
-            (0..128).step_by(8).flat_map(|x| (0..128).step_by(8).map(move |y| (x, y))).map(|(x, y)| w.field_at(x, y).pressure.abs()).sum::<f32>()
-        };
-        let run = |frame: u64, gust_frames: u64, quiet_solves: usize| {
-            // A *stable* world, deliberately not `sheltered_world`: that one
-            // has an unsupported slab in it, which falls, and the pressure
-            // from it read ~16000 in both the windy and the calm run and
-            // buried the gust completely. The scene has to contain nothing
-            // but the thing under test.
-            let mut w = World::new(Rect::new(0, 0, 127, 127));
-            w.seed = seed;
-            w.frame = frame;
-            for x in 0..128 {
-                for y in 100..128 {
-                    w.set(x, y, Cell::new(material::STONE, 0));
-                }
+        // The control, run first: the same scene at a *calm* frame. Whatever
+        // this leaves unconverged is the field's own floor and is not
+        // something a gust did -- asking a new metric what it reads when
+        // nothing is wrong, before trusting it about a case that is.
+        let calm_floor = gust_residue(seed, false);
+        let windy = (0..WEATHER_EPOCH_FRAMES * 40)
+            .step_by(30)
+            .find(|&f| {
+                let w = at(seed, f);
+                !w.is_precipitating() && w.wind.abs() > GUST_THRESHOLD + 0.2
+            })
+            .expect("some dry windy frame exists");
+        // A stable scene containing nothing but the thing under test -- no
+        // unsupported geometry, whose collapse would disturb the field far
+        // more than any gust.
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        w.seed = seed;
+        w.frame = windy;
+        for x in 0..128 {
+            for y in 100..128 {
+                w.set(x, y, Cell::new(material::STONE, 0));
             }
-            // **Settle the world before measuring.** A freshly built world
-            // has a large pressure transient of its own from construction,
-            // and a first version of this measured straight through it: the
-            // windy and calm runs both read ~16000 at their "peak" and the
-            // gust was invisible underneath. Measuring a disturbance means
-            // starting from a world that is not already disturbed.
-            for _ in 0..400 {
-                parallel::step(&mut w);
-                w.step_active_sites();
-                w.step_fields();
-            }
-            let baseline = energy(&w);
-            for _ in 0..gust_frames {
-                parallel::step(&mut w);
-                w.step_fields();
-            }
-            let peak = energy(&w);
-            // Then no further weather at all -- only the field relaxing.
-            for _ in 0..quiet_solves {
-                w.step_fields();
-            }
-            (peak - baseline, energy(&w) - baseline)
-        };
-        let (windy_peak, windy_after) = run(pick(true), GUST_INTERVAL * 6, 600);
-        let (calm_peak, calm_after) = run(pick(false), GUST_INTERVAL * 6, 600);
-        println!(
-            "windy {windy_peak:.2} -> {windy_after:.2}, calm {calm_peak:.2} -> {calm_after:.2}"
-        );
-        // A gust must actually do something, or everything below is vacuous.
+        }
+        for _ in 0..400 {
+            parallel::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+        }
+
+        // Gusts fire on an interval, so this has to span several of them --
+        // one impulse dispersing is a weaker claim than the storm's whole
+        // rhythm failing to accumulate.
+        let mut peak = 0;
+        for _ in 0..GUST_INTERVAL * 6 {
+            parallel::step(&mut w);
+            w.step_fields();
+            peak = peak.max(w.unsettled_field_tiles());
+        }
+        assert!(peak > 0, "gusts never unsettled a single tile; this test would pass on a wind that was never connected");
+
+        // Now nothing but the field relaxing: no more weather, no more CA.
+        // A self-driving term stays unconverged here forever, which is
+        // precisely how the reverted wind behaved.
+        let mut solves = 0;
+        while w.unsettled_field_tiles() > 0 && solves < 3000 {
+            w.step_fields();
+            solves += 1;
+        }
+        let left = w.unsettled_field_tiles();
+        println!("gusty: up to {peak} tiles unsettled, {left} left after {solves} solves; calm floor {calm_floor}");
         assert!(
-            windy_peak > calm_peak + 1.0,
-            "gusts did not disturb the field at all ({windy_peak:.2} vs calm {calm_peak:.2});              this test would pass on a wind that was never connected"
+            left <= calm_floor,
+            "a gust left {left} field tiles unconverged against a calm floor of {calm_floor} --              the disturbance is feeding itself, which is the signature of the reverted              self-driving wind term and means storms cost frame time forever"
         );
-        // **The dispersal half of this is NOT asserted, and that is a
-        // recorded gap rather than an oversight.** It is the half that
-        // matters -- the reverted steady wind's signature is a disturbance
-        // that never goes away -- and three attempts failed to measure it
-        // against the background the field is already doing:
-        //
-        //   windy   +1148 at peak -> +1422 after 600 quiet solves
-        //   calm    -7980 at peak -> -14016 after the same
-        //
-        // Both relative to each run's own settled baseline. The calm run's
-        // own drift is an order of magnitude larger than the gust, so
-        // "windy did not fall" and "windy fell more slowly than the
-        // background" are indistinguishable here, and an assertion either
-        // way would be measuring the wrong thing while looking rigorous.
-        // The earlier attempts and what each one turned out to be
-        // measuring: an unsupported slab falling (~16000 in *both* runs), a
-        // world's construction transient, and `fields_settled()` against a
-        // loop that does not reach settled with no weather in it either.
-        //
-        // What is claimed above is only what was demonstrated: gusts reach
-        // the field. Whether they disperse is open, and
-        // `a_gust_disperses` below states the experiment that would answer
-        // it.
-        let _ = (windy_after, calm_after);
     }
 
-    /// The guard this feature actually needs, written down and **not
-    /// passing** -- see the note in `a_gust_disturbs_the_field`.
-    ///
-    /// Kept rather than deleted because the question is real: a steady wind
-    /// term was built here, measured at a permanent 3.55 ms/frame on every
-    /// scene, and reverted, and the only thing separating a gust from it is
-    /// that a gust's disturbance goes away. Nothing currently demonstrates
-    /// that it does.
-    ///
-    /// What would answer it is a field-side measurement rather than a
-    /// world-side one: whether the *number of unconverged tiles* returns to
-    /// zero after a gust, which is the quantity `field::step` itself
-    /// branches on and is not confounded by however much pressure happens
-    /// to be sloshing around. That needs an accessor `field.rs` does not
-    /// currently expose.
-    #[test]
-    #[ignore = "unresolved: the gust's signal is smaller than the field's own background relaxation; needs an unconverged-tile count to measure"]
-    fn a_gust_disperses() {
-        unimplemented!("see the doc comment: this needs a convergence-side metric, not a pressure-sum one")
+    /// Tiles still unconverged after the same scene, the same number of
+    /// frames and the same relaxation, with or without wind.
+    fn gust_residue(seed: u64, windy: bool) -> usize {
+        let frame = (0..WEATHER_EPOCH_FRAMES * 40)
+            .step_by(30)
+            .find(|&f| {
+                let w = at(seed, f);
+                !w.is_precipitating() && (w.wind.abs() > GUST_THRESHOLD + 0.2) == windy
+            })
+            .expect("a dry frame of each kind exists");
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        w.seed = seed;
+        w.frame = frame;
+        for x in 0..128 {
+            for y in 100..128 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for _ in 0..400 {
+            parallel::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+        }
+        for _ in 0..GUST_INTERVAL * 6 {
+            parallel::step(&mut w);
+            w.step_fields();
+        }
+        let mut solves = 0;
+        while w.unsettled_field_tiles() > 0 && solves < 3000 {
+            w.step_fields();
+            solves += 1;
+        }
+        w.unsettled_field_tiles()
     }
 
     #[test]
