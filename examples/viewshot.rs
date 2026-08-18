@@ -108,16 +108,21 @@ fn main() {
         let want_wet = a.rain != "dry";
         let want_kind = match a.rain.as_str() {
             "snow" => Some(weather::Precipitation::Snow),
+            // `rain=bolt` finds a frame where a strike is actually lit,
+            // which is a few frames in every few hundred -- a render aimed
+            // at "a storm" would essentially never contain one.
+            "bolt" => Some(weather::Precipitation::Rain),
             "wet" => Some(weather::Precipitation::Rain),
             _ => None,
         };
         let end = |start: u64| start + a.settle as u64;
         let noonish = |f: u64| field::sun_elevation(end(f)) > 0.85;
         let chosen = (0..weather::WEATHER_EPOCH_FRAMES * 40)
-            .step_by(30)
+            .step_by(if a.rain == "bolt" { 1 } else { 30 })
             .filter(|&f| noonish(f))
             .filter(|&f| weather::at(world.seed, end(f)).is_precipitating() == want_wet)
             .filter(|&f| want_kind.is_none_or(|k| weather::at(world.seed, end(f)).kind == k))
+            .filter(|&f| a.rain != "bolt" || weather::strike(world.seed, end(f), world.bounds()).is_some_and(|s| s.age <= 2))
             .max_by(|&x, &y| {
                 let (a, b) = (weather::at(world.seed, end(x)).intensity, weather::at(world.seed, end(y)).intensity);
                 if want_wet { a.total_cmp(&b) } else { b.total_cmp(&a) }
@@ -157,7 +162,15 @@ fn main() {
     // look exactly like four different hills.
     println!("world {}x{} ({name}, seed {}), built in {build_ms:.0} ms", WORLD_WIDTH, WORLD_HEIGHT, a.seed);
     for shot in 0..a.shots {
-        let x = if a.mine { WORLD_WIDTH as i32 / 4 } else { ((shot as f32 + 0.5) / a.shots as f32 * WORLD_WIDTH as f32) as i32 };
+        // Aimed at the strike when there is one: a bolt lands anywhere in a
+        // world four screens wide, so a shot framed anywhere else is a render
+        // of a flash with the interesting part outside it.
+        let aimed = pixel_physics::sim::weather::strike(world.seed, world.frame, world.bounds()).map(|s| s.x);
+        let x = match (a.mine, aimed) {
+            (true, _) => WORLD_WIDTH as i32 / 4,
+            (_, Some(sx)) => sx,
+            _ => ((shot as f32 + 0.5) / a.shots as f32 * WORLD_WIDTH as f32) as i32,
+        };
         let ground = (0..WORLD_HEIGHT as i32)
             .find(|&y| world.get(x, y).material != material::EMPTY)
             .unwrap_or(WORLD_HEIGHT as i32 / 2);

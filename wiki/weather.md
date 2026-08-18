@@ -51,6 +51,11 @@ It slants rain and snow as they fall, and above a certain strength it
 arrives in **gusts**: sudden pushes of air that shove smoke around and
 lean trees, then die away.
 
+The heaviest storms throw **lightning**: a forked bolt down to the ground
+and a flash that lifts the whole world for an instant, brighter the closer
+it strikes. It happens only in real downpours, never in a drizzle and never
+out of a clear sky.
+
 A storm sky is drawn from the same sky as a clear one, drained of colour
 and darkened. That means an overcast noon is flat white-grey and an
 overcast midnight is flat black, and heavy cloud hides the stars and the
@@ -58,6 +63,7 @@ moon.
 
 ## What is not here yet
 
-Lightning and thunder. Rain does not yet erode anything or fill rivers,
+Thunder — lightning flashes and forks, but the world is silent. Rain does
+not yet erode anything or fill rivers,
 and there are no seasons — a world's weather wanders but does not have a
 winter. Puddles do not evaporate on their own; they soak away or stay.

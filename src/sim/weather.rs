@@ -29,6 +29,7 @@
 //! go looking for a frame that has some (see `first_frame_with`).
 
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
+use super::chunk::Rect;
 use super::field::DAY_NIGHT_PERIOD_FRAMES;
 use super::material::{self, MaterialKind};
 use super::rng;
@@ -262,6 +263,76 @@ const GUST_RADIUS: i32 = 26;
 /// with depth rather than a uniform slab -- a slab reads as a different
 /// material lying on top of the soil.
 const SOAK_DEPTH: i32 = 5;
+
+/// How often a storm gets a chance at a strike, in frames. Roughly every
+/// four seconds at 60Hz; whether the chance is taken is a separate roll, so
+/// strikes cluster and gap rather than arriving on a metronome.
+const STRIKE_WINDOW: u64 = 240;
+
+/// How long one strike's flash lasts, in frames.
+const STRIKE_FRAMES: u64 = 14;
+
+/// Below this intensity a storm has rain but no lightning. Lightning is the
+/// top of the scale, not a feature of every shower.
+const STRIKE_MIN_INTENSITY: f32 = 0.55;
+
+/// A lightning strike in progress.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Strike {
+    /// Frames since the flash began, `0..STRIKE_FRAMES`.
+    pub age: u64,
+    /// Where it comes down, in world x.
+    pub x: i32,
+    /// Brightness of the flash *this frame*, `0.0..=1.0`. Already includes
+    /// the decay and the re-strike below, so a caller just multiplies by it.
+    pub flash: f32,
+    /// Distinguishes one strike from the next, so the bolt drawn for it is
+    /// its own shape rather than the same zigzag every time.
+    pub id: u64,
+}
+
+/// The strike happening at `frame`, if any.
+///
+/// Pure, like the rest of this module: no strike list, no timers, and a
+/// replay of the same seed puts the lightning in the same place on the same
+/// frame. Storms only -- see `STRIKE_MIN_INTENSITY`.
+pub fn strike(seed: u64, frame: u64, bounds: Option<Rect>) -> Option<Strike> {
+    let bounds = bounds?;
+    // Which window we might be in the flash of -- including the previous one,
+    // since a flash that began near the end of a window is still lit in this
+    // one.
+    let window = frame / STRIKE_WINDOW;
+    for w in [window, window.wrapping_sub(1)] {
+        let mut r = rng::stream(seed, 0x4C49_4748, w, 0);
+        // Two rolls: whether this window strikes at all, and when inside it.
+        if !r.chance(0.55) {
+            continue;
+        }
+        let start = w * STRIKE_WINDOW + r.next_u64() % (STRIKE_WINDOW - STRIKE_FRAMES);
+        if frame < start || frame >= start + STRIKE_FRAMES {
+            continue;
+        }
+        // The weather at the moment it *began*, so a strike is not cut off
+        // mid-flash by the front easing below the threshold.
+        let at_start = at(seed, start);
+        if at_start.kind != Precipitation::Rain || at_start.intensity < STRIKE_MIN_INTENSITY {
+            continue;
+        }
+        let age = frame - start;
+        let width = (bounds.max_x - bounds.min_x + 1) as u64;
+        let x = bounds.min_x + (r.next_u64() % width) as i32;
+        // Two peaks, not one. A single decaying flash reads as a light being
+        // switched off; real lightning strobes, and the second, weaker return
+        // stroke is most of what makes it read as lightning rather than as a
+        // screen flicker.
+        let t = age as f32;
+        let main = (1.0 - t / 5.0).max(0.0);
+        let ret = (1.0 - (t - 5.0).abs() / 3.0).max(0.0) * 0.55;
+        let tail = (1.0 - t / STRIKE_FRAMES as f32).max(0.0) * 0.12;
+        return Some(Strike { age, x, flash: (main.max(ret) + tail).min(1.0), id: w });
+    }
+    None
+}
 
 /// Wind, delivered as gusts.
 ///
@@ -530,6 +601,49 @@ mod tests {
     /// magnitude larger than the gust -- under which "never dispersed" and
     /// "dispersed slowly" are the same reading. Tile convergence has none of
     /// that noise: a tile is converged or it is not.
+    #[test]
+    fn lightning_only_happens_in_storms_and_is_reproducible() {
+        let b = Some(Rect::new(0, 0, 511, 319));
+        let seed = 4;
+        let strikes: Vec<u64> = (0..WEATHER_EPOCH_FRAMES * 20)
+            .filter(|&f| strike(seed, f, b).is_some_and(|s| s.age == 0))
+            .collect();
+        println!("{} strikes over 20 epochs", strikes.len());
+        assert!(!strikes.is_empty(), "a storm world never produced a single strike");
+        for &f in &strikes {
+            let w = at(seed, f);
+            assert_eq!(w.kind, Precipitation::Rain, "lightning out of a sky that was not raining, at frame {f}");
+            assert!(w.intensity >= STRIKE_MIN_INTENSITY, "lightning in a drizzle ({}) at frame {f}", w.intensity);
+        }
+        // Pure, like everything else here: the same frame is the same strike.
+        for &f in strikes.iter().take(4) {
+            assert_eq!(strike(seed, f, b), strike(seed, f, b));
+        }
+        // ...and a flash lasts a bounded time rather than latching on. A
+        // strike that never ended would leave the world permanently white
+        // *and* permanently repainting, since a live strike forces a full
+        // redraw.
+        for &f in strikes.iter().take(4) {
+            assert!(
+                strike(seed, f + STRIKE_FRAMES, b).is_none_or(|s| s.age == 0),
+                "a flash was still lit a full duration after it began"
+            );
+        }
+    }
+
+    #[test]
+    fn a_clear_sky_never_flashes() {
+        // The control: whatever the strike rate is, it must be exactly zero
+        // when nothing is happening, or storms are not what causes lightning.
+        let b = Some(Rect::new(0, 0, 511, 319));
+        let dry: Vec<u64> = (0..WEATHER_EPOCH_FRAMES * 20).filter(|&f| !at(4, f).is_precipitating()).collect();
+        assert!(!dry.is_empty(), "seed 4 is never dry, so this proves nothing");
+        assert!(
+            dry.iter().all(|&f| strike(4, f, b).is_none()),
+            "lightning struck out of a clear sky"
+        );
+    }
+
     #[test]
     fn a_gust_disperses() {
         let seed = 4;

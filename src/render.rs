@@ -358,6 +358,14 @@ const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 /// inside the mountain; a genuine excavation wider than that reads as open,
 /// which is the right place for the line — the complaint was about a *narrow*
 /// strip of sky, and a quarry with sky over it is not wrong.
+/// How far a strike at full brightness pulls the frame toward white.
+///
+/// Set by eye against a render, downward: the first value (0.55) whited the
+/// scene out so completely that the terrain stopped being readable, which is
+/// what a camera does and not what an eye does. Enough to be unmistakable,
+/// little enough that you can still see what you are standing on.
+const FLASH_LIFT: f32 = 0.34;
+
 const SHAFT_REACH: i32 = 6;
 
 const DAMP_DARKEN: u32 = 150;
@@ -861,6 +869,11 @@ impl Renderer {
             // `ParticleSystem` the wrong vehicle -- there it would have been
             // permanent instead.
             || weather.is_precipitating()
+            // A strike lifts every pixel in the frame, so the frame after one
+            // has to be repainted or the flash sticks around as a permanently
+            // brightened world.
+            || crate::sim::weather::strike(world.seed, world.frame, world.bounds()).is_some()
+            || crate::sim::weather::strike(world.seed, world.frame.wrapping_sub(1), world.bounds()).is_some()
             || !particles.is_empty();
 
         // Where the gnome is on screen this frame. Tracked through *both*
@@ -974,6 +987,9 @@ impl Renderer {
         // the rock as well as against the sky. Drawn after the cells and
         // before the gnome, so he is in the weather rather than behind it.
         self.draw_precipitation(weather, world.frame, (vx0, vy0), (vx1, vy1), frame, width, height);
+        if let Some(s) = crate::sim::weather::strike(world.seed, world.frame, world.bounds()) {
+            self.draw_lightning(s, (vx0, vy0), (vx1, vy1), frame, width, height);
+        }
         self.draw_particles(world, particles, frame, width, height);
         self.draw_chunk_bodies(world, frame, width, height);
         self.draw_player(world, frame, width, height);
@@ -1064,6 +1080,75 @@ impl Renderer {
                     // and not a dash of the same width as the streak.
                     let fade = 1.0 - (dx.abs() as f32 / (spread + 1) as f32);
                     blend(frame, width, height, sx, sy, colour, drop.alpha * 0.85 * fade);
+                }
+            }
+        }
+    }
+
+    /// A lightning strike: the flash over everything, then the bolt.
+    ///
+    /// The flash is a whole-frame lift rather than a light source, and that
+    /// is a deliberate limit rather than an approximation of one. A real
+    /// source would have to reach the light field, which oscillates on the
+    /// day cycle and which everything from moss to phototropism makes
+    /// decisions off -- a strike bright enough to see would read to a plant
+    /// as an instant of noon. Lightning is allowed to be a thing you see and
+    /// not a thing the world believes in.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_lightning(
+        &self,
+        s: crate::sim::weather::Strike,
+        (vx0, vy0): (i32, i32),
+        (vx1, vy1): (i32, i32),
+        frame: &mut [u8],
+        width: u32,
+        height: u32,
+    ) {
+        let project = |wx: f32, wy: f32| {
+            (
+                (wx.round() as i32 - self.camera_x) / self.zoom_out_stride * self.zoom,
+                (wy.round() as i32 - self.camera_y) / self.zoom_out_stride * self.zoom,
+            )
+        };
+        // Falls off with distance from the strike, so a bolt on the far side
+        // of the world lights the sky rather than the room you are standing
+        // in -- and so that walking toward a storm means something.
+        let centre = (vx0 + vx1) / 2;
+        let far = ((vx1 - vx0).max(1) * 3) as f32;
+        let near = 1.0 - ((s.x - centre).abs() as f32 / far).clamp(0.0, 1.0);
+        let lift = s.flash * near;
+        if lift > 0.01 {
+            for px in frame.chunks_exact_mut(4) {
+                for c in px.iter_mut().take(3) {
+                    // Toward white rather than a scaling, so already-bright
+                    // sky still visibly flashes instead of clipping and
+                    // sitting still.
+                    *c = (*c as f32 + (255.0 - *c as f32) * lift * FLASH_LIFT) as u8;
+                }
+            }
+        }
+
+        // The bolt itself only while the first stroke is bright; the later
+        // flicker is the sky lighting up with the channel already gone.
+        if s.age > 4 {
+            return;
+        }
+        let ground = (vy0..=vy1).find(|&y| !self.under_sky(s.x, y)).unwrap_or(vy1);
+        let colour = sky::bolt_colour();
+        let rgba = [colour[0] as u8, colour[1] as u8, colour[2] as u8, 255];
+        for (a, b, weight) in sky::bolt(s.id, s.x, vy0, ground) {
+            let (ax, ay) = project(a.0, a.1);
+            let (bx, by) = project(b.0, b.1);
+            let steps = (bx - ax).abs().max((by - ay).abs()).max(1);
+            for i in 0..=steps {
+                let (x, y) = (ax + (bx - ax) * i / steps, ay + (by - ay) * i / steps);
+                let alpha = weight * s.flash.max(0.6);
+                blend(frame, width, height, x, y, rgba, alpha);
+                // The trunk gets a second pixel of width and a soft edge; a
+                // one-pixel bolt is a hairline and reads as a scratch.
+                if weight > 0.9 {
+                    blend(frame, width, height, x + 1, y, rgba, alpha * 0.7);
+                    blend(frame, width, height, x - 1, y, rgba, alpha * 0.35);
                 }
             }
         }
