@@ -406,7 +406,17 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     // `load::capacity`), and the two are not on the same scale -- see
     // `MaterialDef::max_cantilever_reach` for the measurement that forced
     // them apart.
-    let max_span = material.max_cantilever_reach;
+    //
+    // Scaled by the individual's wood density -- the strength half of
+    // `WOOD_DENSITY_ALLELES` (the price half is on `Grow.cost`): dense
+    // wood holds a longer reach under more load before snapping to
+    // deadwood, cheap wood grows faster and loses more of itself.
+    // Saturating on purpose: a material with no finite span (moss's own)
+    // must stay effectively unbounded under any multiplier.
+    let density = world.organism(cell.organism_id()).map_or(1.0, |s| {
+        organism::WOOD_DENSITY_ALLELES[(s.alleles[organism::LOCUS_WOOD_DENSITY] as usize).min(organism::WOOD_DENSITY_ALLELES.len() - 1)]
+    });
+    let max_span = ((material.max_cantilever_reach as f32 * density) as u32).min(u16::MAX as u32) as u16;
     let organism_id = cell.organism_id();
     // **Load shortens the span a branch can hold.** `PLAN.md` treats "too
     // much weight breaks a branch" as already in scope, and it was only

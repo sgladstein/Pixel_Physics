@@ -453,40 +453,79 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         // see *interactions* between them; a one-knob-at-a-time sweep
         // structurally cannot.
         //
-        // Slots match `genotype_variance`'s own order: 0 branch_chance,
-        // 1 upward_weight, 2 plastochron, 3 turgor_per_cell, 4 pipe_ratio,
-        // 5 light_weight.
-        let variance = w
-            .species
-            .get(w.species.id_of("tree").expect("tree"))
-            .behaviors(organism::CellType::GrowingTip)
-            .iter()
-            .find_map(|b| match b {
-                organism::Behavior::Grow { genotype_variance, .. } => Some(*genotype_variance),
-                _ => None,
-            })
-            .unwrap_or([0.0; 6]);
+        // Slots follow `organism::GENOTYPE_TRAITS`' map (positional
+        // forever): 0 shoot branch, 1 root branch, 2 plastochron, 3
+        // turgor, 4 pipe, 5 root tropism gain, 6 allocation bias, 7
+        // stomatal closure, 8 penetration. Each column's variance comes
+        // from the vector its consumer actually reads -- the shoot Grow
+        // for 0/2/3/4/6/7, the RootTip Grow for 1/5/8 -- and from the
+        // run's own species: this used to hardcode "tree", so every
+        // conifer and shrub table printed multipliers scaled by the
+        // wrong widths.
+        let table_species = w.species.id_of(&scene.species).expect("species is compiled in");
+        let vector_of = |ct: organism::CellType| {
+            w.species
+                .get(table_species)
+                .behaviors(ct)
+                .iter()
+                .find_map(|b| match b {
+                    organism::Behavior::Grow { genotype_variance, .. } => Some(*genotype_variance),
+                    _ => None,
+                })
+                .unwrap_or([0.0; organism::GENOTYPE_TRAITS])
+        };
+        let shoot_v = vector_of(organism::CellType::GrowingTip);
+        let root_v = vector_of(organism::CellType::RootTip);
+        let variance: Vec<f32> =
+            (0..organism::GENOTYPE_TRAITS).map(|s| if matches!(s, 1 | 5 | 8) { root_v[s] } else { shoot_v[s] }).collect();
         println!("
   per-tree genotype and outcome (variance {variance:?}):");
-        println!("  {:>4}  {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}", "id", "branch", "up", "plast", "turgor", "pipe", "light", "cells", "leaves", "height", "stem");
+        println!(
+            "  {:>4}  {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}",
+            "id", "branch", "rootbr", "plast", "turgor", "pipe", "roottr", "alloc", "stoma", "penetr", "cells", "leaves", "height", "stem"
+        );
         let mut ids: Vec<u16> = per_organism.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
             let g = |slot: usize| pixel_physics::sim::plant::genotype(&w, id, slot, variance[slot]);
             println!(
-                "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
+                "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
                 g(0),
                 g(1),
                 g(2),
                 g(3),
                 g(4),
                 g(5),
+                g(6),
+                g(7),
+                g(8),
                 per_organism.get(&id).map_or(0, |v| v.0),
                 per_organism.get(&id).map_or(0, |v| v.1),
                 per_organism.get(&id).map_or(0, |v| (v.3 - v.2 + 1) as usize),
                 thickest_above_base.get(&id).copied().unwrap_or(0),
             );
         }
+
+        // **The morph census.** Allele frequencies per discrete locus,
+        // counts by allele index -- a cluster shows here long before any
+        // sheet can show it, and a column that never moves across a long
+        // breeding run is a lever selection is not pulling. Loci in slot
+        // order (organism::LOCUS_*): economy, angle, internode, sympody,
+        // tropism, density.
+        let mut allele_counts = [[0u32; 3]; organism::DISCRETE_LOCI];
+        for id in per_organism.keys() {
+            if let Some(s) = w.organism_state(*id) {
+                for (locus, &a) in s.alleles.iter().enumerate() {
+                    allele_counts[locus][(a as usize).min(2)] += 1;
+                }
+            }
+        }
+        let census: Vec<String> = allele_counts
+            .iter()
+            .zip(["economy", "angle", "internode", "sympody", "tropism", "density"])
+            .map(|(c, name)| format!("{name} {}/{}/{}", c[0], c[1], c[2]))
+            .collect();
+        println!("  alleles: {}", census.join("  "));
 
         // The architectural event counters, printed beside the picture
         // because a sheet cannot show whether a mechanism fired -- a

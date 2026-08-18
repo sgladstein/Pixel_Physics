@@ -49,6 +49,12 @@
     // it does not move the species.
     foliage_bands: (first: 2, count: 2),
     bark_bands: (first: 0, count: 2),
+    // Stock fraction below which stomata start closing -- the drought-
+    // caution policy genotype slot 7 multiplies per individual. 0.2 is a
+    // first pass: at a fifth of a tank the plant starts trading growth
+    // for endurance. 0.0 is the pre-closure engine exactly, and what any
+    // species that does not declare this gets.
+    stomatal_reserve: 0.2,
     cell_types: [
         (Seed, [
             Germinate(
@@ -266,7 +272,19 @@
                 // a width: branch_chance should be high while juvenile and
                 // low once established, which ByOrder cannot express,
                 // because order is position in the plant and not age.
-                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0),
+                //
+                // **Re-mapped 2026-08-18** (Reports/plant-genome-design.md,
+                // owner-signed): slots 1/5 now belong to the ROOT -- its
+                // own vector on the RootTip entry carries them, they stay
+                // 0.0 here and the shoot no longer reads them at all --
+                // and three whole-plant slots extend the vector: 6
+                // allocation bias, 7 stomatal closure (both read from
+                // this vector by the passes that consume them), 8
+                // penetration (root vector). Every study quoted above
+                // remains true of slots 0/2/3/4, whose meanings did not
+                // move; nothing else survives the re-map and the
+                // megastudy re-baselines.
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0),
                 turgor_source: 1.0,
                 turgor_yield: 0.1,
                 turgor_per_cell: 0.0075,
@@ -345,7 +363,22 @@
                 // 0.2-1.5 MPa; 1.2 puts this tree through loose soil (0.8)
                 // and sand (1.4 -- refused), and never through gravel
                 // (3.5) or any Solid. See Material::penetration_resistance.
+                // With slot 8 below, that refusal is per *individual* now:
+                // the strongest draws reach 1.5 and root in sand, and hard
+                // ground bills extra carbon either way
+                // (plant::penetration_cost_mult).
                 penetration_force: 1.2,
+                // **The root's own genome vector -- non-zero for the first
+                // time.** Slots 1/5/8 are the root traits (the slot map on
+                // organism::GENOTYPE_TRAITS is the contract): root branch
+                // chance, root tropism gain (how hard it drives down and
+                // toward water versus wandering), penetration. First-pass
+                // widths for the paired sweeps: 1 matches the shoot's
+                // branching width; 8's 0.25 keeps the weakest draw's force
+                // at 0.9 -- above soil's 0.8, so no individual is locked
+                // out of ordinary ground -- while the strongest reaches
+                // 1.5, past sand's 1.4.
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25),
             ),
         ]),
         (MatureBody, [

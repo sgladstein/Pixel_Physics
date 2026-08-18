@@ -409,6 +409,41 @@ fn write_carbon(world: &mut World, x: i32, y: i32, carbon: f32) {
     }
 }
 
+/// Loose soil's authored `penetration_resistance` at the time the root
+/// economy was calibrated — the "normal ground" a root's `Grow.cost` was
+/// tuned against. A named constant rather than a live lookup because the
+/// baseline must not silently move if soil is re-authored; if it is,
+/// re-derive the root economy rather than letting every root's bill
+/// change as a side effect.
+const PENETRATION_COST_BASELINE: f32 = 0.8;
+
+/// The carbon multiplier for growing *into* `(x, y)` — hard ground is
+/// expensive ground, which is what makes `penetration_force` a trait with
+/// a bill instead of a free unlock (`Reports/plant-genome-design.md`
+/// §4.7): without it selection saturates the force high and the slot
+/// stops varying. Open air (and anything not a resisting `Powder`) is
+/// 1.0; penetrated ground scales by its resistance against loose soil's,
+/// so tree roots pay ~1x in soil, ~1.75x in sand, ~4.4x in gravel.
+fn penetration_cost_mult(world: &World, x: i32, y: i32) -> f32 {
+    let m = world.materials.get(world.get(x, y).material);
+    if m.kind == MaterialKind::Powder && m.penetration_resistance > 0.0 {
+        (m.penetration_resistance / PENETRATION_COST_BASELINE).max(1.0)
+    } else {
+        1.0
+    }
+}
+
+/// This organism's leaf-economy multipliers, `(rate, transpiration)` —
+/// `LOCUS_LEAF_ECONOMY` applied. `(1.0, 1.0)` for anything unregistered,
+/// which keeps every non-plant caller and every pre-germination cell at
+/// the species mean.
+fn leaf_econ_mults(world: &World, organism_id: u16) -> (f32, f32) {
+    world.organism(organism_id).map_or((1.0, 1.0), |s| {
+        let a = (s.alleles[organism::LOCUS_LEAF_ECONOMY] as usize).min(organism::LEAF_RATE_ALLELES.len() - 1);
+        (organism::LEAF_RATE_ALLELES[a], organism::LEAF_TRANSPIRATION_ALLELES[a])
+    })
+}
+
 /// How much water a plant can hold, **proportional to its root mass**.
 ///
 /// This is the whole reason root depth and spread buy anything: the stock
@@ -516,12 +551,16 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
     // see. A lever that relabels a cell cannot move a silhouette that
     // texture and colour set.
     //
-    // Streams 64/65 rather than the next free genotype slot: genotype slots
-    // are positional forever (renumbering one rewrites every genome ever
-    // measured), and colour is not a trait with a *width* — it does not
-    // multiply a species mean, it selects a band. Keeping it off the draws
-    // array leaves `GENOTYPE_TRAITS` free for the root traits the handoff
-    // has queued for slots 6+.
+    // Streams 64/65 rather than genotype slots: these draws select among
+    // discrete alleles, they do not multiply a species mean, so they never
+    // belonged on the draws array. Stream 64 picks the foliage band, which
+    // *is* the leaf-economy allele now (band = allele, the consumer that
+    // existed when the locus was cosmetic); stream 65 used to pick the
+    // bark band directly and now draws the wood-density allele, with bark
+    // deriving from it -- the same stream still decides what the bark
+    // looks like, it just says something true. Either way a first
+    // generation is a mixed stand on both strategy axes from frame one,
+    // exactly as it was on both colour axes.
     // `SpeciesId` is `Copy`, so reading it out ends the organism borrow
     // before the registry one begins — `world` is `&mut` here.
     let species_id = world.organism(organism_id).map(|s| s.species);
@@ -540,7 +579,11 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
         bands.first + rng.below(bands.count as u32) as u8
     };
     let foliage_band = pick(foliage, 64);
-    let bark_band = pick(bark, 65);
+    let density_allele = {
+        let mut rng = rng::stream(world_seed, x as u64, y as u64, 65);
+        rng.below(organism::LOCUS_ALLELES[organism::LOCUS_WOOD_DENSITY] as u32) as u8
+    };
+    let bark_band = organism::bark_band_for_density(bark, density_allele);
     // **Discrete alleles start at what the species file declares**, so an
     // authored species is the point a population diverges *from* rather
     // than an identity it is stuck with. The scaled loci start mid-range
@@ -549,9 +592,10 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
     let mut alleles = [0u8; organism::DISCRETE_LOCI];
     alleles[organism::LOCUS_BRANCH_ANGLE] = 1;
     alleles[organism::LOCUS_INTERNODE] = 1;
+    alleles[organism::LOCUS_WOOD_DENSITY] = density_allele;
     if let Some(id) = species_id {
         let sp = world.species.get(id);
-        alleles[organism::LOCUS_FOLIAGE] = foliage_band.saturating_sub(sp.foliage_bands.first);
+        alleles[organism::LOCUS_LEAF_ECONOMY] = foliage_band.saturating_sub(sp.foliage_bands.first);
         if let Some(Behavior::Grow { sympodial, tropism, .. }) =
             sp.behaviors(CellType::GrowingTip).iter().find(|b| matches!(b, Behavior::Grow { .. }))
         {
@@ -636,10 +680,10 @@ const MUTATION_SIGMA: f32 = 0.08;
 /// light-and-moisture gate. Nothing downstream needs to know it had a
 /// parent except `seed_genotype`, which must not redraw over the genome
 /// this copies in.
-fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, rng: &mut Rng) -> bool {
-    let Some((species, draws, generation, parent_alleles, bark)) = world
+fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, rng: &mut Rng) -> bool {
+    let Some((species, draws, generation, parent_alleles)) = world
         .organism(parent_id)
-        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles, s.bark_band))
+        .map(|s| (s.species, s.genotype_draws, s.generation, s.alleles))
     else {
         return false;
     };
@@ -654,9 +698,9 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, rng: &mut Rng) ->
         return false;
     }
     let (sx, sy) = spots[rng.below(spots.len() as u32) as usize];
-    let (foliage_first, foliage_count) = {
+    let (foliage_first, foliage_count, bark_bands) = {
         let sp = world.species.get(species);
-        (sp.foliage_bands.first, sp.foliage_bands.count)
+        (sp.foliage_bands.first, sp.foliage_bands.count, sp.bark_bands)
     };
 
     let child = world.push_organism(species);
@@ -671,10 +715,6 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, rng: &mut Rng) ->
             let jitter = (rng.below(2_000) as f32 / 1_000.0 - 1.0) * MUTATION_SIGMA;
             *dst = (*src + jitter).clamp(-1.0, 1.0);
         }
-        // Colour is inherited outright for now. It is *not* yet a mutable
-        // locus, so it cannot evolve — see `Reports/plant-appearance-
-        // design.md` §7, which flags moving it onto the genome as the step
-        // that makes "do visuals change with evolution" answerable.
         // **The discrete genes: inherited whole, mutated by jumping.** A
         // locus that drifted would be a continuous axis wearing an integer
         // and the population would smear back into one cloud; jumping is
@@ -686,12 +726,19 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, rng: &mut Rng) ->
                 *allele = rng.below(n as u32) as u8;
             }
         }
-        // Foliage colour is a *locus* now, so it evolves with everything
-        // else -- Reports/plant-appearance-design.md §7 asked for exactly
-        // this, and it is why a cluster is visible rather than merely
-        // present in the numbers.
-        state.foliage_band = foliage_first + state.alleles[organism::LOCUS_FOLIAGE].min(foliage_count.saturating_sub(1));
-        state.bark_band = bark;
+        // Both colours derive from the (possibly just-mutated) alleles.
+        // Foliage has worked this way since the discrete-loci change;
+        // bark used to be copied from the parent and frozen forever --
+        // heritable but immutable, a channel evolution could not move.
+        // Deriving it from the density allele is what lets bark tone
+        // change when the wood underneath it does.
+        state.foliage_band = foliage_first + state.alleles[organism::LOCUS_LEAF_ECONOMY].min(foliage_count.saturating_sub(1));
+        state.bark_band = organism::bark_band_for_density(bark_bands, state.alleles[organism::LOCUS_WOOD_DENSITY]);
+        // The provisioning: what the parent paid rides with the child and
+        // becomes its first stake at germination -- see
+        // `OrganismState::endowment` for why this is species plumbing
+        // today and a locus only after the response curve is measured.
+        state.endowment = seed_cost;
         state.inherited = true;
         state.generation = generation.saturating_add(1);
     }
@@ -1200,6 +1247,24 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     [(alleles[organism::LOCUS_BRANCH_ANGLE] as usize).min(organism::BRANCH_ANGLE_ALLELES.len() - 1)];
                 let internode_scale = organism::INTERNODE_ALLELES
                     [(alleles[organism::LOCUS_INTERNODE] as usize).min(organism::INTERNODE_ALLELES.len() - 1)];
+                // Dense wood pays more per cell -- the price half of
+                // `WOOD_DENSITY_ALLELES` (the strength half is in
+                // `structural::organism_structural_tick`). On the cost
+                // rather than the income side so it binds exactly where
+                // tree.ron's tuning history says the margin lives: a
+                // fresh cell's first Grow check. Roots pay it too --
+                // rootwood is wood.
+                let density = organism::WOOD_DENSITY_ALLELES
+                    [(alleles[organism::LOCUS_WOOD_DENSITY] as usize).min(organism::WOOD_DENSITY_ALLELES.len() - 1)];
+                let cost = cost * density;
+                // Slot 8: penetration, a root trait by consumption (a
+                // shoot's force is 0.0 and stays 0.0 under any
+                // multiplier). The variance is this behaviour's own
+                // vector, so the width lives in the species file's
+                // RootTip entry, authored to keep the low tail above
+                // soil's 0.8 resistance -- no draw is locked out of
+                // ordinary ground.
+                let penetration_force = penetration_force * genotype(world, organism_id, 8, genotype_variance[8]);
                 // The trunk is never sympodial and never plagiotropic
                 // whatever the allele says: order 0 is the axis that has to
                 // stand the plant up, and a sympodial trunk is a different
@@ -1212,9 +1277,34 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // the turgor gate below reads it, and every child
                 // created further down is one step further out.
                 let own_path = path_len_at(world, x, y);
-                let branch_chance = branch_chance.at(order) * genotype(world, organism_id, 0, genotype_variance[0]);
-                let light_weight = light_weight.at(order) * genotype(world, organism_id, 5, genotype_variance[5]);
-                let upward_weight = upward_weight.at(order) * genotype(world, organism_id, 1, genotype_variance[1]);
+                // **The slot map, applied** -- `GENOTYPE_TRAITS`' own doc
+                // is the contract. Branch chance is slot 0 for a shoot and
+                // slot 1 for a root, so the two halves of one plant vary
+                // independently at last: while a root's every multiplier
+                // was the shoot's draw (and, with the root vector zeroed,
+                // exactly 1.0), no amount of selection could produce a
+                // deep-rooted morph. The variance read here is this
+                // behaviour's own vector, so the root widths live in the
+                // species file's RootTip entry.
+                let is_root = cell_type == CellType::RootTip;
+                let bc_slot = if is_root { 1 } else { 0 };
+                let branch_chance = branch_chance.at(order) * genotype(world, organism_id, bc_slot, genotype_variance[bc_slot]);
+                // The shoot's upward/light jitters are gone, not moved:
+                // both measured flat across 1,024 genomes (upward at
+                // +/-40%, light at +/-50%), and light steers by noise while
+                // the per-column sky cast leaves no lateral gradient --
+                // fix the field before ever re-adding a slot for it.
+                let light_weight = light_weight.at(order);
+                let upward_weight = if is_root {
+                    // Slot 5. For a root this weights the moisture-or-down
+                    // reference below, so the one slot genuinely is "how
+                    // hard this root drives down and toward water versus
+                    // wandering" -- gravitropic and hydrotropic gain in
+                    // the single number the reference already blends.
+                    upward_weight.at(order) * genotype(world, organism_id, 5, genotype_variance[5])
+                } else {
+                    upward_weight.at(order)
+                };
                 let mut plastochron_interval = ((plastochron_interval.at(order) as f32 * genotype(world, organism_id, 2, genotype_variance[2])).round()
                     as u8)
                     .max(u8::from(plastochron_interval.at(order) > 0));
@@ -1479,6 +1569,16 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     if !growable(world, nx, ny, penetration_force) {
                         continue;
                     }
+                    // Affordable-this-tick ground only. A poor root
+                    // prefers soft ground -- roots really do follow the
+                    // path of least resistance -- and one that can only
+                    // reach rock it cannot pay for banks staleness on the
+                    // empty set below, exactly like boxed-in. Open air is
+                    // mult 1.0 and always passes: the base-cost gate above
+                    // already guaranteed `resource >= cost`.
+                    if resource < cost * penetration_cost_mult(world, nx, ny) {
+                        continue;
+                    }
                     let dir = normalize((dx as f32, dy as f32));
                     let density = candidate_crowding(world, nx, ny);
                     // **Crowding divides; it does not subtract.** The
@@ -1672,6 +1772,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     pick -= c.2;
                 }
                 let (tx, ty, _) = chosen;
+                // Priced before `set` overwrites the target -- the
+                // material being entered is what carries the resistance.
+                let step_cost = cost * penetration_cost_mult(world, tx, ty);
 
                 let shade = banded_shade(world, organism_id, cell.material, Band::Bark, &mut rng);
                 // Canopy density deposited once, here, at creation --
@@ -1718,7 +1821,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // reach the heap for the first time ever, and every open-sky
                 // tree test immediately started failing -- the call had been
                 // a silent no-op since this behavior shipped.
-                resource -= cost;
+                resource -= step_cost;
                 world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                 write_carbon(world, x, y, resource);
                 next.push(reschedule_organism(tx, ty, organism_id, 0, lineage_step, world.frame + ORGANISM_TICK_INTERVAL));
@@ -1860,7 +1963,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             }
                             chosen
                         };
-                        if growable(world, bx, by, penetration_force) {
+                        // Hard ground is priced for a lateral exactly as
+                        // for the primary step; an unaffordable target
+                        // just means no branch this tick.
+                        let branch_step_cost = cost * penetration_cost_mult(world, bx, by);
+                        if growable(world, bx, by, penetration_force) && resource >= branch_step_cost {
                             let branch_shade = banded_shade(world, organism_id, cell.material, Band::Bark, &mut rng);
                             let branch_cell =
                                 Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(cell_type));
@@ -1894,7 +2001,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             deposit_canopy(world, bx, by, GROW_CANOPY_DEPOSIT);
                             // No structural check here either -- see the
                             // primary child's identical case above.
-                            resource -= cost;
+                            resource -= branch_step_cost;
                             world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                             write_carbon(world, x, y, resource);
                             next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
@@ -2065,6 +2172,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // left.** The order is the physical one: stomata open, water
                 // goes out, and carbon comes in only while they are open.
                 let _ = transpiration; // demand is charged once per organism, in `organism_upkeep`
+                // The leaf-economy allele scales every credit -- a live
+                // tip is foliage and runs the same strategy its leaves do.
+                // (Its demand side is scaled where demand is summed, in
+                // `organism_upkeep`'s walk.)
+                let rate = rate * leaf_econ_mults(world, organism_id).0;
                 let status = water_status(world, x, y);
                 resource = (resource + rate * light * status).min(organism::RESOURCE_SCALE);
                 write_carbon(world, x, y, resource);
@@ -3066,7 +3178,23 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     // `water_capacity_of` reading root mass, what makes root mass one
     // quantity with two consequences, uptake now and anchorage later.
     let status = world.organism(organism_id).map_or(1.0, |s| s.water_status);
-    let root_weight = ROOT_BIAS_AT_FULL_WATER + (1.0 - status);
+    // **Genotype slot 6 -- root:shoot allocation bias.** A constitutively
+    // root-heavy individual against a canopy gambler, multiplying the
+    // whole root weight so it scales the plastic (1 - status) response
+    // too; bounded above by the allometric MAX_ROOT_FRACTION cap like
+    // everything else that funds roots. Variance rides the shoot Grow's
+    // vector exactly as pipe_ratio's does -- one plant, one genotype.
+    let alloc_variance = world
+        .organism(organism_id)
+        .map(|s| s.species)
+        .and_then(|sp| {
+            world.species.get(sp).behaviors(CellType::GrowingTip).iter().find_map(|b| match b {
+                Behavior::Grow { genotype_variance, .. } => Some(genotype_variance[6]),
+                _ => None,
+            })
+        })
+        .unwrap_or(0.0);
+    let root_weight = (ROOT_BIAS_AT_FULL_WATER + (1.0 - status)) * genotype(world, organism_id, 6, alloc_variance);
     let total_weight: f32 = frontier_is_root.iter().map(|&r| if r { root_weight } else { 1.0 }).sum();
     if total_weight <= 0.0 {
         return;
@@ -3128,20 +3256,22 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // the organism rather than per cell: it belongs to the *bud's* own
     // `BudBreak`, but it is `thicken` -- running on a `MatureBody` several
     // cells away -- that consumes it, and a species defines it once.
-    // Slot 4 of the genome. `pipe_ratio` lives on `SecondaryThicken` but
-    // the genome lives on `Grow`, so it is read from the species' own
-    // `GrowingTip` here rather than duplicated onto a second behaviour --
-    // one plant, one genotype.
-    let (pipe_variance, upkeep_leaf_cluster) = world
+    // Slots 4 and 7 of the genome ride this one fetch. `pipe_ratio` lives
+    // on `SecondaryThicken` and the stomatal settle at the bottom of this
+    // function, but the genome lives on `Grow`, so both are read from the
+    // species' own `GrowingTip` vector rather than duplicated onto other
+    // behaviours -- one plant, one genotype.
+    let (shoot_variance, upkeep_leaf_cluster) = world
         .species
         .get(species_id)
         .behaviors(CellType::GrowingTip)
         .iter()
         .find_map(|b| match b {
-            Behavior::Grow { genotype_variance, leaf_cluster, .. } => Some((genotype_variance[4], *leaf_cluster)),
+            Behavior::Grow { genotype_variance, leaf_cluster, .. } => Some((*genotype_variance, *leaf_cluster)),
             _ => None,
         })
-        .unwrap_or((0.0, 1));
+        .unwrap_or(([0.0; organism::GENOTYPE_TRAITS], 1));
+    let pipe_variance = shoot_variance[4];
 
     let bud_survival = world
         .species
@@ -3153,6 +3283,10 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             _ => None,
         })
         .unwrap_or(1.0);
+
+    // The leaf-economy multipliers, once for the whole walk -- the demand
+    // sum below and the credit arm both read them, and they must agree.
+    let (leaf_rate_mult, leaf_transp_mult) = leaf_econ_mults(world, organism_id);
 
     // Leaves per row, then a running total downward, so every cell can read
     // "how much foliage do I carry" without a traversal of its own.
@@ -3189,7 +3323,10 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 });
                 if let Some(rate) = transpiration {
                     let light = ambient_light_above(world, cx, cy);
-                    demand += rate * (light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
+                    // The leaf-economy allele's bill: the expensive leaf
+                    // spends more water for its higher rate, which is the
+                    // whole trade -- see `LEAF_TRANSPIRATION_ALLELES`.
+                    demand += rate * leaf_transp_mult * (light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
                 }
             }
         }
@@ -3321,14 +3458,20 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // before the credit, like the shade rule, so a leaf
                     // being shed does not also earn on the tick it dies.
                     if drought_death > 0.0 && organism::cell_type(world.get(cx, cy).aux()) == Some(CellType::Leaf) {
-                        let thirst = (1.0 - status).clamp(0.0, 1.0);
+                        // Desiccation, not the stomatal term: a leaf dies
+                        // of drying out, not of its plant's prudence. The
+                        // two are identical until a species sets
+                        // `stomatal_reserve` -- see
+                        // `OrganismState::water_desiccation` for the
+                        // trade-inversion this split prevents.
+                        let thirst = world.desiccation_at(cx, cy).clamp(0.0, 1.0);
                         if rng.chance(drought_death * thirst * thirst * thirst) {
                             world.set(cx, cy, Cell::EMPTY);
                             shed_stranded_leaves(world, cx, cy, organism_id);
                             continue;
                         }
                     }
-                    resource = (resource + rate * light * status).min(organism::RESOURCE_SCALE);
+                    resource = (resource + rate * leaf_rate_mult * light * status).min(organism::RESOURCE_SCALE);
                 }
                 Behavior::Transpire { rate } => {
                     transpire(world, cx, cy, rate);
@@ -3341,7 +3484,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // size mean anything.
                     if seed_chance > 0.0 && shoot_cells >= seed_maturity {
                         let carbon = world.organism_cell(cx, cy).map_or(0.0, |c| c.carbon);
-                        if carbon >= seed_cost && rng.chance(seed_chance) && set_seed(world, cx, cy, organism_id, &mut rng) {
+                        if carbon >= seed_cost && rng.chance(seed_chance) && set_seed(world, cx, cy, organism_id, seed_cost, &mut rng) {
                             write_carbon(world, cx, cy, carbon - seed_cost);
                         }
                     }
@@ -3419,10 +3562,32 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // `water_status` is what multiplies every photosynthetic credit and
     // every leaf's contribution to intercepted light, so this single number
     // is the entire coupling between having roots and being able to grow.
+    //
+    // **Genotype slot 7 -- the stomatal closure point.** Species scalar ×
+    // this individual's draw gives the stock fraction below which stomata
+    // begin closing: openness ramps linearly from shut at empty to fully
+    // open at the reserve line, and `reserve <= 0` is the pre-closure
+    // engine exactly. Computed before the mutable settle because
+    // `genotype` borrows the world.
+    let stomatal_reserve = world.species.get(species_id).stomatal_reserve * genotype(world, organism_id, 7, shoot_variance[7]);
     if let Some(state) = world.organism_mut(organism_id) {
-        let drawn = state.water.min(demand);
+        let capacity = water_capacity_of(state.root_cells);
+        let openness = if stomatal_reserve <= 0.0 {
+            1.0
+        } else {
+            ((state.water / capacity.max(f32::EPSILON)) / stomatal_reserve).clamp(0.0, 1.0)
+        };
+        // What fully-open stomata would have drawn -- the desiccation
+        // side, held apart from the spent side so prudence is never read
+        // as thirst (`OrganismState::water_desiccation`). With openness
+        // at 1.0 the two draws are the same number and desiccation is
+        // exactly `1 - water_status`, which is what `drought_death` read
+        // before the split existed.
+        let open_drawn = state.water.min(demand);
+        let drawn = state.water.min(demand * openness);
         state.water -= drawn;
         state.water_status = if demand > 0.0 { drawn / demand } else { 1.0 };
+        state.water_desiccation = if demand > 0.0 { 1.0 - open_drawn / demand } else { 0.0 };
         state.water_demand = demand;
         // Snapshot, then clear the accumulator: per tick rather than
         // cumulative, because a running total would be dominated by the
@@ -3576,6 +3741,19 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
         y,
         Cell::new(wood, shoot_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::GrowingTip)),
     );
+    // **The endowment lands here.** `World::set` gives the new cell a
+    // default sidecar, so the stake is written after it: a bred seed
+    // starts life holding what its parent paid (`Reproduce.seed_cost`),
+    // which is aimed at exactly the margin tree.ron's cost-tuning history
+    // names -- a fresh cell's first `Grow` check reads its carbon before
+    // any income has arrived. A planted seed's endowment is 0 and starts
+    // broke, as every scene and test has always assumed. On the shoot
+    // cell rather than split with the root: allocation and diffusion
+    // spread it from there either way.
+    let stake = world.organism(organism_id).map_or(0.0, |s| s.endowment);
+    if stake > 0.0 {
+        write_carbon(world, x, y, stake);
+    }
     let mut next = vec![reschedule_organism(x, y, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL)];
     // The companion root starts wherever this species' own `RootTip` could
     // *grow*, which since Decision 1(ii) includes penetrable soil and not
