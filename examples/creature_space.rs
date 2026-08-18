@@ -102,7 +102,22 @@ impl Sample {
 
 fn main() {
     let mut genomes = 48usize;
-    let mut seeds = 2u64;
+    // **8, not 2, and the old default could not have worked.** Measured
+    // spread of one genome over eight world seeds, 3,000 ticks:
+    //
+    //     zero        mean 0.300  sd 0.002   (a pure starvation clock)
+    //     authored    mean 0.504  sd 0.116   (range 0.312 - 0.641)
+    //     random r000 mean 0.284  sd 0.030
+    //
+    // A forager's score moves by 23% of itself on the world seed alone, so
+    // at S=2 the standard error on a genome is 0.082 against a total
+    // outcome range of about 0.30 -- an error bar a quarter as wide as the
+    // thing being measured. S=8 brings it to 0.041.
+    //
+    // Note the spread is itself genome-dependent (0.002 against 0.116), so
+    // no single S is efficient for every arm; this is sized for the noisy
+    // end, because that is the end with the foragers in it.
+    let mut seeds = 8u64;
     // **18,000 frames = 3,000 ticks, and the horizon is not a detail.**
     // An idle ant always starves at tick 900 whatever the run length, so
     // `survival` -- mean live population over the run -- is a function of
@@ -116,7 +131,15 @@ fn main() {
     // for: can this way of living *sustain* itself, rather than how much
     // of one starting battery did it spend.
     let mut frames = 18000usize;
-    let mut bins = 3usize;
+    // **2, not 3, because coverage is over `bins^4`.** At 3 bins the grid
+    // is 81 cells and the default sample is 48 genomes, so coverage was
+    // capped at 59% by sample size before the genome space got a say -- and
+    // a low number would have been unreadable, since "the space is
+    // degenerate" and "I did not draw enough samples" produce the same
+    // output. 16 cells against 48 genomes is 3x oversampled and the number
+    // means what it says. Raise it to 3 only with G ~ 400 (see the cost
+    // note on `seeds`: about 12 h at S=8).
+    let mut bins = 2usize;
     let mut mode = String::from("genomes");
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -130,6 +153,18 @@ fn main() {
         }
     }
 
+    if mode == "threads" {
+        thread_scaling(frames);
+        return;
+    }
+    if mode == "cost" {
+        cost_breakdown(frames);
+        return;
+    }
+    if mode == "noise" {
+        noise_floor(seeds.max(8), frames);
+        return;
+    }
     if mode == "spawn" {
         spawn_census();
         return;
@@ -141,18 +176,43 @@ fn main() {
     println!("creature space: {genomes} random genomes + 2 references, {seeds} seeds x {frames} frames each");
     println!("scene: scarce food (2 trees), 52 ants, 4 beetles, generated terrain\n");
 
-    let mut labelled: Vec<(String, Sample)> = Vec::new();
-
     // The two reference points, so the random distribution has something to
     // be read against. A zero genome cannot move at all, which makes it the
     // floor rather than a competitor.
-    for (label, genome) in [("zero".to_string(), vec![0.0; GENOME_LEN]), ("authored".to_string(), authored_genome())] {
-        labelled.push((label, mean_of((0..seeds).map(|s| run_one(&genome, frames, 0xC0DE + s, DEFAULT_ECONOMY)).collect())));
-    }
-    for g in 0..genomes {
-        let genome = random_genome(0x5EED + g as u64);
-        let s = mean_of((0..seeds).map(|s| run_one(&genome, frames, 0xC0DE + s, DEFAULT_ECONOMY)).collect());
-        labelled.push((format!("r{g:03}"), s));
+    let mut jobs: Vec<(String, Vec<f32>)> = vec![("zero".to_string(), vec![0.0; GENOME_LEN]), ("authored".to_string(), authored_genome())];
+    jobs.extend((0..genomes).map(|g| (format!("r{g:03}"), random_genome(0x5EED + g as u64))));
+
+    // **One thread per genome, and it is a 3.5x saving rather than a
+    // tidy-up.** Runs are embarrassingly parallel -- each owns its `World`
+    // -- and `parallel::step`'s in-run rayon pass does not saturate the
+    // machine on a world this small: four independent runs measured 43.3 s
+    // sequential against 12.3 s on four threads, a 3.52x speedup on 4
+    // available threads. That is the difference between a usefully-sized
+    // sweep taking an hour and taking five, and sizing this sweep is
+    // entirely a question of what fits in an affordable wall clock.
+    //
+    // Determinism is unaffected: every run is keyed by its own genome and
+    // world seed and shares no state, so results do not depend on the order
+    // threads happen to finish in. Chunked rather than one thread per job so
+    // that a large `genomes` does not spawn hundreds of threads that then
+    // contend.
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let mut labelled: Vec<(String, Sample)> = Vec::new();
+    for chunk in jobs.chunks(threads) {
+        let done: Vec<(String, Sample)> = std::thread::scope(|scope| {
+            let handles: Vec<_> = chunk
+                .iter()
+                .map(|(label, genome)| {
+                    scope.spawn(move || {
+                        let s = mean_of((0..seeds).map(|sd| run_one(genome, frames, 0xC0DE + sd, DEFAULT_ECONOMY)).collect());
+                        (label.clone(), s)
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().expect("a sweep run panicked")).collect()
+        });
+        labelled.extend(done);
+        eprintln!("  {} / {} genomes done", labelled.len(), jobs.len());
     }
 
     // --- the distribution, which is the actual output --------------------
@@ -307,6 +367,143 @@ no setting made foraging pay. Least bad: {what} -- advantage {adv:+.3}"),
         None => println!("
 every setting made food abundant; scarcity was never tested"),
     }
+}
+
+/// **Do independent runs get faster in parallel, or is `parallel::step`
+/// already using the machine?** The whole feasibility of a large genome
+/// sweep turns on this one ratio: runs are embarrassingly parallel (each
+/// owns its `World`), so if the in-run rayon pass is leaving cores idle on
+/// a world this small, a sweep is several times cheaper than the
+/// sequential estimate says.
+fn thread_scaling(frames: usize) {
+    let genomes: Vec<Vec<f32>> = (0..4).map(|i| random_genome(0x5EED + i)).collect();
+    let seq_start = std::time::Instant::now();
+    for (i, g) in genomes.iter().enumerate() {
+        run_one(g, frames, 0xC0DE + i as u64, DEFAULT_ECONOMY);
+    }
+    let seq = seq_start.elapsed();
+
+    let par_start = std::time::Instant::now();
+    std::thread::scope(|scope| {
+        for (i, g) in genomes.iter().enumerate() {
+            scope.spawn(move || {
+                run_one(g, frames, 0xC0DE + i as u64, DEFAULT_ECONOMY);
+            });
+        }
+    });
+    let par = par_start.elapsed();
+
+    println!("4 independent runs at {frames} frames each:");
+    println!("  sequential {:>7.1} s  ({:.1} s per run)", seq.as_secs_f64(), seq.as_secs_f64() / 4.0);
+    println!("  4 threads  {:>7.1} s  ({:.1} s per run)", par.as_secs_f64(), par.as_secs_f64() / 4.0);
+    println!("  speedup    {:>7.2}x on {} available threads", seq.as_secs_f64() / par.as_secs_f64(), std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0));
+}
+
+/// **Where does a run's time actually go?** The sizing question turns on
+/// it: worldgen, the 2,400-frame warmup and the tree growth are *identical
+/// for every genome at a given seed* -- nothing in the scene depends on the
+/// genome until the ants are planted -- so whatever fraction of a run they
+/// are is a fraction the sweep is paying G times over for no information.
+fn cost_breakdown(frames: usize) {
+    let (w, h) = (512i32, 160i32);
+    let t0 = std::time::Instant::now();
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    world.seed = 0xC0DE;
+    let (presets, _) = pixel_physics::worldgen::WorldgenPresets::load();
+    let Some(params) = presets.get(PRESET) else { return };
+    pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: 0xC0DE });
+    let gen = t0.elapsed();
+
+    let surface = |world: &World, x: i32| -> i32 {
+        (0..h).find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder)).unwrap_or(h - 1)
+    };
+    let surface_at: Vec<i32> = (0..w).map(|x| surface(&world, x)).collect();
+    let nest = world.materials.id_of("nest").expect("nest");
+    for x in 16..90 {
+        world.set(x, surface_at[x as usize], Cell::new(nest, 0).with_attached(true));
+    }
+    for i in 0..2 {
+        let x = 150 + i * 150;
+        world.plant_tree(x, surface_at[x as usize] - 1);
+    }
+    let t1 = std::time::Instant::now();
+    for _ in 0..2400 {
+        parallel::step(&mut world);
+        world.step_active_sites();
+        world.step_fields();
+    }
+    let warmup = t1.elapsed();
+
+    // The genome-dependent half, timed at the real length.
+    let t2 = std::time::Instant::now();
+    for _ in 0..frames {
+        parallel::step(&mut world);
+        world.step_active_sites();
+        world.step_fields();
+        world.step_pheromones();
+    }
+    let main = t2.elapsed();
+
+    let setup = gen + warmup;
+    let total = setup + main;
+    println!("one run at {frames} frames, preset {PRESET}:");
+    println!("  worldgen            {:>7.1} s", gen.as_secs_f64());
+    println!("  warmup 2400 frames  {:>7.1} s", warmup.as_secs_f64());
+    println!("  main {frames} frames  {:>7.1} s", main.as_secs_f64());
+    println!("  ---");
+    println!("  setup (genome-independent, cacheable) {:>6.1} s = {:.0}%", setup.as_secs_f64(), 100.0 * setup.as_secs_f64() / total.as_secs_f64());
+    println!("  total                                 {:>6.1} s", total.as_secs_f64());
+    println!("  note: this run carries no ants, so the main loop is a floor, not the real per-run cost.");
+    println!("
+threads rayon can use: {}", std::thread::available_parallelism().map(|n| n.get()).unwrap_or(0));
+}
+
+/// **How big does the genome sweep need to be?** Both halves of that are
+/// measurements, not opinions, and this is the first: how much does one
+/// genome's score move when only the world seed changes?
+///
+/// Everything downstream depends on it. A sweep that cannot separate two
+/// genomes by more than its own seed-to-seed spread is measuring weather,
+/// and `CLAUDE.md` is explicit that outcomes here have enormous spread --
+/// twelve identical trees from one genome span 31 to 153 cells. The number
+/// of seeds per genome has to come from the standard error this reports,
+/// not from a round number.
+///
+/// Run against three reference genomes, because the spread is not
+/// necessarily the same everywhere in the space: the zero genome cannot
+/// move and should be nearly noiseless (it is a pure starvation clock),
+/// while a forager's outcome depends on where the terrain put the food.
+/// If those two have very different spreads, seeds cannot be a constant.
+fn noise_floor(seeds: u64, frames: usize) {
+    println!("noise floor: one genome, {seeds} world seeds, {frames} frames ({} ticks)
+", frames / 6);
+    println!("{:<12} {:>9} {:>9} {:>9} {:>9} {:>9}  per-seed survival", "genome", "mean", "sd", "min", "max", "sd/mean");
+    let refs: [(&str, Vec<f32>); 3] =
+        [("zero", vec![0.0; GENOME_LEN]), ("authored", authored_genome()), ("random r000", random_genome(0x5EED))];
+    let started = std::time::Instant::now();
+    let mut runs = 0usize;
+    for (label, genome) in refs {
+        let vals: Vec<f32> = (0..seeds)
+            .map(|s| {
+                runs += 1;
+                run_one(&genome, frames, 0xC0DE + s, DEFAULT_ECONOMY).survival
+            })
+            .collect();
+        let n = vals.len() as f32;
+        let mean = vals.iter().sum::<f32>() / n;
+        let sd = (vals.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / (n - 1.0).max(1.0)).sqrt();
+        let (min, max) = (vals.iter().cloned().fold(f32::MAX, f32::min), vals.iter().cloned().fold(f32::MIN, f32::max));
+        let each: Vec<String> = vals.iter().map(|v| format!("{v:.3}")).collect();
+        println!("{label:<12} {mean:>9.3} {sd:>9.3} {min:>9.3} {max:>9.3} {:>9.2}  {}", if mean > 0.0 { sd / mean } else { 0.0 }, each.join(" "));
+    }
+    let per_run = started.elapsed().as_secs_f64() / runs as f64;
+    println!("
+cost: {runs} runs in {:.0} s, {per_run:.1} s per run at {frames} frames", started.elapsed().as_secs_f64());
+    println!("So a sweep of G genomes x S seeds costs about G*S*{per_run:.1} s.");
+    // The seeds needed for a target standard error, from the widest sd seen.
+    println!("
+seeds needed to resolve a survival difference of D, at the widest sd s:");
+    println!("  n = 2*(1.96*s/D)^2 per arm (two-sided, 95%); for s = 0.05: D=0.10 -> n=2, D=0.05 -> n=8, D=0.02 -> n=48");
 }
 
 /// **How many of the 52 ants asked for actually get placed?**
