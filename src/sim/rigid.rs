@@ -703,6 +703,27 @@ fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
     world.schedule_structural_check_around(x, y);
 }
 
+
+/// Squared distance from a point to the segment `a..b`, in cell units.
+///
+/// Integer throughout: this decides which cells a cut removes, and
+/// determinism is required, so it must not depend on float rounding.
+fn distance2_to_segment(p: (i32, i32), a: (i32, i32), b: (i32, i32)) -> i32 {
+    let (abx, aby) = (b.0 - a.0, b.1 - a.1);
+    let (apx, apy) = (p.0 - a.0, p.1 - a.1);
+    let len2 = abx * abx + aby * aby;
+    if len2 == 0 {
+        return apx * apx + apy * apy; // degenerate: a plain disc about `a`
+    }
+    // Project onto the segment and clamp to it, keeping the parameter as a
+    // rational `t = dot / len2` so nothing leaves integer arithmetic.
+    let dot = (apx * abx + apy * aby).clamp(0, len2);
+    let (qx, qy) = (a.0 * len2 + abx * dot, a.1 * len2 + aby * dot);
+    let (dx, dy) = (p.0 * len2 - qx, p.1 * len2 - qy);
+    // Divide the squared distance back out of the squared scale.
+    ((dx as i64 * dx as i64 + dy as i64 * dy as i64) / (len2 as i64 * len2 as i64)) as i32
+}
+
 /// Score fractures radiating out from a blow.
 ///
 /// A crack runs *along* the ray, so it separates the rock either side of
@@ -844,13 +865,46 @@ fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, ray
 /// the disc may be part air already and because a material with no
 /// `breaks_into` is declined rather than deleted.
 pub fn mine(world: &mut World, cx: i32, cy: i32, radius: i32, spoil_yield: f32) -> usize {
+    mine_swept(world, (cx, cy), (cx, cy), radius, spoil_yield)
+}
+
+/// `mine`, cutting the **capsule** swept from `from` to `to` rather than a
+/// disc at a point.
+///
+/// # Why a bore has to be swept and not stamped
+///
+/// A disc of radius r is `2r+1` tall only on its exact centre line, and
+/// narrower everywhere else. A tunnel driven as a row of discs therefore
+/// has a scalloped roof and floor, and its *usable* height is the scallop,
+/// not the disc. The owner spotted the shape on sight -- "why are you
+/// digging tunnels a row of circles instead of a tunnel" -- and it had
+/// already cost more than looks: the gnome is `PLAYER_HEIGHT` 14 cells
+/// tall, a radius-7 bite is 15 cells at its middle, and the pinch between
+/// two bites measured **13**. He dug a bore, walked to the mouth of it and
+/// stopped there for good, wedged between a floor bump and a ceiling in a
+/// passage his own height. Dumped at frame 400: rock at y=299, air 300 to
+/// 312, rock at 313.
+///
+/// Sweeping the bite from the last one to this one fills exactly that
+/// pinch, so a run of bites is a corridor of constant `2r+1` height with
+/// no scallops in it at all.
+///
+/// The distance is capped by the caller (see `player::dig`): a swept cut
+/// between two points far apart would carve a trench across everything
+/// between them, which is right for a continuing bore and wrong for a
+/// digger who has just walked somewhere else.
+pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i32, spoil_yield: f32) -> usize {
     let radius = radius.max(1);
+    let (cx, cy) = to;
+    // The swept region's bounding box, then a point-to-segment test per
+    // cell inside it. Cheap enough at these radii, and it degenerates to
+    // exactly the old disc when `from == to`.
+    let (lo_x, hi_x) = (from.0.min(cx) - radius, from.0.max(cx) + radius);
+    let (lo_y, hi_y) = (from.1.min(cy) - radius, from.1.max(cy) + radius);
     let mut loosened = Vec::new();
-    for dy in -radius..=radius {
-        for dx in -radius..=radius {
-            let (x, y) = (cx + dx, cy + dy);
-            let d2 = dx * dx + dy * dy;
-            if d2 > radius * radius || !world.in_bounds(x, y) {
+    for y in lo_y..=hi_y {
+        for x in lo_x..=hi_x {
+            if distance2_to_segment((x, y), from, to) > radius * radius || !world.in_bounds(x, y) {
                 continue;
             }
             if !is_body_material(world, x, y) || world.get(x, y).organism_id() != 0 {
@@ -1798,6 +1852,62 @@ mod tests {
         assert!(
             gone_at_half > 0 && gone_at_half < gone_at_void,
             "yield 0.5 removed {gone_at_half}, which is not between 0 and the full bite of {gone_at_void}"
+        );
+    }
+
+    /// Two bites offset from each other leave a corridor with no pinch in
+    /// it, where two stamped discs leave one.
+    ///
+    /// **A paired comparison, and it has to be**: "the swept cut is open
+    /// at the midpoint" is true of a wide enough disc too. What is under
+    /// test is the *difference*, which is the pinch between consecutive
+    /// bites — 13 cells clear where the bore is 15, against a gnome 14
+    /// tall, which is why he stood at the mouth of his own tunnel and
+    /// never went in.
+    ///
+    /// Yield 0.0 so the cut leaves air rather than rubble: this is about
+    /// the shape of the hole, and rubble sitting in it would be counted as
+    /// "not clear" while being something the digger can wade through.
+    #[test]
+    fn a_swept_bite_leaves_no_pinch_between_it_and_the_last_one() {
+        const R: i32 = 5;
+        let solid = || {
+            let mut w = test_world();
+            for y in 10..60 {
+                for x in 0..64 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            crate::sim::structural::compute_world_distances(&mut w);
+            w
+        };
+        // Clear cells in the column halfway between the two bite points.
+        let clear_at = |w: &World, x: i32| (10..60).filter(|&y| w.get(x, y).material == material::EMPTY).count();
+
+        let (a, b) = ((30, 35), (30 + R + 2, 35));
+        let midpoint = (a.0 + b.0) / 2;
+
+        let mut stamped = solid();
+        mine(&mut stamped, a.0, a.1, R, 0.0);
+        mine(&mut stamped, b.0, b.1, R, 0.0);
+
+        let mut swept = solid();
+        mine(&mut swept, a.0, a.1, R, 0.0);
+        mine_swept(&mut swept, a, b, R, 0.0);
+
+        let (pinch, corridor) = (clear_at(&stamped, midpoint), clear_at(&swept, midpoint));
+        assert!(
+            corridor > pinch,
+            "a swept bite should widen the pinch between two bites: stamped left {pinch} clear cells at the midpoint, swept left {corridor}"
+        );
+        // And the corridor is the *full* bore, not merely wider: `2R + 1`
+        // is what the bite is on its centre line, and the whole point is
+        // that a swept cut is that tall everywhere rather than only there.
+        assert_eq!(
+            corridor,
+            (2 * R + 1) as usize,
+            "the swept corridor should be the full {} cells tall at the midpoint, was {corridor}",
+            2 * R + 1
         );
     }
 

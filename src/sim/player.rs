@@ -466,6 +466,9 @@ pub struct Player {
     pub wading: bool,
     /// Ticks until the next swimming stroke may fire.
     stroke_cooldown: u8,
+    /// Where the last bite landed, so the next one can be *swept* from it
+    /// rather than stamped as a fresh disc. See `rigid::mine_swept`.
+    last_bite: Option<(i32, i32)>,
 }
 
 impl Player {
@@ -485,6 +488,7 @@ impl Player {
             swimming: false,
             wading: false,
             stroke_cooldown: 0,
+            last_bite: None,
         }
     }
 
@@ -928,7 +932,22 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
         // there: only *freshly* broken cells are thinned, never sand that
         // was already lying in the bore, which would delete material the
         // player poured in themselves.
-        let dusted = crate::sim::rigid::mine(world, at.0, at.1, radius, tuning.dig_yield);
+        // Swept from the previous bite, which is what makes a run of
+        // bites a corridor instead of a row of circles -- and what stops
+        // the gnome wedging in the pinch between two of them, since he is
+        // 14 cells tall and that pinch measured 13. See `rigid::mine_swept`.
+        //
+        // Only when the last bite was near enough to be *this* bore.
+        // Without the cap, walking away and digging again would carve a
+        // trench across everything in between: the sweep is meant to join
+        // consecutive bites at a working face, not to connect two places
+        // the digger happens to have visited.
+        let from = match p.last_bite {
+            Some(last) if (last.0 - at.0).abs().max((last.1 - at.1).abs()) <= radius * SWEEP_REACH => last,
+            _ => at,
+        };
+        p.last_bite = Some(at);
+        let dusted = crate::sim::rigid::mine_swept(world, from, at, radius, tuning.dig_yield);
         // How far spoil may be thrown, and the two cases genuinely differ.
         //
         // A bite at a rock face only ever needs to shove material a cell or
@@ -967,6 +986,14 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
 // that every digger -- the gnome, the `D` key, and the creatures -- shares
 // one spoil model rather than the gnome honouring `dig_yield` while the
 // sandbox verb ignored it.
+
+/// How far apart two bites may be, in bite radii, and still be joined
+/// into one corridor rather than treated as two separate holes.
+///
+/// Two, so a digger walking at any sane pace keeps cutting one continuous
+/// bore -- his stride between bites is well inside that -- while a jump
+/// across the map starts a fresh one.
+const SWEEP_REACH: i32 = 2;
 
 /// Where a bite aimed at `aim` would land, without digging anything.
 ///

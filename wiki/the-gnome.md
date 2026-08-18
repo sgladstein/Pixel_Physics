@@ -84,7 +84,12 @@ the cursor's only ever loosened rock in place, which meant the tool you
 tested a cave with was not the tool that dug it.
 
 He bites at a steady rate rather than continuously, so holding the button
-reads as a series of blows rather than a beam.
+reads as a series of blows rather than a beam. Consecutive bites are joined
+into one another, so working a face as you walk cuts a **corridor** rather
+than a string of round chambers — which matters for more than looks, since
+a chain of circles pinches between each pair and he is very nearly as tall
+as his own bore. Before this he could dig a tunnel he then could not walk
+into.
 
 Tunnelling has consequences. Rock that was holding up an overhang stops
 holding it up, and enough of it will bring the roof down — undermine a

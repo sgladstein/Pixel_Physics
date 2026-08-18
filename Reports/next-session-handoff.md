@@ -197,7 +197,28 @@ preset and seed from the title bar, where they clicked, and `D` or `C`.
 
 ---
 
-## 1a-NEW. START HERE: the gnome cannot get into his own tunnel
+## 1a-NEW. FIXED: the gnome could not get into his own tunnel
+
+**Fixed by sweeping the bite.** `rigid::mine_swept` cuts the capsule from
+the last bite to this one instead of stamping a disc, so a run of bites is
+a corridor of constant `2r+1` height with no pinch in it. `player::dig`
+passes its previous bite point, capped at `SWEEP_REACH` bite radii so
+walking somewhere else starts a fresh bore rather than carving a trench
+across everything between.
+
+Measured on `scene=tunnel`, where he starts at x=150 and used to stop dead
+at **178**: he now reaches **505** at `yield=0.0` and **294** at the 0.35
+default — the width of the world, against 28 cells before.
+`target/filmstrips/tunnel-capsule.png` shows a continuous passage with him
+progressively further along it.
+
+The original diagnosis is kept below because the *measurement* is what
+found it, and because the same pinch geometry is why bores read as a row
+of circles.
+
+---
+
+## 1a-NEW (original diagnosis). The gnome cannot get into his own tunnel
 
 **The owner's stated next priority, in their words: "we need to go back to
 making sure we can dig a cave."** It does not work, the reproduction is one
