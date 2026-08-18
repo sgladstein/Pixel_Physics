@@ -253,6 +253,36 @@ pub struct World {
     /// not. Being able to run the *same binary* both ways is what makes a
     /// before/after a measurement rather than a memory of an older build.
     pub arch_relief: bool,
+    /// How far from something that was actually disturbed a structural
+    /// failure is allowed to happen, in cells, and for how long. See
+    /// `ChainMode`; `i32::MAX` is the shipped behaviour (no limit).
+    ///
+    /// # Why this is a policy and not a deletion
+    ///
+    /// The owner asked how simple "no chaining at all" would be. The
+    /// obvious lever -- the `schedule_solid_neighbours` calls a failure
+    /// makes -- was measured and is **inert**: switching it off produced
+    /// bit-identical output on the big-strike scene. What actually
+    /// propagates a collapse is the distance-relaxation wavefront, and
+    /// that *is* the structural model: remove it and distances never
+    /// update. So the only place to stand is at the far end, refusing a
+    /// failure that is too far from anything that happened.
+    ///
+    /// It is a slider rather than a switch on purpose, because the owner
+    /// has stated two opposed wants: "they chain too far and too much",
+    /// and "collapse must be obvious and delayed, so the player can get
+    /// supports in first" -- which is a description of chaining. One
+    /// radius spans both, and which one is right is a question for the
+    /// hand rather than for argument.
+    pub chain_reach: i32,
+    /// How long a disturbance keeps licensing failures near it, in frames.
+    /// Generous by default: a cave-in that arrives a few seconds after you
+    /// undermine something is the mechanic, not a bug.
+    pub chain_window: u64,
+    /// Where the world was last disturbed, and when. A small ring: only
+    /// the most recent handful matter, since older ones fall outside
+    /// `chain_window` anyway.
+    pub disturbances: std::collections::VecDeque<(i32, i32, u64)>,
 
     /// Per-frame caches for the load walks (`load::Cache`).
     /// Cleared by `scheduler::step` each frame and again by
@@ -402,6 +432,9 @@ impl World {
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
             crush_confined: true,
             arch_relief: true,
+            chain_reach: i32::MAX,
+            chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
+            disturbances: std::collections::VecDeque::new(),
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
             seed: DEFAULT_WORLD_SEED,

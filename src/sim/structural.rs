@@ -365,6 +365,22 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     if matches!(verdict, super::load::ChainVerdict::Deferred) {
         defer!();
     }
+    // Damage stays near what was actually disturbed, if a reach is set.
+    //
+    // Checked here rather than earlier so the cell is still *evaluated*:
+    // the load model keeps working, the stress view keeps reading true,
+    // and only the consequence is withheld. Gating the evaluation instead
+    // would make far-away rock unfailable in principle, which is the
+    // binary immunity four earlier support models were rejected for.
+    //
+    // `Vec::new()`, so a refused cell stops being rescheduled rather than
+    // spinning: it will be looked at again when something disturbs it, and
+    // that something is exactly what would license it to fail.
+    if let super::load::ChainVerdict::Failing(_) = verdict {
+        if !world.within_disturbance(x, y) {
+            return Vec::new();
+        }
+    }
     if let super::load::ChainVerdict::Failing(failure) = verdict {
         // The forest this describes is about to change out from under it.
         world.load_cache.clear();
@@ -1533,7 +1549,79 @@ impl World {
             self.schedule_structural_check(x + dx, y + dy);
         }
     }
+
+    /// Record that something actually happened at `(x, y)` — a blow, a
+    /// cut, a blast. See `World::chain_reach`: with a reach set, failures
+    /// are only permitted near one of these, so anything that should be
+    /// able to *cause* a collapse has to report itself here.
+    ///
+    /// Deliberately coarse. The ring holds only the most recent few,
+    /// because anything older has fallen outside `chain_window` and a
+    /// player cannot disturb dozens of places in the same second.
+    pub fn record_disturbance(&mut self, x: i32, y: i32) {
+        let frame = self.frame;
+        self.disturbances.push_back((x, y, frame));
+        while self.disturbances.len() > MAX_DISTURBANCES {
+            self.disturbances.pop_front();
+        }
+    }
+
+    /// Whether a failure at `(x, y)` is close enough in space and recent
+    /// enough in time to something that was disturbed.
+    ///
+    /// Chebyshev distance rather than Euclidean: the question is "is this
+    /// within the box around what I hit", the cheap answer is the right
+    /// shape, and a circle would only make the corners of a blast behave
+    /// differently from its sides for no reason anyone could see.
+    pub fn within_disturbance(&self, x: i32, y: i32) -> bool {
+        if self.chain_reach == i32::MAX {
+            return true;
+        }
+        self.disturbances.iter().any(|&(dx, dy, frame)| {
+            self.frame.saturating_sub(frame) <= self.chain_window && (x - dx).abs().max((y - dy).abs()) <= self.chain_reach
+        })
+    }
 }
+
+/// How many recent disturbances are remembered. A player cannot disturb
+/// more places than this inside one `chain_window`, and a blast that wants
+/// a wider licence should raise `chain_reach` rather than report itself
+/// many times.
+const MAX_DISTURBANCES: usize = 16;
+
+/// How long a disturbance keeps licensing failures near it, in frames —
+/// ten seconds at 60Hz.
+///
+/// Generous deliberately. The owner's requirement is that *"collapse must
+/// be obvious and delayed, so the player can get supports in first"*, and
+/// a short window would make an undermined roof safe the moment you
+/// stopped digging, which is the opposite of that.
+pub const CHAIN_WINDOW_FRAMES: u64 = 600;
+
+/// Named settings for `World::chain_reach`, cycled with `F9`.
+///
+/// A selector rather than a decision, for the same reason the grain modes
+/// and the spoil modes are: the owner has said both *"they chain too far
+/// and too much"* and *"collapse must be obvious and delayed, so the
+/// player can get supports in first"*, and those pull opposite ways. Which
+/// is right is a question for the hand, not for argument -- five grain
+/// modes behind one key settled in minutes what no amount of still images
+/// had.
+///
+/// Ordered from the shipped behaviour outward, so cycling is a tour from
+/// "as it is" to the far end.
+pub struct ChainMode {
+    pub name: &'static str,
+    pub note: &'static str,
+    pub reach: i32,
+}
+
+pub const CHAIN_MODES: [ChainMode; 4] = [
+    ChainMode { name: "SPREAD", note: "damage travels as far as the load says - costs nothing, chains furthest", reach: i32::MAX },
+    ChainMode { name: "LOCAL", note: "damage stays within a wide room of what you hit", reach: 48 },
+    ChainMode { name: "TIGHT", note: "the wound and its surroundings only - undermining still bites", reach: 16 },
+    ChainMode { name: "NONE", note: "only what you struck ever fails - nothing collapses later", reach: 0 },
+];
 
 #[cfg(test)]
 mod tests {
@@ -2055,6 +2143,66 @@ mod tests {
         run(&mut w, 200);
 
         assert_eq!(w.get(3, 30).material, debris, "the far end of the bridge never collapsed after its support was cut");
+    }
+
+    /// A reach limit keeps damage near what was actually disturbed, and
+    /// the paired case proves it is the *limit* doing it rather than the
+    /// scene having become unbreakable.
+    ///
+    /// The same bridge as above, cut the same way. Unlimited reach is the
+    /// shipped behaviour and the far end must still come down; with the
+    /// reach pulled in and the cut recorded far away, it must not.
+    ///
+    /// **The cut records no disturbance of its own here**, deliberately:
+    /// the test sets one somewhere else, so that "near a disturbance" is
+    /// the only thing separating the two runs. Letting the cut record
+    /// itself would license the collapse in both and the test would pass
+    /// while exercising nothing.
+    #[test]
+    fn a_reach_limit_keeps_damage_near_what_was_disturbed() {
+        fn cut_bridge(reach: i32, disturb_at: Option<(i32, i32)>) -> World {
+            let mut w = test_world();
+            w.chain_reach = reach;
+            for x in 0..4 {
+                w.set(x, 30, Cell::new(material::STONE, 0));
+            }
+            w.schedule_structural_check(3, 30);
+            run(&mut w, 200);
+            w.set(0, 30, Cell::EMPTY);
+            w.schedule_structural_check_around(0, 30);
+            if let Some((dx, dy)) = disturb_at {
+                w.record_disturbance(dx, dy);
+            }
+            run(&mut w, 200);
+            w
+        }
+
+        let debris = stone_debris(&test_world());
+        let unlimited = cut_bridge(i32::MAX, None);
+        assert_eq!(
+            unlimited.get(3, 30).material,
+            debris,
+            "with no reach limit the far end must still collapse -- otherwise this proves nothing about the limit"
+        );
+
+        // Reach 4, and the only disturbance is 40 cells away: the bridge
+        // is outside it, so nothing there may fail.
+        let limited = cut_bridge(4, Some((50, 30)));
+        assert_eq!(
+            limited.get(3, 30).material,
+            material::STONE,
+            "damage far from anything that was disturbed must not happen once a reach is set"
+        );
+
+        // ...and the same limit with the disturbance *on* the bridge lets
+        // it go, which is what stops this being "a reach limit makes rock
+        // invincible".
+        let licensed = cut_bridge(4, Some((1, 30)));
+        assert_eq!(
+            licensed.get(3, 30).material,
+            debris,
+            "a reach limit must still permit damage next to what was actually disturbed"
+        );
     }
 
     #[test]

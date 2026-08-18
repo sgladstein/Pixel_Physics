@@ -112,3 +112,34 @@ loosens the rock around it, scores short cracks, and shoves the air — so
 carving a doorway through a wall is something the wall above it finds out
 about. It's the quiet, aimed counterpart to striking, which is the heavy
 swing.
+
+## How far damage travels
+
+Breaking something does not only break that thing. Cut away what a shelf
+was standing on and the shelf comes down a moment later; undermine a cliff
+for long enough and it comes apart above and behind you. That delay is the
+point — it is what gives you time to see it coming and get out, or to put
+a support in.
+
+It can also be too much. A heavy blow on a hillside used to keep finding
+new things to break for a thousand frames afterwards, well away from where
+it landed, which reads less like a collapse than like the world quietly
+rotting.
+
+So how far consequences may travel from what you actually hit is a setting,
+cycled with `F9`, named in the title bar whenever it is not the default:
+
+- **SPREAD** (default) — damage travels as far as the structure says it
+  should. Nothing is held back.
+- **LOCAL** — consequences stay within a wide room of the blow.
+- **TIGHT** — the wound and its surroundings only. Undermining still brings
+  things down, but a hillside stops unravelling.
+- **NONE** — only what you struck is ever destroyed. Nothing collapses
+  afterwards, at all.
+
+The whole range is one number, so it is worth trying the ends rather than
+reasoning about them. Note what the tighter settings cost: a delayed
+cave-in is a mechanic, and **NONE** removes it entirely — you can undercut
+a mountain and it will sit there.
+
+*Current as of: this build.*

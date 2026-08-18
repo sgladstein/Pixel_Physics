@@ -109,6 +109,8 @@ pub struct App {
     pub movement_feel: usize,
     pub water_feel: usize,
     pub spoil_mode: usize,
+    /// Index into `structural::CHAIN_MODES`; 0 is the shipped behaviour.
+    pub chain_mode: usize,
     pub renderer: Renderer,
     pub brush_radius: i32,
     /// Index into `paintable`, not a `MaterialId`, so cycling wraps cleanly.
@@ -341,6 +343,7 @@ impl App {
             movement_feel: 0,
             water_feel: 0,
             spoil_mode: 0,
+            chain_mode: 0,
             renderer: Renderer::new(),
             brush_radius: 6,
             selected,
@@ -473,6 +476,19 @@ impl App {
         let mode = &player::SPOIL_MODES[self.spoil_mode];
         self.player_tuning.dig_yield = mode.dig_yield;
         let line = format!("SPOIL: {} - {}", mode.name, mode.note.to_uppercase());
+        self.show_toast(&line);
+    }
+
+    /// `F9` — cycle how far damage is allowed to travel from what was
+    /// actually hit. See `structural::ChainMode` for why this is a
+    /// selector: the owner wants both "they chain too far and too much"
+    /// and "collapse must be obvious and delayed", and those pull opposite
+    /// ways.
+    pub fn cycle_chain_mode(&mut self) {
+        self.chain_mode = (self.chain_mode + 1) % crate::sim::structural::CHAIN_MODES.len();
+        let mode = &crate::sim::structural::CHAIN_MODES[self.chain_mode];
+        self.world.chain_reach = mode.reach;
+        let line = format!("CHAINING: {} - {}", mode.name, mode.note.to_uppercase());
         self.show_toast(&line);
     }
 
@@ -1741,7 +1757,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1777,6 +1793,15 @@ impl App {
                 String::new()
             } else {
                 format!(" — spoil {}", player::SPOIL_MODES[self.spoil_mode].name)
+            },
+            // Same "only once turned on" rule as spoil: silent at the
+            // default, named on screen the moment it is not, because a
+            // destruction model behaving differently from the shipped one
+            // must never be a thing the player has to remember.
+            if self.chain_mode == 0 {
+                String::new()
+            } else {
+                format!(" — chain {}", crate::sim::structural::CHAIN_MODES[self.chain_mode].name)
             },
             // Same "only once turned on" rule. Worth showing at all because
             // the tint is subtle on a sparse tree and "is this channel on,

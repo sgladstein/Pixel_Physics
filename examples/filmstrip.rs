@@ -103,6 +103,9 @@ fn build(args: &Args) -> World {
     // cut as much as for the run that follows it.
     w.crush_confined = args.confine;
     w.arch_relief = args.arch;
+    if let Some(reach) = args.chain_reach {
+        w.chain_reach = reach;
+    }
     let floor_y = HEIGHT - FLOOR_THICKNESS;
     match args.scene.as_str() {
         // A large body released against the left wall, spreading right across
@@ -1014,6 +1017,10 @@ struct Args {
     /// `arch=0` -- turn off `World::arch_relief`, so a roof carries the
     /// whole column above it again. The control for the arching change.
     arch: bool,
+    /// `chain_reach=N` -- how far from something actually disturbed a
+    /// failure may happen, in cells. Unset means no limit, the shipped
+    /// behaviour. `0` is "only what you struck ever fails".
+    chain_reach: Option<i32>,
 
 }
 
@@ -1051,6 +1058,7 @@ fn parse() -> Args {
         min_cave: None,
         confine: true,
         arch: true,
+        chain_reach: None,
         wall: 3,
         dig: 3,
         strike: 0,
@@ -1122,6 +1130,7 @@ fn parse() -> Args {
             }
             "confine" => a.confine = v != "0" && v != "false",
             "arch" => a.arch = v != "0" && v != "false",
+            "chain_reach" => a.chain_reach = Some(v.parse().expect("chain_reach")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
             "loadmap" => a.loadmap = v != "false",

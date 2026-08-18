@@ -873,6 +873,9 @@ pub fn mine(world: &mut World, cx: i32, cy: i32, radius: i32, spoil_yield: f32) 
         world.schedule_structural_check_around(x, y);
     }
     world.add_pressure_impulse(cx, cy, radius.max(2), loosened.len() as f32 * MINE_PRESSURE);
+    // A cut is a disturbance: it licenses failures near it. See
+    // `World::chain_reach`.
+    world.record_disturbance(cx, cy);
     // Last, so everything above sees the full bite as rubble. That
     // ordering is not incidental: it is exactly what `player::dig` did
     // when the thinning lived there, so moving it in here changes the
@@ -951,6 +954,9 @@ const MINE_CRACK_RAYS: u32 = 3;
 const MINE_PRESSURE: f32 = 0.4;
 
 pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
+    // A blow is a disturbance: it licenses failures near it. See
+    // `World::chain_reach`.
+    world.record_disturbance(cx, cy);
     // A blow has a floor, and the brush does not.
     //
     // Reported from play as "striking a cliff does nothing", with the

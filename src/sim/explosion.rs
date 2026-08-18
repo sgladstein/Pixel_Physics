@@ -273,6 +273,9 @@ impl Blasts {
         // before the first stage runs rather than after.
         world.add_pressure_impulse(cx, cy, radius, strength);
         world.add_heat(cx, cy, radius, strength / self.tuning.heat_fraction);
+        // A blast is a disturbance: it licenses failures near it. See
+        // `World::chain_reach`.
+        world.record_disturbance(cx, cy);
         let mut blast = Blast { cx, cy, radius, strength, stage: 0 };
         if blast.advance(world, particles, &self.tuning) {
             self.active.push(blast);
