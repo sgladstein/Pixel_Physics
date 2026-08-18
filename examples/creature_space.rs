@@ -198,6 +198,14 @@ fn main() {
     // contend.
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
     let mut labelled: Vec<(String, Sample)> = Vec::new();
+    // **Rows are printed as they finish, not collected and printed at the
+    // end.** A full-resolution sweep is a twelve-hour unattended run, and a
+    // crash, a full disk or a machine that decides to sleep at hour eleven
+    // must not cost all of it: every completed genome is on stdout the
+    // moment it exists, so a partial run is still a usable sample that can
+    // be re-analysed. The derived sections (spread, behaviour-space
+    // coverage) need the whole set and stay at the bottom.
+    println!("{:<10} {:>9} {:>10} {:>9} {:>9} {:>7}", "genome", "survival", "travelled", "commute", "feeding", "depth");
     for chunk in jobs.chunks(threads) {
         let done: Vec<(String, Sample)> = std::thread::scope(|scope| {
             let handles: Vec<_> = chunk
@@ -211,17 +219,13 @@ fn main() {
                 .collect();
             handles.into_iter().map(|h| h.join().expect("a sweep run panicked")).collect()
         });
+        for (label, s) in &done {
+            println!("{label:<10} {:>9.3} {:>10.1} {:>9.3} {:>9.3} {:>7.1}", s.survival, s.travelled, s.commute, s.feeding, s.depth);
+        }
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
         labelled.extend(done);
         eprintln!("  {} / {} genomes done", labelled.len(), jobs.len());
-    }
-
-    // --- the distribution, which is the actual output --------------------
-    println!("{:<10} {:>9} {:>10} {:>9} {:>9} {:>7}", "genome", "survival", "travelled", "commute", "feeding", "depth");
-    for (label, s) in &labelled {
-        println!(
-            "{label:<10} {:>9.3} {:>10.1} {:>9.3} {:>9.3} {:>7.1}",
-            s.survival, s.travelled, s.commute, s.feeding, s.depth
-        );
     }
 
     let random: Vec<Sample> = labelled.iter().skip(2).map(|(_, s)| *s).collect();
