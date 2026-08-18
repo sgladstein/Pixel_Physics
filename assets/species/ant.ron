@@ -69,7 +69,25 @@
         // herbivory, and it needed no new code at all: a Leaf cell is just
         // a cell, and the plant finds out it has lost one through its own
         // connectivity check. That is the interaction nobody had to write.
-        food: ["corpse", "seed", "leaf"],
+        // **"moss" is the ground-level half, and it is the one an ant can
+        // actually reach.** Leaves are renewable but they grow in the
+        // canopy: a census of four worldgen presets found thousands of
+        // leaves per run and between 0 and 11 of them within three cells of
+        // the ground. Moss lives exactly where ants walk, and it spreads by
+        // division rather than being placed once, so it replenishes.
+        //
+        // It only replenishes on *damp* ground -- moss is poikilohydric and
+        // wants shade and water, so on dry sunlit terrain it sits there and
+        // never divides (10 cells on "rolling" at warmup, 10 after 6,000
+        // frames; 86 -> 1,194 on "wetland"). So this earns its place on
+        // wet maps and is inert on arid ones, which is the right shape for
+        // an ecology rather than a supply drop.
+        //
+        // Measured, at a horizon where doing nothing is genuinely fatal:
+        // the forager's advantage over an immobile genome goes +0.187 ->
+        // +0.247 with moss on the menu, and the fraction of ants that ever
+        // feed themselves goes 0.42 -> 0.55.
+        food: ["corpse", "seed", "leaf", "moss"],
         nest: "nest",
 
         // Against Material::penetration_resistance, the pattern roots

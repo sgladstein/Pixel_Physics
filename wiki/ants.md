@@ -33,8 +33,17 @@ of where ants have been.
 **They eat, and they carry.** A hungry ant eats what it finds. An ant that
 is not hungry picks the food up instead and tries to take it home, which is
 the difference between an animal feeding itself and a colony feeding
-itself. Ants eat dead things — corpses and seeds. Live plants are safe from
-them for now.
+itself. Ants eat dead things — corpses and seeds — and they eat leaves off
+living trees, which is what makes a stand of trees a food supply rather
+than a pile that runs out. A tree finds out it has lost a leaf the same way
+it would if the wind took it.
+
+Whether they can *reach* the leaves is a different question, and mostly
+they cannot: leaves grow in the canopy and ants walk on the ground. What
+they can reach is **moss**, which grows on damp stone at exactly ant
+height and spreads on its own, so a wet map feeds a colony and a dry one
+does not. On dry ground moss sits where it is and never spreads, and a
+colony there lives much closer to the edge.
 
 **They dig.** Ants chew through soil and stop at anything harder. This is
 not a list of what ants may dig; it is a contest between how hard the ant
