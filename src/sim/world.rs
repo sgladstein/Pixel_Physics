@@ -138,6 +138,35 @@ pub struct World {
     /// re-schedules itself or a neighbour while running is a fresh
     /// request, not a stale one being silently dropped.
     pending_structural_checks: std::collections::HashSet<(i32, i32)>,
+    /// The topmost row of *ground* in each column, indexed from
+    /// `bounds.min_x`, recorded once and never revised. `i32::MAX` for a
+    /// column that held no ground at all; empty until `freeze_sky_surface`
+    /// has run.
+    ///
+    /// **This is the definition of "underground", and it deliberately does
+    /// not follow the world.** Everything below a column's entry is inside
+    /// the ground as far as anything looking at the world is concerned, and
+    /// digging, building, collapsing and growing all leave it exactly where
+    /// it was. That is the point: a tunnel you dig stays a tunnel however
+    /// wide you make it, and a plank you lay across a gap does not turn the
+    /// air under it into a cave.
+    ///
+    /// **Every attempt to infer this from the shape of the world has been
+    /// wrong in a new way**, which is what makes storing it worth the eight
+    /// kilobytes. Measured on the version this replaced, which took the
+    /// topmost non-empty cell and then patched up anything with higher
+    /// ground within six columns either side: one floating cell put twenty
+    /// rows of cave under it, a plank of *any* width from one cell to fifty
+    /// did the same, and a dug shaft flipped from tunnel to open daylight
+    /// between twelve and thirteen cells wide — which is exactly the
+    /// dimension a player widens. Geometry cannot tell "I dug this" from "I
+    /// built this" from "this is a hill", and no reach or threshold makes it
+    /// able to.
+    ///
+    /// A `Vec` over the world's width, which is 8 KB at 2048 wide. M10's
+    /// streaming will want this keyed per chunk column instead, alongside
+    /// everything else that is currently sized to a resident world.
+    sky_surface: Vec<i32>,
     /// Backing storage for promoted `liquid::LiquidBody` bodies (`Reports/
     /// liquid-heightfield-design.md` §9a) — the `World::organisms` /
     /// `OrganismSlot` generational-slot pattern, reused rather than
@@ -389,6 +418,7 @@ impl World {
             player: None,
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
+            sky_surface: Vec::new(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
             body_index: HashMap::new(),
@@ -1829,7 +1859,60 @@ impl World {
     }
 
     pub fn begin_step(&mut self) {
+        // Idempotent, and the first simulated frame is the right moment:
+        // the world has been generated (or hand-built) by now, and nothing
+        // has had a chance to dig into it or build on top of it yet, since
+        // both of those are things that happen while it runs. A regenerate
+        // makes a whole new `World` (`App::reset`), so this cannot go stale.
+        self.freeze_sky_surface();
         self.frame = self.frame.wrapping_add(1);
+    }
+
+    /// Record where the ground starts in each column, once. See
+    /// `sky_surface`.
+    ///
+    /// **Ground means `Solid` or `Powder`, and each exclusion is load-bearing.**
+    ///
+    /// `Plant` and `Creature` are things standing *in* the world rather than
+    /// part of it. Worldgen plants trees before the first frame runs, so a
+    /// canopy is present at freeze time, and counting it would bake the very
+    /// bug this replaced into the one place nothing can later correct: the
+    /// air under every generated tree dark for the life of the world.
+    ///
+    /// `Liquid` and `Gas` are excluded because **a water surface is not a
+    /// ground surface, and water levels move.** Counting the top of a lake
+    /// would fix the sky at the waterline as it stood on frame one, so
+    /// anything that lowered it afterwards — draining it into a shaft,
+    /// evaporation, a dam breaking — would leave a band of false cave
+    /// hanging in the open air above the new level, creeping down as the
+    /// lake fell. Seen in a render: mining into a lake drained it and left a
+    /// dimmed strip along the old waterline. Taking the rock beneath as the
+    /// surface makes the whole water column read as outdoors, which it is,
+    /// and it costs nothing because a liquid cell is not empty and draws as
+    /// itself either way.
+    pub fn freeze_sky_surface(&mut self) {
+        let Some(b) = self.bounds else { return };
+        if !self.sky_surface.is_empty() {
+            return;
+        }
+        let width = b.width() as usize;
+        self.sky_surface = (0..width as i32)
+            .map(|i| {
+                let x = b.min_x + i;
+                (b.min_y..=b.max_y)
+                    .find(|&y| {
+                        matches!(self.materials.kind(self.get(x, y).material), MaterialKind::Solid | MaterialKind::Powder)
+                    })
+                    .unwrap_or(i32::MAX)
+            })
+            .collect();
+    }
+
+    /// The frozen ground surface, one entry per column indexed from
+    /// `bounds.min_x`, or empty if it has not been frozen yet — which only
+    /// happens for a world nothing has ever stepped.
+    pub fn sky_surface(&self) -> &[i32] {
+        &self.sky_surface
     }
 
     pub fn end_step(&mut self) {

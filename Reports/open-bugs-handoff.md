@@ -151,32 +151,40 @@ what persists is chunks awake doing invisible fill shuffling.
 This is what the heightfield bodies exist to fix (O(width) instead), and
 they are blocked on the promotion gap below.
 
-### 4b. A cell alone in the air drops its column's skyline
+### 4b. ~~A cell alone in the air drops its column's skyline~~ — **CLOSED, by removing the inference entirely**
 
-Left open by the fix for "shade under a tree is way too intense"
-(`render.rs`, `rebuild_horizon`). That fix stopped `Plant` and `Creature`
-cells from setting a skyline, because a canopy was painting a hard-edged
-black rectangle over the sky behind it for the full depth of the world.
-The same defect one size down is still there for every other kind: the
-skyline is the topmost non-empty cell, so a single grain of sand thrown up
-by a collapse lowers its whole column for as long as it is airborne, and
-everything under it draws as the inside of a cave.
+Logged and closed in the same session. It was the tail of "shade under a
+tree is way too intense": the skyline was the topmost non-empty cell, so
+anything in the air above a column made everything below it draw as the
+inside of a cave.
 
-**Not currently visible**, which is why it was left: explosion debris are
-off-grid particles (`particle.rs`) and never occupy cells, so the obvious
-reproduction — `filmstrip scene=boom` — shows nothing at all. What would
-show it is airborne *cells*: a collapse shedding grains, or material
-painted into open sky.
+Fixed by not inferring it. `World::sky_surface` records the top of the
+ground once, on the world's first frame, and nothing revises it —
+`Reports/underground-definition.md` has the reasoning and the numbers.
 
-The fix is a rule about contiguity with the ground rather than about
-material kind, and it needs its own guard, because the deliberate opposite
-behaviour is right next to it: `digging_a_shaft_does_not_bring_the_sky_
-down_with_it` asserts that stacking material up **does** take the skyline
-with it, and a tower is exactly a column of cells in what used to be sky.
-The difference is that a tower reaches the ground and a thrown grain does
-not.
+**What is worth carrying forward is why every inferred version failed**, and
+it is a case of `CLAUDE.md`'s "when a rule must tell apart two things that
+can look identical, state the difference as data". Four shapes have to be
+distinguished — a hill, a shaft someone dug, a roof someone built, and a
+grain in mid-air — and from the world as it stands they are the same
+arrangement of cells. Measured on the last inferred version, which took the
+topmost cell and then repaired any column with higher ground within six
+either side:
 
-### 5. Automatic promotion — blocker removed, still not ready
+| shape | verdict |
+|---|---|
+| one floating cell | 20 rows of cave under it |
+| plank 1 to 51 wide | identical to the floating cell |
+| shaft ≤ 12 wide | tunnel (correct) |
+| shaft ≥ 13 wide | open daylight 35 rows into the mountain |
+
+No reach setting fixes that: the repair rule had a width threshold in one
+direction and no rule at all in the other, and mining is the activity that
+walks a shape across exactly that threshold. The difference between "I dug
+this" and "this is a hill" is *history*, not geometry, and history has to be
+stored.
+
+### 5. Automatic promotion### 5. Automatic promotion — blocker removed, still not ready
 
 `promote_liquid_body` is called **only from tests**, so `liquid.rs` — the
 pipe solver, the seam, ~1000 lines — never runs in play and every bug in it

@@ -33,7 +33,8 @@ const UNDERGROUND: [u8; 4] = [31, 29, 33, 255];
 /// flat black cutout rather than an opening. Light does not stop at a lintel;
 /// it reaches in and falls off, and a ramp is both what that looks like and
 /// the cheapest possible way to draw it — the depth is already known, since
-/// `sky_floor` is exactly the row it is measured from.
+/// the column's frozen ground surface is exactly the row it is measured
+/// from.
 ///
 /// Twenty-four cells is three field blocks, and it is set by eye rather than
 /// from anything physical: shallower and a built room still reads as a black
@@ -386,7 +387,6 @@ const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 /// little enough that you can still see what you are standing on.
 const FLASH_LIFT: f32 = 0.34;
 
-const SHAFT_REACH: i32 = 6;
 
 const DAMP_DARKEN: u32 = 150;
 const CRACK_DARKEN: u16 = 110;
@@ -582,8 +582,6 @@ pub struct Renderer {
     horizon: Vec<i32>,
     /// World x the `horizon` entries start at.
     horizon_origin: i32,
-    /// `horizon` with shafts filled back in — see `rebuild_sky_floor`.
-    sky_floor: Vec<i32>,
 }
 
 impl Renderer {
@@ -624,7 +622,6 @@ impl Renderer {
             last_moon_rect: None,
             horizon: Vec::new(),
             horizon_origin: 0,
-            sky_floor: Vec::new(),
         }
     }
 
@@ -895,7 +892,7 @@ impl Renderer {
         self.sky = Sky::at(world.frame, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
             .muted(sky::overcast(weather.intensity));
         self.daylight = sky::daylight_level(world.frame);
-        self.rebuild_horizon(world, touched);
+        self.rebuild_horizon(world);
         let sky_key = self.sky.key();
         let sky_changed = self.last_sky_key != Some(sky_key);
         self.last_sky_key = Some(sky_key);
@@ -1305,116 +1302,78 @@ impl Renderer {
         }
     }
 
-    /// Re-find the skyline, for the columns that can have changed.
+    /// Cache this world's frozen ground surface, so `sky_depth` can answer
+    /// without a `World` in hand — `draw_lightning` and the drawn
+    /// precipitation both ask it and neither has one.
     ///
-    /// A full rescan is one pass over the world and would be paid on every
-    /// frame anything moves. Only columns inside a touched chunk can have a
-    /// new skyline, so the usual cost is a couple of chunk widths; the full
-    /// scan happens once, when the cache does not exist yet or the world
-    /// changed size.
-    fn rebuild_horizon(&mut self, world: &World, touched: &HashSet<ChunkCoord>) {
+    /// **There is nothing to re-find.** `World::sky_surface` is written once
+    /// and never revised, so this fills in the first time it is called and
+    /// then returns immediately — which is why it no longer takes the
+    /// touched-chunk set it used to rescan from. What that replaced was a
+    /// scan of every column inside a touched chunk *plus* a repair pass over
+    /// a six-column neighbourhood, on every frame anything moved.
+    ///
+    /// **The repair pass is gone with it, and that is the substance of the
+    /// change rather than a tidy-up.** `rebuild_sky_floor` existed for one
+    /// reason — a dug shaft dropped its column's skyline and the sky came
+    /// down the hole with the pick — and it worked by assuming any column
+    /// standing lower than the ground on both sides of it was a hole to be
+    /// filled back in. That is a guess about intent read off a shape, and it
+    /// was wrong in both directions at once. It could not rescue a shaft
+    /// wider than twice its reach: measured, a 13-cell shaft let daylight 35
+    /// rows down into a mountain where a 12-cell one stayed a tunnel, and
+    /// widening a shaft is exactly what mining is. And it never applied to
+    /// the opposite case at all, so one cell left in the air still put a
+    /// column of cave beneath it, as did a plank of any width from one to
+    /// fifty. A surface that cannot move needs no repair, and asks no
+    /// question that geometry has to answer.
+    ///
+    /// The fallback covers a world nothing has ever stepped — a few tests,
+    /// and nothing else, since `World::begin_step` freezes on the first
+    /// frame. Reading the world as it stands is the same answer for a world
+    /// that has never run.
+    fn rebuild_horizon(&mut self, world: &World) {
         let Some(b) = world.bounds() else {
             self.horizon.clear();
             return;
         };
-        let width = b.width() as usize;
-        // **Terrain only.** A `Plant` or a `Creature` standing in the air
-        // is not ground and must not set a skyline, because everything
-        // below a skyline draws as `UNDERGROUND` — so taking the topmost
-        // cell of *any* kind meant a tree canopy painted a hard-edged black
-        // rectangle over the sky behind it, the full depth of the world,
-        // for every column it covered. Reported from play as "the effect
-        // where light is blocked below plants is way too intense"; it was
-        // not the light channel at all (`apply_light` reads the global
-        // daylight, never the field), it was this.
-        //
-        // The rule stays "topmost", not "topmost thick thing", so building
-        // a tower still takes the skyline up with it — that is deliberate
-        // and `digging_a_shaft_does_not_bring_the_sky_down_with_it` checks
-        // it. What it now excludes is the two kinds that are *in* the world
-        // rather than *of* it. A single grain of sand falling through open
-        // sky still lowers its column for the frames it is airborne, which
-        // is the same defect one size down and is left alone here: it wants
-        // a rule about contiguity with the ground, and that is a different
-        // change with a different guard.
-        let scan = |world: &World, x: i32| {
-            (b.min_y..=b.max_y)
-                .find(|&y| {
-                    let m = world.get(x, y).material;
-                    m != material::EMPTY
-                        && !matches!(
-                            world.materials.kind(m),
-                            crate::sim::material::MaterialKind::Plant | crate::sim::material::MaterialKind::Creature
-                        )
-                })
-                .unwrap_or(i32::MAX)
-        };
-        if self.horizon.len() != width || self.horizon_origin != b.min_x {
-            self.horizon = (0..width as i32).map(|i| scan(world, b.min_x + i)).collect();
+        // **Copied every frame, not cached on a size check.** `App::reset`
+        // builds a whole new `World` and keeps the same `Renderer`, so a
+        // cache keyed on "same width, same origin" would hold the *previous*
+        // terrain's skyline over freshly generated ground for the rest of
+        // the session. The copy is a memcpy of one `i32` per column -- 8 KB
+        // at 2048 wide -- against a draw that touches every pixel.
+        if !world.sky_surface().is_empty() {
+            self.horizon.clear();
+            self.horizon.extend_from_slice(world.sky_surface());
             self.horizon_origin = b.min_x;
-            self.rebuild_sky_floor(0, width as i32 - 1);
             return;
         }
-        let mut lo = i32::MAX;
-        let mut hi = i32::MIN;
-        for coord in touched {
-            let cb = coord.bounds();
-            for x in cb.min_x.max(b.min_x)..=cb.max_x.min(b.max_x) {
-                let i = (x - b.min_x) as usize;
-                self.horizon[i] = scan(world, x);
-                lo = lo.min(i as i32);
-                hi = hi.max(i as i32);
-            }
+        // Fallback, for a world nothing has ever stepped. That is a handful
+        // of tests and the app's very first draw if it lands before the
+        // first update; a world that has never run cannot have been dug, so
+        // reading it as it stands gives the same answer the freeze will.
+        // Kept on the size check because this one is a full column scan.
+        let width = b.width() as usize;
+        if self.horizon.len() == width && self.horizon_origin == b.min_x {
+            return;
         }
-        if lo <= hi {
-            // Widened by the reach, because a column's own skyline depends on
-            // its neighbours' — digging at `x` changes the answer for every
-            // column within reach of it.
-            self.rebuild_sky_floor(lo - SHAFT_REACH, hi + SHAFT_REACH);
-        }
-    }
-
-    /// The skyline used for drawing, which is **not** the topmost solid cell.
-    ///
-    /// Reported from play: mining the top of a column dropped that column's
-    /// horizon, so the sky came down the hole with the pick and a one-cell
-    /// shaft dug into a mountain drew a strip of bright sky to its middle.
-    /// "Can the sky reach this cell" is *true* down a shaft, and is simply
-    /// not the question the background is asking; what it wants is "is this
-    /// inside the ground".
-    ///
-    /// A column is inside the ground where the terrain to **both** sides
-    /// stands higher than it does. That distinguishes the two cases that
-    /// look alike from a single column:
-    ///
-    /// - a shaft has higher ground on both sides, so it is inside the
-    ///   mountain and draws dark;
-    /// - a cliff edge has higher ground on one side only, so the open air
-    ///   beside it is still sky — which a plain "lowest of my neighbours"
-    ///   rule gets wrong, painting a dark band along the foot of every
-    ///   cliff in the world.
-    ///
-    /// Deliberately **stateless** — a function of the world as it stands,
-    /// not of what the renderer saw earlier. A first version remembered the
-    /// highest the ground had ever been, which fixed the shaft and broke
-    /// `dirty_rect_skip_is_pixel_identical_to_a_full_redraw`, because a
-    /// skyline that depends on history cannot agree between a renderer that
-    /// has one and a fresh one that does not.
-    fn rebuild_sky_floor(&mut self, from: i32, to: i32) {
-        let n = self.horizon.len() as i32;
-        self.sky_floor.resize(self.horizon.len(), i32::MAX);
-        for i in from.max(0)..=to.min(n - 1) {
-            let own = self.horizon[i as usize];
-            let side = |range: std::ops::RangeInclusive<i32>| {
-                range.filter(|&j| j >= 0 && j < n).map(|j| self.horizon[j as usize]).min().unwrap_or(i32::MAX)
-            };
-            let left = side(i - SHAFT_REACH..=i - 1);
-            let right = side(i + 1..=i + SHAFT_REACH);
-            // Higher ground on both sides means this column is a slot in
-            // something, and the sky stops at the shallower of the two
-            // shoulders rather than following the slot down.
-            self.sky_floor[i as usize] = if left < own && right < own { left.max(right) } else { own };
-        }
+        self.horizon = (0..width as i32)
+            .map(|i| {
+                // Same definition of ground as `World::freeze_sky_surface`,
+                // which has the reasoning for each exclusion.
+                let x = b.min_x + i;
+                (b.min_y..=b.max_y)
+                    .find(|&y| {
+                        matches!(
+                            world.materials.kind(world.get(x, y).material),
+                            crate::sim::material::MaterialKind::Solid | crate::sim::material::MaterialKind::Powder
+                        )
+                    })
+                    .unwrap_or(i32::MAX)
+            })
+            .collect();
+        self.horizon_origin = b.min_x;
     }
 
     /// Whether this position is open to the sky, rather than a void inside
@@ -1444,7 +1403,7 @@ impl Renderer {
         if i < 0 || i as usize >= self.horizon.len() {
             return -1;
         }
-        let floor = *self.sky_floor.get(i as usize).unwrap_or(&i32::MAX);
+        let floor = *self.horizon.get(i as usize).unwrap_or(&i32::MAX);
         if floor == i32::MAX {
             return -1;
         }
@@ -2003,35 +1962,142 @@ mod tests {
     /// Reported from play: mining the top of a column dropped that column's
     /// horizon and the sky came down the hole with the pick, so a one-cell
     /// shaft dug into a mountain drew a strip of bright sky to its middle.
+    ///
+    /// Now guaranteed by construction rather than repaired: the ground
+    /// surface is frozen on the world's first frame (`World::
+    /// freeze_sky_surface`) and digging cannot move it. The widths are the
+    /// substance of this test — the rule this replaced inferred the answer
+    /// from shape with a six-column reach, and flipped from "tunnel" to
+    /// "open daylight" between a 12- and a 13-cell shaft. Widening a shaft
+    /// is what mining *is*, so a rule with a width threshold anywhere in it
+    /// is a rule that breaks while the player is using it.
     #[test]
     fn digging_a_shaft_does_not_bring_the_sky_down_with_it() {
+        for width in [1i32, 12, 13, 40] {
+            let mut world = World::new(Rect::new(0, 0, 127, 127));
+            for x in 0..128 {
+                for y in 40..128 {
+                    world.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            // **The order of events is the test.** The world runs first,
+            // which is what freezes the surface and what a player's world
+            // has always done before they pick anything up. Digging into a
+            // world that has never been stepped is not a sequence that
+            // exists outside a test.
+            world.begin_step();
+            for x in (64 - width / 2)..=(64 + width / 2) {
+                for y in 40..100 {
+                    world.set(x, y, Cell::EMPTY);
+                }
+            }
+            let mut r = Renderer::new();
+            r.rebuild_horizon(&world);
+
+            assert!(!r.under_sky(64, 90), "a cell deep inside a {width}-wide mined shaft is underground, not sky");
+            assert!(r.under_sky(64, 20), "open air above the terrain is still sky ({width}-wide shaft)");
+        }
+    }
+
+    /// **Building up no longer lowers the sky, and that is a deliberate
+    /// reversal.** The rule this replaced took the skyline from the topmost
+    /// cell, so stacking material into the air took the sky down with it —
+    /// which was the same mechanism that put a black rectangle under every
+    /// tree and a column of cave under every single floating pixel, and
+    /// there is no version of it that keeps one and drops the other.
+    ///
+    /// What is lost: lay a roof over a gap and the space under it reads as
+    /// outdoors rather than as a room. What is gained: it reads as outdoors
+    /// *because it is*, and nothing a player builds can accidentally
+    /// blacken the world under it. Making a building read as indoors is a
+    /// wall layer, deliberately not this (`Reports/open-bugs-handoff.md`).
+    #[test]
+    fn building_a_roof_does_not_turn_the_air_under_it_into_a_cave() {
         let mut world = World::new(Rect::new(0, 0, 127, 127));
         for x in 0..128 {
-            for y in 40..128 {
+            for y in 80..128 {
                 world.set(x, y, Cell::new(material::STONE, 0));
             }
         }
+        world.begin_step();
+        for x in 20..110 {
+            world.set(x, 40, Cell::new(material::STONE, 0));
+        }
         let mut r = Renderer::new();
-        // **The order of events is the test.** Establishing the skyline
-        // before the shaft exists is what a player does and is the only
-        // sequence that reproduces this: mine first and the renderer's
-        // opening scan records the shaft floor as the true ground, the sky
-        // fills the hole, and a working fix looks broken.
-        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
-        for y in 40..100 {
-            world.set(64, y, Cell::EMPTY);
-        }
-        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
+        r.rebuild_horizon(&world);
 
-        assert!(!r.under_sky(64, 90), "a cell deep inside a mined shaft is underground, not sky");
-        assert!(r.under_sky(64, 20), "open air above the terrain is still sky");
-        // Building *up* must still raise the skyline, or the rule is
-        // "the horizon never changes" rather than "it never falls".
-        for y in 20..40 {
-            world.set(64, y, Cell::new(material::STONE, 0));
+        assert!(r.under_sky(64, 60), "the air under a roof built after the world started is still outdoors");
+        assert!(!r.under_sky(64, 100), "rock below the frozen surface is still underground");
+    }
+
+    /// `App::reset` builds a new `World` and keeps the `Renderer`, so the
+    /// cached skyline has to follow the world rather than the buffer size.
+    /// An earlier version of `rebuild_horizon` returned early whenever the
+    /// width and origin matched, which is *always* true across a
+    /// regenerate — it would have drawn the previous terrain's skyline over
+    /// freshly generated ground for the rest of the session, and no test in
+    /// this file would have noticed because none of them regenerate.
+    #[test]
+    fn regenerating_the_world_does_not_leave_the_old_skyline_behind() {
+        let bounds = Rect::new(0, 0, 127, 127);
+        let mut high = World::new(bounds);
+        for x in 0..128 {
+            for y in 30..128 {
+                high.set(x, y, Cell::new(material::STONE, 0));
+            }
         }
-        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
-        assert!(!r.under_sky(64, 25), "stacking material up into the sky should take the skyline with it");
+        high.begin_step();
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&high);
+        assert!(!r.under_sky(64, 60), "test setup: y=60 is inside the high terrain");
+
+        // A whole new world, same bounds, ground much lower -- exactly what
+        // switching preset or reseeding produces.
+        let mut low = World::new(bounds);
+        for x in 0..128 {
+            for y in 90..128 {
+                low.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        low.begin_step();
+        r.rebuild_horizon(&low);
+        assert!(r.under_sky(64, 60), "the skyline must follow the new world, not the old one's dimensions");
+    }
+
+    /// A lake whose level falls must not leave a band of false cave hanging
+    /// above it. Water is not ground, so the frozen surface is the rock
+    /// under the lake and the whole water column reads as outdoors however
+    /// far the level drops.
+    ///
+    /// This is not hypothetical: mining into a lake drains it (seen in a
+    /// `viewshot mine=1` render, which is what caught the first version
+    /// counting the waterline), and evaporation lowers one on its own.
+    #[test]
+    fn draining_a_lake_does_not_leave_a_dark_band_above_it() {
+        let mut world = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 100..128 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 40..90 {
+            for y in 60..100 {
+                world.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        world.begin_step();
+        // The level falls by half.
+        for x in 40..90 {
+            for y in 60..80 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+
+        assert!(r.under_sky(64, 61), "air where the lake used to be is open sky, not a cave");
+        assert!(r.under_sky(64, 99), "the last row above the lake bed is still sky");
+        assert!(!r.under_sky(64, 110), "rock under the lake bed is underground");
     }
 
     /// Reported from play: "the effect where light is blocked below plants
@@ -2053,14 +2119,14 @@ mod tests {
         }
         let wood = world.materials.id_of("wood").expect("wood is a compiled-in material");
         // A canopy: a horizontal plate of wood well above the ground, with
-        // open air under it. Deliberately wide, so `rebuild_sky_floor`'s
-        // "higher ground on both sides" rule cannot rescue the middle of it
-        // the way it rescues a one-cell shaft.
+        // open air under it. Deliberately wide: the rule this replaced had a
+        // six-column reach, so a narrow plate could be rescued by accident
+        // and prove nothing.
         for x in 40..90 {
             world.set(x, 40, Cell::new(wood, 0));
         }
         let mut r = Renderer::new();
-        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
+        r.rebuild_horizon(&world);
 
         assert!(r.under_sky(64, 60), "the air under a canopy is sky, not the inside of a cave");
         assert!(r.under_sky(64, 79), "the ground under a canopy is lit by daylight");
@@ -2089,7 +2155,7 @@ mod tests {
             world.set(x, 20, Cell::new(material::STONE, 0));
         }
         let mut r = Renderer::new();
-        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
+        r.rebuild_horizon(&world);
         r.sky = crate::sky::Sky::at(600, 0, 127, 0, 127); // mid-morning, so the sky is bright
 
         let brightness = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
@@ -2106,6 +2172,65 @@ mod tests {
             deep <= dark + 2,
             "past the fade depth it must reach full dark, or every cave in the world turns grey: {deep} against {dark}"
         );
+    }
+
+
+    /// What "underground" currently answers, across the shapes mining and
+    /// building actually produce. Prints rather than asserts: this is the
+    /// evidence for the design question in `Reports/`, not a guard.
+    #[test]
+    #[ignore = "probe, not a guard"]
+    fn probe_what_counts_as_underground() {
+        const GROUND: i32 = 80;
+        let build = |f: &dyn Fn(&mut World)| -> Renderer {
+            let mut world = World::new(Rect::new(0, 0, 127, 127));
+            for x in 0..128 {
+                for y in GROUND..128 {
+                    world.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            // The world runs, which freezes the surface, and only then is
+            // it edited -- the order a player produces, and the only one
+            // that says anything about digging or building at all.
+            world.begin_step();
+            f(&mut world);
+            let mut r = Renderer::new();
+            r.rebuild_horizon(&world);
+            r
+        };
+        let plank = |w: &mut World, half: i32| {
+            for x in (64 - half)..=(64 + half) {
+                w.set(x, 40, Cell::new(material::STONE, 0));
+            }
+        };
+        let shaft = |w: &mut World, half: i32| {
+            for x in (64 - half)..=(64 + half) {
+                for y in GROUND..115 {
+                    w.set(x, y, Cell::EMPTY);
+                }
+            }
+        };
+
+        println!("{:<44}  {:>10}  verdict", "geometry", "at (64,60)");
+        let report = |label: &str, r: &Renderer, y: i32| {
+            let d = r.sky_depth(64, y);
+            println!("{label:<44}  {d:>10}  {}", if d < 0 { "sky" } else { "UNDERGROUND" });
+        };
+        report("bare ground", &build(&|_| {}), 60);
+        report("one floating cell at y=40", &build(&|w| w.set(64, 40, Cell::new(material::STONE, 0))), 60);
+        report("1-wide spire, y=40 up from the ground", &build(&|w| {
+            for y in 40..GROUND {
+                w.set(64, y, Cell::new(material::STONE, 0));
+            }
+        }), 60);
+        for half in [0, 1, 3, 6, 12, 25] {
+            report(&format!("plank {} wide at y=40", half * 2 + 1), &build(&|w| plank(w, half)), 60);
+        }
+        println!();
+        println!("{:<44}  {:>10}  verdict", "geometry", "at (64,100)");
+        for half in [0, 1, 3, 6, 12, 25] {
+            report(&format!("shaft {} wide dug from the surface", half * 2 + 1), &build(&|w| shaft(w, half)), 100);
+        }
     }
 
     #[test]

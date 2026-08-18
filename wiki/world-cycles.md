@@ -30,19 +30,29 @@ Sky is only drawn where there is actually sky. Open space *inside* the ground
 at noon as much as at midnight. Anything else would mean daylight showing
 through the middle of a mountain.
 
-**Being indoors comes on gradually.** Go in under a roof and the light does
-not switch off at the doorway: it dims sharply in the first row or two and
-keeps falling for about the height of a small room before it is properly
-dark. So a shallow overhang stays a lit place you can see into, the mouth of
-a cave reads as an opening rather than a hole cut out of the picture, and
-only depth is actually black. A deep shaft is as dark as it ever was.
+**Underground means below where the ground was when the world began**, and
+nothing you do afterwards moves it. Dig a shaft and it stays a dark shaft
+however wide you make it — carve out a whole cavern and it is still a
+cavern, not a courtyard. That is the point of fixing it once: a mine should
+not fill with daylight because you widened a tunnel by one more swing.
 
-**Trees and creatures do not make it dark under them.** Only the ground
-counts as being indoors under — a canopy is something standing in the world,
-not part of it, so you see sky between the leaves and the grass under a tree
-is in daylight. Trees do shade each other, and plants respond to that, but
-it is not something the picture shows yet: nothing on screen darkens because
-a tree is above it.
+The same rule from the other side: **nothing you put in the air makes it
+dark underneath**. A tree, a bridge, a roof, a stray block left floating —
+none of them turn the space below into a cave, because none of them are
+ground. So you see sky between the leaves of a tree, and the space under a
+platform you build reads as outdoors, because it is. Making a building read
+as *indoors* is a separate thing that does not exist yet.
+
+**Being underground comes on gradually.** Go in under the surface and the
+light does not switch off at the doorway: it dims sharply in the first row
+or two and keeps falling for about the height of a small room before it is
+properly dark. So a shallow scrape stays a lit place you can see into, the
+mouth of a cave reads as an opening rather than a hole cut out of the
+picture, and only depth is actually black.
+
+Trees do shade each other, and plants respond to that, but it is not
+something the picture shows yet: nothing on screen darkens because a tree is
+above it.
 
 **The ground is lit by the time of day too.** Rock, soil and water all darken
 through the evening and brighten at dawn, and they pick up the colour of the
