@@ -123,6 +123,31 @@ run crackflat   scene=worldcrack preset=flat   seed=7 dig=6 start=2 every=250 co
 run crackflat1  scene=worldcrack preset=flat   seed=1 dig=6 start=2 every=250 count=4 zoom=1 max_failures=40 repeat=2 max_frame_ms=$BUDGET_MS
 run crackcanyon scene=worldcrack preset=canyon seed=7 dig=6 start=2 every=250 count=4 zoom=1 max_failures=40 repeat=2 max_frame_ms=$BUDGET_MS
 
+# 9/10. A cave can be dug and it does not collapse -- and a shallow one
+#    does. The owner's own statement of what this milestone has to do:
+#    "just want to make sure a cave can be dug and not collapse."
+#
+#    Gated on **roofed void** (empty cells with rock above them), not on
+#    cells destroyed, because cells-destroyed ranks these backwards: a
+#    2-cell roof and an 8-cell roof both come down completely and the thin
+#    one contains less rock, so the worse outcome reads as the smaller
+#    number. Measured at depth 6/12/18 the void keeps 10% / 41% / 100%,
+#    which is the ordering anyone looking at it would give.
+#
+#    The pair is the point, as with the room cases: "nothing collapses"
+#    passes the first by making rock invincible, and that is how four
+#    earlier support models died.
+#
+#    `preset=flat` specifically. On sloping terrain the scene drives a
+#    horizontal bore at a fixed depth below the surface *at one x*, so on a
+#    hillside it leaves the hill -- `rolling` seed 24301 starts with 124
+#    cells of roofed void against flat's 678, and that is the scene, not
+#    the model. Two seeds because it is procedural; measured 100% on seeds
+#    1, 7 and 24301, so the bar at 90 has real headroom.
+run cavedeep   scene=worldcrack preset=flat seed=7 dig=4 tunnel=35 depth=18 start=2 every=600 count=4 zoom=1 min_cave=90       repeat=2 max_frame_ms=$BUDGET_MS
+run cavedeep1  scene=worldcrack preset=flat seed=1 dig=4 tunnel=35 depth=18 start=2 every=600 count=4 zoom=1 min_cave=90       repeat=2 max_frame_ms=$BUDGET_MS
+run caveshallow scene=worldcrack preset=flat seed=7 dig=4 tunnel=35 depth=6 start=2 every=600 count=4 zoom=1 min_overloaded=50 repeat=2 max_frame_ms=$BUDGET_MS
+
 # 6. A struck cliff throws pieces. Asserted as *bodies in flight*, not as
 #    overload failures: the mechanism here is the blow's own fracture, and
 #    an earlier bar on overload failures duly broke when an unrelated

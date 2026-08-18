@@ -357,15 +357,42 @@ both come down *completely*; the shallow one merely has less rock in it to
 lose, so `rock destroyed` reads lower for the worse outcome. That is a
 metric conflating "how completely did it fail" with "how much material was
 involved", and it is the same trap as counting failures instead of
-damage — one level up. **A cave-survival metric wants to ask whether there
-is still a void at tunnel depth with rock above it**, and nothing measures
-that yet; `dump=` is the stopgap.
+damage — one level up.
+
+**That metric now exists.** `roofed_void` counts empty cells with rock
+somewhere above them in the same column — cave volume — and `min_cave=P`
+gates the percentage of it still standing at the end. It catches both ways
+a cave dies: fill it in and the cells stop being empty, drop its roof and
+they stop having rock above them. On the three depths above it reads
+**10% / 41% / 100%**, which is the ordering anyone looking at the dumps
+would give, against `rock destroyed`'s perverse 64 / 402 / 0. It reads 0
+on a world with no tunnel at all, which is the sanity check against a case
+known to be fine.
 
 So the behaviour is sensible: thin cover collapses, thick cover holds, and
 a long gallery near the surface needs support — which is §1d requirement 1
 already working.
 
-### Two measurement traps in this scene, both hit
+### Gated, and the guards were seen to fail
+
+Three acceptance cases (16 now): `cavedeep` and `cavedeep1` demand 90% of
+the cave survive on two seeds (measured 100% on seeds 1, 7 and 24301), and
+`caveshallow` demands the shallow one visibly fail (measured 214 overload
+failures, bar 50). The pair is the point, exactly as with the room cases:
+"nothing collapses" passes the first by making rock invincible, which is
+how four earlier support models died. Both were run inverted and reported
+`the cave did not survive -- 10% of its roofed void left (70 of 678
+cells), wanted 90%` and `expected at least 50 overload failures, got 0`.
+
+### Three measurement traps in this scene, all hit
+
+- **The bore does not follow a slope.** `tunnel=` drives a *horizontal*
+  bore at a fixed depth below the surface sampled at one x, so on hilly
+  terrain it leaves the hillside: `rolling` seed 24301 starts with 124
+  cells of roofed void where `flat` has 678, and `rolling` seed 7 with
+  280. Cross-preset cave comparisons are therefore not like for like, and
+  the acceptance cases use `flat` deliberately. Making the bore track the
+  surface is the fix if hilly caves need gating.
 
 - **Length is clipped by the world.** The bore starts at `WIDTH / 2` and
   runs right, so past ~64 bites at `step=4` it runs off the edge:

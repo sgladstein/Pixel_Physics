@@ -933,6 +933,13 @@ struct Args {
     /// "nothing anywhere is over 1.0" on a scene that visibly stands is
     /// exactly that check.
     loadmap: bool,
+    /// `min_cave=P` -- exit non-zero unless at least P percent of the
+    /// roofed void present at the cut is still there at the end.
+    ///
+    /// The gate for "a cave can be dug and it does not collapse", which is
+    /// the owner's own statement of what this has to do. A fraction rather
+    /// than an absolute so one bar covers every bore size and length.
+    min_cave: Option<i64>,
     /// `step=N` -- how far apart consecutive `tunnel=` bites are placed.
     /// Defaults to `dig`, i.e. each bite overlaps the last by half.
     ///
@@ -1036,6 +1043,7 @@ fn parse() -> Args {
         dump: None,
         depth: None,
         step: None,
+        min_cave: None,
         confine: true,
         wall: 3,
         dig: 3,
@@ -1100,6 +1108,7 @@ fn parse() -> Args {
             "max_lost" => a.max_lost = Some(v.parse().expect("max_lost")),
             "depth" => a.depth = Some(v.parse().expect("depth")),
             "step" => a.step = Some(v.parse().expect("step")),
+            "min_cave" => a.min_cave = Some(v.parse().expect("min_cave")),
             "dump" => {
                 let n: Vec<i32> = v.split(',').map(|p| p.parse().expect("dump=x,y,w,h")).collect();
                 assert_eq!(n.len(), 4, "dump=x,y,w,h");
@@ -1509,9 +1518,17 @@ fn report_loads(world: &World, args: &Args) {
 /// that is supposed to stand must show that nothing fired
 /// (`max_failures`), which is only meaningful once the same binary has
 /// demonstrated it can fire at all on the collapsing scenes.
-fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usize, cells_before: (i64, i64)) -> bool {
+fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usize, cells_before: (i64, i64), cave_before: i64) -> bool {
     let f = world.structural_failures;
     let mut ok = true;
+    if let Some(pct) = args.min_cave {
+        let now = roofed_void(world);
+        let kept = if cave_before == 0 { 0 } else { now * 100 / cave_before };
+        if kept < pct {
+            println!("  FAIL: the cave did not survive -- {kept}% of its roofed void left ({now} of {cave_before} cells), wanted {pct}%");
+            ok = false;
+        }
+    }
     if let Some(max) = args.max_lost {
         let lost = (cells_before.0 + cells_before.1) - occupied(world);
         if lost > max {
@@ -1561,14 +1578,14 @@ fn main() {
     for _ in 1..args.repeat {
         samples.push(run_once(&args, false).0);
     }
-    let (last_ms, world, peak_bodies, cells_before) = run_once(&args, true);
+    let (last_ms, world, peak_bodies, cells_before, cave_before) = run_once(&args, true);
     samples.push(last_ms);
     let best = samples.iter().cloned().fold(f64::INFINITY, f64::min);
     if args.repeat > 1 {
         let worst = samples.iter().cloned().fold(0.0, f64::max);
         println!("worst frame over {} runs: {best:.2} ms (spread {best:.2}-{worst:.2})", args.repeat);
     }
-    if !check_expectations(&world, &args, best, peak_bodies, cells_before) {
+    if !check_expectations(&world, &args, best, peak_bodies, cells_before, cave_before) {
         std::process::exit(1);
     }
 }
@@ -1577,13 +1594,14 @@ fn main() {
 /// peak concurrent body count and how much material the world held *before*
 /// the first step. `render` is false for the extra timing samples, which do
 /// not need an image and should not pay for one.
-fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64)) {
+fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     let mut world = build(args);
     // Censused before the first step and after the last, because a failure
     // count cannot answer "how much did this eat" -- see `Args::max_lost`.
     // Taken here rather than in `build` so it includes whatever the scene
     // cut on construction: the dig is part of what the run costs.
     let cells_before = census(&world);
+    let cave_before = roofed_void(&world);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
     renderer.organism_overlay = args.organism_overlay;
@@ -1667,7 +1685,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64)) {
         // apply to it.
         // The gif branch is for watching motion, not measuring: no
         // per-frame timing and no body sampling, so it reports neither.
-        return (0.0, world, 0, cells_before);
+        return (0.0, world, 0, cells_before, cave_before);
     }
 
     let mut captured = 0usize;
@@ -1778,6 +1796,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64)) {
         // than once at the end so the trajectory is visible -- a run that
         // has stopped eating and one that is still going look identical in
         // a single total. See `Args::max_lost`.
+        println!("    roofed void (cave volume): {} cells, was {} at the cut", roofed_void(&world), cave_before);
         let (solid, powder) = census(&world);
         println!(
             "    cells lost since the cut: {} (rock {:+}, rubble {:+})",
@@ -1813,7 +1832,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64)) {
             .expect("writing the contact sheet");
         println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
     }
-    (worst_ms, world, peak_bodies, cells_before)
+    (worst_ms, world, peak_bodies, cells_before, cave_before)
 }
 
 /// How much rock and rubble the world is holding: `Solid` and `Powder`
@@ -1836,6 +1855,39 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64)) {
 /// `Cell::is_empty()` is managed-aware -- a promoted liquid body's
 /// container cells are materially empty and still read as not-empty -- so
 /// this asks the material directly.
+/// How much **roofed void** the world holds: empty cells with rock
+/// somewhere above them in the same column.
+///
+/// This is the "is it still a cave" number, and it exists because nothing
+/// measured that. `rock destroyed` cannot: a 2-cell roof and an 8-cell
+/// roof both come down completely, but the thin one contains less rock, so
+/// the *worse* outcome read as the smaller number. It conflates how badly
+/// something failed with how much material happened to be in it.
+///
+/// A cave dies in exactly two ways and this catches both. Fill it in and
+/// the empty cells stop being empty; drop its roof and they stop having
+/// rock above them, becoming ordinary sky. Either way the count falls.
+///
+/// The column test is deliberately "any solid above", not "solid directly
+/// overhead within N": a tunnel under a mountain and a tunnel under a
+/// metre of crust are both caves, and picking a depth threshold would be
+/// choosing which one counts.
+fn roofed_void(world: &World) -> i64 {
+    let mut n = 0i64;
+    for x in 0..WIDTH {
+        let mut roofed = false;
+        for y in 0..HEIGHT {
+            let m = world.get(x, y).material;
+            if world.materials.kind(m) == MaterialKind::Solid {
+                roofed = true;
+            } else if roofed && m == material::EMPTY {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
 /// Returned split into `(solid, powder)` because the two answer different
 /// questions and the split is the whole reading of a destruction run.
 /// Rock turning to rubble is **damage** and moves nothing out of the world;
