@@ -1,11 +1,14 @@
-# The heritable genome: a slot map, proposed
+# The heritable genome: the slot map
 
-**STATUS: PROPOSAL — awaiting the owner's sign-off. Nothing has been
-edited.** Slots are positional forever: the slot index selects which stored
-draw a trait reads, so this table, once approved, is a contract. The final,
-signed-off map gets copied into `PLAN.md`'s settled decisions when the edit
+**STATUS: SIGNED OFF — all four §9 calls made by the owner, 2026-08-18:
+Map A; re-key; penetration in with its cost; seed strategy deferred with
+its plumbing.** The §5 map as amended by those calls is FINAL and slots
+are positional forever: the slot index selects which stored draw a trait
+reads. It gets copied into `PLAN.md`'s settled decisions when the edit
 lands (not before — `PLAN.md` is a contested file and holds no unlanded
-promises).
+promises). An implementation draft is parked on this branch —
+`Reports/plant-genome-implementation-handoff.md` is the entry point for
+whoever finishes it.
 
 Audited against the committed tip of `plant-substrate-v2` (`16dcdc4`,
 "Support from the anchors outward"). The water economy was **in flight,
@@ -181,8 +184,10 @@ no roots ran no deficit and there was nothing for these traits to buy.
   probe's census.
 - **Why discrete:** it is the pioneer-vs-dense *strategy* axis and the
   bark readout wants bands. Alleles ×[0.75, 1.0, 1.35] on both reach and
-  cost, first pass, swept at landing. Fresh stands start at allele 1 = the
-  species as authored (the `BRANCH_ANGLE` precedent, plant.rs:409).
+  cost, first pass, swept at landing. Fresh stands draw the allele
+  positionally on stream 65 (the stream that used to pick the bark band
+  directly — §6), so a first generation is a mixed stand and bark keeps
+  its day-one variety.
 
 ### 4.2 Leaf construction economics — IN, by re-keying `LOCUS_FOLIAGE` (2 alleles)
 
@@ -237,12 +242,19 @@ no roots ran no deficit and there was nothing for these traits to buy.
   snapshot, `drought_death` keys on `(1 − water_status)³`. If closure
   lowers `water_status`, a conservative plant would *shed harder while
   protecting its stock* — the lever would select against itself and the
-  trade inverts. For this locus to exist, shedding must key on the
-  **reserve state** (`1 − stock/capacity`) while earning keys on
-  status × openness. Leaves die of desiccation, not of prudence. This is a
-  one-line re-key in the water session's code and must be coordinated
-  with it — flagged here so the landing session does not build the dead
-  lever the three-tests discipline exists to catch.
+  trade inverts. Leaves die of desiccation, not of prudence.
+  **Settled design (supersedes an earlier draft of this bullet that keyed
+  shedding on raw `1 − stock/capacity`):** shedding keys on a new
+  `water_desiccation` = the shortfall *with stomata fully open*
+  (`1 − min(stock, demand)/demand`), while earning keys on the actual,
+  closure-limited `water_status`. This is strictly better than the raw
+  stock key because it changes **nothing** until a species opts in: with
+  `stomatal_reserve = 0`, openness is 1, the two draws are the same
+  number, and desiccation ≡ `1 − status` — the water session's
+  `drought_death: 0.003` tuning is untouched by construction, where the
+  raw-stock key would have re-opened it for every species (a plant living
+  hand-to-mouth at full status would suddenly shed). The identity is the
+  guard test.
 - **Measurement:** the same wet/dry pair as 4.2, plus a drought-onset
   scene (soil drying out): foliage retention curve and final cells. The
   probe's water block and per-plant leaf counts already carry both.
@@ -326,7 +338,31 @@ no roots ran no deficit and there was nothing for these traits to buy.
   soil/sand/gravel bank scene (a filmstrip scene to add at landing), and
   the depth histogram.
 
-### 4.8 Seed strategy — IN, discrete (3 alleles), with one small companion mechanism
+### 4.8 Seed strategy — DEFERRED by the owner's call; its plumbing lands now
+
+**Decision (2026-08-18, after debate):** no slot. Three things overturned
+the doc's original "in": the engine has **no dispersal axis** (a seed's
+physics are identical whatever the allele, so the succession story
+shrinks to recruitment density near parents); the benefit side —
+*does endowment actually move establishment?* — is the **only empirically
+unknown trade among the candidates**, and assigning a permanent slot to
+an unmeasured trade is exactly how slots 1 and 5 died the first time; and
+it lands on the least-finished subsystem (seeds never decay — the
+immortal seed bank and its u16 id ceiling — so a 2× fecundity allele
+doubles a known leak). Appending a discrete locus later renumbers
+nothing, so deferral is structurally cheap.
+
+**What lands now:** the provisioning plumbing —
+`OrganismState::endowment`, set from `Reproduce.seed_cost` at `set_seed`
+and written to the seedling as its starting carbon at germination (the
+cost used to vanish at the deduction site). That makes the response
+curve measurable at species level: sweep `seed_cost`, rebuilt per point,
+establishment fraction per seed as the outcome. If the curve has real
+slope, `LOCUS_SEED_STRATEGY` appends in a later widening with allele
+values set from measurement — ideally alongside seed decay, which fixes
+the leak and hands the locus its second lever.
+
+The original case, kept for that later session:
 
 - **What a cell does:** allele scales `Reproduce.seed_cost` up while
   scaling `seed_chance` down (few big seeds ↔ many small ones; middle =
@@ -426,7 +462,7 @@ comparable across the re-map. Variance for slots 6–8 lives on the shoot
 genotype"); the root `Grow` vector carries 1 and 5 and is finally
 non-zero.
 
-**Discrete — `DISCRETE_LOCI = 7`.**
+**Discrete — `DISCRETE_LOCI = 6`** (seed strategy deferred, §4.8).
 
 | slot | locus | alleles | consequence |
 |---|---|---|---|
@@ -436,18 +472,19 @@ non-zero.
 | 3 | `LOCUS_SYMPODIAL` | 2 | unchanged |
 | 4 | `LOCUS_TROPISM` | 2 | unchanged |
 | 5 | **`LOCUS_WOOD_DENSITY`** | 3 — ×[0.75, 1.0, 1.35] | `max_cantilever_reach` ×, wood carbon cost ×; bark band derives (§6) |
-| 6 | **`LOCUS_SEED_STRATEGY`** | 3 | `seed_cost` ×[2.0, 1.0, 0.5] with `seed_chance` ×[0.5, 1.0, 2.0]; cost provisions the seed cell |
 
-`LOCUS_ALLELES` becomes `[2, 3, 3, 2, 2, 3, 3]`. Fresh stands start:
-economy from the positional band draw (as today), density and seed
-strategy at allele 1 (= species as authored), so an unmutated stand
-behaves exactly as written and every morph is one jump away — the
-existing convention (plant.rs:403–410).
+`LOCUS_ALLELES` becomes `[2, 3, 3, 2, 2, 3]`. Fresh stands start: economy
+**and density** from positional draws (streams 64/65 — density takes over
+the stream that used to pick the bark band directly, so day-one stands
+keep their bark variety and both strategy axes are mixed from frame one);
+angle and internode at allele 1 = species as authored. This supersedes an
+earlier line here that had density starting at allele 1 — the positional
+start is what §6 always said, and it is what preserves the day-one look.
 
-**The count, and the answer to the brief's question:** sixteen loci —
-nine continuous, seven discrete — every one with a live behavioural
-consumer and a named measurement. Under Map B it is the same sixteen live
-loci wearing eighteen slots.
+**The count, and the answer to the brief's question:** fifteen loci —
+nine continuous, six discrete — every one with a live behavioural
+consumer and a named measurement. Under Map B it is the same fifteen live
+loci wearing seventeen slots.
 
 ---
 
@@ -535,22 +572,22 @@ the page updates in the same change, per convention).
 
 ---
 
-## 9. What the owner is being asked to decide
+## 9. The owner's four calls — ANSWERED, 2026-08-18
 
-1. **Map A (re-purpose, 9 continuous) or Map B (append, 11)?** §5.
-   Recommendation: A.
-2. **Re-key `LOCUS_FOLIAGE` to leaf economics** (colour becomes a readout,
-   cosmetic-only colour gene ceases to exist), **or add economics beside
-   it** and keep free cosmetic colour? §4.2. Recommendation: re-key.
-3. **Penetration force in** (with the resistance-scaled root cost that
-   makes it selectable) **or deferred**? §4.7. Recommendation: in.
-4. **Seed strategy in** (with cost-provisions-the-seed) **or deferred**?
-   §4.8. Recommendation: in.
+1. **Map A** (re-purpose, 9 continuous). As recommended.
+2. **Re-key `LOCUS_FOLIAGE` to leaf economics** — colour becomes a
+   readout; the cosmetic-only colour gene ceases to exist. As
+   recommended.
+3. **Penetration force in**, with the resistance-scaled root cost that
+   makes it selectable. As recommended.
+4. **Seed strategy DEFERRED, plumbing in** — the recommendation was
+   reversed in debate on three grounds recorded in §4.8: no dispersal
+   axis, an unmeasured benefit curve (dead-slot risk), and the
+   half-built seed-fate subsystem. The endowment plumbing lands so the
+   curve becomes measurable; the locus appends later, from measurement.
 
-Everything else in the map is either unchanged or follows directly from
-the water economy's design intent, and the slot table in §5 becomes final
-— and goes into `PLAN.md`, marked positional forever — the moment these
-four calls are made.
+The §5 tables as amended are the final map, and go into `PLAN.md` marked
+positional forever when the edit lands.
 
 ---
 
