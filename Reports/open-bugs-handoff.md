@@ -151,6 +151,31 @@ what persists is chunks awake doing invisible fill shuffling.
 This is what the heightfield bodies exist to fix (O(width) instead), and
 they are blocked on the promotion gap below.
 
+### 4b. A cell alone in the air drops its column's skyline
+
+Left open by the fix for "shade under a tree is way too intense"
+(`render.rs`, `rebuild_horizon`). That fix stopped `Plant` and `Creature`
+cells from setting a skyline, because a canopy was painting a hard-edged
+black rectangle over the sky behind it for the full depth of the world.
+The same defect one size down is still there for every other kind: the
+skyline is the topmost non-empty cell, so a single grain of sand thrown up
+by a collapse lowers its whole column for as long as it is airborne, and
+everything under it draws as the inside of a cave.
+
+**Not currently visible**, which is why it was left: explosion debris are
+off-grid particles (`particle.rs`) and never occupy cells, so the obvious
+reproduction — `filmstrip scene=boom` — shows nothing at all. What would
+show it is airborne *cells*: a collapse shedding grains, or material
+painted into open sky.
+
+The fix is a rule about contiguity with the ground rather than about
+material kind, and it needs its own guard, because the deliberate opposite
+behaviour is right next to it: `digging_a_shaft_does_not_bring_the_sky_
+down_with_it` asserts that stacking material up **does** take the skyline
+with it, and a tower is exactly a column of cells in what used to be sky.
+The difference is that a tower reaches the ground and a thrown grain does
+not.
+
 ### 5. Automatic promotion — blocker removed, still not ready
 
 `promote_liquid_body` is called **only from tests**, so `liquid.rs` — the

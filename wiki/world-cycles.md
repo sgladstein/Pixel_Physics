@@ -1,6 +1,6 @@
 # Day, Night, and Decay
 
-*The sky section below is new; the rest is current as of this build.*
+*Current as of: this build.*
 
 ## The sky
 
@@ -29,6 +29,20 @@ Sky is only drawn where there is actually sky. Open space *inside* the ground
 — a cave, a blast cavity, the space under an overhang — is unlit rock, dark
 at noon as much as at midnight. Anything else would mean daylight showing
 through the middle of a mountain.
+
+**Being indoors comes on gradually.** Go in under a roof and the light does
+not switch off at the doorway: it dims sharply in the first row or two and
+keeps falling for about the height of a small room before it is properly
+dark. So a shallow overhang stays a lit place you can see into, the mouth of
+a cave reads as an opening rather than a hole cut out of the picture, and
+only depth is actually black. A deep shaft is as dark as it ever was.
+
+**Trees and creatures do not make it dark under them.** Only the ground
+counts as being indoors under — a canopy is something standing in the world,
+not part of it, so you see sky between the leaves and the grass under a tree
+is in daylight. Trees do shade each other, and plants respond to that, but
+it is not something the picture shows yet: nothing on screen darkens because
+a tree is above it.
 
 **The ground is lit by the time of day too.** Rock, soil and water all darken
 through the evening and brighten at dawn, and they pick up the colour of the

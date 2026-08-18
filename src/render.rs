@@ -23,6 +23,26 @@ const VOID: [u8; 4] = [12, 12, 16, 255];
 /// opening. Dark enough to read as depth, light enough to stay separate from
 /// `VOID` and from a night sky.
 const UNDERGROUND: [u8; 4] = [31, 29, 33, 255];
+
+/// How many rows it takes to go from open daylight to full `UNDERGROUND`
+/// below a roof.
+///
+/// This used to be one row, and that is the other half of the "way too
+/// intense" report: a room went from sky to near-black across a single cell
+/// boundary the instant it was enclosed, and the mouth of every cave was a
+/// flat black cutout rather than an opening. Light does not stop at a lintel;
+/// it reaches in and falls off, and a ramp is both what that looks like and
+/// the cheapest possible way to draw it — the depth is already known, since
+/// `sky_floor` is exactly the row it is measured from.
+///
+/// Twenty-four cells is three field blocks, and it is set by eye rather than
+/// from anything physical: shallower and a built room still reads as a black
+/// slot, deeper and a genuine cave stops reading as dark at all. It costs
+/// nothing per frame and it is a pure function of position, so it cannot
+/// disagree between a renderer that has history and a fresh one — which is
+/// what `dirty_rect_skip_is_pixel_identical_to_a_full_redraw` requires and
+/// what sank the stateful version of the skyline itself.
+const CAVE_FADE_DEPTH: i32 = 24;
 const CHUNK_BORDER_ACTIVE: [u8; 4] = [80, 200, 120, 255];
 const CHUNK_BORDER_SETTLED: [u8; 4] = [60, 60, 70, 255];
 
@@ -536,6 +556,18 @@ pub struct Renderer {
     /// rock, which is the "caves are dark, bring a torch" feature and not
     /// this one.
     daylight: u8,
+    /// `CAVE_FADE_DEPTH`'s ramp, precomputed: how far toward `UNDERGROUND`
+    /// a cell `i` rows below its column's sky floor is drawn, as a 0..=255
+    /// weight.
+    ///
+    /// A table rather than the expression, because the branch that reads it
+    /// is per *pixel* and rendering has no dirty-rect skip for a region that
+    /// did change: a screen looking into a large cavity is every pixel on
+    /// the underground branch, and a square root each is real work for a
+    /// value that only ever takes `CAVE_FADE_DEPTH + 1` distinct settings.
+    /// Built from the formula in `Renderer::new` rather than written out, so
+    /// the constant above stays the only place the shape is stated.
+    cave_ramp: [u8; CAVE_FADE_DEPTH as usize + 1],
     /// Where the moon was painted last frame, so its old pixels get cleaned
     /// up. Same device as `last_body_rects`.
     last_moon_rect: Option<Rect>,
@@ -574,6 +606,21 @@ impl Renderer {
             sky: Sky::at(0, 0, 1, 0, 1),
             last_sky_key: None,
             daylight: sky::LIGHT_LEVELS,
+            cave_ramp: {
+                let mut ramp = [0u8; CAVE_FADE_DEPTH as usize + 1];
+                for (i, slot) in ramp.iter_mut().enumerate() {
+                    // Square-rooted, not linear, and it is one constant
+                    // doing two jobs. Linear left the first row under a
+                    // roof at 96% of full daylight, which reads as a
+                    // *window* rather than a roof -- the thing directly
+                    // overhead blocks the most, so most of the drop belongs
+                    // in the first few rows. The root puts 20% of it in the
+                    // first row and 41% by the fourth, and still takes the
+                    // full depth to reach dark.
+                    *slot = ((i as f32 / CAVE_FADE_DEPTH as f32).sqrt() * 255.0).round() as u8;
+                }
+                ramp
+            },
             last_moon_rect: None,
             horizon: Vec::new(),
             horizon_origin: 0,
@@ -1271,9 +1318,35 @@ impl Renderer {
             return;
         };
         let width = b.width() as usize;
+        // **Terrain only.** A `Plant` or a `Creature` standing in the air
+        // is not ground and must not set a skyline, because everything
+        // below a skyline draws as `UNDERGROUND` — so taking the topmost
+        // cell of *any* kind meant a tree canopy painted a hard-edged black
+        // rectangle over the sky behind it, the full depth of the world,
+        // for every column it covered. Reported from play as "the effect
+        // where light is blocked below plants is way too intense"; it was
+        // not the light channel at all (`apply_light` reads the global
+        // daylight, never the field), it was this.
+        //
+        // The rule stays "topmost", not "topmost thick thing", so building
+        // a tower still takes the skyline up with it — that is deliberate
+        // and `digging_a_shaft_does_not_bring_the_sky_down_with_it` checks
+        // it. What it now excludes is the two kinds that are *in* the world
+        // rather than *of* it. A single grain of sand falling through open
+        // sky still lowers its column for the frames it is airborne, which
+        // is the same defect one size down and is left alone here: it wants
+        // a rule about contiguity with the ground, and that is a different
+        // change with a different guard.
         let scan = |world: &World, x: i32| {
             (b.min_y..=b.max_y)
-                .find(|&y| world.get(x, y).material != material::EMPTY)
+                .find(|&y| {
+                    let m = world.get(x, y).material;
+                    m != material::EMPTY
+                        && !matches!(
+                            world.materials.kind(m),
+                            crate::sim::material::MaterialKind::Plant | crate::sim::material::MaterialKind::Creature
+                        )
+                })
                 .unwrap_or(i32::MAX)
         };
         if self.horizon.len() != width || self.horizon_origin != b.min_x {
@@ -1352,11 +1425,30 @@ impl Renderer {
     /// two differ exactly down a freshly dug shaft, and the second answer is
     /// the one that renders a mine as a strip of sky.
     fn under_sky(&self, x: i32, y: i32) -> bool {
+        self.sky_depth(x, y) < 0
+    }
+
+    /// `y` relative to this column's sky floor: **negative is open sky**,
+    /// `0` is the floor row itself, and larger numbers are further inside.
+    ///
+    /// The sign convention matters — `under_sky` used to be written as
+    /// `y < floor` directly, and expressing it as `depth <= 0` instead
+    /// silently moved the boundary one row, which `draw_lightning`'s
+    /// ground-finding scan reads. It is `< 0` for that reason.
+    ///
+    /// `-1` rather than a computed value for a column outside the cached
+    /// range or one that has never held anything: both mean open sky, and
+    /// `y - i32::MAX` would wrap.
+    fn sky_depth(&self, x: i32, y: i32) -> i32 {
         let i = x - self.horizon_origin;
         if i < 0 || i as usize >= self.horizon.len() {
-            return true;
+            return -1;
         }
-        y < *self.sky_floor.get(i as usize).unwrap_or(&i32::MAX)
+        let floor = *self.sky_floor.get(i as usize).unwrap_or(&i32::MAX);
+        if floor == i32::MAX {
+            return -1;
+        }
+        y - floor
     }
 
     fn cell_colour(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
@@ -1427,14 +1519,29 @@ impl Renderer {
             // Deliberately *inside* the bounds check above, so the void
             // outside the world keeps its own colour and stays
             // distinguishable from a dark night sky.
-            base = if self.under_sky(x, y) {
-                self.sky.colour_at(x, y)
+            let daylight = self.sky.colour_at(x, y);
+            let depth = self.sky_depth(x, y);
+            base = if depth < 0 {
+                daylight
             } else {
                 // Inside the ground: unlit rock, not daylight. Constant
                 // rather than following the sky, because a cave is dark at
                 // noon as well -- and deliberately distinct from the `VOID`
                 // outside the world, which is a different kind of nothing.
-                UNDERGROUND
+                //
+                // Faded in over `CAVE_FADE_DEPTH` rather than switched at
+                // the boundary. Light reaches in through an opening and
+                // falls off; cutting instead put a black rectangle behind
+                // every roof and made a cave mouth a cutout rather than an
+                // opening.
+                let t = self.cave_ramp[depth.clamp(1, CAVE_FADE_DEPTH) as usize] as u16;
+                let mix = |a: u8, b: u8| ((a as u16 * (255 - t) + b as u16 * t) / 255) as u8;
+                [
+                    mix(daylight[0], UNDERGROUND[0]),
+                    mix(daylight[1], UNDERGROUND[1]),
+                    mix(daylight[2], UNDERGROUND[2]),
+                    255,
+                ]
             };
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
@@ -1925,6 +2032,80 @@ mod tests {
         }
         r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
         assert!(!r.under_sky(64, 25), "stacking material up into the sky should take the skyline with it");
+    }
+
+    /// Reported from play: "the effect where light is blocked below plants
+    /// or really anything is way too intense", with a picture of a tree.
+    ///
+    /// What it was is not shade at all. `rebuild_horizon` took the topmost
+    /// **non-empty cell of any kind** as the skyline, so a canopy set the
+    /// horizon for every column it covered and every empty cell under it —
+    /// the air a person would stand in — drew as `UNDERGROUND`. On screen a
+    /// tree cast a hard-edged black rectangle over the sky behind it, the
+    /// full depth of the world.
+    #[test]
+    fn a_tree_does_not_turn_the_sky_behind_it_into_a_cave() {
+        let mut world = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 80..128 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        let wood = world.materials.id_of("wood").expect("wood is a compiled-in material");
+        // A canopy: a horizontal plate of wood well above the ground, with
+        // open air under it. Deliberately wide, so `rebuild_sky_floor`'s
+        // "higher ground on both sides" rule cannot rescue the middle of it
+        // the way it rescues a one-cell shaft.
+        for x in 40..90 {
+            world.set(x, 40, Cell::new(wood, 0));
+        }
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
+
+        assert!(r.under_sky(64, 60), "the air under a canopy is sky, not the inside of a cave");
+        assert!(r.under_sky(64, 79), "the ground under a canopy is lit by daylight");
+        assert!(!r.under_sky(64, 100), "rock below the surface is still underground");
+    }
+
+    /// The other half of the same report, and the half that survives once
+    /// plants stop counting: under a *stone* roof the change from full
+    /// daylight to `UNDERGROUND` happened in a single row. A room the player
+    /// builds went black the instant it was enclosed.
+    ///
+    /// The guard is written against the *replacement* artifact as well as
+    /// the original — it fails if the fade never reaches full dark, not only
+    /// if it is instant — because a fix that simply lightened `UNDERGROUND`
+    /// would pass a one-sided version of this and would also make every deep
+    /// cave in the world grey.
+    #[test]
+    fn the_dark_under_a_roof_fades_in_with_depth_rather_than_cutting() {
+        let mut world = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 120..128 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 0..128 {
+            world.set(x, 20, Cell::new(material::STONE, 0));
+        }
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world, &world.chunks().map(|c| c.coord).collect());
+        r.sky = crate::sky::Sky::at(600, 0, 127, 0, 127); // mid-morning, so the sky is bright
+
+        let brightness = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
+        let sky = brightness(r.cell_colour(&world, 64, 19));
+        let just_under = brightness(r.cell_colour(&world, 64, 21));
+        let deep = brightness(r.cell_colour(&world, 64, 21 + CAVE_FADE_DEPTH));
+        let dark = brightness(UNDERGROUND);
+
+        assert!(
+            just_under > sky - (sky - dark) / 2,
+            "the first row under a roof should still read as lit, not as a cave: sky {sky}, under {just_under}, dark {dark}"
+        );
+        assert!(
+            deep <= dark + 2,
+            "past the fade depth it must reach full dark, or every cave in the world turns grey: {deep} against {dark}"
+        );
     }
 
     #[test]
