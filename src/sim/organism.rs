@@ -613,6 +613,45 @@ pub enum Behavior {
         /// that foliage sits above it.
         #[serde(default)]
         shade_death: f32,
+        /// **Transpirational demand**: water this cell spends per organism
+        /// tick at full light, scaled by the light it actually reads.
+        /// `0.0` disables it, which is what every species that has not
+        /// opted in gets.
+        ///
+        /// This is the charge that makes roots matter. Before it, `Absorb`
+        /// credited the same pool `Photosynthesize` filled and nothing
+        /// consumed water at all, so a plant with no soil contact ran no
+        /// deficit and grew on light alone — which is why a canopy filled
+        /// with epiphytes and why a germination guard had to forbid what
+        /// the economy should have made fatal.
+        ///
+        /// **Driven by foliage, not by root count**, which is what
+        /// `plant::TRANSPIRATION_PER_ROOT_CELL`'s own doc says it should
+        /// have been all along: "real transpiration is driven by *leaf*
+        /// area and evaporative demand, not by root count — the canopy is
+        /// the pump… driving it from a real leaf count needs the
+        /// whole-organism totals Decision 2's sidecar introduces". The
+        /// sidecar is here now.
+        ///
+        /// Scaled by light because stomata open in light: a leaf at night
+        /// spends almost nothing, which keeps the day/night oscillator out
+        /// of the *decisions* while leaving it real in the flow.
+        #[serde(default)]
+        transpiration: f32,
+        /// Shedding **pressure** under drought, the exact counterpart of
+        /// `shade_death` and cubed for the same reason: the chance per tick
+        /// that a leaf with no water is shed, falling away steeply as its
+        /// water store fills. `0.0` disables it.
+        ///
+        /// Graded rather than a threshold, because a threshold on a
+        /// quantity that recovers between ticks culls a whole crown on one
+        /// bad tick — the same failure the light threshold had, recorded
+        /// above. It is also what makes drought *visible*: a starving plant
+        /// thins out over many ticks rather than freezing in place, and a
+        /// seedling germinated in a canopy with no soil to reach dies
+        /// rather than merely stopping.
+        #[serde(default)]
+        drought_death: f32,
     },
     /// Pulls water out of adjacent soil and loses it to the air — the
     /// transpiration stream — crediting no resource at all.
@@ -850,6 +889,66 @@ pub struct OrganismState {
     /// whole-plant property, and no local rule can compute "am I mostly
     /// root". Kept as counts rather than a ratio so a caller can apply its
     /// own threshold.
+    /// **The plant's water stock — the second currency, held per organism
+    /// rather than per cell.**
+    ///
+    /// `Reports/plant-substrate-v2-design.md` §3c sketched `water: f32` on
+    /// `OrganismCell` and §9 item 12 sanctioned symmetric transport for it.
+    /// **That was built, measured, and does not work at tree scale**, which
+    /// is worth recording because the design record says otherwise:
+    ///
+    /// Water entered at the roots and never arrived. On the standard probe
+    /// the stand fell to 64 cells, with root tissue at the cap (4.0) and
+    /// foliage median **0.00** — a mean stomatal term of 0.15. The reason
+    /// is not tuning. Diffusion spreads as the square root of the substep
+    /// count: 45 substeps at `DIFFUSION_RATE` move a front a handful of
+    /// cells, and a mature tree is ~130 rows from root to crown, needing
+    /// thousands. Carbon only crosses that distance because canalization
+    /// builds polar strands that carry it; the one `carbon_conductance`
+    /// array cannot also serve water, because xylem and phloem run in
+    /// *opposite* directions — that is exactly what §9 item 12 says.
+    ///
+    /// So the balance lives on the organism, which is the object the
+    /// question is actually about: "can this plant supply its canopy" is a
+    /// whole-plant question, and `allocate_to_frontier` already pools and
+    /// distributes carbon income at exactly this scale. Ask which object a
+    /// rule evaluates — a cell, a section, or a whole piece — and water
+    /// status is a property of the piece.
+    ///
+    /// Capacity is proportional to root mass (`plant::water_capacity_of`),
+    /// so a deep, wide root system buys a real drought buffer and a
+    /// shallow one does not. That is the coupling that makes root traits
+    /// worth selecting on, and the same quantity anchorage will read.
+    pub water: f32,
+    /// How much of this tick's transpirational demand the stock could
+    /// actually meet, `0.0..=1.0` — the **stomatal term** that multiplies
+    /// every photosynthetic credit and every leaf's contribution to
+    /// intercepted light.
+    ///
+    /// Computed once per organism tick in `plant::organism_upkeep`'s
+    /// existing whole-plant walk, beside `root_cells`/`shoot_cells`, and
+    /// read per cell after. Storing it rather than recomputing per cell is
+    /// what keeps the two income gates (`allocate_to_frontier` and
+    /// `break_buds`) reading the identical number.
+    pub water_status: f32,
+    /// Water actually taken up over the last organism tick, and the demand
+    /// it was measured against — the two halves of the balance, kept so a
+    /// deficit can be attributed rather than inferred from stand mass.
+    ///
+    /// Sums, not counts: `CLAUDE.md` prefers a continuous quantity over a
+    /// count of starving cells, because counts give knife-edge margins.
+    pub water_uptake: f32,
+    pub water_demand: f32,
+    /// The live accumulator behind `water_uptake`.
+    ///
+    /// Two fields rather than one because the first version reset the
+    /// counter in the same statement that reported it, so every probe read
+    /// the post-reset zero and the readout said uptake was **0.00** for
+    /// every plant in the stand -- while the stomatal term said 0.16, which
+    /// is impossible with no uptake at all. A counter that disagrees with
+    /// the quantity it is supposed to explain is measuring its own
+    /// bookkeeping.
+    pub water_uptake_acc: f32,
     pub root_cells: u32,
     pub shoot_cells: u32,
     /// The **root collar** — the lowest row this organism's *shoot* tissue
@@ -1298,6 +1397,15 @@ where
 /// job — bounding what `Photosynthesize` and `Absorb` may accumulate —
 /// and changing it no longer changes the resolution of anything.
 pub const RESOURCE_SCALE: f32 = 4.0;
+
+/// Behavioural cap on how much water one cell may hold, on its own scale.
+///
+/// Mirrors `RESOURCE_SCALE` deliberately: the two currencies are compared
+/// only as *fractions of their own cap* (`water / WATER_SCALE` is the
+/// stomatal term), never against each other, so keeping the caps equal
+/// means a reading of "half full" means the same thing in both and no
+/// conversion constant has to exist.
+pub const WATER_SCALE: f32 = 4.0;
 
 /// Pack a `CellType` into bits 0-3 of `aux`.
 ///

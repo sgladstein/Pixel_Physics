@@ -621,6 +621,11 @@ impl World {
     /// to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
         let state = OrganismState {
+            water: 0.0,
+            water_status: 1.0,
+            water_uptake: 0.0,
+            water_demand: 0.0,
+            water_uptake_acc: 0.0,
             species,
             cells: std::collections::HashMap::new(),
             root_cells: 0,
@@ -1315,6 +1320,14 @@ impl World {
     /// Carbon at `(x, y)`, or `0.0` where there is no organism cell —
     /// the reading callers of the old packed field expect, since an
     /// unregistered or inert cell held a zeroed scalar field.
+    /// The **water stock** of the organism owning this cell, and its
+    /// stomatal term — see `OrganismState::water` for why the balance is
+    /// held per organism rather than per cell.
+    pub fn water_at(&self, x: i32, y: i32) -> (f32, f32) {
+        let id = self.get(x, y).organism_id();
+        self.organism(id).map_or((0.0, 1.0), |s| (s.water, s.water_status))
+    }
+
     pub fn carbon_at(&self, x: i32, y: i32) -> f32 {
         self.organism_cell(x, y).map_or(0.0, |c| c.carbon)
     }

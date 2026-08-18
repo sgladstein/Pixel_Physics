@@ -68,11 +68,26 @@
                 sympodial: [true],
                 tropism: [Orthotropic],
             ),
-            Photosynthesize(rate: 0.5, shade_death: 0.0),
+            Photosynthesize(rate: 0.5, shade_death: 0.0, transpiration: 0.05, drought_death: 0.0),
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
-            Transpire(rate: 1.0),
+            // **No `Transpire` here any more.** It drained adjacent soil
+            // and credited nothing, which was the right stand-in while
+            // water was not a currency -- it was the only thing making a
+            // stand dry the ground at all.
+            //
+            // It is a double count now. Transpiration is a single path,
+            // soil -> root -> leaf -> air: `Absorb` moves soil into the
+            // plant and the foliage's `transpiration` demand moves it out
+            // to the air. A second uncredited soil->air drain alongside
+            // that corresponds to nothing, and it would make the ground dry
+            // faster than the plants actually use it.
+            //
+            // If the resulting drawdown is too weak to steer roots
+            // hydrotropically, the honest lever is the foliage demand, not
+            // a phantom drain.
+
             Grow(
                 cost: 0.25,
                 branch_chance: [0.05],
@@ -99,7 +114,12 @@
             Reproduce(seed_cost: 0.25, seed_chance: 6e-05, seed_maturity: 250),
             SecondaryThicken(pipe_ratio: 5.5),
             StructuralAnchor,
-            Transpire(rate: 1.0),
+            // Same water economy as tree.ron -- see its own entries for
+            // why each of these exists. Kept identical across the three
+            // species deliberately: the megastudy compares them, and a
+            // species that silently sat out the economy would look like a
+            // morphology result.
+            Absorb(rate: 1.5),
         ]),
         (DormantBud, [
             BudBreak(
@@ -112,7 +132,7 @@
             SecondaryThicken(pipe_ratio: 5.5),
         ]),
         (Leaf, [
-            Photosynthesize(rate: 0.35, shade_death: 0.003),
+            Photosynthesize(rate: 0.35, shade_death: 0.003, transpiration: 0.05, drought_death: 0.003),
         ]),
     ],
 )

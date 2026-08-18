@@ -736,6 +736,41 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
             );
             println!("  seeds standing: {surface_seeds} above the surface, {buried_seeds} buried (buried can never germinate)");
 
+            // **The water balance, per organism, as a standing state.**
+            // `CLAUDE.md`: when the complaint is about something visible
+            // and persistent, measure the standing state rather than the
+            // event rate. The stomatal term is the number that decides
+            // whether roots matter at all -- it multiplies every credit --
+            // so it is reported directly rather than inferred from mass.
+            let mut stocks: Vec<f32> = Vec::new();
+            let mut statuses: Vec<f32> = Vec::new();
+            let mut uptakes: Vec<f32> = Vec::new();
+            let mut demands: Vec<f32> = Vec::new();
+            for id in per_plant.keys() {
+                if let Some(st) = w.organism_state(*id) {
+                    stocks.push(st.water);
+                    statuses.push(st.water_status);
+                    uptakes.push(st.water_uptake);
+                    demands.push(st.water_demand);
+                }
+            }
+            if !statuses.is_empty() {
+                let q = |v: &mut Vec<f32>| {
+                    v.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+                    (v[0], v[v.len() / 2], v[v.len() - 1], v.iter().sum::<f32>() / v.len() as f32)
+                };
+                let (smin, smed, smax, smean) = q(&mut stocks);
+                let (wmin, wmed, wmax, wmean) = q(&mut statuses);
+                println!("
+water balance, per established plant:");
+                println!("  stock          min {smin:>7.1} median {smed:>7.1} max {smax:>7.1} mean {smean:>7.1}");
+                println!("  stomatal term  min {wmin:>7.2} median {wmed:>7.2} max {wmax:>7.2} mean {wmean:>7.2}   (1.0 = demand fully met)");
+                let (umin, umed, umax, umean) = q(&mut uptakes);
+                let (dmin, dmed, dmax, dmean) = q(&mut demands);
+                println!("  uptake/tick    min {umin:>7.2} median {umed:>7.2} max {umax:>7.2} mean {umean:>7.2}");
+                println!("  demand/tick    min {dmin:>7.2} median {dmed:>7.2} max {dmax:>7.2} mean {dmean:>7.2}");
+            }
+
             // **What `support` actually reads on a healthy tree.** The
             // number changed meaning when the search was turned around to
             // run from the anchors outward: it used to answer "is there

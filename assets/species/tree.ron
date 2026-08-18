@@ -277,11 +277,32 @@
                 // shedding pressure belongs to the Leaf entry below, and a
                 // GrowingTip is the frontier itself.
                 shade_death: 0.0,
+                // Transpirational demand per tick at full light. A live tip
+                // is foliage too and pays like one.
+                transpiration: 0.05,
+                // A tip is the frontier, not sheddable foliage -- the same
+                // reasoning `shade_death: 0.0` above carries.
+                drought_death: 0.0,
             ),
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
-            Transpire(rate: 1.0),
+            // **No `Transpire` here any more.** It drained adjacent soil
+            // and credited nothing, which was the right stand-in while
+            // water was not a currency -- it was the only thing making a
+            // stand dry the ground at all.
+            //
+            // It is a double count now. Transpiration is a single path,
+            // soil -> root -> leaf -> air: `Absorb` moves soil into the
+            // plant and the foliage's `transpiration` demand moves it out
+            // to the air. A second uncredited soil->air drain alongside
+            // that corresponds to nothing, and it would make the ground dry
+            // faster than the plants actually use it.
+            //
+            // If the resulting drawdown is too weak to steer roots
+            // hydrotropically, the honest lever is the foliage demand, not
+            // a phantom drain.
+
             Grow(
                 cost: 0.25,
                 branch_chance: [0.04],
@@ -363,10 +384,25 @@
             // trunk width by lowering this.
             SecondaryThicken(pipe_ratio: 5.5),
             StructuralAnchor,
-            // Mature root tissue transpires. Harmless on canopy MatureBody
-            // cells, which never have a soil neighbour to draw from -- see
-            // Behavior::Transpire.
-            Transpire(rate: 1.0),
+            // **Mature root tissue drinks.** This was `Transpire(rate:
+            // 1.0)`, which pulled water out of the soil and credited it to
+            // nothing -- correct while water was not a currency, and the
+            // reason a stand could sit on a soil bed for 108,000 frames and
+            // leave its median cell still at field capacity.
+            //
+            // `Absorb` here is what lets water income scale with root
+            // *mass*. It was a `RootTip`-only behaviour, and root tips are
+            // capped at 10 per plant, so income was bounded by a constant
+            // while demand grows with a canopy of over a thousand leaves --
+            // no constant balances that, because one side does not scale.
+            //
+            // Harmless on canopy MatureBody cells, which have no
+            // water-bearing neighbour to draw from and so pay only the
+            // four-neighbour look. Same rate as the tips: suberised tissue
+            // really does take up less per cell, but there is far more of
+            // it, and splitting the rate is a tuning question for the
+            // economy sweep rather than a structural one.
+            Absorb(rate: 1.5),
         ]),
         // The bud bank -- CellType::DormantBud's own doc has why extension
         // depositing buds, and nothing else depositing them, is the whole
@@ -435,7 +471,28 @@
             // (target/filmstrips/p13-shed-grove.png): bare boles, foliage
             // tufted at the crown, the first sheet where wood reads as
             // wood.
-            Photosynthesize(rate: 0.35, shade_death: 0.003),
+            Photosynthesize(
+                rate: 0.35,
+                shade_death: 0.003,
+                // **Transpirational demand -- the charge that makes a root
+                // worth having.** Before it, `Absorb` credited the same
+                // pool `Photosynthesize` filled, so a rootless plant ran no
+                // deficit and grew on light alone; that is what filled the
+                // canopy with epiphytes.
+                //
+                // A first value, set gently on purpose so the mechanism can
+                // be measured before it is tuned -- `CLAUDE.md`'s "run the
+                // control that isolates it, at its gentlest setting". The
+                // sweep that sets it properly is the economy re-derivation,
+                // together with INCOME_PER_NODE and Grow.cost.
+                transpiration: 0.05,
+                // Drought shedding, the counterpart of shade_death and the
+                // same order of magnitude. This is what makes a plant that
+                // cannot reach soil thin out and die rather than stand
+                // there inert -- the epiphyte's own death, from the economy
+                // instead of from a germination guard.
+                drought_death: 0.003,
+            ),
         ]),
     ],
 )

@@ -300,10 +300,151 @@ const CANOPY_DENSITY_DECAY_PER_TICK: f32 = 0.5;
 /// the grid, so it does not dirty a chunk.** Spending or gaining resource
 /// no longer wakes the CA sweep. A cell-*type* transition still goes
 /// through `World::set`, because that really is a change to the grid.
+/// Drink from adjacent water and damp soil, crediting **water**.
+///
+/// Shared by the active-site dispatch (a live `RootTip`) and the
+/// per-organism upkeep pass (mature root tissue), which is the change that
+/// makes the water economy able to balance at all.
+///
+/// **Uptake has to scale with root *mass*, not with tip count.** `Absorb`
+/// was a `RootTip`-only behaviour, and `tree.ron` caps root tips at 10,
+/// so a plant's entire water income was bounded by a constant while its
+/// demand grows with a canopy of well over a thousand leaves. No setting of
+/// any constant balances those two, because one of them does not scale.
+/// Giving mature tissue the same behaviour makes income proportional to how
+/// much root is actually in contact with damp soil — which is the quantity
+/// that *should* decide it, and the one root depth and spread finally buy
+/// something for.
+///
+/// It runs on every `MatureBody` cell, not only root ones, and that is
+/// deliberate rather than sloppy: the test is contact with water-bearing
+/// soil, so a trunk cell in open air draws nothing and pays only its
+/// four-neighbour look. A collar cell half-buried in damp ground drinking a
+/// little is right, not a bug.
+fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
+
+            // **Credits `water`, not `carbon`, and that one word is
+            // the whole of "make roots matter".** Both arms below used
+            // to add to `resource` -- the same pool `Photosynthesize`
+            // fills -- so water and carbon were one currency, a root
+            // supplied nothing a leaf did not already make, and a plant
+            // with no roots at all ran no deficit. `Reports/plant-
+            // substrate-v2-design.md` §10 step 8 called this out as the
+            // step where "water becomes a real second currency with a
+            // real source"; it was the half that never landed.
+    let organism_id = world.get(x, y).organism_id();
+    let (stock, _) = world.water_at(x, y);
+    let capacity = world.organism(organism_id).map_or(0.0, |st| water_capacity_of(st.root_cells));
+    let mut water = stock;
+            // `Reports/tree-rewrite-design.md` §5: only the passive,
+            // stationary drink-in-place mechanic -- the second
+            // mechanic (`RootTip`'s `Grow` growing directly into a
+            // water cell) lives in the `Grow` dispatch above once a
+            // species' `RootTip` candidate scoring treats `Liquid` as
+            // absorb-and-advance rather than blocked. Not yet wired
+            // there in this pass (`Grow`'s candidate loop above only
+            // checks `is_empty`) -- a documented, honest gap, not a
+            // silent one: `tree.ron`'s roots rely on this drink-in-
+            // place path alone for water uptake until that's added.
+            for (dx, dy) in NEIGHBOURS_4 {
+                let (nx, ny) = (x + dx, y + dy);
+                let n = world.get(nx, ny);
+                match world.materials.kind(n.material) {
+                    MaterialKind::Liquid => {
+                        world.set(nx, ny, Cell::EMPTY);
+                        water = (water + rate).min(capacity);
+                        world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
+                    }
+                    // **Drink from damp soil** -- Decision 3's §4d path
+                    // 2, and the fix for a gap `PLAN.md` recorded and
+                    // could not close: "`RootTip` has no income source
+                    // of its own besides `Absorb` (which only pays off
+                    // once already touching water) -- a root with no
+                    // adjacent water lives entirely off resource slowly
+                    // diffusing over from the trunk, and can permanently
+                    // go dormant... well before ever reaching a water
+                    // pocket even a few cells away." Confirmed there at
+                    // both 1,500 and 6,000 ticks as a permanent stall,
+                    // not a timing issue.
+                    //
+                    // That is a *missing mechanism*, not a mis-tuned
+                    // one, which is why the cost/rate tuning pass
+                    // PLAN.md proposed as the remedy could never have
+                    // fixed it: tuning cannot adjust an income source
+                    // that does not exist. A root embedded in ordinary
+                    // damp soil now has continuous income proportional
+                    // to how damp that soil is.
+                    //
+                    // Credited on plant *available* water, so it is
+                    // exactly zero at or below the wilting point. Soil
+                    // drier than that gives a root nothing at all,
+                    // which is what makes drought terminal rather than
+                    // merely slow.
+                    MaterialKind::Powder => {
+                        let available = update::plant_available_fraction(n);
+                        if available > 0.0 {
+                            let drawn = (rate * available).min(capacity - water);
+                            if drawn > 0.0 {
+                                water += drawn;
+                                // Take the water actually drunk out of
+                                // the soil, so the loop closes: a root
+                                // dries the ground around itself, and
+                                // the moisture field notices.
+                                let taken = (drawn / rate.max(f32::EPSILON) * SOIL_UPTAKE_PER_TICK as f32) as u16;
+                                let left = update::soil_moisture(n).saturating_sub(taken);
+                                world.set(nx, ny, n.with_aux(left));
+                                world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+    credit_water(world, organism_id, water - stock);
+}
+
 fn write_carbon(world: &mut World, x: i32, y: i32, carbon: f32) {
     if let Some(slot) = world.organism_cell_mut(x, y) {
         slot.carbon = carbon;
     }
+}
+
+/// How much water a plant can hold, **proportional to its root mass**.
+///
+/// This is the whole reason root depth and spread buy anything: the stock
+/// is what carries a plant through a dry spell, and only roots make it
+/// bigger. A shallow-rooted individual runs on whatever it drew this tick;
+/// a deep-rooted one has a buffer. It is also the quantity anchorage will
+/// read when "weak roots topple" lands, which is the coupling that makes
+/// root mass one number with two consequences.
+///
+/// A floor of one root cell's worth so a seedling that has just germinated,
+/// with no root system at all yet, still has somewhere to put its first
+/// drink.
+fn water_capacity_of(root_cells: u32) -> f32 {
+    organism::WATER_SCALE * root_cells.max(1) as f32
+}
+
+/// Add to the organism's water stock, bounded by `water_capacity_of`.
+fn credit_water(world: &mut World, organism_id: u16, amount: f32) {
+    if let Some(state) = world.organism_mut(organism_id) {
+        let cap = water_capacity_of(state.root_cells);
+        let before = state.water;
+        state.water = (state.water + amount).min(cap);
+        state.water_uptake_acc += state.water - before;
+    }
+}
+
+/// How full this cell's water store is, `0.0..=1.0` — the **stomatal
+/// term**.
+///
+/// Photosynthesis is multiplied by it, which is the whole coupling that
+/// makes roots matter: a plant that cannot replace what its leaves lose
+/// closes its stomata and stops earning, exactly as a real one does. It is
+/// a fraction of `WATER_SCALE` rather than an absolute amount so that it
+/// means the same thing in a seedling and in a mature tree.
+fn water_status(world: &World, x: i32, y: i32) -> f32 {
+    world.water_at(x, y).1
 }
 
 /// Stamp a freshly created cell's branch order.
@@ -1918,78 +2059,17 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             }
             // Abscission runs from the upkeep pass, which visits every
             // leaf; a live tip photosynthesises but is not foliage to shed.
-            Behavior::Photosynthesize { rate, shade_death: _ } => {
+            Behavior::Photosynthesize { rate, shade_death: _, transpiration, drought_death: _ } => {
                 let light = ambient_light_above(world, x, y);
-                resource = (resource + rate * light).min(organism::RESOURCE_SCALE);
+                // **Spend water, then earn carbon in proportion to what is
+                // left.** The order is the physical one: stomata open, water
+                // goes out, and carbon comes in only while they are open.
+                let _ = transpiration; // demand is charged once per organism, in `organism_upkeep`
+                let status = water_status(world, x, y);
+                resource = (resource + rate * light * status).min(organism::RESOURCE_SCALE);
                 write_carbon(world, x, y, resource);
             }
-            Behavior::Absorb { rate } => {
-                // `Reports/tree-rewrite-design.md` §5: only the passive,
-                // stationary drink-in-place mechanic -- the second
-                // mechanic (`RootTip`'s `Grow` growing directly into a
-                // water cell) lives in the `Grow` dispatch above once a
-                // species' `RootTip` candidate scoring treats `Liquid` as
-                // absorb-and-advance rather than blocked. Not yet wired
-                // there in this pass (`Grow`'s candidate loop above only
-                // checks `is_empty`) -- a documented, honest gap, not a
-                // silent one: `tree.ron`'s roots rely on this drink-in-
-                // place path alone for water uptake until that's added.
-                for (dx, dy) in NEIGHBOURS_4 {
-                    let (nx, ny) = (x + dx, y + dy);
-                    let n = world.get(nx, ny);
-                    match world.materials.kind(n.material) {
-                        MaterialKind::Liquid => {
-                            world.set(nx, ny, Cell::EMPTY);
-                            resource = (resource + rate).min(organism::RESOURCE_SCALE);
-                            world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
-                        }
-                        // **Drink from damp soil** -- Decision 3's §4d path
-                        // 2, and the fix for a gap `PLAN.md` recorded and
-                        // could not close: "`RootTip` has no income source
-                        // of its own besides `Absorb` (which only pays off
-                        // once already touching water) -- a root with no
-                        // adjacent water lives entirely off resource slowly
-                        // diffusing over from the trunk, and can permanently
-                        // go dormant... well before ever reaching a water
-                        // pocket even a few cells away." Confirmed there at
-                        // both 1,500 and 6,000 ticks as a permanent stall,
-                        // not a timing issue.
-                        //
-                        // That is a *missing mechanism*, not a mis-tuned
-                        // one, which is why the cost/rate tuning pass
-                        // PLAN.md proposed as the remedy could never have
-                        // fixed it: tuning cannot adjust an income source
-                        // that does not exist. A root embedded in ordinary
-                        // damp soil now has continuous income proportional
-                        // to how damp that soil is.
-                        //
-                        // Credited on plant *available* water, so it is
-                        // exactly zero at or below the wilting point. Soil
-                        // drier than that gives a root nothing at all,
-                        // which is what makes drought terminal rather than
-                        // merely slow.
-                        MaterialKind::Powder => {
-                            let available = update::plant_available_fraction(n);
-                            if available > 0.0 {
-                                let drawn = (rate * available).min(organism::RESOURCE_SCALE - resource);
-                                if drawn > 0.0 {
-                                    resource += drawn;
-                                    // Take the water actually drunk out of
-                                    // the soil, so the loop closes: a root
-                                    // dries the ground around itself, and
-                                    // the moisture field notices.
-                                    let taken = (drawn / rate.max(f32::EPSILON) * SOIL_UPTAKE_PER_TICK as f32) as u16;
-                                    let left = update::soil_moisture(n).saturating_sub(taken);
-                                    world.set(nx, ny, n.with_aux(left));
-                                    world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                write_carbon(world, x, y, resource);
-            }
+            Behavior::Absorb { rate } => absorb_water(world, x, y, rate),
             Behavior::Transpire { rate } => transpire(world, x, y, rate),
             Behavior::SecondaryThicken { pipe_ratio } => {
                 let _ = pipe_ratio;
@@ -2019,30 +2099,47 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // A raw material test, not `world.is_empty`: the question is
                 // "is there anything holding this up", which is what
                 // `is_empty`'s managed-aware meaning does *not* answer.
-                // **A seed does not germinate resting on another plant.**
+                // **The "no germinating on another plant" guard is gone,
+                // and it was deleted on evidence rather than trimmed.**
                 //
-                // `resting` accepted any non-empty cell below, and a branch
-                // is non-empty. Seeds are a `Powder`, so in a closed stand
-                // most of them never reach the ground at all -- they come to
+                // It existed because `resting` accepts any non-empty cell
+                // and a branch is non-empty: seeds are a `Powder`, so in a
+                // closed stand most never reach the ground -- they come to
                 // rest on the first limb that stops them and sprout there.
-                // Measured before this line existed: **430 of 487 organisms
-                // rooted above the soil, 410 of them more than 25 rows up**,
-                // and a time lapse shows the stand degrading from eight
-                // clean trees into a pile of trees growing out of trees.
+                // Measured before the guard: **430 of 487 organisms rooted
+                // above the soil, 410 of them more than 25 rows up**, and a
+                // time lapse showed eight clean trees degrading into a pile
+                // of trees growing out of trees.
                 //
-                // `moisture_threshold` looks like the designed answer and is
-                // not: field moisture at the soil *surface*, where a good
-                // seed lands, is as near zero as it is up a tree, so every
-                // non-zero setting blocked all germination equally (8
-                // established at 0.05, 0.2 and 0.5 alike -- only the
-                // originally planted trees). It cannot separate the cases.
+                // It was always a symptom fix, and the owner's framing was
+                // the right one: *a canopy plant cannot have roots, so it
+                // should starve rather than be forbidden.* With
+                // transpirational demand charged and `Absorb` crediting
+                // water, that is what happens -- a seed that sprouts in a
+                // crown has no soil to reach, meets none of its demand,
+                // earns nothing, and is shed leaf by leaf by
+                // `drought_death`.
                 //
-                // Material kind can, exactly. Soil, stone and gravel are
-                // ground; wood, leaf and rootwood are `Plant`, and a seed
-                // lying on living tissue is lying in a tree.
+                // Verified rather than assumed, which is the whole reason
+                // the guard could be deleted: with this line removed, the
+                // standard grove reads **0 organisms rooted above ground at
+                // 30,000 frames and 0 at 60,000**, on a stand of 33,575
+                // cells that is otherwise healthy. Keeping a superseded
+                // mechanism "just in case" is a documented trap here -- its
+                // tests keep passing while testing nothing.
+                //
+                // The reproduction is kept: `examples/plant_probe.rs`
+                // prints the epiphyte count on every run, so a regression
+                // announces itself.
+                //
+                // (`moisture_threshold` looks like the designed answer and
+                // is not: field moisture at the soil *surface*, where a
+                // good seed lands, is as near zero as it is up a tree, so
+                // every non-zero setting blocked all germination equally --
+                // 8 established at 0.05, 0.2 and 0.5 alike. It cannot
+                // separate the cases.)
                 let below = world.get(x, y + 1);
-                let resting = below.material != material::EMPTY
-                    && world.materials.get(below.material).kind != crate::sim::material::MaterialKind::Plant;
+                let resting = below.material != material::EMPTY;
                 let ready = resting
                     && (instant || {
                     let light = ambient_light_above(world, x, y);
@@ -2186,6 +2283,10 @@ pub fn step_organisms(world: &mut World) {
         // `GrowingTip` when `thicken` runs and can be counted as frontier
         // rather than thickened over on the same tick it woke up.
         break_buds(world, organism_id);
+        // After `break_buds`, so a tick's single shoot flush is decided
+        // before the roots ask -- and after `organism_upkeep` has set
+        // `water_status`, which is what this gates on.
+        break_root_tips(world, organism_id);
         organism_upkeep(world, organism_id);
     }
 }
@@ -2311,6 +2412,23 @@ fn l_node(leaf_cluster: u8) -> f32 {
 /// One per tick on top of that is a *rate* limit, not the bound — it keeps
 /// a plant that has just been shaded from re-flushing its whole bud bank in
 /// a single tick, and it keeps this function's cost at one pass.
+/// What a root tip's share of the growth pool is worth relative to a shoot
+/// tip's when the plant is under no water stress at all.
+///
+/// Below 1.0 because a well-watered plant should be spending on canopy --
+/// that is what buys it carbon -- but well above 0, because roots still
+/// have to extend into fresh soil as the ground around them dries. The
+/// stress term added to it in `allocate_to_frontier` is what makes a thirsty
+/// plant reverse the priority.
+const ROOT_BIAS_AT_FULL_WATER: f32 = 0.5;
+
+/// Stomatal term below which a plant will spend carbon re-initiating a root
+/// tip. At or above it, demand is being met and canopy is the better buy.
+///
+/// Not 1.0: the term rings slightly around a met demand from tick to tick,
+/// and a threshold sitting exactly at the top would fire on the noise.
+const ROOT_REINITIATION_STATUS: f32 = 0.95;
+
 /// Step onto tissue *above* the parent — the child is standing on it.
 ///
 /// **Free, deliberately.** A vertical stem is in pure compression and
@@ -2559,6 +2677,121 @@ fn accumulate_support(world: &mut World, organism_id: u16) {
         }
     }
 }
+/// Re-initiate a root tip from mature root tissue when the plant is short
+/// of water — **the root analogue of `break_buds`, and the mechanism whose
+/// absence made the whole water economy unstable.**
+///
+/// A shoot can always restart: extension deposits a `DormantBud` at every
+/// node, so a bud bank accumulates and `break_buds` draws on it whenever the
+/// economy allows. **Roots had no reservoir at all.** A seed germinates with
+/// exactly one `RootTip`, new ones come only from that tip's own branching,
+/// and a tip that cannot afford `cost` for `ORGANISM_STALE_LIMIT` ticks
+/// retires to `MatureBody` — deliberately, and that gate must not be
+/// loosened, because "a starved tip eventually stops" is what makes growth
+/// terminate at all.
+///
+/// The consequence was that one early carbon shortage ended root growth
+/// *permanently*. Measured: with transpiration charged, root cells settled
+/// at a median of **3** against a baseline of 346, and the stomatal term sat
+/// at 0.16 — and weighting the growth pool toward root tips (functional
+/// balance) moved the stand by 3%, because there were no root tips left to
+/// favour. An almost-zero delta from a lever that should be decisive is the
+/// signal that the condition it keys on is degenerate.
+///
+/// Real roots do exactly this: laterals initiate from pericycle tissue along
+/// an existing root throughout its life, not only at a growing apex.
+///
+/// Gated on water stress rather than run unconditionally, so a plant with
+/// its demand fully met spends on canopy instead — that, with
+/// `ROOT_BIAS_AT_FULL_WATER`, is the whole of functional balance.
+fn break_root_tips(world: &mut World, organism_id: u16) {
+    let Some(state) = world.organism(organism_id) else { return };
+    let species_id = state.species;
+    let status = state.water_status;
+    if status >= ROOT_REINITIATION_STATUS {
+        return; // demand met -- nothing to fix, and canopy is the better buy
+    }
+    let Some((cost, max_active_tips)) =
+        world.species.get(species_id).behaviors(CellType::RootTip).iter().find_map(|b| match b {
+            Behavior::Grow { cost, max_active_tips, .. } => Some((*cost, *max_active_tips)),
+            _ => None,
+        })
+    else {
+        return; // a species whose roots do not grow
+    };
+
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
+
+    // Candidates, and the richest cell to pay from -- the same shape
+    // `break_buds` uses, and for the same reason: the trunk sits near the
+    // carbon cap while the frontier starves.
+    let mut tips = 0usize;
+    let mut richest: Option<(i32, i32, f32)> = None;
+    let mut candidates: Vec<(i32, i32, f32)> = Vec::new();
+    for &(x, y) in &cells {
+        let cell = world.get(x, y);
+        if cell.organism_id() != organism_id {
+            continue;
+        }
+        let carbon = world.carbon_at(x, y);
+        if richest.is_none_or(|(_, _, best)| carbon > best) {
+            richest = Some((x, y, carbon));
+        }
+        match organism::cell_type(cell.aux()) {
+            Some(CellType::RootTip) => tips += 1,
+            Some(CellType::MatureBody) if world.materials.get(cell.material).reinforces_powder => {
+                // **Scored by the water actually available around it**, so a
+                // new tip starts where there is something to drink and grows
+                // from there. This is hydrotropism expressed as a placement
+                // decision rather than a steering one, and it costs nothing
+                // extra: the same four-neighbour look `Absorb` already does.
+                let mut wet = 0.0f32;
+                let mut open = false;
+                for (dx, dy) in NEIGHBOURS_4 {
+                    let n = world.get(x + dx, y + dy);
+                    let m = world.materials.get(n.material);
+                    if m.water_capacity > 0 {
+                        wet += update::plant_available_fraction(n);
+                        open = true;
+                    }
+                }
+                // Only tissue that still has soil to grow into: converting a
+                // cell walled in by its own root system spends the cost on a
+                // tip that has nowhere to go and ages straight back out.
+                if open {
+                    candidates.push((x, y, wet));
+                }
+            }
+            _ => {}
+        }
+    }
+    if tips >= max_active_tips as usize || candidates.is_empty() {
+        return;
+    }
+    let Some((rx, ry, held)) = richest else { return };
+    if held < cost {
+        return;
+    }
+
+    // Deterministic pick: best score, ties broken row-major. `cells` is a
+    // `HashMap` underneath and an unstable order would make the choice a
+    // property of the hasher's seed rather than of the world.
+    candidates.sort_unstable_by(|a, b| b.2.total_cmp(&a.2).then((a.1, a.0).cmp(&(b.1, b.0))));
+    let (bx, by, _) = candidates[0];
+    let cell = world.get(bx, by);
+    world.set(bx, by, cell.with_aux(organism::pack_cell_type(CellType::RootTip)));
+    write_carbon(world, rx, ry, held - cost);
+    // Stake the new tip so its first `Grow` check is not guaranteed to fail
+    // -- the same courtesy `break_buds` extends to a flushing bud, and for
+    // the same reason: a fresh cell reads `resource = 0` and `Grow` runs
+    // before any income.
+    let stake = world.carbon_at(bx, by).max(cost);
+    write_carbon(world, bx, by, stake);
+    let site = reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL);
+    world.schedule_active_site(site);
+}
+
 
 fn break_buds(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
@@ -2598,7 +2831,10 @@ fn break_buds(world: &mut World, organism_id: u16) {
             continue;
         }
         match organism::cell_type(cell.aux()) {
-            Some(CellType::Leaf) => intercepted += ambient_light_above(world, x, y),
+            // Water-limited light, not raw light -- see
+            // `allocate_to_frontier` for why the *same* weighting has to
+            // appear in both places.
+            Some(CellType::Leaf) => intercepted += ambient_light_above(world, x, y) * water_status(world, x, y),
             // Shoot tips only. A root tip is frontier too, but it is fed by
             // a different economy and does not compete for light.
             Some(CellType::GrowingTip) => tips += 1,
@@ -2737,6 +2973,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
 
     let mut frontier: Vec<(i32, i32)> = Vec::new();
+    let mut frontier_is_root: Vec<bool> = Vec::new();
     let mut donors: Vec<(i32, i32)> = Vec::new();
     let mut intercepted = 0.0f32;
     for &(x, y) in &cells {
@@ -2745,7 +2982,10 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
             continue;
         }
         match organism::cell_type(cell.aux()) {
-            Some(t) if is_frontier(t) => frontier.push((x, y)),
+            Some(t) if is_frontier(t) => {
+                frontier.push((x, y));
+                frontier_is_root.push(t == CellType::RootTip);
+            }
             Some(CellType::Leaf) => {
                 // **Intercepted light, not leaf count** -- Palubicki's `Q`.
                 // A leaf buried inside the canopy sits under blocked field
@@ -2753,7 +2993,20 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
                 // nothing. Counting leaves equally made income grow with
                 // mass and the stand fused into a slab; weighting by light
                 // is what makes self-shading bound the plant.
-                intercepted += ambient_light_above(world, x, y);
+                // **Water-limited, and the gate goes here rather than on
+                // the credit.** `break_buds` computes `supportable` from
+                // the identical expression `intercepted / l_node *
+                // INCOME_PER_NODE`, so a plant's growth budget and its
+                // permission to open a new bud are one number in two
+                // places. Charging the deficit anywhere else -- a per-cell
+                // debit, say -- would move one and not the other, and the
+                // two gates would disagree about what the plant can afford.
+                //
+                // Liebig's law of the minimum, in the only form this engine
+                // needs it: income is bounded by whichever of light and
+                // water is scarcer, so a rootless plant in full sun earns
+                // nothing at all however much light it intercepts.
+                intercepted += ambient_light_above(world, x, y) * water_status(world, x, y);
                 donors.push((x, y));
             }
             Some(_) => donors.push((x, y)),
@@ -2791,12 +3044,39 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     let income = intercepted / l_node(leaf_cluster) * INCOME_PER_NODE;
     let stock: f32 = donors.iter().map(|&(x, y)| world.carbon_at(x, y)).sum();
     let pool = income.min(stock);
-    let share = pool / frontier.len() as f32;
-    if share <= 0.0 {
+    // **Functional balance: the plant invests in whatever is limiting it.**
+    //
+    // The pool used to be split evenly across every frontier cell, root tips
+    // included, so a plant that could not supply its canopy kept funding
+    // more canopy. That is a death spiral and it was measured as one: with
+    // demand charged and the split left even, root cells fell from a median
+    // of 346 to **3** and the stomatal term settled at 0.16 -- water-limited
+    // income starves the very roots that would fix it, and the more it
+    // starves them the more water-limited it gets.
+    //
+    // Real plants resolve this the same way, and it is one of the
+    // best-established rules in plant ecology: allocate to the organ that
+    // captures the scarcer resource. A shoot tip's weight is 1; a root tip's
+    // rises as the stomatal term falls, so a well-watered plant spends on
+    // canopy and a thirsty one spends on roots. `ROOT_BIAS_AT_FULL_WATER`
+    // keeps roots funded even at status 1.0, because a plant with no water
+    // stress still has to replace root tissue and extend into fresh soil.
+    //
+    // This is also what makes root traits worth selecting on -- and, with
+    // `water_capacity_of` reading root mass, what makes root mass one
+    // quantity with two consequences, uptake now and anchorage later.
+    let status = world.organism(organism_id).map_or(1.0, |s| s.water_status);
+    let root_weight = ROOT_BIAS_AT_FULL_WATER + (1.0 - status);
+    let total_weight: f32 = frontier_is_root.iter().map(|&r| if r { root_weight } else { 1.0 }).sum();
+    if total_weight <= 0.0 {
         return;
     }
 
-    for &(fx, fy) in &frontier {
+    for (index, &(fx, fy)) in frontier.iter().enumerate() {
+        let share = pool * (if frontier_is_root[index] { root_weight } else { 1.0 }) / total_weight;
+        if share <= 0.0 {
+            continue;
+        }
         let held = world.carbon_at(fx, fy);
         let mut wanted = (share - held).min(organism::RESOURCE_SCALE - held);
         if wanted <= 0.0 {
@@ -2878,6 +3158,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // "how much foliage do I carry" without a traversal of its own.
     let mut leaves_in_row: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let (mut root_cells, mut shoot_cells) = (0u32, 0u32);
+    let mut demand = 0.0f32;
     let mut collar_y: Option<i32> = None;
     let mut shoot_top_y: Option<i32> = None;
     let mut min_y = i32::MAX;
@@ -2892,6 +3173,25 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         let ty = organism::cell_type(c.aux());
         if matches!(ty, Some(CellType::Leaf) | Some(CellType::GrowingTip)) {
             *leaves_in_row.entry(cy).or_insert(0) += 1;
+            // **Transpirational demand, summed over foliage in the walk
+            // that is already happening.** Driven by leaf area, which is
+            // what `TRANSPIRATION_PER_ROOT_CELL`'s own doc says it should
+            // always have been -- "the canopy is the pump" -- and scaled by
+            // the light each leaf reads, because stomata open in light.
+            //
+            // A *sum*, not a count: `CLAUDE.md` prefers a continuous
+            // quantity over a count of bad cells, because counts give
+            // knife-edge margins and sums separate cleanly.
+            if let Some(t) = ty {
+                let transpiration = world.species.get(species_id).behaviors(t).iter().find_map(|b| match b {
+                    Behavior::Photosynthesize { transpiration, .. } => Some(*transpiration),
+                    _ => None,
+                });
+                if let Some(rate) = transpiration {
+                    let light = ambient_light_above(world, cx, cy);
+                    demand += rate * (light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
+                }
+            }
         }
         // Root or shoot, tallied in the walk that is already happening.
         // `rootwood` is the discriminator rather than cell type, because a
@@ -2966,7 +3266,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         }
         for behavior in behavior_buf.into_iter().take(behavior_count).flatten() {
             match behavior {
-                Behavior::Photosynthesize { rate, shade_death } => {
+                Behavior::Photosynthesize { rate, shade_death, transpiration, drought_death } => {
                     let light = ambient_light_above(world, cx, cy);
                     // Abscission — **a graded pressure, not a threshold**,
                     // chosen on a fair paired measurement and not on the
@@ -3007,7 +3307,28 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                             continue;
                         }
                     }
-                    resource = (resource + rate * light).min(organism::RESOURCE_SCALE);
+                    // Water first, carbon second and gated on it -- see the
+                    // frontier arm for the ordering, and
+                    // `Behavior::Photosynthesize::transpiration` for why
+                    // this charge is what makes a root worth having.
+                    let _ = transpiration; // charged once per organism -- see `organism_upkeep`
+                    let status = water_status(world, cx, cy);
+                    // **Drought abscission, the exact counterpart of the
+                    // shade rule above and cubed for the same reason.** A
+                    // leaf the plant cannot supply is shed, so a seedling
+                    // germinated in a canopy with no soil to reach thins out
+                    // and dies rather than standing there inert. Checked
+                    // before the credit, like the shade rule, so a leaf
+                    // being shed does not also earn on the tick it dies.
+                    if drought_death > 0.0 && organism::cell_type(world.get(cx, cy).aux()) == Some(CellType::Leaf) {
+                        let thirst = (1.0 - status).clamp(0.0, 1.0);
+                        if rng.chance(drought_death * thirst * thirst * thirst) {
+                            world.set(cx, cy, Cell::EMPTY);
+                            shed_stranded_leaves(world, cx, cy, organism_id);
+                            continue;
+                        }
+                    }
+                    resource = (resource + rate * light * status).min(organism::RESOURCE_SCALE);
                 }
                 Behavior::Transpire { rate } => {
                     transpire(world, cx, cy, rate);
@@ -3057,10 +3378,18 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 // frontier), so `break_buds` evaluates it once per organism
                 // per tick instead -- see that function for why a per-cell
                 // version cannot work.
+                // **`Absorb` runs here now.** It used to sit in the no-op
+                // group below with the comment "`Absorb` is a `RootTip`'s
+                // live water uptake (mature root tissue is suberised and
+                // takes up little)". That is true of a real root and was
+                // fatal here: `tree.ron` caps root tips at 10, so the whole
+                // plant's water income was bounded by a constant while its
+                // demand scales with a canopy of over a thousand leaves.
+                // See `absorb_water`.
+                Behavior::Absorb { rate } => absorb_water(world, cx, cy, rate),
                 Behavior::Grow { .. }
                 | Behavior::Divide { .. }
                 | Behavior::Germinate { .. }
-                | Behavior::Absorb { .. }
                 | Behavior::BudBreak { .. }
                 | Behavior::StructuralAnchor => {}
             }
@@ -3071,6 +3400,35 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         if world.get(cx, cy).organism_id() == organism_id {
             write_carbon(world, cx, cy, resource);
         }
+    }
+
+    // **Settle the water balance once, at the end, for the whole plant.**
+    //
+    // After the loop rather than before it, because `Absorb` runs inside
+    // that loop on every mature root cell: this reads the stock the plant
+    // actually finished the tick holding.
+    //
+    // Charged once per organism rather than per foliage cell, and the
+    // difference is not cosmetic -- a per-cell debit oscillates against the
+    // status derived from it. A plant that exactly met demand would end the
+    // tick at zero, read a stomatal term of zero, and earn nothing next
+    // tick despite being perfectly well watered. Drawing `min(stock,
+    // demand)` in one place and reporting the fraction met is the same
+    // physics without the ringing.
+    //
+    // `water_status` is what multiplies every photosynthetic credit and
+    // every leaf's contribution to intercepted light, so this single number
+    // is the entire coupling between having roots and being able to grow.
+    if let Some(state) = world.organism_mut(organism_id) {
+        let drawn = state.water.min(demand);
+        state.water -= drawn;
+        state.water_status = if demand > 0.0 { drawn / demand } else { 1.0 };
+        state.water_demand = demand;
+        // Snapshot, then clear the accumulator: per tick rather than
+        // cumulative, because a running total would be dominated by the
+        // plant's age and could not answer "is it keeping up right now".
+        state.water_uptake = state.water_uptake_acc;
+        state.water_uptake_acc = 0.0;
     }
 }
 
@@ -3677,7 +4035,54 @@ mod tests {
     ///
     /// The floor is one row of stone directly under the seed, wide enough
     /// that a seed which rolls a little still lands on it.
+    /// Plant a seed on ground a tree can actually live on: a bed of damp
+    /// soil at field capacity over a stone floor.
+    ///
+    /// **It used to be a bare stone shelf, and that stopped being a viable
+    /// scene when water became a currency.** With transpirational demand
+    /// charged and `Absorb` crediting water, a plant with no soil or free
+    /// water to reach meets none of its demand, so its stomatal term is 0,
+    /// so it earns no carbon and never grows -- which is exactly what the
+    /// economy is *for*, and it turned seven tree tests red at once.
+    ///
+    /// The scene was contradicting the code (`CLAUDE.md`), and the fix
+    /// belongs in the scene. A tree on bare rock with nothing to drink
+    /// should fail; none of these tests is about that, and the ones that
+    /// are (`a_root_penetrates_soil_but_not_stone`) build their own ground.
+    ///
+    /// `SOIL_FIELD_CAPACITY`, not saturated: `Powder` `aux == 0` means dry,
+    /// the opposite of a `Liquid`, and starting at capacity matches
+    /// `examples/common/mod.rs`'s shared plant scene so a test and a
+    /// filmstrip are looking at the same world.
     fn plant_tree_on_ground(w: &mut World, x: i32, y: i32) {
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        const SOIL_ROWS: i32 = 8;
+        const HALF: i32 = 8;
+        // **Walled, not just floored.** Soil is a `Powder`: an open-sided
+        // bed avalanches off its own floor over the first few hundred
+        // frames, the surface drops, and the seed rides down with it --
+        // which read as "the seed never germinated" and is the second time
+        // this exact scene error has cost time here (`CLAUDE.md`: a soil
+        // column with no floor or walls fell out of the world and toppled).
+        for fx in (x - HALF - 1)..=(x + HALF + 1) {
+            w.set(fx, y + SOIL_ROWS + 1, Cell::new(material::STONE, 0));
+        }
+        for dy in 1..=SOIL_ROWS {
+            w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+            w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+            for fx in (x - HALF)..=(x + HALF) {
+                w.set(fx, y + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        w.plant_tree(x, y);
+    }
+
+    /// The pre-soil scene: a bare stone shelf and nothing to drink.
+    ///
+    /// Kept for the tests whose subject is free *water* rather than soil
+    /// moisture -- a soil bed would supply the plant before its root ever
+    /// reached the puddle, which is the confound rather than the mechanism.
+    fn plant_tree_on_bare_ground(w: &mut World, x: i32, y: i32) {
         for fx in (x - 6)..=(x + 6) {
             w.set(fx, y + 1, Cell::new(material::STONE, 0));
         }
@@ -4108,11 +4513,28 @@ mod tests {
             let species_id = w.species.id_of(species).expect("species is compiled in");
             let bands = w.species.get(species_id).foliage_bands;
             assert!(bands.count > 0, "{species} is supposed to declare foliage bands");
-            for fx in 94..=106 {
-                w.set(fx, 61, Cell::new(material::STONE, 0));
+            // Soil, not a bare shelf: with transpiration charged, a plant
+            // with nothing to drink meets none of its demand and grows no
+            // foliage at all, so the test would fail on its own "grew no
+            // Leaf cells" tripwire rather than on the bands it is about.
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            for fx in 93..=107 {
+                w.set(fx, 69, Cell::new(material::STONE, 0));
+            }
+            for dy in 61..=68 {
+                w.set(93, dy, Cell::new(material::STONE, 0));
+                w.set(107, dy, Cell::new(material::STONE, 0));
+                for fx in 94..=106 {
+                    w.set(fx, dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
             }
             w.plant_tree_species(100, 60, species);
-            run_with_fields(&mut w, 3000);
+            // 6,000 rather than 3,000: a seedling now has to fund a root
+            // system before it can afford foliage, so first leaves arrive
+            // later. The claim is unchanged -- every cell it does grow must
+            // land in the declared band -- and the tripwire below still
+            // fails the test if nothing grew.
+            run_with_fields(&mut w, 6000);
 
             let mut seen = 0usize;
             for y in 0..200 {
@@ -4288,7 +4710,10 @@ mod tests {
         // rows of open sky. The water tank keeps the same offsets *below*
         // the seed as the old test used (floor 10 rows down, water
         // starting 2 rows down), just shifted to match.
-        plant_tree_on_ground(&mut w, 50, 20);
+        // Bare ground on purpose: with a soil bed the root's demand is met
+        // before it ever reaches the tank, and the test would pass or fail
+        // on soil moisture rather than on the free-water path it names.
+        plant_tree_on_bare_ground(&mut w, 50, 20);
         // A walled, floored tank directly below the seed -- water is a
         // liquid and falls/drains under gravity like anything else, so an
         // unconfined puddle sinks or spreads away before a root ever
@@ -4558,8 +4983,38 @@ mod tests {
         // belongs in the scene: this test is about `Photosynthesize`
         // reading light at its own position, and a floor below it changes
         // nothing about the light arriving from above.
-        w.set(100, 21, Cell::new(material::STONE, 0));
+        // Damp soil under it, not bare stone. Two separate reasons, both
+        // introduced since this test was written: `anchor_support` now
+        // evaluates every organism cell, so a cell floating in open sky is
+        // correctly read as detached and falls; and photosynthesis is
+        // multiplied by the stomatal term, so a plant with nothing to drink
+        // earns nothing however bright the sky is. Neither is what this
+        // test is about -- it is about `Photosynthesize` reading light at
+        // its own position -- and soil below changes nothing about the
+        // light arriving from above.
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+        for fx in 98..=102 {
+            for dy in 21..=24 {
+                w.set(fx, dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+            w.set(fx, 25, Cell::new(material::STONE, 0));
+        }
+        // **A minimal *plant*, not a lone shoot cell**, and both halves are
+        // now required. `anchor_support` reads a cell floating in open sky
+        // as detached and drops it, so the tip needs ground; and
+        // photosynthesis is multiplied by the stomatal term, so the
+        // organism needs something that can drink. `GrowingTip` carries
+        // `Grow` and `Photosynthesize` and no `Absorb` -- a shoot with no
+        // root earns nothing, which is the economy working, not a bug to
+        // route around.
+        //
+        // The subject is unchanged: whether `Photosynthesize` credits from
+        // the light at its own position.
+        w.set(100, 21, Cell::new(rootwood, 0).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::RootTip)));
         w.set(100, 20, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(aux));
+        let root_site = reschedule_organism(100, 21, organism_id, 0, 0, w.frame + ORGANISM_TICK_INTERVAL);
+        w.schedule_active_site(root_site);
         let site = reschedule_organism(100, 20, organism_id, 0, 0, w.frame + ORGANISM_TICK_INTERVAL);
         w.schedule_active_site(site);
 
