@@ -16,6 +16,12 @@ names against what actually committed. This document was produced in a
 separate worktree (`plant-genome` branch) — the audit is of committed code
 plus that one snapshot.
 
+**Update, 07:40 the same morning:** the water economy committed as
+`8c19439` while this proposal was being written. The delta-check §8
+requires is done and recorded in §10 — every hook held, no genome code
+moved, the §4.3 seam is confirmed live in the committed code, and the only
+remaining gate on the edit is §9.
+
 ---
 
 ## 1. What exists, verified by reading
@@ -491,10 +497,9 @@ made of.
 ## 8. The one edit, and how it is verified
 
 **Sequencing:** the edit lands only after (a) the owner signs off on a map
-and (b) the water economy commits — four loci hook its interface. If the
-water session's final shape differs from the snapshot (§3), the affected
-rows come back here for a delta-check before landing, and the
-`drought_death` re-key of §4.3 is coordinated with it, not around it.
+and (b) the water economy commits — four loci hook its interface. **(b) is
+satisfied: `8c19439`, delta-checked in §10.** The `drought_death` re-key of
+§4.3 is coordinated with that code, not around it.
 
 Touches, in one commit: `organism.rs` (constants, allele tables, locus
 renames, the doctrine amendment), `plant.rs` (root slot re-pointing in the
@@ -504,8 +509,9 @@ and the new species scalars), `examples/plant_probe.rs` (genotype table
 columns renamed to the new map, plus an allele-frequency line per discrete
 locus so morph dynamics are visible in logs), tests (each new locus gets
 its paired-comparison harness), `PLAN.md` (the final map, and that slots
-are positional forever), `wiki/` (there is still no `wiki/plants.md` —
-standing gap, this change is a reasonable trigger to finally write it).
+are positional forever), and `wiki/plants.md` (written by the water commit
+`8c19439`; heritable morphs and colour-as-readout are player-visible, so
+the page updates in the same change, per convention).
 
 **Verification, per the brief plus this repo's own rules:**
 
@@ -545,3 +551,33 @@ Everything else in the map is either unchanged or follows directly from
 the water economy's design intent, and the slot table in §5 becomes final
 — and goes into `PLAN.md`, marked positional forever — the moment these
 four calls are made.
+
+---
+
+## 10. Addendum: delta-check against the committed water economy
+
+`plant-substrate-v2` moved to `8c19439` ("Water becomes a real currency,
+and the epiphyte guard is deleted") a few hours after the audit, so §8's
+delta-check is already discharged. Verified in the committed tree, not
+the snapshot:
+
+| §3 interface name | committed at |
+|---|---|
+| `WATER_SCALE`; `water_capacity_of` ∝ `root_cells` | organism.rs:1408; plant.rs:424 |
+| `water_status` gating every credit | plant.rs:3331 (`rate × light × status`) |
+| `ROOT_BIAS_AT_FULL_WATER` (0.5); functional-balance root weight | plant.rs:2423; :3069 |
+| `break_root_tips`; `ROOT_REINITIATION_STATUS` (0.95) | plant.rs:2707; :2430 |
+| `Photosynthesize { transpiration, drought_death }` | all three Grow species (e.g. conifer.ron:86, :151), `Absorb(rate: 1.5)` on mature root tissue |
+
+The commit contains **no genome changes** — no `LOCUS_*`, `genotype_*` or
+`DISCRETE_*` edits — so nothing in §5's map moves. Three findings stand
+exactly as written: the §4.3 seam is live as committed (drought shedding
+keys `thirst = 1 − water_status`, plant.rs:3324, so the stomatal-closure
+locus still requires the status→stock-fraction re-key before it can
+exist); there is still no pallor/darkening code anywhere (§7's correction
+holds); and the water commit wrote `wiki/plants.md`, closing the gap §8
+originally named.
+
+**The only remaining gate on the edit is §9.** Line references in §1–§4
+remain pinned to `16dcdc4`, as the header states; this section's are
+against `8c19439`.
