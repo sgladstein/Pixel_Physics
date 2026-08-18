@@ -1,7 +1,8 @@
 # Structural Collapse
 
 *Current as of: this build. Where something breaks — at the neck, across
-a section, sharing load between supports — is settled behavior, and a cut
+a section, sharing load between supports and across the thickness of a
+wall — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
 building. Digging into open ground no longer spreads: a hole is a hole,
 and the rock around it stops where the damage stops. What is still in flux
@@ -30,6 +31,13 @@ usually a narrow neck holding up something much bigger than itself.
 Weight can also be shared: a structure resting on two separate legs
 actually splits its load between them, rather than the whole weight
 routing through whichever leg the game happened to pick first.
+
+The same is true *across* a wall as well as between legs. A thick wall
+carries its roof through its whole thickness, not down one hidden line
+inside it, so damaging the near face of a wall matters as much as damaging
+the far one. Before this, a notch cut in the wrong face of a wall was free
+— the building genuinely did not notice — and which face was the wrong one
+was not something you could see. Anywhere you hit a wall now counts.
 
 Walls are not judged the same way as the roof they carry. A wall passes
 weight downward, and it is asked how thick *it* is, not how far the thing

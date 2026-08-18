@@ -253,6 +253,15 @@ pub struct World {
     /// not. Being able to run the *same binary* both ways is what makes a
     /// before/after a measurement rather than a memory of an older build.
     pub arch_relief: bool,
+    /// Whether a column is judged at the worst of its section rather than
+    /// on its own single load path. See `load::evaluate_within`; `true` is
+    /// the shipped behaviour.
+    ///
+    /// A switch for the same reason the two above are: this one redraws the
+    /// stress field of every solid structure in the world, and "is the
+    /// one-pixel line gone" is a question best answered by one binary run
+    /// twice rather than by two builds an hour apart.
+    pub section_share: bool,
     /// How far from something that was actually disturbed a structural
     /// failure is allowed to happen, in cells, and for how long. See
     /// `ChainMode`; `i32::MAX` is the shipped behaviour (no limit).
@@ -432,6 +441,7 @@ impl World {
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
             crush_confined: true,
             arch_relief: true,
+            section_share: true,
             chain_reach: i32::MAX,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),

@@ -103,6 +103,7 @@ fn build(args: &Args) -> World {
     // cut as much as for the run that follows it.
     w.crush_confined = args.confine;
     w.arch_relief = args.arch;
+    w.section_share = args.share;
     if let Some(reach) = args.chain_reach {
         w.chain_reach = reach;
     }
@@ -862,6 +863,27 @@ struct Args {
     /// and how it evolves across the tiles, which is the question.
     organism_overlay: OrganismOverlay,
     field_overlay: FieldOverlay,
+    /// `channel=stress` -- repaint the sheet with `load::evaluate`'s stress
+    /// ratio, the same green-to-red ramp the app draws on `N`.
+    ///
+    /// Not one of `render.rs`'s overlays because it is not a stored channel:
+    /// it is the *output* of the model under test, and it has to be computed
+    /// here. It exists because the load-concentration defect is literally
+    /// visible -- a one-pixel red line down an otherwise green wall -- and
+    /// arguing about it from a mass probe takes an afternoon that one glance
+    /// settles.
+    ///
+    /// **A full replace, not a blend**, per `CLAUDE.md`: the app blends at
+    /// 0.55 into the cell's own colour, which is fine on a live screen you
+    /// can toggle and unreadable at the zoom a contact sheet is read at --
+    /// grey stone under a 45% green wash is grey stone.
+    ///
+    /// And **"not evaluated" gets its own colour** (dark blue) rather than
+    /// falling through to the material. It is a third state, not a low
+    /// stress, and conflating it with green is exactly how a model that
+    /// never looks at 15 cells of a 17-cell wall reads as "the wall is
+    /// fine".
+    stress: bool,
     /// Write an animated GIF of every frame in the range instead of a grid.
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
@@ -1017,6 +1039,10 @@ struct Args {
     /// `arch=0` -- turn off `World::arch_relief`, so a roof carries the
     /// whole column above it again. The control for the arching change.
     arch: bool,
+    /// `share=0` -- turn off `World::section_share`, so each cell is judged
+    /// on its own load path again. The control for the load-concentration
+    /// change, and the only way to see the one-pixel red line come back.
+    share: bool,
     /// `chain_reach=N` -- how far from something actually disturbed a
     /// failure may happen, in cells. Unset means no limit, the shipped
     /// behaviour. `0` is "only what you struck ever fails".
@@ -1041,6 +1067,7 @@ fn parse() -> Args {
         grain: GrainMode::Position,
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
+        stress: false,
         gif: false,
         explosions: Vec::new(),
         cuts: Vec::new(),
@@ -1058,6 +1085,7 @@ fn parse() -> Args {
         min_cave: None,
         confine: true,
         arch: true,
+        share: true,
         chain_reach: None,
         wall: 3,
         dig: 3,
@@ -1106,8 +1134,9 @@ fn parse() -> Args {
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
                 "pressure" => a.field_overlay = FieldOverlay::Pressure,
+                "stress" => a.stress = true,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure, stress"
                 ),
             },
             "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),
@@ -1130,6 +1159,7 @@ fn parse() -> Args {
             }
             "confine" => a.confine = v != "0" && v != "false",
             "arch" => a.arch = v != "0" && v != "false",
+            "share" => a.share = v != "0" && v != "false",
             "chain_reach" => a.chain_reach = Some(v.parse().expect("chain_reach")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
@@ -1465,6 +1495,41 @@ fn dump_materials(world: &World, args: &Args) {
     }
 }
 
+/// Repaint `frame` with the load model's own verdict, cell by cell.
+///
+/// Three states, deliberately, because the model has three: material this
+/// model has an opinion about (the green-to-red ramp), material it declines
+/// to evaluate (dark blue), and no material at all (near-black). The middle
+/// one is not cosmetic -- `is_structurally_interesting` skips anything
+/// buried, so the inside of a thick wall is never load-tested, and painting
+/// it the same green as "evaluated and fine" would hide the very thing this
+/// channel was added to look at.
+///
+/// One shared `Cache` for the whole screen, for the reason
+/// `load::evaluate_with_cache` documents: per-cell caches make this
+/// O(region x subtree) and it is drawn over a whole world.
+fn paint_stress(world: &World, frame: &mut [u8]) {
+    let mut cache = pixel_physics::sim::load::Cache::default();
+    let mut budget = u32::MAX;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let colour = match pixel_physics::sim::load::evaluate_with_cache(world, x, y, &mut cache, &mut budget) {
+                // The app's ramp exactly (`App::draw_stress_overlay`), so
+                // what a sheet shows and what the owner sees on `N` are the
+                // same picture -- at alpha 1.0 rather than 0.55.
+                Some(l) => {
+                    let ratio = l.stress().clamp(0.0, 1.0);
+                    [(40.0 + 215.0 * ratio) as u8, (220.0 * (1.0 - ratio)) as u8, 60, 255]
+                }
+                None if world.get(x, y).material == material::EMPTY => [12, 12, 16, 255],
+                None => [30, 40, 90, 255],
+            };
+            let dst = (((y * WIDTH) + x) * 4) as usize;
+            frame[dst..dst + 4].copy_from_slice(&colour);
+        }
+    }
+}
+
 /// Print whatever structural probes were asked for. Separate from the tile
 /// line above because these scan the world and the tile line does not — a
 /// scene that isn't about structure should pay nothing for this existing.
@@ -1662,6 +1727,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
+            if args.stress {
+                paint_stress(&world, &mut frame);
+            }
 
             let mut tile = vec![0u8; (tile_w * tile_h * 4) as usize];
             for y in 0..ch {
@@ -1747,6 +1815,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // pixels from whichever frame last touched them.
         let touched: HashSet<_> = world.take_touched_chunks();
         renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
+        if args.stress {
+            paint_stress(&world, &mut frame);
+        }
 
         let (gx, gy) = (captured as i32 % args.cols as i32, captured as i32 / args.cols as i32);
         let (ox, oy) = (gx * (tile_w + gap), gy * (tile_h + gap));
