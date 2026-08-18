@@ -242,6 +242,17 @@ pub struct World {
     /// point, so being able to run the *same binary* with the rule off is
     /// what makes a before/after here a measurement rather than a memory.
     pub crush_confined: bool,
+    /// Whether a roof is relieved by the arch that forms over the opening
+    /// beneath it. See `load::arch_relief`; `true` is the shipped
+    /// behaviour.
+    ///
+    /// A switch for the same reason `crush_confined` is one: it is the
+    /// control that isolates the mechanism. A sweep only varies its knob,
+    /// and anything that rode along with a change is in every data point --
+    /// which has already read here as "the approach is wrong" when it was
+    /// not. Being able to run the *same binary* both ways is what makes a
+    /// before/after a measurement rather than a memory of an older build.
+    pub arch_relief: bool,
     /// Per-frame caches for the load walks (`load::Cache`).
     /// Cleared by `scheduler::step` each frame and again by
     /// `structural::tick` the instant a break mutates the grid, since both
@@ -389,6 +400,7 @@ impl World {
             touched_chunks: std::collections::HashSet::new(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
             crush_confined: true,
+            arch_relief: true,
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
             seed: DEFAULT_WORLD_SEED,

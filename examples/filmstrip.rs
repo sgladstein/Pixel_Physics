@@ -102,6 +102,7 @@ fn build(args: &Args) -> World {
     // world during construction and the rule has to be in force for that
     // cut as much as for the run that follows it.
     w.crush_confined = args.confine;
+    w.arch_relief = args.arch;
     let floor_y = HEIGHT - FLOOR_THICKNESS;
     match args.scene.as_str() {
         // A large body released against the left wall, spreading right across
@@ -1010,6 +1011,9 @@ struct Args {
     /// same binary with the rule off is what makes a before/after a
     /// measurement rather than a memory of an earlier build.
     confine: bool,
+    /// `arch=0` -- turn off `World::arch_relief`, so a roof carries the
+    /// whole column above it again. The control for the arching change.
+    arch: bool,
 }
 
 fn parse() -> Args {
@@ -1045,6 +1049,7 @@ fn parse() -> Args {
         step: None,
         min_cave: None,
         confine: true,
+        arch: true,
         wall: 3,
         dig: 3,
         strike: 0,
@@ -1115,6 +1120,7 @@ fn parse() -> Args {
                 a.dump = Some(Rect::new(n[0], n[1], n[0] + n[2] - 1, n[1] + n[3] - 1));
             }
             "confine" => a.confine = v != "0" && v != "false",
+            "arch" => a.arch = v != "0" && v != "false",
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
             "loadmap" => a.loadmap = v != "false",

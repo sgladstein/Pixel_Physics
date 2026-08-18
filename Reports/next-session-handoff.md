@@ -404,59 +404,78 @@ cells), wanted 90%` and `expected at least 50 overload failures, got 0`.
   bore-size comparison silently varied cover as well. `depth=` exists to
   hold it.
 
-### Height (requirement 2): the ground is clear, and the reason it is
-### missing is geometric, not a bug
+### DONE: height is in the model, via the arch over the opening
 
 §1d requirement 2 — *"a super short tunnel should be able to have a longer
-span. ant tunnel vs digging a mine"* — is not met, and measured at **fixed
-roof cover** it currently runs the wrong way. `preset=flat`, cover 8 cells,
-~140-cell corridor, rock destroyed:
+span. ant tunnel vs digging a mine"* — is **met**, and requirement 1 fell
+out of the same change. `load::arch_span`, switchable at
+`World::arch_relief`.
 
-| bore | seed 1 | seed 7 | bites to cut it |
-|---|---|---|---|
-| 5 cells (ant tunnel) | 937 | 1,608 | 70 |
-| 9 cells | 339 | 402 | 35 |
-| 13 cells (gallery) | 409 | 368 | 23 |
+Cave volume surviving a ~140-cell drive under 8 cells of cover, `flat`:
 
-The *small* tunnel does the most damage. Note the bite count, which is not
-a confound to remove — a narrower pick genuinely needs more bites to travel
-the same distance, and each one scores cracks and unbraces rock. That is
-most of what this table is showing, and it is the only route by which bore
-size reaches the model at all today.
+| bore | arch on | arch off |
+|---|---|---|
+| 5 cells (ant tunnel) | **100% / 100%** | 66% / 44% |
+| 9 cells | 70% / 30% | 30% / 40% |
+| 13 cells (gallery) | 25% / 28% | 25% / 28% |
 
-**Why bore size otherwise does nothing, and it is worth understanding
-before writing any code.** This engine is a 2D side view. A real mine
-gallery's roof spans its *width* — a few metres — however many kilometres
-long the drive is, because the rock either side supports it along the whole
-length. In 2D there is no "either side": a horizontal bore is a slot, and
-its roof genuinely spans the full length of the excavation. So the model is
-not wrong about the span it sees; the span it sees is real. The owner's
-intuition comes from three dimensions and **does not transfer by itself**.
+The ant tunnel now holds a long drive outright and the gallery still needs
+timber, which is both requirements at once.
 
-That reframes the fix. It is not "add height to the criterion" — it is
-"represent the out-of-plane abutment that a 2D cross-section throws away",
-and Terzaghi's rock load is exactly the standard way to do that: the roof
-carries a bounded height of rock `Hp ≈ k(B + Ht)` set by the arch that
-forms over the opening, rather than the whole overburden column, and
-critically **not scaling with the drive's length**. Concretely that means:
+**Why the model could not express this, and it is geometry rather than a
+bug.** A real gallery's roof spans its *width* — a few metres — however
+long the drive is, because rock either side carries it. A side view has no
+"either side": a horizontal bore is a slot and its roof genuinely spans the
+whole excavation, so the model was right about the span it saw. The owner's
+intuition comes from three dimensions and does not transfer by itself.
+Terzaghi's rock load is the standard way to put the third dimension back —
+rock arches over an opening and only the arch's own span reaches the
+roof — and **the owner's simplification is what made it affordable: assume
+the opening is as wide as it is tall**, so the whole thing follows from
+height, which a side view can see with a short downward scan. Measuring the
+width would have meant walking the length of the tunnel per cell per frame.
 
-- cap the overburden a roof cell carries at `Hp` derived from the *local
-  opening* (its width and height), not from the supported subtree, which
-  today reaches to the surface;
-- let the effective span be the opening rather than the unsupported run.
+### Three things this got wrong first, all caught by measurement
 
-An ant tunnel then holds a long drive because its `Hp` is small, and a
-gallery needs timber because its `Hp` is large — which is requirement 1 and
-requirement 2 falling out of one change.
+- **Relieving the mass, not the arm.** `min(mass, Hp)` never bit: under 8
+  cells of cover a roof cell's mass is already below anything the arch
+  would cap it at. The A/B read 30% and 39% with relief on against 30% and
+  40% with it off — the knob-not-connected tell, and only visible because
+  the switch made a same-binary control possible. The load was never the
+  binding constraint at these depths; the *span* is, through
+  `torque = M x arm`.
+- **Clamping only the ceiling course.** The cells actually failing are in
+  the roof *mass* above it, so the clamp reached one row and changed
+  nothing on two of three bore sizes. A roof cell now looks down through
+  its own cover to find the opening it roofs.
+- **A 20-cell cover probe cost 2.7x frame time.** 62.56 ms against 23.06
+  ms with arching off, over the 60 ms budget, on `caveshallow`. Cutting
+  the probe to 8 cells of cover took it to **23.01 ms — level with
+  arching off — with the discrimination table completely unchanged.**
+  Relief only ever mattered at shallow-to-medium cover; the deep half of
+  the scan was pure cost.
 
-**Cost warning before anyone starts.** "The local opening's width and
-height" is not something the model has; computing it per cell per frame is
-a hot-path scan, and `is_structurally_interesting` exists precisely so
-interior rock is never walked. Whatever measures the opening has to be
-cached or derived from something already computed (the section walk is the
-obvious candidate). Build the measurement first as always, and note that
-the two instruments this needs already exist: `min_cave` for "is it still a
-cave" and `seedsweep.sh` for "did it eat the world".
+### The constant is calibrated, not derived
+
+`ARCH_LOAD_K = 4`, swept: at k=2 everything holds (100/100/61), at k=8
+everything collapses (26/30/25, i.e. the same as no arching at all), and
+k=4 is the setting that separates the ant tunnel from the gallery.
+Terzaghi's own table runs 0 to ~1.5 for `Hp = k(B + Ht)`; this is not that
+number and should not be read as it — the arm here is `k x Ht` in a 2D
+model with a fabricated width, so it is a game constant set from
+measurement, per `CLAUDE.md`. Raising it lets a roof own a longer arm, so
+tunnels collapse sooner.
+
+### What it did not do
+
+Nothing measurable to the rest of the world, which is the thing a load-model
+change has to prove: 18-run seed sweeps, arch on vs off, `dig=6` identical
+(max rock destroyed 3 either way) and `strike=12` slightly *better* (max
+1,391 -> 1,152, cells lost max 617 -> 374). 16/16 acceptance including
+`undercut` and `ligament`, which is the case that matters — the way this
+change fails is by relieving every cell with a void beneath it and stopping
+overhangs spalling, so `arch_span` requires rock *directly overhead* and
+`an_overhang_with_sky_above_it_gets_no_arch` guards it.
 
 ---
 

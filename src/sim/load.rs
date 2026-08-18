@@ -847,6 +847,114 @@ fn uncracked_faces(world: &World, x: i32, y: i32) -> i64 {
 /// when `confinement_radius` was superseded its tests kept passing while
 /// testing nothing, because an undisturbed slab sits at a self-consistent
 /// distance and stops rescheduling. One meaning, stated here, or none.
+/// The moment arm a roof owes for the opening beneath it, or `None` if
+/// this cell is not a roof.
+///
+/// # The problem, which is geometric and not a bug
+///
+/// A real mine gallery's roof spans its **width** -- a few metres --
+/// however many kilometres long the drive is, because the rock either side
+/// carries it along the whole length. This engine is a 2D side view, and
+/// in a side view there is no "either side": a horizontal bore is a slot,
+/// and its roof genuinely spans the entire excavation. So the model was
+/// not wrong about the span it saw; the span it saw was real. Measured, a
+/// 140-cell corridor under 8 cells of cover collapsed at every bore size,
+/// and the owner's expectation -- *"a super short tunnel should be able to
+/// have a longer span. ant tunnel vs digging a mine"* -- could not be met
+/// by any tuning, because nothing in the model knew how big the hole was.
+///
+/// # Terzaghi's rock load, and the owner's simplification of it
+///
+/// Rock over an opening arches: it does not all bear on the roof, but
+/// carries most of its weight sideways into the ground either side, and
+/// the arch that forms is set by the *size of the opening* -- `k(B + Ht)`
+/// for width `B` and height `Ht` -- not by depth and not by how far the
+/// drive has been pushed.
+///
+/// `B` is out of plane and a side view cannot see it. **The owner's
+/// suggestion is what makes this affordable: assume the opening is as wide
+/// as it is tall**, so `B = Ht` and the span follows from height alone.
+/// Height is the one dimension a side view does have, and it is a short
+/// bounded scan downward -- where measuring `B` would mean walking the
+/// whole length of the tunnel for every cell of its roof, which is exactly
+/// the per-cell-per-frame cost `is_structurally_interesting` exists to
+/// avoid.
+///
+/// # Why this is the arm and not the mass
+///
+/// Reducing the *load* was tried first and did almost nothing, which only
+/// the A/B switch showed: with 8 cells of cover a roof cell's mass is
+/// already below anything the arch would cap it at, so `min(mass, Hp)`
+/// never bit -- bore 9 measured 30% and 39% of its cave surviving with the
+/// relief on and 30% and 40% with it off. The load was never the binding
+/// constraint at these depths; **the span is**, through `torque = M x arm`
+/// where the arm reaches the centroid of everything carried, which for a
+/// tunnel roof is halfway down the drive. So the arch belongs where the
+/// two clamps above it already live: on the arm.
+///
+/// # Why it is safe where it is not wanted
+///
+/// A `min`, never a bonus, so it can only ever reduce a torque that was
+/// already computed. And it requires **rock directly overhead**: an
+/// overhang's tip has sky above it and nothing to form an arch out of, so
+/// `scene=undercut`'s spalling and `scene=ligament`'s neck are judged
+/// exactly as before.
+fn arch_span(world: &World, x: i32, y: i32) -> Option<i64> {
+    if !world.arch_relief {
+        return None;
+    }
+    // Something to arch *out of*. Without cover there is no arch, only a
+    // cantilever, and a cantilever is what the unclamped arm already is.
+    if !is_body_material(world, world.get(x, y - 1).material) {
+        return None;
+    }
+    // Something to arch *over*, which may be some way below: the whole
+    // roof beam arches, not just the single course of cells forming the
+    // ceiling. Testing only the cell immediately beneath was tried and was
+    // far too narrow to matter -- the clamp then reached one row while the
+    // overload failures were happening in the rock above it, and the A/B
+    // came back identical on two of three bore sizes.
+    let mut cover = 0u32;
+    while world.get(x, y + 1 + cover as i32).material != super::material::EMPTY {
+        cover += 1;
+        if cover > MAX_COVER_PROBE || !world.in_bounds(x, y + 1 + cover as i32) {
+            return None; // solid all the way down; no opening to arch over
+        }
+    }
+    let mouth = y + 1 + cover as i32;
+    let mut height = 0u32;
+    while height < MAX_OPENING_PROBE {
+        let below = mouth + height as i32;
+        if !world.in_bounds(x, below) || world.get(x, below).material != super::material::EMPTY {
+            break;
+        }
+        height += 1;
+    }
+    // `k(B + Ht)` with `B = Ht`, halved because a moment arm is measured
+    // from the centre of a span rather than across it.
+    Some((ARCH_LOAD_K * height.max(1) as i64).max(1))
+}
+
+/// Terzaghi's `k`, relating the arch a roof forms to the size of the
+/// opening under it.
+///
+/// His own table runs from 0 for intact rock to about 1.5(B + Ht) for
+/// heavily broken ground. 1 is the moderately-jointed middle and a place
+/// to sweep from, not a derived value: raising it lets a roof own a longer
+/// arm, so tunnels collapse sooner.
+const ARCH_LOAD_K: i64 = 4;
+
+/// How far below itself a cell will look for the opening it roofs. Bounded
+/// because this runs per evaluated cell: `is_structurally_interesting`
+/// already keeps it off the interior of a massif, and past this depth of
+/// cover a roof is not what is holding anything up anyway.
+const MAX_COVER_PROBE: u32 = 8;
+
+/// How deep the opening probe looks. Past this the hole is a cavern and
+/// the distinction has stopped mattering -- the arm is already longer than
+/// anything that changes an outcome.
+const MAX_OPENING_PROBE: u32 = 16;
+
 pub fn capacity(world: &World, x: i32, y: i32) -> i64 {
     let cell = world.get(x, y);
     let m = world.materials.get(cell.material);
@@ -1154,6 +1262,12 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
         }
         _ => {}
     }
+    // **A roof spans the opening under it, not the length of the drive.**
+    // The third clamp of the same family, and the one that puts back what
+    // a side view throws away -- see `arch_span`.
+    if let Some(arm) = arch_span(world, x, y) {
+        torque = torque.min(mass as i64 * arm);
+    }
     // A piece the ground alone holds up is judged on what the ground can do,
     // as well as on what the rock can do -- whichever gives first.
     let mut capacity = capacity(world, x, y);
@@ -1337,6 +1451,79 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63))
+    }
+
+    /// A roof over a **small** opening owes a shorter arm than the same
+    /// roof over a big one, which is the whole of requirement 2: *"a super
+    /// short tunnel should be able to have a longer span. ant tunnel vs
+    /// digging a mine."*
+    ///
+    /// Asserted on the arm rather than on a finished torque, and that is a
+    /// deliberate retreat rather than laziness. `torque` is
+    /// `min(natural, mass x arm)`, so a test that wants to see the clamp
+    /// *bind* has to first contrive a natural torque large enough to be
+    /// clamped — and the obvious symmetric slot gives a centroid directly
+    /// overhead, an arm of zero, and two torques of 0 that compare equal
+    /// while proving nothing. Building geometry elaborate enough to dodge
+    /// that would be testing the geometry.
+    ///
+    /// The end-to-end behaviour is gated where it is legible instead:
+    /// `scripts/acceptance.sh`'s `cavedeep` / `caveshallow` pair, and the
+    /// measured bore table in `Reports/next-session-handoff.md` (a 5-cell
+    /// tunnel keeps 100% of a 140-cell drive where a 13-cell gallery keeps
+    /// 25%).
+    #[test]
+    fn a_roof_over_a_small_opening_owes_a_shorter_arm_than_over_a_big_one() {
+        fn roof_over_slot(height: i32) -> World {
+            let mut w = test_world();
+            for y in 10..50 {
+                for x in 0..64 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for y in 30..(30 + height) {
+                for x in 8..56 {
+                    w.set(x, y, Cell::EMPTY);
+                }
+            }
+            structural::compute_world_distances(&mut w);
+            w
+        }
+
+        let arm = |height: i32| arch_span(&roof_over_slot(height), 32, 29).expect("a ceiling over a slot is a roof");
+        let (small, big) = (arm(3), arm(12));
+        assert!(
+            small < big,
+            "a roof over a 3-cell opening owes an arm of {small} and over a 12-cell one {big};              the smaller hole must be the lighter job or an ant tunnel cannot outlast a gallery"
+        );
+        // And the relief is bounded rather than unlimited: a cavern does
+        // not go on earning a longer arm forever, or a big enough hole
+        // would be charged more than the unclamped model ever would.
+        assert_eq!(arm(40), arm(MAX_OPENING_PROBE as i32), "the opening probe must saturate");
+    }
+
+    /// The arch needs rock to form out of, and an overhang has none.
+    ///
+    /// This is the guard on the **replacement artifact** rather than the
+    /// original one. The way this change fails is not by leaving tunnels
+    /// fragile, it is by quietly relieving every cell that happens to have
+    /// a void beneath it — which would take `scene=undercut`'s spalling
+    /// and `scene=ligament`'s neck with it, and those are two of the four
+    /// cases that killed the earlier support models.
+    #[test]
+    fn an_overhang_with_sky_above_it_gets_no_arch() {
+        let mut w = test_world();
+        // A one-cell-thick shelf reaching out from the left wall, open
+        // above and below: a cantilever, not a roof.
+        for x in 0..40 {
+            w.set(x, 30, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        structural::compute_world_distances(&mut w);
+        assert_eq!(
+            arch_span(&w, 32, 30),
+            None,
+            "a shelf with nothing above it has no arch to form; relieving it would stop undercuts spalling"
+        );
     }
 
     /// A budget large enough that no test below is measuring the cap
