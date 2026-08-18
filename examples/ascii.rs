@@ -16,7 +16,7 @@ use pixel_physics::sim::field::FIELD_SCALE;
 use pixel_physics::sim::material::{self, MaterialId};
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::pheromone::{Channel, DECAY_RHO, DEPOSIT, DIFFUSE, PHEROMONE_INTERVAL};
-use pixel_physics::sim::{parallel, rng, update, Cell, World};
+use pixel_physics::sim::{parallel, update, Cell, World};
 
 fn main() {
     scene("sand piling on a floor", 78, 30, 400, |w| {
@@ -1183,18 +1183,39 @@ fn forage_loop_scene() {
     };
 
     print_state(&world, "at spawn");
-    let run = |world: &mut World, frames: usize| {
+    // **Worst-frame, on the heaviest creature scene there is.** Nothing in
+    // this harness timed a colony before -- the number CI gates was
+    // measured entirely on scenes with no creatures in them, so 55 ants, 9
+    // beetles and a 248-weight brain had never once been costed. `sum`
+    // gives the mean beside it because a single worst frame is a sample
+    // from a wide distribution (`CLAUDE.md`: compare two runs, not one run
+    // against a remembered number) and the mean is what a player feels.
+    let mut worst = std::time::Duration::ZERO;
+    let mut sum = std::time::Duration::ZERO;
+    let mut frames_run = 0usize;
+    let mut run = |world: &mut World, frames: usize| {
         for _ in 0..frames {
+            let started = std::time::Instant::now();
             parallel::step(world);
             world.step_active_sites();
             world.step_fields();
             world.step_pheromones();
+            let took = started.elapsed();
+            worst = worst.max(took);
+            sum += took;
+            frames_run += 1;
         }
     };
     run(&mut world, 2000);
     print_state(&world, "after 2000 frames");
     run(&mut world, 10000);
     print_state(&world, "after 12000 frames");
+    println!(
+        "  frame cost with {} live organisms: worst {:.3} ms, mean {:.3} ms over {frames_run} frames",
+        world.live_organism_count(),
+        worst.as_secs_f64() * 1000.0,
+        sum.as_secs_f64() * 1000.0 / frames_run as f64
+    );
 
     // **What holds, and what does not.** The outbound half of the loop is
     // real and asserted; the return half is not, and is printed with the

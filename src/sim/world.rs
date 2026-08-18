@@ -121,11 +121,41 @@ pub struct CreatureStats {
 /// The invariant, asserted in the ascii scenes:
 /// `sum(live creature energy) == granted + eaten - metabolized - moved
 /// - synapse_tax - died_holding`.
+///
+/// # What this can and cannot catch, because the difference has been
+/// # misread once
+///
+/// It catches **charges that do not land**: a cost debited from the ledger
+/// but never taken off a creature, or vice versa. That is a real class of
+/// bug and the identity finds it immediately.
+///
+/// It **cannot catch energy creation**, and reading a balanced census as
+/// "energy is conserved" is a mistake. `granted`, `eaten` and
+/// `died_holding` are all *free terms defined as whatever happened*, so
+/// they move the two sides of the identity together by construction. When
+/// a beetle bites an ant, `eaten` grows by the **eater's** `eat_energy` --
+/// a constant with no relationship to what the victim had -- and
+/// `died_holding` deletes the victim's remainder; both are booked, the
+/// identity holds, and 300 joules were conjured. If the bite only takes a
+/// trailing segment there is no sink at all and the identity still holds.
+///
+/// So this is an *accounting* ledger, not a conservation law. The property
+/// evolution actually needs (P-20) is weaker and different: **no lineage
+/// may extract unbounded energy from a cycle it controls.** That is what
+/// `creature::tests::a_sealed_world_with_no_food_source_runs_down` tests,
+/// and it does not pass today -- see its doc for the pump it reproduces.
+/// A closed ledger is only reachable once plants book photosynthesis into
+/// the same accounts, since the sun is the largest free source in the
+/// world by far and lives entirely outside these numbers.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct EnergyLedger {
     /// Energy created out of nothing, at spawn. The only source besides
     /// eating, and the one that has to be counted or nothing balances.
     pub granted: f64,
+    /// **Also created out of nothing** -- `eat_energy` is a property of the
+    /// eater, not of the food, and no food cell has an energy account for
+    /// it to come out of. Counted so the identity closes, not because
+    /// anything was transferred. See the type doc.
     pub eaten: f64,
     pub metabolized: f64,
     pub moved: f64,

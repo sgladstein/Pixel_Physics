@@ -45,22 +45,39 @@ pub const BRAIN_OUTPUTS: usize = 9;
 /// [212..248)  hidden -> output  (4 x 9)
 /// ```
 ///
-/// **Grown once, by appending inputs 14 and 15**, after the lateral
-/// sensors turned out to be identically zero on a horizontal surface (see
-/// `BrainInput::PheroAAlong`). Every pre-existing slot kept its index and
-/// its meaning, which is what the law below actually protects; the flat
-/// block offsets moved, which is unavoidable when the scaffold grows and
-/// is harmless only because nothing persists a genome yet. **Once stage 4
-/// puts heritable genomes in flight this becomes a migration, not an
-/// edit.**
+/// **Grown twice, and only the first growth was lawful.** 168 (14x6) ->
+/// 188 (16x6, inputs 14 and 15 appended after the lateral sensors turned
+/// out to be identically zero on a horizontal surface -- see
+/// `BrainInput::PheroAAlong`) -> 248 (16x9, outputs 6, 7 and 8 appended).
+///
+/// Appending an **input** appends whole rows and every pre-existing index
+/// survives. Appending an **output** does not: this block is row-major, so
+/// the row stride went from 6 to 9 and appending an output is an *insert
+/// into every row*. `(TempAboveAmb, Turn)` moved from index 48 to 72,
+/// every weight with an input index >= 1 was renumbered, and `IO_END`
+/// moving 96 -> 144 shifted the two blocks after it wholesale. The
+/// hidden -> output block has the identical stride.
+///
+/// **So the law below is one-sided: inputs may be appended, outputs may
+/// not.** The two look identical from a species `.ron` and from the enums,
+/// which is exactly why this needs saying -- adding a tenth output reads
+/// like a safe edit and is a silent reinterpretation of every stored
+/// individual. Growing the outputs again means either a migration or
+/// re-laying the block output-major (`output * BRAIN_INPUTS + input`),
+/// under which both directions append cleanly.
+///
+/// It is harmless *today* only because nothing persists a genome. **Once
+/// stage 4 puts heritable genomes in flight this becomes a migration, not
+/// an edit** -- and `the_block_layout_exactly_fills_the_genome` will not
+/// catch it, because it checks that the blocks are self-consistent, not
+/// that the change preserved anyone's meaning.
 ///
 /// **Slots are positional and must never be renumbered or reordered.** The
 /// same law the plant genome already lives under (`organism.rs`'s
 /// `genotype_draws`), for the same reason: the slot index *is* the meaning.
 /// A stored genome is a list of numbers with no labels, so moving a slot
 /// silently reinterprets every individual that already exists as a
-/// different animal. Growing the scaffold later means **appending** blocks,
-/// never inserting.
+/// different animal.
 pub const GENOME_LEN: usize = 248;
 
 const IO_END: usize = BRAIN_INPUTS * BRAIN_OUTPUTS; // 144

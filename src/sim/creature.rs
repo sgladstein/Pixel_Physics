@@ -465,6 +465,31 @@ fn reconcile_chain(world: &mut World, organism: u16) -> bool {
     let Some(state) = world.organism(organism) else {
         return false;
     };
+    // **Not every organism is a chain, and this one line is the difference
+    // between herbivory and clear-felling.** `act`'s eat branch tells the
+    // owner of whatever it just swallowed, and the owner of a leaf is a
+    // *tree* -- an organism whose `chain` is empty, because a plant does
+    // not have one. Without this guard the emptiness fell straight through
+    // to "head gone, the rest is meat": eating a single leaf off a
+    // 789-cell tree freed the tree's organism slot outright, left 160 cells
+    // standing in the world still claiming to be it, and stopped it growing
+    // or regrowing anything ever again.
+    //
+    // That is the reason the renewable food source was not renewable, and
+    // it is upstream of §13k's whole conclusion: the first ant to take a
+    // leaf killed the tree that was supposed to keep making them, so
+    // raising `eat_energy` could not pay because the supply destroyed
+    // itself on contact.
+    //
+    // A plant finds out it has lost a cell through its own connectivity
+    // check, which is exactly what made herbivory need no new code. Slot
+    // reclamation for a fully dead plant is a separate, known gap
+    // (`plant.rs`, "an organism's id slot is never returned"); it wants a
+    // BFS-from-roots liveness check, and it is emphatically not something
+    // to do from inside a bite.
+    if state.chain.is_empty() {
+        return true;
+    }
     let (chain, owned) = (state.chain.clone(), state.cells.clone());
     let surviving: Vec<(i32, i32)> = chain.iter().copied().filter(|p| owned.contains_key(p)).collect();
     if surviving.is_empty() || surviving.first() != chain.first() {
@@ -1376,10 +1401,29 @@ fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: u16, delta
 /// getting somewhere it could not return from is not deleted, it is left
 /// lying there as something edible.
 fn creature_dies(world: &mut World, organism: u16) {
-    let chain = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
     let held = world.organism(organism).and_then(|s| s.carrying);
     let leftover = world.organism(organism).map_or(0.0, |s| s.energy.max(0.0));
     world.energy_ledger.died_holding += leftover as f64;
+    // **Only the cells it still owns, and this is a matter-conservation
+    // bug that read as a feature.** `chain` is a separate sequence from
+    // `cells` and is *stale* on the predation path: `act` empties the
+    // bitten cell before calling `reconcile_chain`, so a corpse written
+    // over the whole chain resurrects the mouthful the predator had just
+    // swallowed. Measured on a two-cell ant whose head was eaten: two
+    // corpse cells out of two, one of them conjured -- and since "corpse"
+    // is on the beetle's own food list, it could then eat the same matter
+    // a second time. The predation test missed it because it only asserted
+    // that no *ant* cell was left standing; corpse was what to look for.
+    //
+    // Filtering by `cells` rather than trusting `chain` is also the
+    // general statement: anything that removes a cell (a bite, a fire, an
+    // explosion, the brush) goes through the `World::set` seam and shows up
+    // here, and none of those should leave meat behind either.
+    let owned = world.organism(organism).map(|s| s.cells.clone()).unwrap_or_default();
+    let chain: Vec<(i32, i32)> = world
+        .organism(organism)
+        .map(|s| s.chain.iter().copied().filter(|p| owned.contains_key(p)).collect())
+        .unwrap_or_default();
     if let Some(corpse_id) = world.materials.id_of("corpse") {
         let shades = world.materials.get(corpse_id).palette.len().max(1) as u32;
         for (i, &(cx, cy)) in chain.iter().enumerate() {
@@ -1390,9 +1434,18 @@ fn creature_dies(world: &mut World, organism: u16) {
     }
     // Whatever it was carrying falls where it fell. Losing it would be a
     // silent material sink, and the census is about to care.
+    //
+    // **Into a neighbour, not into the body cell**, which is the bug the
+    // sentence above was written to prevent and did not: the loop over the
+    // chain has just written corpse into every one of those cells, so
+    // `is_empty` on `chain.last()` was false every time a corpse material
+    // existed and the cargo was dropped on the floor of the accounting.
+    // Same rule the drop verb uses -- first empty cell in the
+    // 8-neighbourhood -- so a carrier that dies leaves its load beside its
+    // body exactly as one that dropped it would.
     if let (Some(held), Some(&(cx, cy))) = (held, chain.last()) {
-        if world.is_empty(cx, cy) {
-            world.set(cx, cy, Cell::new(held, 0));
+        if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (cx + dx, cy + dy)).find(|&(px, py)| world.is_empty(px, py)) {
+            world.set(dx, dy, Cell::new(held, 0));
         }
     }
     world.creature_stats.deaths += 1;
@@ -2310,6 +2363,148 @@ mod tests {
         let ant_material = w.materials.id_of("ant").unwrap();
         let leftovers = (92..112).flat_map(|x| (96..101).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == ant_material).count();
         assert_eq!(leftovers, 0, "no orphaned ant cell may be left standing -- reconcile_chain is what stops that");
+    }
+
+    #[test]
+    fn a_swallowed_cell_does_not_come_back_as_a_corpse() {
+        // **The guard the test above looks like it already is, and is not.**
+        // It asserts no *ant* cell is left standing; the bug left a *corpse*
+        // cell standing, in the very cell the predator had just emptied,
+        // because `creature_dies` wrote over the stale `chain` rather than
+        // over the cells the organism still owned. A two-cell ant whose head
+        // was eaten produced two corpse cells out of two -- one of them
+        // conjured out of nothing, and edible again, by a beetle whose food
+        // list includes "corpse".
+        //
+        // Driven through the seam directly rather than through a live
+        // predator, because a beetle that has to *find* the ant makes this
+        // depend on foraging (the mistake the test above records twice).
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let ant = spawn(&mut w, "ant", 100, 100);
+        let chain = w.organism(ant).expect("live").chain.clone();
+        assert_eq!(chain.len(), 2, "the ant is a two-cell chain; this test is about losing one of them");
+        let corpse = w.materials.id_of("corpse").expect("corpse is compiled in");
+
+        // Exactly what `act`'s eat branch does to its victim.
+        let (hx, hy) = chain[0];
+        w.set(hx, hy, Cell::EMPTY);
+        assert!(!reconcile_chain(&mut w, ant), "losing the head is death, not an injury");
+
+        let corpses = chain.iter().filter(|&&(x, y)| w.get(x, y).material == corpse).count();
+        assert_eq!(corpses, 1, "one cell was swallowed, so one corpse cell may remain -- {corpses} means the mouthful was resurrected");
+        assert_eq!(w.get(hx, hy).material, material::EMPTY, "the swallowed cell stays swallowed");
+    }
+
+    #[test]
+    fn a_dying_carrier_leaves_its_cargo_somewhere_it_can_be_found() {
+        // The sentence in `creature_dies` promising this was true and the
+        // code under it was not: the corpse loop had already filled the
+        // chain's own cells, so the `is_empty` check on `chain.last()` was
+        // false every time and the cargo was silently deleted. A material
+        // sink that only fires on death is exactly the kind the census was
+        // built to catch and could not, because carried material is not
+        // energy and never entered the ledger at all.
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let ant = spawn(&mut w, "ant", 100, 100);
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        w.organism_mut(ant).expect("live").carrying = Some(leaf);
+        let before = (90..115).flat_map(|x| (90..102).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == leaf).count();
+
+        creature_dies(&mut w, ant);
+
+        let after = (90..115).flat_map(|x| (90..102).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == leaf).count();
+        assert_eq!(after, before + 1, "the load a dead carrier was holding has to land somewhere, not evaporate");
+    }
+
+    /// **A sealed world with no renewable food must run down**, and today
+    /// it does not. Kept as the reproduction for the conservation work
+    /// rather than as a passing guard (`CLAUDE.md`: a revert keeps the
+    /// knowledge; so does a finding you have decided not to fix yet).
+    ///
+    /// The pump: `eat_energy` is a constant of the **eater**, and a corpse
+    /// cell is worth it in full no matter what the creature that left it
+    /// had in the bank. An ant granted 900 spends all of it, starves at
+    /// exactly 0, and lays down two corpse cells worth 120 each -- so 240
+    /// energy appears from an animal that had none. The colony then runs on
+    /// its own dead forever. `Reports/creature-direction.md` §13i measured
+    /// this symptom ("a colony sustains itself on its own dead without
+    /// foraging at all") and read it as an ecology problem; it is an
+    /// accounting one, and `creature_space` only escapes it by taking
+    /// "corpse" off the menu.
+    ///
+    /// Fixing it properly means food cells carrying the energy they are
+    /// worth, which is the same piece of work as putting plants into the
+    /// ledger -- doing predation alone first means doing it twice. Until
+    /// then this test is the bar that work has to clear.
+    #[test]
+    #[ignore = "reproduces a known pump: corpses are worth eat_energy regardless of what the dead creature had"]
+    fn a_sealed_world_with_no_food_source_runs_down() {
+        let mut w = test_world();
+        for x in 60..140 {
+            w.set(x, 121, Cell::new(material::STONE, 0));
+            w.set(x, 100, Cell::new(material::STONE, 0));
+        }
+        for y in 100..122 {
+            w.set(60, y, Cell::new(material::STONE, 0));
+            w.set(139, y, Cell::new(material::STONE, 0));
+        }
+        for i in 0..12 {
+            spawn(&mut w, "ant", 64 + i * 6, 120);
+        }
+        let alive = |w: &World| (60..140).flat_map(|x| (100..122).map(move |y| (x, y))).filter(|&(x, y)| w.organism(w.get(x, y).organism_id()).is_some()).count();
+        let start = alive(&w);
+        run(&mut w, 40_000);
+        let end = alive(&w);
+        assert_eq!(end, 0, "no energy enters this world, so nothing in it may still be alive after 40,000 frames ({start} -> {end})");
+    }
+
+    #[test]
+    fn eating_one_leaf_does_not_kill_the_tree_that_grew_it() {
+        // **The bug that made renewable food not renewable.** `act`'s eat
+        // branch reconciles the *owner* of the mouthful, and the owner of a
+        // leaf is a tree -- which has no `chain`, so the empty-chain case
+        // read as "head gone" and freed the whole organism. Measured before
+        // the guard: one leaf off a 789-cell tree, and the tree stopped
+        // resolving while 160 of its cells stood on in the world still
+        // carrying its id, which after sixteen slot reuses would alias
+        // somebody else.
+        //
+        // Driven through `reconcile_chain` rather than through a live ant
+        // for the reason `a_predator_eats_a_creature...` records twice:
+        // whether an ant can *reach* a leaf is a different question, and
+        // mixing it in makes the test measure foraging.
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..200 {
+            for y in 150..160 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        w.plant_tree(100, 149);
+        for _ in 0..4000 {
+            crate::sim::parallel::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+        }
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let (lx, ly) = (0..200)
+            .flat_map(|x| (0..160).map(move |y| (x, y)))
+            .find(|&(x, y)| w.get(x, y).material == leaf && w.get(x, y).organism_id() != 0)
+            .expect("the tree should have grown at least one leaf it owns");
+        let tree = w.get(lx, ly).organism_id();
+        let before = w.organism(tree).map(|s| s.cells.len()).expect("live tree");
+
+        w.set(lx, ly, Cell::EMPTY);
+        assert!(reconcile_chain(&mut w, tree), "a tree is not a chain creature and losing a leaf is not death");
+
+        let after = w.organism(tree).map(|s| s.cells.len()).expect("the tree must still be a live organism after losing one leaf");
+        assert_eq!(after, before - 1, "the leaf is gone from the tree's cell list and nothing else is");
     }
 
     // --- choose_weighted ----------------------------------------------------
