@@ -12,6 +12,19 @@ Never touch `.claude/worktrees/plant-v2` or the `plant-substrate-v2`
 branch — another session owns them. `CLAUDE.md` applies in full; the
 traps most likely to bite this specific work are restated in §5.
 
+**STATUS, completion session (2026-08-18): §3 done bar one test, §4
+stopped at its first row.** The draft compiles (the missing import was
+its only break), `cargo test --lib` is green at 485 and clippy is clean,
+six of the seven §3 tests are in, and the stand-level sanity bar is set
+fresh. The seventh — `root_and_shoot_branching_read_different_slots` —
+**is not written, because its premise is false**: slot 1's consumer is
+behind a carbon gate the root economy clears twice in twelve thousand
+frames, so `root_cells` is bit-identical at every draw. Measured,
+instrumented and written up in `plant-genome-design.md` §8a, with the
+reproduction kept as `plant::tests::print_root_branch_slot_pairing`. The
+remaining §4 rows are held on the owner's call, per this file's own "stop
+and report rather than deciding". §2's gates are all still respected.
+
 ## 1. State
 
 - Branch `plant-genome`, based on `plant-substrate-v2`@`8c19439`. Two doc

@@ -1240,6 +1240,26 @@ pub const LEAF_TRANSPIRATION_ALLELES: [f32; 2] = [1.5, 0.7];
 /// hidden.
 pub const WOOD_DENSITY_ALLELES: [f32; 3] = [0.75, 1.0, 1.35];
 
+/// The strength-and-price multiplier this genome's density allele selects.
+///
+/// **One accessor, because the multiplier has to reach every site that
+/// budgets against the cost it scales, not just the site that spends it.**
+/// It landed on `Grow`'s own gate first and nowhere else, and the three
+/// places that stake or cap a frontier *in units of that cost* went on
+/// using the unscaled number: a dense plant's re-initiated root tip and
+/// flushed bud were staked below their own first step (so the courtesy
+/// their comments promise inverted into a guaranteed failure), and
+/// `break_buds`' income-over-price tip cap let dense plants open a
+/// frontier they could not feed while capping pioneers below what they
+/// could. `CLAUDE.md`: when a fix changes what a number *means*,
+/// re-deriving what reads it is part of the fix.
+///
+/// Clamps rather than indexes blindly -- stale state carrying a widened
+/// allele must not walk off the table.
+pub fn wood_density(alleles: &[u8; DISCRETE_LOCI]) -> f32 {
+    WOOD_DENSITY_ALLELES[(alleles[LOCUS_WOOD_DENSITY] as usize).min(WOOD_DENSITY_ALLELES.len() - 1)]
+}
+
 /// Which bark band a density allele wears, inside the species' declared
 /// range — proportional, so the dense end of the allele range takes the
 /// top band. With today's two-band ranges and three alleles this reads
@@ -2988,6 +3008,46 @@ mod tests {
             assert!(reached.contains(&(x, 10)), "({x}, 10) should be reachable from the anchor");
         }
         assert!(!reached.contains(&(20, 10)), "the disconnected wood cell should not be reachable");
+    }
+
+    /// **Bark is a readout of the density allele, and a readout that
+    /// does not move is not one.**
+    ///
+    /// A pure-function test on purpose: the alternative — growing a stand
+    /// and looking at it — cannot tell a band that never changed from a
+    /// recolour too small to see at contact-sheet zoom, which is exactly
+    /// the trap `CLAUDE.md` records against magnitude-scaled overlays.
+    /// The sheet judgement is the *aesthetic* question; this is the
+    /// mechanical one, and it belongs in a test.
+    ///
+    /// The mapping is proportional over the allele range, so with today's
+    /// three alleles and two declared bands it reads
+    /// `[first, first, first + 1]`: pioneer and as-authored share the low
+    /// band, dense stands out. `count: 0` (moss, and any species that
+    /// predates bands) keeps the pre-band 0, exactly as the free bark
+    /// draw this replaced did.
+    #[test]
+    fn bark_band_tracks_the_density_allele() {
+        let bands = PaletteBands { first: 0, count: 2 };
+        let mapped: Vec<u8> = (0..3).map(|a| bark_band_for_density(bands, a)).collect();
+        assert_eq!(mapped, vec![0, 0, 1], "three density alleles over two bands should read [low, low, high]");
+
+        // Offset ranges are the common case -- every species but `tree`
+        // declares one -- and the band is inside the species' own range,
+        // never a raw allele index.
+        let shrub_like = PaletteBands { first: 2, count: 2 };
+        assert_eq!(
+            (0..3).map(|a| bark_band_for_density(shrub_like, a)).collect::<Vec<u8>>(),
+            vec![2, 2, 3],
+            "the derived band must sit inside the species' declared range"
+        );
+
+        assert_eq!(bark_band_for_density(PaletteBands { first: 0, count: 0 }, 2), 0, "an unset range must stay at the pre-band 0");
+        assert_eq!(bark_band_for_density(PaletteBands { first: 3, count: 0 }, 1), 0, "`count: 0` means unset -- `first` is not a band then");
+
+        // An allele past the table (a widened `LOCUS_ALLELES` read by
+        // stale state) clamps rather than walking off the palette.
+        assert_eq!(bark_band_for_density(bands, 200), 1, "an out-of-range allele must clamp to the top band");
     }
 
     #[test]

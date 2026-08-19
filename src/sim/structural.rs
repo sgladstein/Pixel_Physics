@@ -112,6 +112,7 @@ use std::collections::BinaryHeap;
 use super::cell::Cell;
 use super::chunk::Rect;
 use super::material::{self, MaterialId, MaterialKind};
+use super::organism;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
@@ -411,11 +412,17 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     // `WOOD_DENSITY_ALLELES` (the price half is on `Grow.cost`): dense
     // wood holds a longer reach under more load before snapping to
     // deadwood, cheap wood grows faster and loses more of itself.
-    // Saturating on purpose: a material with no finite span (moss's own)
-    // must stay effectively unbounded under any multiplier.
-    let density = world.organism(cell.organism_id()).map_or(1.0, |s| {
-        organism::WOOD_DENSITY_ALLELES[(s.alleles[organism::LOCUS_WOOD_DENSITY] as usize).min(organism::WOOD_DENSITY_ALLELES.len() - 1)]
-    });
+    // **The no-finite-span sentinel is read off the *material*, never off
+    // the scaled span.** `u16::MAX` is leaf.ron's (and moss's) opt-out
+    // from the cantilever rule entirely, and it is a sentinel value, not a
+    // large number: 65535 x 0.75 is 49151, which is not the sentinel, so
+    // scaling first silently enrolled every pioneer-allele plant's foliage
+    // in a rule the opt-out exists to keep it out of. Latent today only
+    // because 49151 still dwarfs any real support distance -- and "latent"
+    // is what the leaf span was before checks started firing and took the
+    // stand from 31,731 cells to 7,171.
+    let unbounded = material.max_cantilever_reach == u16::MAX;
+    let density = world.organism(cell.organism_id()).map_or(1.0, |s| organism::wood_density(&s.alleles));
     let max_span = ((material.max_cantilever_reach as f32 * density) as u32).min(u16::MAX as u32) as u16;
     let organism_id = cell.organism_id();
     // **Load shortens the span a branch can hold.** `PLAN.md` treats "too
@@ -464,7 +471,7 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     // **1**, and with the income gone the stand fell from 31,731 cells to
     // 7,171. `leaf.ron`'s own doc already says a leaf must not be a load
     // path; this is that sentence enforced instead of asserted.
-    let over_span = !detached && max_span != u16::MAX && support > effective_span;
+    let over_span = !detached && !unbounded && support > effective_span;
     if !detached && !over_span {
         // Supported and, unlike the aux-cached path, always an exact
         // answer rather than one still converging -- nothing more to do
@@ -1794,4 +1801,81 @@ mod tests {
         );
     }
 
+
+    /// **The strength half of the wood-density allele, on the scene the
+    /// load model already trusts.**
+    ///
+    /// Same beam, same sand, same pinned reach as
+    /// `a_loaded_branch_breaks_at_a_shorter_span_than_a_bare_one` — the
+    /// only difference between the two runs is the individual's density
+    /// allele, so nothing but the multiplier can explain the outcome. The
+    /// pinned reach of 8 is chosen so the tip's distance (8) falls
+    /// *between* the two alleles' effective spans: the pioneer's
+    /// `⌊8 × 0.75⌋ − 1 = 5` cannot hold it and the dense allele's
+    /// `⌊8 × 1.35⌋ − 1 = 9` can. Against the shipped reach of 96 both
+    /// would stand and this would test nothing, which is exactly what
+    /// `pin_wood_reach` exists for.
+    ///
+    /// The price half lives on `Grow.cost` and is measured on a stand, not
+    /// here — one number for both, so tuning cannot turn the trade into a
+    /// free lunch.
+    #[test]
+    fn dense_wood_holds_a_longer_loaded_branch() {
+        let build = |allele: u8| -> World {
+            let mut w = test_world();
+            let wood = w.materials.id_of("wood").expect("wood is compiled in");
+            let organism = w.push_organism(w.species.id_of("tree").expect("tree is compiled in"));
+            if let Some(state) = w.organism_mut(organism) {
+                state.alleles[organism::LOCUS_WOOD_DENSITY] = allele;
+            }
+            pin_wood_reach(&mut w, 8);
+            for y in 30..40 {
+                w.set(10, y, Cell::new(material::STONE, 0));
+            }
+            for x in 11..=19 {
+                w.set(x, 30, Cell::new(wood, 0).with_organism_id(organism).with_aux(organism::pack_cell_type(organism::CellType::MatureBody)));
+            }
+            // Sand on the branch, the same pile the load test uses. The
+            // load term is what the density multiplier has to compose
+            // with -- §4.1's claim is about a branch under piled load, not
+            // a bare one -- and it is what puts the as-authored allele on
+            // the failing side too (see the third run below).
+            for x in 11..=19 {
+                w.set(x, 29, Cell::new(material::SAND, 0));
+            }
+            w.schedule_structural_check_around(19, 30);
+            w
+        };
+
+        let surviving = |w: &World| -> usize {
+            let wood = w.materials.id_of("wood").unwrap();
+            (11..=19).filter(|&x| w.get(x, 30).material == wood).count()
+        };
+
+        let mut pioneer = build(0);
+        let mut authored = build(1);
+        let mut dense = build(2);
+        run_organisms(&mut pioneer, 200);
+        run_organisms(&mut authored, 200);
+        run_organisms(&mut dense, 200);
+
+        assert_eq!(surviving(&dense), 9, "the dense allele's effective span (9) covers the whole beam and it should stand intact; kept {}", surviving(&dense));
+        assert!(
+            surviving(&pioneer) < surviving(&dense),
+            "cheap wood must break back further under the same load: pioneer kept {} cells, dense kept {}",
+            surviving(&pioneer),
+            surviving(&dense)
+        );
+        // **The middle allele is the control that says the multiplier did
+        // the work.** As authored (x1.0) the effective span is 7 against a
+        // tip at 8, so this beam fails too -- the dense run above is not
+        // standing because the scene is easy, it is standing because 1.35
+        // bought it two more cells of reach.
+        assert!(
+            surviving(&authored) < surviving(&dense),
+            "the as-authored allele should break here as well, or the dense run proves nothing: authored kept {} cells, dense kept {}",
+            surviving(&authored),
+            surviving(&dense)
+        );
+    }
 }

@@ -444,6 +444,13 @@ fn leaf_econ_mults(world: &World, organism_id: u16) -> (f32, f32) {
     })
 }
 
+/// This organism's wood-density multiplier — see `organism::wood_density`
+/// for why every site that budgets in units of `Grow.cost` must apply it,
+/// not only the site that spends it. `1.0` for anything unregistered.
+fn wood_density_mult(world: &World, organism_id: u16) -> f32 {
+    world.organism(organism_id).map_or(1.0, |s| organism::wood_density(&s.alleles))
+}
+
 /// How much water a plant can hold, **proportional to its root mass**.
 ///
 /// This is the whole reason root depth and spread buy anything: the stock
@@ -458,6 +465,41 @@ fn leaf_econ_mults(world: &World, organism_id: u16) -> (f32, f32) {
 /// drink.
 fn water_capacity_of(root_cells: u32) -> f32 {
     organism::WATER_SCALE * root_cells.max(1) as f32
+}
+
+/// Settle one organism's water balance for this tick — the arithmetic
+/// half of `organism_upkeep`'s closing block, pulled out so the identity
+/// below can be asserted directly rather than inferred from a stand.
+///
+/// Returns `(drawn, status, desiccation)`: what leaves the stock, the
+/// **stomatal term** every photosynthetic credit is multiplied by, and
+/// the **desiccation term** `drought_death` sheds on.
+///
+/// **The two terms must not be collapsed back into one.** `status` is the
+/// fraction of demand actually spent — closure-limited, so a prudent
+/// individual reads low — and `desiccation` is the fraction it would have
+/// fallen short of *with stomata fully open*, which is the only one that
+/// says a leaf is drying out. Keying shedding on the spent side would
+/// make the conservative allele shed hardest while protecting its stock
+/// and the stomatal locus would select against itself
+/// (`Reports/plant-genome-design.md` §4.3).
+///
+/// The seam that keeps the water session's `drought_death` tuning valid:
+/// at `reserve <= 0` openness is 1, both draws are the same number, and
+/// **`desiccation == 1 - status` exactly**. That identity is
+/// `settle_water_keeps_desiccation_and_status_identical_without_a_reserve`
+/// and it is what says this change was free for every species that has
+/// not opted in.
+fn settle_water(stock: f32, capacity: f32, demand: f32, reserve: f32) -> (f32, f32, f32) {
+    // Openness ramps linearly from shut at an empty tank to fully open at
+    // the reserve line; `reserve <= 0` is the pre-closure engine exactly,
+    // not an approximation of it.
+    let openness = if reserve <= 0.0 { 1.0 } else { ((stock / capacity.max(f32::EPSILON)) / reserve).clamp(0.0, 1.0) };
+    let open_drawn = stock.min(demand);
+    let drawn = stock.min(demand * openness);
+    let status = if demand > 0.0 { drawn / demand } else { 1.0 };
+    let desiccation = if demand > 0.0 { 1.0 - open_drawn / demand } else { 0.0 };
+    (drawn, status, desiccation)
 }
 
 /// Add to the organism's water stock, bounded by `water_capacity_of`.
@@ -590,12 +632,25 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
     // (index 1 of three), so a freshly planted stand is exactly the species
     // as written and every morph is one mutation away in either direction.
     let mut alleles = [0u8; organism::DISCRETE_LOCI];
+    // (Density and economy are *not* mid-range: both are founded from the
+    // positional draws above, which is what keeps a first generation a
+    // mixed stand on both strategy axes and both colour bands from frame
+    // one -- `Reports/plant-genome-design.md` §5.)
     alleles[organism::LOCUS_BRANCH_ANGLE] = 1;
     alleles[organism::LOCUS_INTERNODE] = 1;
     alleles[organism::LOCUS_WOOD_DENSITY] = density_allele;
     if let Some(id) = species_id {
         let sp = world.species.get(id);
-        alleles[organism::LOCUS_LEAF_ECONOMY] = foliage_band.saturating_sub(sp.foliage_bands.first);
+        // Clamped to the *locus'* range, not the palette's. The band and
+        // the allele are the same number today because every species
+        // declares exactly two foliage bands, but the locus has two
+        // alleles by definition (`LOCUS_ALLELES`) and a wider palette
+        // would otherwise found individuals carrying an allele mutation
+        // can never produce -- which then snaps to a different band the
+        // first time the locus jumps. A no-op at every shipped species.
+        alleles[organism::LOCUS_LEAF_ECONOMY] = foliage_band
+            .saturating_sub(sp.foliage_bands.first)
+            .min(organism::LOCUS_ALLELES[organism::LOCUS_LEAF_ECONOMY].saturating_sub(1));
         if let Some(Behavior::Grow { sympodial, tropism, .. }) =
             sp.behaviors(CellType::GrowingTip).iter().find(|b| matches!(b, Behavior::Grow { .. }))
         {
@@ -1254,9 +1309,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // tree.ron's tuning history says the margin lives: a
                 // fresh cell's first Grow check. Roots pay it too --
                 // rootwood is wood.
-                let density = organism::WOOD_DENSITY_ALLELES
-                    [(alleles[organism::LOCUS_WOOD_DENSITY] as usize).min(organism::WOOD_DENSITY_ALLELES.len() - 1)];
-                let cost = cost * density;
+                let cost = cost * organism::wood_density(&alleles);
                 // Slot 8: penetration, a root trait by consumption (a
                 // shoot's force is 0.0 and stays 0.0 under any
                 // multiplier). The variance is this behaviour's own
@@ -2831,6 +2884,13 @@ fn break_root_tips(world: &mut World, organism_id: u16) {
     else {
         return; // a species whose roots do not grow
     };
+    // **Priced in the same currency the new tip will spend in.** Both the
+    // charge and the stake below scale, and they have to move together: the
+    // stake exists so the tip's first `Grow` check is not guaranteed to
+    // fail, and that check is against `cost x density`. Scaling only the
+    // stake would mint carbon; scaling neither leaves a dense plant's every
+    // re-initiated root dead on arrival.
+    let cost = cost * wood_density_mult(world, organism_id);
 
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
@@ -2996,8 +3056,14 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // past it — under-enforcement the tripwire test caught (16 against 14)
     // the moment multiplicative crowding let crowded tips live long enough
     // for the cap to matter at all. One gate, both creators of frontier.
+    // Income over the price of a growth step -- so the price is this
+    // individual's, not the species'. Against the unscaled cost a dense
+    // plant was allowed a frontier its income could not feed and a pioneer
+    // capped below what it could afford, which cancels the half of the
+    // density trade that is supposed to make cheap wood grow faster.
+    let step_cost = cost * wood_density_mult(world, organism_id);
     let supportable =
-        ((intercepted / l_node(leaf_cluster) * INCOME_PER_NODE / cost).floor() as usize).min(max_active_tips as usize);
+        ((intercepted / l_node(leaf_cluster) * INCOME_PER_NODE / step_cost).floor() as usize).min(max_active_tips as usize);
     if tips >= supportable {
         return;
     }
@@ -3031,9 +3097,15 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // after paying the richest cell is what makes the self-pay case (the
     // bud *is* the richest cell) come out right with no special case: it
     // pays, then keeps the remainder, floored.
+    // The floor is `bud_cost` **or one of this individual's growth steps,
+    // whichever is larger**. `bud_cost` (0.2) was written to be "roughly
+    // one growth step's worth" and matches tree.ron's shoot cost exactly at
+    // the authored density -- so the moment density scales that step, a
+    // dense plant's flush was floored below its own first `Grow` check and
+    // the comment's promise inverted into a guaranteed starve.
     write_carbon(world, rx, ry, held - bud_cost);
     let bud_stake = world.carbon_at(bx, by);
-    write_carbon(world, bx, by, bud_stake.max(bud_cost));
+    write_carbon(world, bx, by, bud_stake.max(bud_cost).max(step_cost));
     // A flushed bud is an *axillary* meristem -- it is a lateral by
     // definition, so it starts the next tier exactly as `Grow`'s own branch
     // child does. Without this a crown rebuilt from buds would inherit
@@ -3571,23 +3643,15 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // `genotype` borrows the world.
     let stomatal_reserve = world.species.get(species_id).stomatal_reserve * genotype(world, organism_id, 7, shoot_variance[7]);
     if let Some(state) = world.organism_mut(organism_id) {
+        // The arithmetic lives in `settle_water`, which is where the
+        // "desiccation is exactly `1 - status` until a species opts in"
+        // identity is asserted -- the seam the water economy's
+        // `drought_death` tuning rests on.
         let capacity = water_capacity_of(state.root_cells);
-        let openness = if stomatal_reserve <= 0.0 {
-            1.0
-        } else {
-            ((state.water / capacity.max(f32::EPSILON)) / stomatal_reserve).clamp(0.0, 1.0)
-        };
-        // What fully-open stomata would have drawn -- the desiccation
-        // side, held apart from the spent side so prudence is never read
-        // as thirst (`OrganismState::water_desiccation`). With openness
-        // at 1.0 the two draws are the same number and desiccation is
-        // exactly `1 - water_status`, which is what `drought_death` read
-        // before the split existed.
-        let open_drawn = state.water.min(demand);
-        let drawn = state.water.min(demand * openness);
+        let (drawn, status, desiccation) = settle_water(state.water, capacity, demand, stomatal_reserve);
         state.water -= drawn;
-        state.water_status = if demand > 0.0 { drawn / demand } else { 1.0 };
-        state.water_desiccation = if demand > 0.0 { 1.0 - open_drawn / demand } else { 0.0 };
+        state.water_status = status;
+        state.water_desiccation = desiccation;
         state.water_demand = demand;
         // Snapshot, then clear the accumulator: per tick rather than
         // cumulative, because a running total would be dominated by the
@@ -6287,5 +6351,324 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             "SecondaryThicken should fire once leaves give thicken() a real downstream count; thickest contiguous run was {thickest} (baseline: 1)"
         );
     }
-}
 
+    // --- The genome re-map's guard set --------------------------------
+    //
+    // `Reports/plant-genome-design.md` §5 is the contract these protect;
+    // the handoff's §3 names each one and what it is for. They are
+    // deliberately a mix of pure-function identities and paired stand
+    // comparisons: an identity says the seam did not move, and only a
+    // paired run says a lever reaches the world at all.
+
+    /// **The seam that made the stomatal locus free to land.**
+    ///
+    /// The water economy tuned `drought_death: 0.003` against shedding
+    /// keyed on `1 - water_status`. Splitting the two terms is only
+    /// harmless because a species that has not set `stomatal_reserve`
+    /// gets the identical number back: openness is 1, both draws are
+    /// `min(stock, demand)`, and desiccation is `1 - status` *exactly*,
+    /// not nearly. If this ever fails, `plant-genome-design.md` §4.3's
+    /// seam is broken and every species' drought tuning is back open.
+    ///
+    /// A grid rather than a couple of hand-picked points, because the
+    /// interesting cases are the boundaries: an empty tank, an exactly-met
+    /// demand, a surplus, and demand 0 (the branch where status is 1 by
+    /// definition and desiccation must still be 0, not 1).
+    #[test]
+    fn settle_water_keeps_desiccation_and_status_identical_without_a_reserve() {
+        let capacity = 10.0;
+        for stock_i in 0..=20 {
+            let stock = stock_i as f32 * 0.5;
+            for demand_i in 0..=20 {
+                let demand = demand_i as f32 * 0.5;
+                let (drawn, status, desiccation) = settle_water(stock, capacity, demand, 0.0);
+                assert_eq!(
+                    desiccation,
+                    1.0 - status,
+                    "with no reserve the two terms must be the same number: stock {stock}, demand {demand} gave status {status}, desiccation {desiccation}"
+                );
+                assert!(drawn <= stock + f32::EPSILON, "a plant cannot spend water it does not hold");
+                assert!((0.0..=1.0).contains(&status) && (0.0..=1.0).contains(&desiccation), "both terms are fractions");
+            }
+        }
+    }
+
+    /// The other half of the same seam: **closure may only ever move the
+    /// two terms apart in one direction.** A prudent plant spends less
+    /// (lower status) while drying out no faster (desiccation unchanged),
+    /// so desiccation can never exceed `1 - status`. The reverse would be
+    /// the trade-inversion §4.3 exists to prevent -- a conservative
+    /// individual shedding hardest while its tank is still full.
+    #[test]
+    fn a_stomatal_reserve_costs_earnings_without_adding_thirst() {
+        let capacity = 10.0;
+        let mut closure_ever_bit = false;
+        for stock_i in 0..=20 {
+            let stock = stock_i as f32 * 0.5;
+            for demand_i in 0..=20 {
+                let demand = demand_i as f32 * 0.5;
+                for reserve in [0.1, 0.2, 0.5, 1.0] {
+                    let (_, status, desiccation) = settle_water(stock, capacity, demand, reserve);
+                    let (_, open_status, open_desiccation) = settle_water(stock, capacity, demand, 0.0);
+                    assert!(
+                        desiccation <= 1.0 - status + 1e-6,
+                        "prudence read as thirst: reserve {reserve}, stock {stock}, demand {demand} gave status {status}, desiccation {desiccation}"
+                    );
+                    assert!(status <= open_status + 1e-6, "closing stomata must never earn *more* than leaving them open");
+                    assert_eq!(desiccation, open_desiccation, "desiccation is the open-stomata shortfall and must not depend on the reserve at all");
+                    if status < open_status - 1e-6 {
+                        closure_ever_bit = true;
+                    }
+                }
+            }
+        }
+        // The vacuity check `CLAUDE.md` asks for: an inequality that no
+        // case ever exercises passes for the wrong reason.
+        assert!(closure_ever_bit, "no grid point actually closed any stomata -- this test would pass on a dead lever");
+    }
+
+    /// **Hard ground is expensive ground** -- the bill that makes
+    /// `penetration_force` a trait instead of a free unlock
+    /// (`plant-genome-design.md` §4.7). Without it selection saturates the
+    /// slot high and it stops varying, which is precisely how slots 1 and
+    /// 5 died the first time.
+    ///
+    /// The numbers are resistance against loose soil's 0.8, so soil is
+    /// exactly 1.0 by construction and everything softer is floored there
+    /// rather than paying a *discount* for easy ground.
+    #[test]
+    fn penetration_cost_scales_with_resistance() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let gravel = w.materials.id_of("gravel").expect("gravel is compiled in");
+        w.set(10, 10, Cell::new(soil, 0));
+        w.set(11, 10, Cell::new(material::SAND, 0));
+        w.set(12, 10, Cell::new(gravel, 0));
+        w.set(13, 10, Cell::new(material::STONE, 0));
+        // (14, 10) left empty.
+
+        let mult = |x: i32| penetration_cost_mult(&w, x, 10);
+        assert!((mult(10) - 1.0).abs() < 1e-6, "soil is the baseline and must cost exactly 1x; got {}", mult(10));
+        assert!((mult(11) - 1.75).abs() < 1e-6, "sand's 1.4 against soil's 0.8 is 1.75x; got {}", mult(11));
+        assert!((mult(12) - 4.375).abs() < 1e-6, "gravel's 3.5 against soil's 0.8 is 4.375x; got {}", mult(12));
+        // A `Solid` is refused by `growable` and never reached here, so
+        // the multiplier must not invent a price for it -- a root does not
+        // pay to fail.
+        assert!((mult(13) - 1.0).abs() < 1e-6, "stone is not penetrable ground and must not be priced; got {}", mult(13));
+        assert!((mult(14) - 1.0).abs() < 1e-6, "open air is free; got {}", mult(14));
+    }
+
+    /// **The seed is its provisions.** `Reproduce.seed_cost` used to be
+    /// deducted from the parent and vanish; a big seed bought its child
+    /// nothing, which is half of why the seed-strategy locus was deferred
+    /// rather than allocated (`plant-genome-design.md` §4.8). The
+    /// plumbing that makes the endowment→establishment curve measurable
+    /// is that the paid cost rides on the seed and lands as the
+    /// seedling's first carbon.
+    ///
+    /// **Two runs of one scene, not one run against a remembered
+    /// number.** Both individuals are `inherited`, so both carry the same
+    /// (zero) genome and germinate on the same frame from the same draw;
+    /// the only difference in the world is the stake, so the difference in
+    /// carbon *is* the stake. Comparing against a hardcoded 0.3 would
+    /// instead be asserting whatever income happened to arrive on the
+    /// germination tick.
+    #[test]
+    fn a_bred_seedling_starts_with_its_parents_stake() {
+        const STAKE: f32 = 0.3; // tree.ron's own `Reproduce.seed_cost`.
+        let carbon_at_germination = |endowment: f32| -> f32 {
+            let mut w = test_world();
+            plant_tree_on_ground(&mut w, 50, 20);
+            let id = w.get(50, 20).organism_id();
+            assert_ne!(id, 0, "test setup: the planted seed should own its own cell");
+            let state = w.organism_mut(id).expect("a just-planted seed has state");
+            // `inherited` is what `set_seed` marks a bred seed with, and
+            // it is load-bearing here for two reasons: it stops
+            // `seed_genotype` redrawing over the genome at germination,
+            // and it is the state a real bred seed is actually in.
+            state.inherited = true;
+            state.endowment = endowment;
+            for _ in 0..2_000 {
+                run_with_fields(&mut w, 1);
+                if organism::cell_type(w.get(50, 20).aux()) == Some(CellType::GrowingTip) {
+                    return w.carbon_at(50, 20);
+                }
+            }
+            panic!("test setup: the seed never germinated -- check the scene still holds soil under it");
+        };
+
+        let broke = carbon_at_germination(0.0);
+        let staked = carbon_at_germination(STAKE);
+        assert!(
+            (staked - broke - STAKE).abs() < 1e-4,
+            "a bred seedling should start holding exactly what its parent paid: staked {staked}, unprovisioned {broke}, difference {} against a stake of {STAKE}",
+            staked - broke
+        );
+        assert!(broke < STAKE, "test setup: an unprovisioned seedling must start poorer than the stake, or this measures nothing (got {broke})");
+    }
+
+    /// **The bill on the acquisitive leaf.** `LOCUS_LEAF_ECONOMY` is only
+    /// a trade because the rate and the transpirational demand move
+    /// together; a free rate axis would be selection candy and the locus
+    /// would saturate in one direction, which is test 2 of
+    /// `plant-genome-design.md` §2 and the reason two of the old
+    /// continuous slots were dead.
+    ///
+    /// Hand-built and identical on both sides on purpose. Growing two
+    /// stands and dividing demand by leaf count would compare canopies of
+    /// different size *and* different light — the multiplier is per leaf
+    /// per unit light, so anything that changes either confounds it. Two
+    /// plants of the same shape under the same open sky leave the allele
+    /// as the only difference, and the ratio comes out at the table value.
+    #[test]
+    fn expensive_leaves_demand_more_water() {
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+        let leaf = w.materials.id_of("leaf").expect("leaf is a compiled-in material");
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+
+        // One scene, two plants: same shape, same row, open sky over both.
+        let mut build = |x: i32, economy: u8| -> u16 {
+            let id = w.push_organism(tree);
+            place(&mut w, (x, 50), wood, id, CellType::MatureBody, (1.0, 0.0));
+            for dx in -2..=2 {
+                place(&mut w, (x + dx, 49), leaf, id, CellType::Leaf, (1.0, 0.0));
+            }
+            let state = w.organism_mut(id).expect("a pushed organism has state");
+            // `inherited` so nothing redraws the genome; only the economy
+            // allele differs between the two.
+            state.inherited = true;
+            state.alleles[organism::LOCUS_LEAF_ECONOMY] = economy;
+            id
+        };
+        let acquisitive = build(40, 0);
+        let conservative = build(120, 1);
+
+        // The demand sum reads `ambient_light_above`, so the sky cast has
+        // to have run -- with no light there is no demand at all and the
+        // ratio below would be 0/0. `noon_equivalent_light` divides the
+        // day cycle out, so the phase this lands on does not matter.
+        for _ in 0..8 {
+            field::step(&mut w);
+        }
+        organism_upkeep(&mut w, acquisitive);
+        organism_upkeep(&mut w, conservative);
+
+        let demand = |id: u16| w.organism(id).expect("live organism").water_demand;
+        let (dark, pale) = (demand(acquisitive), demand(conservative));
+        assert!(dark > 0.0 && pale > 0.0, "test setup: neither plant read any light, so this measures nothing (dark {dark}, pale {pale})");
+
+        let expected = organism::LEAF_TRANSPIRATION_ALLELES[0] / organism::LEAF_TRANSPIRATION_ALLELES[1];
+        let ratio = dark / pale;
+        assert!(
+            (ratio - expected).abs() < 0.01,
+            "the expensive leaf must spend its allele's share more water: demand {dark} against {pale} is {ratio}x, expected {expected}x"
+        );
+    }
+
+    /// **The reproduction for the root slots, and for the one of them
+    /// that does not reach the world.**
+    ///
+    /// Written to set the bar for the guard test the handoff asked for
+    /// (`root_and_shoot_branching_read_different_slots`, "assert
+    /// `root_cells` orders with the draw"). That test is **not here**,
+    /// because this probe says its premise is false, and the numbers are
+    /// kept so nobody has to find that out twice. One tree, a 61x30
+    /// walled soil bed — far more room than `plant_tree_on_ground`'s
+    /// 17x8, deliberately, so the scene cannot be what bounds the root
+    /// system — 12,000 frames, genome frozen with `inherited` and one
+    /// slot moved to ±1.0:
+    ///
+    /// ```text
+    /// slot                 draw -1        draw 0        draw +1
+    ///  1 root branch    352 / 2440    352 / 2440    352 / 2440   (root/shoot cells)
+    ///  5 root tropism   444 / 2453    352 / 2440    362 / 2353
+    ///  6 allocation     305 / 2621    352 / 2440    440 / 2478
+    /// ```
+    ///
+    /// Slot 6 orders monotonically and its root:shoot ratio with it
+    /// (0.116 / 0.144 / 0.178) — §4.6's claim, holding. Slot 5 moves the
+    /// stand but not monotonically in *count*, which is expected: §4.5's
+    /// claim is about the depth histogram (deep and narrow against
+    /// shallow and wide), and a wandering low-gain root laying more
+    /// shallow cells is that claim, not a contradiction of it.
+    ///
+    /// **Slot 1 is bit-identical at every draw**, and per `CLAUDE.md` an
+    /// exactly-zero delta means suspecting the condition before the
+    /// lever. It is the condition. Instrumenting the branch gate
+    /// (counters since removed — they were diagnostics, not something to
+    /// leave in `organism_tick`) over one 12,000-frame run:
+    ///
+    /// ```text
+    /// root growth steps reaching the branch gate  351
+    ///   of those, holding `resource >= cost`        2
+    ///   of those, the 0.04 roll firing              0
+    /// carbon a root tip holds at the gate: mean 0.053, max 1.72, cost 0.25
+    /// ```
+    ///
+    /// A root tip finishes its step holding about a fifth of what a
+    /// second step costs, so `branch_chance` — whatever the genome
+    /// multiplies it by — is behind a gate the root economy clears twice
+    /// in twelve thousand frames. The multiplier itself is plumbed
+    /// correctly (0.5 / 1.0 / 1.5 read back at the consumer); it has
+    /// nothing to act on. The same counters under slot 6 at +1.0 — which
+    /// is the lever that funds roots — read 53 affordances and one firing,
+    /// so this is starvation, not dead code.
+    ///
+    /// ```text
+    /// cargo test --lib print_root_branch_slot_pairing -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn print_root_branch_slot_pairing() {
+        for slot in [1usize, 5, 6] {
+            for draw in [-1.0f32, 0.0, 1.0] {
+                let (root, shoot) = root_slot_run(1, slot, draw, 12_000);
+                println!("slot {slot}  draw {draw:>5.1}  root {root:>5}  shoot {shoot:>5}  ratio {:.3}", root as f32 / shoot.max(1) as f32);
+            }
+        }
+    }
+
+    /// A deep, wide, walled soil bed — root branching needs somewhere to
+    /// express itself, and `plant_tree_on_ground`'s 17x8 bed bounds the
+    /// root system by the scene rather than by the genome.
+    fn root_slot_run(seed: u64, slot: usize, draw: f32, frames: usize) -> (u32, u32) {
+        let mut w = test_world();
+        w.seed = seed;
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        const HALF: i32 = 30;
+        const ROWS: i32 = 30;
+        let (x, y) = (100, 40);
+        for fx in (x - HALF - 1)..=(x + HALF + 1) {
+            w.set(fx, y + ROWS + 1, Cell::new(material::STONE, 0));
+        }
+        for dy in 1..=ROWS {
+            w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+            w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+            for fx in (x - HALF)..=(x + HALF) {
+                w.set(fx, y + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        w.plant_tree(x, y);
+        let id = w.get(x, y).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its own cell");
+        {
+            let state = w.organism_mut(id).expect("a just-planted seed has state");
+            // `inherited` freezes the genome so `seed_genotype` cannot
+            // redraw over it at germination -- the only supported way to
+            // hand a plant a chosen genotype.
+            state.inherited = true;
+            state.genotype_draws[slot] = draw;
+            // The species-authored discrete genome, which is what a fresh
+            // draw would have given every locus but the two positional
+            // ones. Without this an `inherited` plant wears allele 0
+            // everywhere and is a differently-shaped tree.
+            state.alleles[organism::LOCUS_BRANCH_ANGLE] = 1;
+            state.alleles[organism::LOCUS_INTERNODE] = 1;
+            state.alleles[organism::LOCUS_WOOD_DENSITY] = 1;
+        }
+        run_with_fields(&mut w, frames);
+        let state = w.organism(id).expect("the organism should still be alive");
+        (state.root_cells, state.shoot_cells)
+    }
+}

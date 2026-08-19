@@ -572,6 +572,161 @@ the page updates in the same change, per convention).
 
 ---
 
+### 8a. Landing measurements — partial, and one row stops the rest
+
+Measured in the `plant-genome` worktree at the completion session, all on
+one machine in one session (`CLAUDE.md`: never against a remembered
+number). **This section is incomplete on purpose** — the first §4 row
+turned up a finding that belongs to the owner before the remaining rows
+are worth running, and it is written up at the bottom.
+
+**State of the edit.** The parked draft's one known break (a missing
+`use super::organism;` in `structural.rs`) was the only compile error in
+it; nothing else behind it needed touching. `cargo test --lib` is green at
+485 tests, `cargo clippy --all-targets -- -D warnings` is clean. Six of
+the handoff's seven guard tests are in; the seventh is the one held below.
+`organism_upkeep`'s settle arithmetic was extracted to a pure
+`plant::settle_water` with no behaviour change, which is what let §4.3's
+seam be asserted directly.
+
+**Stand-level sanity bar, set fresh this session** (the handoff asks for
+this before anything else is believed). Standard probe, 8 trees / 30,000
+frames / `worldseed=1`, release binary rebuilt first and its first line
+confirmed echoing `worldseed=1`:
+
+```text
+                       draft as parked    after the review fixes below
+established                 8 of 8                   8 of 8
+organism cells              22,309                   27,048
+  leaf                       6,940                    8,455
+  mature                    14,593                   17,662
+root cells per plant   median 158 max 472      median 318 max 826
+seeds set                       65                       64
+```
+
+A breeding stand in the gross range the water session left either way, so
+the re-map did not cost growth.
+
+**The right-hand column is the review's doing, and it is the measurement
+that says those findings were real.** An independent review over the diff
+(repo convention before a significant commit) found that the density
+multiplier had reached `Grow`'s own spending gate and *none* of the three
+sites that budget in units of that same cost — so for the four plants of
+eight that draw the dense allele, `break_root_tips` staked every
+re-initiated root tip below its own first `Grow` check, `break_buds`
+floored every flush below its first step, and the income-over-price tip
+cap was denominated in the wrong currency in both directions at once.
+Fixing all three (`organism::wood_density`, one accessor, applied at every
+site) **doubled median root mass, 158 to 318, and added 21% to the
+stand**. This is `CLAUDE.md`'s "when a fix changes what a number *means*,
+re-deriving the constants that read it is part of the fix" arriving on
+schedule.
+
+Two smaller findings from the same review landed with it: the
+no-finite-span sentinel in `structural::organism_structural_tick` was
+being tested against the *scaled* span, so `leaf.ron`'s `u16::MAX` opt-out
+(65535 x 0.75 = 49151, not the sentinel) silently stopped applying to
+every pioneer-allele plant's foliage — latent, since 49151 still dwarfs
+any real support distance, but the leaf span was latent too right up until
+checks started firing and took a stand from 31,731 cells to 7,171. And the
+founding leaf-economy allele is now clamped to the *locus'* range rather
+than the palette's, a no-op at every shipped species and a guard against a
+future 4-band one founding alleles mutation could never produce. One
+finding was **not** acted on: `wiki/plants.md` needs the three new
+player-visible mechanics, and it is a §2-held file until the water
+session's review is relayed.
+
+**Both new readouts are live on day one**, which is what §6 promised and
+what a sheet cannot show at contact-sheet zoom:
+
+```text
+palette bands in use: wood band 0  8,328 cells / band 1  5,600 cells
+                      leaf band 2  2,077 cells / band 3  4,863 cells
+alleles: economy 2/6/0  angle 0/8/0  internode 0/8/0
+         sympody 8/0/0  tropism 8/0/0  density 3/1/4
+```
+
+Density splits 3/1/4 across the stand from the stream-65 positional draw
+and bark follows it into two bands — the day-one bark variety §5 said the
+stream reuse would preserve is preserved, and it now means something.
+
+**Slots 5 and 6, paired.** Density pinned to the authored allele
+throughout, so the coherence fixes above are no-ops here and these numbers
+are identical before and after them (re-run to check, not assumed). One
+tree, genome frozen with `inherited`, one
+slot moved to ±1.0, 12,000 frames, in a 61x30 walled soil bed chosen so
+the *scene* cannot be what bounds the root system
+(`plant::tests::print_root_branch_slot_pairing`, `#[ignore]`d, holds the
+reproduction):
+
+| slot | draw −1 | draw 0 | draw +1 |
+|---|---|---|---|
+| 5 root tropism gain | 444 / 2,453 | 352 / 2,440 | 362 / 2,353 |
+| 6 allocation bias | 305 / 2,621 | 352 / 2,440 | 440 / 2,478 |
+
+(root cells / shoot cells.) **Slot 6 holds §4.6's claim outright** — root
+count monotone in the draw and the root:shoot ratio with it, 0.116 /
+0.144 / 0.178, while the shoot moves the other way or not at all. Slot 5
+moves the stand but not monotonically in *count*, which is not a
+contradiction: §4.5's claim is about the depth histogram, and a low-gain
+root wandering laterally laying more shallow cells is that claim. Its
+proper readout (the `ed28d16` histogram, paired across a
+surface-watered and a deep-table scene) is **not yet run**.
+
+**Slot 1 (root branch chance) is exactly zero at every draw, and the
+condition is degenerate — this is the row that stops the rest.**
+
+The draw reads back correctly at the consumer (multiplier 0.5 / 1.0 / 1.5
+against the root vector's 0.5 width), and the outcome is *bit-identical*:
+352 root cells and 2,440 shoot cells at −1.0, 0.0 and +1.0 alike, with
+identical trajectories from frame 2,000 on. Per `CLAUDE.md`, an
+exactly-zero delta means suspecting the condition before the lever, so
+the branch gate was instrumented (counters since removed — diagnostics do
+not belong in `organism_tick`). Over one 12,000-frame run:
+
+```text
+root growth steps reaching the branch gate   351
+  of those, holding `resource >= cost`         2
+  of those, the 0.04 branch roll firing        0
+carbon a root tip holds at the gate: mean 0.053, max 1.72, against cost 0.25
+```
+
+A root tip finishes its primary step holding about **a fifth** of what a
+second step costs, so `branch_chance` — whatever the genome multiplies it
+by — sits behind a gate the root economy clears twice in twelve thousand
+frames, and at `branch_chance: 0.04` those two chances then produced no
+branch at all. It is **starvation, not dead code**: the same counters
+with slot 6 driven to +1.0 (the lever that funds roots) read 53
+affordances and one firing.
+
+So the §4.4 measurement as designed cannot come out non-zero at the
+authored economy, and the handoff's guard test
+`root_and_shoot_branching_read_different_slots` has a false premise —
+`root_cells` cannot order with slot 1's draw when slot 1's consumer never
+executes. **It is not written**, and the reproduction above is kept in
+its place. What to do about it is a §9-shaped call and is not decided
+here: §8's own rule ("a locus that moves nothing does not keep its slot")
+points one way, and the fact that the block is a *cost gate on a fully
+plumbed consumer* rather than a dead trait points another — this is the
+same shape as the granular-capacity divisor, where the lever was fine and
+the condition it was tested through was degenerate.
+
+Worth stating plainly for whoever picks it up: this gate is **not** the
+re-map's doing. Before it, the root's `branch_chance` was multiplied by
+slot 0 through the RootTip's own all-zero variance vector, i.e. by exactly
+1.0, against the same `resource >= cost` gate and the same 0.25 cost. The
+re-map gave the trait a slot; it did not change what stands between the
+trait and the world.
+
+**Not yet measured** — every remaining §4 row, held with the above:
+slot 5's depth histogram, slot 8 penetration (needs the sand-bank scene
+§4.7 calls for), `stomatal_reserve` 0.2 → 0.0 on a drying scene against a
+wet one, the leaf-economy wet/dry crossover, the wood-density
+growth-against-load pair, the `seed_cost` endowment response curve, and
+the two pinned filmstrip sheets with their band counters.
+
+---
+
 ## 9. The owner's four calls — ANSWERED, 2026-08-18
 
 1. **Map A** (re-purpose, 9 continuous). As recommended.
