@@ -2192,7 +2192,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         // material if the species' world has no `leaf`
                         // loaded, so a stripped-down asset set degrades to
                         // the old look rather than failing to grow.
-                        let leaf_material = world.materials.id_of("leaf").unwrap_or(cell.material);
+                        let leaf_material =
+                            world.materials.id_of(&world.species.get(species_id).leaf_material).unwrap_or(cell.material);
                         for &(cx, cy) in &cluster {
                             let shade = banded_shade(world, organism_id, leaf_material, Band::Foliage, &mut rng);
                             let leaf_cell =
@@ -3796,8 +3797,12 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // planted, and the coordinate it comes to rest at is the one that
     // should decide what kind of individual grows. See `seed_genotype`.
     seed_genotype(world, organism_id, x, y);
-    // The seed cell is `seed` material; the shoot it becomes is wood.
-    let wood = world.materials.id_of("wood").unwrap_or(cell.material);
+    // The seed cell is `seed` material; the shoot it becomes is whatever
+    // this species declares -- `wood` for every shipped tree, and the
+    // reason a non-woody species is expressible at all. See
+    // `SpeciesDef::shoot_material`.
+    let species = world.organism(organism_id).map(|s| s.species);
+    let wood = species.and_then(|sp| world.materials.id_of(&world.species.get(sp).shoot_material)).unwrap_or(cell.material);
     // After `seed_genotype`, which is what draws this individual's bands.
     let shoot_shade = banded_shade(world, organism_id, wood, Band::Bark, rng);
     world.set(
@@ -3846,10 +3851,13 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
         // free: every cell `Grow` creates copies its parent's material, so
         // the whole root system below ground comes out as rootwood while
         // the shoot above stays wood, with no cell-type-to-material table
-        // anywhere. `update_powder`'s soil stabilization (§6d) depends on
+        // anywhere. Propagation is unchanged; only the *seed* moved from a
+        // hardcoded name to species data, which is the one thing that
+        // comment always relied on. `update_powder`'s soil stabilization (§6d) depends on
         // being able to ask "is this a root" from the material id alone,
         // which is the reason rootwood is a material at all.
-        let root_material = world.materials.id_of("rootwood").unwrap_or(cell.material);
+        let root_material =
+            species.and_then(|sp| world.materials.id_of(&world.species.get(sp).root_material)).unwrap_or(cell.material);
         let shades = world.materials.get(root_material).palette.len().max(1) as u32;
         let shade = rng.below(shades) as u8;
         let root_cell = Cell::new(root_material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::RootTip));
@@ -4466,6 +4474,90 @@ mod tests {
         // water's own row.
         let thickened = (5..35).any(|x| (42..49).any(|y| w.get(x, y).material == moss));
         assert!(thickened, "moss never thickened into a 2D patch, only ever grew along the original rock");
+    }
+
+    /// **A species declares what it is made of, and an unknown name falls
+    /// back exactly where the hardcoded lookup did.**
+    ///
+    /// The three seeding sites (`germinate`'s shoot and companion root,
+    /// the `Grow` arm's leaf cluster) used to name `wood`/`rootwood`/`leaf`
+    /// in code, so every `Grow` species was brown stem and green leaf by
+    /// construction whatever its numbers said. They now read species data
+    /// (`Reports/plant-evolution-design.md` §3c). Propagation is untouched:
+    /// growth still copies a parent's material to its child, so seeding one
+    /// cell is what makes a whole root system rootwood.
+    ///
+    /// Both directions are asserted on purpose. The fallback alone would
+    /// pass against code that ignored the field entirely — `id_of("wood")`
+    /// resolves, so an ignored field yields wood rather than the seed's own
+    /// material — but only the *positive* case proves the declared name is
+    /// what is actually read.
+    ///
+    /// Built by copying the shipped `tree.ron` and renaming it, rather than
+    /// hand-writing a minimal species: `Grow` has a wide required-field
+    /// surface, and a test species that drifts from the real one tests a
+    /// shape nothing ships.
+    #[test]
+    fn a_species_declares_its_materials_and_an_unknown_name_falls_back() {
+        let base = include_str!("../../assets/species/tree.ron");
+        assert_eq!(base.matches("name: \"tree\",").count(), 1, "the rename anchor must be unique or this test edits more than its target");
+
+        let variant = |species: &str, extra: &str| -> String {
+            base.replacen("name: \"tree\",", &format!("name: \"{species}\",{extra}"), 1)
+        };
+
+        let dir = std::env::temp_dir().join("pixel-physics-species-materials");
+        std::fs::create_dir_all(&dir).unwrap();
+        // Declares a material that does not exist -> must fall back to the
+        // germinating seed's own material, which is what the hardcoded
+        // lookup did for a stripped asset set.
+        std::fs::write(dir.join("unknownmat.ron"), variant("unknownmat", " shoot_material: \"nosuchmaterial\",")).unwrap();
+        // Declares a real material that is NOT the default -> must be used.
+        std::fs::write(dir.join("leafstem.ron"), variant("leafstem", " shoot_material: \"leaf\",")).unwrap();
+        // Declares nothing -> the defaults, i.e. today's tree exactly.
+        std::fs::write(dir.join("plainmat.ron"), variant("plainmat", "")).unwrap();
+
+        let seed_material_of = |species: &str| -> (material::MaterialId, material::MaterialId) {
+            let mut w = test_world();
+            w.species.reload(&dir).unwrap();
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            for fx in 40..=60 {
+                w.set(fx, 29, Cell::new(material::STONE, 0));
+                for dy in 21..29 {
+                    w.set(fx, dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            assert!(w.plant_tree_species(50, 20, species), "test setup: {species} should plant");
+            let seed = w.get(50, 20).material;
+            for _ in 0..2_000 {
+                run_with_fields(&mut w, 1);
+                if organism::cell_type(w.get(50, 20).aux()) == Some(CellType::GrowingTip) {
+                    return (seed, w.get(50, 20).material);
+                }
+            }
+            panic!("test setup: {species} never germinated");
+        };
+
+        let wood = {
+            let w = test_world();
+            w.materials.id_of("wood").expect("wood is compiled in")
+        };
+        let leaf = {
+            let w = test_world();
+            w.materials.id_of("leaf").expect("leaf is compiled in")
+        };
+
+        let (seed_mat, shoot) = seed_material_of("unknownmat");
+        assert_eq!(shoot, seed_mat, "an unknown shoot material must fall back to the germinating cell's own material, as the hardcoded lookup did");
+        assert_ne!(shoot, wood, "falling back to wood would mean the declared name was never read at all");
+
+        let (_, shoot) = seed_material_of("leafstem");
+        assert_eq!(shoot, leaf, "a species declaring a real material must be built from it");
+
+        let (_, shoot) = seed_material_of("plainmat");
+        assert_eq!(shoot, wood, "a species declaring nothing must get the defaults -- every shipped .ron depends on it");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

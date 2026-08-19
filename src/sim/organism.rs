@@ -789,7 +789,37 @@ pub struct SpeciesDef {
     /// this field or by genotype slot 7, which multiplies it.
     #[serde(default)]
     pub stomatal_reserve: f32,
+    /// **What this species is made of** — the three materials seeded at
+    /// germination and at leaf placement, defaulted to the tree set so
+    /// every shipped `.ron` is untouched.
+    ///
+    /// These are the *seeds*, not a cell-type-to-material table: growth
+    /// still propagates a parent's material to its child, which is what
+    /// makes a whole root system rootwood from one seeded cell. Moving
+    /// these three constants from code to data is the entire engine
+    /// change behind "a plant that is not a tree" — before it, a `Grow`
+    /// species was brown stem and green leaf by construction, whatever
+    /// its numbers said (`Reports/plant-evolution-design.md` §3c).
+    ///
+    /// An unknown name falls back to the parent cell's own material,
+    /// exactly as the hardcoded lookups did for a stripped asset set.
+    #[serde(default = "default_shoot_material")]
+    pub shoot_material: String,
+    #[serde(default = "default_root_material")]
+    pub root_material: String,
+    #[serde(default = "default_leaf_material")]
+    pub leaf_material: String,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
+}
+
+fn default_shoot_material() -> String {
+    "wood".to_string()
+}
+fn default_root_material() -> String {
+    "rootwood".to_string()
+}
+fn default_leaf_material() -> String {
+    "leaf".to_string()
 }
 
 pub struct Species {
@@ -797,6 +827,10 @@ pub struct Species {
     pub foliage_bands: PaletteBands,
     pub bark_bands: PaletteBands,
     pub stomatal_reserve: f32,
+    /// See `SpeciesDef::shoot_material`.
+    pub shoot_material: String,
+    pub root_material: String,
+    pub leaf_material: String,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
 }
 
@@ -820,6 +854,9 @@ impl From<SpeciesDef> for Species {
             foliage_bands: def.foliage_bands,
             bark_bands: def.bark_bands,
             stomatal_reserve: def.stomatal_reserve,
+            shoot_material: def.shoot_material,
+            root_material: def.root_material,
+            leaf_material: def.leaf_material,
             cell_types: def.cell_types,
         }
     }
