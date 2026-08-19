@@ -1,0 +1,26 @@
+// What a colony calls home. A plain `Solid` -- deliberately the simplest
+// thing that renders distinctly and that an ant can stand next to, because
+// the nest in v1 is a *sensed material*, not a structure with behaviour.
+// `AtNest` is a contact scan for this material and nothing else.
+//
+// The whole "find your way home" mechanism is elsewhere and is not about
+// this file: an ant's channel-A deposit is scaled by how recently it
+// touched nest material, so outbound ants paint a gradient that is
+// freshest nearest home, and a laden ant walks up it. No ant ever asks
+// where the nest is. This material only has to be recognisable on contact.
+//
+// Pale and warm, to read clearly against soil and against the dark ants
+// standing on it.
+(
+    name: "nest",
+    display: "Nest",
+    kind: Solid,
+    density: 2.0,
+    colors: [
+        (196, 168, 120),
+        (184, 156, 110),
+        (206, 180, 132),
+    ],
+    penetration_resistance: 6.0,
+    heat_conductivity: 0.3,
+)

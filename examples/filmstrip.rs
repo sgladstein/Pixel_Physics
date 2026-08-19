@@ -48,6 +48,7 @@ mod common;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::particle::ParticleSystem;
+use pixel_physics::sim::pheromone::{Channel, DEPOSIT};
 use pixel_physics::sim::world::World;
 use pixel_physics::sim::rng;
 use pixel_physics::sim::material::MaterialKind;
@@ -129,6 +130,34 @@ fn build(args: &Args) -> World {
                 }
             }
         }
+        // Stage 2 of the creature milestone: two synthetic trails on the
+        // pheromone planes, over ordinary terrain, so the overlay ramps can
+        // be judged **against a real signal**. An empty plane renders as a
+        // flat ramp floor, which is correct and proves nothing -- the
+        // failure this scene exists to catch is a trail that is present in
+        // the data and unreadable on screen, which is exactly how the
+        // canopy-density sheet came to read as blank.
+        //
+        // Look at it with `channel=pheromone_a` and `channel=pheromone_b`.
+        "pheromone" => {
+            stone_floor(&mut w);
+            for x in 40..470 {
+                for y in 200..floor_y {
+                    w.set(x, y, Cell::new(material::SAND, 0));
+                }
+            }
+            // Laid repeatedly, as ants would: a single deposit evaporates
+            // before it spreads (measured -- see pheromone.rs's DIFFUSE).
+            for i in 0..60u64 {
+                for x in 60..450 {
+                    w.deposit_pheromone(Channel::A, x, 190, DEPOSIT);
+                    let y = 150 + (x - 60) / 12;
+                    w.deposit_pheromone(Channel::B, x, y, DEPOSIT);
+                }
+                w.frame = i * 4;
+                w.step_pheromones();
+            }
+        }
         // A dense blob dropped into a walled pool: the displacement striping.
         "blob" => {
             stone_floor(&mut w);
@@ -194,6 +223,36 @@ fn build(args: &Args) -> World {
         // The same depth sweep in the other material the complaint named.
         // A liquid holds no angle of repose, so a crater here closes by
         // flowing rather than by avalanching.
+        // A puddle and a lake side by side, the same depth, so the only
+        // thing that differs is width -- `evaporation.rs`'s own paired
+        // scene, so a sheet from this can be read against what the guards
+        // measure rather than against a fresh scene nobody has a prior on.
+        // Walled, because an open puddle spreads away across the floor
+        // before the field registers it as a source at all, and the sheet
+        // would then be a picture of spreading.
+        //
+        // Both bodies sit in *one* world here where the tests use one each,
+        // and that is a real difference: the lake humidifies the puddle
+        // (1.82 above the puddle against 1.45 for the same puddle alone),
+        // so the puddle here dries somewhat slower than the guard's number.
+        // Worth it -- one image showing both is the whole point.
+        "evaporate" => {
+            let floor = 160;
+            for x in 0..WIDTH {
+                for y in floor..(floor + 6) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for (x0, width) in [(40, 6), (120, 240)] {
+                for y in (floor - 4)..floor {
+                    w.set(x0 - 1, y, Cell::new(material::STONE, 0));
+                    w.set(x0 + width, y, Cell::new(material::STONE, 0));
+                    for x in x0..(x0 + width) {
+                        w.set(x, y, water_at(x, y));
+                    }
+                }
+            }
+        }
         "waterbed" => {
             stone_floor(&mut w);
             for x in 20..492 {
@@ -313,6 +372,112 @@ fn build(args: &Args) -> World {
         // thicker than stone's confinement diameter, which is exactly the
         // claim `Reports/worldgen-design.md` §6b says would collapse the
         // world if it were wrong.
+        // **A colony you can actually look at**, which until now did not
+        // exist anywhere. Everything about ants had been judged by counters
+        // -- 402 genomes of statistics and not one picture -- which is the
+        // exact inversion `CLAUDE.md` opens by warning against. An image
+        // says *what and where*; the numbers already say how much.
+        //
+        // `genome=` picks who is being drawn, by the same label
+        // `creature_space` prints, so a row in that sweep and a sheet here
+        // are the same animal (they share `brain::random_genome`). The three
+        // worth looking at, from the 400-genome run:
+        //
+        //   genome=r029   short-range forager, the best survivor found
+        //   genome=r017   long-range directed commuter
+        //   genome=r059   sessile grazer -- never moves a cell, still eats
+        //   genome=authored   the hand-tuned ant, which r029 beats
+        //   genome=zero   cannot move at all; the floor, and the control
+        //
+        // Wetland, deliberately: it is the only preset where moss both
+        // exists at ant height and replenishes (86 -> 1,194 cells over a
+        // run, against 10 -> 10 on "rolling"), and moss is what makes the
+        // sessile strategy possible at all. On dry terrain r059 would just
+        // look like a dead ant, and the sheet would be evidence of nothing.
+        //
+        // Look at it with `channel=pheromone_b` to see the food trail form,
+        // and `channel=pheromone_a` for the nest scent.
+        //
+        // **Capture at noon, or the sheet is unreadable.** The day/night
+        // oscillator has a period of 3600 frames and frame 0 is noon
+        // (`field::DAY_NIGHT_PERIOD_FRAMES`), and this scene's 2,400-frame
+        // warmup leaves capture starting two thirds through the cycle -- in
+        // the dark. The first sheet rendered was six tiles of night. Use
+        // `start=1200 every=3600` so every tile lands at exactly noon and
+        // the tiles differ by behaviour rather than by time of day:
+        //
+        //   cargo run --release --example filmstrip -- scene=colony         //     genome=r029 start=1200 every=3600 count=6 cols=3 zoom=2
+        "colony" => {
+            let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
+            if let Some(e) = err {
+                panic!("worldgen presets unavailable: {e}");
+            }
+            let params = presets.get("wetland").expect("the wetland preset");
+            pixel_physics::worldgen::generate(&mut w, pixel_physics::worldgen::Spec::Generated { params, seed: args.seed });
+
+            let species = w.species.id_of("ant").expect("ant species");
+            let genome = match args.genome.as_str() {
+                "authored" => w.species.get(species).genome.clone(),
+                "zero" => vec![0.0; pixel_physics::sim::brain::GENOME_LEN],
+                label => {
+                    let n: u64 = label.trim_start_matches('r').parse().unwrap_or_else(|_| {
+                        panic!("genome={label:?}: expected \"authored\", \"zero\", or \"rNNN\"")
+                    });
+                    pixel_physics::sim::brain::random_genome(pixel_physics::sim::brain::sweep_genome_seed(n))
+                }
+            };
+            w.species.set_genome(species, genome);
+
+            // Let the trees put leaves out before the ants arrive; a
+            // seedling is not a food source, and a scene whose food has not
+            // grown yet measures the warmup rather than the colony.
+            for _ in 0..2400 {
+                pixel_physics::sim::parallel::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+            }
+            // Found it on the ground, the same call the `Y` key makes, so
+            // the sheet shows what a player actually gets.
+            // **Find DRY land, not just "the first thing from the top".**
+            // The obvious version put the colony at mid-width, where this
+            // seed happens to have a lake, so the surface it found was
+            // water: 48 ants were placed on a surface they cannot stand on
+            // and the contact sheet was a picture of a lake. Wetland has
+            // water in it by definition -- that is the point of it -- so the
+            // scene has to say which surface it wants.
+            use pixel_physics::sim::material::MaterialKind;
+            let dry_surface = |w: &World, x: i32| -> Option<i32> {
+                let y = (0..HEIGHT).find(|&y| !matches!(w.materials.kind(w.get(x, y).material), MaterialKind::Empty | MaterialKind::Gas))?;
+                matches!(w.materials.kind(w.get(x, y).material), MaterialKind::Solid | MaterialKind::Powder).then_some(y)
+            };
+            // Widest stretch of dry ground nearest mid-width, so the colony
+            // has somewhere to walk rather than a two-cell island.
+            // **Score the thing actually wanted: how many ants would land.**
+            // Scoring "dry columns within 60 cells" instead was a proxy, and
+            // it picked a plateau too narrow for the colony -- 31 of 52 ants
+            // placed, the rest quietly dropped into a lake. Count the real
+            // 52 placement sites.
+            let would_place = |w: &World, x: i32| -> i32 {
+                (0..52).filter(|i| dry_surface(w, x - 102 + i * 4).is_some()).count() as i32
+            };
+            // Only where the colony's whole 204-cell span fits inside the
+            // world: `found_colony` centres 52 ants at spacing 4, and
+            // founding it near an edge silently drops every ant that lands
+            // outside (16 of 52, the first time this scene ran).
+            let half_span = 102;
+            let (cx, cy) = (half_span..WIDTH - half_span)
+                .filter_map(|x| dry_surface(&w, x).map(|y| (x, y)))
+                // Most dry ground within reach, ties broken toward the
+                // middle of the map. A score rather than a hard window: on a
+                // wetland seed there may be no unbroken 200-cell beach, and
+                // demanding one made the scene panic rather than degrade.
+                .max_by_key(|&(x, _)| (would_place(&w, x), -(x - WIDTH / 2).abs()))
+                .expect("some dry ground");
+            let placed = w.found_colony(cx, cy - 2);
+            assert!(placed > 0, "the colony scene placed no ants -- the scene is not showing what it claims to");
+            println!("scene=colony genome={} : {placed} ants founded at x={cx}, surface y={cy}", args.genome);
+            println!("  suggested crop: crop={},{},240,110", cx - 120, cy - 70);
+        }
         "terrain" => {
             pixel_physics::app::build_terrain(&mut w);
         }
@@ -851,6 +1016,9 @@ struct Args {
     zoom: i32,
     crop: Rect,
     parallel_driver: bool,
+    /// `genome=` for `scene=colony`: `authored`, `zero`, or `rNNN` naming a
+    /// genome from `creature_space`'s sweep by the label it printed.
+    genome: String,
     out: String,
     grain: GrainMode,
     /// `channel=` -- render the sheet through one of `render.rs`'s debug
@@ -1061,6 +1229,7 @@ fn parse() -> Args {
         count: 6,
         cols: 3,
         zoom: 1,
+        genome: String::from("authored"),
         crop: Rect::new(0, 0, WIDTH - 1, HEIGHT - 1),
         parallel_driver: true,
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
@@ -1106,6 +1275,7 @@ fn parse() -> Args {
             "count" => a.count = v.parse().expect("count"),
             "cols" => a.cols = v.parse().expect("cols"),
             "zoom" => a.zoom = v.parse().expect("zoom"),
+            "genome" => a.genome = v.to_string(),
             "driver" => a.parallel_driver = v != "serial",
             "out" => a.out = v.into(),
             "gif" => a.gif = v != "false",
@@ -1134,9 +1304,11 @@ fn parse() -> Args {
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
                 "pressure" => a.field_overlay = FieldOverlay::Pressure,
+                "pheromone_a" => a.field_overlay = FieldOverlay::PheromoneA,
+                "pheromone_b" => a.field_overlay = FieldOverlay::PheromoneB,
                 "stress" => a.stress = true,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure, stress"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure, pheromone_a, pheromone_b, stress"
                 ),
             },
             "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),

@@ -172,7 +172,23 @@ fn update_cell<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool)
 
     match surface.materials().kind(cell.material) {
         MaterialKind::Powder => update_powder(surface, x, y, cell, rightward),
-        MaterialKind::Liquid => update_liquid(surface, x, y, rightward),
+        MaterialKind::Liquid => {
+            let moved = update_liquid(surface, x, y, rightward);
+            // The sweep's entire part in evaporation: hand a *settled*
+            // surface cell to the active-site scheduler and forget about it.
+            // Doing the evaporating here instead is what was built and
+            // reverted -- a settled chunk is not swept, so still water, the
+            // one state this mechanic is about, is the one state this arm
+            // never sees again (`evaporation.rs`'s module doc).
+            //
+            // Gated on `!moved` so a waterfall does not queue a site per
+            // cell per frame while it is in flight, and on the material flag
+            // at this dispatch site, which already holds the `Cell`.
+            if !moved && surface.materials().get(cell.material).evaporates {
+                super::evaporation::schedule_from_sweep(surface, x, y);
+            }
+            moved
+        }
         MaterialKind::Gas => update_gas(surface, x, y, rightward),
         MaterialKind::Empty | MaterialKind::Solid | MaterialKind::Plant | MaterialKind::Creature => false,
     };

@@ -147,6 +147,14 @@ fn main() {
     for _ in 0..a.settle {
         pixel_physics::sim::parallel::step(&mut world);
         world.step_active_sites();
+        // The field too, which this loop used to leave out. Harmless while
+        // everything judged here was drawn (rain, the sky, the camera) and
+        // not harmless once anything *reads* a field channel: evaporation
+        // rates off the humidity above a water surface, and with no field
+        // step that humidity is zero everywhere, so a long settle would dry
+        // every lake in the world and the picture would be of a bug in the
+        // harness. Matches `App::update`'s own phase order.
+        world.step_fields();
     }
 
     let mut renderer = Renderer::new();
