@@ -213,3 +213,27 @@ staging, nine numbered owner calls).
    milestone, whose sod is §8c's fibrous mat and needs affordable root
    branching. It is the single highest-leverage open call on the plant
    side.
+6. **The form session's input on §5 question 1, recorded at the owner's
+   request.** Split the question: the *allowance economy* should be
+   declared intended — root tips cannot earn carbon underground, live on
+   functional-balance allocation, and spend at first affordance, which
+   is both biologically sane and demonstrably working — but the
+   *double-affordance branch gate* is the accident: two gates in series
+   on one pool, unreachable by construction, and the identical structure
+   only works above ground because shoot tips happen to photosynthesize.
+   Repair by re-shaping the purchase, not re-pricing the economy: do
+   **not** lower root `Grow.cost` globally (it re-prices all root mass
+   and re-baselines everything to fix one gate). Recommended shape: the
+   **primed-site model already prescribed by `PLAN.md`'s M16 research
+   note** ("root branching periodic, not flat per-tick probability —
+   prime a site every N ticks, branch only if local resource clears
+   threshold"), which spreads the purchase over time; slot 1 re-points
+   to the priming rate or threshold — a consumer re-pointing, nothing
+   renumbered. Guard rails: `branch_chance: 0.04` was calibrated
+   against a gate that opened twice in 12,000 frames and must be
+   re-derived by sweep after the repair; confirm `MAX_ROOT_FRACTION`
+   binds first (§8c's extreme setting converted most of the bed); root
+   mass moving several-fold moves water capacity, so the §8d wet/dry
+   2x2 re-runs rather than carries; quote the paired `ascii`
+   worst-frame. Sequencing: this call gates slot 1, the megastudy *and*
+   the grass milestone (sod is §8c's fibrous mat) — make it first.
