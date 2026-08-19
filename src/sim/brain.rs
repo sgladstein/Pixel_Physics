@@ -36,41 +36,64 @@ pub const BRAIN_INPUTS: usize = 16;
 pub const BRAIN_HIDDEN: usize = 4;
 pub const BRAIN_OUTPUTS: usize = 9;
 
-/// The genome: one flat `Vec<f32>` in four contiguous positional blocks.
+/// **Reserved storage dimensions.** The live counts above say how much of
+/// the scaffold is wired; these say how much room the layout leaves it to
+/// grow into. Both are needed, and conflating them is exactly what made the
+/// 6 -> 9 output growth unlawful — see `GENOME_LEN`.
+///
+/// Sized to absorb three appends on each axis before a migration, at 584
+/// floats against the 248 a tight layout uses: 2.3 KB per creature, ~9.6 MB
+/// at the 4095-organism ceiling. Reserving more (16 outputs, 712 floats)
+/// buys no additional lawfulness, only more headroom.
+pub const INPUT_SLOTS: usize = 24;
+pub const HIDDEN_SLOTS: usize = 8;
+pub const OUTPUT_SLOTS: usize = 12;
+
+/// The genome: one flat `Vec<f32>` in four contiguous positional blocks,
+/// **sized from the reserved dimensions rather than from the live counts**.
 ///
 /// ```text
-/// [0..144)    input -> output   (16 x 9)  -- the authored "taxis gains"
-/// [144..208)  input -> hidden   (16 x 4)
-/// [208..212)  hidden self-recurrence      (4)
-/// [212..248)  hidden -> output  (4 x 9)
+/// [0..288)    input -> output   (12 x 24)  -- the authored "taxis gains"
+/// [288..480)  input -> hidden   ( 8 x 24)
+/// [480..488)  hidden self-recurrence       (8)
+/// [488..584)  hidden -> output  (12 x  8)
 /// ```
 ///
-/// **Grown twice, and only the first growth was lawful.** 168 (14x6) ->
-/// 188 (16x6, inputs 14 and 15 appended after the lateral sensors turned
-/// out to be identically zero on a horizontal surface -- see
-/// `BrainInput::PheroAAlong`) -> 248 (16x9, outputs 6, 7 and 8 appended).
+/// **Grown twice before this layout, and only the first growth was
+/// lawful.** 168 (14x6) -> 188 (16x6, inputs 14 and 15 appended after the
+/// lateral sensors turned out to be identically zero on a horizontal
+/// surface -- see `BrainInput::PheroAAlong`) -> 248 (16x9, outputs 6, 7 and
+/// 8 appended). The block was `input * BRAIN_OUTPUTS + output`, so
+/// appending an output was an *insert into every row*: `(TempAboveAmb,
+/// Turn)` moved from index 48 to 72, every weight with an input index >= 1
+/// was renumbered, and `IO_END` moving 96 -> 144 shifted the two blocks
+/// after it wholesale.
 ///
-/// Appending an **input** appends whole rows and every pre-existing index
-/// survives. Appending an **output** does not: this block is row-major, so
-/// the row stride went from 6 to 9 and appending an output is an *insert
-/// into every row*. `(TempAboveAmb, Turn)` moved from index 48 to 72,
-/// every weight with an input index >= 1 was renumbered, and `IO_END`
-/// moving 96 -> 144 shifted the two blocks after it wholesale. The
-/// hidden -> output block has the identical stride.
+/// **Re-laying output-major was considered and is not the fix.** Under
+/// `output * BRAIN_INPUTS + input` an output appends cleanly and an *input*
+/// becomes the stride change -- the mirror image, on the axis this genome
+/// has already grown along twice. There is no axis here that is safe to
+/// sacrifice.
 ///
-/// **So the law below is one-sided: inputs may be appended, outputs may
-/// not.** The two look identical from a species `.ron` and from the enums,
-/// which is exactly why this needs saying -- adding a tenth output reads
-/// like a safe edit and is a silent reinterpretation of every stored
-/// individual. Growing the outputs again means either a migration or
-/// re-laying the block output-major (`output * BRAIN_INPUTS + input`),
-/// under which both directions append cleanly.
+/// **And no arrangement inside a block is sufficient by itself**, which is
+/// the part that is easy to miss: `IO_END`, `IH_END` and `HH_END` are
+/// cumulative, so a block whose size comes from a *live* count shifts the
+/// start of every block after it the moment that count grows. That is half
+/// of what actually broke in the 248 growth, and re-ordering a block does
+/// not touch it.
 ///
-/// It is harmless *today* only because nothing persists a genome. **Once
-/// stage 4 puts heritable genomes in flight this becomes a migration, not
-/// an edit** -- and `the_block_layout_exactly_fills_the_genome` will not
-/// catch it, because it checks that the blocks are self-consistent, not
-/// that the change preserved anyone's meaning.
+/// **So every dimension that can grow is reserved, and every block is sized
+/// from the reserve.** Appending an input, an output or a hidden unit
+/// lights up storage that already existed and was already zero: not one
+/// existing weight moves and `GENOME_LEN` does not change. The law now
+/// holds in all three directions until a reserve fills, at which point a
+/// real migration is needed -- and `genome_manifest` is what makes that a
+/// failing test rather than a silent reinterpretation of every individual
+/// alive.
+///
+/// Ordering *within* a block is therefore a performance choice rather than
+/// a correctness one, and it is output-major because `eval_brain` loops
+/// `for o { for i }`, so each output's row is contiguous.
 ///
 /// **Slots are positional and must never be renumbered or reordered.** The
 /// same law the plant genome already lives under (`organism.rs`'s
@@ -78,11 +101,118 @@ pub const BRAIN_OUTPUTS: usize = 9;
 /// A stored genome is a list of numbers with no labels, so moving a slot
 /// silently reinterprets every individual that already exists as a
 /// different animal.
-pub const GENOME_LEN: usize = 248;
+pub const GENOME_LEN: usize = HH_END + OUTPUT_SLOTS * HIDDEN_SLOTS; // 584
 
-const IO_END: usize = BRAIN_INPUTS * BRAIN_OUTPUTS; // 144
-const IH_END: usize = IO_END + BRAIN_INPUTS * BRAIN_HIDDEN; // 208
-const HH_END: usize = IH_END + BRAIN_HIDDEN; // 212
+const IO_END: usize = OUTPUT_SLOTS * INPUT_SLOTS; // 288
+const IH_END: usize = IO_END + HIDDEN_SLOTS * INPUT_SLOTS; // 480
+const HH_END: usize = IH_END + HIDDEN_SLOTS; // 488
+
+/// Where a connection lives, by name rather than by arithmetic. Every
+/// caller outside `eval_brain`'s inner loops goes through these, so a
+/// future re-lay is one edit rather than a hunt through hand-written index
+/// expressions — which is how the 6 -> 9 growth got as far as it did.
+#[inline]
+pub fn io_slot(input: BrainInput, output: BrainOutput) -> usize {
+    output as usize * INPUT_SLOTS + input as usize
+}
+#[inline]
+pub fn ih_slot(input: BrainInput, hidden: usize) -> usize {
+    IO_END + hidden * INPUT_SLOTS + input as usize
+}
+#[inline]
+pub fn hh_slot(hidden: usize) -> usize {
+    IH_END + hidden
+}
+#[inline]
+pub fn ho_slot(hidden: usize, output: BrainOutput) -> usize {
+    HH_END + output as usize * HIDDEN_SLOTS + hidden
+}
+
+/// Is this genome index wired to anything, or is it reserve?
+///
+/// One definition of "live", used by everything that walks a genome, so
+/// `live_slots` and `reserve_is_zero` cannot disagree with each other.
+pub fn is_live_slot(idx: usize) -> bool {
+    if idx < IO_END {
+        idx / INPUT_SLOTS < BRAIN_OUTPUTS && idx % INPUT_SLOTS < BRAIN_INPUTS
+    } else if idx < IH_END {
+        let rel = idx - IO_END;
+        rel / INPUT_SLOTS < BRAIN_HIDDEN && rel % INPUT_SLOTS < BRAIN_INPUTS
+    } else if idx < HH_END {
+        idx - IH_END < BRAIN_HIDDEN
+    } else {
+        let rel = idx - HH_END;
+        rel / HIDDEN_SLOTS < BRAIN_OUTPUTS && rel % HIDDEN_SLOTS < BRAIN_HIDDEN
+    }
+}
+
+/// Every genome index a wired slot occupies, ascending.
+///
+/// **Anything that writes a genome wholesale — a random draw, a mutation
+/// operator — iterates this rather than `0..GENOME_LEN`.** A perturbed
+/// reserved slot is invisible for exactly as long as its slot is unnamed,
+/// and then springs to life as a connection nobody authored, in every
+/// individual descended from the one that was perturbed.
+pub fn live_slots() -> impl Iterator<Item = usize> {
+    (0..GENOME_LEN).filter(|&i| is_live_slot(i))
+}
+
+/// True while every reserved slot is still exactly zero.
+pub fn reserve_is_zero(g: &[f32]) -> bool {
+    g.iter().enumerate().all(|(i, &w)| w == 0.0 || is_live_slot(i))
+}
+
+/// Slot names, in slot order. They exist so `genome_manifest` can hash
+/// *meanings* rather than only sizes: a rename or a reorder changes the
+/// manifest, which is the whole point.
+pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
+    "Bias",
+    "PheroAFront",
+    "PheroALateral",
+    "PheroBFront",
+    "PheroBLateral",
+    "MoistureFront",
+    "MoistureLateral",
+    "LightHere",
+    "TempAboveAmb",
+    "FoodAdjacent",
+    "AtNest",
+    "Energy",
+    "Carrying",
+    "Crowding",
+    "PheroAAlong",
+    "PheroBAlong",
+];
+pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution"];
+
+fn fnv(h: u32, b: u8) -> u32 {
+    (h ^ b as u32).wrapping_mul(0x0100_0193)
+}
+
+/// A hash of everything a stored genome's meaning depends on: the six
+/// dimensions and the ordered slot names.
+///
+/// **This is the backstop the old layout did not have.**
+/// `the_block_layout_exactly_fills_the_genome` checks that the blocks are
+/// self-consistent, which stayed true through a growth that renumbered
+/// every weight in the world. A manifest that a test pins to a literal
+/// turns "somebody reordered a slot" from a silent reinterpretation of
+/// every individual alive into a failing build.
+pub fn genome_manifest() -> u32 {
+    let mut h: u32 = 0x811c_9dc5;
+    for d in [BRAIN_INPUTS, BRAIN_OUTPUTS, BRAIN_HIDDEN, INPUT_SLOTS, OUTPUT_SLOTS, HIDDEN_SLOTS, GENOME_LEN] {
+        for b in (d as u32).to_le_bytes() {
+            h = fnv(h, b);
+        }
+    }
+    for name in INPUT_NAMES.iter().chain(OUTPUT_NAMES.iter()) {
+        for b in name.bytes() {
+            h = fnv(h, b);
+        }
+        h = fnv(h, 0);
+    }
+    h
+}
 
 /// A weight whose magnitude is below this is **no connection**: skipped in
 /// evaluation *and* exempt from the synapse tax.
@@ -267,16 +397,17 @@ pub struct OutputWire(pub u8, pub BrainOutput, pub f32);
 pub fn genome_from_wiring(instincts: &[Instinct], hidden: &[HiddenWire], outputs: &[OutputWire]) -> Vec<f32> {
     let mut g = vec![0.0; GENOME_LEN];
     for &Instinct(input, output, weight) in instincts {
-        g[input as usize * BRAIN_OUTPUTS + output as usize] = weight;
+        g[io_slot(input, output)] = weight;
     }
     for &HiddenWire(input, h, weight) in hidden {
         assert!((h as usize) < BRAIN_HIDDEN, "hidden unit {h} does not exist; there are {BRAIN_HIDDEN}");
-        g[IO_END + input as usize * BRAIN_HIDDEN + h as usize] = weight;
+        g[ih_slot(input, h as usize)] = weight;
     }
     for &OutputWire(h, output, weight) in outputs {
         assert!((h as usize) < BRAIN_HIDDEN, "hidden unit {h} does not exist; there are {BRAIN_HIDDEN}");
-        g[HH_END + h as usize * BRAIN_OUTPUTS + output as usize] = weight;
+        g[ho_slot(h as usize, output)] = weight;
     }
+    debug_assert!(reserve_is_zero(&g), "authored wiring wrote into a reserved slot");
     g
 }
 
@@ -299,10 +430,23 @@ pub fn genome_from_instincts(instincts: &[Instinct]) -> Vec<f32> {
 /// than fixed: a fixed density is one more assumption smuggled into the
 /// "random" arm, and a dense random brain is not a creature, it is noise,
 /// since every input drives every output at once.
+/// **Live slots only.** Drawing over `0..GENOME_LEN` would seed the reserve
+/// with weights that are dead now and would wake up as authored-looking
+/// connections the day their slot is named (`live_slots`). It also means
+/// the rows this produces moved when the layout was re-laid, because the
+/// stream is consumed in slot order — expected, and not a regression: the
+/// `zero` and `authored` references are what pin the re-lay.
 pub fn random_genome(seed: u64) -> Vec<f32> {
     let mut r = crate::sim::rng::stream(seed, 0, 0, 0);
     let density = 0.02 + r.unit_f32() * 0.13;
-    (0..GENOME_LEN).map(|_| if r.unit_f32() < density { (r.unit_f32() * 2.0 - 1.0) * 3.0 } else { 0.0 }).collect()
+    let mut g = vec![0.0; GENOME_LEN];
+    for idx in live_slots() {
+        if r.unit_f32() < density {
+            g[idx] = (r.unit_f32() * 2.0 - 1.0) * 3.0;
+        }
+    }
+    debug_assert!(reserve_is_zero(&g));
+    g
 }
 
 /// The seed `examples/creature_space.rs` labels genome `rNNN` with, so a
@@ -335,7 +479,7 @@ pub fn eval_brain(g: &[f32], inputs: &[f32; BRAIN_INPUTS], state: &mut [f32; BRA
             active += 1;
         }
         for (i, &input) in inputs.iter().enumerate() {
-            let w = ih[i * BRAIN_HIDDEN + h];
+            let w = ih[h * INPUT_SLOTS + i];
             if w.abs() >= W_EPS {
                 sum += w * input;
                 active += 1;
@@ -348,14 +492,14 @@ pub fn eval_brain(g: &[f32], inputs: &[f32; BRAIN_INPUTS], state: &mut [f32; BRA
     for (o, slot) in out.iter_mut().enumerate() {
         let mut sum = 0.0;
         for (i, &input) in inputs.iter().enumerate() {
-            let w = io[i * BRAIN_OUTPUTS + o];
+            let w = io[o * INPUT_SLOTS + i];
             if w.abs() >= W_EPS {
                 sum += w * input;
                 active += 1;
             }
         }
         for (h, &hidden) in hidden.iter().enumerate() {
-            let w = ho[h * BRAIN_OUTPUTS + o];
+            let w = ho[o * HIDDEN_SLOTS + h];
             if w.abs() >= W_EPS {
                 sum += w * hidden;
                 active += 1;
@@ -381,10 +525,74 @@ mod tests {
         // The slot-layout law made mechanical: if someone changes a size
         // const without re-deriving the blocks, the genome silently gains
         // or loses a tail and every stored individual is reinterpreted.
-        assert_eq!(IO_END, 144);
-        assert_eq!(IH_END, 208);
-        assert_eq!(HH_END, 212);
-        assert_eq!(GENOME_LEN, HH_END + BRAIN_HIDDEN * BRAIN_OUTPUTS);
+        assert_eq!(IO_END, 288);
+        assert_eq!(IH_END, 480);
+        assert_eq!(HH_END, 488);
+        assert_eq!(GENOME_LEN, HH_END + OUTPUT_SLOTS * HIDDEN_SLOTS);
+        assert_eq!(GENOME_LEN, 584);
+        // Every block sized from the *reserve*, never from a live count --
+        // this is the assertion that fails if someone "tidies" a stride
+        // back to BRAIN_INPUTS/BRAIN_OUTPUTS, which is what made the
+        // 6 -> 9 output growth renumber every weight in the world.
+        assert_eq!(IO_END, OUTPUT_SLOTS * INPUT_SLOTS);
+        assert_eq!(IH_END - IO_END, HIDDEN_SLOTS * INPUT_SLOTS);
+        assert_eq!(HH_END - IH_END, HIDDEN_SLOTS);
+        const { assert!(BRAIN_INPUTS <= INPUT_SLOTS && BRAIN_OUTPUTS <= OUTPUT_SLOTS && BRAIN_HIDDEN <= HIDDEN_SLOTS) };
+    }
+
+    #[test]
+    fn appending_a_slot_on_any_axis_moves_no_existing_weight() {
+        // The law itself, tested rather than asserted in a comment: recompute
+        // every live index as it would be with one more input, one more
+        // output and one more hidden unit, and require that the indices the
+        // *current* slots occupy are unchanged. This is what a growth is,
+        // and it is the check the old layout could not have passed.
+        let here: Vec<usize> = live_slots().collect();
+        let grown = |ins: usize, outs: usize, hid: usize| -> Vec<usize> {
+            let mut v = Vec::new();
+            v.extend((0..outs).flat_map(|o| (0..ins).map(move |i| o * INPUT_SLOTS + i)));
+            v.extend((0..hid).flat_map(|h| (0..ins).map(move |i| IO_END + h * INPUT_SLOTS + i)));
+            v.extend((0..hid).map(|h| IH_END + h));
+            v.extend((0..outs).flat_map(|o| (0..hid).map(move |h| HH_END + o * HIDDEN_SLOTS + h)));
+            v
+        };
+        for (ins, outs, hid) in [
+            (BRAIN_INPUTS + 1, BRAIN_OUTPUTS, BRAIN_HIDDEN),
+            (BRAIN_INPUTS, BRAIN_OUTPUTS + 1, BRAIN_HIDDEN),
+            (BRAIN_INPUTS, BRAIN_OUTPUTS, BRAIN_HIDDEN + 1),
+        ] {
+            let after = grown(ins, outs, hid);
+            for slot in &here {
+                assert!(after.contains(slot), "growing to ({ins}, {outs}, {hid}) moved slot {slot}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_authored_ant_writes_nothing_into_the_reserve() {
+        let g = super::genome_from_wiring(
+            &[Instinct(BrainInput::Crowding, BrainOutput::Caution, 1.0)],
+            &[HiddenWire(BrainInput::Carrying, 3, 30.0)],
+            &[OutputWire(3, BrainOutput::Caution, -2.5)],
+        );
+        assert!(reserve_is_zero(&g));
+        assert!(is_live_slot(BrainOutput::Caution as usize * INPUT_SLOTS + BrainInput::Crowding as usize));
+        // The corner cases: the last live column of a row, and the first
+        // reserved one beside it.
+        assert!(is_live_slot(BRAIN_INPUTS - 1));
+        assert!(!is_live_slot(BRAIN_INPUTS));
+        assert!(!is_live_slot(BRAIN_OUTPUTS * INPUT_SLOTS));
+        assert_eq!(live_slots().count(), BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN);
+    }
+
+    #[test]
+    fn the_genome_manifest_is_pinned() {
+        // Not a checksum for its own sake: this is the thing that fails when
+        // a slot is renamed or reordered, which is otherwise a silent
+        // reinterpretation of every stored individual. If this assertion
+        // fires, either put the slot back or accept that every genome in
+        // flight now means something else -- and say which in the commit.
+        assert_eq!(genome_manifest(), 3_315_096_346);
     }
 
     #[test]
@@ -421,12 +629,12 @@ mod tests {
         // The delete-a-connection mechanism. A weight below W_EPS must be
         // *absent*, not merely small, or evolution can never remove one.
         let mut g = vec![0.0; GENOME_LEN];
-        g[BrainInput::Bias as usize * BRAIN_OUTPUTS + BrainOutput::Move as usize] = W_EPS * 0.5;
+        g[io_slot(BrainInput::Bias, BrainOutput::Move)] = W_EPS * 0.5;
         let (out, active) = eval_brain(&g, &[1.0; BRAIN_INPUTS], &mut zero_state());
         assert_eq!(active, 0, "a sub-epsilon weight must not be charged for");
         assert_eq!(out[BrainOutput::Move as usize], 0.0, "and must not contribute");
 
-        g[BrainInput::Bias as usize * BRAIN_OUTPUTS + BrainOutput::Move as usize] = W_EPS * 2.0;
+        g[io_slot(BrainInput::Bias, BrainOutput::Move)] = W_EPS * 2.0;
         let (out, active) = eval_brain(&g, &[1.0; BRAIN_INPUTS], &mut zero_state());
         assert_eq!(active, 1);
         assert!(out[BrainOutput::Move as usize] > 0.0);
@@ -444,9 +652,9 @@ mod tests {
         // silent ticks; a feed-forward one is back to exactly zero
         // immediately.
         let mut g = vec![0.0; GENOME_LEN];
-        g[IO_END + BrainInput::PheroAFront as usize * BRAIN_HIDDEN] = 1.0; // input -> hidden 0
-        g[IH_END] = 0.9; // hidden 0 self-recurrence
-        g[HH_END + BrainOutput::Move as usize] = 1.0; // hidden 0 -> Move
+        g[ih_slot(BrainInput::PheroAFront, 0)] = 1.0; // input -> hidden 0
+        g[hh_slot(0)] = 0.9; // hidden 0 self-recurrence
+        g[ho_slot(0, BrainOutput::Move)] = 1.0; // hidden 0 -> Move
 
         let mut state = zero_state();
         let mut pulse = [0.0; BRAIN_INPUTS];
@@ -502,7 +710,7 @@ mod tests {
         // an off-by-one in the index arithmetic would produce a working
         // brain that does something else entirely.
         let g = genome_from_instincts(&[Instinct(BrainInput::AtNest, BrainOutput::Drop, 0.9)]);
-        assert_eq!(g[BrainInput::AtNest as usize * BRAIN_OUTPUTS + BrainOutput::Drop as usize], 0.9);
+        assert_eq!(g[io_slot(BrainInput::AtNest, BrainOutput::Drop)], 0.9);
         assert_eq!(g.iter().filter(|w| **w != 0.0).count(), 1, "an authored list must write exactly the connections it names");
         assert!(g[IO_END..].iter().all(|w| *w == 0.0), "hidden blocks must start silent");
     }
