@@ -68,7 +68,7 @@ fn main() {
         }
     }
     for i in 0..55 {
-        world.plant_ant(20 + i as i32 * 2, floor - 1);
+        world.plant_ant(20 + i * 2, floor - 1);
     }
 
     println!("creature probe: {frames} frames, reporting {ants} ants every {every}");

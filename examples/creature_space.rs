@@ -837,8 +837,9 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
     // out of reach; nothing in the engine says so.
     for i in 0..econ.beetles {
         let x = 40 + i as i32 * 45;
-        pixel_physics::sim::creature::plant_creature_seed(&mut world, x, surface_at[x as usize] - 1, "beetle")
-            .map(|s| world.schedule_active_site(s));
+        if let Some(s) = pixel_physics::sim::creature::plant_creature_seed(&mut world, x, surface_at[x as usize] - 1, "beetle") {
+            world.schedule_active_site(s);
+        }
     }
 
     let mut path: std::collections::HashMap<u16, f32> = std::collections::HashMap::new();

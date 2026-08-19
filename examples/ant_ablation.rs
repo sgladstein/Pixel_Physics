@@ -118,8 +118,7 @@ fn main() {
             arms.push((format!("  {label}={sign}"), v));
         }
     }
-    for dropped in 0..AUTHORED.len() {
-        let (i, o, _) = AUTHORED[dropped];
+    for (dropped, &(i, o, _)) in AUTHORED.iter().enumerate() {
         arms.push((
             format!("-{i:?}->{o:?}"),
             AUTHORED
@@ -341,10 +340,11 @@ fn run_one(instincts: &[Instinct], frames: usize, seed: u64, rough: bool, world_
                     let e = max_range.entry(id).or_insert(0.0);
                     *e = e.max(moved);
                 }
-                if world.organism(id).is_some_and(|s| s.carrying.is_some()) {
-                    if ever_carried.insert(id) && first_pickup < 0.0 {
-                        first_pickup = frame as f32;
-                    }
+                if world.organism(id).is_some_and(|s| s.carrying.is_some())
+                    && ever_carried.insert(id)
+                    && first_pickup < 0.0
+                {
+                    first_pickup = frame as f32;
                 }
             }
         }
