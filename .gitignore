@@ -1,2 +1,9 @@
 /target
 **/*.rs.bk
+
+# Per-session worktrees. CLAUDE.md tells every session to work in one of
+# these rather than the shared checkout, so following the documented
+# procedure produced untracked files in every session that did. Each holds a
+# full checkout plus its own target/, which the anchored /target above does
+# not cover.
+.claude/worktrees/
