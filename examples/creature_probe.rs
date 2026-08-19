@@ -141,5 +141,19 @@ fn report(world: &World, frame: usize, ants: usize, ant_material: material::Mate
             world.pheromone_at(Channel::A, x, y),
             world.pheromone_at(Channel::B, x, y)
         );
+        // **The number beside the picture.** `OrganismOverlay::FoodValue`
+        // says what and where; on a one-cell mouthful it cannot say how
+        // much, and the overlay-misread-as-empty failure has cost this
+        // project a misdiagnosis twice. Anything nonzero here is food, and
+        // a corpse reads its own stamped worth rather than a species
+        // constant.
+        let food: Vec<String> = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+            .iter()
+            .map(|&(dx, dy)| (x + dx, y + dy))
+            .map(|(nx, ny)| (world.materials.get(world.get(nx, ny).material).name.clone(), pixel_physics::sim::creature::food_value(world, world.get(nx, ny))))
+            .filter(|(_, v)| *v > 0.0)
+            .map(|(name, v)| format!("{name} {v:.0}"))
+            .collect();
+        println!("    food in reach: {}", if food.is_empty() { "none".to_string() } else { food.join("  ") });
     }
 }

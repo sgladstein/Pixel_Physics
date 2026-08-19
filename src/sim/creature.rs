@@ -664,6 +664,9 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
     if positions.iter().any(|&(px, py)| !world.is_empty(px, py)) {
         return None;
     }
+    // Taken before `positions` is moved into the organism's chain, because
+    // the structural grant is per body cell.
+    let body_cells = positions.len();
 
     let organism = world.push_organism(species_id);
     let shades = world.materials.get(material_id).palette.len().max(1) as u32;
@@ -682,7 +685,12 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
         state.since_nest = 0;
     }
     world.creature_stats.spawned += 1;
-    world.energy_ledger.granted += def.start_energy as f64;
+    // Metabolic budget plus the meat the body is made of. Both are grants
+    // *here*, at the one seam where a creature appears out of nothing, so
+    // the structural half is accounted rather than conjured at the far end
+    // when the animal dies. When reproduction lands (S6) the parent pays
+    // both, and this line is what it has to charge against.
+    world.energy_ledger.granted += (def.start_energy + def.body_energy * body_cells as f32) as f64;
     Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + def.tick_interval })
 }
 
@@ -1466,6 +1474,43 @@ fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: u16, delta
 /// It is also what closes the colony's loop: the energy a forager spent
 /// getting somewhere it could not return from is not deleted, it is left
 /// lying there as something edible.
+/// A reference mouthful, for normalising the food-value overlay's ramp.
+///
+/// A *fixed* scale rather than the frame's maximum, so two contact sheets
+/// taken at different times are comparable — an overlay that renormalises
+/// itself answers "which cell here is worth most", which is not the question
+/// anyone has when they switch it on.
+pub const REFERENCE_MOUTHFUL: f32 = 300.0;
+
+/// **What one cell is worth to eat, and the only definition of it.**
+///
+/// The overlay, the probe and (S3b) the eat verb all call this, so a picture
+/// of the food in a world cannot disagree with what an animal gets for
+/// biting it. `CLAUDE.md`'s canopy-density failure is the cautionary case in
+/// the other direction: a readout derived separately from the mechanism it
+/// describes is a readout that can be wrong on its own.
+///
+/// Zero means "not food". A material whose worth varies per cell says so
+/// with `worth_in_aux` and carries it there; everything else is worth what
+/// its `.ron` says.
+pub fn food_value(world: &World, cell: Cell) -> f32 {
+    let m = world.materials.get(cell.material);
+    if m.worth_in_aux {
+        cell.aux() as f32
+    } else {
+        m.food_energy
+    }
+}
+
+/// A species' `start_energy`, for scaling a corpse's shade ramp. Zero if the
+/// organism is gone, which only happens on a path that is not writing meat.
+fn def_start_energy(world: &World, organism: u16) -> f32 {
+    world
+        .organism(organism)
+        .and_then(|s| world.species.get(s.species).creature.as_ref().map(|d| d.start_energy))
+        .unwrap_or(0.0)
+}
+
 fn creature_dies(world: &mut World, organism: u16) {
     let held = world.organism(organism).and_then(|s| s.carrying);
     let leftover = world.organism(organism).map_or(0.0, |s| s.energy.max(0.0));
@@ -1490,12 +1535,43 @@ fn creature_dies(world: &mut World, organism: u16) {
         .organism(organism)
         .map(|s| s.chain.iter().copied().filter(|p| owned.contains_key(p)).collect())
         .unwrap_or_default();
+    // **What the meat is worth, written into the meat.** The structural
+    // stamp the body was granted at spawn, plus whatever the animal had left
+    // to spend, divided over the cells that are actually still standing --
+    // a half-eaten animal leaves half the meat, because the cells the
+    // predator already swallowed are not in `chain` any more.
+    //
+    // Leftover matters as well as the stamp: an animal killed in its prime
+    // is worth more than one that starved, which is a real distinction and
+    // is visible on screen through the shade below. And it is the *stamp*
+    // that keeps a starved animal -- dead at exactly 0 -- worth eating at
+    // all, which is what stops closing §13l's pump from also deleting the
+    // scavenger niche.
+    //
+    // `aux` in energy units, 1:1, rather than through a quantum constant:
+    // a u16 covers every budget in the engine (the beetle's 1600 is the
+    // largest) and a scale factor nobody can tune in either direction is
+    // exactly the counterweight shape `CLAUDE.md` warns about.
+    let body_energy = world
+        .organism(organism)
+        .and_then(|s| world.species.get(s.species).creature.as_ref().map(|d| d.body_energy))
+        .unwrap_or(0.0);
     if let Some(corpse_id) = world.materials.id_of("corpse") {
+        let cells = chain.len().max(1) as f32;
+        let worth = (body_energy * cells + leftover) / cells;
+        let aux = worth.round().clamp(0.0, u16::MAX as f32) as u16;
+        // **Shade from worth, not from noise.** A fat corpse and a
+        // picked-over one have to look different, or the only legible
+        // feedback for a mechanic about how much food is where is a number
+        // in a debug overlay. The ramp is over the body's own stamp, so a
+        // starved animal is the dark end and one killed full is the bright
+        // end.
         let shades = world.materials.get(corpse_id).palette.len().max(1) as u32;
-        for (i, &(cx, cy)) in chain.iter().enumerate() {
-            let shade = rng::stream(world.seed, organism as u64, i as u64, RNG_SLOT_DEATH).below(shades) as u8;
+        let full = (body_energy + def_start_energy(world, organism)).max(1.0);
+        let shade = ((worth / full).clamp(0.0, 1.0) * (shades - 1) as f32).round() as u8;
+        for &(cx, cy) in chain.iter() {
             let temp = world.get(cx, cy).temperature();
-            world.set(cx, cy, Cell::new(corpse_id, shade).with_temperature(temp));
+            world.set(cx, cy, Cell::new(corpse_id, shade).with_temperature(temp).with_aux(aux));
         }
     }
     // Whatever it was carrying falls where it fell. Losing it would be a
@@ -2560,6 +2636,50 @@ mod tests {
         let corpses = chain.iter().filter(|&&(x, y)| w.get(x, y).material == corpse).count();
         assert_eq!(corpses, 1, "one cell was swallowed, so one corpse cell may remain -- {corpses} means the mouthful was resurrected");
         assert_eq!(w.get(hx, hy).material, material::EMPTY, "the swallowed cell stays swallowed");
+    }
+
+    #[test]
+    fn a_corpse_is_worth_what_the_animal_was_made_of() {
+        // **The keystone, at the one seam where meat is created.** Under
+        // `eat_energy` a corpse cell was worth whatever *bit* it, so an ant
+        // granted 900, spending all of it and starving at exactly 0, left
+        // two cells worth 120 each: 240 energy out of an animal that had
+        // none (§13l). The worth now comes out of the body's own stamp,
+        // granted and booked at spawn.
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+
+        // A starved animal: dead at exactly zero, which is the case that
+        // decides whether closing the pump also deletes the scavengers.
+        let starved = spawn(&mut w, "ant", 100, 100);
+        w.organism_mut(starved).expect("live").energy = 0.0;
+        creature_dies(&mut w, starved);
+        let starved_worth: Vec<u16> = (92..112)
+            .flat_map(|x| (95..102).map(move |y| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == corpse)
+            .map(|(x, y)| w.get(x, y).aux())
+            .collect();
+        assert!(!starved_worth.is_empty(), "a dead ant leaves meat");
+        for worth in &starved_worth {
+            assert_eq!(*worth as f32, def.body_energy, "a starved animal is worth exactly the body it was built from, and no more");
+        }
+
+        // And one killed with energy still in the bank is worth more, which
+        // is what makes a fresh kill better eating than carrion.
+        let full = spawn(&mut w, "ant", 104, 100);
+        w.organism_mut(full).expect("live").energy = 400.0;
+        creature_dies(&mut w, full);
+        let full_worth = w.get(104, 100).aux();
+        assert!(
+            (full_worth as f32) > def.body_energy,
+            "an animal killed in its prime carries its unspent energy into its corpse ({full_worth} vs body {})",
+            def.body_energy
+        );
     }
 
     #[test]

@@ -345,6 +345,50 @@ pub struct MaterialDef {
     /// first. Flagged rather than done.
     #[serde(default)]
     pub water_capacity: u16,
+    /// **What a cell of this is worth to eat.** 0 (the default) means "not
+    /// food", so every existing material is inert until its file says
+    /// otherwise.
+    ///
+    /// This is the keystone of `Reports/creature-evolution-plan.md`:
+    /// nutrition used to be `CreatureDef::eat_energy`, a constant of the
+    /// **eater**, so a corpse was worth whatever bit it and food had no
+    /// nutritional identity at all — which is why herbivore-versus-carnivore
+    /// could not evolve, and why a colony could run forever on its own dead
+    /// (§13l: an ant granted 900 starves at exactly 0 and leaves two corpse
+    /// cells worth 120 each).
+    ///
+    /// **Static per material, and deliberately not derived from the
+    /// producer's carbon.** Three of four independent design proposals
+    /// wanted `OrganismCell::carbon`; `assets/species/moss.ron` is
+    /// `Divide(cost: 0.0)` with no `Photosynthesize`, so moss carbon is
+    /// permanently zero and that rule silently rates the only ground-level
+    /// renewable food in the world at nothing. A carried leaf is also no
+    /// longer any organism's cell, so a producer-side lookup cannot price
+    /// the thing sitting in a nest pile — which is the object a colony is
+    /// built around.
+    ///
+    /// The one case that genuinely varies — a corpse, worth what the animal
+    /// was made of — carries its own value in `Cell::aux` instead.
+    #[serde(default)]
+    pub food_energy: f32,
+    /// Where this sits on the diet axis: -1 is plant matter, +1 is flesh.
+    ///
+    /// Read against a creature's heritable `gut_bias` (S5) through a
+    /// matched filter, so a gut tuned for cellulose is *bad* at meat and
+    /// specialising costs something. Meaningless while `food_energy` is 0.
+    #[serde(default)]
+    pub food_class: f32,
+    /// This material's worth is written per cell in `Cell::aux`, and
+    /// `food_energy` is only the fallback.
+    ///
+    /// **A bit on the material rather than a name check in the eat path.**
+    /// The rule "a corpse is worth what the animal was made of, everything
+    /// else is worth what its file says" has to tell two cases apart that
+    /// look identical to the code touching them, and `CLAUDE.md`'s answer to
+    /// that is to state the difference as data. It also keeps the test at
+    /// the dispatch site a `Vec` index rather than a string hash.
+    #[serde(default)]
+    pub worth_in_aux: bool,
     /// Whether this material reinforces a `Powder` it is embedded in, so
     /// that grain no longer falls — the Wu-Waldron apparent-cohesion effect
     /// roots have on soil (`update.rs`'s `root_reinforced`).
@@ -647,6 +691,12 @@ pub struct Material {
     pub penetration_resistance: f32,
     /// See `MaterialDef::water_capacity`.
     pub water_capacity: u16,
+    /// See `MaterialDef::food_energy`. 0 means "not food".
+    pub food_energy: f32,
+    /// See `MaterialDef::food_class`. -1 plant .. +1 flesh.
+    pub food_class: f32,
+    /// See `MaterialDef::worth_in_aux`.
+    pub worth_in_aux: bool,
     /// See `MaterialDef::reinforces_powder`.
     pub reinforces_powder: bool,
     /// Per-cell colour variation. A cell picks one entry when it is created and
@@ -887,6 +937,9 @@ impl From<MaterialDef> for Material {
             fill_dimming: def.fill_dimming,
             penetration_resistance: def.penetration_resistance,
             water_capacity: def.water_capacity,
+            food_energy: def.food_energy,
+            food_class: def.food_class,
+            worth_in_aux: def.worth_in_aux,
             reinforces_powder: def.reinforces_powder,
             palette: def
                 .colors
@@ -1043,6 +1096,9 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            food_energy: 0.0,
+            food_class: 0.0,
+            worth_in_aux: false,
             reinforces_powder: false,
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
@@ -1077,6 +1133,9 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            food_energy: 0.0,
+            food_class: 0.0,
+            worth_in_aux: false,
             reinforces_powder: false,
             colors: vec![[20, 20, 24]],
             flammability: 0.0,

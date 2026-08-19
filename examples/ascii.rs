@@ -1113,6 +1113,23 @@ fn forage_loop_scene() {
             st.nest_visits,
             st.deaths
         );
+        // **The standing food stock, in energy rather than in cells.** A
+        // count of edible cells rises as a stand of trees grows whatever is
+        // happening to the animals, which is how §13m's tree-killing bug
+        // hid: the metric that would have shown it was a cell count, and it
+        // kept going up. Summed worth also makes the corpse stamp visible as
+        // a "did it fire" number -- corpse cells with zero worth mean
+        // `creature_dies` did not stamp them, which a picture of a corpse
+        // pile cannot show.
+        let (food_stock, corpse_stock) = (0..w)
+            .flat_map(|x| (0..h).map(move |y| (x, y)))
+            .map(|(x, y)| world.get(x, y))
+            .fold((0.0f64, 0.0f64), |(all, meat), cell| {
+                let v = pixel_physics::sim::creature::food_value(world, cell) as f64;
+                let is_meat = world.materials.get(cell.material).worth_in_aux;
+                (all + v, meat + if is_meat { v } else { 0.0 })
+            });
+        println!("  food stock {food_stock:.0} energy, of which corpse {corpse_stock:.0}");
         let food_left = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == leaf).count();
         let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
         let phero_a: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::A, x, y) as u64).sum();

@@ -732,6 +732,22 @@ pub struct CreatureDef {
     pub synapse_fraction: f32,
     /// Gained by eating one food cell.
     pub eat_energy: f32,
+    /// **What one cell of this animal's body is worth as meat**, granted at
+    /// spawn alongside `start_energy` and stamped into its corpse cells when
+    /// it dies.
+    ///
+    /// Structural, not metabolic: the animal can never spend it, which is
+    /// what lets a *starved* creature — dead at exactly 0 — still leave food
+    /// behind. Making a corpse worth only the leftover would close §13l's
+    /// pump and delete the scavenger niche in the same stroke, since a
+    /// starved animal's leftover is zero by definition.
+    ///
+    /// Booked into `EnergyLedger::granted` at spawn, so it is accounted
+    /// rather than conjured. When reproduction lands (S6) the parent pays
+    /// this for every cell of its child, which is what keeps a lineage from
+    /// minting meat by breeding.
+    #[serde(default)]
+    pub body_energy: f32,
     /// Fraction of `start_energy` below which a creature eats what it finds
     /// instead of carrying it home.
     ///

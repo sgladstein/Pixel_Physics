@@ -22,4 +22,15 @@
     burn_duration: 90,
     burns_into: "ash",
     heat_conductivity: 0.1,
+
+    // **0 is deliberate, and is not "a corpse is worthless".** A
+    // corpse carries what the animal was actually made of in `Cell::aux`,
+    // written at death by `creature_dies`; this static value is only the
+    // fallback for a corpse cell that arrived some other way, and there is
+    // no such path today. Reading 0 here in a probe means the stamp did not
+    // land, which is exactly the signal wanted.
+    food_energy: 0.0,
+    food_class: 1.0,
+    // Every corpse cell carries its own worth, stamped by `creature_dies`.
+    worth_in_aux: true,
 )

@@ -38,6 +38,11 @@
         // purpose.
         synapse_fraction: 0.0000012500000821091817,
         eat_energy: 300.0,
+        // Bigger animal, richer meat, and nothing eats a beetle yet --
+        // this is the value a future predator or scavenger will read, set
+        // proportionally to the ant's rather than measured, and labelled as
+        // such.
+        body_energy: 200.0,
         hunger_fraction: 0.8,
         food: ["ant", "corpse"],
         nest: "nest",

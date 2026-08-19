@@ -53,6 +53,12 @@
         // correction to remember.
         synapse_fraction: 0.0000022222222,
         eat_energy: 120.0,
+        // **120, which is exactly what a corpse cell was worth before.**
+        // Under `eat_energy` any mouthful paid the eater 120, so pricing an
+        // ant's own meat at 120 a cell leaves scavenging worth precisely
+        // what it was worth yesterday -- the pump closes because the value
+        // is now finite and booked at spawn, not because meat got cheaper.
+        body_energy: 120.0,
         // Eat only when genuinely low; otherwise carry it home. See
         // CreatureDef::hunger_fraction -- getting this wrong deletes the
         // foraging loop while leaving a colony that looks right.

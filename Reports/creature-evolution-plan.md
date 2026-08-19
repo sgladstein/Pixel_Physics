@@ -48,7 +48,7 @@ says it worked, the observation that would say it did not, and what it costs.
   appending an input *or* an output stays lawful. Must land before anything
   persists a genome; afterwards it is a data migration.
 - **S3 — The keystone.** Food carries its own worth; a corpse is worth what
-  the animal was made of; `CreatureDef::food` dies.
+  the animal was made of. (`CreatureDef::food` survives until S5 — see §2.3.)
 - **S4 — Litter.** The canopy's production falls to where the ants walk. Pure
   ecology, no creature machinery.
 - **S5 — Diet as one heritable number.** Two authored ancestors one number
@@ -137,6 +137,30 @@ unchanged at 0.300 throughout, against a per-seed sd of 0.116. **The
 constants were therefore not re-derived** — the total shift is a third of
 one standard error, and re-tuning `(Bias, Move, 2.0)` against it would be
 calibrating a constant to a run.
+
+**But one number did move, and it is recorded rather than explained away.**
+A paired `ascii` run — same session, same seed, pre-S1 commit in its own
+worktree against post-S1 — gives `forage_loop` at 12,000 frames:
+
+    pre-S1   pickups 372  deliveries 348  digs 182  eats 5
+    post-S1  pickups 264  deliveries 238  digs 165  eats 2
+
+A 31% fall in transport, deterministic and attributable, in a scene whose
+delivery count §13m tracks. It sits beside 8-seed metrics that did *not*
+move (travelled 45.4 → 45.0, feeding 0.779 → 0.784), so the two instruments
+disagree — and the reason they can is that **`forage_loop` is one seed** and
+nothing in the suite measures deliveries across seeds. The plausible
+mechanism is the Crowding fix: an ant no longer inhibited by its own tail
+runs slightly more and lingers by food slightly less.
+
+Two honest consequences. First, `(Bias, Move, 2.0)` may well want
+re-deriving after all, and the evidence for it is this table rather than the
+survival one. Second, **the missing instrument is the finding**: a
+single-seed count cannot distinguish "S1 cost a third of transport" from
+"this seed landed differently", and until deliveries are measured the way
+survival is — paired, across seeds — neither reading can be defended. That
+instrument belongs before any stage that claims to improve foraging, which
+is S4.
 
 **Judged by eye: the claim is that nothing changes.** A `forage_loop` contact
 sheet before and after must be indistinguishable in character — ants still dig
@@ -265,7 +289,19 @@ per-cell override for the one case that genuinely varies — the corpse.**
   while remaining conservative: the parent paid for it at birth.
 * `carrying` becomes `Option<(MaterialId, u16)>` and both drop sites preserve
   the payload. Otherwise carrying destroys value or manufactures it.
-* `CreatureDef::food` is deleted. `eat_energy` is deleted.
+* `eat_energy` is deleted.
+
+**`CreatureDef::food` does *not* die here, against this plan's first
+draft.** Caught by the probe the moment food values existed: `ant` material
+has to carry a value (something must be able to eat an ant), so "edible =
+`food_energy > 0`" makes every ant a cannibal — and §13i measured that a
+colony eating its own dead sustains itself *without foraging at all*, with
+trees and beetles moved across the map giving bit-identical results because
+neither was ever in the loop. The keystone is "energy is a property of
+food"; **who eats what** is a separate claim, and the thing that replaces
+the list's selectivity is S5's `gut_bias`. So the list stays as the
+selectivity gate until that trait exists, and S5 deletes it. Value from the
+material, choice from the animal — separable, and shipped separately.
 
 **Do not widen `Cell` to 14 bytes for this.** A `Cell::nutrient: u16` is the
 cleaner long-run answer for graded plant value (a fat leaf worth more than a
