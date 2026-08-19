@@ -707,9 +707,10 @@ executes. **It is not written**, and the reproduction above is kept in
 its place. What to do about it is a §9-shaped call and is not decided
 here: §8's own rule ("a locus that moves nothing does not keep its slot")
 points one way, and the fact that the block is a *cost gate on a fully
-plumbed consumer* rather than a dead trait points another — this is the
-same shape as the granular-capacity divisor, where the lever was fine and
-the condition it was tested through was degenerate.
+plumbed consumer* rather than a dead trait points another. **§8c settles
+which of the two it is: repair, not retirement.** It is the same shape as
+the granular-capacity divisor, where the lever was fine and the condition
+it was tested through was degenerate.
 
 Worth stating plainly for whoever picks it up: this gate is **not** the
 re-map's doing. Before it, the root's `branch_chance` was multiplied by
@@ -718,12 +719,122 @@ slot 0 through the RootTip's own all-zero variance vector, i.e. by exactly
 re-map gave the trait a slot; it did not change what stands between the
 trait and the world.
 
+### 8b. The readout rows, and the experiment that overturned §8a's guess
+
+Ran after §8a, same machine, same session. Sheets captured at **noon
+frames** — and that is a finding of its own: the day/night period is 3,600
+frames, so `scripts/megastudy.sh`'s own sheet frames (15,000 / 30,000 /
+45,000) land 600 / 1,200 / 1,800 into the cycle — half-light, night and
+deepest midnight. Two of every three tiles it captures are unusable for a
+colour judgement, which mattered little while colour was decoration and
+matters now that it carries a gene. Noon is at multiples of 3,600; these
+used 21,600.
+
+**Bark = wood density, and foliage = leaf economy, both legible by eye.**
+Pinned stands, 8 trees / 30,000 frames / `worldseed=1`, band counters
+printed beside each sheet because a recolour is invisible at sheet zoom:
+
+| pin | organism cells | seeds set | bands in use |
+|---|---|---|---|
+| density 0 (pioneer, x0.75) | **37,099** | **94** | wood band 0 only, 22,866 |
+| density 2 (dense, x1.35) | **25,471** | **62** | wood band 1 only, 15,347 |
+| economy 0 (acquisitive) | **32,568** | **83** | leaf band 2 only, 9,953 |
+| economy 1 (conservative) | **27,013** | **63** | leaf band 3 only, 8,366 |
+
+Pioneer bark reads a lighter mid-brown against dense's distinctly darker
+brown; acquisitive foliage is a dark saturated green against
+conservative's pale one. Both differences are plain at play zoom, and each
+pin is uniform in exactly one band while the mixed stand splits 9,666 /
+6,130 — so the derivation is the only source of the band.
+
+**Wood density, both directions — §4.1's row closed.** Cheap wood grows
+**46% more mass and sets 52% more seed** (above); dense wood holds the
+longer loaded branch (`dense_wood_holds_a_longer_loaded_branch`). The
+trade is real in both directions, which is what the row demanded.
+
+**A correction, recorded because it is the exact trap this repo keeps
+falling into:** read off the sheets alone, the dense stand *looks*
+heavier — thicker boles, denser crown. It has 31% fewer cells. The
+pioneer stand grew taller, so its crown sits above the crop and what is
+left in frame is spindlier lower limbs. An image says what and where; it
+cannot say how much, and the counters are what caught it.
+
+**Leaf economy — half the row, and the missing half is the scene, not the
+mechanism.** On the standard (well-watered) scene the acquisitive allele
+wins outright: +21% cells, +32% seed, and 68% more root tissue (3,762
+against 2,238 rootwood cells). The reason the other half is absent is
+visible in the water block: the **conservative stand's stomatal term is
+1.00 at minimum, median and mean — it is never short of water for a
+single tick on this scene**, so its thrift buys it precisely nothing.
+That is not a failed measurement, it is the scene having only one side of
+the trade in it. The thin-soil-over-stone pair §4.2 prescribes needs a
+soil-depth knob on `examples/common/mod.rs`'s `PlantScene` (`SOIL_DEPTH`
+is a constant today) — **deferred deliberately**: that file is
+uncommitted-dirty in the water session's worktree, and adding to it now
+turns one merge collision into two.
+
+An unplanned consequence worth keeping, because nothing connects these
+two: the conservative stand's **root systems are visibly sparser**. Cheap
+leaves transpire less, so demand falls, so `water_status` sits near 1.0,
+so `break_root_tips` is gated off (it needs < 0.95) *and* functional
+balance shifts weight to canopy. The leaf-economy allele reaches root
+architecture through the water economy with no rule joining them.
+
+### 8c. Root branching is **not** redundant — the leading hypothesis was wrong
+
+§8a left slot 1's disposition open. The reading proposed to the owner
+alongside it was that the slot might be **vestigial**: `break_root_tips`
+already makes root tips, is funded, and places them by available water,
+so root branching looked like a second and worse path to the same thing,
+which would argue for retiring the slot outright. **Measured, that is
+false**, and it is recorded here rather than quietly dropped, because a
+wrong hypothesis that nearly retired a live lever is worth the same
+shelf space as the measurement that saved it.
+
+The experiment isolates branching from the economy that starves it: root
+`Grow.cost` pinned to 0.05 in *both* runs so the gate is reachable at all,
+`break_root_tips` left on in both so it cancels, and only
+`branch_chance` varied. 8 trees / 30,000 frames / `worldseed=1`, rebuilt
+between the two (`tree.ron` is `include_str!`), edit anchors proved unique
+first per the `crowding_weight` rule:
+
+| | branching off | branching on |
+|---|---|---|
+| root cells, median | 299 | **1,169** |
+| root cells with 3+ root neighbours | **10%** | **55%** |
+| lateral spread, median | 149 | 121 |
+| depth histogram, surface->bedrock | [10, 16, 12, 30, 29] | [16, 18, 20, 21, 22] |
+
+The neighbour count is the architecture discriminator — the probe's own
+note says a one-cell-wide run reads ~0 whichever way it points. Off, the
+root system is **sparse wandering strands that dive**, bottom-heavy in the
+profile. On, it is a **dense fibrous mat** that fills the bed evenly and
+spreads *less* far while carrying four times the mass. Two different
+architectures, not more of one. The sheets
+(`target/filmstrips/rootbranch-{OFF,ON}.png`) show it without needing the
+table.
+
+`branch_chance: 1.0` at a fifth of the authored cost is a deliberately
+extreme setting chosen to make the mechanism visible — it is not a
+proposal, and it converts most of the soil bed to root tissue, which is
+the runaway `MAX_ROOT_FRACTION` exists to bound.
+
+**So the recommendation is repair, not retirement.** The lever has a real
+and distinct consequence; what it lacks is any path to being afforded.
+The binding constraint is structural rather than a tuning miss: the
+primary-step gate and the branch gate sit in series on one pool, and the
+tip spends the moment it can afford one step, so it can never hold the
+two steps' worth branching asks for. Whether a root tip finishing its step
+on 0.053 carbon is the intended root economy is the water session's call,
+not this one's, and it is the question put to them.
+
 **Not yet measured** — every remaining §4 row, held with the above:
 slot 5's depth histogram, slot 8 penetration (needs the sand-bank scene
 §4.7 calls for), `stomatal_reserve` 0.2 → 0.0 on a drying scene against a
-wet one, the leaf-economy wet/dry crossover, the wood-density
-growth-against-load pair, the `seed_cost` endowment response curve, and
-the two pinned filmstrip sheets with their band counters.
+wet one, the leaf-economy **dry** half (§8b — needs the soil-depth knob),
+slot 6's stand-level spread, and the `seed_cost` endowment response
+curve. The bark/foliage sheets and the wood-density pair are **done**,
+in §8b.
 
 ---
 
