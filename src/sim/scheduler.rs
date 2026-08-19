@@ -25,6 +25,7 @@
 
 use super::creature;
 use super::decay;
+use super::evaporation;
 use super::plant;
 use super::structural;
 use super::world::World;
@@ -90,11 +91,20 @@ pub enum ActiveKind {
     /// many frames and cells can break spuriously mid-convergence. See
     /// `structural.rs`.
     StructuralCheck,
-    /// M18: a creature due to make its next movement decision. `creature`
-    /// indexes into `World`'s creature-state storage (too large to fit in
-    /// `Cell::aux` alongside a growth stage or anchor distance would be) —
-    /// see `creature::CreatureState`.
-    Creature { creature: u16 },
+    /// M18: a creature due to make its next movement decision.
+    ///
+    /// `organism` is the owning organism's **encoded generational handle**,
+    /// exactly like `Organism` above — a creature is an organism, and the
+    /// only thing separating the two variants is which module gets
+    /// dispatched. It used to be a raw index into a parallel
+    /// `World::creatures` vector with no generation and no reclamation, so
+    /// a site outliving its creature read whatever had been allocated the
+    /// same index since. Now a stale handle resolves to `None` and the site
+    /// drops itself, which is the entire point of the scheme
+    /// (`Reports/organism-substrate-design.md` §6).
+    ///
+    /// `x`/`y` on the containing `ActiveSite` is the creature's **head**.
+    Creature { organism: u16 },
     /// Architecture §5f: an `ash` cell due to re-check whether it's damp
     /// enough to decay into `soil`. Only scheduled reactively, by `fire.rs`
     /// at the moment a burnout actually produces ash — not for every ash
@@ -102,6 +112,21 @@ pub enum ActiveKind {
     /// report's own "cheap: one material, one slow transformation" framing.
     /// See `decay.rs`.
     Decay,
+    /// An exposed liquid surface cell due to check whether it evaporates —
+    /// `evaporation.rs`, which has the whole story. Scheduled by the CA
+    /// sweep the moment a liquid cell stops moving with air above it, and
+    /// self-rescheduling from then on: this is the one mechanic whose
+    /// entire subject matter is *still* water, so it cannot live on a sweep
+    /// that by design stops visiting cells the instant they settle.
+    ///
+    /// `stale_ticks` counts consecutive checks that found the cell covered,
+    /// retiring the site at `evaporation::STALE_LIMIT` — the same shape
+    /// `Organism` above uses, and for the same reason: a body sealed under
+    /// rock must not check itself for the rest of the program's life. Note
+    /// what it deliberately does *not* count — a surface that is exposed
+    /// but too humid to evaporate is not stale, because that is a value
+    /// that changes with the weather rather than a structure that does not.
+    Evaporate { stale_ticks: u8 },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -216,6 +241,7 @@ pub fn step(world: &mut World) {
             ActiveKind::StructuralCheck => structural::tick(world, &site),
             ActiveKind::Creature { .. } => creature::tick(world, &site),
             ActiveKind::Decay => decay::tick(world, &site),
+            ActiveKind::Evaporate { .. } => evaporation::tick(world, &site),
         };
         // Routed through the one canonical insertion point -- `world.
         // active_sites` is live for the whole loop now, so there's no

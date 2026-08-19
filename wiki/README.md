@@ -28,7 +28,9 @@ as wrong, the game has moved past this page, not the other way round.
   how burnt ground slowly turns back into something that can support life.
 - [**The Gnome**](the-gnome.md) — the summonable character: running,
   jumping, what holds him up, and what happens when the world falls on him.
+- [**Ants**](ants.md) — the colony: what they walk on, the two smells they
+  leave behind, and why they dig and build without ever being told to.
 
-Not covered yet: plants (trees, moss) and creatures (the worm) — both are
+Not covered yet: plants (trees, moss) and the worm — both are
 still being actively redesigned, so a page here would go stale within a
 milestone. Once that work settles, they'll get pages too.

@@ -51,6 +51,20 @@ impl Rng {
         ((self.next_u64() >> 32) as u32) % n
     }
 
+    /// Uniform in `0.0..1.0`.
+    ///
+    /// `chance` answers "did it happen"; this hands back the draw itself,
+    /// which is what a weighted choice over N candidates needs — see
+    /// `creature::choose_weighted`, where the draw indexes into a cumulative
+    /// weight sum rather than testing a single probability.
+    ///
+    /// Same top-24-bits construction `chance` uses, for the same reason:
+    /// xorshift's low bits are its weakest.
+    #[inline]
+    pub fn unit_f32(&mut self) -> f32 {
+        ((self.next_u64() >> 40) as f32) / (1u64 << 24) as f32
+    }
+
     /// True with probability `p`, clamped to `0.0..=1.0`.
     #[inline]
     pub fn chance(&mut self, p: f32) -> bool {

@@ -6,7 +6,9 @@ Where a powder falls and piles, a liquid falls and then spreads sideways
 until it finds a level surface — the same way real water does, settling
 flatter and flatter over time rather than holding any kind of slope.
 
-- **Water** settles quickly and cleanly into a flat pool.
+- **Water** settles quickly and cleanly into a flat pool, and left in the
+  open it slowly dries up — see [Weather](weather.md) for why a puddle goes
+  and a lake stays.
 - **Oil** is lighter than water, so poured together the oil rises and
   floats on top rather than mixing in. It's also noticeably thicker —
   it spreads more slowly and sluggishly than water does. Oil catches fire

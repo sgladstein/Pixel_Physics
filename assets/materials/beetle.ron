@@ -1,0 +1,24 @@
+// A wide creature -- the first body that is not a chain. Where an ant is a
+// one-cell-wide path that flows over any terrain, this is a 2x2 block that
+// translates as a unit, and the difference is entirely in `beetle.ron`'s
+// `body: Rigid(...)` rather than in any code that knows what a beetle is.
+//
+// The trade is the point: it handles rough ground worse, and it physically
+// cannot enter a one-cell tunnel. That second property is what makes an
+// ant's burrow a refuge, with no "hiding" logic anywhere in the engine.
+(
+    name: "beetle",
+    display: "Beetle",
+    kind: Creature,
+    density: 1.2,
+    colors: [
+        (86, 64, 40),
+        (72, 52, 32),
+        (98, 76, 50),
+    ],
+    flammability: 0.5,
+    burn_temperature: 500.0,
+    burn_duration: 60,
+    burns_into: "corpse",
+    heat_conductivity: 0.1,
+)

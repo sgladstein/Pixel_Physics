@@ -2748,15 +2748,17 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
 
 /// Dispatch one due active site to its growth function. Called from
 /// `scheduler::step` for every `ActiveKind` except `StructuralCheck`,
-/// `Creature` and `Decay`, which `scheduler::step` routes to `structural::
-/// tick`/`creature::tick`/`decay::tick` instead -- the match here still has
-/// to name all three variants to stay exhaustive.
+/// `Creature`, `Decay` and `Evaporate`, which `scheduler::step` routes to
+/// `structural::tick`/`creature::tick`/`decay::tick`/`evaporation::tick`
+/// instead -- the match here still has to name all four variants to stay
+/// exhaustive.
 pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     match site.kind {
         ActiveKind::Organism { organism, stale_ticks, plastochron } => organism_tick(world, site.x, site.y, organism, stale_ticks, plastochron),
         ActiveKind::StructuralCheck => unreachable!("scheduler::step routes StructuralCheck to structural::tick"),
         ActiveKind::Creature { .. } => unreachable!("scheduler::step routes Creature to creature::tick"),
         ActiveKind::Decay => unreachable!("scheduler::step routes Decay to decay::tick"),
+        ActiveKind::Evaporate { .. } => unreachable!("scheduler::step routes Evaporate to evaporation::tick"),
     }
 }
 
@@ -2929,20 +2931,47 @@ mod tests {
     #[test]
     fn moss_spreads_over_damp_stone_and_not_over_dry() {
         let mut w = test_world();
-        // Two separate stone platforms, identical except one has a shallow
-        // puddle resting directly on it. Both get a moss seed at their own
-        // edge. The puddle is placed directly rather than poured from
-        // above and left to find its own level: a narrow platform with
-        // open edges lets water drain off the sides and fall away
-        // entirely, leaving nothing actually damp by the time growth
-        // starts checking.
+        // Two separate stone platforms, identical except one has water in
+        // it. Both get a moss seed on their own surface.
+        //
+        // **The water sits in a sealed pocket one row *under* the platform,
+        // where it used to be a film resting on top of it. Water evaporates
+        // now** (`evaporation.rs`), and the old scene's 6,000 fill of film
+        // was gone long before this 4,000-frame run finished: the damp side
+        // ended with a single moss cell. Confirmed by control — with
+        // `water.evaporates` off, the old scene passes unchanged.
+        //
+        // Deepening or widening the puddle does not fix it, and the reason
+        // is worth writing down because it constrains any future edit here.
+        // The field resolves one cell per 8x8 block, and a block is damp
+        // only if water is *inside it* — a blocked block that holds no
+        // water stays at ambient however wet its neighbour is
+        // (`field::step_diffusion` skips blocked cells outright). So moss
+        // reads as damp only where its own block contains the water, which
+        // is why this scene has always needed water spread along the whole
+        // platform rather than pooled at one end. A pool in a trough beside
+        // the platform leaves everything past the next block boundary dry
+        // (measured: 4.000 over the pool, 0.000 two blocks away), and a
+        // wide shallow pool on top evaporates (13 cells across shelters
+        // only 3/7 of `evaporation::SHELTER_REACH`, and it lost 79% over
+        // this run).
+        //
+        // Water under the rock has neither problem. It is sealed, so
+        // `evaporation::is_exposed_surface` is false and it never
+        // evaporates — it retires off the schedule instead, which is the
+        // right answer and one this scene now exercises incidentally. Rows
+        // 48..55 are one field block, so the water at y=51, the platform at
+        // y=50 and the moss growing at y=49 all share it and the whole
+        // platform reads damp. And seepage under rock is a better story for
+        // damp stone than a puddle sitting on it ever was.
         for x in 9..31 {
-            w.set(x, 50, Cell::new(material::STONE, 0));
+            w.set(x, 50, Cell::new(material::STONE, 0)); // platform
+            w.set(x, 52, Cell::new(material::STONE, 0)); // pocket floor
         }
-        w.set(9, 49, Cell::new(material::STONE, 0)); // walls -- keep the
-        w.set(30, 49, Cell::new(material::STONE, 0)); // puddle from draining
-        for x in 12..18 {
-            w.set(x, 49, Cell::new(material::WATER, 0));
+        w.set(9, 51, Cell::new(material::STONE, 0)); // pocket walls
+        w.set(30, 51, Cell::new(material::STONE, 0));
+        for x in 10..30 {
+            w.set(x, 51, Cell::new(material::WATER, 0));
         }
         for x in 60..80 {
             w.set(x, 50, Cell::new(material::STONE, 0)); // far from any water

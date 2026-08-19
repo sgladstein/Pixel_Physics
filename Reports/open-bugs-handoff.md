@@ -151,6 +151,39 @@ what persists is chunks awake doing invisible fill shuffling.
 This is what the heightfield bodies exist to fix (O(width) instead), and
 they are blocked on the promotion gap below.
 
+### 4b. ~~A cell alone in the air drops its column's skyline~~ — **CLOSED, by removing the inference entirely**
+
+Logged and closed in the same session. It was the tail of "shade under a
+tree is way too intense": the skyline was the topmost non-empty cell, so
+anything in the air above a column made everything below it draw as the
+inside of a cave.
+
+Fixed by not inferring it. `World::sky_surface` records the top of the
+ground once, on the world's first frame, and nothing revises it —
+`Reports/underground-definition.md` has the reasoning and the numbers.
+
+**What is worth carrying forward is why every inferred version failed**, and
+it is a case of `CLAUDE.md`'s "when a rule must tell apart two things that
+can look identical, state the difference as data". Four shapes have to be
+distinguished — a hill, a shaft someone dug, a roof someone built, and a
+grain in mid-air — and from the world as it stands they are the same
+arrangement of cells. Measured on the last inferred version, which took the
+topmost cell and then repaired any column with higher ground within six
+either side:
+
+| shape | verdict |
+|---|---|
+| one floating cell | 20 rows of cave under it |
+| plank 1 to 51 wide | identical to the floating cell |
+| shaft ≤ 12 wide | tunnel (correct) |
+| shaft ≥ 13 wide | open daylight 35 rows into the mountain |
+
+No reach setting fixes that: the repair rule had a width threshold in one
+direction and no rule at all in the other, and mining is the activity that
+walks a shape across exactly that threshold. The difference between "I dug
+this" and "this is a hill" is *history*, not geometry, and history has to be
+stored.
+
 ### 5. Automatic promotion — blocker removed, still not ready
 
 `promote_liquid_body` is called **only from tests**, so `liquid.rs` — the
