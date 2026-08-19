@@ -58,7 +58,12 @@ fn main() {
             d.width * (trees as i32).max(1) / d.trees as i32
         });
     let species: String = std::env::args().find_map(|a| a.strip_prefix("species=").map(str::to_string)).unwrap_or_else(|| "tree".to_string());
-    let scene = common::PlantScene { ground_y: ground_y(), trees, width, species, ..Default::default() };
+    // Soil depth, so the paired deep-vs-thin comparison is one flag rather
+    // than a recompile -- see `PlantScene::soil_depth`.
+    let soil_depth: i32 = std::env::args()
+        .find_map(|a| a.strip_prefix("soil=").map(|v| v.parse().expect("soil")))
+        .unwrap_or(common::SOIL_DEPTH);
+    let scene = common::PlantScene { ground_y: ground_y(), trees, width, species, soil_depth, ..Default::default() };
     let (width, height) = (scene.width, scene.height);
     let mut w = scene.build();
     // Different worlds grow different individuals: genotypes are drawn
@@ -84,7 +89,10 @@ fn main() {
     // *harness* is as stale-able as the assets it reads — and the cheap
     // defence is not discipline, it is this line: a log that does not name
     // its own seed was written by a binary that never had one.
-    println!("plant_probe: species={} trees={trees} frames={frames} worldseed={} width={width}", scene.species, w.seed);
+    println!(
+        "plant_probe: species={} trees={trees} frames={frames} worldseed={} width={width} soil={}",
+        scene.species, w.seed, scene.soil_depth
+    );
 
     let mut awake_frames = 0u64;
     for _ in 0..frames {
@@ -688,8 +696,8 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
                 // Soil rows only. A cell past the soil bed would otherwise
                 // clamp into the bottom band and read as "deep roots" when
                 // it is a root that has left the soil entirely.
-                if y >= surface && y < surface + common::SOIL_DEPTH {
-                    let band = (((y - surface) * 5) / common::SOIL_DEPTH).clamp(0, 4) as usize;
+                if y >= surface && y < surface + soil_depth {
+                    let band = (((y - surface) * 5) / soil_depth).clamp(0, 4) as usize;
                     depth_bands[band] += 1;
                     root_total += 1;
                 }
