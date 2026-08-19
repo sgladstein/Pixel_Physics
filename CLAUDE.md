@@ -130,6 +130,21 @@ and push from it, then bring the main tree's branch pointer forward with
 `git reset --mixed origin/master` — which moves the branch and leaves their
 working tree untouched.
 
+**That reset strands stale files whenever the main tree was *behind*.** It
+moves the pointer and deliberately does not touch the working tree, so every
+file the main tree had not yet updated now differs from `HEAD` and appears in
+`git status` as a modification — one that is really a **revert of the upstream
+commit it missed**. Nobody will recognise it as theirs, because it is not
+anyone's edit, and the next session to commit that file silently undoes the
+change. This is not specific to `CLAUDE.md`-style contested files; it hits any
+file the branch skipped over. Seen for real on `src/sim/structural.rs`, which
+came back as the exact inverse of the commit that had just landed it.
+
+So: **note which files are genuinely dirty *before* the reset**, because
+afterwards a stale file and an edited one look identical. After it, diff
+anything newly modified against the commits you were behind by; if it is their
+exact inverse and the file was clean beforehand, `git checkout --` it.
+
 ## Method
 
 Nearly every fix in this engine that was judged by test output alone failed to
