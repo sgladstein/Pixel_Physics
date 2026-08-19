@@ -1,8 +1,10 @@
 # Load concentration (handoff §2d): the change, and the defect it exposed
 
 **Revised after independent review.** `Reports/load-concentration-review-response.md`
-is that review; this document is the current state and supersedes its own
-first version. Branch `load-share`.
+is that review and `Reports/load-concentration-review-reply.md` is the reply
+to it, which is the shorter read if you already know the change. This
+document is the current state and supersedes its own first version. Branch
+`load-share`.
 
 Read `CLAUDE.md` first, then handoff §2d and §3.
 
