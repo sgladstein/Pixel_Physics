@@ -804,14 +804,13 @@ permanently.
   from drought — so a sick plant looks sick without a rule that says so.
   **Two concrete blockers, recorded now because they are cheap to fix early
   and expensive later:**
-  1. The individual's band is keyed on `(world seed, germination
-     coordinate)`, exactly like the genotype. That is **positional, not
-     inherited** — offspring of a dark-leaved parent draw whatever their
-     landing spot dictates — so colour as it stands *cannot evolve*. It has
-     to move onto the heritable genome before selection can act on it, and
-     the genotype slots are positional forever, so widening
-     `GENOTYPE_TRAITS` for it should ride along with the root-trait
-     widening already queued for slots 6+ rather than happening twice.
+  1. ~~The individual's band is keyed on `(world seed, germination
+     coordinate)`, so colour as it stands cannot evolve.~~ **Closed by the
+     genome re-map** (below): both bands now derive from discrete alleles
+     and are inherited and mutable. It rode along with the root-trait
+     widening exactly as this entry asked. Only the *positional founding
+     draw* survives, and only for a first generation — which is what keeps
+     a fresh stand mixed rather than uniform.
   2. A derived colour has to stay *legible* — the same trap
      `CLAUDE.md`'s debug-overlay rule records. A hue that is a continuous
      function of four physical channels converges on mud across a stand;
@@ -820,6 +819,40 @@ permanently.
      than replacing it with a free-floating colour.
   Not scheduled. Wants the light/temperature economy and a real heritable
   genome under it first.
+
+- **The heritable genome's slot map is settled, and slots are positional
+  forever.** Signed off 2026-08-18, four calls made:
+  `Reports/plant-genome-design.md` §5 (the map) and §9 (the calls) are the
+  contract; §8a records what has been measured against it. Nine continuous
+  slots and six discrete loci:
+
+  | slot | continuous trait | | locus | discrete gene |
+  |---|---|---|---|---|
+  | 0 | shoot branch chance | | 0 | leaf economy (2) |
+  | 1 | root branch chance | | 1 | branch angle (3) |
+  | 2 | shoot plastochron | | 2 | internode (3) |
+  | 3 | turgor per cell | | 3 | sympodial (2) |
+  | 4 | pipe ratio | | 4 | tropism (2) |
+  | 5 | root tropism gain | | 5 | wood density (3) |
+  | 6 | root:shoot allocation bias | | | |
+  | 7 | stomatal closure point | | | |
+  | 8 | root penetration force | | | |
+
+  **The slot index selects which stored draw a trait reads, so renumbering
+  one silently rewrites every genome ever measured.** Retire a dead trait
+  by setting its width to `0.0`, never by removing its slot. The one
+  exception, and it is spent: *a slot dead by measurement in every species
+  may be re-purposed once, with the measurement record re-baselined* —
+  slots 1 and 5 used it at this re-map (they were `upward_weight` and
+  `light_weight`, both measured flat across 1,024 genomes). Neither may be
+  re-purposed again.
+
+  Two consequences that are not obvious from the table: **colour is now a
+  readout of two of these genes** (foliage band = leaf economy, bark band =
+  wood density), which closes blocker 1 above; and **slot 1 is known not to
+  reach the world** — its consumer sits behind a carbon gate the root
+  economy clears twice in twelve thousand frames — so it is measured, not
+  assumed, and its disposition is open (`plant-genome-design.md` §8a).
 
 ### Priority order (`Reports/emergent-world-architecture.md` §11, folded with the issues backlog below)
 
