@@ -267,6 +267,45 @@ Temperature oscillates the same way and will need the same treatment the
 day anything gates on it. The cycle stays real on screen and in the field;
 it just must not alias into decisions.
 
+### A cascade censused before it settles reads a *delay* as damage
+
+Both runs have to have **landed**, or the census is comparing mid-air with
+on-the-floor. A change that made a room stand two hundred frames longer
+measured as `roomcut` losing 251 cells against 1,501 at frame 202, and as
+235 against 273 once both runs were given 1,500 frames — a disaster and a
+rounding error, from the same two binaries. The seed sweep does it too: its
+default `every=400 count=4` stops at frame 1,202, which is mid-collapse for
+several presets, and the same change read p90 rock destroyed *rising*
+1,152 → 1,366 there and *falling* 2,227 → 1,782 at `FRAMES="start=2
+every=900 count=5"`. Opposite conclusions, same seeds.
+
+The tell is `awake` and `sites` on the tile line: if either is still moving,
+nothing on that line is a settled number.
+
+Worse, and the reason this needs its own heading rather than a footnote: two
+runs that diverge on one frame are **different worlds** by the next, so a
+single cascade scene cannot compare two models at all, settled or not. One
+term measured *ten times worse* on `scene=worldcrack strike=12` and nearly
+halved the worst case over 24 seeded runs. Comparisons of cascades belong in
+`seedsweep.sh`, run to rest, read at the order statistic.
+
+### A mean over *events* is not the size of the pieces
+
+The sibling of the metric traps below, one level up, and it nearly cost a
+correct change. `failing region size: mean` divides cells by **failure
+events**, and a change that makes marginal rock fail more often moves that
+mean without moving what comes out: `caveshallow` went from mean 10.0 to
+4.1 — below `MIN_FRACTURE_CELLS`, which reads as *"the typical break is now
+too small to fracture, so it is dust"* — while losing the identical 64 cells
+of rock and sending **fewer** cells down the powder path (30 → 16). The
+extra events were confined failures cracking in place, which never reach
+the fragment ladder at all.
+
+A mean cannot separate "smaller pieces" from "more evaluations of the same
+piece". If the question is whether something turned to dust, count the
+regions that fell below the fracture threshold — `FailureCounts::crumbled`
+exists for this — and read them against the total that failed.
+
 ### Compare two runs, not one run against a remembered number
 
 Outcomes here have enormous spread — twelve identical trees from one genome

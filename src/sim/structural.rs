@@ -453,6 +453,12 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // the chain walk found over its limit, which may be many cells from
         // the one this tick was checking. It is where the impulse belongs.
         if !super::rigid::fracture_failing_region(world, &region, failure.at) {
+            // Declined for being under `MIN_FRACTURE_CELLS`, so this region
+            // becomes grit rather than pieces. Counted, because it is the
+            // only place the dust outcome is decided and nothing measured
+            // it -- see `FailureCounts::crumbled`.
+            world.structural_failures.crumbled += 1;
+            world.structural_failures.crumbled_cells += region.len() as u32;
             for &(fx, fy) in &region {
                 break_free(world, fx, fy);
             }

@@ -866,10 +866,19 @@ verb rather than a click). Ask.
 
 ### 2d. DONE: load no longer concentrates on one path
 
-**Written up for review in `Reports/load-concentration-review.md`** — the
-evidence, the three alternatives measured and withdrawn, a ranked list of
-what to attack, and the quadratic-column defect this exposed and left open.
-Read that rather than this if you are reviewing the change.
+**`Reports/load-concentration-review.md` is the current write-up**, revised
+after an independent review (`load-concentration-review-response.md`). Read
+that rather than this. In short, the review found one real bug — the member
+test was coupled to `MAX_SECTION`, so a 60-cell *built* column
+(`scene=capped`) could never share — and overturned nothing else; a counter
+added for its "did it fire at all" objection also **overturned the dust
+concern** it raised about `caveshallow`, which turned out to be a mean
+counting confined crack-in-place events.
+
+**Timing is not certified.** Mechanism assertions were 16/16 in every run,
+but the frame-time bars flaked across eight different scenes on this
+machine, including cases this change cannot affect, and the `share=0`
+control fails them too. Re-certify on a quiet machine or in CI.
 
 **Fixed.** A wall is now judged as a member: on a vertical load path, every
 cell of the horizontal cut through it is charged the worst load crossing
@@ -963,6 +972,32 @@ Newly added this session, both recorded in `capacity`'s comment:
   the quadratic it has always been. `scene=worked` went 7 overload failures
   to **918** (rock -21 to -1,351), `caveshallow` 214 to 2,260. The
   arrangement was not the problem; the recalibration is a separate job.
+- **Deciding whether a member exists with `MAX_SECTION`.** The member test
+  originally read the ends of `section_cells`, which stops at 40, so nothing
+  wider than 40 could ever be a member. It reads as a safe conservative gate
+  and it silently excluded `scene=capped`'s 60-cell *built* column — the
+  exact shape the owner reported the defect against. `MAX_SECTION` bounds
+  work; `MAX_MEMBER_WIDTH` decides what the object is. Keep them separate,
+  and keep `ShareCounts::too_wide` so the second one cannot quietly become
+  the first.
+- **Tuning `MAX_MEMBER_WIDTH`.** Not a knob. At 64 rather than 96 the
+  settled strike sweep is *worse* on p90 (rock destroyed 3,645 against
+  2,351) and no better on max. Set it from what a member is, not from a
+  sweep.
+- **Filtering the cut to cells that flow downward** (`flows_down` inside the
+  loop). Essential on the summing version, worthless under a max: taking a
+  maximum cannot double-count, no unit-testable geometry distinguishes it,
+  and on the settled sweep it is *worse* — rock destroyed max 7,065 against
+  4,704 — for ~45% of the frame on `worldcrack strike=12`. Withdrawn. It
+  survived one earlier sweep taken before `MAX_MEMBER_WIDTH` existed, i.e.
+  over a different population of members, which is why that result did not
+  hold.
+- **Reading `failing region size: mean` as the size of the pieces.** It
+  divides cells by failure *events*, and confined crack-in-place failures
+  are events. A change that made `caveshallow` fail more often read as mean
+  10.0 -> 4.1 — below `MIN_FRACTURE_CELLS`, so apparently dust — while
+  destroying the identical 64 cells of rock and sending *fewer* cells down
+  the powder path (30 -> 16). Use `FailureCounts::crumbled`.
 - **Coupling a cut that has no ends.** The same rule without the
   `is_member` test, so every 40-cell window of a slab shares. That is 1c's
   lateral unzip handed a shortcut: `seedsweep.sh strike=12` run to rest went

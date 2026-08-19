@@ -1871,6 +1871,28 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
         );
         println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
+        // **How much of the failure became grit rather than pieces.** The
+        // mean region size cannot answer this and was misread as answering
+        // it -- see `FailureCounts::crumbled`.
+        let failed_cells = f.overloaded_cells + f.unsupported_cells;
+        println!(
+            "    crumbled to grit (region < MIN_FRACTURE_CELLS): {} regions, {} cells of {} failed ({:.0}%)",
+            f.crumbled,
+            f.crumbled_cells,
+            failed_cells,
+            if failed_cells == 0 { 0.0 } else { 100.0 * f.crumbled_cells as f64 / failed_cells as f64 }
+        );
+        // **Did the section rule fire at all**, printed next to the image
+        // rather than inferred from it. A review of that rule caught the
+        // report offering "identical to the cell on terrain" as evidence it
+        // was safe there, which is equally what a rule that never ran
+        // produces. `moved` is the number that answers it -- see
+        // `load::ShareCounts`.
+        let sh = world.load_cache.shares;
+        println!(
+            "    section share: {} columns, {} in a member, {} actually moved, {} too wide to tell",
+            sh.columns, sh.members, sh.moved, sh.too_wide
+        );
         // How much of the damage happened to rock with nowhere to go --
         // the mid-mountain collapse the owner reports as looking fake.
         // A picture cannot answer this: a collapse at a cliff edge and one

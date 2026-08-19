@@ -374,6 +374,26 @@ pub struct FailureCounts {
     /// stays at zero on every scene, the mechanism has nothing to fix.
     pub confined: u32,
     pub confined_cells: u32,
+    /// Failing regions that `rigid::fracture_failing_region` **declined**,
+    /// because they were smaller than `MIN_FRACTURE_CELLS`, and the cells
+    /// they took. Those fall through to per-cell `break_free` -- which is
+    /// powder.
+    ///
+    /// # Why this is its own counter and not read off the mean
+    ///
+    /// `largest_failure`'s note above says the mean and the max together
+    /// say whether pieces or grit came out. They do not, quite, and an
+    /// independent review found the gap: a mean of 4.1 against a threshold
+    /// of 6 *suggests* the typical event is dust and cannot show it, because
+    /// a mean is equally consistent with a handful of big chunks beside a
+    /// swarm of singles. That is the same shape as the metric traps in
+    /// `CLAUDE.md`, one level up.
+    ///
+    /// This counts the thing itself. Read `crumbled_cells` against
+    /// `overloaded_cells + unsupported_cells`: it is the fraction of failed
+    /// material that never got the chance to become a chunk.
+    pub crumbled: u32,
+    pub crumbled_cells: u32,
     /// The deepest any confined failure was buried, in cells from the
     /// nearest air. Separates "one row under a surface that is itself
     /// coming apart" from "the middle of a mountain", which is the only
