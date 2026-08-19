@@ -878,13 +878,90 @@ seed each way; before this is quoted as a robust population result it
 wants the seed sweep the megastudy will give it. Recorded as a
 single-seed paired result, not as a distribution.
 
+### 8e. The stomatal reserve — half the row holds, and the wet half does not
+
+`stomatal_reserve` 0.2 against 0.0 in all three species, crossed with deep
+soil and a thin skin over stone. Rebuilt between pins (`include_str!`), the
+`.ron` restored by a trap and the tree verified byte-clean afterwards. 8
+trees / 30,000 frames / `worldseed=1`.
+
+| | reserve 0.2 | reserve 0.0 |
+|---|---|---|
+| wet, cells / leaf | 27,048 / 8,455 | **30,672 / 9,468** |
+| wet, organisms / established | 39 / 8 | **50 / 10** |
+| dry, cells / leaf | **22,573 / 6,962** | 20,888 / 5,238 |
+
+**Dry: §4.3's claim holds.** The reserve buys drought endurance — a third
+more foliage kept through the shortage (6,962 against 5,238) and 8% more
+mass. That is the trade the locus exists to sell.
+
+**Wet: the prediction was "deltas should be ~0", and they are not** — 12%
+fewer cells and two fewer established plants with the reserve on. Recorded
+as a failed prediction rather than smoothed over.
+
+**A wrong mechanism, caught by measuring it.** The immediate explanation
+was that `capacity = WATER_SCALE x root_cells` scales with the plant, so a
+big-rooted tree could sit under 20% of its own large capacity even on wet
+ground, making the reserve a permanent throttle rather than a drought
+policy. Measured on the wet scene: root cells median 318, so capacity
+1,272; stock median 524.8; **stock/capacity = 0.41**, twice the reserve.
+`openness` clamps to 1.0 and the reserve does nothing at all to a typical
+mature plant. The tidy story is refuted by its own numbers.
+
+What survives as a candidate is the **seedling** stage: a fresh seedling
+carries ~11 root cells, so a capacity of 44 and almost no stock, and sits
+under the line exactly where establishment margins are thinnest. The
+organism counts are consistent (39 against 50, 8 established against 10) —
+fewer seedlings surviving, compounding into stand mass. Consistent is not
+demonstrated. **One world seed, on an engine where twelve identical trees
+span 31 to 153 cells**, so this is logged as *unexplained and inconsistent
+with the no-op claim*, not as a refutation of it. What separates
+"seedlings throttled at establishment" from "one seed landed differently"
+is a seed sweep, which is the megastudy.
+
+The guarded part is unaffected either way: at `stomatal_reserve = 0` the
+identity `desiccation == 1 - status` holds bit-exactly over a grid
+(`settle_water_keeps_desiccation_and_status_identical_without_a_reserve`).
+What is in question is the softer claim that at 0.2 a well-watered stand
+would not notice.
+
+### 8f. What the species actually look like, and a correction
+
+Three-way, 8 plants / 30,000 frames / `worldseed=1`, plus sheets of
+conifer and tree at an identical crop at noon:
+
+| | shrub | tree | conifer |
+|---|---|---|---|
+| organism cells | 15,887 | 27,048 | 41,399 |
+| height, rows | 80 | 158 | 189 |
+| thickest crown run | 35 | 49 | 63 |
+| forks (sympody) | 39–89 | 0 | 0 |
+| **leaf fraction** | **26%** | **31%** | **26%** |
+
+**Correction to a harsher reading recorded mid-session.** These were
+described as differing "in height and mass and nothing else", i.e. the
+sympody-phase failure repeating. Looked at, that is unfair: conifer's
+foliage is a **dark blue-green** against tree's brighter **yellow-green**
+(the species' own `foliage_bands` selecting different palette regions),
+its crown is narrow and shaggy with foliage strung along the branches
+where tree's tufts into a spreading canopy layer, and it stands a third
+taller. They read as two different species at play zoom. The appearance
+work did its job.
+
+What is still true, and is the sharper point: they read as two different
+**trees**, not two different **plants**. Leaf fraction is 26/31/26 across
+all three — the composition is near-identical because it must be. Every
+`Grow` species is brown stem and green leaf, since `germinate()` hardcodes
+`wood`/`rootwood` and the `Grow` arm hardcodes `leaf`; a species cannot
+declare what it is made of. That is a materials question and belongs to
+its own design pass, not to this document.
+
 **Not yet measured** — every remaining §4 row, held with the above:
 slot 5's depth histogram, slot 8 penetration (needs the sand-bank scene
-§4.7 calls for), `stomatal_reserve` 0.2 → 0.0 on a drying scene against a
-wet one, slot 6's stand-level spread, and the `seed_cost` endowment
-response curve. **Done:** the bark/foliage sheets and the wood-density
-pair (§8b), and the leaf-economy crossover (§8d). The drying-scene row is
-now cheap, since `soil=N` is the knob it also wants.
+§4.7 calls for), slot 6's stand-level spread, and the `seed_cost`
+endowment response curve. **Done:** the bark/foliage sheets and the
+wood-density pair (§8b), the leaf-economy crossover (§8d), and the
+stomatal pair (§8e, half-held).
 
 ---
 
