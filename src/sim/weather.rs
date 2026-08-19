@@ -302,7 +302,17 @@ pub fn strike(seed: u64, frame: u64, bounds: Option<Rect>) -> Option<Strike> {
     // since a flash that began near the end of a window is still lit in this
     // one.
     let window = frame / STRIKE_WINDOW;
-    for w in [window, window.wrapping_sub(1)] {
+    // **`checked_sub`, not `wrapping_sub`.** Inside the very first window
+    // there is no previous one, and wrapping to `u64::MAX` made
+    // `w * STRIKE_WINDOW` below overflow -- a panic in the opening four
+    // seconds of any world, on any seed whose `u64::MAX` window happens to
+    // pass the 0.55 roll.
+    //
+    // It hid for as long as it did because release builds do not check
+    // overflow: every `cargo test --release` run was green, and only a debug
+    // build ever saw it. Reach for a plain `cargo test` when touching
+    // arithmetic that can run near a boundary.
+    for w in [Some(window), window.checked_sub(1)].into_iter().flatten() {
         let mut r = rng::stream(seed, 0x4C49_4748, w, 0);
         // Two rolls: whether this window strikes at all, and when inside it.
         if !r.chance(0.55) {
@@ -550,6 +560,25 @@ mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
     use crate::sim::parallel;
+
+    /// The opening frames of a world, where `window` is 0 and the "previous
+    /// window" probe has nowhere to go.
+    ///
+    /// **Only fails in a debug build**, which is the point of it: this
+    /// panicked on `w * STRIKE_WINDOW` overflowing after `0u64.wrapping_sub(1)`,
+    /// and every release-mode run of the suite passed straight over it
+    /// because release does not check overflow. Swept across seeds because
+    /// the multiply is behind a 0.55 roll, so any single seed has a fair
+    /// chance of never reaching it.
+    #[test]
+    fn a_strike_in_the_opening_frames_does_not_overflow() {
+        let bounds = Some(Rect::new(0, 0, 511, 319));
+        for seed in 0..256u64 {
+            for frame in 0..STRIKE_WINDOW * 2 {
+                let _ = strike(seed, frame, bounds);
+            }
+        }
+    }
 
     /// A frame at which `seed` is raining, so a test can assert about rain
     /// rather than about the 86% of frames that are clear.
