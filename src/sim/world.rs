@@ -626,6 +626,8 @@ impl World {
             water_uptake: 0.0,
             water_demand: 0.0,
             water_uptake_acc: 0.0,
+            water_desiccation: 0.0,
+            endowment: 0.0,
             species,
             cells: std::collections::HashMap::new(),
             root_cells: 0,
@@ -1326,6 +1328,15 @@ impl World {
     pub fn water_at(&self, x: i32, y: i32) -> (f32, f32) {
         let id = self.get(x, y).organism_id();
         self.organism(id).map_or((0.0, 1.0), |s| (s.water, s.water_status))
+    }
+
+    /// The open-stomata shortfall of the organism owning this cell — what
+    /// drought shedding reads. Deliberately not `water_status`: see
+    /// `OrganismState::water_desiccation` for why prudence must not read
+    /// as thirst.
+    pub fn desiccation_at(&self, x: i32, y: i32) -> f32 {
+        let id = self.get(x, y).organism_id();
+        self.organism(id).map_or(0.0, |s| s.water_desiccation)
     }
 
     pub fn carbon_at(&self, x: i32, y: i32) -> f32 {

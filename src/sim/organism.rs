@@ -415,17 +415,25 @@ pub enum Behavior {
         /// `0.0` disables it, and that is a real value: moss has no use
         /// for individuality, and a test that wants a reproducible single
         /// tree wants the written numbers and not a draw around them.
-        /// Indexed by trait: **0 branch chance, 1 upward weight, 2
-        /// plastochron, 3 turgor cost, 4 pipe ratio, 5 light weight.** All
-        /// zeroes disables jitter.
+        /// Indexed by trait — **`GENOTYPE_TRAITS`' own doc holds the slot
+        /// map and is the contract.** All zeroes disables jitter. The
+        /// shoot's `Grow` reads 0/2/3 from this vector (4/6/7 are borrowed
+        /// from the same vector by the passes that consume them — one
+        /// plant, one genotype); the root's `Grow` reads 1/5/8 from the
+        /// RootTip entry's own vector, which is what lets root and shoot
+        /// diverge within one individual.
         ///
         /// **Slots are positional and must never be renumbered** — the slot
         /// index selects which stored draw a trait reads, so moving a trait
         /// silently rewrites every genome ever measured. Retire a dead trait
-        /// by setting its width to `0.0`, not by removing its slot. Slot 1
-        /// is exactly that case: upward weight measured inert across 1,024
-        /// genomes even at ±40% (quintile means 1310, 1460, 1396, 1388,
-        /// 1457 cells — flat), so it is held at 0.0 rather than deleted.
+        /// by setting its width to `0.0`, not by removing its slot; a slot
+        /// dead by measurement in *every* species may be re-purposed once
+        /// (see `GENOTYPE_TRAITS`). Slots 1 and 5 are exactly that case:
+        /// upward weight measured inert across 1,024 genomes even at ±40%
+        /// (quintile means 1310, 1460, 1396, 1388, 1457 cells — flat),
+        /// light weight at ±50% and for a structural reason (the sky cast
+        /// leaves no lateral gradient to steer by), so both now carry the
+        /// root traits instead.
         ///
         /// **One number for all four was wrong, and it was measured wrong.**
         /// At a flat ±15%, a 64-genome population showed only turgor doing
@@ -773,6 +781,14 @@ pub struct SpeciesDef {
     /// Which bands of `wood`'s palette this species' stems draw from.
     #[serde(default)]
     pub bark_bands: PaletteBands,
+    /// The stock fraction below which this species starts closing its
+    /// stomata — 0.0 (the default) never closes early, which is exactly
+    /// the pre-closure engine: the settle in `plant::organism_upkeep`
+    /// draws `min(stock, demand)` and desiccation equals `1 − status`
+    /// identically, so a species that does not opt in cannot be moved by
+    /// this field or by genotype slot 7, which multiplies it.
+    #[serde(default)]
+    pub stomatal_reserve: f32,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
 }
 
@@ -780,6 +796,7 @@ pub struct Species {
     pub name: String,
     pub foliage_bands: PaletteBands,
     pub bark_bands: PaletteBands,
+    pub stomatal_reserve: f32,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
 }
 
@@ -798,7 +815,13 @@ impl Species {
 
 impl From<SpeciesDef> for Species {
     fn from(def: SpeciesDef) -> Self {
-        Self { name: def.name, foliage_bands: def.foliage_bands, bark_bands: def.bark_bands, cell_types: def.cell_types }
+        Self {
+            name: def.name,
+            foliage_bands: def.foliage_bands,
+            bark_bands: def.bark_bands,
+            stomatal_reserve: def.stomatal_reserve,
+            cell_types: def.cell_types,
+        }
     }
 }
 
@@ -949,6 +972,32 @@ pub struct OrganismState {
     /// the quantity it is supposed to explain is measuring its own
     /// bookkeeping.
     pub water_uptake_acc: f32,
+    /// The **desiccation term** — how short of demand this plant would
+    /// have fallen with stomata fully open, `0.0..=1.0`. What
+    /// `drought_death` reads, where earning reads `water_status`.
+    ///
+    /// Two numbers because prudence must not read as thirst: an
+    /// individual that closes its stomata early (`stomatal_reserve` ×
+    /// genotype slot 7) spends less water and *earns* less — that is the
+    /// real price — but its leaves are not drying out while the tank
+    /// still holds. Shedding keyed on the spent-side term would make the
+    /// conservative allele shed hardest while protecting its stock, and
+    /// the stomatal locus would select against itself
+    /// (`Reports/plant-genome-design.md` §4.3). With `stomatal_reserve`
+    /// at 0 the two terms are identical by construction.
+    pub water_desiccation: f32,
+    /// Carbon the parent packed into this individual's seed —
+    /// `Reproduce.seed_cost`, handed to the seedling as its starting
+    /// stake at germination instead of vanishing at the deduction site.
+    /// The seed *is* its provisions. 0 for a planted seed, which starts
+    /// broke exactly as scenes and tests have always assumed.
+    ///
+    /// Species-level plumbing today, deliberately: the seed-strategy
+    /// locus that would vary it is **deferred** until the
+    /// endowment→establishment response is measured — assigning a slot
+    /// to an unmeasured trade is how slots 1 and 5 died the first time
+    /// (`Reports/plant-genome-design.md` §4.8).
+    pub endowment: f32,
     pub root_cells: u32,
     pub shoot_cells: u32,
     /// The **root collar** — the lowest row this organism's *shoot* tissue
@@ -1069,11 +1118,32 @@ pub struct OrganismState {
 /// both `Behavior::Grow::genotype_variance` and
 /// `OrganismState::genotype_draws`, which must agree because one indexes
 /// the other.
-pub const GENOTYPE_TRAITS: usize = 6;
+///
+/// **The slot map, positional forever** (`Reports/plant-genome-design.md`,
+/// signed off 2026-08-18). Slots 0/2/3 are read by the shoot's `Grow`,
+/// 1/5/8 by the root's `Grow` (from the RootTip entry's own vector — that
+/// separation is what lets root and shoot diverge within one individual),
+/// 4/6/7 by whole-plant passes that borrow the shoot vector:
+///
+///   0 shoot branch chance        5 root tropism gain
+///   1 root branch chance         6 root:shoot allocation bias
+///   2 shoot plastochron          7 stomatal closure point
+///   3 turgor per cell            8 root penetration force
+///   4 pipe ratio
+///
+/// Slots 1 and 5 were `upward_weight` and `light_weight`, measured inert
+/// across 1,024 genomes at ±40% / ±50% and held at zero width in every
+/// species that grows. **A slot dead by measurement in every species may
+/// be re-purposed once, with the measurement record re-baselined; a live
+/// slot, never** — a draw that never expressed rewrites no measured
+/// phenotype, which is the property the never-renumber rule below exists
+/// to protect. The megastudy re-baselines at this re-map; only slots
+/// 0/2/3/4, whose meanings did not move, are comparable across it.
+pub const GENOTYPE_TRAITS: usize = 9;
 
 /// **Discrete genes, and why a continuous genome cannot produce species.**
 ///
-/// `genotype_draws` jitters six scalars around a species mean. Run a
+/// `genotype_draws` jitters nine scalars around a species mean. Run a
 /// population on that and you get a Gaussian cloud — *a spectrum*, by
 /// construction, however long it runs and however hard selection pushes.
 /// There is no setting of a continuous genome that yields two clumps.
@@ -1091,11 +1161,21 @@ pub const GENOTYPE_TRAITS: usize = 6;
 /// already in the engine as authored per-species constants; making them
 /// heritable alleles is what lets the simulation find combinations nobody
 /// wrote down.
-pub const DISCRETE_LOCI: usize = 5;
+pub const DISCRETE_LOCI: usize = 6;
 
-/// Which band of its species' foliage range an individual wears. Proven to
-/// change pixels, which is why it is a locus at all.
-pub const LOCUS_FOLIAGE: usize = 0;
+/// **Leaf construction economics** — the acquisitive↔conservative axis,
+/// and the foliage band the individual wears; one allele, both meanings.
+/// Allele 0 is the expensive leaf (more carbon per unit light, more water
+/// per tick — `LEAF_RATE_ALLELES` / `LEAF_TRANSPIRATION_ALLELES`), allele
+/// 1 the cheap one; Liebig decides who wins where. The band mapping is
+/// the exact consumer this locus had when it was purely cosmetic
+/// (`LOCUS_FOLIAGE`), so the colour is now the visible face of a real
+/// gene rather than a free one — a dark tree is dark because its leaves
+/// are expensive (`Reports/plant-appearance-design.md` §7,
+/// `plant-genome-design.md` §4.2). Whether allele 0 reads *darker* on
+/// screen is the species' own palette ordering; shrub's runs the other
+/// way, which is accepted rather than papered over.
+pub const LOCUS_LEAF_ECONOMY: usize = 0;
 /// Departure angle class — scales the species' `branch_angle`.
 pub const LOCUS_BRANCH_ANGLE: usize = 1;
 /// Straightness-budget class — scales the species' `internode`.
@@ -1104,10 +1184,26 @@ pub const LOCUS_INTERNODE: usize = 2;
 pub const LOCUS_SYMPODIAL: usize = 3;
 /// Orthotropic (0) or plagiotropic (1) on non-trunk tiers.
 pub const LOCUS_TROPISM: usize = 4;
+/// **Wood density** — the pioneer↔dense strategy axis, the best-studied
+/// trade in tree ecology. One multiplier (`WOOD_DENSITY_ALLELES`) scales
+/// the branch-holding strength (`Material::max_cantilever_reach`, applied
+/// per individual in `structural::organism_structural_tick`) and the
+/// carbon price of every `Grow` step together: cheap wood outgrows dense
+/// wood and loses more of itself to load. The bark band derives from this
+/// allele (`bark_band_for_density`), so bark tone is a readout of a real
+/// gene, exactly as foliage tone is.
+pub const LOCUS_WOOD_DENSITY: usize = 5;
 
-/// How many alleles each locus has. `LOCUS_FOLIAGE` is bounded by the
-/// species' own declared band count instead, so its entry is a ceiling.
-pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [6, 3, 3, 2, 2];
+/// How many alleles each locus has.
+///
+/// `LOCUS_LEAF_ECONOMY` is 2, matching the two foliage bands every
+/// species declares. It was 6 ("bounded by the palette") while the locus
+/// was cosmetic, and that shape carried a latent bias: mutation drew
+/// uniformly over six alleles while the consumer clamped to the species'
+/// two bands, so a jump landed on the top band five times as often as
+/// the bottom one. Two alleles for two strategies removes the bias by
+/// construction.
+pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [2, 3, 3, 2, 2, 3];
 
 /// Multipliers on the species' `branch_angle`, one per allele of
 /// `LOCUS_BRANCH_ANGLE`. Spread wide enough that the three are *visibly*
@@ -1120,6 +1216,64 @@ pub const BRANCH_ANGLE_ALLELES: [f32; 3] = [0.4, 1.0, 1.6];
 /// environment steer a lateral almost immediately (a meandering, twiggy
 /// habit); a long one holds it straight for a real run.
 pub const INTERNODE_ALLELES: [f32; 3] = [0.4, 1.0, 2.0];
+
+/// Photosynthetic-rate multiplier per `LOCUS_LEAF_ECONOMY` allele:
+/// acquisitive, then conservative. Never varied alone — it is paired with
+/// `LEAF_TRANSPIRATION_ALLELES` at every consumer, because a free rate
+/// axis would be selection candy with no bill attached. First-pass
+/// values; the paired wet/dry sweep is what sets them.
+pub const LEAF_RATE_ALLELES: [f32; 2] = [1.2, 0.85];
+
+/// Transpirational-demand multiplier per `LOCUS_LEAF_ECONOMY` allele —
+/// the bill for `LEAF_RATE_ALLELES`. Income is min(light, water)-bounded
+/// (Liebig, `plant::allocate_to_frontier`), so the expensive leaf wins
+/// where light is the binding constraint and the cheap one where water
+/// is. That crossover is the whole reason this locus exists.
+pub const LEAF_TRANSPIRATION_ALLELES: [f32; 2] = [1.5, 0.7];
+
+/// Strength-and-price multiplier per `LOCUS_WOOD_DENSITY` allele:
+/// pioneer, as-authored, dense. Applied to `max_cantilever_reach` and to
+/// the shoot/root `Grow.cost` together — one number for both on purpose,
+/// so tuning cannot quietly turn the trade into a free lunch. Secondary
+/// thickening pays no carbon today, so the price binds on extension
+/// only; recorded in `Reports/plant-genome-design.md` §4.1 rather than
+/// hidden.
+pub const WOOD_DENSITY_ALLELES: [f32; 3] = [0.75, 1.0, 1.35];
+
+/// The strength-and-price multiplier this genome's density allele selects.
+///
+/// **One accessor, because the multiplier has to reach every site that
+/// budgets against the cost it scales, not just the site that spends it.**
+/// It landed on `Grow`'s own gate first and nowhere else, and the three
+/// places that stake or cap a frontier *in units of that cost* went on
+/// using the unscaled number: a dense plant's re-initiated root tip and
+/// flushed bud were staked below their own first step (so the courtesy
+/// their comments promise inverted into a guaranteed failure), and
+/// `break_buds`' income-over-price tip cap let dense plants open a
+/// frontier they could not feed while capping pioneers below what they
+/// could. `CLAUDE.md`: when a fix changes what a number *means*,
+/// re-deriving what reads it is part of the fix.
+///
+/// Clamps rather than indexes blindly -- stale state carrying a widened
+/// allele must not walk off the table.
+pub fn wood_density(alleles: &[u8; DISCRETE_LOCI]) -> f32 {
+    WOOD_DENSITY_ALLELES[(alleles[LOCUS_WOOD_DENSITY] as usize).min(WOOD_DENSITY_ALLELES.len() - 1)]
+}
+
+/// Which bark band a density allele wears, inside the species' declared
+/// range — proportional, so the dense end of the allele range takes the
+/// top band. With today's two-band ranges and three alleles this reads
+/// `[first, first, first + 1]`: pioneer and as-authored share the low
+/// band and dense stands out. Judged on a sheet like every colour call;
+/// `count == 0` (moss, anything pre-band) keeps the pre-band 0, exactly
+/// as the old free draw did.
+pub fn bark_band_for_density(bands: PaletteBands, allele: u8) -> u8 {
+    if bands.count == 0 {
+        return 0;
+    }
+    let n = LOCUS_ALLELES[LOCUS_WOOD_DENSITY].max(1) as u16;
+    bands.first + ((allele.min(n as u8 - 1) as u16 * bands.count as u16) / n) as u8
+}
 
 /// Chance that one locus jumps to a different allele when a seed is set.
 ///
@@ -2854,6 +3008,46 @@ mod tests {
             assert!(reached.contains(&(x, 10)), "({x}, 10) should be reachable from the anchor");
         }
         assert!(!reached.contains(&(20, 10)), "the disconnected wood cell should not be reachable");
+    }
+
+    /// **Bark is a readout of the density allele, and a readout that
+    /// does not move is not one.**
+    ///
+    /// A pure-function test on purpose: the alternative — growing a stand
+    /// and looking at it — cannot tell a band that never changed from a
+    /// recolour too small to see at contact-sheet zoom, which is exactly
+    /// the trap `CLAUDE.md` records against magnitude-scaled overlays.
+    /// The sheet judgement is the *aesthetic* question; this is the
+    /// mechanical one, and it belongs in a test.
+    ///
+    /// The mapping is proportional over the allele range, so with today's
+    /// three alleles and two declared bands it reads
+    /// `[first, first, first + 1]`: pioneer and as-authored share the low
+    /// band, dense stands out. `count: 0` (moss, and any species that
+    /// predates bands) keeps the pre-band 0, exactly as the free bark
+    /// draw this replaced did.
+    #[test]
+    fn bark_band_tracks_the_density_allele() {
+        let bands = PaletteBands { first: 0, count: 2 };
+        let mapped: Vec<u8> = (0..3).map(|a| bark_band_for_density(bands, a)).collect();
+        assert_eq!(mapped, vec![0, 0, 1], "three density alleles over two bands should read [low, low, high]");
+
+        // Offset ranges are the common case -- every species but `tree`
+        // declares one -- and the band is inside the species' own range,
+        // never a raw allele index.
+        let shrub_like = PaletteBands { first: 2, count: 2 };
+        assert_eq!(
+            (0..3).map(|a| bark_band_for_density(shrub_like, a)).collect::<Vec<u8>>(),
+            vec![2, 2, 3],
+            "the derived band must sit inside the species' declared range"
+        );
+
+        assert_eq!(bark_band_for_density(PaletteBands { first: 0, count: 0 }, 2), 0, "an unset range must stay at the pre-band 0");
+        assert_eq!(bark_band_for_density(PaletteBands { first: 3, count: 0 }, 1), 0, "`count: 0` means unset -- `first` is not a band then");
+
+        // An allele past the table (a widened `LOCUS_ALLELES` read by
+        // stale state) clamps rather than walking off the palette.
+        assert_eq!(bark_band_for_density(bands, 200), 1, "an out-of-range allele must clamp to the top band");
     }
 
     #[test]
