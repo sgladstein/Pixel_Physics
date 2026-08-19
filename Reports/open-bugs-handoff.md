@@ -184,7 +184,7 @@ walks a shape across exactly that threshold. The difference between "I dug
 this" and "this is a hill" is *history*, not geometry, and history has to be
 stored.
 
-### 5. Automatic promotion### 5. Automatic promotion — blocker removed, still not ready
+### 5. Automatic promotion — blocker removed, still not ready
 
 `promote_liquid_body` is called **only from tests**, so `liquid.rs` — the
 pipe solver, the seam, ~1000 lines — never runs in play and every bug in it
