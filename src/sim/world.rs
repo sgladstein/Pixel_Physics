@@ -16,11 +16,11 @@ use std::collections::{BinaryHeap, HashMap};
 
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
-use super::creature::CreatureState;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::liquid::{self, LiquidBody};
 use super::material::{self, MaterialId, MaterialKind, MaterialRegistry};
 use super::organism::{self, OrganismState, SpeciesId, SpeciesRegistry};
+use super::pheromone::{Channel, Pheromones};
 use super::rng::Rng;
 use super::scheduler::{self, ActiveSite};
 use super::surface::CellSurface;
@@ -82,6 +82,92 @@ struct BodySlot {
     /// `None` when this slot is on the free list — same reasoning as
     /// `OrganismSlot::state`.
     state: Option<LiquidBody>,
+}
+
+/// Per-verb creature counters. Printed beside every scene.
+///
+/// `trips_completed` is the one that proves the *loop* rather than its
+/// parts: a colony can move, deposit, dig and drop convincingly while never
+/// once completing nest -> food -> nest with cargo.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct CreatureStats {
+    pub spawned: u64,
+    pub moves: u64,
+    pub moves_blocked: u64,
+    /// Heading re-rolls — the tumble half of run-and-tumble. High is not a
+    /// fault: it is what a creature does while it is looking for a
+    /// gradient, and the ratio against `moves` is the readout on whether
+    /// the colony is searching or commuting.
+    pub tumbles: u64,
+    pub falls: u64,
+    pub eats: u64,
+    pub pickups: u64,
+    pub digs: u64,
+    pub drops: u64,
+    /// Drops that happened at the nest — food actually delivered home.
+    /// **The number that proves the loop rather than its parts.**
+    pub deliveries: u64,
+    /// Arrivals at the nest after having been away. Splits "never got
+    /// home" from "never picked anything up", which the delivery count
+    /// alone cannot.
+    pub nest_visits: u64,
+    pub deaths: u64,
+    /// Creatures that lost a body cell and survived it.
+    pub injuries: u64,
+}
+
+/// Where every joule went. See `World::energy_ledger`.
+///
+/// The invariant, asserted in the ascii scenes:
+/// `sum(live creature energy) == granted + eaten - metabolized - moved
+/// - synapse_tax - died_holding`.
+///
+/// # What this can and cannot catch, because the difference has been
+/// # misread once
+///
+/// It catches **charges that do not land**: a cost debited from the ledger
+/// but never taken off a creature, or vice versa. That is a real class of
+/// bug and the identity finds it immediately.
+///
+/// It **cannot catch energy creation**, and reading a balanced census as
+/// "energy is conserved" is a mistake. `granted`, `eaten` and
+/// `died_holding` are all *free terms defined as whatever happened*, so
+/// they move the two sides of the identity together by construction. When
+/// a beetle bites an ant, `eaten` grows by the **eater's** `eat_energy` --
+/// a constant with no relationship to what the victim had -- and
+/// `died_holding` deletes the victim's remainder; both are booked, the
+/// identity holds, and 300 joules were conjured. If the bite only takes a
+/// trailing segment there is no sink at all and the identity still holds.
+///
+/// So this is an *accounting* ledger, not a conservation law. The property
+/// evolution actually needs (P-20) is weaker and different: **no lineage
+/// may extract unbounded energy from a cycle it controls.** That is what
+/// `creature::tests::a_sealed_world_with_no_food_source_runs_down` tests,
+/// and it does not pass today -- see its doc for the pump it reproduces.
+/// A closed ledger is only reachable once plants book photosynthesis into
+/// the same accounts, since the sun is the largest free source in the
+/// world by far and lives entirely outside these numbers.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct EnergyLedger {
+    /// Energy created out of nothing, at spawn. The only source besides
+    /// eating, and the one that has to be counted or nothing balances.
+    pub granted: f64,
+    /// **Also created out of nothing** -- `eat_energy` is a property of the
+    /// eater, not of the food, and no food cell has an energy account for
+    /// it to come out of. Counted so the identity closes, not because
+    /// anything was transferred. See the type doc.
+    pub eaten: f64,
+    pub metabolized: f64,
+    pub moved: f64,
+    pub synapse_tax: f64,
+    pub died_holding: f64,
+}
+
+impl EnergyLedger {
+    /// What the live population's total energy should equal.
+    pub fn expected_live_total(&self) -> f64 {
+        self.granted + self.eaten - self.metabolized - self.moved - self.synapse_tax - self.died_holding
+    }
 }
 
 pub struct World {
@@ -207,13 +293,12 @@ pub struct World {
     /// existing `smallvec` dependency and a body touching more than a
     /// couple of chunks is rare enough not to justify adding one.
     body_index: HashMap<ChunkCoord, Vec<BodyId>>,
-    /// M18: per-creature state (currently just its energy budget) — see
-    /// `creature::CreatureState`. Never shrinks, mirroring `trees` above;
-    /// indexed by `u16`, not `u32` like `trees`, because `Cell::aux` (also
-    /// a `u16`) stores this same index directly per its own documented
-    /// meaning for `MaterialKind::Creature` — unlike a tree's growth stage,
-    /// "which creature owns this cell" has to round-trip through the cell.
-    creatures: Vec<CreatureState>,
+    // M18's `creatures: Vec<CreatureState>` is **gone**, not moved. A
+    // creature is an organism now (`Reports/creature-direction.md` §3a), so
+    // its state lives in `organisms` below with everything else's. The
+    // parallel vector had no generations, no reclamation and a `u16`
+    // overflow guarded only by a `debug_assert`; `push_creature` and
+    // `creature_mut` went with it.
     /// Species data for organism-owned cells — see `organism.rs`. Loaded
     /// with the compiled-in set by default, same as `materials`; `App::new`
     /// overlays the assets directory the same way it does for materials.
@@ -228,8 +313,49 @@ pub struct World {
     /// normal case) resolves to `None` via `organism`/`organism_mut`
     /// rather than silently reading a *different*, unrelated organism's
     /// state once the slot is recycled.
+    /// The two stigmergy planes (`Reports/creature-direction.md` §5) —
+    /// ~640 KB at 512x320, and CA resolution rather than `FIELD_SCALE`,
+    /// for the measured reason in `pheromone.rs`'s module doc.
+    ///
+    /// A `World` field rather than something creatures own, for the same
+    /// reason `fields` is: the signal outlives whoever deposited it, which
+    /// is the entire point of stigmergy.
+    pub pheromones: Pheromones,
+    /// The "did it fire" counters for creature behaviour — `FailureCounts`
+    /// in shape and in purpose.
+    ///
+    /// An image shows *what and where*; it cannot show whether the
+    /// mechanism you built is what produced it. A colony of ants milling
+    /// plausibly and a colony genuinely foraging look identical at the zoom
+    /// a contact sheet is read at, and `trips_completed` is the number that
+    /// tells them apart (`CLAUDE.md`, and the collapse that rendered
+    /// convincingly for a whole run while its body count said the feature
+    /// had never once executed).
+    pub creature_stats: CreatureStats,
+    /// **Evolution is a fuzzer for your conservation laws.** Every surveyed
+    /// sim that evolved anything eventually evolved an exploit of an
+    /// energy-accounting bug — Karl Sims' creatures harvesting integration
+    /// error is the canonical case. So the census is built *before*
+    /// mutation is switched on (stage 4), because afterwards every anomaly
+    /// is ambiguous between "bug" and "adaptation".
+    ///
+    /// `f64` because these accumulate over long runs and an `f32` total
+    /// stops being able to represent a single `idle_cost` addition once it
+    /// passes about 16 million.
+    pub energy_ledger: EnergyLedger,
     organisms: Vec<OrganismSlot>,
     free_organism_slots: Vec<u16>,
+    /// How many times a reused slot's 4-bit generation has wrapped back to
+    /// zero — see `push_organism`, which is the only writer.
+    ///
+    /// A wrap is the single case the generational check cannot catch: a
+    /// reference stale by exactly 16 reuses reads as live again. That was
+    /// accepted (`encode_organism_id`'s doc) on the grounds that it needs a
+    /// bug compounded with exactly the wrong reuse count — but "accepted"
+    /// should mean "known quantity", not "unobservable". With creatures
+    /// allocating on their own schedule this is the number that says
+    /// whether the assumption still holds at play rates.
+    pub organism_generation_wraps: u32,
     /// M13/issue #4: whether the field grid has already converged to a
     /// fixed point (every cell within `field::step`'s settle epsilon of its
     /// previous value). `field::step` skips its whole five-pass solve when
@@ -474,10 +600,13 @@ impl World {
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
             body_index: HashMap::new(),
-            creatures: Vec::new(),
             species: SpeciesRegistry::builtin(),
+            pheromones: Pheromones::new(bounds),
+            creature_stats: CreatureStats::default(),
+            energy_ledger: EnergyLedger::default(),
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
+            organism_generation_wraps: 0,
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
@@ -515,6 +644,26 @@ impl World {
         field::step(self);
     }
 
+    /// Advance both pheromone planes. Its own frame phase, and callers
+    /// call it **every** frame like `step_fields` — the
+    /// `PHEROMONE_INTERVAL` gate lives inside, so no caller has to know
+    /// the interval exists.
+    pub fn step_pheromones(&mut self) {
+        self.pheromones.step(self.frame);
+    }
+
+    /// Add to a pheromone channel at `(x, y)`. Out-of-world deposits are
+    /// dropped silently.
+    pub fn deposit_pheromone(&mut self, channel: Channel, x: i32, y: i32, amount: u8) {
+        self.pheromones.deposit(channel, x, y, amount);
+    }
+
+    /// Read a pheromone channel at `(x, y)`. Nearest-cell — the plane is
+    /// already at CA resolution. Out of world reads 0.
+    pub fn pheromone_at(&self, channel: Channel, x: i32, y: i32) -> u8 {
+        self.pheromones.sample(channel, x, y)
+    }
+
     /// Advance the M16 active-site schedule by one step. Its own frame
     /// phase too, after the CA sweep and before particles — see
     /// `scheduler::step` for why growth reads/writes go through the
@@ -526,6 +675,24 @@ impl World {
         // their upkeep runs here, once per organism. See
         // `plant::step_organisms`.
         super::plant::step_organisms(self);
+    }
+
+    /// How many organism slots are currently allocated.
+    ///
+    /// The "did it fire" counter for anything that creates or destroys an
+    /// organism — a harness can print it beside a picture, which is the one
+    /// thing a picture cannot show: a worm cell whose organism has leaked
+    /// and one whose organism is live draw identically (`CLAUDE.md`). It is
+    /// also the direct readout on `free_organism` doing its job, since a
+    /// missing release shows up here as a count that only ever climbs.
+    pub fn live_organism_count(&self) -> usize {
+        self.organisms.iter().filter(|slot| slot.state.is_some()).count()
+    }
+
+    /// Total energy held by every live organism — the left-hand side of
+    /// `EnergyLedger`'s invariant.
+    pub fn live_creature_energy(&self) -> f64 {
+        self.organisms.iter().filter_map(|slot| slot.state.as_ref()).map(|state| state.energy as f64).sum()
     }
 
     /// Every live organism's encoded id.
@@ -765,25 +932,18 @@ impl World {
         self.pending_structural_checks.remove(&(x, y));
     }
 
-    /// Store a new creature's state and return its stable id.
-    pub(crate) fn push_creature(&mut self, creature: CreatureState) -> u16 {
-        debug_assert!(self.creatures.len() < u16::MAX as usize, "creature index would overflow u16 -- Cell::aux can't address more than 65535 live creature slots");
-        self.creatures.push(creature);
-        (self.creatures.len() - 1) as u16
-    }
-
-    pub(crate) fn creature_mut(&mut self, id: u16) -> &mut CreatureState {
-        &mut self.creatures[id as usize]
-    }
-
     /// Allocate a new organism. Checks `free_organism_slots` first (bumping
     /// the reused slot's generation) before ever growing `organisms` —
-    /// nothing populates that list yet in this pass (no `free_organism`
-    /// exists yet either; see the comment a few methods down for why), so
-    /// this always takes the growth branch today, but the reuse path is
-    /// real, correct code, not a stub — issue #8's actual fix, ready the
-    /// moment a future caller needs it. Returns the encoded `organism_id`
-    /// to stamp onto `Cell::organism_id`.
+    /// issue #8's actual fix, and live now that `free_organism` below
+    /// populates that list.
+    ///
+    /// **The generation bump lives here and only here.** Freeing does not
+    /// bump; reuse does. Two bumps per life-cycle would spend the 4 bits at
+    /// double rate for no extra staleness detection, since nothing can hold
+    /// a reference to a slot between the free and the reuse that the free
+    /// alone would have invalidated.
+    ///
+    /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
         let state = OrganismState {
             species,
@@ -794,6 +954,15 @@ impl World {
             // The species mean until something germinates and draws — see
             // `OrganismState::genotype_draws`.
             genotype_draws: [0.0; organism::GENOTYPE_TRAITS],
+            // Creature fields: a plant is a chainless, headingless organism
+            // with no energy budget of its own, and stays at these.
+            chain: Vec::new(),
+            heading: 0,
+            energy: 0.0,
+            carrying: None,
+            since_nest: 0,
+            brain_state: [0.0; organism::BRAIN_HIDDEN_FOR_STATE],
+            genome: Vec::new(),
         };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];
@@ -801,6 +970,18 @@ impl World {
             // -- see `encode_organism_id`'s own doc for why this bound was
             // accepted rather than widening `Cell` a third time.
             slot.generation = (slot.generation + 1) & GENERATION_MASK;
+            // P-8: the wrap is the one moment a stale id can alias a live
+            // organism again, so count it rather than leaving it a
+            // theoretical footnote -- "how often does this actually
+            // happen" should be a number the engine can answer. Always-on
+            // rather than the design report's debug-only suggestion: a u32
+            // add on the allocation path is free next to the HashMap the
+            // same function just built, and a counter that only exists in
+            // debug builds cannot tell you anything about a long release
+            // session, which is the only place the count gets interesting.
+            if slot.generation == 0 {
+                self.organism_generation_wraps += 1;
+            }
             slot.state = Some(state);
             encode_organism_id(slot_index, slot.generation)
         } else {
@@ -816,7 +997,7 @@ impl World {
     /// `None` for `organism_id == 0` (no organism) or a stale id whose slot
     /// has since been reused by a different organism — the generation
     /// mismatch this whole scheme exists to catch, not a panic.
-    pub(crate) fn organism(&self, organism_id: u16) -> Option<&OrganismState> {
+    pub fn organism(&self, organism_id: u16) -> Option<&OrganismState> {
         let (slot_index, generation) = decode_organism_id(organism_id);
         if slot_index == 0 {
             return None;
@@ -847,21 +1028,47 @@ impl World {
         slot.state.as_mut()
     }
 
-    // `free_organism` (return a slot to `free_organism_slots`, the other
-    // half of issue #8's actual fix) is not here yet, deliberately: no
-    // species retrofitted so far needs it. Moss's `Divide` never
-    // touches `OrganismState` after creation (its resource scalar lives
-    // entirely in `Cell::aux`, not here), and detecting "this organism has
-    // no cells left" cheaply needs a real anchor/tip list to search from
-    // (`reachable_from_anchors`) or a live cell count — both real,
-    // deliberately deferred work for the tree retrofit (which already
-    // needs exactly this, generalizing `reclaim_if_tree_is_fully_dead`).
-    // Adding either method now with no caller would be dead code by this
-    // crate's own standard, not a head start; `decode_organism_id`'s
-    // generation check is already fully exercised by `organism`'s own
-    // tests above, so the one thing actually worth verifying now — that a
-    // stale id can never silently alias a reused slot — has real coverage
-    // regardless of when `free_organism` itself lands.
+    /// Return an organism's slot to the free list — the other half of
+    /// issue #8's fix, and `Reports/organism-substrate-design.md` §6's
+    /// generational allocator finally closed at both ends.
+    ///
+    /// **Why it exists now, having deliberately not existed before.** The
+    /// note this replaces recorded that no retrofitted species needed it:
+    /// moss's `Divide` never touches `OrganismState` after creation, and
+    /// trees are planted by hand, so `organisms` growing forever was a
+    /// bounded leak nobody could reach. Creatures end that. A colony that
+    /// lays eggs allocates on its own schedule, and the 12-bit slot index
+    /// caps concurrent organisms at 4,095 — one long session of a laying
+    /// queen exhausts it (`Reports/creature-direction.md` §2b).
+    ///
+    /// Generation-checked exactly like `organism`/`organism_mut`: a stale
+    /// id, or one already freed, is a **silent no-op** — never a panic, and
+    /// never a second push of the same index onto the free list, which
+    /// would hand the same slot to two live organisms. `state.is_none()`
+    /// is that double-free guard, and it is load-bearing rather than
+    /// defensive: the natural creature call site ("my cell list went
+    /// empty, release me") can genuinely fire twice, once from the death
+    /// path and once from the next scheduled tick finding nothing left.
+    ///
+    /// **The generation is not bumped here**, despite the design report's
+    /// §2b wording. `push_organism`'s reuse branch already bumps on
+    /// *reuse*, so bumping here as well would advance it twice per
+    /// life-cycle and burn the 4-bit space at double rate. One bump per
+    /// reuse, in exactly one place.
+    pub(crate) fn free_organism(&mut self, organism_id: u16) {
+        let (slot_index, generation) = decode_organism_id(organism_id);
+        if slot_index == 0 {
+            return;
+        }
+        let Some(slot) = self.organisms.get_mut((slot_index - 1) as usize) else {
+            return;
+        };
+        if slot.generation != generation || slot.state.is_none() {
+            return;
+        }
+        slot.state = None;
+        self.free_organism_slots.push(slot_index);
+    }
 
     // --- Liquid heightfield bodies (`Reports/liquid-heightfield-
     // design.md`, step 1 of §11's build order: the ownership substrate and

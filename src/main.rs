@@ -378,6 +378,14 @@ impl Handler {
                     self.app.plant_worm(x, y);
                 }
             }
+            // `Y` — the last free letter, and it places a *colony* rather
+            // than an ant: under about fifty they look broken however
+            // correct the code is (P-15).
+            KeyCode::KeyY => {
+                if let Some((x, y)) = self.cursor {
+                    self.app.found_colony(x, y);
+                }
+            }
             KeyCode::KeyU => {
                 if let Some((x, y)) = self.cursor {
                     self.app.summon_player(x, y);

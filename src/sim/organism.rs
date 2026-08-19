@@ -116,6 +116,35 @@ pub enum CellType {
     /// as it treats `MatureBody`. The only difference is that it still has
     /// one thing left it may do, once.
     DormantBud = 5,
+    /// **A creature's deciding cell** — the one that senses, chooses a move
+    /// and carries the heading; the body follows it snake-fashion
+    /// (`Reports/creature-direction.md` D1/§3c).
+    ///
+    /// A creature is an organism like any other, which is the whole point:
+    /// `Cell::organism_id` carries the generational handle, `OrganismState`
+    /// carries the state, and the species comes from `SpeciesRegistry`.
+    /// The parallel `CreatureState`/`Cell::aux`-index scheme this replaced
+    /// had no generations, no reclamation and a `u16` overflow guarded only
+    /// by a `debug_assert` — every one of those already solved here, which
+    /// is why it was retired rather than extended
+    /// (`Reports/organism-substrate-design.md` opens on exactly that
+    /// failure: a third private solution to per-organism state).
+    ///
+    /// Movement is **code, not a `Behavior`**. A `Behavior` is something a
+    /// species composes onto a cell type from data; deciding where to step
+    /// is the one thing creature.rs owns, and there is nothing for a
+    /// species to compose about it yet.
+    Head = 6,
+    /// A creature's trailing body cell. No behavior of its own — it goes
+    /// where the cell in front of it was (`creature::chain_move`).
+    ///
+    /// Unused while the worm is the only creature (a one-cell chain), and
+    /// added alongside `Head` deliberately rather than later: the two are
+    /// one decision about what a creature is made of, and `aux`'s low four
+    /// bits are a **positional, never-renumbered** encoding, so adding a
+    /// variant between them afterwards would be the renumbering that
+    /// encoding forbids.
+    Segment = 7,
 }
 
 /// One behavior a cell type can carry, composed freely by species data —
@@ -580,11 +609,170 @@ pub enum Behavior {
 pub struct SpeciesDef {
     pub name: String,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
+    /// Everything only a *creature* species needs. `#[serde(default)]` so
+    /// `moss.ron` and `tree.ron` keep parsing untouched — a plant is a
+    /// species with an empty `Creature` block, not a species missing one.
+    #[serde(default)]
+    pub creature: Option<CreatureDef>,
+}
+
+/// How a creature's cells are arranged, and therefore how they move.
+///
+/// **These are two movement rules, not one with a parameter**, and the
+/// split is the same call `organism.rs` already makes for `Divide` versus
+/// `Grow`. A chain *follows*: the body steps into the head's old
+/// positions, which is why it flows over any terrain and why it is exactly
+/// one cell wide — a path has no width. A rigid body *translates*: every
+/// cell shifts by the same offset, so it can be any shape, and it gets
+/// stuck where a chain would not.
+///
+/// **Decision D1 rejected rotation, not width.** Re-read it: "translating
+/// *or rotating* a shape through a falling-sand world is an unsolved hard
+/// problem". Translating by one cell is a passability check. Rotating is
+/// the hard half — a rotated shape does not land on the grid cleanly and
+/// you get aliasing, self-overlap and cells appearing from nowhere. And
+/// gravity spares us it entirely: a walking creature has a canonical up,
+/// so it only ever needs facing-left and facing-right, which is a **mirror
+/// of the template**, not rotation maths.
+///
+/// The trade is real and it is the point. A wide body handles rough ground
+/// badly — often no legal position at all — where a chain flows over
+/// anything. That cost is also what makes a wide predator unable to follow
+/// a one-cell-wide ant into its tunnel, with no "hiding" code anywhere.
+#[derive(Clone, Deserialize)]
+pub enum BodyPlan {
+    /// `n` cells in a following chain, head first. 1 is the worm, 2-3 an
+    /// ant. Owner open question #1 lives here: how many cells does a
+    /// creature need to read at play zoom?
+    Chain(u8),
+    /// Cell offsets from the head, authored **facing east**; the west-facing
+    /// form is this mirrored in x. `(0, 0)` is the head and is implicit —
+    /// list only the rest. y grows downward, matching the grid.
+    Rigid(Vec<(i8, i8)>),
+}
+
+impl BodyPlan {
+    /// Cell offsets from the head, head first, in the given facing.
+    pub fn offsets(&self, facing_west: bool) -> Vec<(i32, i32)> {
+        let mut out = vec![(0, 0)];
+        match self {
+            // A chain is laid out behind the head along the facing, which
+            // is only its *initial* shape — after one step the body is
+            // wherever the head has been.
+            BodyPlan::Chain(n) => {
+                for i in 1..*n as i32 {
+                    out.push((if facing_west { i } else { -i }, 0));
+                }
+            }
+            BodyPlan::Rigid(cells) => {
+                for &(dx, dy) in cells {
+                    out.push((if facing_west { -(dx as i32) } else { dx as i32 }, dy as i32));
+                }
+            }
+        }
+        out
+    }
+
+    pub fn is_rigid(&self) -> bool {
+        matches!(self, BodyPlan::Rigid(_))
+    }
+
+    /// How many cells this body occupies.
+    pub fn len(&self) -> usize {
+        match self {
+            BodyPlan::Chain(n) => *n as usize,
+            BodyPlan::Rigid(cells) => cells.len() + 1,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// A creature species' body plan, instincts and metabolism.
+///
+/// Separate from `cell_types` because these are properties of the
+/// *individual*, not of a cell type: a chain has one length however many
+/// cell types it uses, and one genome however many cells it has.
+#[derive(Clone, Deserialize)]
+pub struct CreatureDef {
+    /// What this creature is made of, and how it moves.
+    pub body: BodyPlan,
+    /// Frames between decisions.
+    pub tick_interval: u64,
+    pub start_energy: f32,
+    /// Charged every tick regardless of what the creature does.
+    pub idle_cost: f32,
+    /// Charged per cell moved.
+    pub move_cost: f32,
+    /// Charged per **active** synapse per tick.
+    ///
+    /// The sign of this mechanism is the point rather than its magnitude:
+    /// connections must pay for themselves or evolution prunes them, which
+    /// is simultaneously the sparsity pressure that keeps evolved brains
+    /// legible and a real energetic trade-off (brains are metabolically
+    /// expensive). `brain::eval_brain` returns the count for free.
+    pub synapse_cost: f32,
+    /// Gained by eating one food cell.
+    pub eat_energy: f32,
+    /// Fraction of `start_energy` below which a creature eats what it finds
+    /// instead of carrying it home.
+    ///
+    /// **Not "below full", which is what this was first written as and it
+    /// silently deleted the entire foraging loop.** A creature is below its
+    /// starting energy within one tick of being born and stays there
+    /// forever, so "eat if not full" means *always eat* — measured at 14
+    /// eats against 8 pickups and zero deliveries, with a colony that
+    /// looked, in the picture, exactly like one foraging correctly. This is
+    /// the number that decides whether a colony feeds itself or feeds its
+    /// nest, and it belongs in species data because that trade-off is what
+    /// separates a solitary forager from a social one.
+    pub hunger_fraction: f32,
+    /// Materials this species will eat and carry, by name.
+    ///
+    /// Owner open question #2: herbivory on live plants from day one, or
+    /// detritus only until the plant-damage interaction has been watched
+    /// once? The difference is one string in this list — herbivory works
+    /// with no new code at all, because a `Leaf` cell is just a cell and
+    /// the plant finds out through its own connectivity check.
+    pub food: Vec<String>,
+    /// The material a nest is built from — what `AtNest` senses.
+    pub nest: String,
+    /// How hard this species can dig, against a material's
+    /// `penetration_resistance`. The pattern roots already use
+    /// (`Behavior::Grow`'s `penetration_force`), **not** a material-name
+    /// whitelist: a species that can chew soil but not stone should say so
+    /// in force, so a future softer stone is diggable automatically.
+    pub dig_force: f32,
+    /// Ticks over which nest-scent deposit falls to nothing. See
+    /// `OrganismState::since_nest`.
+    pub nest_memory: u16,
+    /// Sensor offset in cells for the forward/lateral sampling.
+    ///
+    /// 6, measured: `pheromone::tests::trail_following_sweep` puts on-trail
+    /// tracking at 0.817 for SO 6 against 0.755 at 4, 0.743 at 8 and 0.727
+    /// at 10 — the best of the range, and it agrees with the literature's
+    /// 5-9 band and with the report's starting figure.
+    pub sensor_offset: i32,
+    /// The authored starting brain, as a sparse wiring list.
+    pub instincts: Vec<super::brain::Instinct>,
+    /// Authored connections into the hidden layer, and out of it. Empty for
+    /// a species whose generation-zero behaviour is pure taxis; the ant
+    /// needs them for the one thing a single layer cannot express — see
+    /// `brain::genome_from_wiring`.
+    #[serde(default)]
+    pub hidden_wiring: Vec<super::brain::HiddenWire>,
+    #[serde(default)]
+    pub hidden_outputs: Vec<super::brain::OutputWire>,
 }
 
 pub struct Species {
     pub name: String,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
+    pub creature: Option<CreatureDef>,
+    /// The authored genome, expanded once at load rather than per spawn.
+    pub genome: Vec<f32>,
 }
 
 impl Species {
@@ -602,7 +790,8 @@ impl Species {
 
 impl From<SpeciesDef> for Species {
     fn from(def: SpeciesDef) -> Self {
-        Self { name: def.name, cell_types: def.cell_types }
+        let genome = def.creature.as_ref().map(|c| super::brain::genome_from_wiring(&c.instincts, &c.hidden_wiring, &c.hidden_outputs)).unwrap_or_default();
+        Self { name: def.name, cell_types: def.cell_types, creature: def.creature, genome }
     }
 }
 
@@ -733,6 +922,64 @@ pub struct OrganismState {
     /// All-zero is "exactly the species mean", which is what an organism
     /// that has not germinated yet reads as, and what moss stays at.
     pub genotype_draws: [f32; GENOTYPE_TRAITS],
+
+    // --- creature fields (`Reports/creature-direction.md` §3b) ----------
+    //
+    // Empty/zero for every plant, and cheap enough that a per-species
+    // split would cost more in dispatch than it saves in bytes.
+    //
+    // **The report lists seven fields here; three of them are these.** The
+    // other four — `carrying: Option<MaterialId>`, `since_nest: u16`,
+    // `brain_state: [f32; BRAIN_HIDDEN]` and `genome: Vec<f32>` — arrive
+    // with the ants in stage 3, when there is code that reads them. Two of
+    // the four cannot even be spelled until stage 3 defines the brain
+    // constants. Written down here so the next session does not have to
+    // re-derive the list or wonder whether the omission was an oversight.
+    /// **Chain order, head first.** Plants leave it empty.
+    ///
+    /// `cells` is *membership* and this is *sequence* — a distinction only
+    /// movement needs, and the reason it is a second field rather than a
+    /// different view of the same one. A body follows its head by each
+    /// segment stepping into its predecessor's old position, which is a
+    /// question about order that a `HashMap` cannot answer.
+    pub chain: Vec<(i32, i32)>,
+    /// The head's facing, as a **discrete 0..8 compass index** into
+    /// `creature::DIRS` — never a float vector.
+    ///
+    /// Three problems die at once (`creature-direction.md` §4a): no
+    /// `sin_cos`, which `Reports/emergent-world-architecture.md` §8d names
+    /// as a cross-platform determinism trap; a turn of ±1 is exactly 45°,
+    /// the Physarum literature's default rotation angle; and every sensor
+    /// offset comes from one const table instead of a rounding rule.
+    ///
+    /// Stamped but unread while the worm is the only creature — its move
+    /// is a 4-neighbour choice with no facing. The ants read it.
+    pub heading: u8,
+    /// Energy budget. `creature::CreatureState`'s scalar, relocated — the
+    /// entire contents of the parallel per-creature storage this substrate
+    /// replaced.
+    pub energy: f32,
+    /// What this creature is carrying, if anything. **One item, not a
+    /// stack**, and deliberately *state* rather than a cell: making the
+    /// carried grain a chain cell doubles every movement edge case (what
+    /// happens when the cell it wants to move into is the thing it is
+    /// holding?) for no payoff at all at the zoom a creature is seen at.
+    pub carrying: Option<super::material::MaterialId>,
+    /// Ticks since this creature last touched nest material.
+    ///
+    /// **This is how an ant finds its way home without ever asking where
+    /// home is.** Its channel-A deposit is scaled down by how stale this
+    /// is, so outbound ants paint a gradient that is freshest nearest the
+    /// nest — and a laden ant walking *up* that gradient is walking home.
+    /// No creature ever queries the nest's position; the field knows.
+    pub since_nest: u16,
+    /// Persisted hidden-layer activations, so recurrence has something to
+    /// read. Zero for anything without a brain.
+    pub brain_state: [f32; super::brain::BRAIN_HIDDEN],
+    /// **The heritable genome** — `brain::GENOME_LEN` weights for a
+    /// creature, empty for plants until the plant migration adopts the
+    /// shared mechanism (`Reports/creature-direction.md` §7a).
+    pub genome: Vec<f32>,
 }
 
 /// How many independently-jittered traits a genotype carries — the width of
@@ -741,12 +988,22 @@ pub struct OrganismState {
 /// the other.
 pub const GENOTYPE_TRAITS: usize = 6;
 
+/// Re-exported so `world.rs` can size `OrganismState::brain_state`
+/// without importing `brain` for one constant.
+pub const BRAIN_HIDDEN_FOR_STATE: usize = super::brain::BRAIN_HIDDEN;
+
 pub struct SpeciesRegistry {
     species: Vec<Species>,
     by_name: HashMap<String, SpeciesId>,
 }
 
-const EMBEDDED: &[&str] = &[include_str!("../../assets/species/moss.ron"), include_str!("../../assets/species/tree.ron")];
+const EMBEDDED: &[&str] = &[
+    include_str!("../../assets/species/moss.ron"),
+    include_str!("../../assets/species/tree.ron"),
+    include_str!("../../assets/species/worm.ron"),
+    include_str!("../../assets/species/ant.ron"),
+    include_str!("../../assets/species/beetle.ron"),
+];
 
 /// Where the loader looks for species files, relative to the working
 /// directory — mirrors `material::ASSET_DIR`.
@@ -834,6 +1091,31 @@ impl SpeciesRegistry {
     #[inline]
     pub fn get(&self, id: SpeciesId) -> &Species {
         &self.species[id.0 as usize]
+    }
+
+    /// Overwrite a species' starting genome — **for ablation harnesses
+    /// only**, and it is worth having rather than hand-editing `.ron`
+    /// between runs for two reasons. Editing an asset changes nothing
+    /// until the next build (the `include_str!` gotcha that has produced
+    /// whole invalid sweeps here), and a sweep that has to rebuild between
+    /// points cannot vary a knob within one process, so it cannot hold
+    /// everything else fixed.
+    pub fn set_genome(&mut self, id: SpeciesId, genome: Vec<f32>) {
+        self.species[id.0 as usize].genome = genome;
+    }
+
+    /// Overwrite a species' creature parameters — **harness only**, same
+    /// caveat as `set_genome`.
+    ///
+    /// Needed because a scene cannot create scarcity without control of the
+    /// energy budget. `ant.ron`'s 900 starting energy against an idle cost
+    /// of 0.10 is roughly 7,500 ticks of life, and a sampling run is 1,000:
+    /// nothing can starve inside it, so every genome scored the same
+    /// survival — including one with no connections at all, which cannot
+    /// move. An environment where the outcome is identical for every
+    /// behaviour measures nothing.
+    pub fn set_creature(&mut self, id: SpeciesId, def: CreatureDef) {
+        self.species[id.0 as usize].creature = Some(def);
     }
 
     pub fn id_of(&self, name: &str) -> Option<SpeciesId> {
@@ -989,6 +1271,8 @@ pub fn cell_type(aux: u16) -> Option<CellType> {
         3 => Some(CellType::Leaf),
         4 => Some(CellType::RootTip),
         5 => Some(CellType::DormantBud),
+        6 => Some(CellType::Head),
+        7 => Some(CellType::Segment),
         _ => None,
     }
 }
@@ -1801,6 +2085,18 @@ mod tests {
     }
 
     #[test]
+    fn builtin_includes_worm_with_a_head_and_a_segment() {
+        // P-7: a species that exists only in `assets/species` silently does
+        // not exist for `cargo test` or for any run without an assets
+        // directory beside the binary, and `plant_worm_seed` would return
+        // `None` forever with nothing to point at.
+        let reg = SpeciesRegistry::builtin();
+        let worm = reg.get(reg.id_of("worm").expect("worm.ron must be in EMBEDDED, not just on disk"));
+        assert!(worm.behaviors(CellType::Head).is_empty(), "movement is creature.rs's code, not a composed Behavior");
+        assert!(worm.behaviors(CellType::Segment).is_empty());
+    }
+
+    #[test]
     fn an_unknown_species_name_is_none_not_a_panic() {
         let reg = SpeciesRegistry::builtin();
         assert!(reg.id_of("nonexistent-species").is_none());
@@ -1808,7 +2104,20 @@ mod tests {
 
     #[test]
     fn cell_type_round_trips_through_aux() {
-        for ty in [CellType::Seed, CellType::GrowingTip, CellType::MatureBody, CellType::Leaf, CellType::RootTip] {
+        // Every variant, and it must stay every variant: this list was
+        // silently missing `DormantBud` from the day that type was added,
+        // so the encoding of a live cell type went unasserted for a whole
+        // milestone. `Head`/`Segment` land here with the same care.
+        for ty in [
+            CellType::Seed,
+            CellType::GrowingTip,
+            CellType::MatureBody,
+            CellType::Leaf,
+            CellType::RootTip,
+            CellType::DormantBud,
+            CellType::Head,
+            CellType::Segment,
+        ] {
             assert_eq!(cell_type(pack_cell_type(ty)), Some(ty));
         }
     }
@@ -1869,15 +2178,141 @@ mod tests {
 
     #[test]
     fn an_unrecognized_type_bit_pattern_is_none() {
-        // 0-5 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud, so
-        // the first unassigned pattern is 6. Deliberately the *next* one
-        // rather than a far-away value: what this guards is that adding a
-        // variant does not silently start aliasing a stale bit pattern onto
-        // it, and the pattern that has just become valid is the one that
-        // proves the boundary moved with the enum.
-        assert_eq!(cell_type(5), Some(CellType::DormantBud));
-        assert_eq!(cell_type(6), None);
+        // 0-7 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud/Head/
+        // Segment, so the first unassigned pattern is 8. Deliberately the
+        // *next* one rather than a far-away value: what this guards is that
+        // adding a variant does not silently start aliasing a stale bit
+        // pattern onto it, and the pattern that has just become valid is
+        // the one that proves the boundary moved with the enum.
+        assert_eq!(cell_type(7), Some(CellType::Segment));
+        assert_eq!(cell_type(8), None);
         assert_eq!(cell_type(15), None);
+    }
+
+    // --- the generational allocator, both ends ------------------------------
+    //
+    // `encode_organism_id`/`decode_organism_id` are private to `world.rs`, so
+    // everything here asserts through the public surface: what a caller can
+    // observe is what has to be right.
+
+    #[test]
+    fn freeing_an_organism_recycles_its_slot() {
+        use crate::sim::chunk::Rect;
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        let first = w.push_organism(species);
+        assert!(w.organism(first).is_some());
+        w.free_organism(first);
+        assert!(w.organism(first).is_none(), "a freed id must stop resolving");
+
+        let second = w.push_organism(species);
+        assert!(w.organism(second).is_some());
+        assert_ne!(first, second, "the reused slot must hand back a *different* encoded id -- same index, bumped generation");
+        // The slot index is the low 12 bits; the reuse must be a genuine
+        // reuse of that index rather than growth, or the free list is not
+        // doing its job and the 4,095-slot ceiling is still reachable.
+        assert_eq!(first & 0x0FFF, second & 0x0FFF, "the second push should have reused the freed slot index, not grown the vec");
+        assert!(w.organism(first).is_none(), "the old id must still read stale after the slot was recycled");
+    }
+
+    #[test]
+    fn freeing_twice_is_a_no_op() {
+        // The double-free guard. Without `state.is_none()`, the second free
+        // pushes the same index onto the free list again and the next two
+        // pushes both get the same slot -- two live organisms sharing one
+        // `OrganismState`, which is the worst failure this allocator has.
+        use crate::sim::chunk::Rect;
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        let first = w.push_organism(species);
+        w.free_organism(first);
+        w.free_organism(first);
+
+        let a = w.push_organism(species);
+        let b = w.push_organism(species);
+        assert_ne!(a, b, "a double free must not hand the same slot to two live organisms");
+        assert_ne!(a & 0x0FFF, b & 0x0FFF, "a double free must not put one slot index on the free list twice");
+        assert!(w.organism(a).is_some() && w.organism(b).is_some());
+    }
+
+    #[test]
+    fn freeing_a_stale_or_zero_id_is_silently_ignored() {
+        use crate::sim::chunk::Rect;
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        w.free_organism(0); // "no organism" -- must not touch slot 0's storage
+        w.free_organism(1234); // never allocated
+
+        let live = w.push_organism(species);
+        w.free_organism(live);
+        let reused = w.push_organism(species);
+        // The stale handle for the previous generation must not be able to
+        // free the organism that now holds the slot.
+        w.free_organism(live);
+        assert!(w.organism(reused).is_some(), "a stale free must not release the live organism that inherited the slot");
+    }
+
+    #[test]
+    fn a_stale_site_on_a_reused_slot_drops_silently() {
+        // The whole point of the generational scheme
+        // (`Reports/organism-substrate-design.md` §6): a scheduled site
+        // outliving its organism must resolve to nothing and disappear, not
+        // panic and not act on whoever inherited the slot.
+        use crate::sim::chunk::Rect;
+        use crate::sim::scheduler::{self, ActiveKind, ActiveSite};
+
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let moss_material = w.materials.id_of("moss").expect("moss is compiled in");
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        let doomed = w.push_organism(species);
+        w.set(5, 5, Cell::new(moss_material, 0).with_organism_id(doomed).with_aux(pack_cell_type(CellType::GrowingTip)));
+        w.free_organism(doomed);
+
+        let heir = w.push_organism(species);
+        assert_eq!(doomed & 0x0FFF, heir & 0x0FFF, "the test needs the heir to actually inherit the slot");
+
+        w.schedule_active_site(ActiveSite { x: 5, y: 5, kind: ActiveKind::Organism { organism: doomed, stale_ticks: 0, plastochron: 0 }, next_frame: 1 });
+        for _ in 0..4 {
+            w.begin_step();
+            scheduler::step(&mut w); // must not panic
+            w.end_step();
+        }
+
+        assert_eq!(w.active_site_count(), 0, "a site whose organism is gone should drop itself, not reschedule forever");
+        assert!(w.organism(heir).expect("the heir is live").cells.is_empty(), "a stale site must not have grown cells for the organism that inherited its slot");
+    }
+
+    #[test]
+    fn generation_wrap_is_counted() {
+        // P-8. The 4-bit generation wraps after 16 reuses, at which point a
+        // reference stale by exactly that many reuses aliases a live
+        // organism again. Accepted, but it should be a *counted* quantity
+        // rather than a footnote -- 17 allocate/free cycles is one wrap.
+        use crate::sim::chunk::Rect;
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let species = w.species.id_of("moss").expect("moss is compiled in");
+
+        assert_eq!(w.organism_generation_wraps, 0);
+        let first = w.push_organism(species); // generation 0
+        w.free_organism(first);
+        // Generations 1..=15: fifteen reuses, none of them a wrap.
+        for _ in 0..15 {
+            let id = w.push_organism(species);
+            assert_ne!(id, first, "generations 1..15 must all encode differently from generation 0");
+            w.free_organism(id);
+        }
+        assert_eq!(w.organism_generation_wraps, 0, "fifteen reuses stay inside the 4-bit space");
+
+        // The sixteenth reuse is the wrap -- and the aliasing it warns
+        // about is real, which is exactly why it is worth counting: the
+        // very first id reads live again.
+        let wrapped = w.push_organism(species);
+        assert_eq!(w.organism_generation_wraps, 1, "the sixteenth reuse of one slot should have wrapped its generation exactly once");
+        assert_eq!(first, wrapped, "after sixteen reuses the encoded id repeats -- the accepted limitation, asserted so it stays known");
     }
 
     // --- diffuse_resource --------------------------------------------------

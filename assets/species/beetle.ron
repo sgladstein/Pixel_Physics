@@ -1,0 +1,48 @@
+// **The first non-chain body.** A 2x2 rigid block that translates as a
+// unit, against the ant's one-cell-wide following chain -- and the entire
+// difference is `body: Rigid(...)` below. No code anywhere knows what a
+// beetle is.
+//
+// It eats ants. That needed no new mechanism either: `food:` is a list of
+// material names and "ant" is a material, so the existing eat verb does it.
+// Losing a cell to a bite is handled by `creature::reconcile_chain` --
+// an ant that loses its head dies, one that loses a segment is injured.
+//
+// `dig_force: 0.3` is below soil's `penetration_resistance` of 0.8, so a
+// beetle cannot dig. An ant can (1.0). That asymmetry plus the width is
+// what makes a burrow a refuge, and neither is a rule about hiding.
+(
+    name: "beetle",
+    cell_types: [
+        (Head, []),
+        (Segment, []),
+    ],
+    creature: Some((
+        // Offsets from the head, authored facing east; `(0, 0)` is implicit.
+        // y grows downward, so a negative dy is *up*: these three complete a
+        // 2x2 with the head at its **bottom-front** corner. Bottom matters --
+        // the head is the cell that senses and decides, so it belongs where
+        // it touches the ground, the same place an ant's head is. Authored
+        // the other way up the body extended into the floor and the species
+        // simply could not be placed anywhere.
+        body: Rigid([(-1, 0), (0, -1), (-1, -1)]),
+        tick_interval: 8,
+        start_energy: 1600.0,
+        idle_cost: 0.15,
+        move_cost: 0.4,
+        synapse_cost: 0.002,
+        eat_energy: 300.0,
+        hunger_fraction: 0.8,
+        food: ["ant", "corpse"],
+        nest: "nest",
+        dig_force: 0.3,
+        nest_memory: 3000,
+        sensor_offset: 6,
+        instincts: [
+            (Bias, Move, 2.0),
+            (FoodAdjacent, Move, -2.0),
+            (FoodAdjacent, Dig, 2.0),
+            (TempAboveAmb, Turn, -0.8),
+        ],
+    )),
+)

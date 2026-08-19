@@ -42,6 +42,15 @@
 //!   off it exceeds what its section can hold. See
 //!   `Reports/fracture-mechanics-design.md` for why reach was the wrong
 //!   question
+//! * `brain` — the fixed-scaffold network a creature decides with. Its
+//!   weights *are* the genome; the topology never changes, which is what
+//!   keeps every genome mutually compatible and every brain readable
+//! * `pheromone` — two world-sized u8 planes at CA resolution, the
+//!   stigmergy substrate creatures deposit into and read back. Deliberately
+//!   *not* a sixth `field` channel: at `FIELD_SCALE = 8` two trails four
+//!   cells apart produce a bit-identical field, measured
+//!   (`creature.rs`'s resolution experiment), so path selection — the
+//!   entire mechanism — would be impossible
 //! * `creature` — M18 Phase 1, cell-based creatures (a burrowing worm),
 //!   dispatched from `scheduler` like plant growth and structural checks;
 //!   fire/burning is deliberately not reimplemented here, since `fire.rs`
@@ -57,6 +66,7 @@
 //!
 //! Nothing below `update` knows about rendering, windowing or input.
 
+pub mod brain;
 pub mod cell;
 pub mod chunk;
 pub mod creature;
@@ -71,6 +81,7 @@ pub mod material;
 pub mod organism;
 pub mod parallel;
 pub mod particle;
+pub mod pheromone;
 pub mod plant;
 pub mod player;
 pub mod rigid;

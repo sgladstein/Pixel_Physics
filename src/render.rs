@@ -195,6 +195,13 @@ pub enum FieldOverlay {
     Temperature,
     Light,
     Moisture,
+    /// The two stigmergy planes (`sim::pheromone`). Cycled here with the
+    /// field channels because `V` is where a player already looks for "show
+    /// me an invisible scalar", but note these are **not** field channels —
+    /// they are at CA resolution, and they are drawn by a different rule
+    /// (see `apply_field_overlay`).
+    PheromoneA,
+    PheromoneB,
 }
 
 impl FieldOverlay {
@@ -204,7 +211,9 @@ impl FieldOverlay {
             FieldOverlay::Pressure => FieldOverlay::Temperature,
             FieldOverlay::Temperature => FieldOverlay::Light,
             FieldOverlay::Light => FieldOverlay::Moisture,
-            FieldOverlay::Moisture => FieldOverlay::Off,
+            FieldOverlay::Moisture => FieldOverlay::PheromoneA,
+            FieldOverlay::PheromoneA => FieldOverlay::PheromoneB,
+            FieldOverlay::PheromoneB => FieldOverlay::Off,
         }
     }
 
@@ -215,6 +224,8 @@ impl FieldOverlay {
             FieldOverlay::Temperature => "TEMPERATURE",
             FieldOverlay::Light => "LIGHT",
             FieldOverlay::Moisture => "MOISTURE",
+            FieldOverlay::PheromoneA => "PHEROMONE A",
+            FieldOverlay::PheromoneB => "PHEROMONE B",
         }
     }
 }
@@ -309,6 +320,14 @@ const CELL_TYPE_ROOT_TIP: [f32; 3] = [255.0, 150.0, 60.0];
 /// note on the canopy-density sheet that read as blank because a mid-range
 /// value moved one colour byte from 139 to 155.
 const CELL_TYPE_DORMANT_BUD: [f32; 3] = [80.0, 255.0, 255.0];
+/// A creature's deciding cell and its trailing body. Loud, and loudly
+/// *different from each other*: the question this overlay has to answer for
+/// a chain is "where is the head", and a head-and-tail drawn in two shades
+/// of one hue is unreadable at the one-or-two-cell size a creature actually
+/// occupies. Pure white against a mid grey is the widest separation
+/// available that is also unlike every plant colour above.
+const CELL_TYPE_HEAD: [f32; 3] = [255.0, 255.0, 255.0];
+const CELL_TYPE_SEGMENT: [f32; 3] = [130.0, 130.0, 140.0];
 
 /// Flat blend for `OrganismOverlay::CellType`. High, but short of 1.0 on
 /// purpose: keeping a little of the underlying material colour through
@@ -333,6 +352,14 @@ const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
 /// glance, high enough that a zero cell still has a visible silhouette.
+/// The two pheromone planes. Magenta and cyan — chosen to be unlike every
+/// material in the world *and* unlike each other at a glance, because the
+/// question these overlays exist to answer for a colony is "which channel
+/// is this trail", and two neighbouring hues cannot answer it on a
+/// one-cell-wide line.
+const SCALAR_RAMP_PHERO_A: [f32; 3] = [255.0, 80.0, 220.0];
+const SCALAR_RAMP_PHERO_B: [f32; 3] = [80.0, 240.0, 255.0];
+
 const SCALAR_RAMP_FLOOR: f32 = 0.18;
 
 /// Maps a normalized `0..1` reading onto a channel's ramp. Deliberately
@@ -1733,6 +1760,8 @@ impl Renderer {
                     Some(organism::CellType::Leaf) => CELL_TYPE_LEAF,
                     Some(organism::CellType::RootTip) => CELL_TYPE_ROOT_TIP,
                     Some(organism::CellType::DormantBud) => CELL_TYPE_DORMANT_BUD,
+                    Some(organism::CellType::Head) => CELL_TYPE_HEAD,
+                    Some(organism::CellType::Segment) => CELL_TYPE_SEGMENT,
                     None => [255.0, 0.0, 0.0],
                 };
                 (colour, CELL_TYPE_BLEND)
@@ -1786,6 +1815,36 @@ impl Renderer {
     /// paints the entire screen for a channel currently near zero
     /// everywhere.
     fn apply_field_overlay(&self, world: &World, x: i32, y: i32, base: [u8; 4]) -> [u8; 4] {
+        // **The pheromone channels return here, before the blend tail
+        // below ever runs, and that is not a shortcut.** `CLAUDE.md`'s
+        // "a debug readout must not be a function of the thing it debugs"
+        // requires a full replace on a fixed dark->bright ramp; the four
+        // arms below are magnitude-*blends* into the cell's own colour,
+        // which is right for them (a flat blend tints every ambient pixel
+        // of a channel that is near zero everywhere) and wrong here.
+        //
+        // The failure a blend produces is not subtle-looking, it is
+        // *invisible*: the canopy-density sheet read as blank because the
+        // ramp was red, wood is brown, and a mid-range value moved one
+        // colour byte from 139 to 155. The obvious reading — "the
+        // mechanism is dead" — would have sent a fix at working code. A
+        // trail is one cell wide over dirt, which is that case exactly.
+        //
+        // Do not "unify" these two paths.
+        let pheromone_channel = match self.field_overlay {
+            FieldOverlay::PheromoneA => Some((crate::sim::pheromone::Channel::A, SCALAR_RAMP_PHERO_A)),
+            FieldOverlay::PheromoneB => Some((crate::sim::pheromone::Channel::B, SCALAR_RAMP_PHERO_B)),
+            _ => None,
+        };
+        if let Some((channel, full)) = pheromone_channel {
+            let t = world.pheromone_at(channel, x, y) as f32 / 255.0;
+            let ramp = scalar_ramp(t, full);
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
         let (ramp, magnitude) = match self.field_overlay {
             FieldOverlay::Off => return base,
             FieldOverlay::Pressure => {
@@ -1814,6 +1873,8 @@ impl Renderer {
                 let t = (f.moisture / MOISTURE_OVERLAY_MAX).clamp(0.0, 1.0);
                 ([60.0, 140.0, 255.0], t)
             }
+            // Handled by the full-replace branch above, which returns.
+            FieldOverlay::PheromoneA | FieldOverlay::PheromoneB => return base,
         };
         const MAX_BLEND: f32 = 0.75;
         let blend = magnitude.clamp(0.0, 1.0) * MAX_BLEND;
@@ -2332,6 +2393,14 @@ mod tests {
         world.add_pressure_impulse(5, 5, 3, 40.0); // disturbance confined to a far corner
         let mut renderer = Renderer::new();
         let off = renderer.cell_colour(&world, 50, 50);
+        // **Blend channels only, deliberately.** `PheromoneA`/`PheromoneB`
+        // are excluded because they are full-replace by design: a cell with
+        // a zero reading draws at `SCALAR_RAMP_FLOOR` of its ramp colour,
+        // *not* at `base`, which is the entire point (a channel that is
+        // zero everywhere must read as a visible dark field, not as
+        // "overlay is off"). Adding them to this list would be asserting
+        // that the fix for the canopy-density blank sheet had not been
+        // applied.
         for overlay in [FieldOverlay::Pressure, FieldOverlay::Temperature, FieldOverlay::Light, FieldOverlay::Moisture] {
             renderer.field_overlay = overlay;
             assert_eq!(renderer.cell_colour(&world, 50, 50), off, "{overlay:?} tinted an unaffected cell far from any real disturbance");
@@ -2375,16 +2444,60 @@ mod tests {
         let mut r = Renderer::new();
         assert_eq!(r.field_overlay, FieldOverlay::Off);
         let mut seen = vec![r.field_overlay];
-        for _ in 0..4 {
+        for _ in 0..6 {
             r.cycle_field_overlay();
             seen.push(r.field_overlay);
         }
         assert_eq!(
             seen,
-            vec![FieldOverlay::Off, FieldOverlay::Pressure, FieldOverlay::Temperature, FieldOverlay::Light, FieldOverlay::Moisture]
+            vec![
+                FieldOverlay::Off,
+                FieldOverlay::Pressure,
+                FieldOverlay::Temperature,
+                FieldOverlay::Light,
+                FieldOverlay::Moisture,
+                FieldOverlay::PheromoneA,
+                FieldOverlay::PheromoneB
+            ]
         );
         r.cycle_field_overlay();
-        assert_eq!(r.field_overlay, FieldOverlay::Off, "cycling should wrap back to Off, not stop at Moisture");
+        assert_eq!(r.field_overlay, FieldOverlay::Off, "cycling should wrap back to Off, not stop at the last channel");
+    }
+
+    #[test]
+    fn the_pheromone_overlay_is_a_full_replace_not_a_blend() {
+        // P-23 / correction #4. The four field channels above blend into
+        // the cell's own colour; a pheromone reading must *replace* it, or
+        // the same value over two different materials draws as two
+        // different brightnesses and the sheet becomes unreadable — which
+        // is how the canopy-density overlay came to read as blank.
+        //
+        // Two very different base materials, one identical plane value:
+        // the pixels must come out identical.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        world.set(10, 10, Cell::new(material::STONE, 0));
+        let coal = world.materials.id_of("coal").unwrap_or(material::SAND);
+        world.set(20, 20, Cell::new(coal, 0));
+        world.deposit_pheromone(crate::sim::pheromone::Channel::A, 10, 10, 128);
+        world.deposit_pheromone(crate::sim::pheromone::Channel::A, 20, 20, 128);
+
+        let mut r = Renderer::new();
+        r.field_overlay = FieldOverlay::PheromoneA;
+        assert_eq!(
+            r.cell_colour(&world, 10, 10),
+            r.cell_colour(&world, 20, 20),
+            "equal pheromone over different materials must draw identically -- a blend would leak the material colour through"
+        );
+
+        // And a zero reading must still be visible as the ramp floor
+        // rather than reading as "the overlay is off".
+        let off_pixel = {
+            let mut plain = Renderer::new();
+            plain.field_overlay = FieldOverlay::Off;
+            plain.cell_colour(&world, 40, 40)
+        };
+        assert_ne!(r.cell_colour(&world, 40, 40), off_pixel, "a zero reading must draw at the ramp floor, so an empty channel reads as empty rather than as absent");
+        assert_ne!(r.cell_colour(&world, 40, 40), r.cell_colour(&world, 10, 10), "and a zero reading must still be distinguishable from a strong one");
     }
 
     #[test]

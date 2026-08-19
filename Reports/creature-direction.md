@@ -903,3 +903,816 @@ surveyed sims.
 3. Colony failure: when a queen dies, do workers persist until starvation
    (ghost colony) or wind down faster? Starvation-only is the no-code
    default and probably fine.
+
+---
+
+## 13. Findings from building stages 0–3 (2026-08-17)
+
+Written from measurement, not from re-reading the plan. Everything in §§1–12
+above is the design as agreed; this section is what happened when it was
+built, and it contradicts the design in three places.
+
+### 13a. What works, and is measured
+
+| Mechanism | Evidence |
+|---|---|
+| Creature-on-organism substrate | worm ported, `CreatureState` deleted, slot released on death and on fire; 5 break-checks recorded |
+| Pheromone planes at CA resolution | drains to exactly 0; settled pass **0.0014 ms** against the 0.5 ms gate, **0 tiles** processed |
+| Overlays + probe | both channels render as legible distinct trails; `creature_probe` prints all 14 inputs / 6 outputs / synapse count |
+| Free-space trail following | 0.817 of steps within 2 cells, 0.961 of the trail traversed, against a 0.050 no-trail control |
+| The caged brain | authored instincts expand to a genome; recurrence verified to read last tick; sub-`W_EPS` weights neither evaluated nor taxed |
+| Eat / pick up / dig / drop | all four fire; digging gated by `penetration_resistance` vs `dig_force` — 1,551 soil cells excavated, **stone floor 200/200 intact** |
+| Deposition bias (§6) | drops cluster where `\|∇moisture\|` is steep: **10 vs 1** across halves measured at 2.279 vs 0.787 |
+| Energy census (§8) | balances to f32 rounding over 12,000-frame runs (delta ~1.6 on ~20,000) |
+
+### 13b. The homing half does not close, and here is why
+
+**`forage_loop` reaches 33 pickups and 0 deliveries.** Carriers pick food
+up, lay channel B, and then drift *away* from the nest — measured with the
+probe: 33 ants carrying, mean position x=201, nest at x<120.
+
+The cause is geometric, not a tuning failure. §4a specifies three sensors —
+ahead, ahead-left, ahead-right — at offset `SO`, and the brain receives
+`lateral = right − left`. **On a horizontal surface both lateral sensors sit
+in open air.** For an ant on a floor heading east at SO=6 they sample
+`(x+6, y−6)` and `(x+6, y+6)`; the trail is in the row the ant is standing
+in. Measured directly: an ant standing on a cell holding `A = 27` reads
+`pheroA_lr = 0.000`.
+
+So `lateral` is **identically zero on flat ground**, for both channels, and
+no gain on it can steer anything. Two consequences:
+
+1. The Jones/Physarum sensor triad assumes agents in open 2D. This is a
+   side-view world where creatures walk on surfaces, and §9a's own
+   orientation caveat turns out to understate the problem: it is not that
+   side view gives *fewer competing paths*, it is that the sensor geometry
+   does not sample the surface the trail is on.
+2. Even with a working lateral signal, the three-forward-candidate rule
+   cannot express **reversal**. A carrier that needs to go back the way it
+   came must accumulate four ±1 turns, and the intermediate headings point
+   into the floor or into open air, where the footing rule blocks them. A
+   surface creature needs a front-versus-behind comparison, which no input
+   in §4b's table provides.
+
+**Do not fix this by re-tuning.** The gated hidden units §4c prescribes were
+built and *are* in `ant.ron` (the additive approximation failed exactly as
+§4c predicted) — they change nothing here, because the signal they gate is
+zero. Candidate next steps, unbuilt:
+
+* Add a `PheroAlongHeading` input: pheromone ahead minus pheromone at the
+  head, per channel. That is a scalar with directional meaning on a
+  surface, and it makes run-and-tumble chemotaxis expressible — which is
+  how bacteria solve exactly this problem without being able to steer.
+* Give a failed move roll a chance to re-roll the heading (the "tumble").
+  The mechanism is already half-present in the blocked path's
+  viable-heading re-roll.
+
+### 13c. `double_bridge` measured the terrain, not the colony
+
+An intermediate build reported 21.00 mean channel-B on the short route
+against 6.22 on the long one, and passed §9a's assertion. It was not
+measuring path selection: with lateral steering dead, what produced it was
+ants using the only route a ground-dweller can use and depositing on it.
+The assertion is now a printed note. **A guard that passes for the wrong
+reason is worse than no guard** — this one would have certified stigmergy
+that does not exist.
+
+### 13d. Corrections to the design's own numbers
+
+* `DIFFUSE = 0.1` (§5b) does essentially nothing on a u8 plane — the
+  blended value at distance 2 rounds to zero before it can propagate. 0.25,
+  set from a sweep of tracking performance.
+* `DECAY_RHO` wants to be **below** the literature band, not above it, and
+  `PHEROMONE_INTERVAL` is the load-bearing knob: `build_decay_lut`'s forced
+  strict decrease costs at least 1 per pass, so the longest an unreinforced
+  trail can live is 255 passes. At one pass per 4 frames that is ~1,000
+  frames against a ~2,200-frame round trip. Interval 12, rho 0.03.
+* "Gate an action on the output crossing 0.5" (§6) cannot work as written:
+  `squash(0.9) = 0.474`, so a plainly-authored instinct sits just under the
+  gate and the verb never fires. Actions are probabilities, which §6's own
+  "multiply drop probability by the moisture gradient" requires anyway.
+* §4c's instinct list has no standing drive to dig, so an ant facing a bank
+  of soil computed a dig urge of exactly zero and excavation never
+  happened. `(Bias, Dig, 0.4)` added.
+* "Eat if energy below full" makes every creature permanently hungry and
+  deletes carrying entirely. A `hunger_fraction` (0.5) is the real
+  parameter.
+
+### 13e. Homing, built (2026-08-17, after §13b)
+
+§13b's two candidate fixes were both built, and the mechanism works. What
+is left is a different problem from the one that was diagnosed.
+
+**The scaffold grew by two inputs**, `PheroAAlong` / `PheroBAlong` (slots
+14, 15): the pheromone at the forward sensor minus the pheromone underfoot,
+normalized by their sum so it is scale-free. Appended, never inserted —
+every existing slot kept its index and meaning. `GENOME_LEN` 168 → 188.
+Lawful only because nothing persists a genome yet; after stage 4 this
+becomes a migration.
+
+**Movement gained a tumble.** A failed move roll re-orients the creature
+with probability `TUMBLE_ON_FAILED_MOVE = 0.35`, choosing uniformly among
+headings that actually have footing. With `Move` driven by the
+along-gradient, that is run-and-tumble chemotaxis: run while it improves,
+re-orient at random when it does not. No steering is involved, which is the
+point — there is nothing on a surface to steer on.
+
+**The ant's four hidden units were repurposed** from gating *steering* (a
+signal that is identically zero, §13b) to gating the *run*. Verified with
+the probe, which is the only instrument that could have shown it:
+
+```
+carrier:   pheroA_along -0.750  carrying +1.000  ->  move -0.688 (clamps to 0)
+empty ant: pheroA_along +0.270  carrying +0.000  ->  move +0.663
+```
+
+A laden ant pointed away from home refuses to step and tumbles until it is
+pointed somewhere better; an empty one ignores the nest scent entirely and
+keeps its baseline run. That is the gate working and the leak cancelled.
+
+**Two things this cost, both worth recording.** Tumbling on *every* failed
+move destroys the persistent run that finds food (33 pickups → 1); "how
+often do I step" and "how often do I change my mind" are different
+questions. And a symmetric gate pair only cancels exactly at equal
+activation, so an ungated pair leaks: at offset 5 the leak was 0.27 and
+emptied the foraging range immediately, at 12 it was 0.09 and the colony
+still drifted home over 12,000 frames. 30 puts both units at -0.967 vs
+-0.971 and costs the gate nothing.
+
+**What is still not demonstrated: food discovery, not homing.** The colony
+reaches ~1 pickup per run because its eastern front stalls around 200 cells
+out and the food sits beyond it. A separate finding explains part of it:
+**a dense line of ants gridlocks**, because a creature is neither a
+foothold nor passable, so ants founded shoulder to shoulder simply stop
+(27,386 blocked ticks, and a picture showing an unbroken wall of them).
+Colonies need more corridor than they occupy — `found_colony` now spaces
+them four apart.
+
+Next, in order: raise the exploration range (a dispersal drive, or letting
+ants pass over one another), then re-run `forage_loop` and `double_bridge`,
+whose assertions are still printed notes rather than guards.
+
+### 13f. The landscape was flat because the economy was broken (2026-08-17)
+
+An ablation harness (`examples/ant_ablation.rs`) was built to answer one
+question: **is the authored brain doing anything, or is the substrate?** It
+varies only the genome, holds everything else fixed, and reports *behaviour*
+rather than event totals -- because the scene counters (moves, pickups)
+cannot tell a colony vibrating on the spot from one commuting, cannot tell
+five busy ants from fifty, and say nothing about spatial range, which was
+the thing actually failing. That had been diagnosed by reading an ascii
+picture, because no number described it.
+
+**Two of the first five metrics were measuring the initial condition.** A
+colony with a genome of literally zero connections, which provably never
+moves a cell, scored "range 118" and "left the nest 0.63" -- both reporting
+where ants had been *placed*. Only the zero-genome control exposed it.
+
+**With a finite corpse pile, eight of ten authored instincts produced
+bit-identical behaviour.** So three constants moved into the genome as
+outputs -- `Persist` (an anonymous 0.15 that decided milling versus
+commuting), `Tumble`, `Caution` -- and even then only `Tumble` had leverage.
+
+**Terrain matters, but less than it first appeared.** On a hand-built ridge
+profile `Persist` swung travel 2.2x; on *generated* terrain, almost
+nothing. The hand-built profile was a special case, caught only because the
+generated arm was run as a check. Baseline behaviour does improve hugely on
+real terrain (coverage 49 -> 1670 over control).
+
+**The finding that reframes the milestone: the loop was never broken, the
+food distribution was.** Trees regrow leaves; a corpse pile does not.
+Adding "leaf" to the food list -- open question #2, answered herbivory, and
+no new code at all:
+
+| food source | foraged | pickups | deliveries |
+|---|---|---|---|
+| finite corpse pile | 0.05 | 2.5 | **0** |
+| regrowing leaves | **0.39** | **44.8** | **28.8** |
+
+13b's diagnosis was correct and 13e's fix necessary. The reason the loop
+still would not close is that almost no ant ever found food, and a colony
+cannot demonstrate a foraging loop it never enters.
+
+**The fitness landscape now has slope.** Single weight changes move
+deliveries 28-99%, and four *beat* the authored genome: `Caution=lo` 55.0,
+`Tumble=lo` 41.2, `Persist=hi` 39.0, `-Bias->EmitA` 37.0, against authored
+28.8. The hand-tuned ant is measurably suboptimal and simple mutations find
+better -- exactly the gradient selection needs, and it did not exist a day
+ago.
+
+Two further results: `Bias->EmitA` is **net-negative in both economies** --
+the nest-scent homing mechanism is paid for and not returning.
+`Crowding->Move` looked inert in the flat corpse-pile world and is
+load-bearing with a real economy (removing it costs 69% of deliveries).
+
+The lesson to keep: **an ablation in a broken economy measures nothing.**
+Every conclusion drawn from the corpse-pile world was wrong or
+unfalsifiable.
+
+### 13g. Scenes must run in the environment the mechanism was verified in
+
+`forage_loop`'s `deliveries > 0` is an assertion again (measured 414 per
+run). Getting there needed the scene moved onto **generated terrain**, and
+two cheaper stand-ins failed first -- both of which looked obviously fine:
+
+* **A flat floor is degenerate.** An ant on level ground has its
+  up-diagonals in open air and its down-diagonal inside the floor, so it
+  usually has exactly one legal step and is not deciding anything. 248
+  distinct cells visited against 1,670 on generated terrain; 0.54 of ants
+  ever leaving their start against 0.97.
+* **A hand-built ridge profile** produced one-column cliffs; ants walked
+  off them constantly (6,985 falls, 1 pickup). Smoothing every slope to
+  under a cell per column still left 6,269, because ants also climb trees
+  and drop out of a sparse canopy.
+
+This is the third time a hand-built stand-in has produced a wrong answer
+that a generated-terrain arm then corrected (the others: `Persist`
+appearing to have leverage, and the whole flat-world ablation). **Prefer
+the real generator over a controlled approximation of it**, even when the
+approximation is easier to reason about -- the approximations here have not
+been representative once.
+
+Also: the scene's print window was cropping the canopy, i.e. cropping the
+food out of a foraging scene. A scene that cannot be judged by eye is not
+doing its job.
+
+### 13h. Width, and the refuge that falls out of it
+
+`BodyPlan` splits movement into two rules on the same substrate: `Chain(n)`
+*follows* (the body steps into the head's old cells, which is why it flows
+over any terrain and why it is exactly one cell wide -- a path has no
+width), and `Rigid(offsets)` *translates* (every cell shifts by the same
+offset, so it can be any shape).
+
+**D1 rejected rotation, not width.** Translating one cell is a passability
+check; rotating is the hard half -- a rotated shape does not land on the
+grid cleanly. And gravity spares us it: a walking creature has a canonical
+up, so it needs only facing-left and facing-right, which is a **mirror of
+the authored template**.
+
+`beetle.ron` is the first non-chain body: a 2x2 rigid block that eats ants.
+Three properties, and none of them is code that knows what a beetle is:
+
+* **It cannot enter a one-cell tunnel an ant walks through.** Purely
+  because a rigid body's passability check covers every cell of it. This is
+  the refuge, with no hiding logic anywhere -- and it is the property D1's
+  rejection of rigid bodies was assumed to have cost us.
+* **It eats ants with no predation code.** `food:` is a list of material
+  names and "ant" is a material, so the existing eat verb does it. Found by
+  accident: an isolation test put both in one world and the ant vanished.
+* **`dig_force: 0.3`** is below soil's 0.8, so it cannot dig where an ant
+  (1.0) can. A second, independent asymmetry.
+
+Two things the tests had to be rescued from, both of which were the scene
+rather than the mechanism:
+
+* A beetle on a short floor **run-and-tumbled off the end and fell out of
+  the world**. It has no pheromone instincts, so it cannot sense food at
+  range; whether a predator can *find* prey is a different question from
+  whether eating one works, and conflating them made the test measure the
+  first while claiming the second.
+* Predator and prey in one world **confounded the tunnel-geometry test** --
+  the beetle ate the ant. One creature per world when the claim is
+  geometric.
+
+And a real behaviour note: a beetle near full energy **carries** its prey
+rather than eating it, because carry-versus-eat branches on
+`hunger_fraction`. Asserting `eats` alone made the test depend on the
+predator's energy budget rather than on predation.
+
+### 13i. Readiness check: the metrics are ready, the ecology is not
+
+Before spending an hour sampling random genomes, three questions were asked
+of the setup: is now the time, is the environment right, are the metrics
+right? Two of the three were no, and finding that out cost minutes instead
+of an hour.
+
+**The metrics work.** `examples/creature_space.rs` treats *survival* as the
+only outcome -- deliberately, because it is strategy-agnostic: a sessile
+leaf-camper and a wide-ranging forager are judged on the same number, and
+it encodes no opinion about how an ant ought to live. Everything else
+(`travelled`, `commute`, `feeding`, `depth`) is a **descriptor**: what a
+genome did, never how well. Diversity is behaviour-space coverage over
+those four axes, which is MAP-Elites' measure and answers "how many
+distinguishable ways" without ranking them against a target.
+
+**The environment is not ready, and the reason is structural.** Four
+attempts, each caught by the smoke test rather than by reasoning:
+
+1. Abundant food, no predator -> every genome scored survival 0.91,
+   including the zero genome *which cannot move*. An outcome identical for
+   every behaviour is not an outcome.
+2. Start energy 260 -> an idle ant outlived the run, so doing nothing was
+   cheaper than living and the zero genome won outright.
+3. Start energy 150 -> zero still won (0.923); the budget has to fall
+   *below* the run length, not near it.
+4. Start energy 90, danger moved in among the colony, food brought into
+   reach -> **bit-identical output**. Neither the beetles nor the trees
+   were ever part of the loop.
+
+That last one exposed the real dynamic: **"corpse" is in the ant food list,
+so a starved ant feeds the ants around it and a colony sustains itself on
+its own dead without foraging at all.** Removing corpses from the menu
+dropped the forager from 0.361 to 0.237 while the zero genome stayed at
+exactly 0.554, which confirms it.
+
+**And even without cannibalism, immobility wins: 0.554 against 0.237.**
+Movement is a pure cost with an unreliable payoff -- at this food density
+the expected return on a foraging trip is negative, so the best strategy
+available is to do nothing. Sampling random genomes in this environment
+would faithfully measure which genome moved least, and would have looked
+like a result.
+
+**The next experiment is therefore not the genome sweep**, it is a sweep of
+the energy economy itself: `eat_energy`, `move_cost` and food density,
+looking for the band where foraging pays *and* food is still scarce. That
+band may be narrow and it may not exist at the current numbers; either
+answer is worth having, and it is cheap. The genome sweep goes after it,
+in an environment that can tell strategies apart.
+
+### 13j. The synapse tax was 80% of a life, and it invalidated a sweep
+
+The economy sweep of §13i was set running and its first rows said something
+that could not be about foraging: at `move_cost` 0.02 -- twelve times
+cheaper than shipped -- and fourteen trees, foraging was *still* 0.17 worse
+than doing nothing. If movement costs almost nothing and food is
+everywhere, movement cost is not what is killing foragers.
+
+It was the **synapse tax**. `ant.ron` sets `synapse_cost: 0.002` per active
+connection per tick, calibrated in its own comment against `start_energy:
+900` -- "a dense brain costs about as much as standing still". §13i cut the
+budget to 90 to make starvation reachable and left the tax alone:
+
+    0.002 x ~24 active synapses x 1500 ticks = 72 of 90 starting energy
+
+**80% of a life, spent on having a brain.** And the zero genome pays none
+of it, because it has no active connections at all -- so "forager versus
+immobile" was really "thinks versus does not think", with thinking the
+larger term by a wide margin. The sweep was varying three knobs while a
+bigger unvaried one dominated the outcome.
+
+This is `CLAUDE.md`'s rule in its usual disguise: **when a fix changes what
+a number means, re-deriving the constants that read it is part of the fix.**
+Cutting `start_energy` by 10x silently made every brain ten times as
+expensive relative to a life.
+
+Held at ant.ron's authored ratio (`0.002 * start_energy / 900`), the
+forager immediately improved from 0.287 to 0.428 at the same settings. The
+sweep was stopped and restarted.
+
+Standing implication beyond this harness: `synapse_cost` is expressed in
+absolute energy but only means anything relative to `start_energy`. Any
+species whose budget differs from the ant's needs it re-derived, and a
+future body-size or metabolism parameter will hit this again.
+
+### 13k. Foraging cannot pay, because ants cannot reach the food
+
+The corrected economy sweep, 27 settings of `eat_energy` x `move_cost` x
+food density, two genomes each. **No setting made foraging pay.** The best
+was still negative: eat 120, move 0.02, 2 trees, advantage **-0.028**.
+
+The diagnosis is in a pair of identical rows:
+
+    eat 300, move 0.02, 2 trees -> forager 0.527
+    eat 700, move 0.02, 2 trees -> forager 0.527
+
+Every `eat_energy` 300 row equals its `eat_energy` 700 row, bit for bit,
+across all nine settings. **Identical output across settings means the knob
+was never connected** -- the `include_str!` tell, in a different costume.
+Raising the reward for eating changes nothing because ants are not eating.
+
+Why: **leaves are in the canopy and ants walk on the ground.** They can
+climb (Plant is support) but rarely do, so at two or even fourteen trees
+almost no ant reaches a leaf. §13f's renewable loop worked because that
+scene had six trees *and* corpses and fallen abscised leaves on the ground
+where ants already were; strip it to leaves-in-canopy and the food is
+effectively unreachable.
+
+So the sweep's real finding is not about the energy economy at all.
+`move_cost` behaves exactly as expected -- -0.24 at 0.25, -0.03 at 0.02 --
+and the gap closes to nearly zero as movement approaches free. It never
+crosses, because foraging returns *nothing*: at zero cost it merely ties
+with doing nothing. **The bottleneck is food accessibility, not price.**
+
+That is the third time this session the answer has been the ecology rather
+than the mechanism (§13f the food source, §13i the cost structure, this the
+reachability). The pattern is worth naming: when a creature behaviour will
+not pay, check what the creature can actually *reach* before touching what
+it costs.
+
+**The candidate fix is ground-level renewable food, and one already
+exists:** moss spreads on damp stone by division, lives where ants walk,
+and needs no new mechanism -- one more string in the food list, exactly as
+"leaf" was. Untested; it is the next experiment, and it should be run
+before any genome sweep.
+
+### 13l. What an independent review of stages 0-3 found (2026-08-17)
+
+Twelve commits, written with no second pair of eyes, reviewed before the
+next experiment rather than after it. Four things were wrong; two of the
+things the previous session was most worried about were fine.
+
+**A predator's mouthful came back as a corpse.** `act` empties the bitten
+cell and then calls `reconcile_chain`, which calls `creature_dies` -- and
+`creature_dies` wrote corpse over `state.chain`, which on that path is
+*stale*: it still lists the cell that was just eaten. A two-cell ant whose
+head was taken produced **two corpse cells out of two**, one of them
+conjured, and `corpse` is on the beetle's own food list, so the same matter
+was edible again. Matter and energy both created, in the seam between the
+three functions. `a_predator_eats_a_creature...` missed it because it
+asserted no *ant*-material cell was left standing; corpse was the thing to
+look for. Fixed by filtering the chain through `cells`, which is the
+general statement -- a bite, a fire, an explosion and the brush all go
+through the same `World::set` seam.
+
+**A dying carrier's load was deleted.** In the same function, and the
+comment above it promised the opposite ("Losing it would be a silent
+material sink"). The corpse loop had already filled every chain cell, so
+the `is_empty` test on `chain.last()` was false whenever a corpse material
+existed -- which is always. The cargo now goes to the first empty
+8-neighbour, the same rule the drop verb uses. Both bugs now have guards
+that were confirmed to **fail** against the old code (2 corpses vs 1, 0
+leaves vs 1) rather than merely to pass against the new.
+
+**`EnergyLedger` cannot detect energy creation, and reading it as
+conservation is a mistake.** `granted`, `eaten` and `died_holding` are all
+free terms defined as *whatever happened*, so they move both sides of the
+identity together by construction. A beetle bite books `eat_energy` -- a
+constant of the **eater**, with no relationship to what the victim had --
+into `eaten`, and the victim's remainder into `died_holding`; the identity
+holds and 300 joules were conjured. A bite that only takes a trailing
+segment has no sink at all and it still holds. What the ledger *does* catch
+is charges that fail to land, which is a real class of bug; what §13a's
+"balances to f32 rounding" therefore means is narrower than it reads.
+
+The property P-20 actually needs is weaker and different: **no lineage may
+extract unbounded energy from a cycle it controls.** That is now
+`a_sealed_world_with_no_food_source_runs_down`, and it is `#[ignore]`d
+because it fails: an ant granted 900 spends all of it, starves at exactly
+0, and leaves two corpse cells worth 120 *each*, so 240 joules appear from
+an animal that had none. §13i measured this symptom ("a colony sustains
+itself on its own dead") and read it as an ecology problem; it is an
+accounting one. Fixing it means food cells carrying the energy they are
+worth, which is the same piece of work as putting plants into the ledger --
+the sun is by far the largest free source in the world and lives entirely
+outside these numbers, so doing predation alone first means doing it twice.
+
+**The second `GENOME_LEN` growth broke the append-only law; the first did
+not.** The genome is row-major, `g[input * BRAIN_OUTPUTS + output]`.
+
+| commit | inputs | outputs | `GENOME_LEN` | lawful? |
+|---|---|---|---|---|
+| `faecc1d` | 14 | 6 | 168 | -- |
+| `7fea0c3` | 16 | 6 | 188 | **yes** -- appending inputs appends whole rows |
+| `055ee23` | 16 | **9** | 248 | **no** -- appending an output changes the row *stride* |
+
+Growing the outputs from 6 to 9 is an *insert into every row*:
+`(TempAboveAmb, Turn)` moved from index 48 to 72, every weight with input
+>= 1 was renumbered, and `IO_END` moving 96 -> 144 shifted the
+input->hidden and hidden->output blocks wholesale. `brain.rs`'s own doc
+still says "Grown once, by appending inputs 14 and 15 ... Every
+pre-existing slot kept its index", which describes the *first* growth and
+was never updated for the one that broke the law it guards. **Only inputs
+may be appended; outputs never can be** without a migration or an
+output-major layout, and the two look identical in the `.ron` and in the
+enum. `the_block_layout_exactly_fills_the_genome` catches an inconsistent
+edit, not an unlawful one.
+
+**The hand-derived hidden gating is correct.** Checked numerically through
+the real `eval_brain` on the compiled genome rather than on paper: an empty
+ant reads B and ignores A (0.663 / 0.667 / 0.670 across A's full -1..+1
+range), a laden ant reads A and ignores B, and conflicting signals resolve
+to the gated channel. The claimed leak of 0.004 is exactly what it
+measures.
+
+It **is** fragile, in the opposite place from where the comment reasons:
+
+| mutation | rest | laden A+1 | laden A-1 | swing |
+|---|---|---|---|---|
+| none (authored) | 0.667 | 0.863 | 0.000 | **0.863** |
+| `h1->Move` +1.00 (of -2.5) | 0.508 | 0.844 | 0.000 | 0.844 |
+| `Bias->h0` gate +3.0 (of -30) | 0.668 | 0.865 | 0.000 | 0.865 |
+| `Bias->h0` gate +10.0 (of -30) | 0.671 | 0.867 | **0.650** | **0.217** |
+
+A 40% error on the output weight -- the antisymmetry the cancellation
+depends on -- costs almost nothing. Moving the *gate* a third of the way
+toward zero collapses the swing and a laden ant pointed away from home runs
+at 0.650 instead of stopping. "Deep saturation costs the gate nothing" is
+true at the authored point and is exactly what makes it mutation-sensitive:
+**the gate lives at -30/+30 in a genome where every other authored weight
+is between 0.2 and 2.5**, so a Stage-4 mutation operator with one global
+step size will either never move it or shred everything else. Mutation has
+to be scaled per weight, or the gate has to be re-expressed at O(1).
+
+**`sensor_offset: 6` is fitted to a mechanism that is no longer
+connected.** Its comment cites `trail_following_sweep`, which is
+`run_follower_mode` -- a follower **flying in open 2D**, steering on the
+*lateral* difference between three sensors. Both lateral inputs are unwired
+in `ant.ron` (§13b), the ant walks on a surface, and the offset's only
+surviving effect is the baseline length of `PheroAAlong`/`PheroBAlong`. The
+right offset for an along-heading gradient is a different question and has
+never been asked. Related, from the same file: `(Bias, EmitA, 2.0)` is
+still authored despite §13f measuring it net-negative in *both* economies.
+
+**`BrainOutput::Dig` gates eating and digging with one gene.** §13d's
+`(Bias, Dig, 0.4)`, added because ants never dug, silently raised the
+baseline *eating* probability at the same time, and evolution cannot
+separate "excavate" from "feed" because there is nothing to separate them
+with.
+
+**The structure is better than it looks and the duplication is elsewhere.**
+There are two movement models, not three: `tick` dispatches on
+`creature: Some(_)` to the brained path or to `worm_tick`. Chain and Rigid
+are not separate paths -- they differ only inside `body_after_step` and
+`body_has_foothold`, which is what buys the tunnel refuge for free.
+`step_chain`'s phases are sequential and share locals; splitting it would
+mean threading `chain`, `passable`, `scores` and `footing` through
+signatures for no gain. The 150-line `worm_tick` is the real duplicate, and
+the one thing it does that `step_chain` cannot is **burrow** --
+`step_chain`'s passability is `world.is_empty`, so a chain creature can
+never enter a Powder cell, only dig it away first. `move_cost`'s whole
+density/moisture burrow economy is worm-only, and `creature_space`'s
+`depth` descriptor measures ants in holes they excavated.
+
+**Determinism holds and creatures are free.** Two full `examples/ascii`
+runs diff to nothing but timing lines -- every creature counter is
+bit-identical. Nothing had ever *timed* a colony, though: only
+`pheromone_decay_scene` measured anything, so the number CI gates was taken
+entirely on scenes with no creatures in them. `forage_loop` now reports it,
+with the paired control that says what it means:
+
+    55 ants + 30 trees:   worst 21.273 ms, mean 1.504 ms
+     0 ants + 30 trees:   worst 24.085 ms, mean 1.590 ms   (control)
+
+The ants cost nothing measurable; the spike is trees and the CA. A
+248-weight brain at 55 ants is not a frame-cost problem and should not be
+treated as one.
+
+One more thing the counters say, which matters for reading `deliveries`:
+over 12,000 frames the colony logged **4 eats against 438 pickups and 414
+deliveries**. Nothing at the nest consumes the pile, so `deliveries`
+measures *transport*, and "the loop closes" and "the loop feeds anyone" are
+still different claims.
+
+### 13m. The renewable food was not renewable: one bite killed the tree
+
+Found while checking, before running the moss sweep, whether moss was even
+edible — which turned into "what happens to the *owner* of the mouthful".
+
+`act`'s eat branch tells whoever owned the cell it just swallowed:
+
+```rust
+let victim = world.get(fxx, fyy).organism_id();
+world.set(fxx, fyy, Cell::EMPTY);
+if victim != 0 && victim != organism {
+    reconcile_chain(world, victim);
+}
+```
+
+The owner of a leaf is a **tree**, and a tree has no `chain` — `chain` is
+the creature field, empty for every plant. `reconcile_chain`'s first
+predicate is `surviving.is_empty() || surviving.first() != chain.first()`,
+whose comment reads "Head gone (or nothing left at all): the rest is meat."
+An empty chain satisfies it trivially. So:
+
+    leaves grown: 79, all owned
+    tree organism 1, cells 789, chain len 0
+    after ONE leaf eaten: tree organism resolves = false
+    cells still standing that claim to be that tree: 160
+
+**Eating a single leaf freed a 789-cell tree's organism slot outright**,
+left 160 cells standing in the world still carrying its id — which after
+sixteen slot reuses aliases somebody else — and stopped it growing or
+regrowing anything for the rest of the run. The same for moss: one bite
+frees the moss organism, and a moss organism that is gone stops dividing.
+
+**This is upstream of §13k's entire conclusion.** §13k found no setting of
+`eat_energy` × `move_cost` × food density where foraging paid, and read it
+as reachability: leaves are in the canopy, ants walk the ground. That is
+true and measurable (see §13n's census — every preset ends a run with
+thousands of leaves and 0 to 11 of them within three cells of the ground).
+But underneath it was something worse: **the first ant to take a leaf
+killed the tree that was supposed to keep making them.** The food source
+destroyed itself on contact, so no price for eating could pay, because
+after the first bite there was progressively less to eat. §13f's headline —
+"the loop was never broken, the food distribution was" — was right about
+the distribution and did not go far enough.
+
+The fix is one predicate in `reconcile_chain`: an organism with no chain is
+not a chain creature and chain reconciliation has no meaning for it, so
+return "alive" and let the plant find out through its own connectivity
+check, which is what made herbivory need no new code in the first place.
+Reclaiming a *fully* dead plant's slot stays exactly where it was — a known
+open gap in `plant.rs` wanting a BFS-from-roots liveness check — because
+doing it from inside a bite is how this happened.
+
+`eating_one_leaf_does_not_kill_the_tree_that_grew_it` is the guard, and it
+fails against the old predicate.
+
+**What it looked like in the shipped scene, once the fix landed.**
+`forage_loop`, same seed, 12,000 frames:
+
+    before:  74 live organisms | deaths 7 | pickups 438 | deliveries 414
+    after:   81 live organisms | deaths 0 | pickups 372 | deliveries 348
+
+The scene's **"7 deaths" were never ants starving** — at `start_energy`
+900 no ant comes close to starving in 12,000 frames, and `died_holding`
+was 0 for all seven, which is what a plant looks like because a plant has
+no energy. They were the six trees and a moss, killed one leaf at a time
+and counted as creature deaths because `creature_stats.deaths` is shared
+between the two. A number that was sitting in the report's own §13a
+evidence table, in a scene printed every CI run, meaning something
+completely different from what it read as.
+
+Deliveries falling 414 → 348 is not a regression: the trees now keep
+growing, so the canopy, the shade and therefore the whole trajectory
+differ. `deliveries > 0` still holds by a wide margin.
+
+**The method note worth keeping.** Nothing in the suite could have caught
+this: no test put an eater and a plant in the same world, and every metric
+that would have shown it was a *count of food cells*, which keeps rising as
+the surviving trees grow. The thing that found it was asking "what does
+this call do to the object on the *other* end?" — the same question
+`CLAUDE.md` records as **which object does this rule evaluate?**, asked
+this time not of the rule's subject but of its victim. `reconcile_chain`
+was written for creatures, reviewed as creature code, and correct for
+creatures; it was reached by a caller that had a plant in its hand.
+
+### 13n. Moss, and three ways the economy sweep was lying
+
+§13k's proposed next experiment was moss: ground-level renewable food,
+"one more string in the food list, exactly as leaf was." It was run. Moss
+is not the fix, and getting to that answer turned up three separate faults
+in the instrument — two of them in numbers §13i and §13k had already drawn
+conclusions from.
+
+**Moss is only renewable on damp ground, and the sweep's terrain was not.**
+Asked before running anything, because §13k's own lesson was that a sweep
+can vary three knobs faithfully while the thing they act on is absent. A
+census of the generator's presets, no ants, warmup then 6,000 frames:
+
+| preset | moss at warmup | moss +6000 | moss at surface | in the colony's band | leaf +6000 | leaf at surface |
+|---|---|---|---|---|---|---|
+| rolling | 10 | **10** | 10 | 4 | 5,395 | **3** |
+| wetland | 86 | **1,194** | 305 | **181** | 4,061 | **0** |
+| terraced | 11 | **13** | 11 | 4 | 6,341 | 11 |
+| canyon | 6 | **6** | 6 | 3 | 4,391 | 0 |
+
+Moss stalling on dry sunlit ground is correct M16 behaviour — it is
+poikilohydric and wants damp and shade — so on "rolling", the default and
+the terrain every previous economy sweep ran on, there were **ten moss
+cells in a 512-wide world and they never divided once**. Only "wetland"
+makes moss a food supply rather than a decoration. The sweep moved there.
+
+The same table quantifies §13k's reachability claim and confirms it: every
+preset ends a run with thousands of leaves and **0 to 11 of them within
+three cells of the ground.** The canopy grows away from the ants.
+
+**The spawn-layout trap, for the third time.** `survival` is mean live
+population divided by `ANTS`, and `plant_ant` **silently does nothing**
+when the seed will not fit. On wetland the target cell is standing water 23
+times in 52, so the scene asked for 52 ants, stood up 23, and went on
+dividing by 52 — putting a per-seed constant on the *ceiling* of the
+outcome variable. Maximum achievable survival was 0.44, not 1.0, and it
+moved with the terrain from seed to seed.
+
+The zero-genome control did not catch it, and this is the part worth
+keeping: **both arms carry the same handicap, so it cancels exactly in
+`advantage` and survives untouched in every absolute number.** A control
+that cancels a bug is not the same as a control that reveals it. §13f's
+rule ("every metric needs a zero-genome control") was followed and was not
+sufficient.
+
+It was caught by an arithmetic sanity check instead, which is the cheaper
+instrument and should have been reached for first: the immobile genome
+cannot move, cannot eat and pays no synapse tax, so its only cost is
+`idle_cost` 0.10 against 90 energy — it must starve at tick ~900 of ~1,000
+and score ~0.90. It scored 0.554. Removing every beetle did not move it.
+With placement fixed (scan for a cell that will take an ant rather than
+give up on a fixed column) it places 52 and scores **0.901**. There was
+never an anomaly to explain; there was a wrong denominator.
+
+Fixing it also more than doubled the measured feeding rate, from 0.30 to
+0.58 — 23 ants is below the population stigmergy needs, so the colony was
+being scored on a mechanism it was too small to run.
+
+**`eat_energy` was saturated, not disconnected.** §13k's headline tell was
+that every `eat_energy` 300 row equalled its 700 row bit for bit, read as
+"the knob was never connected because nothing was eating." Ants *are*
+eating — a species-specific detector (an ant seen above its starting
+energy, which nothing but a meal can do) says 30% of them did even in the
+broken scene, and 58% do now. The columns are identical for the opposite
+reason:
+
+    move_cost 0.08: an unfed ant starves at tick 568 of ~1000
+    one meal of 120 at tick 400 -> 758 further ticks   -> survives to the end
+    one meal of 700 at tick 400 -> 4419 further ticks  -> survives to the end
+
+**Every value the sweep tested is already worth more than a whole remaining
+life**, so they cannot differ. Against a 90-point budget the axis only
+resolves below about 60, and 120, 300 and 700 are one point sampled three
+times. *So identical columns have two causes, not one* — the knob is not
+connected, or the knob is saturated — and they are distinguished by asking
+what one unit of the knob is worth relative to the thing it feeds.
+
+That first diagnostic was itself wrong, and in the way `CLAUDE.md` names:
+`creature_stats.eats` is a **global** counter and the beetles eat ants, so
+"eats per ant" could not tell a colony that fed itself from one that was
+fed upon. Ask what a metric counts when nothing is wrong.
+
+### 13o. Foraging pays, and the thing that was wrong was the horizon
+
+With the instrument repaired (§13n) the sweep gives a clean answer, and it
+is not the one three sessions of food work were chasing.
+
+**Beetles are all but inert.** Over 6,000 frames every row at
+`beetles: 0` equals its row at `beetles: 9` **bit for bit** — survival,
+advantage and feeding rate, to every printed digit, across six settings.
+Ant RNG is keyed by organism id and beetles are pushed after ants, so
+identical output means no beetle touched an ant in the whole run. Over
+18,000 frames the arms separate by 0.001–0.005, in *both* directions
+(the forager scores 0.548 without beetles and 0.553 with), which is
+chaotic sensitivity to a few displaced cells rather than predation
+pressure.
+
+§13i moved the beetles "in among the colony" specifically so that danger
+would reach the ants that travel. It does not. A beetle has no pheromone
+instincts (§13h), so it run-and-tumbles at random and essentially never
+finds prey. The danger arm of this environment has never meaningfully
+fired, and any reasoning that assumed predation pressure — including the
+guess, made and falsified in this session, that predation was what capped
+foraging — was reasoning about a mechanism that was not running. This is
+also the strongest argument yet for the fear-scent channel: predation
+cannot be a selective pressure until a predator can find prey.
+
+**The real fault was the measurement horizon.** `survival` is mean live
+population over the run, and an idle ant always starves at tick 900
+whatever the run length. So the *outcome variable itself* is a function of
+the horizon:
+
+| run | ticks | immobile survival |
+|---|---|---|
+| 6,000 frames | 1,000 | **0.900** |
+| 12,000 | 2,000 | 0.450 |
+| 18,000 | 3,000 | 0.300 |
+| 30,000 | 5,000 | 0.180 |
+
+The runs were 1,000 ticks — **1.1 idle lifetimes, the single most
+favourable horizon for doing nothing that still kills it.** §13i tuned
+`start_energy` down to 90 precisely so that "the budget falls below the run
+length", and stopped as soon as it did, which landed on the one horizon
+where immobility captures 90% of the maximum. A forager that re-feeds has
+no such ceiling, and at three idle lifetimes the sign flips:
+
+| horizon | food | forager | immobile | advantage | ants fed |
+|---|---|---|---|---|---|
+| 1,000 ticks | leaves only | 0.789 | 0.901 | **-0.112** | 0.42 |
+| 1,000 ticks | leaves + moss | 0.833 | 0.901 | **-0.068** | 0.55 |
+| 3,000 ticks | leaves only | 0.487 | 0.300 | **+0.187** | 0.42 |
+| 3,000 ticks | leaves + moss | 0.548 | 0.300 | **+0.247** | 0.55 |
+
+Foraging pays, food is still scarce (survival well short of 1.0), and
+**moss is worth about a third of the advantage** — 0.187 to 0.247, with the
+fraction of ants that ever feed themselves going 0.42 to 0.55. Moss is on
+`ant.ron`'s food list on that measurement.
+
+`frames` now defaults to 18,000.
+
+**And `eat_energy` came back to life, which retro-proves §13n.** At the old
+horizon 120 and 700 were bit-identical, diagnosed there as saturation
+rather than a disconnected knob. At 3,000 ticks, with nothing else
+changed:
+
+| moss | eat 120 | eat 700 |
+|---|---|---|
+| no | +0.187 | **+0.245** |
+| yes | +0.252 | **+0.343** |
+
+One meal no longer finishes the run, so the size of a meal starts to
+matter. The knob was connected the entire time; the horizon was hiding it.
+
+**Why the arithmetic was worth doing.** The break-even feeding rate falls
+straight out of the cost model, and it predicted the outcome before the
+sweep confirmed it:
+
+    immobile:   starves tick 900 -> survival 0.900   (measured 0.901)
+    move 0.25:  unfed forager 0.331; needs 85% fed to tie; measured 49%
+    move 0.08:  unfed forager 0.568; needs 77% fed to tie; measured 55%
+    move 0.02:  unfed forager 0.761; needs 58% fed to tie; measured 53%
+
+Three lines of arithmetic against a 90-point budget say the binding
+quantity is **the fraction of ants that find food**, not the price of a
+meal, not the cost of a step and not predation. That is the number every
+future environmental change should be judged on, and it is why `ants fed`
+now sits beside `advantage` in the table.
+
+**The lesson to keep, and it is a new one.** §13i asked the three readiness
+questions — is now the time, is the environment right, are the metrics
+right — and got two noes. It did not ask the fourth: **is the outcome
+variable a function of how long I run for?** Mean-population-over-a-run is,
+and a strategy with a hard ceiling (an idle ant *cannot* live past tick
+900) versus one without (a forager can re-feed indefinitely) will trade
+places at some horizon, guaranteed. When the two strategies being compared
+have different *shapes* over time, a single run length is a hidden
+parameter, and it was set to the value most flattering to the answer that
+was then believed for three sessions.

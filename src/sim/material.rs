@@ -1007,6 +1007,20 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/seed.ron"),
     // Appended, per the rule above: never inserted among the others.
     include_str!("../../assets/materials/snow.ron"),
+    // Appended, never inserted -- see the three comments above. The ant
+    // milestone's set: the two creatures and the material they call home.
+    //
+    // **Both sides of the creature/evaporation merge appended here**, the
+    // same collision the plant/destruction note above records. Neither
+    // `snow` nor these has a pinned convenience constant -- the contracts
+    // (`STONE` through `SMOKE`, and `RUBBLE = 15`) are all further up -- so
+    // the tiebreak is not an id contract this time but which side was
+    // already trunk: `snow` was on master and other branches are in flight
+    // against those ids, so it keeps its slot and the creatures take the
+    // ones after it.
+    include_str!("../../assets/materials/ant.ron"),
+    include_str!("../../assets/materials/nest.ron"),
+    include_str!("../../assets/materials/beetle.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
