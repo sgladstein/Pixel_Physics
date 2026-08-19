@@ -285,6 +285,33 @@ pub fn genome_from_instincts(instincts: &[Instinct]) -> Vec<f32> {
     genome_from_wiring(instincts, &[], &[])
 }
 
+/// A random genome, sparse the way an authored one is.
+///
+/// **Lives here rather than in a harness because two harnesses need to
+/// agree on it.** `examples/creature_space.rs` samples genomes and reports
+/// what they scored; `examples/filmstrip.rs` draws what one of them looks
+/// like. If those two disagreed by one line of arithmetic the contact sheet
+/// would be a picture of a *different animal* than the row above it, and
+/// nothing on screen would say so -- the same class of trap as an
+/// `include_str!` asset edit that never reached the binary.
+///
+/// **Sparsity is itself sampled**, 2% to 15% of connections live, rather
+/// than fixed: a fixed density is one more assumption smuggled into the
+/// "random" arm, and a dense random brain is not a creature, it is noise,
+/// since every input drives every output at once.
+pub fn random_genome(seed: u64) -> Vec<f32> {
+    let mut r = crate::sim::rng::stream(seed, 0, 0, 0);
+    let density = 0.02 + r.unit_f32() * 0.13;
+    (0..GENOME_LEN).map(|_| if r.unit_f32() < density { (r.unit_f32() * 2.0 - 1.0) * 3.0 } else { 0.0 }).collect()
+}
+
+/// The seed `examples/creature_space.rs` labels genome `rNNN` with, so a
+/// row in that sweep and a picture in `filmstrip` can be matched up by
+/// name. Off-by-one here would be silent and ruinous.
+pub fn sweep_genome_seed(index: u64) -> u64 {
+    0x5EED + index
+}
+
 /// Evaluate the network. Returns the outputs and the count of **active**
 /// synapses, which the caller charges energy for (`SYNAPSE_COST`).
 ///

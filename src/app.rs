@@ -1643,7 +1643,15 @@ impl App {
     /// roughly where ants start behaving like ants.
     pub fn found_colony(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
-        self.world.found_colony(x, y);
+        let placed = self.world.found_colony(x, y);
+        // **Say what happened, including when nothing did.** Pressing this
+        // over open sky used to place nothing and report nothing, which
+        // reads exactly like the feature not existing.
+        if placed == 0 {
+            self.show_toast("no ground under the cursor - point at terrain and press Y");
+        } else {
+            self.show_toast(format!("colony founded: {placed} ants (V cycles the pheromone overlay)"));
+        }
     }
 
     /// Summon the gnome at a screen position, or dismiss him if already

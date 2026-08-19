@@ -722,15 +722,41 @@ impl World {
     /// The nest is *surface* material, deliberately: built as a block
     /// sitting on the ground, arriving ants were simply blocked by its
     /// face and never got home.
-    pub fn found_colony(&mut self, x: i32, y: i32) {
+    /// Returns how many ants actually got placed, so the caller can say so
+    /// on screen. **A silent no-op is indistinguishable from a broken
+    /// feature** -- the owner pressed this key, saw nothing happen, and
+    /// reasonably concluded the whole milestone was missing.
+    pub fn found_colony(&mut self, x: i32, y: i32) -> usize {
         let Some(nest) = self.materials.id_of("nest") else {
-            return;
+            return 0;
         };
         // The surface height in each column, searched downward from the
         // cursor: whatever the first non-empty cell is, that is the ground.
+        //
+        // **To the bottom of the world, not 96 rows.** The old bound was
+        // shorter than the sky on several presets (the flat preset alone has
+        // 200 rows of it), so pressing the key with the cursor high up found
+        // no ground in any column and placed nothing at all, silently.
+        // Bounded by `bounds()` rather than unbounded because `get` returns
+        // `Cell::OUT_OF_BOUNDS` past the edge, which is not `Empty` and
+        // would otherwise read as a floor one row below the world.
+        let bottom = self.bounds().map_or(y + 96, |b| b.max_y);
         let surface = |world: &World, cx: i32| -> Option<i32> {
-            (y..(y + 96)).find(|&cy| !matches!(world.materials.kind(world.get(cx, cy).material), MaterialKind::Empty | MaterialKind::Gas))
+            (y.max(0)..=bottom).find(|&cy| !matches!(world.materials.kind(world.get(cx, cy).material), MaterialKind::Empty | MaterialKind::Gas))
         };
+        // **Centred on the cursor, both of them.** The ants used to run from
+        // 26 cells left of the cursor to 178 cells *right* of it, because
+        // the loop started at the nest's left edge and then stepped forward
+        // once per ant -- so the colony appeared almost entirely to one
+        // side, and pressing the key on the right of the map put most of it
+        // outside the world, where placement fails silently.
+        //
+        // The nest patch stays much narrower than the ant band, which is
+        // deliberate and is the ratio the foraging scene measured 414
+        // deliveries at: home has to be a *place*, not everywhere, or there
+        // is no gradient to walk up.
+        let span = (COLONY_ANTS - 1) * COLONY_ANT_SPACING;
+        let left = x - span / 2;
         for cx in (x - COLONY_HALF_WIDTH)..=(x + COLONY_HALF_WIDTH) {
             if let Some(sy) = surface(self, cx) {
                 let cell = self.get(cx, sy);
@@ -741,12 +767,18 @@ impl World {
                 }
             }
         }
+        let mut placed = 0;
         for i in 0..COLONY_ANTS {
-            let cx = x - COLONY_HALF_WIDTH + i * COLONY_ANT_SPACING;
+            let cx = left + i * COLONY_ANT_SPACING;
             if let Some(sy) = surface(self, cx) {
+                let before = self.get(cx, sy - 1).organism_id();
                 self.plant_ant(cx, sy - 1);
+                if self.get(cx, sy - 1).organism_id() != before {
+                    placed += 1;
+                }
             }
         }
+        placed
     }
 }
 
@@ -2505,6 +2537,48 @@ mod tests {
 
         let after = w.organism(tree).map(|s| s.cells.len()).expect("the tree must still be a live organism after losing one leaf");
         assert_eq!(after, before - 1, "the leaf is gone from the tree's cell list and nothing else is");
+    }
+
+    #[test]
+    fn founding_a_colony_from_high_above_the_ground_still_finds_it() {
+        // **The bug the owner hit.** The surface search ran 96 rows down
+        // from the cursor, which is shorter than the sky on several presets,
+        // so pressing Y with the cursor up high placed nothing and said
+        // nothing -- indistinguishable from the whole milestone being
+        // absent. 150 rows of sky over the floor reproduces it.
+        let mut w = test_world();
+        for x in 0..199 {
+            w.set(x, 160, Cell::new(material::STONE, 0));
+        }
+        let placed = w.found_colony(100, 5);
+        assert!(placed > 40, "a colony founded from high above the ground should still land: got {placed} ants");
+    }
+
+    #[test]
+    fn a_founded_colony_is_centred_on_the_cursor() {
+        // The ants used to run from 26 cells left of the cursor to 178 to
+        // the right, so the colony appeared almost entirely to one side and
+        // founding it near the right-hand edge threw most of it out of the
+        // world, where placement fails silently.
+        let mut w = test_world();
+        for x in 0..199 {
+            w.set(x, 160, Cell::new(material::STONE, 0));
+        }
+        let placed = w.found_colony(100, 150);
+        assert!(placed > 40, "expected a full colony on open floor, got {placed}");
+        let ant = w.materials.id_of("ant").expect("ant is compiled in");
+        let xs: Vec<i32> = (0..199).filter(|&x| (150..160).any(|y| w.get(x, y).material == ant)).collect();
+        let (lo, hi) = (*xs.first().expect("ants"), *xs.last().expect("ants"));
+        let centre = (lo + hi) / 2;
+        assert!((centre - 100).abs() <= 6, "colony spans {lo}..{hi}, centre {centre}, but was founded at x=100");
+    }
+
+    #[test]
+    fn founding_a_colony_over_open_sky_reports_that_it_placed_nothing() {
+        // The return value is the whole point: it is what lets the app say
+        // "no ground under the cursor" instead of appearing inert.
+        let mut w = test_world();
+        assert_eq!(w.found_colony(100, 5), 0, "there is no ground in this world, so nothing may be placed");
     }
 
     // --- choose_weighted ----------------------------------------------------

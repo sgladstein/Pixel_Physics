@@ -55,7 +55,7 @@
 use pixel_physics::sim::brain::GENOME_LEN;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::organism::CellType;
-use pixel_physics::sim::{material, organism, parallel, rng, Cell, World};
+use pixel_physics::sim::{material, organism, parallel, Cell, World};
 
 /// One run's behavioural fingerprint, plus the one outcome.
 #[derive(Clone, Copy, Default)]
@@ -180,7 +180,7 @@ fn main() {
     // be read against. A zero genome cannot move at all, which makes it the
     // floor rather than a competitor.
     let mut jobs: Vec<(String, Vec<f32>)> = vec![("zero".to_string(), vec![0.0; GENOME_LEN]), ("authored".to_string(), authored_genome())];
-    jobs.extend((0..genomes).map(|g| (format!("r{g:03}"), random_genome(0x5EED + g as u64))));
+    jobs.extend((0..genomes).map(|g| (format!("r{g:03}"), pixel_physics::sim::brain::random_genome(pixel_physics::sim::brain::sweep_genome_seed(g as u64)))));
 
     // **One thread per genome, and it is a 3.5x saving rather than a
     // tidy-up.** Runs are embarrassingly parallel -- each owns its `World`
@@ -380,7 +380,7 @@ every setting made food abundant; scarcity was never tested"),
 /// a world this small, a sweep is several times cheaper than the
 /// sequential estimate says.
 fn thread_scaling(frames: usize) {
-    let genomes: Vec<Vec<f32>> = (0..4).map(|i| random_genome(0x5EED + i)).collect();
+    let genomes: Vec<Vec<f32>> = (0..4).map(|i| pixel_physics::sim::brain::random_genome(pixel_physics::sim::brain::sweep_genome_seed(i))).collect();
     let seq_start = std::time::Instant::now();
     for (i, g) in genomes.iter().enumerate() {
         run_one(g, frames, 0xC0DE + i as u64, DEFAULT_ECONOMY);
@@ -483,7 +483,7 @@ fn noise_floor(seeds: u64, frames: usize) {
 ", frames / 6);
     println!("{:<12} {:>9} {:>9} {:>9} {:>9} {:>9}  per-seed survival", "genome", "mean", "sd", "min", "max", "sd/mean");
     let refs: [(&str, Vec<f32>); 3] =
-        [("zero", vec![0.0; GENOME_LEN]), ("authored", authored_genome()), ("random r000", random_genome(0x5EED))];
+        [("zero", vec![0.0; GENOME_LEN]), ("authored", authored_genome()), ("random r000", pixel_physics::sim::brain::random_genome(pixel_physics::sim::brain::sweep_genome_seed(0)))];
     let started = std::time::Instant::now();
     let mut runs = 0usize;
     for (label, genome) in refs {
@@ -657,20 +657,6 @@ fn mean_of(runs: Vec<Sample>) -> Sample {
 fn authored_genome() -> Vec<f32> {
     let reg = organism::SpeciesRegistry::builtin();
     reg.get(reg.id_of("ant").expect("ant species")).genome.clone()
-}
-
-/// A random genome, sparse like an authored one.
-///
-/// **Sparsity is itself sampled**, from 2% to 15% of connections live. A
-/// fixed density would be one more of my assumptions smuggled into the
-/// "random" arm — and a dense random brain is not a creature, it is noise,
-/// since every input drives every output at once.
-fn random_genome(seed: u64) -> Vec<f32> {
-    let mut r = rng::stream(seed, 0, 0, 0);
-    let density = 0.02 + r.unit_f32() * 0.13;
-    (0..GENOME_LEN)
-        .map(|_| if r.unit_f32() < density { (r.unit_f32() * 2.0 - 1.0) * 3.0 } else { 0.0 })
-        .collect()
 }
 
 const DEFAULT_ECONOMY: Economy = Economy { eat_energy: 120.0, move_cost: 0.25, trees: 2, moss: true, preset: "wetland", beetles: BEETLES };
