@@ -866,6 +866,11 @@ verb rather than a click). Ask.
 
 ### 2d. DONE: load no longer concentrates on one path
 
+**Written up for review in `Reports/load-concentration-review.md`** — the
+evidence, the three alternatives measured and withdrawn, a ranked list of
+what to attack, and the quadratic-column defect this exposed and left open.
+Read that rather than this if you are reviewing the change.
+
 **Fixed.** A wall is now judged as a member: on a vertical load path, every
 cell of the horizontal cut through it is charged the worst load crossing
 that cut. `load.rs`'s `evaluate_within` holds the reasoning; `share=0` on
