@@ -385,6 +385,117 @@ light/shade via canopy, substrate via penetration resistance, and fire).
 
 ---
 
+## 4a. The Grow body plan: the expressible envelope
+
+§4 picked plants. This section maps the space they were picked *from*,
+because the owner's question — can the forms themselves emerge, and how
+do we set this up to make a world worth exploring — is a question about
+that space, not about any one species.
+
+### What the machinery actually is
+
+A `Grow` organism is four coupled things, and every plant form is a
+corner of their joint parameter space:
+
+1. **A scored random walk.** Tips score every open 8-neighbour by a
+   weighted blend — continuation, light, wind, upward bias, tropism
+   reference — and *sample* from the distribution. The noise is
+   load-bearing: it is why twelve identical genomes span 31–153 cells,
+   and why no two trees match.
+2. **A tier grammar.** Every architectural weight is a `ByOrder` array —
+   re-parameterized per branch order. This is the engine's answer to an
+   L-system's productions, and it is the shape language: a conifer is
+   "orthotropic order 0, plagiotropic above"; a shrub is "sympodial with
+   basitonic bud release." Two entries in a table, not two mechanisms.
+3. **An economy.** Carbon from foliage against light, water from roots
+   against soil, a turgor height ceiling, pipe-model thickening, bud
+   banks, seed provisioning. The economy is what makes a form *earned* —
+   a shape that cannot pay for itself sheds and shrinks until it can,
+   which is why habit reads as alive rather than drawn.
+4. **A material body.** Tissue physics — density, flammability, span,
+   `breaks_into`, `reinforces_powder` — decide what the form *does* to
+   the world around it and what the world does back.
+
+### The corners, with their distance from here
+
+| Form | What expresses it | Status |
+|---|---|---|
+| broadleaf / conifer / shrub | shipped `.ron`s | **shipped** |
+| tussock grass | `plastochron: 0` (photosynthetic shoot — anticipated at organism.rs:294–298), `turgor_source` ~0.1, herbaceous materials | one `.ron` after call 1 |
+| creeper / scrambler | `heading_inertia` ~0 ("the difference between woody and creeper", organism.rs:313–316), low upward weight | **values only** — expressible today, never staged |
+| weeping habit | negative `upward_weight` on later orders | verify the scorer accepts a signed weight at landing; if it clamps, this is a one-line range widening, not a mechanism |
+| prostrate mat / cushion | `Plagiotropic` at order 0, tiny internode, low turgor | small code change — the tropism tier currently applies at order > 0 only |
+| columnar succulent | `plastochron: 0` + shoot water storage | one seam: `water_capacity_of` ∝ `root_cells` needs a species term (§4.2) |
+| reed | per-species anoxia tolerance + the waterline | parameter exists; the trade is thin (§4.3) |
+| liana / climber | surface attraction | **the one true mechanism gap** in the envelope |
+| epiphyte | — | deliberately banned (the wiki's most visible rule) |
+
+The striking thing about this table is how short its right-hand column's
+tail is: of nine recognisable plant forms, six are values of knobs that
+already exist, one is a seam, one is a mechanism, one is banned. The
+envelope is much wider than the three shipped species suggest — **the
+three species look alike not because the space is small but because they
+were authored close together** (the appearance report's own finding, from
+the other direction).
+
+### The world this makes — the payoff, stated as the ethos demands
+
+What is unique about this engine's version of plant life, if the envelope
+is wired up as below, is that **the landscape becomes legible** — every
+vista is information, because appearance and form derive from strategy
+and history rather than decoration:
+
+- **You can read the ground by the plants.** Pale-thrifty foliage on the
+  ridges, dark-acquisitive in the wet valleys — already true and
+  measured (§8d's crossover). Pale pioneer bark ringing a burn scar,
+  dark dense-wood stands where nothing has disturbed in an age. Grass
+  where fire and grazing recur, forest where water runs deep. Biomes are
+  *consequences* of one species pool meeting different ground — no biome
+  is authored, so their boundaries move when the player moves the water
+  or starts the fire.
+- **Succession is the spectacle and disturbance is the player's verb.**
+  Burn, cut, dam, dig — all exist. A burn scar → ash → soil → grass →
+  pioneers → shaded out by dense wood is a story the player *causes*
+  and then watches, and every frame of it is the economy working, not a
+  script.
+- **Breeding is emergent play, at zero code.** Seeds carry genomes;
+  heredity is live. A player who collects seeds from an individual they
+  like and plants them elsewhere is doing artificial selection — the
+  oldest human game with plants, and it falls out of machinery that
+  already ships. Nobody has to build "domestication."
+- **Long-run drama.** Leave a world running; the allele census drifts,
+  the bands shift, the proportions change. The world you come back to
+  is measurably not the one you left, and the difference is visible
+  before it is numerical.
+
+### Setup principles — how to wire the envelope for this
+
+1. **Every form dimension reads the genome or the environment; no dead
+   authored numbers.** Each `ByOrder` entry should eventually be
+   genome-scalable the way branch chance and plastochron already are —
+   a knob evolution and habitat cannot touch is a knob the world cannot
+   vary, and the appearance phase proved what invariant composition
+   looks like.
+2. **Signed and zero-inclusive ranges over new mechanisms.** Weeping,
+   prostrate and blade forms are all *boundary values* of existing
+   knobs. Widen a range before writing a term.
+3. **The legibility law.** Every strategy axis gets a visible face — a
+   band or a silhouette — per `plant-appearance-design.md` §7. A form
+   that emerges but moves no pixels has not emerged for the player.
+4. **Niches before forms, disturbance before niches** (§5c). The
+   envelope supplies the *possibility* of forms; only the world supplies
+   the reason for more than one.
+5. **The connectedness rule (load-bearing for §6a):** author every new
+   species as a point in the *shared* space — same slots, different
+   values — rather than through species-only mechanisms. Two islands
+   cannot be walked between; two points in one space can.
+6. **One new mechanism at a time**, only when a corner is provably
+   unreachable by values (surface attraction, shoot storage), and each
+   arrives with its trade already named or it dies the slot-1/slot-5
+   death.
+
+---
+
 ## 5. Plant ecology: what exists, what is missing
 
 ### 5a. Already present and measured — more than either plan credits
@@ -528,6 +639,76 @@ work, and both are the same ecology work the creature programme needs.
 
 ---
 
+## 6a. Can the forms themselves emerge? — the framework assessment
+
+Asked by the owner directly: authoring grass and cactus looks like
+prespecifying the outcome — is a framework where those things *emerge*
+just not possible? The answer, mirroring the shape of the creature
+plan's §7 (which was asked, and answered, the same question about
+open-endedness): **partially now, mostly later, and the sequencing is
+the whole trick.** Three facts and one rule.
+
+**Fact 1 — today's genome is a neighbourhood, not a morphospace.** Every
+locus is a bounded multiplier on the species file's authored numbers
+(turgor ±18%, branch ±50%, density ×0.75–1.35). Evolution can make a
+tree shorter, denser, thriftier, deeper-rooted; it cannot walk a tree to
+a grass, because grass-ness sits outside every variance fence, some of
+its axes have no slot at all (reproduction rate foremost), and the
+materials are welded in code until call 1 lands. But §4a's table shows
+the space itself is connected: most of what distinguishes the forms is
+*already a continuous axis the genome touches* — height, leaf spacing,
+root architecture, tissue density, water strategy. The fences and the
+missing slots are the blockers, and neither is architectural.
+
+**Fact 2 — the body plan itself stays caged, on purpose.** Which cell
+types exist, which behaviours they carry, `Grow` versus `Divide` — that
+is the discrete *structure* of the developmental program, and evolving
+structure is the NEAT-shaped thing the creature side deliberately caged
+(D4: variable-length genomes, speciation machinery, illegible results —
+"topology is what got caged, not the brain"). Forms **within** the Grow
+body plan can emerge; the plan itself is authored. Reopening that cage
+is a legitimate future call, but it was made twice with paid-for
+reasons, and nothing in §4a's table needs it — the envelope's
+unreachable corners are one seam and one mechanism, not a topology.
+
+**Fact 3 — an open morphospace without niches produces one weed.** The
+multi-task fitness warning (`PLAN.md`'s evolution notes) and
+`population-dynamics-research.md` §6 say the same thing from two fields:
+with one binding task, selection collapses everything onto one optimum.
+Dry ground where thrift wins, disturbance that rewards short-and-fast,
+shade that rewards tall-and-patient — those must exist *and be verified
+to support life* before evolution can be asked to discover the forms
+that fill them. This is why authored species come first and why doing so
+is not a betrayal of emergence: **an authored grass is an ancestor and a
+niche probe, not a product** (the plant-side E2). If hand-tuned grass
+cannot persist on dry disturbed ground, evolved grass never had a
+chance — and the authored species tells you in one run, where an
+evolutionary run failing is ambiguous between morphospace, niche,
+horizon and drift. The authored species de-confounds the framework.
+
+**The rule that keeps emergence reachable: connectedness (§4a principle
+5).** Every new species is authored as a point in the shared slot space
+— the same loci at different values, materials as data, mechanisms only
+for provably unreachable corners. Then the staged widenings (missing
+axes get appended slots; variance fences widen where measurement says
+the lethal zone allows; `ByOrder` entries become genome-scalable) each
+enlarge the *walkable* space without renumbering anything, and the
+species files decay from definitions into founding points.
+
+**The bar, and it is falsifiable: delete `grass.ron` and see if grass
+comes back.** Run an evolving tree-ancestor population in a world with
+fire, drought and grazing, at the horizons P0's generation counter
+certifies as multi-generational; if short, herbaceous, fast-reproducing
+forms emerge in the disturbed niches without anyone authoring them, the
+framework is real. If not, the failure localizes to whichever ingredient
+the stages have not landed — which is precisely what the creature plan's
+§7 assessment does for open-endedness, and what a
+straight-to-emergence build could never diagnose. Nothing is lost by
+starting authored: the ecology work (turnover, niches, generations) is
+identical on both routes, and it is the long pole on either.
+
+---
+
 ## 7. Staging
 
 Ordered so every stage is independently shippable and judged by eye, per
@@ -590,10 +771,13 @@ beyond discussion.
    wood/rootwood/leaf, read at the three seeding sites, propagation
    by parent-copy untouched. This is the entire engine change that lets
    a plant not be wood. Recommended: yes.
-2. **The first non-tree plant is grass (§4).** Cactus second (one
-   mechanism seam: shoot water storage), reed and vine deferred with
-   reasons. Recommended: grass, and treat it as the shared
-   ground-layer milestone of §0, not a plants-only feature.
+2. **The first non-tree plant is grass — authored as an ancestor and a
+   niche probe, not a product (§4, §6a).** It ships as a point in the
+   shared slot space (connectedness rule), it verifies that the
+   disturbed-ground niche can support life at all, and it is the
+   creature economy's ground layer (§0) — three jobs, one `.ron`.
+   Cactus second (one mechanism seam: shoot water storage), reed and
+   vine deferred with reasons.
 3. **Litter is one material, landed once (§2.1).** Plant abscission
    stops deleting leaves; creature S4 consumes the same material; the
    two branches coordinate on who lands it and when. Needs an owner
@@ -633,6 +817,14 @@ beyond discussion.
    given world seed produces, so it invalidates cross-comparison with
    every stand measured so far, which is why it is a call and not an
    edit.
+8. **Adopt the connectedness rule and the emergence bar as standing law
+   (§4a principle 5, §6a).** Every future plant species is authored
+   through the shared slots at different values — species-only
+   mechanisms need the same justification a new material does — and
+   "delete `grass.ron` and see if grass comes back" is the framework's
+   own long-run test, run when P0–P4 make it meaningful. This
+   constrains how every species file is written from here on, which is
+   why it is an owner call and not a convention a session adopts.
 
 ---
 
