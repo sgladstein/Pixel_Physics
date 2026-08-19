@@ -45,14 +45,20 @@ not, and nothing measures the size of a body of water.
 Measured, four rows deep in a walled basin, one body per world, same seed so
 the same weather:
 
-| | 11,000 frames (calm) | through the gale at 11,460 |
+| | 2,500 frames, calm | 6,000 frames spanning a gale |
 |---|---|---|
-| puddle, 6 cells wide | **95% gone** | gone by ~11,600 |
-| lake, 240 cells wide | **0.9%** | 10.5% and then it stops |
+| puddle, 6 cells wide | **gone** | gone |
+| lake, 176 cells wide | **2.2%** | 9.1% and then it stops |
 
-The lake's 10.5% is its shoreline, and at four rows deep that is 0.42 of a
-row. A lake of a realistic depth loses the same *absolute* amount, so a full
-gale takes something under half a row off it and the next rain puts it back.
+What the lake loses is its shoreline — the band within `SHELTER_REACH` of
+open ground — and at two rows deep 9.1% is under a fifth of a row. A lake of
+a realistic depth loses the same *absolute* amount, so a full gale takes a
+sliver off it and the next rain puts it back.
+
+(The frame counts are small because the guards run on a 256x128 world with
+two-row bodies, sized for test cost. The same comparison on the 640x200
+four-row scene they were first written against read 95% against 0.9% at
+11,000 frames — the same behaviour over more water, not a different one.)
 
 **What the sweep still does** is schedule, and only that: a liquid cell that
 fails to move with air above it enqueues an `ActiveKind::Evaporate` site and
@@ -184,7 +190,7 @@ wants an opinion before it wants code.
   `PLAN.md` wants the other half.
 - **The rate constants are set from feel, not from anything physical.** A
   six-cell puddle four rows deep takes ~11,600 frames, a little over three
-  in-game days. `probe_drying_curve` is the thing to re-run after touching
+  in-game days; two rows deep, about half that. `probe_drying_curve` is the thing to re-run after touching
   `FILL_PER_CHECK`, `HUMID_STOP` or `CHECK_INTERVAL`.
 
 ### 2. Thunder

@@ -12,15 +12,18 @@
 //! big anything is — deliberately, because a size cap that gates whether
 //! something happens at all is the mistake `CLAUDE.md` names outright.
 //!
-//! Measured over settled standing water four rows deep, humidity one field
-//! block above the surface (`probe_humidity_against_width`):
+//! Measured over settled standing water, humidity one field block above the
+//! surface (`probe_humidity_against_width`):
 //!
 //! | width | 2 | 4 | 8 | 16 | 32 | 64 | 128 | 240 |
 //! |---|---|---|---|---|---|---|---|---|
-//! | humidity | 1.58 | 1.45 | 1.82 | 2.05 | 2.21 | 2.29 | 2.31 | 2.31 |
+//! | humidity | 1.32 | 1.32 | 1.32 | 1.67 | 2.08 | 2.27 | 2.31 | 2.31 |
 //!
 //! Low and flat out to about eight cells, climbing through sixteen, and
-//! asymptotic at 2.31 well before a hundred. `HUMID_STOP` is set at 2.0 off
+//! asymptotic at 2.31 well before a hundred. The asymptote is what matters
+//! and it is robust: it read 2.310 on a 640x200 world with bodies four rows
+//! deep and 2.310 again on the 256x128 world with two-row bodies the guards
+//! use now. `HUMID_STOP` is set at 2.0 off
 //! that asymptote, so anything from about sixteen cells wide already reads
 //! as sheltered on humidity alone and everything narrower grades.
 //!
@@ -251,10 +254,10 @@ fn dryness(world: &World, x: i32, y: i32) -> f32 {
     // **The square root is shaping, and is stated as tuning rather than as
     // physics.** Evaporative flux really is linear in the humidity deficit,
     // and linear is what this was first built as — but the deficit over a
-    // puddle is only 9% of the range (1.82 against a stop of 2.0), which put
-    // a six-cell puddle at 31,000 frames to dry: eight and a half in-game
-    // days, and nine minutes of continuous play. A puddle that outlasts a
-    // week of weather is not a puddle.
+    // puddle is a small fraction of the range (1.32 against a stop of 2.0),
+    // which put a six-cell puddle at tens of thousands of frames to dry --
+    // many in-game days, and minutes of continuous play. A puddle that
+    // outlasts a week of weather is not a puddle.
     //
     // Taking the root lifts the shallow end of the range and leaves the deep
     // end almost alone — the puddle goes 0.09 -> 0.30, while a gale's already
@@ -274,8 +277,8 @@ fn dryness(world: &World, x: i32, y: i32) -> f32 {
 ///
 /// The humidity above a body was the whole design, and on a calm world it is
 /// enough: measured over settled water four rows deep, the air one block up
-/// reads 1.45 over a six-cell puddle and 2.31 over a 240-cell lake, so a
-/// threshold between them separates the two without anything counting cells.
+/// reads 1.32 over a six-cell puddle and 2.31 over a lake, so a threshold
+/// between them separates the two without anything counting cells.
 ///
 /// **Wind destroys that reading, and wind is a designed, frequent state.**
 /// `weather::gust` fires every 26 frames for as long as the wind channel

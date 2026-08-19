@@ -26,9 +26,10 @@
 //!   each body makes for itself.
 //! * **One body per world.** The first version of the paired scene put the
 //!   puddle and the lake in the same world 200 cells apart, and the lake
-//!   humidified the puddle: the air over the puddle read 1.82 against 1.45
-//!   for the same puddle alone, a third of the way to the lake's own 2.31,
-//!   and it slowed the puddle by the same margin. Weather is a pure function
+//!   humidified the puddle: measured on the larger scene these guards used
+//!   to run on, the air over the puddle read 1.82 with the lake present
+//!   against 1.45 for the same puddle alone — a third of the way to the
+//!   lake's own 2.31, and it slowed the puddle by the same margin. Weather is a pure function
 //!   of `(seed, frame)`, so two worlds built from the same seed and stepped
 //!   the same number of frames get *identical* weather — the pairing survives
 //!   the separation, and the cross-talk does not.
@@ -41,12 +42,34 @@ use crate::sim::parallel;
 use crate::sim::scheduler;
 use crate::sim::update;
 
-const FLOOR_Y: i32 = 160;
-const DEPTH: i32 = 4;
-const BASIN_X: i32 = 300;
+// **Sized for cost, then re-derived from measurement.** These guards were
+// six tests taking 52 seconds — 17% of the whole suite, and the worst
+// time-per-test in the repo by a factor of two. Frame cost here is roughly
+// world width times frames: the sky-lit field tiles never sleep (the sun is
+// always moving), so a wide world pays for its whole surface every frame
+// whatever is happening in it, and the drying tests have to run until a
+// puddle is actually gone.
+//
+// So the world is a quarter of the area it was and the bodies are half as
+// deep, which halves the water a puddle has to lose. Nothing about what is
+// under test changed: the two bodies still differ only in width, still share
+// a depth, and the bars below are re-measured rather than scaled.
+const FLOOR_Y: i32 = 100;
+const DEPTH: i32 = 2;
+const BASIN_X: i32 = 40;
 const PUDDLE_W: i32 = 6;
-const LAKE_W: i32 = 240;
+/// Wide enough that the middle is fully sheltered (`SHELTER_REACH` is three
+/// field blocks, so 24 cells either side) with margin left over for a
+/// shoreline that is *not*, which is what the gale guard measures.
+const LAKE_W: i32 = 176;
+/// Calm until frame 11,460, so the drying guards see no wind at all.
 const SEED: u64 = 12345;
+/// Crosses `GUST_THRESHOLD` at frame 1,500 and is still gusting 4,000 frames
+/// later — a calm start, a crossing, and a long gale inside 6,000 frames
+/// instead of the 18,000 seed 12345 needs to reach its own. Picked by
+/// sweeping the wind channel, which is a pure function of `(seed, frame)`
+/// and costs nothing to search (`probe_find_an_early_gale_seed`).
+const GALE_SEED: u64 = 20;
 
 /// A world with a stone floor, a stone lid, and one walled basin `width`
 /// cells across holding water `DEPTH` rows deep.
@@ -68,8 +91,12 @@ const SEED: u64 = 12345;
 /// the field ever registers it as a source, and the test then measures
 /// spreading rather than the thing it is named for.
 fn scene(width: i32) -> World {
-    let mut w = World::new(Rect::new(0, 0, 639, 199));
-    w.seed = SEED;
+    scene_seeded(width, SEED)
+}
+
+fn scene_seeded(width: i32, seed: u64) -> World {
+    let mut w = World::new(Rect::new(0, 0, 255, 127));
+    w.seed = seed;
     let b = w.bounds().unwrap();
     for x in b.min_x..=b.max_x {
         w.set(x, b.min_y, Cell::new(material::STONE, 0));
@@ -132,7 +159,11 @@ fn pending_evaporation_sites(w: &World) -> usize {
 
 /// Fraction of the basin's water that is gone after `frames` frames.
 fn fraction_lost(width: i32, frames: usize) -> f32 {
-    let mut w = scene(width);
+    fraction_lost_seeded(width, frames, SEED)
+}
+
+fn fraction_lost_seeded(width: i32, frames: usize, seed: u64) -> f32 {
+    let mut w = scene_seeded(width, seed);
     let before = volume(&w, width);
     run(&mut w, frames);
     1.0 - volume(&w, width) as f32 / before as f32
@@ -143,9 +174,9 @@ fn a_puddle_dries_up_and_a_lake_does_not() {
     // The headline paired comparison. Same seed, so the same weather; same
     // frame count; same depth, so the same surface-to-volume ratio. The two
     // bodies differ only in width, and nothing in the mechanic reads a width.
-    let puddle = fraction_lost(PUDDLE_W, 11_000);
-    let lake = fraction_lost(LAKE_W, 11_000);
-    println!("11000 frames: puddle lost {:.1}%, lake lost {:.1}%", puddle * 100.0, lake * 100.0);
+    let puddle = fraction_lost(PUDDLE_W, 2_500);
+    let lake = fraction_lost(LAKE_W, 2_500);
+    println!("2500 frames: puddle lost {:.1}%, lake lost {:.1}%", puddle * 100.0, lake * 100.0);
 
     assert!(puddle > 0.80, "the puddle should have all but gone, lost {:.1}%", puddle * 100.0);
     assert!(lake < 0.05, "the lake should be essentially untouched, lost {:.1}%", lake * 100.0);
@@ -169,8 +200,10 @@ fn a_lake_survives_the_gale_that_dries_the_puddle() {
     // This runs *through* that crossing and well past it. It fails outright
     // if `evaporation::shelter` is removed, or if it is ever made a function
     // of the advected humidity channel.
-    let lake = fraction_lost(LAKE_W, 18_000);
-    println!("18000 frames (spanning the gale from 11460): lake lost {:.1}%", lake * 100.0);
+    let lake = fraction_lost_seeded(LAKE_W, 6_000, GALE_SEED);
+    let puddle = fraction_lost_seeded(PUDDLE_W, 6_000, GALE_SEED);
+    println!("6000 frames on the gale seed: lake lost {:.1}%, puddle lost {:.1}%", lake * 100.0, puddle * 100.0);
+    assert!(puddle > 0.90, "the gale should have finished the puddle off: lost {:.1}%", puddle * 100.0);
     assert!(lake < 0.20, "the gale took the lake apart: lost {:.1}%", lake * 100.0);
 }
 
@@ -188,14 +221,14 @@ fn evaporation_keeps_going_after_the_ca_sweep_stops_entirely() {
     // completely and check the puddle carries on drying anyway. Nothing but
     // the active-site list is touching the world in the second window.
     let mut w = scene(PUDDLE_W);
-    run(&mut w, 1_500);
+    run(&mut w, 400);
     let settled = volume(&w, PUDDLE_W);
-    run_without_the_sweep(&mut w, 12_000);
+    run_without_the_sweep(&mut w, 4_000);
     let lost = 1.0 - volume(&w, PUDDLE_W) as f32 / settled as f32;
     println!("sweepless: puddle lost {:.1}%", lost * 100.0);
     assert!(
         lost > 0.80,
-        "evaporation stopped when the sweep did — the puddle lost only {:.1}% across twelve thousand sweepless frames",
+        "evaporation stopped when the sweep did — the puddle lost only {:.1}% across four thousand sweepless frames",
         lost * 100.0
     );
 }
@@ -229,7 +262,7 @@ fn a_sealed_pool_stops_checking_itself_but_an_open_lake_does_not() {
         });
     }
     let before = volume(&sealed, PUDDLE_W);
-    run(&mut sealed, 4_000);
+    run(&mut sealed, 1_200);
     assert_eq!(volume(&sealed, PUDDLE_W), before, "a sealed pool should not have lost a drop");
     assert_eq!(
         pending_evaporation_sites(&sealed),
@@ -238,7 +271,7 @@ fn a_sealed_pool_stops_checking_itself_but_an_open_lake_does_not() {
     );
 
     let mut lake = scene(LAKE_W);
-    run(&mut lake, 4_000);
+    run(&mut lake, 1_200);
     let sites = pending_evaporation_sites(&lake);
     assert!(
         sites > LAKE_W as usize / 2,
@@ -255,7 +288,7 @@ fn the_serial_driver_schedules_evaporation_too() {
     // sweep, a direct call for the serial one) and that is worth a guard.
     let mut w = scene(PUDDLE_W);
     let before = volume(&w, PUDDLE_W);
-    for _ in 0..8_000 {
+    for _ in 0..2_500 {
         update::step(&mut w);
         w.step_active_sites();
         w.step_fields();
@@ -293,9 +326,9 @@ fn probe_drying_curve() {
     let mut l = scene(LAKE_W);
     let (p0, l0) = (volume(&p, PUDDLE_W), volume(&l, LAKE_W));
     println!("frame   puddle%  h_p    lake%   h_l    wind");
-    for _ in 0..20 {
-        run(&mut p, 1_000);
-        run(&mut l, 1_000);
+    for _ in 0..14 {
+        run(&mut p, 500);
+        run(&mut l, 500);
         let ys = FLOOR_Y - DEPTH - field::FIELD_SCALE;
         println!(
             "{:6}  {:6.1}  {:5.2}  {:6.1}  {:5.2}  {:5.2}",
@@ -424,4 +457,25 @@ fn probe_stress_scene_split() {
         sum_field / 400.0,
         w.active_site_count()
     );
+}
+
+#[test]
+#[ignore = "probe, not a guard"]
+fn probe_find_an_early_gale_seed() {
+    // The gale guard has to span the frame the wind channel crosses
+    // `GUST_THRESHOLD`. On seed 12345 that is frame 11,460, so the test had
+    // to run 18,000 frames to see it. A seed that gusts early costs a
+    // fraction of that and tests exactly the same thing.
+    for seed in 0..40u64 {
+        let cross = (0..20_000u64).step_by(30).find(|&f| crate::sim::weather::at(seed, f).wind.abs() >= 0.45);
+        let calm_until = (0..20_000u64).step_by(30).find(|&f| crate::sim::weather::at(seed, f).wind.abs() >= 0.45).unwrap_or(u64::MAX);
+        if let Some(c) = cross {
+            // Still gusting a good while later, so the window is a gale and
+            // not a single spike.
+            let still = crate::sim::weather::at(seed, c + 4_000).wind.abs() >= 0.45;
+            println!("seed {seed:3}: crosses at {c:6}, calm until {calm_until:6}, still gusting +4000: {still}");
+        } else {
+            println!("seed {seed:3}: never gusts in 20,000 frames");
+        }
+    }
 }
