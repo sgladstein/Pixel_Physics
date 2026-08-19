@@ -121,6 +121,23 @@ and the re-derivation is the work, not a follow-up. Or zeroing one verb still
 moves the other's counter by more than 10%, meaning the split did not reach
 the code path it claims to.
 
+**As built (2026-08-19), with one correction to the plan above.** The
+decoupling cannot be measured in `ant_ablation`: adding `eats`/`digs`
+columns showed **both read 0.0 in every arm, `authored` included** — that
+scene's floor is stone, so nothing is diggable, and at `start_energy` 900 no
+ant reaches `hunger_fraction` inside 6,000 frames, so nothing is ever eaten
+rather than carried. Two structural zeroes agreeing with each other would
+have read as a decoupling result. It is a unit test instead
+(`feeding_and_digging_are_separate_genes`), confirmed to fail against the
+pre-split gate. The columns stay, so the next session reads "this scene
+cannot show it" rather than rediscovering it.
+
+Measured: `authored` 0.504 → 0.486 (Crowding) → 0.489 (Feed split), `zero`
+unchanged at 0.300 throughout, against a per-seed sd of 0.116. **The
+constants were therefore not re-derived** — the total shift is a third of
+one standard error, and re-tuning `(Bias, Move, 2.0)` against it would be
+calibrating a constant to a run.
+
 **Judged by eye: the claim is that nothing changes.** A `forage_loop` contact
 sheet before and after must be indistinguishable in character — ants still dig
 at a soil face, still commute, still deliver. A visible change here is a

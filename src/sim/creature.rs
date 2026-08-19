@@ -833,9 +833,18 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     };
 
     let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MOVE);
-    let mut spent = def.idle_cost + def.synapse_cost * active_synapses as f32;
+    // **The tax is a fraction of the budget, not an absolute.** Written
+    // out here rather than folded into `CreatureDef` so the multiplication
+    // order is visible: `fraction * start_energy` reproduces the old
+    // absolute exactly at the species' authored budget, and *keeps* the
+    // ratio when a harness cuts the budget. §13j is what this is for --
+    // scaling `start_energy` 900 -> 90 and leaving the tax alone spent 72
+    // of a 90-point life on thinking, 80% of a life, and silently
+    // dominated a three-knob sweep that had to be thrown away.
+    let synapse_tax = def.synapse_fraction * def.start_energy * active_synapses as f32;
+    let mut spent = def.idle_cost + synapse_tax;
     world.energy_ledger.metabolized += def.idle_cost as f64;
-    world.energy_ledger.synapse_tax += (def.synapse_cost * active_synapses as f32) as f64;
+    world.energy_ledger.synapse_tax += synapse_tax as f64;
 
     // --- the four verbs, before moving: an ant that is going to pick
     // --- something up should do it from where it can reach it.
@@ -962,13 +971,31 @@ fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &Creatu
         inputs[I::Carrying as usize] = if state.carrying.is_some() { 1.0 } else { 0.0 };
     }
 
+    // **A creature is not crowded by itself**, and it was: this scan
+    // counted any `Creature`-kind cell in the 5x5 with no owner check, so a
+    // `Chain(2)` ant read a floor of 1/8 = 0.125 forever and the 2x2 beetle
+    // 0.375. Neither is a neighbour; both are the animal's own tail.
+    //
+    // Harmless-looking, and it is not: `ant.ron` authors
+    // `(Crowding, Move, -0.3)`, so that floor was a constant subtraction
+    // from the run probability, absorbed into `(Bias, Move, 2.0)` when that
+    // was tuned. The reason to fix it *now*, in a milestone with no genes
+    // in it, is that body length becomes heritable in S8 -- at which point
+    // the offset becomes a function of the gene and every anatomy result
+    // would be measuring a hidden behavioural change. `CLAUDE.md`'s "fixing
+    // a bug exposes a constant that was compensating for it", caught before
+    // the bug rather than after.
     let mut crowd = 0;
     for dy in -CROWDING_RADIUS..=CROWDING_RADIUS {
         for dx in -CROWDING_RADIUS..=CROWDING_RADIUS {
             if dx == 0 && dy == 0 {
                 continue;
             }
-            if world.materials.kind(world.get(x + dx, y + dy).material) == MaterialKind::Creature {
+            let cell = world.get(x + dx, y + dy);
+            if cell.organism_id() == organism {
+                continue;
+            }
+            if world.materials.kind(cell.material) == MaterialKind::Creature {
                 crowd += 1;
             }
         }
@@ -1030,12 +1057,19 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     use brain::BrainOutput as O;
     let carrying = world.organism(organism).and_then(|s| s.carrying);
     let dig_urge = outputs[O::Dig as usize].clamp(0.0, 1.0);
+    // **Feeding is its own verb, and it was not.** Both branches below used
+    // to roll against `dig_urge`, so one weight decided whether an animal
+    // excavated *and* whether it ate -- §13d's `(Bias, Dig, 0.4)`, added to
+    // make ants dig at all, raised the baseline eating probability in the
+    // same stroke, invisibly. Evolution cannot select a burrower against a
+    // grazer while the two share a gene.
+    let feed_urge = outputs[O::Feed as usize].clamp(0.0, 1.0);
     let drop_urge = outputs[O::Drop as usize].clamp(0.0, 1.0);
 
     // --- eat / pick up --------------------------------------------------
     if carrying.is_none() {
         if let Some((fxx, fyy, food)) = adjacent_food(world, x, y, def) {
-            if draw.unit_f32() < dig_urge {
+            if draw.unit_f32() < feed_urge {
                 let hungry = world.organism(organism).is_some_and(|s| s.energy < def.start_energy * def.hunger_fraction);
                 // If the mouthful belonged to somebody, tell them. Without
                 // this the victim keeps running on a chain that includes
@@ -2191,6 +2225,104 @@ mod tests {
         }
         w.plant_ant(x, 100);
         w.get(x, 100).organism_id()
+    }
+
+    /// One hungry ant, a bank of soil to its right and a corpse to its
+    /// left, driven by a genome that authors exactly one of the two verbs.
+    ///
+    /// **A test rather than an ablation arm, because the ablation scene
+    /// cannot show this.** `ant_ablation` reports `eats 0.0 digs 0.0` in
+    /// every arm including `authored`: its floor is stone, so there is
+    /// nothing diggable, and at `start_energy` 900 no ant falls below the
+    /// 0.5 `hunger_fraction` inside 6,000 frames, so nothing is ever eaten
+    /// rather than carried. Both counters are structurally zero there, and
+    /// a decoupling claim measured against them would have been two zeroes
+    /// agreeing with each other.
+    fn verbs_scene(feed: f32, dig: f32) -> (u64, u64) {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        for cx in 90..130 {
+            w.set(cx, 101, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        // Geometry fitted to what the verbs actually read, which is not the
+        // same for the two of them: `act` digs strictly the cell in the
+        // heading direction (east, at spawn), while `adjacent_food` scans
+        // the head's whole 8-neighbourhood. So the soil goes *ahead* of the
+        // head and the corpse diagonally above it, where it can be eaten
+        // but can never be the dig target -- otherwise the dig arm would
+        // excavate the corpse and book it as a dig.
+        w.set(101, 100, Cell::new(soil, 0).with_attached(true));
+        w.set(101, 99, Cell::new(corpse, 0));
+
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        w.species.set_genome(
+            species,
+            brain::genome_from_wiring(
+                &[
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Move, 2.0),
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Feed, feed),
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Dig, dig),
+                ],
+                &def.hidden_wiring,
+                &def.hidden_outputs,
+            ),
+        );
+
+        w.plant_ant(100, 100);
+        let ant = w.get(100, 100).organism_id();
+        // **Assert the animal exists.** `plant_creature_seed` refuses to
+        // place a chain whose cells are not all empty and returns quietly,
+        // so a scene that puts anything on the body's own cells produces an
+        // empty world and two counters that read zero for a reason that has
+        // nothing to do with the gene under test. The first draft of this
+        // scene did exactly that -- the corpse sat where the tail goes.
+        assert_ne!(ant, 0, "the ant was not placed; the scene does not contain the situation this test is about");
+        // Hungry, or it carries its food home instead of eating it and the
+        // counter under test never moves for a reason that is not the gene.
+        if let Some(state) = w.organism_mut(ant) {
+            state.energy = def.start_energy * def.hunger_fraction * 0.5;
+        }
+        run(&mut w, 400);
+        (w.creature_stats.eats, w.creature_stats.digs)
+    }
+
+    #[test]
+    fn feeding_and_digging_are_separate_genes() {
+        // **The claim the Feed/Dig split exists to make.** Before it, one
+        // weight gated both verbs, so this pair could only move together --
+        // §13d's `(Bias, Dig, 0.4)`, added because ants never dug, silently
+        // raised the baseline *eating* probability, and there was no gene
+        // that could tell a burrower from a grazer.
+        let (eats_only, digs_when_feeding) = verbs_scene(2.0, 0.0);
+        let (eats_when_digging, digs_only) = verbs_scene(0.0, 2.0);
+
+        assert!(eats_only > 0, "a Feed weight with no Dig weight must still let the animal eat");
+        assert_eq!(digs_when_feeding, 0, "Feed must not dig: that is the coupling this split removed");
+        assert!(digs_only > 0, "a Dig weight with no Feed weight must still let the animal excavate");
+        assert_eq!(eats_when_digging, 0, "Dig must no longer feed the animal -- one weight moving both is the bug");
+    }
+
+    #[test]
+    fn a_lone_creature_is_not_crowded_by_its_own_body() {
+        // **The known-good case, which is what makes this a measurement
+        // rather than a preference**: an animal alone on a floor with
+        // nothing within ten cells is, by any reading of the word, not
+        // crowded. It read 0.125 -- its own tail -- and a beetle read
+        // 0.375, so `Crowding` was partly a body-size sensor.
+        let mut w = test_world();
+        let ant = ant_on_a_floor(&mut w, 100);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("ant is a creature").clone();
+        let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
+        assert_eq!(inputs[brain::BrainInput::Crowding as usize], 0.0, "a creature alone on a floor must read no crowding at all");
+
+        // And it still senses a *neighbour*, which is the half that must
+        // not be thrown out with the fix: an exclusion that read 0.000 in
+        // both cases would be a dead input, not a corrected one.
+        w.plant_ant(102, 100);
+        let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
+        assert!(inputs[brain::BrainInput::Crowding as usize] > 0.0, "another animal beside it is exactly what this input is for");
     }
 
     #[test]

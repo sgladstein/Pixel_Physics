@@ -30,7 +30,13 @@
         start_energy: 1600.0,
         idle_cost: 0.15,
         move_cost: 0.4,
-        synapse_cost: 0.002,
+        // Per active synapse per tick, as a fraction of start_energy (see
+        // `CreatureDef::synapse_fraction`). 1.2500000821e-6 * 1600 is the
+        // 0.002 this was authored as, *exactly* in f32 -- the obvious
+        // literal 0.00000125 is not: it lands on 0.0019999999 and the
+        // difference is enough to move a chaotic run. Full precision on
+        // purpose.
+        synapse_fraction: 0.0000012500000821091817,
         eat_energy: 300.0,
         hunger_fraction: 0.8,
         food: ["ant", "corpse"],
@@ -42,6 +48,10 @@
             (Bias, Move, 2.0),
             (FoodAdjacent, Move, -2.0),
             (FoodAdjacent, Dig, 2.0),
+            // The predator's whole verb, and before the Feed/Dig split it
+            // rode on the line above: a beetle "digs" an ant out of the
+            // world. Same weight, so it hunts exactly as it did.
+            (FoodAdjacent, Feed, 2.0),
             (TempAboveAmb, Turn, -0.8),
         ],
     )),

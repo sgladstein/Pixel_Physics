@@ -34,7 +34,7 @@ use serde::Deserialize;
 
 pub const BRAIN_INPUTS: usize = 16;
 pub const BRAIN_HIDDEN: usize = 4;
-pub const BRAIN_OUTPUTS: usize = 9;
+pub const BRAIN_OUTPUTS: usize = 10;
 
 /// **Reserved storage dimensions.** The live counts above say how much of
 /// the scaffold is wired; these say how much room the layout leaves it to
@@ -183,7 +183,7 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "PheroAAlong",
     "PheroBAlong",
 ];
-pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution"];
+pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed"];
 
 fn fnv(h: u32, b: u8) -> u32 {
     (h ^ b as u32).wrapping_mul(0x0100_0193)
@@ -348,6 +348,24 @@ pub enum BrainOutput {
     /// `FOOTING_BONUS`, and at 0.6 against a turn signal capped at 1.0 it
     /// was swamping the steering it competed with.
     Caution = 8,
+    /// P(take the food in reach) — eat it or pick it up.
+    ///
+    /// **Split out of `Dig`, which used to gate excavating and feeding with
+    /// one weight.** §13d added `(Bias, Dig, 0.4)` because ants never dug,
+    /// and it silently raised the baseline *eating* probability at the same
+    /// time; nothing could separate the two, so a burrower and a grazer are
+    /// not distinguishable points in the genome — there is no gene to tell
+    /// them apart with. That is a hard precondition for the divergence S5
+    /// and S7 are about, and it is why this ships in a milestone with no
+    /// genes in it.
+    ///
+    /// **The first lawful output append**, and the thing S2 was built for:
+    /// under the reserved layout this lights up a row that already existed
+    /// and was already zero, so not one weight of any other slot moved.
+    /// Authored at the Dig weights it inherited, so generation-zero
+    /// behaviour is unchanged and evolution starts from where the hand
+    /// tuning left off rather than from a hole.
+    Feed = 9,
 }
 
 /// One authored connection, as a species file writes it:
@@ -592,7 +610,7 @@ mod tests {
         // reinterpretation of every stored individual. If this assertion
         // fires, either put the slot back or accept that every genome in
         // flight now means something else -- and say which in the commit.
-        assert_eq!(genome_manifest(), 3_315_096_346);
+        assert_eq!(genome_manifest(), 2_369_832_241);
     }
 
     #[test]

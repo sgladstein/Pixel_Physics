@@ -63,9 +63,43 @@ const AUTHORED: &[(BrainInput, BrainOutput, f32)] = &[
     (BrainInput::Bias, BrainOutput::EmitA, 2.0),
     (BrainInput::Bias, BrainOutput::Dig, 0.4),
     (BrainInput::FoodAdjacent, BrainOutput::Dig, 0.8),
+    (BrainInput::Bias, BrainOutput::Feed, 0.4),
+    (BrainInput::FoodAdjacent, BrainOutput::Feed, 0.8),
     (BrainInput::AtNest, BrainOutput::Drop, 0.9),
     (BrainInput::Carrying, BrainOutput::Drop, 0.2),
 ];
+
+/// **The guard the comment above has been promising.** It named this
+/// function and this function did not exist, so the copy was unchecked for
+/// as long as anyone has been reading that sentence and believing it.
+///
+/// **This list is a copy of `ant.ron`'s, and a copy drifts.** It cannot
+/// simply *be* the species list, because the whole harness is "the authored
+/// animal minus one named connection" and that needs the sparse entries
+/// rather than the expanded genome. So it is checked instead: expand this
+/// list with the species' own hidden wiring and require it to equal the
+/// compiled genome, exactly.
+///
+/// The Feed/Dig split is what this is for. Adding `BrainOutput::Feed`
+/// without touching this file would have left the `authored` arm with no
+/// Feed weights at all — an ant that never eats — and the ablation would
+/// have reported that as a result about feeding rather than as a stale
+/// copy. Silent, plausible, and wrong in the direction the experiment was
+/// looking.
+fn authored_matches_the_species_file(world: &World) {
+    let species = world.species.id_of("ant").expect("ant species");
+    let def = world.species.get(species).creature.as_ref().expect("ant is a creature");
+    let from_copy = pixel_physics::sim::brain::genome_from_wiring(
+        &AUTHORED.iter().map(|&(i, o, w)| Instinct(i, o, w)).collect::<Vec<_>>(),
+        &def.hidden_wiring,
+        &def.hidden_outputs,
+    );
+    assert_eq!(
+        from_copy,
+        world.species.get(species).genome,
+        "AUTHORED has drifted from assets/species/ant.ron -- every arm below would be an ablation of an animal that does not exist"
+    );
+}
 
 #[derive(Default, Clone, Copy)]
 struct Metrics {
@@ -77,6 +111,13 @@ struct Metrics {
     first_pickup: f32,
     pickups: f32,
     deliveries: f32,
+    /// **The pair the Feed/Dig split exists to separate.** Reported side by
+    /// side because the claim is about their *independence*: before the
+    /// split one weight moved both, so this pair could only ever move
+    /// together, and "they move together" would have looked like a result
+    /// rather than like a missing gene.
+    eats: f32,
+    digs: f32,
 }
 
 fn main() {
@@ -98,6 +139,8 @@ fn main() {
             other => panic!("unknown arg {other:?}; known: seeds, frames, terrain, food"),
         }
     }
+
+    authored_matches_the_species_file(&World::new(Rect::new(0, 0, 15, 15)));
 
     // Arm 0 is the control and arm 1 the full genome; everything after is
     // the full genome minus one instinct.
@@ -133,8 +176,8 @@ fn main() {
 
     println!("ant ablation: {seeds} seeds x {frames} frames per arm, hidden wiring left intact in every arm\n");
     println!(
-        "{:<26} {:>7} {:>8} {:>9} {:>10} {:>9} {:>12} {:>8} {:>7}",
-        "arm", "travelled", "commute", "coverage", "roamed", "foraged", "first-pickup", "pickups", "deliv"
+        "{:<26} {:>7} {:>8} {:>9} {:>10} {:>9} {:>12} {:>8} {:>7} {:>7} {:>7}",
+        "arm", "travelled", "commute", "coverage", "roamed", "foraged", "first-pickup", "pickups", "deliv", "eats", "digs"
     );
 
     let mut control = Metrics::default();
@@ -145,7 +188,7 @@ fn main() {
             control = m;
         }
         println!(
-            "{label:<26} {:>7.1} {:>8.3} {:>9.0} {:>10.2} {:>9.2} {:>12} {:>8.1} {:>7.1}",
+            "{label:<26} {:>7.1} {:>8.3} {:>9.0} {:>10.2} {:>9.2} {:>12} {:>8.1} {:>7.1} {:>7.1} {:>7.1}",
             m.range,
             m.commute,
             m.coverage,
@@ -153,7 +196,9 @@ fn main() {
             m.foraged,
             if m.first_pickup < 0.0 { "never".to_string() } else { format!("{:.0}", m.first_pickup) },
             m.pickups,
-            m.deliveries
+            m.deliveries,
+            m.eats,
+            m.digs
         );
         if n == 1 {
             // **The sanity check, before any ablation number is read.** If
@@ -186,6 +231,8 @@ fn mean(runs: &[Metrics]) -> Metrics {
         first_pickup: if picked.is_empty() { -1.0 } else { picked.iter().sum::<f32>() / picked.len() as f32 },
         pickups: runs.iter().map(|r| r.pickups).sum::<f32>() / n,
         deliveries: runs.iter().map(|r| r.deliveries).sum::<f32>() / n,
+        eats: runs.iter().map(|r| r.eats).sum::<f32>() / n,
+        digs: runs.iter().map(|r| r.digs).sum::<f32>() / n,
     }
 }
 
@@ -379,5 +426,7 @@ fn run_one(instincts: &[Instinct], frames: usize, seed: u64, rough: bool, world_
         first_pickup,
         pickups: st.pickups as f32,
         deliveries: st.deliveries as f32,
+        eats: st.eats as f32,
+        digs: st.digs as f32,
     }
 }

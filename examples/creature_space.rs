@@ -760,7 +760,15 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
     // That is `CLAUDE.md`'s rule arriving in the usual disguise: when a fix
     // changes what a number *means*, re-deriving the constants that read it
     // is part of the fix. Held at the ratio ant.ron actually authored.
-    def.synapse_cost = 0.002 * (def.start_energy / 900.0);
+    //
+    // **And the correction that used to live here is gone**, because the
+    // species file now authors the ratio itself (`synapse_fraction`) and
+    // the charge is `fraction * start_energy` wherever the budget is set.
+    // The line was `def.synapse_cost = 0.002 * (def.start_energy / 900.0)`,
+    // and it was a correction one harness happened to remember: any other
+    // caller cutting `start_energy` re-created the whole §13j failure in
+    // silence. Deleted here rather than kept, because keeping it would
+    // apply the correction twice.
     // **Corpses are off the menu here, and finding that out was the point
     // of the readiness check.** With "corpse" in the food list, a starved
     // ant feeds the ants around it, so a colony sustains itself on its own

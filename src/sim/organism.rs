@@ -706,14 +706,30 @@ pub struct CreatureDef {
     pub idle_cost: f32,
     /// Charged per cell moved.
     pub move_cost: f32,
-    /// Charged per **active** synapse per tick.
+    /// Charged per **active** synapse per tick, as a fraction of
+    /// `start_energy`.
     ///
     /// The sign of this mechanism is the point rather than its magnitude:
     /// connections must pay for themselves or evolution prunes them, which
     /// is simultaneously the sparsity pressure that keeps evolved brains
     /// legible and a real energetic trade-off (brains are metabolically
     /// expensive). `brain::eval_brain` returns the count for free.
-    pub synapse_cost: f32,
+    ///
+    /// **A fraction rather than an absolute, and that is not a unit
+    /// preference.** As an absolute it was silently a *different* tax
+    /// every time anything changed the energy budget: §13j measured a
+    /// harness cutting `start_energy` 900 -> 90 for scarcity and leaving
+    /// this alone, which spent 72 of the 90 on thinking — 80% of a life —
+    /// and made a "forager versus immobile" sweep really a "thinks versus
+    /// does not think" sweep, invalid and thrown away. The harness had to
+    /// carry a hand-applied `0.002 * (start_energy / 900.0)` to correct
+    /// for it; expressing the ratio structurally deletes that correction,
+    /// and a correction nobody has to remember is one nobody can forget.
+    ///
+    /// It also has to be a fraction before body size is heritable (S8),
+    /// because `start_energy` becomes a function of the body then and an
+    /// absolute tax would quietly re-price thinking for every size.
+    pub synapse_fraction: f32,
     /// Gained by eating one food cell.
     pub eat_energy: f32,
     /// Fraction of `start_energy` below which a creature eats what it finds

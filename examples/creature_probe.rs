@@ -18,17 +18,17 @@
 //! cargo run --release --example creature_probe -- frames=4000 every=500 ants=8
 //! ```
 
-use pixel_physics::sim::brain::{BRAIN_INPUTS, BRAIN_OUTPUTS};
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material;
 use pixel_physics::sim::pheromone::Channel;
 use pixel_physics::sim::{parallel, Cell, World};
 
-const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
-    "bias", "pheroA_f", "pheroA_lr", "pheroB_f", "pheroB_lr", "moist_f", "moist_lr", "light", "temp", "food_adj", "at_nest", "energy",
-    "carrying", "crowd", "pheroA_along", "pheroB_along",
-];
-const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["turn", "move", "emitA", "emitB", "dig", "drop", "persist", "tumble", "caution"];
+// **The names come from `brain.rs` rather than being restated here.** This
+// file used to carry its own abbreviated copy, which is one enum edit away
+// from a probe that prints the wrong label against the right number -- the
+// exact failure mode `CLAUDE.md` records for debug readouts, and harder to
+// spot than a blank overlay because it looks like data.
+use pixel_physics::sim::brain::{INPUT_NAMES, OUTPUT_NAMES};
 
 fn main() {
     let mut frames = 6000usize;

@@ -36,14 +36,22 @@
         idle_cost: 0.10,
         move_cost: 0.25,
 
-        // Per active synapse per tick. Against idle_cost 0.10, a
-        // fully-dense brain (~168 connections) costs about a third of
-        // standing still and the authored sparse brain below (11
-        // connections) costs about 2%. The magnitude is not the point --
-        // the *sign* is: a connection that does not pay for itself gets
-        // pruned, which is both the sparsity pressure that keeps evolved
-        // brains legible and a real energetic trade-off.
-        synapse_cost: 0.002,
+        // Per active synapse per tick, **as a fraction of start_energy**:
+        // 2.2222222e-6 * 900 is the 0.002 this was authored as, exactly, in
+        // f32 at both this budget and the 90 the sweep harness cuts it to.
+        // Against idle_cost 0.10, a fully-dense brain (~168 connections)
+        // costs about a third of standing still and the authored sparse
+        // brain below (11 connections) costs about 2%. The magnitude is not
+        // the point -- the *sign* is: a connection that does not pay for
+        // itself gets pruned, which is both the sparsity pressure that
+        // keeps evolved brains legible and a real energetic trade-off.
+        //
+        // Absolute was wrong for a reason worth keeping: §13j measured the
+        // sweep cutting the budget to 90 and leaving this at 0.002, which
+        // spent 80% of a life on thinking and invalidated the sweep. The
+        // harness then carried a hand-applied correction; a ratio needs no
+        // correction to remember.
+        synapse_fraction: 0.0000022222222,
         eat_energy: 120.0,
         // Eat only when genuinely low; otherwise carry it home. See
         // CreatureDef::hunger_fraction -- getting this wrong deletes the
@@ -205,6 +213,17 @@
             // reason in the animal.
             (Bias, Dig, 0.4),
             (FoodAdjacent, Dig, 0.8),
+            // **Feeding, authored at the weights it inherited from Dig.**
+            // Until the split these two lines *were* the dig lines: one
+            // gene decided both excavating and eating, so §13d's
+            // `(Bias, Dig, 0.4)` -- added because ants never dug -- also
+            // raised the baseline eating probability, and nothing could
+            // tell a burrower from a grazer because there was no gene that
+            // distinguished them. Same numbers on purpose: generation zero
+            // behaves exactly as it did, and evolution starts from the hand
+            // tuning rather than from a hole.
+            (Bias, Feed, 0.4),
+            (FoodAdjacent, Feed, 0.8),
             (AtNest, Drop, 0.9),
             // Drop what you are carrying only when you have arrived; an
             // ant that drops at random is an ant that builds walls in the
