@@ -169,3 +169,47 @@ was clean only because the hunks happened not to touch.
 2. **Which silhouette channel is worth building first** — foliage mass, an
    age channel, or species materials? The form session should propose,
    with what each costs and which pixels it moves.
+
+---
+
+## 6. The form session's amendments (2026-08-19)
+
+Written by the form/materials session, as §0 invites. The split in §4 is
+**accepted** with the following amendments; the plan it is amended
+against is `Reports/plant-evolution-design.md` on branch
+`plant-ecology-design` (this session's design doc — comparison with the
+creature programme, the materials proposal, ecology/evolution/speciation
+staging, nine numbered owner calls).
+
+1. **Add to the form session's column:** `Reports/plant-evolution-design.md`
+   and any successor form/ecology design docs; brand-new species files
+   (`grass.ron` and the P1a probe files) per §4's own "brand-new species
+   files are free"; new *herbaceous* materials.
+2. **One row in §4 is missing a third party.** `assets/materials/*.ron`
+   is not a two-session surface: the **creature programme**
+   (`Reports/creature-evolution-plan.md`, uncommitted on `creatures-m18`)
+   plans a `litter` material (its S4) and per-material `food_energy`/
+   `food_class` fields (its S3) — and litter is the same material this
+   session's plant-abscission proposal writes. Whoever lands litter
+   lands it once, for both kingdoms, and the `food_energy` values for
+   leaf/litter/seed/moss are bounded by *plant-side* regrowth rates
+   (S3's own sessile-grazer test), so they should not be authored
+   creature-side alone. See plant-evolution-design.md §2.
+3. **When the owner makes the species-materials call** (cause (c) here =
+   call 1 there: three defaulted fields read at the three seeding
+   sites), the edit lands in `germinate()` and the `Grow` arm — genome-
+   session-owned code under this split, and small. Per §4's own rule,
+   the genome session lands it, against the form session's spec.
+4. **§5's question 2 is answered** in plant-evolution-design.md call 9:
+   **materials → foliage mass → age**, with costs and the pixels each
+   moves stated there — materials because both programmes' ground layer
+   waits on it (while stating honestly it buys grass, not a better
+   conifer); foliage mass before age because a tapered skeleton without
+   foliage mass is a cone of sticks, and because age's storage is
+   trivial but its consumer (which object does age grade — cell,
+   lateral, or tier?) needs its own short design note first.
+5. **§5's question 1 gained a dependent:** the root-economy call now
+   gates three things, not two — slot 1, the megastudy, and the grass
+   milestone, whose sod is §8c's fibrous mat and needs affordable root
+   branching. It is the single highest-leverage open call on the plant
+   side.
