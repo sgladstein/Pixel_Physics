@@ -493,6 +493,52 @@ pub(crate) fn sample(tiles: &HashMap<ChunkCoord, FieldTile>, bounds: Option<Rect
     }
 }
 
+/// Whether the field block covering this position holds standing liquid or
+/// damp soil — the same flag `rebuild_blocked` records and
+/// `apply_moisture_sources` forces humidity from.
+///
+/// Exists so `step_diffusion` can let the moisture channel read *through* a
+/// blocked block, which every other channel must not do. Out of bounds is
+/// `false`: the void is not wet.
+/// How strongly the field block covering this position sources moisture,
+/// `0.0..=1.0` — `1.0` for standing liquid, graded for damp soil, `0.0` for
+/// anything dry. The value `apply_moisture_sources` forces humidity from.
+///
+/// **Recomputed from the CA grid every frame and untouched by any solve
+/// pass**, which is the property `evaporation.rs` needs from it: unlike the
+/// humidity it produces, it cannot be advected away by wind.
+pub(crate) fn moisture_source_at(
+    tiles: &HashMap<ChunkCoord, FieldTile>,
+    bounds: Option<Rect>,
+    world_x: i32,
+    world_y: i32,
+) -> f32 {
+    if let Some(b) = bounds {
+        if !b.contains(world_x, world_y) {
+            return 0.0;
+        }
+    }
+    let (fx, fy) = field_coord_of(world_x, world_y);
+    let (tile_coord, lx, ly) = tile_and_local(fx, fy);
+    tiles.get(&tile_coord).map_or(0.0, |tile| tile.moisture_source_local(lx, ly))
+}
+
+pub(crate) fn is_moisture_source(
+    tiles: &HashMap<ChunkCoord, FieldTile>,
+    bounds: Option<Rect>,
+    world_x: i32,
+    world_y: i32,
+) -> bool {
+    if let Some(b) = bounds {
+        if !b.contains(world_x, world_y) {
+            return false;
+        }
+    }
+    let (fx, fy) = field_coord_of(world_x, world_y);
+    let (tile_coord, lx, ly) = tile_and_local(fx, fy);
+    tiles.get(&tile_coord).is_some_and(|tile| tile.moisture_source_local(lx, ly) > 0.0)
+}
+
 pub(crate) fn is_blocked(tiles: &HashMap<ChunkCoord, FieldTile>, bounds: Option<Rect>, world_x: i32, world_y: i32) -> bool {
     if let Some(b) = bounds {
         // The world edge is a wall — every CA rule already treats it as one
@@ -1553,7 +1599,50 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
                 let down = neighbour(0, FIELD_SCALE);
                 let neighbour_avg_t = (left.temperature + right.temperature + up.temperature + down.temperature) / 4.0;
                 let neighbour_avg_l = (left.light + right.light + up.light + down.light) / 4.0;
-                let neighbour_avg_m = (left.moisture + right.moisture + up.moisture + down.moisture) / 4.0;
+
+                // **Moisture alone reads through a blocked neighbour that is
+                // itself a moisture source, and the exception is not a
+                // convenience — without it `apply_moisture_sources` sets a
+                // source the rest of the solve then throws away.**
+                //
+                // `blocked` goes true for a whole 8x8 block if *one* cell in
+                // it is `Solid`, and `rebuild_blocked` deliberately scans
+                // the whole block anyway rather than breaking on the first
+                // wall, precisely so "a shallow puddle resting on a thin
+                // floor" still registers as a source (its own comment says
+                // so). The generic wall rule above then discarded that: a
+                // block holding both water and rock was pinned to
+                // `MAX_MOISTURE` and forbidden to share a drop of it, so
+                // water in a rock basin humidified nothing at all.
+                //
+                // Measured, over standing water four rows deep: with the
+                // water's own block clear of stone the air a block above sat
+                // at 2.310, and with the identical body shifted three rows
+                // so its block also caught the floor, 0.000 — for a body 240
+                // cells wide. The signal was not weak, it was absent, and it
+                // was absent as a function of where an 8-row grid boundary
+                // happened to fall.
+                //
+                // Physically this is the more honest of the two readings in
+                // any case: wet ground is humid, which is exactly what the
+                // graded damp-soil source already models for `Powder` (soil
+                // is not `Solid`, so it never hit this in the first place).
+                // Heat and light keep the strict wall rule — a stone wall
+                // really is opaque and insulating, and the sealed-room
+                // guards depend on it.
+                let moisture_neighbour = |dx: i32, dy: i32| -> f32 {
+                    let (nx, ny) = (wx + dx, wy + dy);
+                    if is_blocked(old, bounds, nx, ny) && !is_moisture_source(old, bounds, nx, ny) {
+                        here.moisture
+                    } else {
+                        sample(old, bounds, nx, ny).moisture
+                    }
+                };
+                let neighbour_avg_m = (moisture_neighbour(-FIELD_SCALE, 0)
+                    + moisture_neighbour(FIELD_SCALE, 0)
+                    + moisture_neighbour(0, -FIELD_SCALE)
+                    + moisture_neighbour(0, FIELD_SCALE))
+                    / 4.0;
 
                 let temperature = (here.temperature
                     + (neighbour_avg_t - here.temperature) * HEAT_DIFFUSION_RATE)
