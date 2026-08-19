@@ -292,6 +292,23 @@ Flagged rather than answered. The plausible resolution is that populations are
 *frozen* off-camera rather than advanced, which is defensible if refuges are
 physical (§3) but should be a stated decision.
 
+**Answered in `Reports/ecological-lod-design.md`** (recommendation, awaiting
+owner sign-off), which takes up the freeze and narrows it: **freeze individuals,
+advance the fields and a coarse patch tier, and quantize every population-like
+quantity to integers.** Freezing individuals is what makes the atto-fox
+impossible rather than merely unlikely; advancing the aggregate tier is what
+stops the off-camera world from being paused, which §5e of
+`emergent-world-architecture.md` ("nothing reseeds") and its "the world currently
+runs down" finding both need.
+
+The reframing that made it tractable: the off-camera world does not owe the
+player a *correct* population, only a conserved and plausible one plus a supply
+of colonists — and §9f, the criterion this most directly serves, is a statement
+about a reservoir rather than about accuracy. That document also argues §7a's
+accidental refuge should be made deliberate rather than removed, since a rate
+difference across the tier boundary is the dispersal handicap Huffaker needed
+and §2 says this engine otherwise lacks.
+
 ### 7c. `push_creature` will overflow, and CI will not catch it
 
 ```rust
@@ -444,3 +461,13 @@ harness (§8) rather than growing two.
 
 **To `PLAN.md`:** §5 deserves a standing note. The ecology becomes less stable
 as everything else improves, and that will not be obvious when it happens.
+
+**To M10 and the worldgen work:** §7b is answered in
+`Reports/ecological-lod-design.md`, which also takes up §7a's "decide
+explicitly" and decides it toward the refuge. Two of this report's findings turn
+out to be load-bearing for the streaming architecture rather than for creature
+design: §2 (space is the stabilizing mechanism) makes the off-camera world an
+ecological component rather than a performance concern, and §7c's slot overflow
+becomes a prerequisite rather than a follow-up, because a refuge tier keeps
+populations alive that would otherwise have died and so raises cumulative
+births.

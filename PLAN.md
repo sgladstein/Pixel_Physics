@@ -954,6 +954,20 @@ the owner, replacing that line:
   and succession the same function evaluated at different times, and
   catch-up (advancing an unloaded chunk by 400,000 frames on reload) the
   same function evaluated a third way.
+- **What catch-up must contain, ecologically:
+  `Reports/ecological-lod-design.md`** (recommendation, awaiting sign-off).
+  Three tiers — cell, individual, patch — each a lossy projection of the one
+  below, with conserved currencies (water, biomass, one nutrient) crossing
+  every boundary. Answers `population-dynamics-research.md` §7b, which stood
+  flagged-but-unanswered: **freeze individuals, advance the fields and the
+  patch tier, quantize populations to integers.** It does not reorder the
+  sequencing below — it says what the catch-up step has to *do*. Two
+  consequences worth carrying into the roadmap: chunk sleeping becomes a
+  **deliberate refuge tier** (the dispersal handicap the ecology needs, per
+  that report's §2, rather than the accidental one its §7a describes), and
+  field sleeping (issue #4) is the **diversity budget** — field channels are
+  niche axes, and the axis count is what decides whether the world supports
+  several plant strategies or exactly one winner.
 - **Generated terrain must be at rest.** Unique to a falling-sand engine —
   generate a 50° sand slope against a 34° repose angle and it slumps the
   instant the chunk wakes, and the slump can propagate into chunks that
