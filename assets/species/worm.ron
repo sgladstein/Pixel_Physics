@@ -1,0 +1,25 @@
+// The first *creature* on the shared organism substrate -- M18's worm,
+// retired off its own parallel `CreatureState`/`Cell::aux`-index scheme
+// and onto the same generational handles, cell lists and species data
+// every plant already uses (Reports/creature-direction.md §3a).
+//
+// **Both cell types carry no behaviors, and that is not an omission.** A
+// `Behavior` is something a species composes onto a cell type from data --
+// Divide, Grow, Photosynthesize. Deciding where to step is not that: it is
+// creature.rs's own code, running from the active-site schedule, and there
+// is nothing about it for a species to compose yet. What this file buys is
+// everything *around* the movement -- a handle that goes stale safely, a
+// cell list, a slot that comes back on death -- which is exactly the
+// substrate the parallel scheme had reinvented badly.
+//
+// `Segment` is declared and unused: a worm is a one-cell chain. It is here
+// because the ants that follow are 2-3 cells and a species file that
+// declares only what it uses today would have to be edited in lockstep
+// with them for no benefit.
+(
+    name: "worm",
+    cell_types: [
+        (Head, []),
+        (Segment, []),
+    ],
+)
