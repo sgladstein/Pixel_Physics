@@ -439,8 +439,20 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             // 382, damage from 919 to 1,691 cells of rock, and pending
             // sites from ~450 to 16,052.
             if failure.mode == super::load::FailureMode::Overloaded {
-                crush_in_place(world, &region, failure.at);
-                return propagate;
+                // A crush that writes **no new fissure** has nothing to
+                // propagate. Cracks are bits, so re-crushing rock that is
+                // already crushed is idempotent -- it does no damage, and
+                // it also does no *good*, while still costing a load walk
+                // and a reschedule every time. Measured by the
+                // load-concentration session, whose change makes many more
+                // cells reach the criterion: `caveshallow` went from 488
+                // confined failures to 2,988 and produced *fewer* fissured
+                // cells (332 to 284), which is 6x the work for less
+                // output. Stopping when nothing was written turns that
+                // from a treadmill into a one-off.
+                if crush_in_place(world, &region, failure.at) > 0 {
+                    return propagate;
+                }
             }
             return Vec::new();
         }
@@ -821,7 +833,7 @@ const BURIAL_PROBE_CAP: u32 = 24;
 /// a failure that creates no loose material cannot undermine its
 /// neighbours, which is the positive feedback `Reports/next-session-
 /// handoff.md` §1b traces every cascade to.
-fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) {
+fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) -> u32 {
     // A fissure *wanders and forks*; it does not travel in a straight
     // line. Each walker carries a heading, turns a little at every cell,
     // and occasionally throws a fork off to one side -- so what comes out
@@ -861,6 +873,7 @@ fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) {
         .map(|i| (at, seed + i as f32 * std::f32::consts::TAU / CRACK_PRIMARIES as f32, length))
         .collect();
     let mut forks = CRACK_FORKS_BASE + region.len() / CRACK_CELLS_PER_FORK;
+    let mut fissured = 0u32;
     let mut head = 0;
     while head < walkers.len() {
         let (mut pos, mut heading, budget) = walkers[head];
@@ -916,6 +929,7 @@ fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) {
             if scored != cell {
                 world.set(next.0, next.1, scored);
                 world.structural_failures.crushed_cells += 1;
+                fissured += 1;
             }
             pos = next;
             // Forking, not crossing. A branch leaves at a wide angle and
@@ -929,6 +943,7 @@ fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) {
             }
         }
     }
+    fissured
 }
 
 /// How many primary fissures leave the point that gave way.
