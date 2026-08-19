@@ -9,7 +9,7 @@ as territory.** The rule that replaces ownership: whoever holds a work
 package edits what that package needs, lands small and fast in any file
 another session also touches, and rebases before every land.
 
-Written for implementing sessions running cheaper models. Every package
+Written for implementing sessions to execute cold. Every package
 states its spec, its acceptance protocol, and its failure protocol —
 follow them as written; where a package says "measure first, then set
 the bar," do not invent a number. `CLAUDE.md` applies in full,
@@ -18,12 +18,22 @@ especially: look before you measure; rebuild between sweep points
 work in your own worktree; capture sheets at noon (multiples of 3,600);
 test both drivers; paired comparisons over remembered numbers.
 
-**Two sessions.** Session G is the genome session (has the root-economy
-measurements in context; its launch prompt is already written). Session
-F is the form session's implementation successor (this branch,
-`plant-ecology-design`). Assignment is by knowledge coherence: G takes
-the packages deep in the root/organism machinery; F takes the ground
-layer and the probes.
+**Two sessions, same model tier — split by context, not capability.**
+Session G is the genome session: it holds the root-economy
+measurements, the genome re-map's edit history through `germinate()`
+and the `Grow` arm, and the megastudy harness in context, so it takes
+the packages that lean on that knowledge. Session F is the form
+session's implementation successor (this branch,
+`plant-ecology-design`): it holds the ground-layer design, the
+four-axes bar and the probe specs, so it takes those. **Two sessions
+rather than one** because the lanes are genuinely parallel (G's
+megastudy alone is 3.5 hours of wall clock that would serialize F's
+entire queue behind it) and each lane's context would cost the other
+session real time to rebuild. **Collapse to one session** if G's queue
+drains first, or if plant.rs coordination overhead starts exceeding
+the parallelism — the merge contract above is the tripwire: two
+conflicted rebases in a row on the same region means stop and
+serialize.
 
 ---
 
@@ -40,7 +50,9 @@ Then, in parallel:
                     WP-B3 (grass)                 after WP-B2; re-tune roots
                                                   after WP-A lands
 Later:   WP-E (foliage mass)   after WP-B3 and WP-A2 — either session
-         WP-F (age channel)    design note first; NOT for a cheap model
+         WP-F (age channel)    design note first; the note is planning
+                               work and goes back to the planning
+                               session, not into either queue
 ```
 
 `src/sim/plant.rs` is the collision surface: WP-A works the root branch
@@ -319,15 +331,18 @@ by cutting foliage 11,179 → 2,336 once); the acceptance judge is the
 owner's eye on paired sheets, per the runtime-selector convention if
 settings genuinely compete.
 
-## WP-F — Age channel (design note first; not for a cheap model)
+## WP-F — Age channel (design note first; not in either queue)
 
 Signed off as call 9's third step, explicitly gated on its own short
 design note answering *which object age grades* — a cell, a lateral,
 or a tier — before any storage lands. The storage is trivial (a
 birth-frame stamp in the sidecar); the consumer touches allocation and
-the vein-polarity machinery. Do not attempt this package without the
-design note; do not write the design note in an implementation
-session.
+the vein-polarity machinery. The note is planning work, not
+implementation work: it goes back to the planning session when WP-E's
+results exist to inform it. Do not attempt this package without the
+design note, and do not write the note mid-queue in an implementation
+session — the which-object question is precisely the one this repo
+answers wrongly when it is asked as a rider on other work.
 
 ---
 
