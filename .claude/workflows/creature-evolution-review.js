@@ -352,9 +352,7 @@ const critique = await agent(
   '      in about a dozen places, each with the measurement that forced the change)\n' +
   '  ' + ROOT + '/Reports/design-philosophy.md  (settles arguments about constants and scope)\n\n' +
   'You may also read source under ' + ROOT + ' to check a claim.\n' +
-  'DO NOT run cargo build/test/run -- reading is enough, and builds are slow here. Do not edit any file.
-
-' +
+  'DO NOT run cargo build/test/run -- reading is enough, and builds are slow here. Do not edit any file.\n\n' +
   'YOUR PRIMARY JOB, in priority order:\n' +
   '1. DEAD ENDS. Find every place a proposal re-proposes something already TRIED AND REVERTED, or\n' +
   '   already MEASURED FALSE, or forbidden by a decision. This is the single highest-value thing you\n' +

@@ -1,0 +1,711 @@
+# Creature evolution: how an ant stops being a file
+
+**Status:** plan, written 2026-08-18 from a five-agent design review (four
+independent architecture proposals against a compressed constraints brief,
+then a prosecutor reading the raw findings log for ideas this codebase has
+already paid to learn are wrong). The review is input, not output: every
+recommendation below was checked against the source before it was adopted,
+and four of the proposals' headline mechanisms are rejected here on evidence
+they did not have. Where this document says "decided", it was decided by the
+owner; where it says "call", it is a judgement made here and open to being
+overturned by measurement.
+
+**Required reading before implementing any stage:**
+
+1. `CLAUDE.md` — the method.
+2. `Reports/creature-direction.md` §13a–13o — what actually happened when
+   stages 0–3 were built. It contradicts its own design in about a dozen
+   places, each with the measurement that forced the change. This plan is
+   downstream of §13, not of §§1–12.
+3. §6 below — the dead-end register. It is the most valuable part of this
+   document and it exists because generic design reasoning re-invents these
+   with great confidence.
+
+---
+
+## 0. Decision log
+
+| # | Decision | Status |
+|---|---|---|
+| E1 | **Energy becomes a property of food, not of the eater.** `eat_energy` is a constant of the eating species, so food has no nutritional identity and herbivore-versus-carnivore cannot evolve. This also closes the corpse pump. | **Decided by the owner.** Do not re-argue. §2.3 is *how*. |
+| E2 | **First target is guided divergence**: one or two authored ancestors that evolution differentiates into niches. Open-ended is the stated direction; §7 assesses its feasibility rather than assuming it. | **Decided by the owner.** |
+| E3 | **Food value is static per-material data, plus a per-cell override for corpse only.** Not a new `Cell` field, not derived from plant carbon. | Call, §2.3. Overturns three of the four proposals. |
+| E4 | **Diet is one heritable scalar with a matched-filter yield**, not a vector, not a class list. | Call, §2.5. The vector is the generalisation if one axis proves too coarse. |
+| E5 | **Selection acts on individuals, by budding, on a new solitary ancestor** — not on colonies through queens as `creature-direction.md` §7b specifies. Ants and beetles stay authored showcase animals. | Call, §2.6. **Overturns §7b.** Reversible: §7b comes back the day a colony generation completes inside ~20,000 frames, and that is a number, not an opinion. |
+| E6 | **Mutation width is per-weight, and §7a's ±4.0 clamp is retired.** The ant's homing gate lives at ±30 in a genome whose other authored weights are 0.2–2.5. A ±4 clamp destroys homing on the first birth; one global step size either never moves the gate or shreds everything else (§13l measured both). | Call, §2.6. **Overturns §7a rule 2's clamp.** |
+| E7 | **Predation stays deferred** to a one-file probe, not a milestone. §13o measured beetles=0 and beetles=9 bit-identical over 6,000 frames; nothing in a herbivore/detritivore divergence depends on a predator that has never once caught anything. | Call, §5. |
+
+---
+
+## 1. What is being built, in one page
+
+Eight stages. Each is independently shippable and each states the number that
+says it worked, the observation that would say it did not, and what it costs.
+
+- **S1 — Cut the couplings.** Three genes are currently entangled with things
+  that are about to become heritable. No new mechanism, no genes.
+- **S2 — Make the genome safe to grow.** Reserve storage dimensions so
+  appending an input *or* an output stays lawful. Must land before anything
+  persists a genome; afterwards it is a data migration.
+- **S3 — The keystone.** Food carries its own worth; a corpse is worth what
+  the animal was made of; `CreatureDef::food` dies.
+- **S4 — Litter.** The canopy's production falls to where the ants walk. Pure
+  ecology, no creature machinery.
+- **S5 — Diet as one heritable number.** Two authored ancestors one number
+  apart, visibly living in different parts of the world. **This is the first
+  half of guided divergence and it needs no reproduction at all.**
+- **S6 — Reproduction.** Budding, inheritance, per-weight mutation. This is
+  the first milestone in which evolution exists.
+- **S7 — Two larders and a barrier.** Divergence measured by reciprocal
+  transplant, in generated terrain.
+- **S8 — Heritable anatomy.** Continuous genes, discrete bodies.
+
+Then §7, which is an assessment and not a build: what open-ended would
+additionally require, answered against the evidence S1–S8 produce.
+
+**The through-line.** Three sessions of creature work have now ended with the
+same finding in different costumes — §13f ("the loop was never broken, the
+food distribution was"), §13k/§13n (reach, not price), §13o (the horizon, not
+predation). Every time, **the answer was the ecology and not the creature**.
+S3, S4 and S7 are ecology; S5, S6 and S8 are the creature. If a stage fails,
+the prior on where the fix lives should be the ecology.
+
+---
+
+## 2. The stages
+
+### 2.1 S1 — Cut the couplings (no genes yet)
+
+**Three quantities that are about to become heritable are currently welded to
+something else, and each weld would silently retune behaviour the moment a
+gene moved.** Verified in the source, not taken from the review:
+
+* **`Crowding` counts the creature's own body.** `creature.rs`'s sense loop
+  scans the 5×5 for any `MaterialKind::Creature` with no owner check, so a
+  `Chain(2)` ant reads a permanent 0.125 and a 2×2 beetle reads 0.375. The
+  moment body length is a gene, that offset becomes a function of the gene.
+* **`synapse_cost` is absolute against `start_energy`.** §13j already paid for
+  this once: cutting the budget to 90 and leaving the tax alone spent 80% of a
+  life on thinking and invalidated a sweep. `creature_space.rs` carries a
+  hand-applied correction (`0.002 * start_energy / 900.0`) that exists only
+  because the ratio is not expressed structurally. Make it a fraction and
+  delete the correction *in the same change*, or it applies twice.
+* **`BrainOutput::Dig` gates eating and digging with one weight.** §13d's
+  `(Bias, Dig, 0.4)`, added because ants never dug, silently raised the
+  baseline *eating* probability. A burrower and a grazer cannot separate while
+  one gene moves both.
+
+**What ships.** Crowding excludes cells whose `organism_id()` is the
+creature's own; `synapse_cost` → `synapse_fraction` of `start_energy`;
+`BrainOutput::Feed` split out of `Dig`. `ant.ron`'s `(Bias, Move, 2.0)`,
+`(Crowding, Move, -0.3)` and `(Bias, Dig, 0.4)` are re-derived here.
+
+**This is a behaviour change, not a tidy-up, and the constants must be
+re-derived rather than deferred.** §13f measured `Crowding→Move` as
+load-bearing in a real economy — removing it costs 69% of deliveries — so
+0.125 of permanent self-crowding has been part of every tuning decision made
+since. This is `CLAUDE.md`'s "fixing a bug exposes a constant that was
+compensating for it", arriving before the bug is introduced.
+
+**Measurement.** `creature_probe` on a lone ant on bare rock with nothing
+within 10 cells: `Crowding` must read exactly **0.000** (today 0.125; a lone
+beetle 0.375). That is the known-good case — a creature with no neighbours is
+not crowded. Then `ant_ablation`: zeroing the `Feed` weight must drop
+`creature_stats.eats` toward zero while leaving `digs` within 10%, and the
+converse. Today that decoupling reads zero by construction. Then the standing
+guard (§4).
+
+**Falsifier.** The forager-minus-immobile advantage moves by more than the
+seed spread — then 0.125 was load-bearing in a way the re-derivation missed,
+and the re-derivation is the work, not a follow-up. Or zeroing one verb still
+moves the other's counter by more than 10%, meaning the split did not reach
+the code path it claims to.
+
+**Judged by eye: the claim is that nothing changes.** A `forage_loop` contact
+sheet before and after must be indistinguishable in character — ants still dig
+at a soil face, still commute, still deliver. A visible change here is a
+finding, not a success.
+
+**Cost.** One `u16` compare inside a scan that already runs (~220 per frame at
+55 ants). One extra output column in two genome blocks, ~6% of a brain eval on
+creatures that tick every 6 frames. No new knobs.
+
+### 2.2 S2 — A genome that can grow in both directions
+
+**The append-only law is currently half-true and the doc comment describes the
+half that no longer holds.** §13l's table: growing inputs 14→16 appended whole
+rows and was lawful; growing outputs 6→9 changed the *stride* of every row and
+was not. `brain.rs`'s own doc still describes the first growth.
+
+**Re-laying the blocks output-major does not remove the hazard, it swaps
+which axis carries it.** Under `o * BRAIN_INPUTS + i`, appending an output
+appends whole rows and appending an *input* changes every row's stride — the
+mirror image of today. Both axes are live here: inputs have grown twice
+already, S1 appends an output (`Feed`), and S5 wants an input (`FoodValue`).
+Sacrificing either is not available.
+
+**And rearranging within a block is not sufficient either, which is the part
+that is easy to miss.** `IO_END`, `IH_END` and `HH_END` are *cumulative*, so
+a block whose size is computed from a live dimension shifts the start of every
+block after it the moment that dimension grows. §13l's record of the unlawful
+growth names this directly — "`IO_END` moving 96 → 144 shifted the
+input→hidden and hidden→output blocks wholesale" — and it means the appendable
+axis being outer inside its own block buys nothing on its own.
+
+**What ships: reserve every dimension that can ever grow, and size every block
+from the reserve.**
+
+    INPUT_SLOTS = 24 (16 live)   OUTPUT_SLOTS = 12 (9 live)   HIDDEN_SLOTS = 8 (4 live)
+
+    io[o * INPUT_SLOTS + i]        12 * 24 = 288
+    ih[h * INPUT_SLOTS + i]         8 * 24 = 192
+    hh[h]                                     8
+    ho[o * HIDDEN_SLOTS + h]        12 *  8 =  96      total 584
+
+584 floats against today's 248. Every block boundary is now a constant of the
+reserve rather than of the live counts, so appending an input, an output *or*
+a hidden unit lights up storage that already existed and was already zero, and
+not one existing weight moves. The law holds in all three directions until a
+reserve fills, at which point a real migration is needed — and a **manifest
+hash** over the slot names and all six dimensions, asserted against a literal
+in a test, makes that a failing test rather than a silent reinterpretation of
+every individual alive.
+
+**Ordering within a block is then a performance choice, not a correctness
+one**, and output-major is the right choice: `eval_brain` loops `for o { for i
+}`, so each output's row is contiguous. That much of the proposal is adopted;
+what is rejected is the claim that it fixes anything by itself.
+
+A debug assert holds every reserved slot at exactly 0.0, because a mutated
+reserve would spring to life the day its slot is named.
+
+**Land it before anything persists a genome.** Today it is an edit to four
+index expressions. After S6 it is a data migration.
+
+**Measurement.** `creature_space`'s `authored` and `zero` rows must be
+**bit-identical to every printed digit across all 8 seeds** — the summation
+order in `eval_brain` is unchanged, so anything moving means the re-index is
+wrong.
+
+**The random-genome rows will move, and that is not a regression.**
+`random_genome` fills sequentially by slot index from one stream, so a
+re-index changes which slots are nonzero. Say it in the commit message or
+somebody will spend a session chasing r029.
+
+**Falsifier.** Any digit of the authored or zero reference rows changes.
+
+**Cost.** Memory 1.0 KB → 2.3 KB per creature; ~9.6 MB at the 4095-organism
+ceiling, against ~4 MB today. Zero frame cost — `eval_brain` skips
+sub-`W_EPS` weights already, and the whole reserve is zero. The generous
+alternative (reserving 16 outputs, 712 floats) buys nothing extra; the
+question is only how many appends the reserve should absorb before a
+migration, and 12/24/8 absorbs three of each.
+
+### 2.3 S3 — The keystone: food carries its own worth
+
+**Where the energy lives is the one place this review has to be overruled.**
+Three of the four proposals derive a plant cell's food value from the carbon
+it holds or the carbon spent to build it. Checked in the asset:
+`assets/species/moss.ron` has one cell type whose only behaviour is
+`Divide(cost: 0.0)` and **no `Photosynthesize` at all**. Moss carbon is
+permanently zero and its build cost is zero, so a carbon-derived rule silently
+rates moss at **nothing** — deleting the only ground-level renewable food in
+the world, about a third of the measured foraging advantage (§13o: +0.187 →
++0.247), and the sessile-grazer strategy that exists only because moss grows
+where an animal is standing. Worse, it would have failed its own acceptance
+bar and been misdiagnosed as a calibration error.
+
+**A second, independent reason, which nobody raised: value has to survive
+being carried.** `OrganismCell::carbon` lives in the owning organism's
+position-keyed sidecar. A picked-up leaf is no longer any organism's cell, and
+both drop paths write `Cell::new(held, 0)`. A scheme that reads the producer's
+sidecar cannot price a leaf sitting in a nest pile — which is exactly the
+object a colony is built around.
+
+**Call (E3): static `Material::food_energy` and `food_class` as data, plus a
+per-cell override for the one case that genuinely varies — the corpse.**
+
+* `Material` gains `food_energy: f32` and `food_class: u8`, both defaulting to
+  zero so every existing material is inert. Edibility is tested at the
+  dispatch site that already holds the `Cell`, which **deletes up to ~32
+  string hashes per creature-tick** (`def.food.iter().any(|n| id_of(n) == m)`
+  runs per neighbour today). This is a net saving, not a cost.
+* **A corpse is worth what the animal was made of.** `start_energy` splits at
+  spawn into a metabolic pool and a per-body-cell *structural stamp*; the stamp
+  plus any leftover is written into the corpse cells' `aux` at death. Corpse is
+  a `Powder` with no `water_capacity`, so its `aux` is genuinely unused —
+  `update_soil_water` and the field moisture sampler both gate on
+  `water_capacity > 0` — but this is a third convention for `aux` and it goes
+  in `Cell::aux`'s own doc comment in the same change, or it becomes the next
+  two-conventions bug. **One reader is not gated**: `render.rs`'s
+  `SoilMoisture` overlay branch tests only `MaterialKind::Powder`, so a corpse
+  carrying worth in `aux` would draw as wet soil. Add the `water_capacity > 0`
+  gate there in the same change — a debug readout that lies about a channel is
+  how a fix gets sent at working code.
+* **A starved animal still leaves meat.** It dies at exactly 0, so a
+  leftover-only corpse is worth 0 — which closes the pump *and* deletes the
+  scavenger niche. The structural stamp is what keeps carrion a real resource
+  while remaining conservative: the parent paid for it at birth.
+* `carrying` becomes `Option<(MaterialId, u16)>` and both drop sites preserve
+  the payload. Otherwise carrying destroys value or manufactures it.
+* `CreatureDef::food` is deleted. `eat_energy` is deleted.
+
+**Do not widen `Cell` to 14 bytes for this.** A `Cell::nutrient: u16` is the
+cleaner long-run answer for graded plant value (a fat leaf worth more than a
+starved one), and nobody has ever measured what widening the struct the CA
+sweep streams every frame costs. Exactness is not a goal here; a leaf worth
+exactly its carbon buys nothing visible. **If graded plant value is ever
+wanted, the experiment is a pure-width arm** — widen with zero readers,
+re-baseline `ascii` worst-frame in the same session — and it settles an
+argument four agents made from first principles in opposite directions.
+
+**The invariant, stated correctly.** §13l is explicit that `EnergyLedger`
+cannot detect energy creation: `granted`, `eaten` and `died_holding` are free
+terms defined as whatever happened, so they move both sides together. Global
+conservation is also *not* the property wanted — the sun is a free source by
+design. The property is:
+
+> **No creature-controlled closed loop may have positive net gain.**
+
+Three tests, and the third is the one nobody has written:
+
+| # | Test | Reads, when nothing is wrong |
+|---|---|---|
+| a | `a_sealed_world_with_no_food_source_runs_down`, un-`#[ignore]`d: sealed dark box, no producers, 40,000 frames | live creatures **exactly 0** |
+| b | Total live energy + total corpse worth, sampled every 1,000 frames in the same box | monotone non-increasing after the last spawn |
+| c | **The sessile-grazer probe**: one immobile animal on a moss patch, 20,000 frames | cumulative intake bounded; it must not out-survive a forager in the same world |
+
+Test (c) exists because moss regrows at `damp_chance: 0.35` into any freed
+neighbour at zero cost. That faucet is bounded by damp shaded *area*, so it is
+not the unbounded pump one proposal claimed — but a grazer sitting in one
+patch harvests the same cell repeatedly, and the moment food carries value
+that pair is a perpetual-motion machine of exactly the shape P-20 warns about.
+**So moss's `food_energy` is not a free parameter: it is bounded by the
+requirement that (c) holds and that the standing guard in §4 stays positive.**
+That is three lines of arithmetic against the metabolic budget, done before
+the sweep, the way §13o's break-even calculation predicted its own result.
+
+**Falsifier.** (a) still leaves survivors → some path still creates value; the
+first two suspects are the drop verb re-creating a cell without its payload
+and the parallel driver's mid-chunk move path, which is why **both drivers
+must be run** — `update::step` and `parallel::step`. If no `food_energy` for
+moss satisfies (c), moss needs a per-cell regrowth cooldown after grazing, and
+that is the fix — not lowering the value until the niche disappears.
+
+**Judged by eye, and this is the satisfying half.** Corpse shade is derived
+from its remaining worth, so a fat corpse and a picked-over one look
+different, and a corpse pile visibly fades as it is eaten. Ship the overlay
+and the probe *before* anything reads a value — a debug readout must not be a
+function of the thing it debugs — as a full-replace ramp, with the probe
+printing the number beside the picture.
+
+**Cost.** Zero per-frame work: every read happens at an eat event, of which
+there are single digits per frame across a colony. Net negative on the hot
+path once the name-list scan goes. Knobs: one `food_energy` per edible
+material (each with an obvious direction) plus `structural_fraction`, which is
+tunable both ways with a real cost each way — raise it and scavenging becomes
+viable, lower it and starvation is terminal.
+
+### 2.4 S4 — Litter: the canopy's production falls to where ants walk
+
+**The binding quantity is the fraction of animals that find food** (§13o's
+arithmetic, confirmed by its sweep), and §13n's census says every preset ends
+a run with thousands of leaves and **0 to 11 of them within three cells of the
+ground**. The canopy grows away from the animals. `plant.rs` already concedes
+the gap in its own comment: shed foliage should become falling detritus and is
+instead overwritten with nothing.
+
+**What ships.** A `litter` material (Powder, light, flammable, its own
+`food_energy` and `food_class`). Abscission and `shed_stranded_leaves` write a
+litter cell instead of `Cell::EMPTY`. Litter weathers to soil on the decay
+schedule. Ants gain it as an edible class.
+
+**Measurement.** Edible cells within three rows of the local surface, 8 seeds,
+paired litter on/off, same session — today 0–11. Plus the outcome number that
+matters: `ants fed`, the fraction of individuals that ever rise above their
+starting energy, today 0.55 with moss. Sanity when nothing is wrong: with
+`tree.ron`'s `shade_death: 0.0` the litter count must be exactly 0 and the
+surface-edible count must return to 0–11.
+
+**Falsifier.** Litter piles visibly under the trees and `ants fed` does not
+move across 8 seeds. Then reachability was not the binding constraint after
+all, and the ecology prior is wrong for the first time in three sessions.
+
+**Cost — and this is the one stage that can genuinely cost frame time.**
+Falling powders wake chunks and defeat the dirty-rect render skip, and a
+mature forest sheds continuously. **Measure on a settled forest, not a growing
+one** — a settled world is exactly where that skip earns its keep — against a
+baseline re-measured in the same session. Mitigations in order if it costs:
+shorter litter lifetime; emit litter only where there is a clear fall path;
+and last, litter that never falls, which loses the point.
+
+### 2.5 S5 — Diet as one heritable number
+
+**Perfect per-cell energy with a `Vec<String>` food list still diverges into
+nothing, because a list of strings has no mutation operator.** That reframing
+is the most useful thing the review produced, and it means the load-bearing
+half of the keystone is the *trait*, not the accounting.
+
+**Call (E4): one scalar, `gut_bias ∈ [-1, 1]`, against `food_class` as a
+position on the same axis, with a matched-filter yield**
+
+    yield = MAX_YIELD * (1 - |gut_bias - class_position| / 2)²
+
+A gut tuned for cellulose is *bad* at flesh. Specialising costs something,
+there is no free lunch, no transcendental, and — unlike a normalised vector —
+**no free dimension for drift to wander in**. A vector encoding whose overall
+scale does not affect the phenotype measures its own drift and reads as a
+result; that trap is registered in §6.
+
+**The gene must change behaviour, not just bookkeeping.** `BrainInput::
+FoodAdjacent` reads the *same* gene-dependent edibility predicate as the eat
+verb, so an animal that has evolved a meat gut literally stops seeing leaves
+as food. This is the cheapest route from "energy is a property of food" to a
+visible difference, and without it the trait is nutritional only.
+
+**What ships.** `OrganismState::traits[0] = gut_bias`, authored ancestral
+value and mutation width in species data. `render.rs` lerps the creature
+palette by it. Two ancestor `.ron` files identical in body, brain and costs,
+differing only in `gut_bias` (+0.8 / −0.8). **No reproduction is needed for
+this stage to be worth shipping**: two ancestors one number apart, living in
+different parts of the world and coloured differently, *is* the first half of
+guided divergence.
+
+**Measurement.** The survival-versus-`gut_bias` curve at −1.0, −0.5, 0, +0.5,
++1.0 × 8 seeds, paired. In a scene holding both litter and carrion it must be
+**two-humped** — that is the operational definition of two niches. In a
+litter-only control it must be **single-peaked at the herbivore end**; a
+two-humped curve in a world with one food is a bug in the sweep. Plus spatial
+separation of the two ancestors, with the control that both proposals'
+histograms lack: **both ancestors at `gut_bias = 0` must read separation ≈ 0.**
+They are the same animal and must mix. Report `placed` for both arms — a
+metric here has measured the spawn layout three times.
+
+**Set the separation bar against the measured seed spread**, not as "two local
+maxima". Outcomes here have a standard deviation around 0.1 across seeds;
+non-monotonicity from five points at that noise level is not a test.
+
+**Falsifier.** Single-peaked in the mixed scene. **Expect this on the first
+attempt**: nothing has ever preyed on anything, so the only meat is starved
+corpses, and if they are too scarce the carnivore hump does not exist. The fix
+is then ecology (seed carrion, raise the structural stamp), not the gut model
+— and if implausible carrion abundance still gives one hump, the matched
+filter is the wrong shape and an asymmetric penalty is the next thing to try.
+
+**Cost.** 4 bytes per organism; the predicate is cheaper than the string scan
+it replaces.
+
+### 2.6 S6 — Reproduction, inheritance, mutation
+
+**The first milestone in which evolution exists, and it is cheap:**
+`OrganismState::genome` is already a per-individual `Vec<f32>`, so heredity is
+one line — at birth, clone the *parent's* genome rather than the species'.
+
+**Call (E5): individual budding on a new solitary-grazer ancestor, not queens
+and colonies.** `creature-direction.md` §7b puts the selection unit at the
+colony and is honest that this makes evolution slow; the trouble is that this
+project's only trusted judge is the eye, and evolution nobody can watch cannot
+be judged that way. A solitary grazer with a ~900-tick life makes a hundred
+generations about five minutes of wall clock at the harness's measured cost.
+Ants and beetles stay as they are — authored showcase animals — so D2's
+colony fantasy is untouched. **§7b returns the day a colony generation
+completes inside ~20,000 frames**, which is a measurement, not a preference.
+
+**`reproduce_threshold > start_energy`, and this is the single best idea the
+review produced.** Reproduction is then unreachable without feeding, so doing
+nothing stops being a strategy and becomes an extinction. That **structurally
+retires §13o's horizon artifact** — mean-population-over-a-run is a function
+of how long you run for, and every fixed horizon flatters one strategy shape —
+rather than picking a better point on the same curve.
+
+**Call (E6): per-weight mutation width, and §7a's ±4.0 clamp is retired.**
+
+    width = MUT_ABS_FLOOR + MUT_REL * |w|          clamp ±40
+
+The absolute floor is what lets a zero weight become a connection (P-18);
+proportional-only mutation of zero is zero forever. The relative term is what
+lets the ±30 homing gate move at a sensible rate. A ±4.0 clamp, as §7a
+specifies, would destroy the gate on the first birth — the design predates the
+gate, and §13l is explicit that one global step size either never moves it or
+shreds everything else.
+
+**Two pre-flights, both cheap, both before mutation is switched on.**
+
+1. **`MoistureLateral`'s spurious constant.** §13b measured that lateral
+   sensors on a surface sample open air; the moisture pair samples one point
+   in air and one in ground, so it likely reads a large systematic constant.
+   Evolution finds and exploits any constant: a genome wiring it to `Turn`
+   gets a persistent turn bias that looks like a strategy and is an
+   instrument artifact. One `creature_probe` run says whether it is there.
+2. **The clonal drift band.** Publish it *before* setting any bar. At ~50
+   asexual individuals, neutral drift alone fixes a lineage on a timescale of
+   order 2N generations — inside the runs proposed here. "Lineage share reads
+   1/L when nothing is selecting" is not the null hypothesis it appears to be;
+   the null is a *distribution*, and it may well be one lineage at share 1.0.
+
+**Measurement.** The "did it fire at all" counter first, printed beside the
+picture: `births` per generation, and `births_denied_no_space`, which must
+read exactly 0 at this stage. Then mean genome distance from the ancestor,
+~0 at generation 0 and growing. Then lineage share against the *measured*
+clonal drift band, 6 of 8 seeds.
+
+**Falsifier.** Extinction in most seeds within ten generations (threshold
+unreachable, or the larder too poor). Or lineage shares indistinguishable from
+the clonal control (the landscape is flat — though §13a's newest evidence says
+otherwise: 400 random genomes span survival 0.103–0.541 and the hand-authored
+ant is beaten by a random one, 0.504 against 0.541). Or the ±30 gates decay
+below magnitude 10 within 20 generations while homing efficiency collapses —
+that falsifies `MUT_REL`, not the milestone.
+
+**Judged by eye.** Filmstrips at generations 0, 25, 50, 100. The population
+should visibly change how it moves. If it does not, the numbers above say
+whether that is because nothing happened or because what happened is invisible
+— and those are different problems.
+
+**Cost.** Births are rare; mutation is a 488-slot loop and a 2 KB clone per
+birth. **The real cost is population**: creature work was measured free at 55
+ants against a 0-ant control (worst 21.3 ms against 24.1), and a breeding
+population is not capped at 55. Ship a population readout and re-run `ascii`
+at the largest population the economy actually produces.
+
+### 2.7 S7 — Two larders and a barrier
+
+**The barrier already exists in the data and nobody has to write it.** A
+`Rigid` 2×2 cannot enter a one-cell tunnel, and `beetle.ron`'s `dig_force:
+0.3` is below soil's 0.8 while an ant's 1.0 is above it (§13h). Two
+asymmetries, both free, both already measured.
+
+**What ships.** A buried renewable food seeded by *worldgen* — soil pockets a
+few cells down, spreading like moss on damp soil — plus a `dig` allele scaling
+`dig_force` with a proportional metabolic tax so digging ability is never
+free. One larder on the surface, one below, and no single point on the diet
+axis wins in both.
+
+**Generated terrain, not a hand-built scene.** §13g's record on hand-built
+approximations is three for three against: a flat floor was degenerate (248
+cells visited against 1,670), a hand-built ridge produced 6,985 falls, and
+`Persist` showed 2.2× leverage on a hand-built profile and almost none on
+generated terrain. Two of the four proposals put this experiment in a
+hand-authored scene.
+
+**Measurement — the reciprocal transplant, and it is the only proposed
+instrument that can tell divergence from drift.** Take the two extreme
+genomes by diet allele; run each alone in a surface-only world and a
+burrow-only world; 2×2 of lineage persistence, 8 seeds. **When nothing is
+diverging the 2×2 is symmetric and home-minus-away is 0 for both** — and the
+control that proves the instrument is a single-larder evolutionary run, which
+must produce a symmetric 2×2. Bar: home-minus-away positive for both genomes
+in ≥6 of 8 seeds. The allele histogram is reported *next to* it, never alone.
+
+**Falsifier.** A symmetric 2×2 — one genotype better in both worlds, so the
+trade-off does not bind and a larder needs re-pricing. Or a bimodal histogram
+with a symmetric transplant, which is drift wearing divergence's clothes and
+is precisely the failure a histogram alone would have reported as success.
+
+**Judged by eye.** Tunnels under a grazed surface, and two animals of
+different colours in different places.
+
+### 2.8 S8 — Heritable anatomy
+
+**Continuous genes, discrete phenotype.** Body genes are stored as unit draws
+in −1..=1 (the `genotype_draws` pattern plants already use) and rounded
+through a *total* function `body_of(segments, girth) -> BodyPlan` that
+generates a connected template. Disconnected, self-overlapping and
+4095-cell bodies are then unrepresentable rather than merely rejected, and
+mutation stays continuous with occasional legible saltations.
+
+**Two things must be answered before this is built, not during.**
+
+1. **The girth pre-check.** `moves_blocked / (moves + moves_blocked)` for
+   girth 1 vs 2 vs 3 at a fixed brain, on generated terrain, 8 seeds. If wide
+   bodies are more than twice as blocked, width is not evolutionarily
+   reachable and it is not a gene — a gene that is lethal at every setting but
+   one is not a gene.
+2. **Birth placement.** "No space → the birth does not happen" is a gate on
+   whether something happens, keyed on a heritable trait: it is a silent
+   selection pressure for smallness the instant body size is heritable, and it
+   is `CLAUDE.md`'s "a size cap must bound work, never gate whether something
+   happens" in a new costume. Decide the alternative (born short and grow into
+   the plan?) before writing the gene.
+
+**Keep the allometry linear.** Reserves and idle cost both scaling with body
+size keeps idle lifespan size-invariant. A sublinear cost curve against linear
+reserves makes lifespan rise with size, so a size gene moves the outcome
+variable without changing behaviour at all — §13o's horizon artifact returning
+as a heritable trait. If the sublinear table ever ships, `survival` must be
+retired as the fitness measure in the same change.
+
+**Measurement.** Population-mean expressed anatomy every 1,000 frames, 8
+seeds, with a **neutral control**: every allometric coefficient equal across
+sizes, where the means must stay flat within the drift scale the same harness
+reports. Then the costed run. Plus placement-attempts-per-success bucketed by
+body size — **on generated terrain**, because on flat open ground it reads 1.0
+for every size whether the bias exists or not.
+
+**Falsifier.** The neutral control drifts systematically → something other
+than selection is moving the means (spawn bias, or an asymmetric operator).
+Or every axis converges to the cheapest corner → the allometry charges without
+paying and there is no niche worth being large for, which is an ecology
+answer, not an exponent.
+
+---
+
+## 3. What each stage needs from the ones before it
+
+| Stage | Hard prerequisite | Why |
+|---|---|---|
+| S1 | — | |
+| S2 | — | but **must** precede S6, or it is a data migration |
+| S3 | S1 (Feed/Dig split) | otherwise diet cannot separate eating from excavating |
+| S4 | S3 | litter needs a value to carry |
+| S5 | S3 | the trait prices food; without S3 there is no price |
+| S6 | S2, S5 | a genome that can grow, and something worth inheriting |
+| S7 | S6 | divergence needs heredity |
+| S8 | S6, S7 | and the two pre-checks in §2.8 |
+
+S1 and S2 are independent of each other and of everything else; either can go
+first, both are small, and both touch files nobody else is in.
+
+---
+
+## 4. Standing guards
+
+Every stage re-runs these, and every one of them has a known-good reading.
+
+| Guard | Reads today | Fails when |
+|---|---|---|
+| **Foraging pays** — forager minus immobile advantage at 3,000 ticks, 8 seeds, paired | **+0.187** without moss, **+0.247** with | goes to zero or negative: the economy has been broken by whatever just landed |
+| **Ants fed** — fraction of individuals ever above starting energy | **0.42 / 0.55** | §13o's binding quantity; judge every environmental change on it |
+| **Frame cost** — `ascii` worst-frame and mean | 21.3 / 1.50 ms at 55 ants + 30 trees, against a 0-ant control at 24.1 / 1.59 | **re-measure the baseline in the same session**; a remembered figure once produced a phantom 25–50% regression |
+| **Determinism** — two `ascii` runs diff | nothing but timing lines | any creature counter differing |
+| **Reference genomes** — `authored` and `zero` rows | 0.504 / ~0.30 | used as the bit-identity check across refactors |
+
+---
+
+## 5. Deferred, and why
+
+* **Predation.** §13o measured beetles=0 and beetles=9 **bit-identical** over
+  6,000 frames across six settings, separating by 0.001–0.005 in *both*
+  directions over 18,000 — chaotic sensitivity, not selection pressure.
+  Nothing in a herbivore/detritivore divergence depends on it. What is worth
+  doing is the cheap probe, not a milestone: wire the beetle's instincts to
+  the existing channel-B along-gradient (one `.ron` edit, rebuild required —
+  editing an asset alone changes nothing) with a **pre-flight** that prints
+  total channel-B mass and the fraction of prey heads within a sensor offset
+  of a nonzero B cell. If the trail barely exists, the predator half is
+  blocked on movement rather than perception, which is a much larger piece of
+  work and worth knowing early.
+* **A third pheromone plane** for body odour. It deposits from every creature
+  cell every tick, which keeps every tile the colony occupies permanently
+  awake — the one thing §9d's settled-world gate (0.5 ms; measured 0.0014 ms
+  at 0 tiles) exists to catch. Not without that number.
+* **Widening `Cell` to 14 bytes.** §2.3. The pure-width arm settles it in an
+  hour when it is actually needed.
+* **Colony selection through queens** (§7b). E5, reversible on a measurement.
+* **Crossover and sexual reproduction.** Out of scope in §11 and D4, and the
+  shared scaffold keeps it cheap to add later.
+
+---
+
+## 6. The dead-end register
+
+**Each of these was proposed in the review by an agent reasoning competently
+from general principles, and each is contradicted by something this codebase
+already measured.** That is the whole reason the register exists.
+
+| Proposed | Why it is dead |
+|---|---|
+| Food value derived from plant carbon, or from `Grow`/`Divide` cost | `moss.ron` is `Divide(cost: 0.0)` with **no `Photosynthesize`** — moss carbon is permanently 0. Rates the only reachable renewable food at nothing, deletes a third of the foraging advantage and the sessile-grazer niche. Verified in the asset. |
+| Meter moss with light-gated photosynthesis | Moss's `Divide` is `shade_sensitive: true` — shade *raises* its division chance. A light meter starves it in the niche it occupies. Meter on moisture, or on a per-cell post-grazing cooldown. |
+| Re-lay the genome output-major to make appends lawful | Swaps which axis is appendable; this genome has grown by inputs twice (§13l's table). And **no within-block ordering fixes it**: block offsets are cumulative, so any block sized from a live dimension shifts every later block when that dimension grows. Reserve the dimensions, then order for the eval loop. Written up in §2.2 because the first synthesis of this review got it wrong in exactly this way. |
+| One global mutation step size | §13l: the homing gate is ±30 among weights of 0.2–2.5; moving the gate a third of the way to zero collapses the homing swing 0.863 → 0.217. Per-weight width, or re-express the gate at O(1). |
+| §7a's ±4.0 mutation clamp | Predates the gate; destroys homing on the first birth. |
+| Reproductive isolation by lineage tag plus a mating rule | There is no sexual reproduction (§7a, §11, D4). Asexual budding *is* the isolation: with no gene flow there is nothing homogenising two incipient clusters. |
+| A per-tick, per-class digestion tax "structurally identical to `synapse_cost`" | §13j: `synapse_cost` was 80% of a life and silently dominated a three-knob sweep. A second per-tick constant tax against the same budget is the same instrument in a new costume. |
+| A normalised diet vector (`eff = K·|a| / Σ|a|`) | Scale-invariant, so the vector's magnitude is a free dimension that drifts under no selection — and the histogram of raw alleles measures that drift. One scalar has no free dimension. |
+| Corpses worth only the leftover energy | A starved animal dies at exactly 0, so its corpse is worth 0 and the scavenger niche vanishes with the pump. The structural stamp is what keeps both true. |
+| A hand-built two-resource scene for the divergence test | §13g is three for three against hand-built stand-ins. Use the generator. |
+| Sublinear metabolic cost against linear reserves | Makes idle lifespan a function of body size, so a size gene moves `survival` without changing behaviour — §13o's horizon artifact as a heritable trait. |
+| `(Bias, EmitB, …)` — unconditional scent from every ant | The identical change on channel A is already measured net-negative in both economies (§13f), and is *still authored* in `ant.ron` despite it. Run the paired arm before adding the twin. |
+| An "energy ledger balances" invariant | §13l: free terms defined as whatever happened move both sides together. Use §2.3's three tests. |
+
+---
+
+## 7. Is open-ended reachable, and what would it additionally require
+
+**The review was asked to assess this rather than assume it, and the honest
+answer is: the encoding is not the blocker, and the world is.**
+
+What already exists is stronger than the direction document assumes. The
+genome space is *not* degenerate — 400 random genomes × 8 seeds cover 26 of 81
+behaviour cells, span survival 0.103–0.541, and produce at least three
+distinct successful strategies (a short-range forager, a directed commuter,
+and a sessile grazer that never moves a cell and still feeds itself). The
+hand-authored ant is beaten by a random genome. Selection has real gradient to
+act on, and half of all random genomes do worse than doing nothing, so the
+cost structure is not handing out participation prizes.
+
+What is missing for open-endedness, in order of how much it costs:
+
+1. **Phenotype outside the brain.** A "herbivore" and a "carnivore" are not
+   points in the search space today; they are files. S5 puts one axis in the
+   genome, S8 puts the body in. Until then, divergence can only be *guided*,
+   because the thing that differs between niches is not heritable.
+2. **More than one niche that is reachable at once.** §13o's arithmetic says
+   the binding quantity is the fraction of animals that find food; a world
+   with one reachable larder has one optimum whatever the genome can express.
+   S4 and S7 are that work, and the record says this is where the leverage
+   has been every time.
+3. **A lineage able to widen its own reachable range** — a heritable spread,
+   not just a heritable mean. This is the one genuinely open-ended-flavoured
+   mechanism in the review that survives contact with the constraints; it is
+   compatible with asexual budding and costs one array. Its price is that the
+   clamps in `body_of` become the only thing between evolution and a
+   4095-cell animal, so those clamps must bound work rather than gate it.
+4. **A predator that can find prey.** Not for divergence — for open-endedness.
+   An arms race is the standard engine of open-ended dynamics and this world
+   has never run one, because predation has never once fired.
+
+**The measurement that would say open-ended is working**, run on the evolved
+population rather than on random genomes: behaviour-space coverage should be
+*smaller* than random sampling's 26/81 (selection concentrates) while the
+occupied cells are **separated rather than adjacent**, and the three-way
+reciprocal transplant should be asymmetric in all three directions. Three
+clusters that transplant symmetrically are three settings of one animal.
+
+---
+
+## 8. Open questions for the owner
+
+1. **E5 overturns §7b.** Selection on individuals via a new solitary grazer,
+   with ants and beetles left as authored showcase animals — or hold to
+   colony-scale selection and accept that the evolution will be too slow to
+   watch? The recommendation is the former, reversibly.
+2. **A new ancestor species is a new animal on screen.** The grazer needs to
+   be something worth looking at. Is a solitary surface grazer the right
+   fantasy for the thing evolution will be visibly shaping, or should the
+   ancestor be something else?
+3. **Corpse `aux` is a third convention for that byte.** Accept it (documented
+   in `Cell::aux`'s doc comment), or spend the `Cell` widening now and get
+   graded plant value at the same time?
+4. **S5 ships visible divergence without any evolution in it** — two ancestors
+   one number apart, in different places, in different colours. Is that
+   satisfying enough to ship on its own, or should it be held until S6 makes
+   it heritable? It is judged by eye either way, and the answer changes the
+   order of two stages, not their content.
+
+---
+
+## 9. Provenance
+
+Produced by `.claude/workflows/creature-evolution-review.js` — four
+independent architecture proposals from a compressed constraints brief, then a
+prosecutor reading `CLAUDE.md` and §13a–13o for already-reverted ideas —
+followed by synthesis against the source. The proposals' four headline
+mechanisms (carbon-derived nutrition, an output-major re-lay, a normalised
+diet vector, colony-scale selection) are each rejected above; §6 records why,
+so the next session does not re-derive them. Claims adopted from the review
+were checked in the code first: `moss.ron`'s missing `Photosynthesize`, the
+ownerless crowding scan, the per-tick `CreatureDef` clone, both payload-losing
+drop sites, and the already-fixed spawn placement that one proposal cited as
+still broken.
