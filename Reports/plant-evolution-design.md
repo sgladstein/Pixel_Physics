@@ -432,11 +432,37 @@ corner of their joint parameter space:
 
 The striking thing about this table is how short its right-hand column's
 tail is: of nine recognisable plant forms, six are values of knobs that
-already exist, one is a seam, one is a mechanism, one is banned. The
-envelope is much wider than the three shipped species suggest — **the
-three species look alike not because the space is small but because they
-were authored close together** (the appearance report's own finding, from
-the other direction).
+already exist, one is a seam, one is a mechanism, one is banned.
+
+**But — corrected by the owner, and the correction is right — that is a
+reachability claim on paper, and what has actually been *seen* is three
+slightly different trees of similar vibe.** The appearance phase already
+proved that architecture numbers alone do not read (sympody, tropism and
+acrotony all fired and moved nothing anyone could see), and shrub /
+broadleaf / conifer were authored close together on the axes that
+matter. At pixel scale there are about **four axes a form difference can
+actually read on**, and the shipped species differ meaningfully on none
+of them:
+
+1. **Size class** — order of magnitude, not percent. Height 80 vs 189
+   is one class; a 6-cell tussock against a 150-row tree is a different
+   kind of object.
+2. **Material and palette** — green blade vs brown wood; what it burns
+   like, breaks into, does to the soil under it.
+3. **Form class** — upright crown vs mound vs prostrate mat vs hanging.
+   Broadleaf and conifer are both "upright with a crown"; a cushion or
+   a weeping habit is a different silhouette *category*.
+4. **Consequence** — carries fire, holds a bank, litters, feeds
+   something.
+
+Grass differs on all four, which is the real reason it leads §4.
+Creeper, weeping and prostrate each claim a new **form class**; the
+claim is untested, and the burden sits on measurement: **the envelope is
+not "wide" until at least two of the form probes below read as new
+categories by eye.** Any probe that comes back looking like another
+small tree goes to the dead-end register before it costs a milestone —
+that is one filmstrip against one `.ron`, the cheapest experiment this
+document proposes (staged as P1a in §7).
 
 ### The world this makes — the payoff, stated as the ethos demands
 
@@ -493,6 +519,56 @@ and history rather than decoration:
    unreachable by values (surface attraction, shoot storage), and each
    arrives with its trade already named or it dies the slot-1/slot-5
    death.
+
+---
+
+## 4b. What the side-view orientation costs and buys
+
+Asked by the owner directly: how limited is this by the 2D side-scroller
+orientation — are forest fires or rivers even possible? Answered per
+phenomenon, because the orientation's costs are real but they are not
+where they first appear to be.
+
+**Forest fires: essentially already built; what is missing is the
+regime, and grass is its unlock.** Fire spread, per-material flammability
+and burn times, wood → ash, and the full recovery loop (ash decays to
+soil when damp, soil reseeds — the wiki's "a burnt patch grows back on
+its own") are shipped; `emergent-world-architecture.md` calls fire the
+engine's one closed loop and names the open half as fire-as-*regime* —
+recurrence, natural firebreaks, patchy mosaics. A herbaceous fuel bed
+makes grassfire and crown fire two visibly different phenomena, and the
+wind field (already wired for canopy lean) is the obvious driver for
+spread asymmetry. Side view is *good* for fire: flames climbing a slope,
+jumping a canopy gap, racing the surface while the wet valley stops
+them — all legible in cross-section.
+
+**Rivers: the cross-section of a watershed is reachable; the map of one
+is not.** Side view cannot give plan-view river phenomena — meanders,
+braiding, a network seen from above. What it can give is the hydrology
+this engine's parts already point at: rain (weather exists) on ridges,
+infiltration, a water table, springs where the table meets a slope face,
+streams cascading downhill, waterfalls off ledges, lakes filling basins,
+floods when a dam breaks — and the evaporation → rain matter cycle the
+architecture doc names as one of the two worth closing. M10's wider
+worlds give long profiles: source in the hills, cascade, valley lake.
+Two costs stated per house rules: a *continuously flowing* river keeps
+every chunk along its length awake, which collides head-on with the
+frame budget — the liquid heightfield bodies sitting test-only in
+`liquid.rs` exist for exactly "large water, cheap," and something like
+their promotion is probably the price of a standing river; and moving
+water as a *force* (carrying seeds, cutting banks) is unbuilt, though
+erosion is on the architecture doc's list for the
+deposit–diffuse–decay–follow primitive.
+
+**The reframe: side view trades away the map plane and owns the vertical
+axis — and the vertical axis is where plant ecology and hydrology
+actually live.** Light from above, water from below, soil depth, roots
+against the water table, canopy strata, undergrowth shade, cliff faces,
+caves and aquifers. No top-down game can show a root system drinking a
+bed dry beneath a tree whose crown is shading out a seedling — this
+engine already does, measured (§8d). The orientation genuinely hurts the
+*creature* side (the §13b sensor-geometry finding: surface-walking broke
+the open-2D trail-following triad); plants are the kingdom it favours.
 
 ---
 
@@ -729,6 +805,13 @@ where they interlock.
   instead of `Cell::EMPTY`. **Coordinate litter with creature S4 — one
   material, landed once.** Costs stated: the settled-forest frame
   measurement is part of this stage, not a follow-up.
+- **P1a — form probes (cheap, can run alongside P1).** Creeper, weeping
+  and prostrate as one `.ron` + one filmstrip each, on existing knobs
+  (§4a's table — weeping needs the scorer's sign checked first,
+  prostrate the order-0 tropism change). Judged by eye against the
+  four-axes bar: does it read as a new form *class* or as another small
+  tree? Two successes validate the envelope claim; failures go to the
+  dead-end register at filmstrip cost instead of milestone cost.
 - **P2 — grass.** One new `.ron` on the P1 materials; blade
   photosynthesis, shallow branched roots (riding the slot-1 economy
   repair), bank-holding, fire-carrying. Judged by eye: ground cover
