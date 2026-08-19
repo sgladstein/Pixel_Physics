@@ -68,6 +68,7 @@ already changed decisions:
 | `README.md` | Architecture, and per-milestone status |
 | `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*. |
 | `PLAN.md` | Roadmap, settled decisions, the issues backlog |
+| `Reports/roadmap-tracks.md` | The six current work tracks, organised — built vs open, and which calls are the owner's |
 | `Reports/*.md` | Design records and research, one per subsystem |
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions, what has been ruled out *by measurement*, and what was tried and reverted. Read this before touching a listed area. |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |

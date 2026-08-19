@@ -1034,6 +1034,16 @@ not a fact.**
 
 ## Execution order
 
+**Six tracks the owner named as the current shape of the work — destruction
+& structural, world building, visual polish, water→steam/ice, player
+mechanics, explosions — are organised in
+[`Reports/roadmap-tracks.md`](Reports/roadmap-tracks.md)**, with what is
+built verified against the code, what is open, and which questions are the
+owner's rather than an implementer's. That document supplements the order
+below rather than replacing it; the milestone order here is still the
+long-range plan.
+
+
 Milestone numbers are stable identifiers, not an order. This is the order.
 
 | # | Milestone | Size | Why here |
