@@ -34,6 +34,98 @@ behind every day.
 
 **Decision needed:** merge it, or close it and keep the review.
 
+**Its own §7 named three reasons it was not merged. One is already gone:**
+
+| blocker | status |
+|---|---|
+| §2 overturns the reviewer's finding, and the author declined to self-certify | **checked, and §2 does not hold — see §0a-i** |
+| timing uncertified | open — needs a quiet machine or CI |
+| the main checkout's `master` was 27 commits ahead and **unpushed** | **resolved.** Every piece it named — creatures, genome, evaporation, lightning, skyline — is on `origin/master` now, which has advanced 35 commits past the point that reply was written against |
+
+The change is **entirely absent from master** — `section_share`,
+`MAX_MEMBER_WIDTH`, `ShareCounts` and `capacity_within` all return zero hits
+there. Nothing was partially ported.
+
+Two `CLAUDE.md` method lessons are also stranded on the branch, and they are
+general rather than structural: *a cascade censused before it settles reads a
+delay as damage* (the same two binaries measured 251 against 1,501 cells at
+frame 202, and 235 against 273 at 1,500 — opposite conclusions from the same
+seeds), and *a mean over events is not the size of the pieces*. Both would
+help every track above.
+
+### 0a-i. §2 was checked independently, and its numbers do not survive the fix
+
+The reply's §2 asked for exactly this ("one command, and I have every reason
+to want a particular answer"). Run on Linux at branch tip `222de5c`, both
+arms, `scene=worldcrack preset=flat seed=7 dig=4 tunnel=35 depth=6`,
+`start=2 every=1200 count=5`:
+
+| `caveshallow` at frame 4802 | §2 claims | measured at tip |
+|---|---|---|
+| `share=0` crumbled to grit | 10 regions, 30 cells | **10 regions, 30 cells** ✓ |
+| `share=0` rock destroyed | −64 | **−64** ✓ |
+| `share=0` confined | 488 (4,697) | **488 (4,697)** ✓ |
+| `share=0` mean region | 10.0 | **10.0** ✓ |
+| `share=1` crumbled to grit | 6 regions, **16 cells** | **11 regions, 38 cells** ✗ |
+| `share=1` rock destroyed | −64, "identical outcome" | **−100** ✗ |
+| `share=1` confined | 5,496 (22,039) | **2,988 (13,313)** ✗ |
+| `share=1` mean region | 4.1 | **4.6** ✗ |
+
+Settling was checked first, per this file's own new lesson: `crumbled` and
+`cells lost` are stable across tiles 2–4 in both arms (`awake 2/40` in both),
+so those are settled numbers.
+
+**The control reproduces on four independent numbers and the treatment on
+none** — which localises the cause, because `share=0` never enters the member
+logic that `f224f10` changed. Re-running `share=1` at `64ed288` (pre-fix)
+returns **rock −64, confined 5,496 (22,039), mean 4.1** — §2's figures,
+exactly.
+
+**But `crumbled` cannot come from that build: `git log -S` shows the counter
+was introduced *by* `f224f10`, the fix commit.** So §2's table is a mixture
+that no single commit on the branch produces — confined/mean/rock from the
+pre-fix code, `crumbled` from an uncommitted intermediate that had the
+counter and not the fix. The branch's own review records this exact trap
+biting `flows_down`: *"taken before `MAX_MEMBER_WIDTH` existed, so over a
+different population of members."* It caught §2 as well, in a section written
+25 minutes after the fix landed.
+
+**What this does and does not mean.** It does not show the reviewer was right
+and the change wrong; it shows §2's evidence is invalid, so the question is
+reopened rather than settled either way. On the tip's own numbers the
+reviewer's concern reads as *more* live, not less: the dust path fires more
+(30 → 38 cells), and the "identical material outcome" the argument rests on
+is −64 against −100.
+
+**Re-running §2's table at the tip is now a ten-minute job** — the harness is
+built and the commands are above.
+
+### 0a-ii. The confined-failure counter never converges
+
+Found while checking the above, and it is a defect in its own right. On a
+world that is materially settled — `cells lost` pinned at 15, `cells
+fissured` pinned at 284 — confined failures climbed **1,548 → 2,268 → 2,988
+events** across tiles 2, 3 and 4 and were still rising. The structural system
+re-evaluates the same buried rock indefinitely, changing nothing.
+
+Any figure derived from that counter is therefore **a function of how long
+you ran, not of the outcome** — including §2's 5,496 and the mean, which fell
+5.4 → 4.9 → 4.6 purely as its denominator grew. That strengthens the reply's
+argument about the mean while undermining its own numbers by the same
+mechanism.
+
+It is also the likeliest frame cost: worst frame 48.58 ms at `share=1`
+against 28.42 ms at `share=0`, same machine, same run. The reply flagged the
+waste ("~11x the work for an identical outcome... belongs in
+`crush_in_place`") and left it. On this evidence it is the top item on the
+branch, ahead of the merge.
+
+**Caveats on these numbers.** Linux, where that session ran Windows, and
+determinism here is same-build only — though the exact four-number match on
+the control makes platform an unlikely explanation for the treatment
+diverging. Timings are a valid *paired* comparison on one machine and are not
+comparable to any absolute figure in the reports.
+
 ### 0b. Report freshness is uneven, and one file is actively misleading
 
 `Reports/open-bugs-handoff.md` still lists whiskers, sand-into-water
@@ -75,7 +167,7 @@ CI via `scripts/acceptance.sh`, plus `scripts/seedsweep.sh`.
 
 | # | Item | Kind | Notes |
 |---|---|---|---|
-| 1.1 | §2a `wall=3 span=200` collapses untouched while 2 and 5 stand | bug | 1,064 cells vs 0. Non-monotonic, so probably real. Cheapest item here. One `loadmap=1` run should name the cell. |
+| 1.1 | §2a `wall=3 span=200` collapses untouched while 2 and 5 stand | bug, **shrunk** | `next-session-handoff.md` records 1,064 cells against 0 either side. **`load-share` retires that number**: 48 cells, not 1,064, and identical with sharing on and off at wall 2, 3, 5 and 8 — the worst-stressed cell in every run is a *roof* cell, taking its support horizontally. So the handoff's suspicion that load concentration caused §2a is wrong. Still non-monotonic (48 against 0), but small, and it wants **re-baselining after the merge** rather than work now. |
 | 1.2 | §2d load concentration | bug | Inner face carries 1707, outer 307. See §0a — work exists on `load-share`. |
 | 1.3 | Tumbling | feel | Owner wants "things tilted and fell over more as large pieces". 45–62 bodies form per collapse now, so there is finally something to tumble. **Check whether it already reads right before touching `SPIN_PER_SPEED`.** |
 | 1.4 | §2b the build envelope | **decision** | Rooms past ~200 wide fail at every thickness. May be correct (15:1 span-to-depth; real masonry does not do it either). Nobody has decided if it is the envelope we want. |
@@ -350,8 +442,9 @@ its justification here.
 3. **Steam** (4a). Cheapest satisfying win on the board: two data edits and
    a material file, closes an explosion defect for free, and needs no new
    mechanism.
-4. **§2a non-monotonic collapse** (1.1). Cheapest real bug, and the one most
-   likely to be a defect rather than a threshold.
+4. **Re-baseline §2a** (1.1) — *after* the merge, not before. The 1,064-cell
+   figure it was ranked on does not survive `load-share`; what is left is 48
+   cells and worth re-measuring before anyone works it.
 5. **The three decisions** — grain mode (3.1), build envelope (1.4),
    doorways (1.5/5.1). All three are finished or near-finished work blocked
    on a judgement, and all three are the owner's to make.
