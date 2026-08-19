@@ -828,13 +828,63 @@ two steps' worth branching asks for. Whether a root tip finishing its step
 on 0.053 carbon is the intended root economy is the water session's call,
 not this one's, and it is the question put to them.
 
+### 8d. The leaf-economy crossover — §4.2's row, closed
+
+The row the whole sequencing-after-water existed for. It needed a scene
+knob that did not exist; the water-economy session had been building
+exactly that knob (`PlantScene::soil_depth`, `soil=N` on the probe) and it
+landed as `04a03ff`. Two sessions arrived at the same missing piece from
+opposite sides.
+
+A full 2x2 — economy allele pinned to a monoculture per run, crossed with
+deep soil against a thin skin over stone. All four cells from one binary
+in one session; the wet pair was re-measured rather than carried over from
+§8b, and reproduced to the cell, which also confirms determinism survived
+the merge. 8 trees / 30,000 frames / `worldseed=1`.
+
+| | WET (soil 34) | DRY (soil 6) |
+|---|---|---|
+| **acquisitive** (allele 0) | **32,568** cells, 9,953 leaf, 83 seed | 23,059 cells, **5,151** leaf, 65 seed |
+| **conservative** (allele 1) | 27,013 cells, 8,366 leaf, 63 seed | **24,068** cells, **7,352** leaf, 69 seed |
+
+**The sign flips.** Wet, the expensive leaf wins outright: +21% mass, +32%
+seed. Dry, the cheap leaf wins on every measure — and the margin that
+matters is foliage, where it holds **43% more leaf** through the drought
+(7,352 against 5,151). That is the crossover §4.2 predicted, and it is
+what makes this a locus rather than a free parameter: neither allele wins
+everywhere, so selection cannot saturate it.
+
+The mechanism is legible in the water block rather than inferred:
+
+|  | dry, acquisitive | dry, conservative |
+|---|---|---|
+| stomatal term, min / median / mean | 0.00 / 0.07 / 0.07 | 0.11 / **1.00** / 0.63 |
+| uptake vs demand per tick | 1.38 against 19.86 | 4.07 against 9.69 |
+| soil left behind, median / mean | **187** / 261 | 620 / 458 |
+
+The acquisitive stand runs a **fourteen-fold** deficit on thin soil, sheds
+half its canopy, and — the part nobody designed — **drinks its own bed
+dry**: it leaves the soil at the wilting point (median 187) where the
+conservative stand leaves it at 620. The greedy strategy destroys its own
+resource base. Nothing in the engine says it should; it falls out of
+demand exceeding what a thin bed can supply.
+
+**Stated honestly, because the headline is narrower than it looks:** on
+*total mass* the dry crossover is only +4% (24,068 against 23,059), which
+is well inside the spread this engine produces between individuals. The
+claim rests on foliage retention (+43%), the water block, and the soil
+left behind — three quantities that agree and are large. It is one world
+seed each way; before this is quoted as a robust population result it
+wants the seed sweep the megastudy will give it. Recorded as a
+single-seed paired result, not as a distribution.
+
 **Not yet measured** — every remaining §4 row, held with the above:
 slot 5's depth histogram, slot 8 penetration (needs the sand-bank scene
 §4.7 calls for), `stomatal_reserve` 0.2 → 0.0 on a drying scene against a
-wet one, the leaf-economy **dry** half (§8b — needs the soil-depth knob),
-slot 6's stand-level spread, and the `seed_cost` endowment response
-curve. The bark/foliage sheets and the wood-density pair are **done**,
-in §8b.
+wet one, slot 6's stand-level spread, and the `seed_cost` endowment
+response curve. **Done:** the bark/foliage sheets and the wood-density
+pair (§8b), and the leaf-economy crossover (§8d). The drying-scene row is
+now cheap, since `soil=N` is the knob it also wants.
 
 ---
 
