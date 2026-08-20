@@ -108,13 +108,14 @@ const PASSES: &[Pass] = &[
     Pass { name: "brows", margin: 40, run: passes::brows },
     Pass { name: "talus", margin: 200, run: passes::talus },
     Pass { name: "pockets", margin: 0, run: passes::pockets },
-    // Finite, and derived rather than guessed: a chamber is placed at a
-    // column and reaches at most `MAX_VAULT_EXTENT` (22) either side of it,
-    // plus `VAULT_RIND` (2) of stone that must be checked, plus the one cell
-    // of scan margin the shape test uses. 25 rounded up to 32 for headroom,
-    // which is the honest number rather than the tight one -- an understated
-    // margin is a promise to produce different cells at a chunk edge.
-    Pass { name: "vaults", margin: 32, run: passes::vaults },
+    // Finite, and derived rather than guessed: a cave system is placed at a
+    // column and reaches at most `CAVE_HALF_W` (90) either side of it, plus
+    // `VAULT_RIND` (2) of stone that must be checked; the geode vug's
+    // `MAX_VAULT_EXTENT` (30) + rind sits well inside that. 92 rounded up to
+    // 96 for headroom, which is the honest number rather than the tight one
+    // -- an understated margin is a promise to produce different cells at a
+    // chunk edge.
+    Pass { name: "vaults", margin: 96, run: passes::vaults },
     // The two water passes read the whole world: where water stands depends
     // on the lowest rim enclosing a hollow, which can be any distance away.
     // They are the first honest `GLOBAL` entries in this table and the debt

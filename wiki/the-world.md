@@ -104,19 +104,28 @@ toward bedrock. You will not see them from outside; you find them by digging,
 and they pour once opened. Buried gravel reads as its own brown against the
 stone, where scree at the surface stays rock-grey.
 
-**Sealed chambers** hide far below the surface — much deeper than any
-pocket, in the quiet rock a couple of hundred rows down. Most worlds have
-one at most, some none, and nothing on the surface marks where. Dig deep
-enough in the right place and the wall breaks into a room: a lumpy grotto
-with a level gravel floor, or a geode — a hollow ringed with pale crystal,
-the one bright thing in the deep massif. **Crystal glows.** A geode casts
-its own soft light — the game's only local light source so far — so the
-chamber's air holds a pale warm pool of it, the rock around the lining
-catches the spill, and the whole find stays gently lit at any hour, day
-or night, even before you break in. Mine the lining out and the dark
-comes back. At that depth the ground water has usually found the floor
-first, so a discovered chamber often holds a still pool under its dome.
-They are rare on purpose: finding one is meant to be an event.
+**Sealed caves** hide far below the surface — much deeper than any
+pocket, in the quiet rock a couple of hundred rows down. Most worlds hold
+one system, a few none, very rarely two, and nothing on the surface marks
+where. Dig deep enough in the right place and the wall breaks into a real
+cave: rooms joined by narrower passages, stretched along the same rock
+banding you can see in every cut face, with stone pillars holding the
+galleries apart. The floors are rubble — gravel banked into uneven mounds,
+not tile — and stalactites hang from the high ceilings with stalagmites
+rising to meet them, a pale fringe of flowstone with the occasional pair
+almost touching. A few formations are crystal. Each system has its own
+water: some are dry throughout, some pond in their lowest rooms, and some
+are flooded through most of their galleries — one system can hold both a
+drowned wing and a dry one, which is the picture worth digging for.
+
+The **geode** survives as the rare jewel variant: a single hollow ringed
+with pale crystal, its lining now uneven — thick here, thin there — rather
+than a drawn ring. **Crystal glows.** A geode, or a crystal formation deep
+in a cave, casts its own soft light — the game's only local light source
+so far — so the air around it holds a pale warm pool, the rock catches the
+spill, and the find stays gently lit at any hour. Mine the crystal out and
+the dark comes back. Caves are rare on purpose: finding one is meant to be
+an event.
 
 **Bedrock** lines the bottom of the world. It is the thing everything else is
 ultimately anchored to.
@@ -193,10 +202,11 @@ genuinely different places.
 Rivers and springs in generated worlds — the water machinery exists (rain
 falls, puddles dry, moving water runs white), but no world yet generates a
 spring or a flowing course, and what evaporates does not come back as rain
-somewhere else. Open cave *systems* to wander — the sealed chambers above
-are rooms, not passages. Plant cover that arrives with the world grown
-rather than as seeds. And worlds are still a fixed size — a large one, but
-bounded — rather than continuing indefinitely as you travel.
+somewhere else. Weathered-by-age terrain — the machinery exists and worlds
+can be built old (rounded, stepped, mantled), but every preset still ships
+young while the look is tuned. Plant cover that arrives with the world
+grown rather than as seeds. And worlds are still a fixed size — a large
+one, but bounded — rather than continuing indefinitely as you travel.
 
 ## How big a world is
 

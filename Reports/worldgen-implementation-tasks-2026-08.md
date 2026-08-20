@@ -1292,6 +1292,152 @@ nothing else moved.
 
 ---
 
+# Round-3 findings
+
+Round 3's queue is `Reports/worldgen-implementation-tasks-round3-2026-08.md`;
+its findings are appended here, as that file instructs.
+
+### R3-1a — The two-sub-threshold sketch does not survive the geometry; the shipped rule is the research's own single threshold
+
+The task sketches `t_chamber` carving discs around Worley cell *centres* and
+`t_passage` carving the boundary web, with the caveat "measure and look
+rather than trusting this sketch". Derived before building, because the
+failure is geometric rather than a tuning matter: a disc of radius
+`t_chamber` around a feature point and the strip `F2 - F1 < t_passage`
+around the cell boundary **never touch**. For two feature points a unit
+apart, the strip reaches inward only to `(1 - t_passage) / 2` from either
+point -- at the sketch's own scales (`t_chamber` ~ 0.3, `t_passage` ~ 0.12)
+that leaves ~0.14 of solid stone between every chamber and every passage, so
+each chamber is a sealed satellite that the mandatory component-keep then
+deletes, and the "system" collapses to whichever single blob contains the
+seed. Closing the gap needs `t_passage >= 1 - 2 * t_chamber`, at which point
+the union carves most of the envelope and there is no anatomy left.
+
+What ships is the rule the research itself states
+(`Reports/worldgen-design.md` §7, quoted at the top of the round-3 task
+file): **one threshold on `F2 - F1`**. The passages are the Voronoi edge
+network; the chambers are the junction bulges where three edges meet, which
+open out because the low-`F2 - F1` bands of three boundaries overlap there.
+One field, one threshold, and the linked anatomy is a property of the
+geometry rather than of two constants that have to be kept in agreement.
+
+### R3-1b — "Bounding box + rind, all stone" is read as the r2 skeleton's dilated envelope, not a literal box
+
+The task's seal line says "bounding box of the kept component + 2-cell
+rind, all stone". Read literally that is a *stronger* check than round 2
+shipped -- the r2 skeleton never checked a box; it checked the **shape
+grown by the rind** (`inside(fx, fy, VAULT_RIND)`), which is what
+"envelope" has meant in this pass since `pockets`. For a ~180x70 system
+the literal box covers ~13,000 cells and overlaps roughly three of
+`pockets`' 64-cell regions, so a sand lens tens of cells from the nearest
+void -- sealed in its own right, incapable of touching the cave -- would
+reject the whole system, and the pass would fire noticeably less often for
+no at-rest gain. The seal shipped is the raster equivalent of the r2
+check: every cell within a 2-cell Chebyshev dilation of the kept component
+must be solid stone, verified in full before a single write, else the
+system is rejected wholesale. The contract the round-3 task marks
+must-not-change -- whole envelope + rind verified before any write --
+is exactly what this is.
+
+### R3-2 — A decoration written in the wall's own shade is invisible to every paired-build guard
+
+Stone speleothems were first written with `strata_shade(px, py)` — "grown
+out of the wall" read literally. That makes the written cell **byte-identical
+to the cell the control world already has at the same coordinate**, so the
+paired-build diff every round-3 guard is built on cannot see stone
+formations at all: the never-bridge test silently checked only the crystal
+minority, and a bridging stone column would have passed. The same trick that
+makes paired comparison exact — nothing downstream reads a vault, so every
+difference is a vault cell — cuts the other way: **a write that reproduces
+the control's bytes is not a difference, however real the mechanism that
+wrote it.** The fix is also the better picture: flowstone is deposited
+calcite, paler than the rock it grew from, so formations now take the pale
+cap-rock family with their own tone stream — legible as *formations* against
+any wall, and visible to the diff in every cell.
+
+Two smaller notes from the same task: the debug suite caught a
+`clamp(1, 0)` panic (a secondary column with a two-row slot has no room for
+a taper; the release worldgen suite never built the world that hit it —
+`cargo test` and the release suite are different instruments, run both), and
+the vug lining at per-cell thickness 1-3 costs +35% lining cells (118 → 159
+on the probe vug), which is the ragged rim the task wanted.
+
+### R3-3 — "Chamber" defined by cavity is degenerate; every consumer now shares one height-based definition
+
+The floors group columns into *cavities* by bottom-run overlap, and that
+grouping chains through every connecting passage — so "one cavity" is
+almost always the entire system. Two different consumers were built on it
+and both read nonsense: the census reported **`passages 0`** for systems
+that are visibly rooms-and-corridors, and the waterline took "the lowest
+chamber floor" from the bottom of a three-column crevice no player would
+call a room — measured as a **seven-cell puddle** in the corner of
+`rolling` seed 1 where a pond was meant. Two consumers failing on the same
+quantity is the repo's own signal that the quantity is wrong, not the
+consumers: a **chamber** is now a run of at least six columns whose open
+void stands at least twelve cells tall, its floor the deepest finished
+gravel surface under it, and the chamber count, the passage census and the
+waterline statistics all read that one definition. Two smaller waterline
+rules that came out of the same measurement: the line references the
+*finished* floor (the gravel surface, not the rock under the fill), and it
+always submerges its target floor by at least one row, because a
+single-chamber system has `lowest == median` and a line drawn exactly at a
+floor is a zero-depth pond every time.
+
+The floor fill itself needed the round-1 talus treatment: the two-sweep
+repose taper knows only its own segment, and a ledge's segment can end one
+column before a fifteen-row drop hidden behind a one-cell stone shelf —
+eleven cells avalanched off exactly that lip on `rolling` seed 1. The
+planned shape is now verified cell-by-cell against the slide rule powder
+obeys (open flank + open diagonal below = moves) and lowered to fixpoint;
+the sweep proposes, the verifier disposes.
+
+### R3-4 — Task-4 decisions: the row stays `vaults`, the report is a print, and the sweep still cannot see the pass
+
+- **The pass-table row keeps the name `vaults`.** Renaming to `caves` would
+  make the sweep baseline show `vaults ZEROED` + `caves NEW COUNTER`
+  forever, break the r2 dual-size guard's row lookup, and re-key the
+  committed baseline for a row whose value is `0 0` at sweep size anyway.
+  Cosmetic gain, real churn; the detail line says "cave systems" where it
+  matters.
+- **The sub-counters are a printed line, not a table column.**
+  `  vaults detail: systems N chambers N passages N speleothems N water N`
+  prints beside the pass table whenever a system placed. A `println!` in
+  library code is new for this codebase and was chosen over the
+  alternatives deliberately: plumbing a census struct through `World` means
+  touching `src/sim/world.rs` again (outside the owned set; the
+  spring-ledger precedent exists but is not this track's to extend), and a
+  static is a global. The format deliberately cannot match the sweep
+  parser's `name N cells` rows. If the reviewing session hates the print,
+  the struct is already there (`passes::VaultReport`) — rerouting it is
+  mechanical.
+- **The sweep is *still* blind to this pass and was not re-baselined.** The
+  round-2 finding stands unchanged: at the sweep's 512x320 the depth band
+  is empty, the `vaults` row is `0 0` by construction, and every round-3
+  `compare` came back "0 counters moved" — there is nothing to re-baseline.
+  The dual-size guard (`every_pass_writes_something`: exactly zero at
+  512x320, non-zero across the seed set at 2048x640) plus the forced-
+  generation tests (seal, at-rest, ceiling walk, bridge walk, determinism
+  hash at 512x320 with `vault_test_params`) are the teeth the sweep cannot
+  provide.
+- **Rarity re-measured and re-priced.** The r3 envelope (180x70 + fit +
+  dilated seal) cut acceptance sharply: shipped `vault_density: 0.6` placed
+  systems in ~2.5 of 8 seeds per preset (r2 measured 5 of 8). Shipped is
+  now **1.6** — still at most two draws, so the 0-2-per-world contract
+  holds — measuring 32 of 40 preset x seed worlds with a system and exactly
+  one world with two. The acceptance curve is chaotic in the seed (1.5
+  measured 20 of 40; 1.3 also 20 of 40), so the param doc says tune against
+  the placement probe, not by arithmetic on the fraction. `arid` is the
+  outlier at 4-5 of 8: its dune-built surface sits lower, so the 200-row
+  band clears the 74-row envelope less often — a preset-relief fact, not a
+  pass bug.
+- **`examples/viewshot.rs` was touched again**, flagged as round 2 flagged
+  it: the `vault=1` finder now targets the tallest column of deep enclosed
+  air (the largest chamber) instead of the first crystal-or-gravel cell,
+  which at cave scale was as likely to aim the camera at a pocket lens as
+  at the system. Additive; no other invocation changes.
+
+---
+
 ## Track summary — what changed, and what the next session should know
 
 Six tasks, six commits, all gates green at each one. What the world looks

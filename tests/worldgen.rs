@@ -1605,6 +1605,284 @@ fn probe_r2t3_what_moves_in_a_vault() {
     }
 }
 
+/// Round-3 guard: the ceiling-span bound, walked over every roof run of a
+/// forced-generation world.
+///
+/// The pass promises no horizontal run of carved void with rock directly
+/// above it is longer than 36 cells -- the roof span the round-2 arithmetic
+/// cleared for chambers -- and enforces it by dropping stone teeth from any
+/// longer run (`passes::carve_cave_void`). The instrument is the same paired
+/// build the seal test uses, so attribution is exact: an *open* cell is a
+/// carved cell that is not solid afterwards (air, water, floor gravel), and
+/// a ceiling run is a maximal horizontal run of open cells each with
+/// unbroken material directly above. The 36 is restated here as a literal
+/// because the pass's constant is private, and this test must fail if that
+/// copy ever drifts upward.
+#[test]
+fn a_forced_cave_world_keeps_every_roof_span_bounded() {
+    const MAX_CEILING_SPAN: i32 = 36;
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = vault_test_params(base);
+    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+    let mut systems = 0usize;
+    let mut runs_walked = 0usize;
+    for seed in SEEDS {
+        let world = build(&with, seed);
+        let control = build(&without, seed);
+        let mut carved = std::collections::HashSet::new();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                if world.get(x, y).material != control.get(x, y).material
+                    || world.get(x, y).shade != control.get(x, y).shade
+                {
+                    carved.insert((x, y));
+                }
+            }
+        }
+        if carved.is_empty() {
+            continue;
+        }
+        systems += 1;
+        let open = |x: i32, y: i32| {
+            carved.contains(&(x, y))
+                && world.materials.kind(world.get(x, y).material) != material::MaterialKind::Solid
+        };
+        for y in 0..=BOUNDS.1 {
+            let mut run = 0;
+            for x in 0..=BOUNDS.0 + 1 {
+                let ceiling = x <= BOUNDS.0 && open(x, y) && !open(x, y - 1);
+                if ceiling {
+                    run += 1;
+                } else {
+                    if run > 0 {
+                        runs_walked += 1;
+                    }
+                    assert!(
+                        run <= MAX_CEILING_SPAN,
+                        "seed {seed}: a {run}-cell roof span ends at ({x}, {y}) -- the ceiling guard let it through"
+                    );
+                    run = 0;
+                }
+            }
+        }
+    }
+    // The counters beside the claim: a sweep where no system placed, or one
+    // whose systems had no ceilings to walk, would pass vacuously.
+    assert!(systems >= 3, "only {systems} forced worlds placed a system");
+    assert!(runs_walked >= 50, "only {runs_walked} ceiling runs walked -- the census is too thin to trust");
+}
+
+/// Round-3 guard: a world with a real cave system in it is reproducible.
+///
+/// The suite's existing determinism tests build at sizes where the vault
+/// pass never fires, so none of them exercises the carve, the floor
+/// verifier's fixpoint, the waterline or the speleothem draws -- the r2
+/// lesson that a guard that cannot see the feature has no teeth. This one
+/// hashes a forced-generation world (which the placement counter proves
+/// contains systems) twice, same build, same seed.
+#[test]
+fn a_forced_cave_world_is_deterministic() {
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = vault_test_params(base);
+    let mut placed = 0;
+    for seed in [1u64, 4] {
+        let mut a = World::new(Rect::new(0, 0, BOUNDS.0, BOUNDS.1));
+        let counts = worldgen::generate_reported(&mut a, Spec::Generated { params: &with, seed });
+        placed += counts.iter().find(|(n, _)| *n == "vaults").map(|(_, c)| *c).unwrap_or(0);
+        // `generate_reported` skips the structural pass `build` runs, and the
+        // hash covers aux, so run it here or the comparison measures that
+        // difference instead of generation.
+        structural::compute_world_distances(&mut a);
+        let b = build(&with, seed);
+        assert_eq!(world_hash(&a), world_hash(&b), "seed {seed}: two builds of a forced-cave world differ");
+    }
+    assert!(placed > 0, "vacuous: neither forced world placed a system");
+}
+
+/// Round-3 guard: a speleothem may narrow a passage, never close it.
+///
+/// A column of rock from floor to ceiling splits the passage the player
+/// walks, so the pass promises every column it decorates keeps at least one
+/// open cell (a pair closes to a one-or-two-cell gap on purpose, which
+/// still satisfies this). Attribution is the paired build again: in a cave
+/// system's diff, the only *solid* carved cells are speleothems -- the
+/// ceiling guard's teeth are never written, so they never enter the diff --
+/// and vugs are excluded by component size, because a vug's crystal ring
+/// legitimately fills its rim columns.
+#[test]
+fn speleothems_never_bridge_a_passage() {
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = vault_test_params(base);
+    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+    let mut speleo_cells = 0usize;
+    let mut columns_checked = 0usize;
+    for seed in SEEDS {
+        let world = build(&with, seed);
+        let control = build(&without, seed);
+        let mut carved: std::collections::HashSet<(i32, i32)> = Default::default();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                if world.get(x, y).material != control.get(x, y).material
+                    || world.get(x, y).shade != control.get(x, y).shade
+                {
+                    carved.insert((x, y));
+                }
+            }
+        }
+        // Components, 8-connected, so a system is one group and a vug
+        // elsewhere in the world is another.
+        let mut remaining = carved.clone();
+        while let Some(&start) = remaining.iter().min() {
+            let mut comp = Vec::new();
+            let mut stack = vec![start];
+            remaining.remove(&start);
+            while let Some((x, y)) = stack.pop() {
+                comp.push((x, y));
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let n = (x + dx, y + dy);
+                        if remaining.remove(&n) {
+                            stack.push(n);
+                        }
+                    }
+                }
+            }
+            // Vugs are a few hundred cells; systems are thousands.
+            if comp.len() < 1000 {
+                continue;
+            }
+            let mut by_col: std::collections::BTreeMap<i32, Vec<(i32, bool)>> = Default::default();
+            for &(x, y) in &comp {
+                let solid = world.materials.kind(world.get(x, y).material)
+                    == material::MaterialKind::Solid;
+                by_col.entry(x).or_default().push((y, solid));
+            }
+            for (x, cells) in by_col {
+                let solids = cells.iter().filter(|&&(_, s)| s).count();
+                if solids == 0 {
+                    continue;
+                }
+                speleo_cells += solids;
+                columns_checked += 1;
+                assert!(
+                    cells.iter().any(|&(_, s)| !s),
+                    "seed {seed}: column x = {x} of a cave system is solid floor-to-ceiling -- a speleothem bridged it"
+                );
+            }
+        }
+    }
+    // The counters beside the claim.
+    assert!(
+        speleo_cells >= 40 && columns_checked >= 10,
+        "only {speleo_cells} speleothem cells in {columns_checked} columns -- the decoration pass barely fired"
+    );
+}
+
+#[test]
+#[ignore = "probe: prints, never asserts (round-3 task 1)"]
+fn probe_r3_dump_a_cave_system() {
+    // The instrument for tuning CAVE_CELL / CAVE_THRESHOLD / CAVE_SQUASH by
+    // eye: ASCII cross-sections of whole systems at the forced size, with
+    // the census printed beside them ("did it fire" is a counter, and what a
+    // system's anatomy is -- chambers, passages, floors -- is only legible
+    // at cell scale).
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = vault_test_params(base);
+    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+    for seed in SEEDS {
+        let world = build(&with, seed);
+        let control = build(&without, seed);
+        let mut carved: Vec<(i32, i32)> = Vec::new();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                if world.get(x, y).material != control.get(x, y).material
+                    || world.get(x, y).shade != control.get(x, y).shade
+                {
+                    carved.push((x, y));
+                }
+            }
+        }
+        if carved.is_empty() {
+            println!("\n=== seed {seed}: no system placed ===");
+            continue;
+        }
+        let id = |n: &str| world.materials.id_of(n).expect(n);
+        let (gravel, water, crystal) = (id("gravel"), id("water"), id("crystal"));
+        let stone = id("stone");
+        // Census: air/gravel/water/solid split, and vertical-run heights to
+        // separate chambers (tall) from passages (low).
+        let carved_set: std::collections::HashSet<(i32, i32)> = carved.iter().copied().collect();
+        let (mut air, mut grav, mut wat, mut solid) = (0, 0, 0, 0);
+        for &(x, y) in &carved {
+            let m = world.get(x, y).material;
+            if m == material::EMPTY {
+                air += 1;
+            } else if m == gravel {
+                grav += 1;
+            } else if m == water {
+                wat += 1;
+            } else {
+                solid += 1;
+            }
+        }
+        let (x0, x1) = (
+            carved.iter().map(|&(x, _)| x).min().unwrap(),
+            carved.iter().map(|&(x, _)| x).max().unwrap(),
+        );
+        let (y0, y1) = (
+            carved.iter().map(|&(_, y)| y).min().unwrap(),
+            carved.iter().map(|&(_, y)| y).max().unwrap(),
+        );
+        // Tallest open run per column, for the chamber/passage read.
+        let mut tallest = 0;
+        for x in x0..=x1 {
+            let mut h = 0;
+            for y in y0..=y1 + 1 {
+                if carved_set.contains(&(x, y)) && world.get(x, y).material == material::EMPTY {
+                    h += 1;
+                    tallest = tallest.max(h);
+                } else {
+                    h = 0;
+                }
+            }
+        }
+        println!(
+            "\n=== seed {seed}: {} carved cells in {}x{} at ({x0}..{x1}, {y0}..{y1}); air {air} gravel {grav} water {wat} solid {solid}; tallest open run {tallest} ===",
+            carved.len(),
+            x1 - x0 + 1,
+            y1 - y0 + 1
+        );
+        for y in (y0 - 2).max(0)..=(y1 + 2).min(BOUNDS.1) {
+            let line: String = ((x0 - 2).max(0)..=(x1 + 2).min(BOUNDS.0))
+                .map(|x| {
+                    let c = world.get(x, y);
+                    if c.material == material::EMPTY {
+                        '.'
+                    } else if c.material == gravel {
+                        // Case says who wrote it: 'G' is the vault pass's own
+                        // floor fill (a carved cell), 'g' was already there
+                        // (a pocket lens, a soil-contact dither).
+                        if carved_set.contains(&(x, y)) { 'G' } else { 'g' }
+                    } else if c.material == water {
+                        '~'
+                    } else if c.material == crystal {
+                        'X'
+                    } else if c.material == stone {
+                        if carved_set.contains(&(x, y)) { 'T' } else { '#' }
+                    } else {
+                        '?'
+                    }
+                })
+                .collect();
+            println!("  {y:>4} {line}");
+        }
+    }
+}
+
 #[test]
 fn pond_water_uses_its_four_tones_evenly() {
     // `ponds` draws shades 0..3 (`loose_shade` against `TONES = 4`) and

@@ -102,14 +102,30 @@ pub enum Purpose {
     /// whether a lens happened to be drawn nearby, which is exactly the
     /// correlation the purpose tag exists to prevent.
     Vault = 19,
-    // 20-22 are claimed by the in-flight round-3 cave-systems branch
-    // (`Cave`, `CaveFloor`, `Speleothem`) — reserved here so the erosion
-    // work below could append without colliding at merge. Append-only, as
-    // ever: renumbering any tag reshuffles every world.
+    /// Worley feature points for the cave-system field ([`worley_f2_f1`]).
+    ///
+    /// Its own stream rather than sharing `Vault`, which draws the system's
+    /// placement and per-system coin flips over small integer coordinates:
+    /// the Worley lattice indices are small integers too, so sharing would
+    /// correlate where a system sits with the shape it takes inside.
+    Cave = 20,
+    /// Cave floors: gravel fill thickness, breakdown mounds, and the
+    /// per-system waterline draw.
+    ///
+    /// Separate from `Cave`, whose lattice coordinates overlap the same
+    /// small-integer range as floor-segment representatives — sharing would
+    /// tie how deep a floor is buried to where the chambers happen to sit.
+    CaveFloor = 21,
+    /// Speleothems: where a stalactite or stalagmite grows, how tall, how
+    /// wide, and whether it is crystal.
+    Speleothem = 22,
     /// Per-band rock hardness for plan-space erosion: one draw per strata
     /// band index, so a band is hard or soft along its whole length —
     /// which is what makes eroded ledges coherent rather than speckled
-    /// (`Reports/worldgen-erosion-design.md`).
+    /// (`Reports/worldgen-erosion-design.md`). 20–22 were appended by the
+    /// concurrent round-3 cave branch and this by the erosion track; the
+    /// two landed without colliding because each reserved its numbers in
+    /// advance — keep doing that.
     Hardness = 23,
 }
 
@@ -247,6 +263,51 @@ pub fn fbm_1d_c(seed: u64, purpose: Purpose, x: f32, octaves: u32) -> f32 {
     fbm_1d(seed, purpose, x, octaves) * 2.0 - 1.0
 }
 
+/// Worley (cellular) noise: distances to the nearest and second-nearest
+/// feature point, in lattice units, as `(f1, f2)`.
+///
+/// One feature point per unit lattice cell, both of its coordinates split out
+/// of a single [`hash`] — two separate `unit` draws at hand-scrambled
+/// coordinates is the classic way to reintroduce correlation between the two
+/// axes. The neighbourhood searched is the naive 3x3 around the sample's own
+/// cell, which can understate F2 near a cell corner when the true
+/// second-nearest point sits two cells away; `Reports/worldgen-design.md` §7
+/// accepts that for this use, because the field is thresholded, evaluated
+/// once at genesis, and the error only perturbs where a passage wall sits —
+/// a 5x5 search would cost 2.8x for a difference no one can see in rock.
+///
+/// The property the caves are built on: **`f2 - f1` is zero along the
+/// boundaries of the Worley cells** (where two feature points are
+/// equidistant) and grows toward each cell's centre, so thresholding it low
+/// carves the boundary network — passages — and the junctions where three
+/// boundaries meet open into wider bulges — chambers. One field, one
+/// threshold, and the chamber-and-passage anatomy comes out of the geometry
+/// rather than being drawn.
+pub fn worley_f2_f1(seed: u64, purpose: Purpose, x: f32, y: f32) -> (f32, f32) {
+    let (x0, y0) = (x.floor() as i32, y.floor() as i32);
+    let mut f1 = f32::MAX;
+    let mut f2 = f32::MAX;
+    for j in -1..=1 {
+        for i in -1..=1 {
+            let (cx, cy) = (x0 + i, y0 + j);
+            let h = hash(seed, purpose, cx, cy);
+            // Top 24 bits and the next 24: each is every bit an f32 mantissa
+            // holds, from disjoint parts of one finalized hash.
+            let fx = (h >> 40) as f32 / (1u64 << 24) as f32;
+            let fy = ((h >> 16) & 0x00FF_FFFF) as f32 / (1u64 << 24) as f32;
+            let (dx, dy) = (cx as f32 + fx - x, cy as f32 + fy - y);
+            let d = (dx * dx + dy * dy).sqrt();
+            if d < f1 {
+                f2 = f1;
+                f1 = d;
+            } else if d < f2 {
+                f2 = d;
+            }
+        }
+    }
+    (f1, f2)
+}
+
 /// The standard clamped Hermite ramp: 0 below `edge0`, 1 above `edge1`, and
 /// a smooth S between them.
 ///
@@ -324,6 +385,45 @@ mod tests {
         let a: Vec<f32> = (0..50).map(|i| fbm_1d(1, Purpose::Height, i as f32 / 9.0, 3)).collect();
         let b: Vec<f32> = (0..50).map(|i| fbm_1d(2, Purpose::Height, i as f32 / 9.0, 3)).collect();
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn worley_distances_are_ordered_and_continuous() {
+        // f1 <= f2 by construction, both non-negative, and f1 is bounded by
+        // the lattice: the nearest feature point of a 3x3 neighbourhood is
+        // never further than the diagonal of one cell from a sample inside
+        // the centre cell.
+        for k in 0..400 {
+            let (x, y) = (k as f32 * 0.173 - 20.0, k as f32 * 0.311 - 30.0);
+            let (f1, f2) = worley_f2_f1(77, Purpose::Cave, x, y);
+            assert!(f1 >= 0.0 && f2 >= f1, "disordered at ({x}, {y}): {f1} {f2}");
+            assert!(f1 < 1.5, "f1 {f1} further than a cell diagonal at ({x}, {y})");
+        }
+        // Continuity across a lattice line: the feature points either side do
+        // not change when the sample crosses it, so the distances cannot jump.
+        let (a1, a2) = worley_f2_f1(77, Purpose::Cave, 4.999, 2.5);
+        let (b1, b2) = worley_f2_f1(77, Purpose::Cave, 5.001, 2.5);
+        assert!((a1 - b1).abs() < 0.01 && (a2 - b2).abs() < 0.01);
+    }
+
+    #[test]
+    fn worley_f2_f1_reaches_low_and_high() {
+        // The caves threshold this difference, so it has to actually span a
+        // range: near-zero somewhere (a cell boundary crosses the sampled
+        // window) and well above the threshold somewhere else (a cell
+        // interior). A field that never dips low carves nothing; one that
+        // never rises high carves everything.
+        let mut lo = f32::MAX;
+        let mut hi = f32::MIN;
+        for j in 0..60 {
+            for i in 0..60 {
+                let (f1, f2) = worley_f2_f1(3, Purpose::Cave, i as f32 / 8.0, j as f32 / 8.0);
+                lo = lo.min(f2 - f1);
+                hi = hi.max(f2 - f1);
+            }
+        }
+        assert!(lo < 0.05, "no cell boundary found in a 7.5-cell window: min {lo}");
+        assert!(hi > 0.4, "no cell interior found: max {hi}");
     }
 
     #[test]

@@ -270,34 +270,34 @@ fn main() {
     let mut sheet = vec![0u8; vw * vh * a.shots * 4];
     let mut frame = vec![0u8; vw * vh * 4];
 
-    // Where a chamber is, if one was asked for. Crystal first because a vug
-    // is the more interesting picture; otherwise any deep gravel, which at
-    // this depth can only be a grotto floor -- the soil profile's stony base
-    // and talus aprons are all near the surface.
+    // Where a system is, if one was asked for. Round 3 made the subject a
+    // cave system rather than a single chamber, so the finder aims at the
+    // *tallest column of deep air* -- the largest chamber of whichever
+    // system carved most. Air this deep can only be carved void (nothing
+    // else makes air under the massif at genesis), which also stops the old
+    // gravel search from landing the camera on a pocket lens instead.
     let vault_at = if a.vault {
-        let crystal = world.materials.id_of("crystal");
-        let gravel = world.materials.id_of("gravel");
         let deep = WORLD_HEIGHT as i32 / 2;
-        let mut found = None;
-        for want in [crystal, gravel] {
-            let Some(want) = want else { continue };
+        let mut found: Option<(i32, i32)> = None;
+        let mut best = 0;
+        let mut air = 0usize;
+        for x in 0..WORLD_WIDTH as i32 {
+            let mut run = 0;
             for y in deep..WORLD_HEIGHT as i32 {
-                for x in 0..WORLD_WIDTH as i32 {
-                    if world.get(x, y).material == want {
-                        found = Some((x, y));
-                        break;
+                if world.get(x, y).material == material::EMPTY {
+                    run += 1;
+                    air += 1;
+                    if run > best {
+                        best = run;
+                        found = Some((x, y - run / 2));
                     }
+                } else {
+                    run = 0;
                 }
-                if found.is_some() {
-                    break;
-                }
-            }
-            if found.is_some() {
-                break;
             }
         }
         match found {
-            Some((x, y)) => println!("  vault found at ({x}, {y})"),
+            Some((x, y)) => println!("  vault found at ({x}, {y}): tallest chamber {best} rows, {air} cells of deep air in the world"),
             None => println!("  NO VAULT in this world -- try another seed"),
         }
         found
