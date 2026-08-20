@@ -11,6 +11,24 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
+### 0. Roofed water: `ponds` fills both sides of an overhang (worldgen)
+
+`ponds` fills any hollow that reaches the open surface, and an overhang
+(`brows` lip, or now an erosion-shaped shelf) over a flooded hollow can
+leave water standing both above and below a rock shelf — water buried
+under stone that the guards `generated_water_is_full_and_never_inside_
+the_ground` / `every_solid_is_anchored_and_no_liquid_carries_a_stale_
+fill` only catch at their 1 hardcoded seed each, so they pass by luck.
+Present at `world_age 0` on a majority of seeds for several presets —
+pre-existing, surfaced (not caused) by round 4's age flip; the full
+measurement is finding **R4-3** in
+`Reports/worldgen-implementation-tasks-2026-08.md`. Two narrow `brows`
+guards shipped in round 4 close the paths that broke the structural
+suite; the pattern itself needs a `ponds`-focused session with a real
+seed sweep, not another guard clause. Do not widen the two named tests'
+seed lists as a "fix" — they would go red on the standing defect.
+
+
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a

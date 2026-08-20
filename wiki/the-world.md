@@ -76,6 +76,16 @@ naturally piles, and there is more of it under a taller face — a great
 escarpment sheds a real apron, a terrace step only a scatter. It is real
 loose material, so digging into it makes it run.
 
+**The land is weathered.** Every world has been through a stretch of
+simulated history before you arrive: soft rock has cut back where hard
+bands stand proud, crests are rounded, valley floors carry washed-in fill,
+and the shed rock of ages mantles the slopes as gravel over the soil. How
+weathered varies by landscape — canyon country is the most worked-over,
+deserts wear slowly. Rarely, where a hard cap shed heavily, a rounded
+**boulder** of pale resistant stone sits on the surface where it came to
+rest — an event, not a decoration, and it holds itself up (or fails to)
+like any other rock.
+
 **Soil** lies over the rock wherever the ground is gentle enough to hold it,
 thinning as the ground steepens and giving out entirely on steep faces, which
 is why cliffs read as bare rock. It also thins near a drop, so the lip of a
@@ -202,11 +212,9 @@ genuinely different places.
 Rivers and springs in generated worlds — the water machinery exists (rain
 falls, puddles dry, moving water runs white), but no world yet generates a
 spring or a flowing course, and what evaporates does not come back as rain
-somewhere else. Weathered-by-age terrain — the machinery exists and worlds
-can be built old (rounded, stepped, mantled), but every preset still ships
-young while the look is tuned. Plant cover that arrives with the world
-grown rather than as seeds. And worlds are still a fixed size — a large
-one, but bounded — rather than continuing indefinitely as you travel.
+somewhere else. Plant cover that arrives with the world grown rather than
+as seeds. And worlds are still a fixed size — a large one, but bounded —
+rather than continuing indefinitely as you travel.
 
 ## How big a world is
 
