@@ -740,6 +740,24 @@ const SPELEO_SPACING: i32 = 4;
 const SPELEO_CRYSTAL: f32 = 0.15;
 const SPELEO_PAIR: f32 = 0.25;
 
+/// What the vault pass did, beyond the cell count the pass table carries.
+///
+/// The pass-table row says *whether* it fired; these say *what* it made, and
+/// they are printed beside the table (see [`vaults`]) because a cave is the
+/// extreme case of "a picture cannot show whether the thing you built is
+/// what produced it" -- the whole feature is invisible by design until dug
+/// into, and a render of a world with a dead decoration stage looks exactly
+/// like a render of a working one.
+#[derive(Default)]
+struct VaultReport {
+    cells: usize,
+    systems: usize,
+    chambers: usize,
+    passage_cells: usize,
+    speleothem_cells: usize,
+    water_cells: usize,
+}
+
 /// Sealed cave systems and geode vugs, buried far below the surface: the
 /// found-a-secret moment.
 ///
@@ -781,6 +799,7 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
     let whole = p.vault_density.floor() as i32;
     let extra = i32::from(noise::unit(seed, Purpose::Vault, -1, -1) < p.vault_density.fract());
     let mut written = 0;
+    let mut report = VaultReport::default();
     for k in 0..whole + extra {
         // Position from its own draw. Rejected rather than nudged when the
         // massif there is too thin -- moving a rejected chamber to wherever
@@ -813,7 +832,14 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
                 continue;
             }
             let cy = lo + (noise::unit(seed, Purpose::Vault, k, 1) * (hi - lo + 1) as f32) as i32;
-            written += cave_system(ctx, world, k, cx, cy);
+            let r = cave_system(ctx, world, k, cx, cy);
+            written += r.cells;
+            report.cells += r.cells;
+            report.systems += r.systems;
+            report.chambers += r.chambers;
+            report.passage_cells += r.passage_cells;
+            report.speleothem_cells += r.speleothem_cells;
+            report.water_cells += r.water_cells;
             continue;
         }
 
@@ -980,12 +1006,15 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
             world.set(px, py, Cell::new(ctx.crystal, loose_shade(ctx, Purpose::Vault, px, py)));
             written += 1;
         }
+        report.systems += 1;
+        report.chambers += 1;
         for &(px, py) in &hollow {
             let cell = if py >= floor_top {
                 // Buried gravel's family, for the same reason a sealed lens
                 // takes it: this is read against solid stone and nothing else.
                 Cell::new(ctx.gravel, BURIED_FAMILY * TONES + loose_shade(ctx, Purpose::Vault, px, py))
             } else if flooded && py >= water_surface {
+                report.water_cells += 1;
                 Cell::new(ctx.water, loose_shade(ctx, Purpose::Shade, px, py))
             } else {
                 Cell::EMPTY
@@ -993,6 +1022,22 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
             world.set(px, py, cell);
             written += 1;
         }
+        report.cells += hollow.len() + lining.len();
+    }
+    // The counters next to the picture, printed only when something placed:
+    // the pass-table row alone cannot say whether the anatomy stages fired,
+    // and a cave is invisible in any render until someone digs to it. The
+    // format deliberately does not match the table's `name N cells` rows, so
+    // the sweep's parser never mistakes it for one.
+    if report.systems > 0 {
+        println!(
+            "  vaults detail: systems {} chambers {} passages {} speleothems {} water {}",
+            report.systems,
+            report.chambers,
+            report.passage_cells,
+            report.speleothem_cells,
+            report.water_cells
+        );
     }
     written
 }
@@ -1144,8 +1189,8 @@ fn carve_cave_void(ctx: &Ctx, k: i32, cx: i32) -> Option<Vec<bool>> {
 /// Returns cells written; zero is a wholesale rejection -- the
 /// collect-then-verify contract, kept from `pockets` through the round-2
 /// vaults: nothing is written unless the entire envelope passed.
-fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize {
-    let Some(void) = carve_cave_void(ctx, k, cx) else { return 0 };
+fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultReport {
+    let Some(void) = carve_cave_void(ctx, k, cx) else { return VaultReport::default() };
 
     // The seal: every cell within the rind of the kept component -- a
     // 2-cell Chebyshev dilation, diagonals included -- must be solid stone,
@@ -1165,7 +1210,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize 
             // the rind.
             if in_grid && void[cave_idx(dx, dy)] {
                 if world.get(cx + dx, cy + dy).material != ctx.stone {
-                    return 0;
+                    return VaultReport::default();
                 }
                 continue;
             }
@@ -1178,7 +1223,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize 
                 })
             });
             if near_void && world.get(cx + dx, cy + dy).material != ctx.stone {
-                return 0;
+                return VaultReport::default();
             }
         }
     }
@@ -1233,11 +1278,32 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize 
         col += 1;
         // One nominal depth per cavity, drawn on its first column.
         let base = 2 + (noise::unit(seed, Purpose::CaveFloor, cx + start as i32, k) * 3.0) as i32;
+        // Breakdown mounds: one to three heaps per large cavity, proposed as
+        // unit-slope triangles on top of the base fill -- a cave floor is
+        // rubble fallen from the roof, not tile, and a dead-flat fill from
+        // wall to wall was the last ruled line left in the system. Proposed
+        // only; the repose sweep below shaves them to gravel's own angle and
+        // the verifier guards their toes like everything else's.
+        let width = end - start + 1;
+        let mut mound = vec![0i32; width];
+        if width >= 20 {
+            let sx = cx + start as i32;
+            let count = 1 + (noise::unit(seed, Purpose::CaveFloor, sx, k * 31 + 1) * 3.0) as i32;
+            for m in 0..count {
+                let at = (noise::unit(seed, Purpose::CaveFloor, sx + m * 7, k * 31 + 2)
+                    * width as f32) as i32;
+                let peak =
+                    2 + (noise::unit(seed, Purpose::CaveFloor, sx + m * 7, k * 31 + 3) * 4.0) as i32;
+                for (i, e) in mound.iter_mut().enumerate() {
+                    *e = (*e).max(peak - (i as i32 - at).abs());
+                }
+            }
+        }
         // Elevation (+up) of the proposed gravel top, then the two sweeps.
         let mut e: Vec<f32> = (start..=end)
             .map(|i| {
                 let (t, b, _) = floor[i].expect("cavity columns all have a floor run");
-                (base.min((b - t - 1).max(0))) as f32 - b as f32
+                ((base + mound[i - start]).min((b - t - 1).max(0))) as f32 - b as f32
             })
             .collect();
         for i in 1..e.len() {
@@ -1295,6 +1361,97 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize 
             break;
         }
     }
+
+    // ---- chambers, as the census and the waterline both mean them ----
+    // Column-height based, not cavity based. The cavity segments the floors
+    // use chain through every connecting passage, so "one cavity" is
+    // usually the entire system -- a census keyed on it read `passages 0`
+    // for systems that are visibly rooms-and-corridors, and a waterline
+    // keyed on it put "the lowest chamber floor" at the bottom of a crevice
+    // no player would call a room (measured: a seven-cell puddle in the
+    // corner of `rolling` seed 1). A *chamber column* is one where the open
+    // void above any gravel stands at least twelve cells tall; a chamber is
+    // a run of at least six such columns; its floor is the deepest finished
+    // gravel surface under it.
+    let mut chamber_col = vec![false; CAVE_GRID_W as usize];
+    let mut chambers = 0usize;
+    let mut chamber_floors: Vec<i32> = Vec::new();
+    {
+        let fs = |i: usize| floor[i].map(|(_, b, h)| b - h).unwrap_or(CAVE_HALF_H);
+        let tall: Vec<bool> = (0..CAVE_GRID_W)
+            .map(|i| {
+                let dx = i - CAVE_HALF_W;
+                let mut best = 0;
+                let mut run = 0;
+                for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+                    if void[cave_idx(dx, dy)] && dy <= fs(i as usize) {
+                        run += 1;
+                        best = best.max(run);
+                    } else {
+                        run = 0;
+                    }
+                }
+                best >= 12
+            })
+            .collect();
+        let mut i = 0usize;
+        while i < tall.len() {
+            if !tall[i] {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < tall.len() && tall[i] {
+                i += 1;
+            }
+            if i - start >= 6 {
+                chambers += 1;
+                chamber_floors.push((start..i).map(fs).max().unwrap_or(0));
+                for c in chamber_col.iter_mut().take(i).skip(start) {
+                    *c = true;
+                }
+            }
+        }
+    }
+
+    // ---- the aquifer waterline: one draw per system ----
+    // Dry (above every floor), pools (between the lowest and median chamber
+    // floor), or flooded (above the median). Water is written the way
+    // `ponds` writes it -- level, full, one global line for the whole
+    // system -- so the surface cannot hold a head difference anywhere:
+    // every column's topmost water sits on the same row, and a pocket whose
+    // ceiling is below the line fills to its roof and is sealed. That is
+    // the whole at-rest argument, and it is the same one that made the
+    // round-2 vug fill to its widest row. Connectivity does the rest: low
+    // chambers pond, high ones stay dry, and one system can hold both --
+    // which is the picture worth finding.
+    chamber_floors.sort_unstable();
+    // Envelope-local dy of the water surface; `i32::MAX` is a dry system.
+    let water_line = if chamber_floors.is_empty() {
+        i32::MAX
+    } else {
+        let u = noise::unit(seed, Purpose::CaveFloor, -1 - k, 0);
+        let v = noise::unit(seed, Purpose::CaveFloor, -1 - k, 1);
+        // Sorted by dy, so the first is the *highest* floor (smallest dy)
+        // and the last the lowest. The line always submerges its target
+        // floor by at least one row -- a line drawn exactly *at* a floor is
+        // a zero-depth pond, which a single-chamber system otherwise gets
+        // every time (its lowest and median floor are the same row).
+        let highest = chamber_floors[0];
+        let median = chamber_floors[chamber_floors.len() / 2];
+        let lowest = *chamber_floors.last().expect("non-empty");
+        if u < 0.30 {
+            i32::MAX
+        } else if u < 0.75 {
+            // Pools: from just-submerging the lowest chamber up to the
+            // median chamber's floor.
+            lowest - 1 - (v * (lowest - median).max(2) as f32) as i32
+        } else {
+            // Flooded: from just-submerging the median chamber up toward
+            // the highest chamber's floor.
+            median - 1 - (v * (median - highest).max(2) as f32) as i32
+        }
+    };
 
     // ---- speleothems: the wonder, grown after the void is cut ----
     // Stalactites from ceilings, stalagmites from floors, 1-2 cells wide and
@@ -1416,6 +1573,8 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize 
     }
 
     let mut written = 0;
+    let mut water_cells = 0usize;
+    let mut passage_cells = 0usize;
     for dy in -CAVE_HALF_H..=CAVE_HALF_H {
         for dx in -CAVE_HALF_W..=CAVE_HALF_W {
             if !void[cave_idx(dx, dy)] {
@@ -1445,7 +1604,17 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize 
                 // Buried gravel's family, same as a lens and the vug floor:
                 // read against solid stone and nothing else.
                 Cell::new(ctx.gravel, BURIED_FAMILY * TONES + loose_shade(ctx, Purpose::Vault, px, py))
+            } else if dy >= water_line {
+                // Below the system's waterline: water, exactly as `ponds`
+                // writes it -- full (`aux == 0` on a Liquid means full, the
+                // documented opposite of the Powder convention), shade
+                // varied for the grain mode.
+                water_cells += 1;
+                Cell::new(ctx.water, loose_shade(ctx, Purpose::Shade, px, py))
             } else {
+                if !chamber_col[(dx + CAVE_HALF_W) as usize] {
+                    passage_cells += 1;
+                }
                 Cell::EMPTY
             };
             world.set(px, py, cell);
@@ -1455,8 +1624,14 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize 
             }
         }
     }
-    let _ = speleo_cells;
-    written
+    VaultReport {
+        cells: written,
+        systems: 1,
+        chambers,
+        passage_cells,
+        speleothem_cells: speleo_cells,
+        water_cells,
+    }
 }
 
 pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {
