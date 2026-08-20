@@ -42,7 +42,7 @@
 
 use std::collections::HashSet;
 
-use pixel_physics::render::{FieldOverlay, GrainMode, OrganismOverlay, Renderer};
+use pixel_physics::render::{BubbleMode, FieldOverlay, GasMode, GrainMode, OrganismOverlay, Renderer};
 mod common;
 
 use pixel_physics::sim::cell::Cell;
@@ -178,6 +178,59 @@ fn build(args: &Args) -> World {
         // under each tile alongside the image -- a plume the boiling
         // actually produced and a puff of painted smoke are the same grey
         // pixels at this zoom.
+        // A pan of water over a hot hearth: an open basin whose *floor* is
+        // a row of 700C stone, with nothing burning anywhere.
+        //
+        // **Built because `scene=boil` cannot demonstrate the thing this
+        // scene is for**, and finding that out cost a round of looking at
+        // sheets that showed nothing. `boil` heats its pool from a burning
+        // oil slick lying *on the surface*, so the only water above
+        // `render::BUBBLE_MIN_TEMPERATURE` is the top row or two -- 361
+        // cells at frame 90 spread across a 150-wide pool, drawn under the
+        // fire tint and behind a steam cloud. Everything about that is
+        // correct and none of it can show a bubble rising, because there
+        // is no depth of hot water for one to rise *through*.
+        //
+        // Heat from below is the configuration boiling actually has, it is
+        // the one `fire.rs`'s `a_finite_heat_inventory_stops_boiling_and_
+        // the_world_sleeps` already uses as its thermodynamic control, and
+        // it terminates: a fixed inventory of heat, no source, so the pan
+        // comes off the boil on its own rather than running forever.
+        //
+        // Deliberately **open at the top** where `boil` is sealed: the
+        // steam has somewhere to go, so it does not build a cloud over the
+        // very surface the effect has to be judged against.
+        "simmer" => {
+            stone_floor(&mut w);
+            // **Shallow, and the hearth is three rows rather than one.**
+            // First cut was a 61-deep pan over a single 700C row and it was
+            // stone cold by frame 120 with 4 cells left over threshold --
+            // a scene that contradicts what it is for looks exactly like a
+            // mechanism that does not work (`CLAUDE.md`). A pan is a pan:
+            // shallow enough that the heat reaches the surface, with enough
+            // stone under it to hold a boil for a few hundred frames.
+            let (left, right, hearth_rows, depth) = (200, 312, 3, 14);
+            let hearth_y = floor_y - hearth_rows;
+            let rim_y = hearth_y - depth;
+            for y in rim_y..floor_y {
+                w.set(left, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(right, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in left..=right {
+                for y in hearth_y..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true).with_temperature(900));
+                }
+            }
+            for x in (left + 1)..right {
+                for y in rim_y..hearth_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            println!(
+                "simmer: a {}x{depth} pan over {hearth_rows} rows of 900C stone, open to the air",
+                right - left - 1
+            );
+        }
         "boil" => {
             stone_floor(&mut w);
             let (left, right, ceiling_y, rim_y) = (180, 330, 196, 260);
@@ -402,6 +455,51 @@ fn build(args: &Args) -> World {
                 w.frame = i * 4;
                 w.step_pheromones();
             }
+        }
+        // A scatter of separate grains falling into an open pool: the
+        // splash.
+        //
+        // **`scene=blob` cannot show this and that is geometry, not
+        // tuning.** A splash site is where a denser cell displaces near-full
+        // liquid *with air directly above it* (`update::try_move`), and
+        // under a 68-wide solid blob the cell above the displaced water is
+        // always the next sand cell down. The handful of sites a blob does
+        // produce are its own trailing edge, thrown into the middle of a
+        // blob that fills the frame -- 37 droplets over the whole entry,
+        // every one of them invisible behind the sand.
+        //
+        // Separate grains are the case the mechanic is for and the case a
+        // player makes: each one arrives at open water on its own, and the
+        // droplets it throws fly against open air. **One cell in twenty,
+        // over a hundred rows**, and both numbers were turned down from a
+        // first cut at one in five over sixty: at that density the falling
+        // grains are a curtain, arrivals overlap, and a droplet is one blue
+        // pixel in a snowstorm of yellow ones. The scene has to leave the
+        // air *empty* between arrivals or it cannot show what it is for.
+        "splash" => {
+            stone_floor(&mut w);
+            for y in 0..floor_y {
+                w.set(120, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(392, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in 121..392 {
+                for y in 200..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            let mut grains = 0;
+            for x in 160..355 {
+                for y in 20..120 {
+                    // A hash rather than an rng draw, so the scatter is a
+                    // pure function of position and two runs of this scene
+                    // are the same scene (`PLAN.md`: determinism).
+                    if rng::jitter(x, y) < 0.05 {
+                        w.set(x, y, Cell::new(material::SAND, (rng::jitter(y, x) * 255.0) as u8));
+                        grains += 1;
+                    }
+                }
+            }
+            println!("splash: {grains} loose grains over an open pool 271 wide");
         }
         // A dense blob dropped into a walled pool: the displacement striping.
         "blob" => {
@@ -1274,6 +1372,13 @@ struct Args {
     genome: String,
     out: String,
     grain: GrainMode,
+    /// `bubbles=` -- which of `render.rs`'s `BubbleMode` looks to draw
+    /// boiling liquid with. `off` is the default and today's behaviour;
+    /// the point of the argument is `scene=boil` side by side.
+    bubbles: BubbleMode,
+    /// `gas=` -- which of `render.rs`'s `GasMode` looks to draw gas with.
+    /// `opaque` is the default and today's behaviour.
+    gas: GasMode,
     /// `channel=` -- render the sheet through one of `render.rs`'s debug
     /// overlays instead of ordinary material colour. The whole reason the
     /// plant work needs this harness: resource, canopy density and (later)
@@ -1473,6 +1578,8 @@ fn parse() -> Args {
         parallel_driver: true,
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
         grain: GrainMode::Position,
+        bubbles: BubbleMode::Off,
+        gas: GasMode::Opaque,
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
         gif: false,
@@ -1528,6 +1635,23 @@ fn parse() -> Args {
                     "animated" => GrainMode::Animated,
                     "motion" => GrainMode::Motion,
                     other => panic!("unknown grain {other:?}"),
+                }
+            }
+            "gas" => {
+                a.gas = match v {
+                    "opaque" => GasMode::Opaque,
+                    "translucent" => GasMode::Translucent,
+                    "byfill" => GasMode::ByFill,
+                    other => panic!("unknown gas {other:?}"),
+                }
+            }
+            "bubbles" => {
+                a.bubbles = match v {
+                    "off" => BubbleMode::Off,
+                    "rising" => BubbleMode::Rising,
+                    "columns" => BubbleMode::Columns,
+                    "surface" => BubbleMode::Surface,
+                    other => panic!("unknown bubbles {other:?}"),
                 }
             }
             // One flag for both overlay families, resolved by name: they are
@@ -1702,6 +1826,13 @@ fn advance(
     }
     world.step_active_sites();
     blasts.step(world, particles);
+    // `App::update`'s slot exactly: splashes are debited from the pool and
+    // thrown here, between the blast stage and the particle step. Without
+    // this line the sweep reports splash sites every frame and nothing ever
+    // takes one, so `scene=blob` would show none -- and it is the only
+    // place the water actually leaves the pool, so a harness that omits it
+    // loses nothing rather than quietly draining.
+    pixel_physics::sim::particle::throw_splashes(world, particles);
     particles.step(world);
     world.step_fields();
 }
@@ -2085,6 +2216,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     let cave_before = roofed_void(&world);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
+    renderer.bubbles = args.bubbles;
+    renderer.gas = args.gas;
     renderer.organism_overlay = args.organism_overlay;
     renderer.field_overlay = args.field_overlay;
     let mut particles = ParticleSystem::new();
@@ -2273,17 +2406,25 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             "    phase changes: boiled {}, condensed {}, froze {}, melted {}, reacted {}",
             p.boiled, p.condensed, p.froze, p.melted, p.reacted
         );
+        // Same reasoning one line up, for splashes: a droplet in flight is
+        // one pixel and lands within a few frames, so `particles` on the
+        // tile line above is very often 0 even on a frame that threw a
+        // dozen. Cumulative, so it answers "has this ever fired".
+        if world.splashes_thrown > 0 {
+            println!("    splash droplets thrown: {}", world.splashes_thrown);
+        }
         // A census to read against the event counts above -- `CLAUDE.md`'s
         // "a failure count is not a damage count" bites here too: `froze`
         // going flat can mean "all the lava finished" or "the remaining
         // lava stopped cooling", and only a standing count tells them
         // apart. `burning` likewise separates "the pond simmers off stored
         // heat" from "something at the shoreline is still on fire".
-        let (mut molten, mut burning, mut hot) = (0u32, 0u32, 0u32);
+        let (mut molten, mut burning, mut hot, mut bubbling) = (0u32, 0u32, 0u32, 0u32);
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
                 let cell = world.get(x, y);
-                if world.materials.get(cell.material).intrinsic_temperature.is_finite() {
+                let m = world.materials.get(cell.material);
+                if m.intrinsic_temperature.is_finite() {
                     molten += 1;
                 }
                 if cell.is_burning() {
@@ -2292,9 +2433,19 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
                 if cell.temperature() >= 100 {
                     hot += 1;
                 }
+                // The population `render.rs`'s bubble effect can draw on --
+                // a *liquid* cell over the bubbling threshold, which is a
+                // different set from `hot` above (that one is mostly the
+                // steam cloud). Printed because "the pool does not look
+                // like it is bubbling" and "there is nothing hot enough in
+                // the pool to bubble" are the same picture, and only a
+                // count separates them.
+                if m.kind == MaterialKind::Liquid && (cell.temperature() as f32) >= pixel_physics::render::BUBBLE_MIN_TEMPERATURE {
+                    bubbling += 1;
+                }
             }
         }
-        println!("    standing: molten {molten}, burning {burning}, cells at >=100C {hot}");
+        println!("    standing: molten {molten}, burning {burning}, cells at >=100C {hot}, liquid hot enough to bubble {bubbling}");
         // The water cycle's standing state, next to the counters above --
         // and the pair is the point. The counters say the mechanism fired;
         // this says what is *there*, which is the question a freeze-and-thaw

@@ -92,10 +92,9 @@ That draw is keyed on **position, not the random generator**, and it has to
 stay that way. Drawing fresh each call lets a chunk fall asleep on a frame the
 dice said no, freezing grains that should have kept rolling.
 
-**The M14 schema** (combustion, phase change, reactions) is defined and
-loadable — see [`oil.ron`](assets/materials/oil.ron) for the first material
-using it — but nothing reads it yet; that is the update logic M14 adds. All
-of its temperatures are Celsius, the same unit `Cell` and the field grid both
+**The M14 schema** (combustion, phase change, reactions) is live —
+[`oil.ron`](assets/materials/oil.ron) was the first material using it. All of
+its temperatures are Celsius, the same unit `Cell` and the field grid both
 already use:
 
 ```ron
@@ -107,6 +106,21 @@ burns_into: "ash",       // plain string, not Option<String> — see field.rs's
                           // burns_into is combustion residue, separate from
                           // melts_into (temperature-triggered, unrelated to fire)
 ```
+
+**The phase-change half of that schema is what the water cycle is made of**, and
+all of it is content — no rule in `fire.rs` names any of these materials, it
+reads these fields and does what they say:
+
+| material | kind | what it does |
+|---|---|---|
+| [`water.ron`](assets/materials/water.ron) | `Liquid` | boils into `steam` at 100°C, freezes into `ice` at 0°C. `freeze_min_fill` refuses to freeze anything but a near-full cell, which is what lets the round trip close. |
+| [`steam.ron`](assets/materials/steam.ron) | `Gas` | condenses back to `water` at 45°C, carrying its source cell's fill in `aux` across both transitions — per-cell exact through the loop. |
+| [`ice.ron`](assets/materials/ice.ron) | `Solid` | melts back at 1°C, floats, and is a **true structural solid**: a sheet spans to the shore or it comes apart. `heat_conductivity` is not optional on it — see below. |
+| [`snow.ron`](assets/materials/snow.ron) | `Powder` | made only by weather, never by freezing. Melts at 2°C into 0.3 of a cell of water — its own density, not a free full one. |
+| [`lava.ron`](assets/materials/lava.ron) | `Liquid` | born hot **once** (`intrinsic_temperature`), then cools like anything else and crusts to `stone` at 700°C. Reacts with water into stone and steam, the reaction taking the hotter side's heat into the steam. |
+
+A boiling look (`,`) and a gas translucency (`;`) are runtime selectors in
+`render.rs`, both defaulting to the behaviour that shipped before them.
 
 ## Architecture
 
@@ -526,15 +540,43 @@ at any moment rather than every swept cell.
 default of 0.15 was tried first, so every material conducted heat plausibly
 without a content author having to think about it — but `diffuse_heat` runs
 for every visited cell, and nonzero conductivity means it cannot take its
-cheap early exit. Sand and water, never near fire in ordinary play, were
-paying for four neighbour reads apiece on every visit for no reason; that
-was a further, separate contributor to the same regression above. Only oil
-(and ash, its `burns_into` target — see the comment in `ash.ron` for why a
-combustion *byproduct* specifically must not default to zero, or the heat it
-inherits has nowhere to go and its chunk never sleeps) opt in explicitly.
-**Any future material that can be the target of `burns_into`, `melts_into`,
+cheap early exit. Sand and water, neither of which had any reason to conduct
+at the time, were paying for four neighbour reads apiece on every visit for
+nothing; that was a further, separate contributor to the same regression
+above. (Water has since opted in deliberately, and what that cost was
+measured — see below.) Materials
+opt in explicitly, and each one has a reason: oil; ash, its `burns_into`
+target — see the comment in `ash.ron` for why a combustion *byproduct*
+specifically must not default to zero, or the heat it inherits has nowhere to
+go and its chunk never sleeps; the plant and creature materials, which catch
+fire or feel it; `stone`, so a hot quench delta drains into the rock it made;
+and the water cycle's own four — `water` and `snow` at 0.08, `ice` at 0.1,
+`steam` at 0.12, with `lava` deliberately near-insulating at 0.002 so a flow
+carries its heat rather than shedding it into the first thing it touches.
+Sand and gravel, which are never near fire in ordinary play, still have none.
+
+**Any material that can be the target of `burns_into`, `melts_into`,
 `boils_into`, or a reaction needs a real `heat_conductivity` for the same
-reason.**
+reason** — and *so does anything the weather can chill*, which is the version
+of the rule the ice work had to learn. A cell the storm cools and nothing can
+warm sits permanently off ambient, `fire.rs`'s `must_stay_dirty` keeps its
+chunk awake forever, and a world that has been snowed on never sleeps again.
+Setting either `ice.ron`'s or `snow.ron`'s conductivity back to 0.0 leaves
+chunks awake at a 1,200-frame budget on `weather.rs`'s own `thawed_world_sleeps`
+test; with both, the world sleeps 42 frames after the front passes.
+
+**Water's opt-in was measured against this paragraph's own warning and found
+free.** The concern was exactly the regression above — water is everywhere, so
+giving it a conductivity means `diffuse_heat` cannot take its cheap exit on a
+large fraction of every sweep. On ascii's `stress: a full screen of sand and
+water (serial)` the worst frame measured **102.0 ms as the baseline against
+106.9–110.7 ms across paired runs**, which is inside the container's own
+run-to-run spread on that scene: unmeasurable, not free-in-principle. The
+historical 16 → 64 ms regression this section opens with was **not** the
+per-cell diffusion at all; it was the `World::field_at` `HashMap` lookup that
+version did per visited cell, and `src/sim/surface.rs`'s `field_wind_at` doc
+carries the full measurement of why the surviving field read is a different
+and much cheaper operation.
 
 **Screenshotting the live app doesn't work on this machine** — found while
 trying to visually confirm the fire tint below. This build's DXGI/wgpu

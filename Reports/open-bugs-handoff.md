@@ -11,41 +11,60 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
-### 0. A melting `Powder` manufactures water: snow melts into *full* cells
+### 0. ~~A melting `Powder` manufactures water~~ — **FIXED**
 
-Found by the ice milestone, measured on `filmstrip scene=coldsnap`. A
-storm's drift of **1,700 cells of snow** thaws into **~2,400
-cell-equivalents of extra water**, taking the world from ~900 to ~3,230,
-because `fire::transform`'s `aux` translation table writes 0 for any pair
-that is not Liquid→Liquid or Liquid↔Gas — and 0 on a `Liquid` means
-**full**. Snow's density is 0.3 and it melts into a fill-1000 water cell,
-so every flake gains a factor of ~3.3.
+**Resolution (2026-08-20):** fixed in `fire::transform`'s aux table, with
+the conservation test this section asked for
+(`weather.rs`'s `a_thaw_does_not_manufacture_water`, written first and
+confirmed red at **123.4%** before a line of fix went in).
 
-Latent until now for the reason the same table documents: nothing melted.
-Snow shipped with no `heat_conductivity`, so a chilled flake could never
-warm back up and no drift ever thawed. Giving it one (this milestone, for
-the chunk-sleep bug) made the melt reachable, and this came with it —
-`CLAUDE.md`'s "fixing a bug often exposes a constant that was compensating
-for it", in the form of a whole dead code path.
+The fix is *not* the plain density scale this section proposed, and the
+difference was found by measuring the version this section described.
+`fire::melt_fill` splits on whether the pair is **reciprocal** — whether
+the liquid's own `cools_into` names the phase that is melting:
 
-Visible as a shallow flood spreading across a whole hillside after a heavy
-fall melts off. `wiki/weather.md` says so plainly rather than pretending
-otherwise.
+- **Snow** (nothing freezes water into snow; the sky makes it) melts at its
+  own density, 0.3, so 1,700 flakes are ~510 cells of meltwater. That is
+  the arm this section was about and it is the whole of the flood.
+- **Ice** (water froze it, and `freeze_min_fill` refused to freeze anything
+  but a near-full cell) comes back **full**, which is what it took.
 
-**The fix is in `fire::transform`, not in content.** The `(Powder, Liquid)`
-arm should scale fill by the source's density rather than writing 0 —
-roughly `LIQUID_FULL * powder_density / liquid_density`, clamped, which
-gives snow ~300 and would make ice (0.92) come back at ~920 instead of a
-full cell. Deliberately not done here: this milestone was scoped to content
-and weather with `fire.rs` untouched, and the table's own doc calls out
-manufacturing volume as the failure mode to avoid, so the arm should be
-changed with its own conservation test rather than as a rider.
+**Why the density scale is wrong for ice, measured rather than argued.** A
+`Solid` carries no fill, so `1000 -> ice -> 920` loses 8% of every cell
+that freezes full — nearly all of them — and `scene=coldsnap` cycles its
+pond surface roughly ten times in one front (froze 2,608, melted 4,671
+against a 60-cell pond). It compounds: the pond read 1,200 cell-equivalents
+at the cut and 1,050 by frame 361, and two rows of drop took the ice
+sheet's end cells out from beside their shore anchor — **2 unconfined
+overloads (133 cells) and 4 unsupported**, a visible wedge of sheet
+slumping into the water, on the one acceptance case whose bar is that
+nothing is dismantled. Returning it full closes that loop exactly, and
+tiles 0-2 of the acceptance run are then numerically identical to the
+pre-fix ones: only the snow half moved.
 
-Note the direction of the error is *creation*, so no existing conservation
-test catches it — they are written against loss. A test for this wants to
-census water in cell-equivalents across a freeze-and-thaw, which
-`weather.rs`'s `ice_melts_back_and_the_pool_refills` now has the helper
-for.
+Measured, `filmstrip scene=coldsnap ... count=6`, standing water at frame
+1080: **3,231.9 cell-equivalents before, 1,789.9 after** — the hillside
+flood goes from a three-cell-deep band to a one-cell film, judged at
+`crop=300,234,80,14 zoom=10`. `max_unconfined=0` is **OK**, with the same
+failure signature as before the fix (4 overloaded, 845 cells, all
+confined).
+
+Residual, recorded rather than tuned away: a cell that froze *at* the gate
+(fill 900) rather than full gives back 11% more than it took, so a whole
+storm's freeze/thaw reads ~104% on the census. The ceiling is structural —
+`LIQUID_FULL - freeze_min_fill` — and closing it means paying a matching
+loss on the far commoner full cell, which is the worse trade above. The
+guard bar is 110% against 103.9% measured.
+
+Two tests moved with the fix and neither was a rubber-stamp:
+`fire.rs`'s melt test asserted `aux == 0` (i.e. *full*) for every melt —
+that assertion **was** the bug — and is now split into a density case and a
+reciprocal round-trip case. `weather.rs`'s
+`a_snowstorm_leaves_no_snow_floating_on_open_water` counted a proxy that
+moved for a reason that was not the artifact (5 -> 11 columns, while the
+pond went on freezing); it is now
+`a_snowstorm_leaves_no_snow_raft_insulating_the_pond` and asserts the two
+things a raft would actually do.
 
 ### 0b. `scene=lavapour`'s pond simmers forever after every source is gone
 

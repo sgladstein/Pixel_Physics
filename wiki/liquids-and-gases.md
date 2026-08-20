@@ -1,10 +1,20 @@
 # Liquids & Gases
 
-*Current as of: this build (lava and the quench).*
+*Current as of: this build (the water-cycle polish pass — splashes).*
 
 Where a powder falls and piles, a liquid falls and then spreads sideways
 until it finds a level surface — the same way real water does, settling
 flatter and flatter over time rather than holding any kind of slope.
+
+Drop something heavy into a pool and it **splashes**: a handful of loose
+sand or gravel arriving at open water throws droplets up and outward, which
+arc, fall and rejoin the pool wherever they land. The droplets are the
+pool's own water rather than extra — a splash never adds to what is there —
+so throwing enough into a pond leaves it very slightly lower and a good deal
+messier around the edges. A single large mass hitting the surface makes far
+less of it than the same amount arriving as a scatter, for the same reason a
+dropped bucket splashes less than a thrown handful: the water it displaces
+has the mass itself sitting on top of it.
 
 - **Water** settles quickly and cleanly into a flat pool, and left in the
   open it slowly dries up — see [Weather](weather.md) for why a puddle goes

@@ -410,6 +410,23 @@ pub struct World {
     /// steam plume and painted smoke are indistinguishable in a contact
     /// sheet. Read by `examples/filmstrip.rs` beside the image.
     pub phase_changes: crate::sim::fire::PhaseCounts,
+    /// Where a denser cell displaced near-full liquid at a free surface
+    /// this frame — **candidate** splash sites, not splashes. See
+    /// `CellSurface::report_splash` for why the sweep only reports them,
+    /// and `particle::throw_splashes` for the one place that acts on them.
+    ///
+    /// Cleared at the top of every step, so a frame nobody drained is
+    /// discarded rather than growing, and bounded at `MAX_SPLASH_SITES` so
+    /// a blob landing in a lake cannot make the list the expensive part of
+    /// the frame.
+    pub splash_sites: Vec<(i32, i32)>,
+    /// Cumulative count of splash droplets actually thrown -- the "did it
+    /// fire at all" counter for the effect, and a different number from
+    /// `splash_sites.len()`, which is only how many candidates the sweep
+    /// reported this frame. A droplet in flight is one pixel and a contact
+    /// sheet cannot tell one from a stray grain of water, so the count is
+    /// what says the mechanism ran. Bumped by `particle::throw_splashes`.
+    pub splashes_thrown: u32,
     /// Whether rock with nowhere to go cracks in place instead of
     /// displacing. See `structural::crush_in_place`; `true` is the shipped
     /// behaviour.
@@ -624,6 +641,8 @@ impl World {
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
             phase_changes: crate::sim::fire::PhaseCounts::default(),
+            splash_sites: Vec::new(),
+            splashes_thrown: 0,
             seed: DEFAULT_WORLD_SEED,
         };
         world.ensure_chunks_for(bounds);
@@ -2156,6 +2175,12 @@ impl World {
     }
 
     pub fn begin_step(&mut self) {
+        // Last frame's candidates, dropped rather than carried. A caller
+        // that owns a `ParticleSystem` drains them right after its step
+        // (`App::update`); one that does not -- `examples/ascii.rs`, the
+        // unit tests -- simply never sees them, which is the behaviour that
+        // makes the effect optional rather than load-bearing.
+        self.splash_sites.clear();
         // Idempotent, and the first simulated frame is the right moment:
         // the world has been generated (or hand-built) by now, and nothing
         // has had a chance to dig into it or build on top of it yet, since
@@ -2343,10 +2368,25 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn report_splash(&mut self, x: i32, y: i32) {
+        if self.splash_sites.len() < MAX_SPLASH_SITES {
+            self.splash_sites.push((x, y));
+        }
+    }
+
+    #[inline]
     fn count_phase_event(&mut self, event: crate::sim::fire::PhaseEvent) {
         self.phase_changes.record(event);
     }
 }
+
+/// How many splash candidates one frame may record. A cap on *work*, not a
+/// gate on whether splashing happens (`CLAUDE.md`) -- every site past this
+/// is one more droplet in a frame that already has plenty, and the sweep
+/// visits them in a fixed order, so dropping the tail is a look decision
+/// rather than a correctness one. Sized well above what a sand blob
+/// entering a pool produces so it is a backstop, not the usual path.
+pub(crate) const MAX_SPLASH_SITES: usize = 256;
 
 /// Squared distance from a cell to the segment `a`–`b`, which is what makes the
 /// brush a capsule rather than a rectangle around the cursor's path.

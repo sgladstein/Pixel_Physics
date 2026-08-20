@@ -119,6 +119,29 @@ pub trait CellSurface {
     /// decay). See `World::frame`.
     fn frame(&self) -> u64;
 
+    /// Report that a denser cell just displaced near-full liquid at `(x, y)`
+    /// with open air above it — a **candidate** splash site, not a splash.
+    ///
+    /// **The sweep reports and does not act, and that division is what makes
+    /// the effect conservative.** A free particle lands as a whole cell
+    /// (`particle::land`), so a droplet that was not taken out of the pool
+    /// is water manufactured — and the removal and the launch therefore have
+    /// to happen in the same place, or a harness that steps the world
+    /// without owning a `ParticleSystem` (`examples/ascii.rs`, every unit
+    /// test) would quietly drain every pool it splashed. Only
+    /// `particle::throw_splashes` does both, together, and it re-checks the
+    /// cell first because a site is a frame old by the time it runs.
+    ///
+    /// The other half of the division: this must not change movement, and it
+    /// cannot — nothing here writes a cell. `Reports/open-bugs-handoff.md`
+    /// §2 is about this exact code path and its striping is untouched.
+    ///
+    /// `World` pushes onto its own list, cleared at the top of every step so
+    /// an undrained frame is discarded rather than accumulating;
+    /// `ChunkView` queues and `run_pass` merges, the same shape as
+    /// `schedule_active_site`.
+    fn report_splash(&mut self, x: i32, y: i32);
+
     /// Record one temperature-triggered transition for the "did it fire at
     /// all" counters (`fire::PhaseCounts`, the `FailureCounts` pattern) —
     /// a steam plume and painted smoke are indistinguishable in a contact

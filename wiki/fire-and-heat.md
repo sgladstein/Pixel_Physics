@@ -1,6 +1,6 @@
 # Fire & Heat
 
-*Current as of: this build (lava and the quench).*
+*Current as of: this build (the water-cycle polish pass — verified unchanged).*
 
 Fire spreads by contact: a material touching something already burning has
 a chance, each moment it stays in contact, to catch as well. That chance

@@ -1522,20 +1522,36 @@ mod tests {
             advance(&mut w, 300, parallel_driver);
 
             let (after, ice_left, snow_left) = water_census(&w);
+            println!("pool refill (parallel: {parallel_driver}): {after:.1} against {before:.1} ({:.1}%)", after / before * 100.0);
             assert_eq!(ice_left, 0, "every cell of ice should be above its melting point once the front has gone (parallel: {parallel_driver})");
             assert_eq!(snow_left, 0, "and so should every flake (parallel: {parallel_driver})");
             // **A bound, and the direction of the slack is stated.** The
-            // pool comes back to a little *under* what it started at, not
-            // over: water evaporates from its own surface all through the
-            // ~700 frames this runs (`water.ron`'s `evaporates`), and this
-            // test world is small enough that the snow melting into it does
-            // not make up the difference -- on the 512-wide `coldsnap`
-            // scene, where a storm lays thousands of cells of drift, the
-            // world ends with three times the water it began with. Measured
-            // here: 960.0 before, 941.9 after, so 98.1% recovered. The bar
-            // is 90%, which leaves room for evaporation and for the
-            // never-frozen fringe without admitting water disappearing into
-            // the phase change -- which is the failure this is for.
+            // pool comes back a little *under* what it started at, not
+            // over: this test world is small enough that the snow melting
+            // into it does not make up for the fringe that never froze.
+            //
+            // **The 90% bar was written when a melting flake manufactured a
+            // full cell of water, and the number under it moved when that
+            // was fixed** -- `CLAUDE.md`'s "fixing a bug often exposes a
+            // constant that was compensating for it". It read 941.9 against
+            // 960.0 (98.1%) with the drift quietly topping the pond up by
+            // more than it was worth; with `fire::melt_fill` in place a
+            // flake is worth its own 0.3 and the same run reads **925.4
+            // against 960.0, 96.4%** (97.2% under the parallel driver).
+            // Still comfortably inside the bar, because the ice half of the
+            // loop closes exactly and the snow half was never what this
+            // test was measuring. Kept at 90% on that evidence rather than
+            // moved for the sake of moving.
+            //
+            // Also worth recording, because a plausible alternative fix
+            // would have broken this badly: density-scaling the *ice* melt
+            // as well (ice 0.92, so `1000 -> ice -> 920`) takes this run to
+            // **788.4, 82.1%**. Evaporation is not the difference -- the
+            // control, this same pond over 700 frames with no front, holds
+            // 960.0 to 960.0 -- it is 8% off every cell that freezes full,
+            // compounding over a surface that cycles ten times in a storm.
+            // See `fire::density_scaled_fill` for why that is not what
+            // shipped.
             assert!(
                 after > before * 0.90,
                 "the pool did not refill: {after:.1} against {before:.1} before the freeze (parallel: {parallel_driver})"
@@ -1589,25 +1605,182 @@ mod tests {
     }
 
     #[test]
-    fn a_snowstorm_leaves_no_snow_floating_on_open_water() {
+    fn a_snowstorm_leaves_no_snow_raft_insulating_the_pond() {
         // Snow is lighter than water, so a flake landing on a pond floats,
         // and flakes keep coming: a raft builds up, `surface_under_sky`
         // starts returning *it* instead of the water, and once it is
-        // `CRUST_CHILL_DEPTH` deep the cold never reaches the pond at all.
+        // `SNOW_CHILL_DEPTH` deep the cold never reaches the pond at all.
         // Measured before the refusal went in: 9 to 20 cells of ice over a
-        // whole storm, against a 60-cell surface. The guard is on the
-        // *standing* raft rather than on the spawn, because that is the
-        // artifact -- and a few grains that rolled off the bank are not it.
+        // whole storm, against a 60-cell surface.
+        //
+        // **Rewritten from a proxy to the property, because the proxy moved
+        // for a reason that was not the artifact.** It used to count pond
+        // columns holding a snow cell directly above *any* liquid cell in
+        // the top 16 rows, bar 6. Fixing `fire::transform`'s melt fill took
+        // that count from 5 to 11 -- and the reason is that the pond is no
+        // longer brimming with meltwater a melting flake manufactured out
+        // of nothing. Before, the surface stood at the shore line and the
+        // metric saw open water; after, it sits lower under a thicker
+        // crust, and the same two grains that rolled off the bank now sit
+        // over a thin meltwater layer *on top of the ice*. The pond did not
+        // stop freezing, which is what the count was standing in for.
+        //
+        // So the guard now asserts the two things a raft would actually do,
+        // either of which can still fail: it would be **deep** (that is
+        // what insulates, and the bar is `SNOW_CHILL_DEPTH` itself rather
+        // than a number picked near the measured 2 -- at that depth the
+        // chill walk spends its whole budget inside the drift and the water
+        // below stops being chilled at all), and the pond **would not
+        // freeze** (the bar is 100 against 167 measured here, and against
+        // the 9-to-20 the pre-refusal artifact produced -- the standing ice
+        // count at a fixed frame is a mid-freeze sample and moves by a
+        // factor of two on any change to the melt, so the bar is set well
+        // clear of it rather than under it).
         let seed = 2900;
         let mut w = frozen_pond_world(seed, a_hard_snowy_frame(seed));
         let snow = w.materials.id_of("snow").unwrap();
         advance(&mut w, 400, true);
-        let floating = (POND.0..=POND.1)
-            .filter(|&x| {
-                (POND_SURFACE..POND_SURFACE + 16)
-                    .any(|y| w.get(x, y).material == snow && w.materials.kind(w.get(x, y + 1).material) == MaterialKind::Liquid)
+
+        // The deepest run of snow lying on the pond's own surface -- the
+        // topmost thing the sky sees in that column, not a flake buried
+        // anywhere in the crust.
+        let deepest = (POND.0..=POND.1)
+            .map(|x| {
+                let Some(top) = surface_under_sky(&w, x, 0, 79) else {
+                    return 0;
+                };
+                (top..80).take_while(|&y| w.get(x, y).material == snow).count()
             })
-            .count();
-        assert!(floating < 6, "{floating} of 60 pond columns had snow floating on water; a raft insulates the pond and it never freezes");
+            .max()
+            .unwrap_or(0);
+        let (_, ice, _) = water_census(&w);
+        println!("deepest raft on the pond: {deepest} cells; ice standing: {ice}");
+        assert!(
+            (deepest as i32) < SNOW_CHILL_DEPTH,
+            "a raft {deepest} cells deep is lying on the pond; at {SNOW_CHILL_DEPTH} the cold stops reaching the water at all"
+        );
+        assert!(ice > 100, "only {ice} cells of ice formed over the storm; something on the surface is insulating the pond");
+    }
+
+    /// How much *water* the world holds, in liquid-water cell-equivalents,
+    /// counting every phase at what it would come back as.
+    ///
+    /// **Deliberately a different question from `water_census` above, and
+    /// the difference is the whole point of it.** That one answers "how
+    /// much of each phase is standing", and counts a flake and a full water
+    /// cell alike as one cell — correct for asking whether a pond froze
+    /// over. This one answers "how much water is this", which is the only
+    /// question a conservation bound can be written against, and for that a
+    /// cell's *density* is the conversion factor: fresh snow is 0.3 the
+    /// density of water, so 1,700 flakes are ~510 cells of meltwater and
+    /// anything more than that was manufactured.
+    ///
+    /// Steam is counted from its `aux` rather than its density, because
+    /// steam's `aux` is not a density at all — `fire::transform` carries the
+    /// source water's fill across the boil and gives it back on condensing,
+    /// on `LIQUID_FULL`'s 0-means-full convention (steam.ron's header
+    /// documents it on the content side), so that loop is already exact per
+    /// cell and a density factor would double-count it.
+    fn water_equivalents(w: &World) -> f64 {
+        let full = material::LIQUID_FULL as f64;
+        let water_density = w.materials.get(material::WATER).density as f64;
+        let mut total = 0.0f64;
+        for y in 0..80 {
+            for x in 0..128 {
+                let cell = w.get(x, y);
+                let m = w.materials.get(cell.material);
+                match m.kind {
+                    // Water itself, and anything else that freezes: fill,
+                    // not occupancy (`CLAUDE.md`'s metric traps).
+                    MaterialKind::Liquid if m.cooling_point.is_finite() => {
+                        total += crate::sim::update::liquid_fill(cell) as f64 / full * (m.density as f64 / water_density);
+                    }
+                    // Steam and anything else that condenses back.
+                    MaterialKind::Gas if m.cools_into.is_some() => {
+                        total += crate::sim::update::liquid_fill(cell) as f64 / full;
+                    }
+                    // Ice, snow — a whole cell of a solid or powder phase,
+                    // worth its own density in water.
+                    MaterialKind::Solid | MaterialKind::Powder if m.melts_into.is_some() => {
+                        total += m.density as f64 / water_density;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        total
+    }
+
+    #[test]
+    fn a_thaw_does_not_manufacture_water() {
+        // **The conservation bound nothing here was watching for**, because
+        // every water test written before it was written against *loss*:
+        // `ice_melts_back_and_the_pool_refills` asserts the pool comes back
+        // to at least 90% and would pass just as happily at 400%.
+        //
+        // The error it catches runs the other way. `fire::transform`'s aux
+        // table wrote a flat 0 for any pair that is not Liquid→Liquid or
+        // Liquid↔Gas, and 0 on a `Liquid` means **full** — so a snowflake at
+        // density 0.3 melted into a full water cell and gained a factor of
+        // 3.3, and a cell of ice at 0.92 gained 8.7%. Measured on this
+        // world before the fix: 949.5 cell-equivalents standing when the
+        // front passed, 1,171.9 once it had all thawed — **123.4%**, water
+        // out of nothing. After: 960.8 → 998.3, **103.9%** (the standing
+        // figure moves between the two runs because the broken melt was
+        // itself feeding the pond meltwater all through the storm).
+        //
+        // Both drivers, because `App::update` runs the parallel one.
+        for parallel_driver in [false, true] {
+            let seed = 2900;
+            let snowy = a_hard_snowy_frame(seed);
+            let mut w = frozen_pond_world(seed, snowy);
+
+            // Let the front lay a drift and freeze the surface. The census
+            // is taken *after* the storm, not before it: precipitation
+            // creates material out of the sky by design, so a baseline
+            // taken before the snowfall would be measuring the weather
+            // rather than the phase change.
+            //
+            // **1,200 frames and not 400**, which the freeze-over tests get
+            // away with, because a drift is the slower half of the two:
+            // snow refuses to lie on open water, so nothing accumulates on
+            // the pond until it has frozen over, and the bank alone is
+            // narrow here. Measured trajectory (ice / snow standing):
+            // 145/1 at 400, 436/41 at 700, 470/264 at 1,200. At 400 the
+            // ice alone would have inflated the tally by ~1%, comfortably
+            // inside this bound -- the test would have run, passed against
+            // the broken code, and proved nothing.
+            advance(&mut w, 1200, parallel_driver);
+            w.frame = first_frame_with(seed, snowy, |x| !x.is_precipitating()).expect("seed 2900's front should end");
+            let before = water_equivalents(&w);
+            let (_, ice, snow) = water_census(&w);
+            assert!(ice > 20 && snow > 100, "no sheet ({ice}) or no drift ({snow}) to thaw; the test would be vacuous (parallel: {parallel_driver})");
+
+            advance(&mut w, 600, parallel_driver);
+            let after = water_equivalents(&w);
+            let (_, ice_left, snow_left) = water_census(&w);
+            assert_eq!((ice_left, snow_left), (0, 0), "the thaw did not finish, so this is not measuring one (parallel: {parallel_driver})");
+            assert!(w.phase_changes.melted > 0, "counters say nothing melted at all (parallel: {parallel_driver})");
+
+            // **110% against a measured 103.9%**, and the residual is
+            // understood rather than tolerated: a reciprocal freeze comes
+            // back full (`fire::melt_fill`) on the strength of
+            // `MaterialDef::freeze_min_fill`, so a cell that froze at the
+            // gate's 900 rather than at 1,000 gives back 11% more than it
+            // took. That is a structural ceiling, not a tuning knob --
+            // `LIQUID_FULL - freeze_min_fill` -- and closing it would mean
+            // paying a matching loss on the far commoner full cell, which
+            // is measurably worse (see `fire::density_scaled_fill`).
+            //
+            // It can still fail by 13 points, which is what the pre-fix run
+            // establishes. The slack is one-sided on purpose: loss is
+            // `ice_melts_back_and_the_pool_refills`'s job and this must not
+            // quietly take it over.
+            println!("thaw (parallel: {parallel_driver}): {before:.1} -> {after:.1} cell-equivalents ({:.1}%)", after / before * 100.0);
+            assert!(
+                after <= before * 1.10,
+                "the thaw manufactured water: {after:.1} cell-equivalents against {before:.1} standing before it (parallel: {parallel_driver})"
+            );
+        }
     }
 }

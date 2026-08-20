@@ -948,6 +948,13 @@ impl App {
         // frame for it -- which is the whole reason staging helps debris
         // escape at all (`sim::explosion::Tuning::duration`).
         self.blasts.step(&mut self.world, &mut self.particles);
+        // Splashes between the two, for the same reason blasts come before
+        // particles: the sweep reported these sites against this frame's
+        // state, so they should be taken and thrown before the step that
+        // moves everything, not left a frame stale. See
+        // `particle::throw_splashes` -- this is the only place a splash
+        // droplet's water is actually debited from the pool.
+        crate::sim::particle::throw_splashes(&mut self.world, &mut self.particles);
         self.particles.step(&mut self.world);
         self.world.step_fields();
         // Beside the field step, and for the same reason: a coarse
@@ -1778,7 +1785,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1796,6 +1803,19 @@ impl App {
                 String::new()
             } else {
                 format!(" — grain {}", self.renderer.grain.label())
+            },
+            // Same rule again: silent at the default, named the moment it
+            // is not, because the value of a look selector is being able to
+            // say afterwards which one you liked.
+            if self.renderer.bubbles == render::BubbleMode::Off {
+                String::new()
+            } else {
+                format!(" — bubbles {}", self.renderer.bubbles.label())
+            },
+            if self.renderer.gas == render::GasMode::Opaque {
+                String::new()
+            } else {
+                format!(" — gas {}", self.renderer.gas.label())
             },
             // Same rule as grain: silent until someone is actually
             // comparing, then named, because the whole value of a

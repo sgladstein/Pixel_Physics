@@ -1461,11 +1461,67 @@ fn try_move<S: CellSurface>(surface: &mut S, x: i32, y: i32, tx: i32, ty: i32) -
     };
 
     if displaces {
+        // A splash *candidate*, reported before the swap while both cells
+        // are still readable, and acted on by nobody here — see
+        // `CellSurface::report_splash`. Nothing below writes a cell, so
+        // `Reports/open-bugs-handoff.md` §2's displacement striping is
+        // untouched: this is a read and a push.
+        //
+        // The conditions, cheapest first, because this sits in the hottest
+        // path in the engine and a sand blob entering a pool runs it
+        // thousands of times a frame:
+        //
+        // - **Downward only.** A splash is something falling *into* water.
+        // - **The displaced cell full.** A particle lands as a *whole* cell
+        //   (`particle::land`), so throwing a fringe cell holding 40 units
+        //   of fill and getting a full one back is water out of nothing —
+        //   the same failure `fire::transform`'s aux table just had fixed.
+        //   Free: `dst` is already in hand.
+        //
+        // **What is deliberately *not* checked here: whether the site has
+        // air above it.** That is the condition that makes it a free
+        // surface rather than the middle of a pool, and `throw_splashes`
+        // does test it -- but it costs a `World::get` at a position this
+        // function does not already hold, and measured on ascii's
+        // `stress: a full screen of sand and water (serial)` -- which is
+        // this branch's worst case by construction -- paying it here took
+        // the minimum worst frame over three runs from **66.8 ms to
+        // 72.7 ms**. Every site the sweep reports is re-checked a frame
+        // later anyway (a site can drain, freeze or be buried in between),
+        // so doing it once, there, in a loop bounded by
+        // `MAX_SPLASH_SITES`, costs nothing in the hottest path in the
+        // engine and rejects exactly the same sites.
+        if ty > y && dst_kind == MaterialKind::Liquid && liquid_fill(dst) >= SPLASH_MIN_FILL && surface.rng().chance(SPLASH_CHANCE) {
+            surface.report_splash(x, y);
+        }
         surface.move_cell(x, y, tx, ty, revisited);
         return true;
     }
     false
 }
+
+/// Chance that one displacement of full liquid by something denser is
+/// recorded as a splash candidate.
+///
+/// The knob that keeps this from reading as spray: a sand blob entering a
+/// pool displaces thousands of cells a frame, and the geometric conditions
+/// alone would still leave dozens a frame. What should read as a splash is
+/// a handful of droplets thrown clear, not a sheet of water leaving the
+/// pool. Measured on `filmstrip scene=splash` over 660 frames: 80 droplets
+/// at this value, 499 with the roll removed entirely.
+const SPLASH_CHANCE: f32 = 0.25;
+
+/// How full a displaced liquid cell must be before a droplet may be taken
+/// out of it — see the call site.
+///
+/// **Full, and nothing less, and that is measured.** `particle::land`
+/// writes a *whole* cell wherever a droplet comes down, so taking a cell
+/// holding 900 and giving back 1,000 makes 0.1 of a cell out of nothing —
+/// exactly the shape of the melt bug `fire::transform` had. It is small per
+/// droplet and it accumulates: at `freeze_min_fill`'s 900 the `scene=splash`
+/// run measured **30,351.3 cell-equivalents at the start and 30,363.3 at
+/// the end** over 499 droplets. At `LIQUID_FULL` the same run closes.
+const SPLASH_MIN_FILL: u16 = material::LIQUID_FULL;
 
 #[cfg(test)]
 mod tests {
