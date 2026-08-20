@@ -338,9 +338,46 @@ exceeds the site percolation threshold `p_c ≈ 0.59275`. That is why a sparse
 scattering of wood will not carry a fire and a dense one will, and it turns
 `flammability` from a magic number into something predictable.
 
-**Verify:** oil ignites and burns out to ash; water quenches lava into stone and
-steam; a wooden structure burns from one corner and the fire spreads or dies
-depending on how densely it is built; temperature is stable over long runs.
+**Verify:** oil ignites and burns out to ash **(done)**; water quenches lava into
+stone and steam **(done)**; a wooden structure burns from one corner and the fire
+spreads or dies depending on how densely it is built **(done)**; temperature is
+stable over long runs **(done)**.
+
+**The water cycle, added after the fact and now done too:** water boils into steam
+above 100C and steam condenses back, carrying its source cell's fill across both
+transitions so the loop conserves per cell (`fire::transform`'s aux table); lava is
+born hot once and crusts to stone at 700C rather than being pinned molten forever;
+a cold snap freezes standing water into ice as a true structural `Solid`, and the
+front passing thaws it back. Judged on `filmstrip` scenes `boil`, `simmer`,
+`lavapour` and `coldsnap`, the last of which is an acceptance case
+(`scripts/acceptance.sh` §11).
+
+**Non-goal, stated so it is a decision rather than an omission: there is no
+day/night temperature oscillation yet**, although the field carries a temperature
+channel and the light channel has oscillated since M16. Three reasons, and the
+first is measured:
+
+- `render.rs`'s heat glow early-exits on `cell.temperature() != AMBIENT_TEMPERATURE`
+  — an *exact equality* against a single ambient constant, which is true for nearly
+  every cell nearly always. An oscillating ambient makes that test false everywhere
+  at once, and the branch behind it was measured to **nearly triple `cell_colour`'s
+  cost** across a full 512x320 stress scene when it ran unconditionally. The whole
+  screen would draw warm-tinted and pay for it.
+- Every consumer that compares against a temperature would have to divide the
+  oscillator back out, the way `field::noon_equivalent_light` already does for
+  light (`CLAUDE.md`: a channel that oscillates by design must be divided out of
+  decisions). That is `evaporation.rs`'s rate, `creature.rs`'s comfort band, and
+  every `melting_point`/`boiling_point`/`cooling_point` compare in `fire.rs` —
+  a threshold sampled at an arbitrary phase of a designed oscillator is a
+  different threshold every hour.
+- Field tiles sleep when they converge (`fields_settled`). A temperature that
+  never stops moving is a temperature that never converges, so no tile ever
+  sleeps again.
+
+None of these is a reason it cannot be done; they are the work it actually is.
+The cheap first step, when it comes, is `noon_equivalent_temperature` alongside
+the light one — the oscillator is a pure function of the frame, so dividing it
+out costs no storage.
 
 ---
 

@@ -1,6 +1,6 @@
 # Weather
 
-*Current as of: this build.*
+*Current as of: this build (the water-cycle polish pass — the thaw).*
 
 Every world has weather, and it is a property of the world rather than
 something that happens to it: the same seed gets the same weather at the
