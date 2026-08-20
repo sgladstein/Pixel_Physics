@@ -245,3 +245,131 @@ learned, and end with a summary comment in the final commit message.
 *(Append findings here as tasks produce them — task 1 writes 1a/1b/1c;
 later tasks add entries when a spec did not survive contact with the
 code.)*
+
+Reproductions for everything below are `#[ignore]`d probes, kept rather
+than thrown away so a reader can re-check a claim rather than take it:
+
+```
+cargo test --release --test worldgen -- --ignored --nocapture   # 1a, 1c
+cargo test --release --lib worldgen::column::tests::probe -- --ignored --nocapture   # 1b
+```
+
+They build at the shipped 2048x640, not the suite's 512x320, because the
+review's x coordinates are shipped-size coordinates and the regional layout
+scales with width — at 512 the same x is a different world.
+
+### 1a — The blue slivers are **sky**, not water
+
+**No water anywhere.** A direct material census over every cell of
+`canyon` seed 1 and `arid` seed 1 at 2048x640 finds **zero** water cells in
+either world. The per-pass counter was telling the truth and `ponds` did
+not leak; no other writer put water there either.
+
+**The blue is the sky, seen through a gap in the terrain.** The deep sky
+renders at `(56, 104, 174)` and water's palette starts at `(64, 116, 208)`
+— close enough that a one-to-two-column gap of sky reads as a sliver of
+water at strip zoom. Both cited sightings are gaps, and they are two
+*different* objects:
+
+- **canyon s1, x 950–955**: an open notch in the skyline, 7 cells below the
+  ground either side of it, floored by talus gravel. World-wide there are
+  12 such notches at >= 5 cells deep and none at >= 8.
+- **arid s1, x 1234–1244**: not a notch at all but a **`brows()` overhang**
+  — attached stone at y 104–106 with open air at y 107–110 beneath it and
+  talus at y 111. The blue is sky *under a lip*, which is the pass working
+  as designed and rendering at full sky brightness. `arid` s1 has 48
+  notches at >= 5 cells and 4 at >= 8.
+
+So the two producers probably want different answers and neither is a
+water bug: the skyline notch is 1b's subject below, and full-brightness sky
+under an overhang is the cave/overhang-lighting question (roadmap 3 and 8),
+not worldgen's.
+
+**Two metric traps hit on the way, both worth recording.** The first metric
+I wrote counted "water-coloured pixels" in the rendered strip and returned
+all 2048 columns — it was matching the sky, which is CLAUDE.md's *ask what
+a metric counts when nothing is wrong* on the first attempt. The second
+looked for a column whose first solid cell sits >= 8 rows below the columns
+three either side, and reported **zero notches** in a world that visibly
+has them: the canyon slot is seven columns wide, so both comparison points
+land inside it. The metric that works compares against the **shoulder** —
+the highest ground within 12 columns either side — and reports a
+distribution rather than a bar chosen before anyone had looked.
+
+### 1b — The keyhole is `round()` in the terrace snap. The mask-edge suspect is **refuted**
+
+The review's suspect was the mask edge: `smoothstep(0.62, 0.82, …)`
+flipping a single column between snapped and unsnapped. Printing the
+elevation chain term by term around all four cited slots refutes it. The
+mask strength `m` does not flip anywhere — at canyon seed 7 it moves
+0.753 → 0.784 across the x 609 → 610 step and is a smooth ramp across the
+whole 41-column window.
+
+**What steps is `snap_delta`**, at that same column: −10.95 → +11.86. The
+cause is the rounding in `terraced()`:
+
+```rust
+let snapped = (band_coord / p.terrace_step).round() * p.terrace_step;
+```
+
+`band_coord` drifts smoothly, `round()` does not: when it crosses a half-
+band it jumps by one whole `terrace_step`, so the surface moves by
+**`terrace_step × m` rows in a single column**. Predicted against measured,
+all four sites:
+
+| site | `terrace_step` | `m` | predicted | measured |
+|---|---|---|---|---|
+| canyon s7 x 610 | 34 | 0.784 | 27 | 27 |
+| canyon s7 x 616 | 34 | 0.990 | 34 | 34 |
+| canyon s7 x 622 | 34 | 0.992 | 34 | 33 |
+| rolling s1 x 1313 | 26 | 0.798 | 21 | 21 |
+
+Census of single-column surface steps >= 6 rows over 2048 columns, five
+presets x four seeds: 0–16 per world, worst step 34 rows. Re-running each
+with `terrace_strength: 0.0` and everything else held equal, **almost every
+one of them disappears** — rolling s2 4 of 4 snap-caused, terraced s2 7 of
+7, canyon s7 7 of 8. The one real exception is canyon seed 2 (2 of 16),
+where the regional escarpment is that steep on its own.
+
+**For whoever designs the fix** (the task file assigns it to the reviewing
+session): these steps *are* terrace risers, and a riser is meant to be a
+vertical face. What is wrong is the aspect ratio, not their existence.
+canyon s7 puts three risers of 27, 34 and 33 rows at x 610, 616 and 622 —
+six-column treads between 30-cell faces, which is a ladder rather than a
+staircase. Task 5's `riser_roughness` will change how a riser *reads*; it
+will not change how many there are or how tall they get, so if the count is
+the complaint the lever is `terrace_step` against the local escarpment
+slope, not roughening.
+
+### 1c — Confirmed sand, but it is the pond **bed**, and `fill_dimming` is not why it is pale
+
+The review's reading is confirmed in substance and corrected in two
+details.
+
+**Confirmed**: the pale dashes are sand. On rolling seed 1 the dashes sit
+at rendered rows 162–167, and censusing that band finds a run of sand at
+x 816–824, y 162–163 with soil below it and water above.
+
+**Correction 1 — it is not *shoreline* sand.** The top-of-column census
+across the whole rim (x 760..980) is water 212, stone 9, **sand 0**: there
+is no sand above the waterline anywhere on this pond. The dashes are the
+top row of the pond *bed* where the shelf is shallow, which is why they
+appear as a broken horizontal line exactly at the waterline.
+
+**Correction 2 — `fill_dimming: 0.0` is not the cause.** It is confirmed
+zero in `water.ron`, and that is a real finding on its own (it does disable
+water darkening globally, and the owner question in review §5.0a still
+stands). But it cannot be what makes these dashes pale, because they are
+**sand cells, not water cells** — no liquid dimming applies to them at all.
+What makes them pale is sand's own palette, which tops out at
+`(232, 208, 142)`, plus `render.rs`'s grain jitter carrying the brightest
+entry to the `(255, 229, 150)` measured in the strip.
+
+The whisker/monolayer reading stays refuted, now for a second and
+independent reason: the cells are not liquid.
+
+**One incidental**, noticed in the same census and not chased: `ponds`
+writes water shades 0..3 while `water.ron` ships a **three**-entry palette,
+so `palette[shade % 3]` aliases shade 3 onto entry 0 and that entry draws
+twice as often as the other two. Cosmetic, and a one-line data fix
+(a fourth colour) if anyone wants the three tones evenly weighted.

@@ -514,4 +514,112 @@ mod tests {
         assert!(table_range > 10, "table is essentially flat: {table_range}");
         assert!(table_range < surface_range, "table {table_range} not subdued vs surface {surface_range}");
     }
+
+    // -----------------------------------------------------------------------
+    // Step-0 probe for the August 2026 world review (task 1b)
+    // -----------------------------------------------------------------------
+
+    /// A terrain at the size the app ships, on a named preset. The review's x
+    /// coordinates are shipped-size coordinates, and the regional layout
+    /// scales with width, so the 512-wide helper above samples a different
+    /// world entirely at the same x.
+    fn shipped(seed: u64, params: &WorldgenParams) -> Terrain<'_> {
+        Terrain::new(seed, params, 2048, 640, 33.0_f32.to_radians().tan(), 34.0_f32.to_radians().tan())
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts (review task 1b)"]
+    fn probe_1b_the_keyhole_slots() {
+        // The sighting: 1-2 column vertical slots cut the full height of
+        // cliffs. The review's suspect is `terraced()` -- the snap is
+        // full-strength where the mask saturates, and the mask *edge* can
+        // flip a single column between snapped and unsnapped ground, which
+        // would cut a one-column cliff out of otherwise continuous rock.
+        //
+        // Confirm or refute by printing the elevation chain term by term, so
+        // the column that steps names itself. Everything here is a pure
+        // function of `(seed, params, x)`, which is what makes this a unit
+        // test rather than a world build.
+        let (presets, err) = super::super::params::WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        for (preset, seed, centre) in
+            [("canyon", 7u64, 610i32), ("canyon", 13, 205), ("rolling", 1, 1315), ("rolling", 2, 1490)]
+        {
+            let params = presets.get(preset).expect("preset");
+            let t = shipped(seed, params);
+            println!("\n=== {preset} seed {seed} around x {centre} (2048x640) ===");
+            println!(
+                "  {:>6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>6}  note",
+                "x", "mask", "m", "base", "hills", "snapdlt", "detail", "elev", "surf"
+            );
+            let p = t.params;
+            let mut prev_surface: Option<i32> = None;
+            for x in (centre - 20)..=(centre + 20) {
+                let ch = t.character(x);
+                let wx = t.warped_x(x);
+                let base = t.base_wave(x);
+                let hills = p.hill_amplitude
+                    * ch.relief
+                    * noise::fbm_1d_c(t.seed, Purpose::Height, wx / p.hill_wavelength, 4);
+                let detail =
+                    p.detail_amplitude * noise::fbm_1d_c(t.seed, Purpose::Detail, x as f32 / p.detail_wavelength, 2);
+                // The mask, recomputed exactly as `terraced` computes it, so
+                // the number printed is the number that decided.
+                let mask = noise::fbm_1d(t.seed, Purpose::Mask, x as f32 / p.mask_wavelength, 2);
+                let m = (p.terrace_strength * ch.resistance).clamp(0.0, 1.0) * noise::smoothstep(0.62, 0.82, mask);
+                let pre = base + hills;
+                let snap_delta = t.terraced(x, pre) - pre;
+                let elev = t.elev(x);
+                let surf = (t.datum() - elev).round() as i32;
+                let jump = prev_surface.map(|s| surf - s).unwrap_or(0);
+                let note = if jump.abs() >= 6 { format!("STEP {jump:+} rows from x-1") } else { String::new() };
+                prev_surface = Some(surf);
+                println!(
+                    "  {x:>6} {mask:>8.3} {m:>8.3} {base:>8.2} {hills:>8.2} {snap_delta:>8.2} {detail:>8.2} {elev:>8.2} {surf:>6}  {note}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts (review task 1b)"]
+    fn probe_1b_how_often_the_surface_steps() {
+        // The other half of 1b, and the half a 41-column listing cannot give:
+        // *how many* single-column steps a world contains, and how many of
+        // them the terrace mask is responsible for. A slot is only a bug
+        // worth a fix if there are enough of them to be the artifact the
+        // review saw; if a world has three, the picture was showing
+        // something else.
+        //
+        // "Attributed to the snap" means: the step survives in the
+        // `terraced`-included chain and vanishes when the snap is switched
+        // off (`terrace_strength: 0.0`), holding everything else equal.
+        let (presets, err) = super::super::params::WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        println!("\n=== single-column surface steps >= 6 rows, 2048 wide ===");
+        println!("  {:>10} {:>6} {:>10} {:>12} {:>10}", "preset", "seed", "steps", "snap-caused", "worst");
+        for preset in ["rolling", "terraced", "canyon", "wetland", "arid"] {
+            let params = presets.get(preset).expect("preset");
+            let flat = WorldgenParams { terrace_strength: 0.0, ..params.clone() };
+            for seed in [1u64, 2, 7, 13] {
+                let t = shipped(seed, params);
+                let f = shipped(seed, &flat);
+                let surf = |t: &Terrain<'_>, x: i32| (t.datum() - t.elev(x)).round() as i32;
+                let mut steps = 0;
+                let mut caused = 0;
+                let mut worst = 0;
+                for x in 1..2048 {
+                    let d = surf(&t, x) - surf(&t, x - 1);
+                    if d.abs() >= 6 {
+                        steps += 1;
+                        worst = worst.max(d.abs());
+                        if (surf(&f, x) - surf(&f, x - 1)).abs() < 6 {
+                            caused += 1;
+                        }
+                    }
+                }
+                println!("  {preset:>10} {seed:>6} {steps:>10} {caused:>12} {worst:>10}");
+            }
+        }
+    }
 }
