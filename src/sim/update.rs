@@ -3430,36 +3430,105 @@ mod liquid_acceptance {
             }
         }
 
-        let is_film = |w: &World, x: i32, y: i32| {
-            w.get(x, y).material == material::WATER && w.get(x, y - 1).is_empty() && w.get(x, y + 1).is_empty()
-        };
-        let whiskers = |w: &World| {
-            let mut total = 0usize;
-            for y in 1..HEIGHT - 1 {
-                let mut run = 0usize;
-                for x in 1..WIDTH {
-                    if x < WIDTH - 1 && is_film(w, x, y) {
-                        run += 1;
-                    } else {
-                        if run >= 6 {
-                            total += run;
-                        }
-                        run = 0;
-                    }
-                }
-            }
-            total
-        };
-
         let mut worst = 0;
         for _ in 0..400 {
             parallel::step(&mut w);
-            worst = worst.max(whiskers(&w));
+            worst = worst.max(comb_cells(&w, WIDTH, HEIGHT));
         }
         assert!(
             worst <= 40,
             "a spreading front is shedding {worst} cells' worth of detached one-cell ledges              (bar 40, measured 0; before the fix 277)"
         );
+    }
+
+    /// The same bar on the geometry the one above cannot reach, and the
+    /// reason it is a separate test rather than a wider crop of that one:
+    /// **`fall` and `pour` both spread across a floor**, so a film there has
+    /// something under it within a row or two and `LIQUID_SETTLE_DROP` puts
+    /// it down on that. Water poured onto a short *unwalled shelf* spreads
+    /// with open air under most of its length and then pours off both ends,
+    /// and that is where a residual comb still lives — 38 cells at its worst
+    /// against `fall`'s 0. (`examples/film_probe.rs` reports 32 on the same
+    /// scene; it also runs the active-site and field passes, which this bare
+    /// `parallel::step` loop does not, and evaporation trims a few teeth.)
+    ///
+    /// Which matters because the bar above is 40: the geometry that sheds
+    /// the most was sitting *under an untested bar*, exactly the "check that
+    /// a guard's inputs actually vary what it guards" failure. Bar 80 here,
+    /// measured 38, and 233 with `LIQUID_SETTLE_DROP` disabled — so it can
+    /// still catch the artifact coming back without flaking on the residue.
+    ///
+    /// The films this scene sheds are also the only ones in the engine that
+    /// are substantially *partial* (19% of them below 40% fill, against 2.5%
+    /// on `fall`), which is the population any fill-keyed render treatment
+    /// of this bug would have to act on. See `Reports/open-bugs-handoff.md`
+    /// §1 for why that treatment is not worth building at these numbers.
+    #[test]
+    fn a_shelf_pour_does_not_shed_a_comb_either() {
+        const WIDTH: i32 = 512;
+        const HEIGHT: i32 = 320;
+        let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
+        stone_floor(&mut w, WIDTH, HEIGHT, 8);
+        for x in 180..332 {
+            for y in 200..204 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 236..276 {
+            for y in 120..190 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+
+        let mut worst = 0;
+        for _ in 0..400 {
+            parallel::step(&mut w);
+            worst = worst.max(comb_cells(&w, WIDTH, HEIGHT));
+        }
+        assert!(
+            worst <= 80,
+            "a shelf pour is shedding {worst} cells' worth of detached one-cell ledges \
+             (bar 80, measured 38 here and 32 under the probe's fuller step; \
+             with LIQUID_SETTLE_DROP disabled 233)"
+        );
+    }
+
+    /// Cells belonging to a horizontal run of six or more one-cell-tall
+    /// water films — the whisker quantity, shared by the two bars above.
+    ///
+    /// **Runs, not films.** A cell in free fall has air above and below it
+    /// too, because that is what falling looks like, so a raw film count
+    /// counts every droplet in the world: `find_lateral_descent` on gave 277
+    /// in runs of 6+ against 13 with it off, where the raw count barely
+    /// moved.
+    ///
+    /// **A per-frame snapshot, and deliberately not a persistence count.**
+    /// The obvious refinement — only count films that are still films at the
+    /// same cell next frame — reads *zero* on a world where the comb is
+    /// unmistakable by eye, because the comb travels: the front advances one
+    /// diagonal step per frame and every tooth is a different cell each
+    /// time. Measured with `LIQUID_SETTLE_DROP` disabled: 247 cells in runs
+    /// of 6+, sustained for hundreds of frames, and not one *cell* survived
+    /// three frames. See `examples/film_probe.rs`.
+    fn comb_cells(w: &World, width: i32, height: i32) -> usize {
+        let is_film = |x: i32, y: i32| {
+            w.get(x, y).material == material::WATER && w.get(x, y - 1).is_empty() && w.get(x, y + 1).is_empty()
+        };
+        let mut total = 0usize;
+        for y in 1..height - 1 {
+            let mut run = 0usize;
+            for x in 1..width {
+                if x < width - 1 && is_film(x, y) {
+                    run += 1;
+                } else {
+                    if run >= 6 {
+                        total += run;
+                    }
+                    run = 0;
+                }
+            }
+        }
+        total
     }
 
     /// The bar that did not exist, and whose absence let a regression ship.
