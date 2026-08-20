@@ -58,6 +58,19 @@
     heat_conductivity: 0.08,
     boiling_point: 100.0,
     boils_into: "steam",
+    // The downward half of the same opt-in, and it costs nothing extra:
+    // water is already off the thermally-inert fast path because of the
+    // two lines above, so freezing is carried by a threshold compare on a
+    // cell the sweep was visiting anyway.
+    //
+    // Zero exactly, which makes the cold weather.rs writes (a couple of
+    // degrees below zero at the mildest, ten below in a hard front) the
+    // only thing that can freeze standing water -- ambient is 20 and
+    // nothing else in the world is cold. `fire.rs` gates the transition on
+    // fill as well, so the partial fringe at a pool's surface stays liquid
+    // and only near-full cells become solid; see its `FREEZE_MIN_FILL`.
+    cooling_point: 0.0,
+    cools_into: "ice",
     colors: [
         (64, 116, 208),
         (58, 108, 198),

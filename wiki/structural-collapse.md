@@ -89,6 +89,14 @@ the edge of what it's standing on tips off, however light. Nothing in
 between is special-cased, and the same rule covers a boulder settling into
 a scree slope and a ledge that overhangs the pile beneath it.
 
+Water holds one thing up and one only: **ice** (see
+[Weather](weather.md#cold-snaps-freeze-standing-water)). A frozen crust on
+a pond is supported by the whole of the water under it, not by the shore it
+reaches back to, so a sheet does not care how wide the pond is — but it is
+still judged on what it is carrying, so a wide sheet under a deep enough
+drift breaks up, and it breaks into slush. Nothing else floats: a slab of
+rock dropped into a lake is as unsupported there as it would be in mid-air.
+
 What that rules out is the thing rubble used to do: a slab lying on debris
 from its own collapse was treated as though the debris were what held it
 together, not merely what it rested on, so each piece that came down

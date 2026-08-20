@@ -148,6 +148,30 @@ run cavedeep   scene=worldcrack preset=flat seed=7 dig=4 tunnel=35 depth=18 star
 run cavedeep1  scene=worldcrack preset=flat seed=1 dig=4 tunnel=35 depth=18 start=2 every=600 count=4 zoom=1 min_cave=90       repeat=2 max_frame_ms=$BUDGET_MS
 run caveshallow scene=worldcrack preset=flat seed=7 dig=4 tunnel=35 depth=6 start=2 every=600 count=4 zoom=1 min_overloaded=50 repeat=2 max_frame_ms=$BUDGET_MS
 
+# 11. A pond freezes over under a cold snap and nothing gives way. The
+#    acceptance bar the ice milestone was set: a floating sheet's only
+#    anchor is the water under it (`MaterialDef::floats`), and before that
+#    existed the *first* cell to freeze in open water was a lone solid with
+#    no path to an anchor and was dismantled the frame after it appeared --
+#    3,969 freezes in one storm and never ten cells of ice standing.
+#
+#    `max_failures=0` covers freeze-over, the deepest part of the drift on
+#    the ice, and the thaw. It is a real bar rather than a formality: at
+#    ice.ron's `max_unsupported_span` of 16 the same run measures 17
+#    overloads (2,210 cells) and 118 unsupported (289), and at 32 it
+#    measures 6 (924). The scene is deterministic -- weather is a pure
+#    function of `(seed, frame)` and the scene pins both -- so this is not
+#    a sampled case the way the `worldcrack` seeds are.
+#
+#    `repeat=3` rather than 2, and that is a measurement not a habit: this
+#    is the busiest scene in the file -- a storm keeps the whole surface of
+#    the world awake -- so its worst frame is the most contention-sensitive
+#    here. Measured at **17.85 ms** as the minimum over three runs, with
+#    single runs on a loaded machine reaching 58; two samples landed on 46
+#    once, which is close enough to the 60 ms bar to flake. Three keeps the
+#    same ~3x margin the other cases have.
+run coldsnap scene=coldsnap start=180 every=180 count=4 crop=180,228,160,44 zoom=3 max_failures=0 repeat=3 max_frame_ms=$BUDGET_MS
+
 # 6. A struck cliff throws pieces. Asserted as *bodies in flight*, not as
 #    overload failures: the mechanism here is the blow's own fracture, and
 #    an earlier bar on overload failures duly broke when an unrelated

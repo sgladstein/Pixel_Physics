@@ -11,6 +11,42 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
+### 0. A melting `Powder` manufactures water: snow melts into *full* cells
+
+Found by the ice milestone, measured on `filmstrip scene=coldsnap`. A
+storm's drift of **1,700 cells of snow** thaws into **~2,400
+cell-equivalents of extra water**, taking the world from ~900 to ~3,230,
+because `fire::transform`'s `aux` translation table writes 0 for any pair
+that is not Liquid→Liquid or Liquid↔Gas — and 0 on a `Liquid` means
+**full**. Snow's density is 0.3 and it melts into a fill-1000 water cell,
+so every flake gains a factor of ~3.3.
+
+Latent until now for the reason the same table documents: nothing melted.
+Snow shipped with no `heat_conductivity`, so a chilled flake could never
+warm back up and no drift ever thawed. Giving it one (this milestone, for
+the chunk-sleep bug) made the melt reachable, and this came with it —
+`CLAUDE.md`'s "fixing a bug often exposes a constant that was compensating
+for it", in the form of a whole dead code path.
+
+Visible as a shallow flood spreading across a whole hillside after a heavy
+fall melts off. `wiki/weather.md` says so plainly rather than pretending
+otherwise.
+
+**The fix is in `fire::transform`, not in content.** The `(Powder, Liquid)`
+arm should scale fill by the source's density rather than writing 0 —
+roughly `LIQUID_FULL * powder_density / liquid_density`, clamped, which
+gives snow ~300 and would make ice (0.92) come back at ~920 instead of a
+full cell. Deliberately not done here: this milestone was scoped to content
+and weather with `fire.rs` untouched, and the table's own doc calls out
+manufacturing volume as the failure mode to avoid, so the arm should be
+changed with its own conservation test rather than as a rider.
+
+Note the direction of the error is *creation*, so no existing conservation
+test catches it — they are written against loss. A test for this wants to
+census water in cell-equivalents across a freeze-and-thaw, which
+`weather.rs`'s `ice_melts_back_and_the_pool_refills` now has the helper
+for.
+
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a

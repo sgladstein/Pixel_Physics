@@ -71,6 +71,56 @@ const FLOOR_THICKNESS: i32 = 8;
 /// germinates looks identical to a scene where growth is broken.
 const TREE_GROUND_Y: i32 = 40;
 
+/// `scene=coldsnap`'s seed, and the run of frames it is aimed at.
+///
+/// **Found by search rather than picked**, the same way `weather.rs`'s own
+/// tests find a frame that has weather in it (`first_frame_with`):
+/// `weather::at` is a pure function of `(seed, frame)`, most frames of most
+/// seeds are clear, and a scene that started at frame 0 of seed 1 would be
+/// a pond under a blue sky. Swept over 4,000 seeds for a front meeting
+/// three conditions at once, each of which one earlier candidate failed:
+///
+/// - **Intensity above ~0.75 for several hundred frames.** Not for the
+///   freezing -- `WATER_CHILL_BASE` puts water below zero at any intensity
+///   -- but for the *snow*, which is what makes the sheet legible as a
+///   frozen surface rather than a recoloured pool. `SNOW_CHILL` is a
+///   magnitude below ambient, so at intensity 0.69 a landing flake is
+///   written at 2°C, which is snow's own melting point: it melts on the
+///   frame it lands and a 1,800-frame storm leaves no drift at all.
+///   (Measured on the first candidate, seed 38.) Above ~0.75 it settles.
+/// - **The snow *ends*, and abruptly.** The thaw is half the artifact.
+///   Precipitation fading out is a slow ramp -- intensity goes to zero as
+///   the wet channel crosses its threshold -- so a front that ends into
+///   clear weather takes ~2,000 frames to do it, and the sheet is gone
+///   before the front is. A front that ends because the **chill** channel
+///   drops instead switches to rain at full intensity: the cold simply
+///   stops, in one frame, which is exactly the event "the front passes"
+///   is meant to be. Rain then falls on the thawing sheet, which is both
+///   correct and better looking than a clear sky.
+/// - **Daylight.** `field::sun_elevation` is another pure function of the
+///   frame, night is half of a 3,600-frame day, and a 1,200-frame run
+///   lands wherever it lands: the first candidate spent its first six
+///   tiles in the dark, where a pale blue sheet on dark blue water is
+///   nearly invisible. Seed 2900's front ends at frame 25,010, which is
+///   phase 3,410 -- shortly before noon -- so the whole run is lit and the
+///   thaw happens at the brightest point of the day.
+///
+/// Starting 700 frames before the switch leaves time for freeze-over (~360
+/// frames at this intensity: the storm chills ~0.7 pond columns a frame and
+/// has to revisit them) and for snow to drift on the ice it made.
+///
+/// `seed=` is deliberately *not* wired to this: the frame window is chosen
+/// for this seed and means nothing on another one.
+const COLDSNAP_SEED: u64 = 2900;
+const COLDSNAP_START: u64 = 24310;
+/// The frame seed 2900's snow turns to rain -- the moment the cold stops.
+/// Not read by the simulation (`weather::at` is the authority) but a run
+/// whose tiles all sit before this is a run that never showed a thaw, and
+/// that is worth being able to see in the log.
+const COLDSNAP_SNOW_ENDS: u64 = 25010;
+const COLDSNAP_SHORE_Y: i32 = 240;
+const COLDSNAP_POND_DEPTH: i32 = 20;
+
 /// Water with a varied `shade`, the way the brush lays it down
 /// (`World::paint_capsule` rolls a random shade per cell). The scenes below
 /// would otherwise use `Cell::new(WATER, 0)` and give every cell an
@@ -157,6 +207,65 @@ fn build(args: &Args) -> World {
                 slick.ignite(burn);
                 w.set(x, rim_y - 1, slick);
             }
+        }
+        // The water cycle's freezing half, and the scene this milestone is
+        // judged on by eye: **a pond with real shorelines under a snowstorm
+        // that passes.** In one run it should show freeze-over creeping
+        // across the surface, snow drifting on the ice it made, the front
+        // lifting, the sheet melting, and the pool coming back.
+        //
+        // Nothing here is scripted. The cold is `weather.rs` acting on the
+        // world the way it does in the app; the freeze is `fire.rs`'s
+        // downward phase change against water.ron's `cooling_point`; the
+        // thaw is ice.ron's melting point sitting below ambient, so the
+        // *absence* of the storm is what melts it. The scene's whole job is
+        // to put a pond under a front and then get out of the way.
+        //
+        // **The seed and the frame are chosen, not arbitrary**, the same
+        // way `weather.rs`'s own tests go looking for a frame that has
+        // weather in it (`first_frame_with`): most frames of most seeds are
+        // clear, so a scene that started at frame 0 of seed 1 would be a
+        // pond under a blue sky. See `COLDSNAP_SEED`.
+        //
+        // The shoreline is not decoration. `structural.rs` cannot express
+        // buoyancy, so a sheet of ice on water has no support underneath it
+        // at all: its only path to an anchor runs sideways along itself to
+        // the shore. That makes the shore the load-bearing part of the
+        // scene, and the pond width (`pond=`) the knob the whole structural
+        // question turns on -- see ice.ron's `max_unsupported_span` note
+        // for the sweep this scene was used to run.
+        "coldsnap" => {
+            stone_floor(&mut w);
+            // Terrain, so it is `attached` and anchors -- the shelf is the
+            // massif the pond is cut into, not something stacked in front
+            // of it, and a shoreline that had to hold itself up would erode
+            // and take the answer about the ice with it.
+            for x in 0..WIDTH {
+                for y in COLDSNAP_SHORE_Y..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            let pond = args.pond.clamp(2, WIDTH - 8);
+            let left = (WIDTH - pond) / 2;
+            for x in left..(left + pond) {
+                // Flush with the shore rather than sunk below it: the
+                // surface row is then level with the stone either side of
+                // it, so the sheet's end cells sit *beside* an anchor
+                // instead of one row under a lip, and snow drifting on the
+                // frozen pond piles continuously with the drift on the
+                // bank.
+                for y in COLDSNAP_SHORE_Y..(COLDSNAP_SHORE_Y + COLDSNAP_POND_DEPTH) {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            w.seed = COLDSNAP_SEED;
+            w.frame = COLDSNAP_START;
+            println!(
+                "coldsnap: seed {COLDSNAP_SEED}, world frame {COLDSNAP_START} (cold until frame {}), pond {pond} cells wide at x {}..{}",
+                COLDSNAP_SNOW_ENDS,
+                left,
+                left + pond - 1
+            );
         }
         // Falling and spreading, rather than resting on the floor already:
         // the state the horizontal seam tearing shows up in.
@@ -1047,6 +1156,14 @@ struct Args {
     /// single width says the room stands or does not, and what is wanted is
     /// the *envelope*.
     span: i32,
+    /// `pond=N` -- how wide `scene=coldsnap` cuts its pond, shore to shore.
+    ///
+    /// A knob rather than a constant for the same reason `span` is one: the
+    /// structural question about a frozen sheet is not "does 60 cells
+    /// hold" but *where the envelope is*, because the sheet's only anchor
+    /// path is the shoreline and the answer is therefore a width. This is
+    /// the argument ice.ron's `max_unsupported_span` was swept against.
+    pond: i32,
     start: usize,
     every: usize,
     count: usize,
@@ -1273,6 +1390,9 @@ fn parse() -> Args {
         tunnel: 0,
         relax: false,
         span: 200,
+        // A pond a player would recognise as a pond, and the width the
+        // acceptance case in ice.ron's note is stated at.
+        pond: 60,
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -1328,6 +1448,7 @@ fn parse() -> Args {
             "tunnel" => a.tunnel = v.parse().expect("tunnel"),
             "relax" => a.relax = v != "false",
             "span" => a.span = v.parse().expect("span"),
+            "pond" => a.pond = v.parse().expect("pond"),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
             "max_lost" => a.max_lost = Some(v.parse().expect("max_lost")),
@@ -2019,6 +2140,19 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             "    phase changes: boiled {}, condensed {}, froze {}, melted {}, reacted {}",
             p.boiled, p.condensed, p.froze, p.melted, p.reacted
         );
+        // The water cycle's standing state, next to the counters above --
+        // and the pair is the point. The counters say the mechanism fired;
+        // this says what is *there*, which is the question a freeze-and-thaw
+        // actually turns on: a run can report thousands of freezes and
+        // melts and still have quietly lost half its pool. Self-gating, so
+        // the structural scenes stay quiet.
+        let (liquid, frozen, snowy) = water_census(&world);
+        if liquid > 0.0 || frozen > 0 || snowy > 0 {
+            println!(
+                "    water: {liquid:.1} cell-equivalents liquid, {frozen} frozen, {snowy} as snow (total {:.1})",
+                liquid + frozen as f64 + snowy as f64
+            );
+        }
         println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
         // How much of the damage happened to rock with nowhere to go --
         // the mid-mountain collapse the owner reports as looking fake.
@@ -2142,6 +2276,46 @@ fn census(world: &World) -> (i64, i64) {
         }
     }
     (solid, powder)
+}
+
+/// The water cycle's own census: how much water there is, in whatever phase
+/// it is currently in.
+///
+/// Measured as **fill, not occupancy**, per `CLAUDE.md`'s metric traps: a
+/// `Liquid` cell holds a continuous 0..`LIQUID_FULL` amount and every
+/// resting body wears a fringe of near-empty ones, so counting cells
+/// overstates a spread-out pool against a settled one. Ice and snow are
+/// counted as whole cells because they are whole cells -- a `Solid`'s `aux`
+/// is an anchor distance and carries no fill, which is exactly why
+/// `fire.rs` will only freeze a near-full cell (`FREEZE_MIN_FILL`).
+///
+/// Returned in cell-equivalents (fill / `LIQUID_FULL`) so the three phases
+/// are on one scale and a freeze-and-thaw can be read as conservation:
+/// water lost to ice at the freeze should come back at the thaw, short of
+/// the partial fringe that never froze.
+fn water_census(world: &World) -> (f64, i64, i64) {
+    const LIQUID_FULL: f64 = 1000.0;
+    let (mut liquid, mut frozen, mut snowy) = (0.0f64, 0i64, 0i64);
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let cell = world.get(x, y);
+            let m = world.materials.get(cell.material);
+            // Keyed on the material's own phase-change fields, not on a
+            // name: anything that freezes counts as liquid water, anything
+            // that melts back into it counts as its solid phase. See the
+            // same rule in `weather.rs`'s chill walk.
+            match m.kind {
+                MaterialKind::Liquid if m.cooling_point.is_finite() => {
+                    // `aux == 0` on a Liquid means **full**, not empty.
+                    liquid += if cell.aux() == 0 { LIQUID_FULL } else { cell.aux() as f64 } / LIQUID_FULL;
+                }
+                MaterialKind::Solid if m.melts_into.is_some() => frozen += 1,
+                MaterialKind::Powder if m.melts_into.is_some() => snowy += 1,
+                _ => {}
+            }
+        }
+    }
+    (liquid, frozen, snowy)
 }
 
 fn occupied(world: &World) -> i64 {
