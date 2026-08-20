@@ -595,6 +595,98 @@ fn the_flat_preset_is_a_usable_structural_test_bed() {
     assert_eq!(clutter, 0, "{clutter} columns have something standing above the ground line");
 }
 
+#[test]
+fn every_generated_shade_indexes_a_real_palette_entry() {
+    // The guard for the region palette families. `render.rs` indexes with
+    // `shade % palette.len()`, which never panics -- it silently *aliases*,
+    // so a palette shortened by one entry would draw sandstone cells as
+    // damp grey and nothing anywhere would fail. That is the failure this
+    // catches, and it has to be an assertion because no picture shows it:
+    // the world would still look like a world.
+    //
+    // Checked over every preset x seed rather than one, because which
+    // families a world reaches depends on the region draw.
+    let presets = presets();
+    for (name, params) in &presets.presets {
+        for seed in SEEDS {
+            let world = build(params, seed);
+            for material in ["stone", "soil", "sand"] {
+                let id = world.materials.id_of(material).expect("compiled-in material");
+                let len = world.materials.get(id).palette.len();
+                let mut worst = 0u8;
+                for y in 0..=BOUNDS.1 {
+                    for x in 0..=BOUNDS.0 {
+                        let c = world.get(x, y);
+                        if c.material == id {
+                            worst = worst.max(c.shade);
+                        }
+                    }
+                }
+                assert!(
+                    (worst as usize) < len,
+                    "{name} seed {seed}: worldgen wrote {material} shade {worst} into a \
+                     {len}-entry palette -- it will alias onto another family"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_varied_world_uses_more_than_one_rock_family() {
+    // "Did it fire at all needs a counter, not a picture" -- and this
+    // mechanism is *exactly* the case that rule was written for, because
+    // both outcomes look like a plausible world. A generator that silently
+    // returned family 0 everywhere would render as the grey massif it
+    // rendered as before the change, and the strips would be read as
+    // "the shift is subtle" rather than "the shift never happened".
+    let presets = presets();
+    let families = |world: &World, id| {
+        let mut seen: std::collections::BTreeSet<u8> = Default::default();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                let c = world.get(x, y);
+                if c.material == id {
+                    seen.insert(c.shade / 4);
+                }
+            }
+        }
+        seen
+    };
+    for preset in ["rolling", "canyon", "arid", "wetland"] {
+        let params = presets.get(preset).expect("preset");
+        let world = build(params, 1);
+        let stone = world.materials.id_of("stone").expect("stone");
+        let seen = families(&world, stone);
+        // Printed as well as asserted: the bar is "more than one", and the
+        // number next to the strip is what says whether that means a token
+        // scattering or a world that genuinely changes country.
+        let mut counts: std::collections::BTreeMap<u8, usize> = Default::default();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                let c = world.get(x, y);
+                if c.material == stone {
+                    *counts.entry(c.shade / 4).or_default() += 1;
+                }
+            }
+        }
+        println!("{preset} seed 1 rock families (0 neutral, 1 wet, 2 dry, 3 cap-rock): {counts:?}");
+        assert!(seen.len() > 1, "{preset} seed 1: every rock cell is in family {seen:?}");
+    }
+    // And the control: `flat` asks for no regional variation, so it must get
+    // none. Without this the test above passes just as well for a generator
+    // that ignores `region_variation`, and the structural test bed would
+    // have quietly changed colour under the destruction workstream.
+    let flat = presets.get("flat").expect("flat preset");
+    let world = build(flat, 1);
+    let stone = world.materials.id_of("stone").expect("stone");
+    assert_eq!(
+        families(&world, stone),
+        [0].into_iter().collect(),
+        "flat asked for no regional variation and got a palette family anyway"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Step-0 probes for the August 2026 world review
 // ---------------------------------------------------------------------------

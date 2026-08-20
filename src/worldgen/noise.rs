@@ -69,6 +69,14 @@ pub enum Purpose {
     Region = 13,
     /// Dune crests in arid country.
     Dune = 14,
+    /// Which region palette family a cell's shade sits in.
+    ///
+    /// Its own stream rather than sharing `Dither`, which already decides
+    /// the soil/gravel contact at the same `(x, y)`: sharing would put every
+    /// palette-family change exactly on a contact boundary, which is the
+    /// correlation the purpose tag exists to prevent
+    /// (`Reports/prior-art-worldgen-slicing.md` §6.3).
+    Palette = 15,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

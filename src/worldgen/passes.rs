@@ -21,6 +21,85 @@ use crate::sim::material;
 use crate::sim::world::World;
 use crate::sim::Cell;
 
+/// Tones per palette family. `Cell::shade` is `family * TONES + tone`.
+///
+/// Four because that is what every shipped ramp already had: `strata_shade`
+/// draws four bed tones, `soil_shade` walks a four-step profile, and
+/// `loose_shade` picks one of four. Families are appended to the material
+/// palettes in blocks of this size, so family 0 is byte-for-byte the palette
+/// each file shipped with (`assets/materials/stone.ron` carries the note).
+const TONES: u8 = 4;
+
+/// The reference family: no regional shift. What the brush lays down, and
+/// what every material with a single family has.
+const FAMILY_NEUTRAL: u8 = 0;
+/// Wet country: darker, richer, blue-shifted.
+const FAMILY_WET: u8 = 1;
+/// Dry country: warmer and paler.
+const FAMILY_DRY: u8 = 2;
+/// Resistant beds: pale, low-saturation cap-rock. **Stone only** — soil and
+/// sand ship three families, and resistance is a property of rock.
+const FAMILY_RESISTANT: u8 = 3;
+
+/// Which palette family a cell at `(x, y)` takes, from the blended region
+/// `Character` at `x`.
+///
+/// This is the whole of "regions become biomes, step 1", and it costs
+/// nothing per frame: the family is folded into `Cell::shade` once at
+/// genesis and `render.rs` reads that byte, it never recomputes a colour.
+/// Keying a tint to a live field read instead is the precedent that forces
+/// full redraws forever (`Reports/world-review-2026-08.md` §7.21).
+///
+/// **A cumulative selection over one noise draw, not three independent
+/// coin flips.** One draw means the three probabilities partition cleanly —
+/// a cell cannot come out both dry and resistant — and it means the
+/// transition between two regions is a *dither* rather than a ruled line.
+/// That matters more than it sounds: aridity varies smoothly across a
+/// region boundary, so a hard threshold would put a perfectly straight
+/// vertical colour seam through solid rock, which is the single most
+/// artificial thing a layered generator can draw (the soil/stone contact in
+/// `soil_blanket` is dithered for exactly this reason and says so).
+///
+/// The character is read at `x` only. `y` enters solely through the dither
+/// draw, so a family boundary is ragged in both directions rather than
+/// being a column of one colour beside a column of another.
+fn palette_family(ctx: &Ctx, x: i32, y: i32, cap_rock: bool) -> u8 {
+    // A preset that asked for no regional variation gets none, including no
+    // palette shift. `flat` is the structural test bed and its whole point
+    // is that nothing about it wanders; it is also the control render the
+    // destruction workstream compares against, so leaving it byte-identical
+    // is worth more than colouring it.
+    if ctx.terrain.params.region_variation <= 0.0 {
+        return FAMILY_NEUTRAL;
+    }
+    let ch = ctx.terrain.character(x);
+    let u = noise::unit(ctx.terrain.seed, Purpose::Palette, x, y);
+
+    // Resistance first, and only for rock. Thresholds sit above the neutral
+    // 1.0 that `Character::neutral` hands out, so an unremarkable region
+    // stays grey and only a genuinely resistant draw bleaches.
+    let mut floor = 0.0;
+    if cap_rock {
+        let resistant = noise::smoothstep(1.25, 1.80, ch.resistance);
+        if u < resistant {
+            return FAMILY_RESISTANT;
+        }
+        floor = resistant;
+    }
+    // Dry and wet are mutually exclusive by construction -- the two ramps do
+    // not overlap -- so their probabilities can share the remaining room
+    // without either stealing from the other.
+    let dry = noise::smoothstep(0.50, 0.78, ch.aridity);
+    if u < floor + dry * (1.0 - floor) {
+        return FAMILY_DRY;
+    }
+    let wet = 1.0 - noise::smoothstep(0.10, 0.34, ch.aridity);
+    if u < floor + (dry + wet) * (1.0 - floor) {
+        return FAMILY_WET;
+    }
+    FAMILY_NEUTRAL
+}
+
 /// Sedimentary banding, written into the shade byte.
 ///
 /// The whole visual argument for cut rock. Stone's four shades cost nothing
@@ -71,11 +150,16 @@ fn strata_shade(ctx: &Ctx, x: i32, y: i32) -> u8 {
     };
     // A minority of cells jump a tone, so the bands have grain inside them
     // rather than reading as flat ribbons.
-    if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < 0.12 {
-        (base + 1).min(3)
+    let tone = if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < 0.12 {
+        (base + 1).min(TONES - 1)
     } else {
         base
-    }
+    };
+    // The region's family, applied *after* the tone. The band index still
+    // decides which of the four tones a bed takes, so a bed remains
+    // followable from one cliff face to the next -- what the region changes
+    // is which four colours those tones name. Family, not texture.
+    palette_family(ctx, x, y, true) * TONES + tone
 }
 
 /// Shade for a soil cell, darkening toward the surface.
@@ -93,7 +177,7 @@ fn soil_shade(ctx: &Ctx, x: i32, y: i32, depth: i32, total: i32) -> u8 {
     let jitter = noise::unit(ctx.terrain.seed, Purpose::Shade, x, y);
     let f = if total <= 1 { 0.0 } else { depth as f32 / (total - 1) as f32 };
     let f = (f + (jitter - 0.5) * 0.35).clamp(0.0, 1.0);
-    if f < 0.3 {
+    let tone = if f < 0.3 {
         2
     } else if f < 0.6 {
         0
@@ -101,7 +185,12 @@ fn soil_shade(ctx: &Ctx, x: i32, y: i32, depth: i32, total: i32) -> u8 {
         1
     } else {
         3
-    }
+    };
+    // Aridity shifts the whole profile -- dark rich loam in a basin, pale
+    // dusty soil on a dry hillside -- while the 2/0/1/3 walk down the ramp
+    // stays put, so a cut bank still reads as topsoil over subsoil wherever
+    // it is. No cap-rock family: resistance is a property of the rock.
+    palette_family(ctx, x, y, false) * TONES + tone
 }
 
 /// A varied shade for loose material, matching what the brush lays down.
@@ -110,7 +199,18 @@ fn soil_shade(ctx: &Ctx, x: i32, y: i32, depth: i32, total: i32) -> u8 {
 /// off this byte, so material created with a uniform shade renders visibly
 /// flat under it (`examples/filmstrip.rs` documents the same trap for water).
 fn loose_shade(ctx: &Ctx, purpose: Purpose, x: i32, y: i32) -> u8 {
-    ((noise::unit(ctx.terrain.seed, purpose, x, y) * 4.0) as u8).min(3)
+    ((noise::unit(ctx.terrain.seed, purpose, x, y) * TONES as f32) as u8).min(TONES - 1)
+}
+
+/// [`loose_shade`] plus the region's palette family.
+///
+/// Split from `loose_shade` rather than folded into it because the two have
+/// different subjects. Surface cover belongs to the country it is lying on;
+/// a lens sealed inside the massif and the scree at a cliff foot do not, and
+/// gravel has one family anyway. Adding the family here rather than at the
+/// four call sites keeps `loose_shade` meaning exactly what it used to.
+fn cover_shade(ctx: &Ctx, purpose: Purpose, x: i32, y: i32) -> u8 {
+    palette_family(ctx, x, y, false) * TONES + loose_shade(ctx, purpose, x, y)
 }
 
 /// Everything from the soil line down to bedrock.
@@ -201,7 +301,7 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
             let (m, shade) = if noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < stony * 0.85 {
                 (ctx.gravel, loose_shade(ctx, Purpose::Dither, x, y))
             } else if sandy || (is_valley_floor && y < top + 2) {
-                (ctx.sand, loose_shade(ctx, Purpose::Shade, x, y))
+                (ctx.sand, cover_shade(ctx, Purpose::Shade, x, y))
             } else {
                 (ctx.soil, soil_shade(ctx, x, y, depth, bottom - top))
             };

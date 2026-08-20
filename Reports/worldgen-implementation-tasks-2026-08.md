@@ -422,3 +422,84 @@ Consequence for this sweep: the `awake_chunks` row is a **tracked** number,
 not a gate at zero, and `compare` flags it only on a move of at least 3
 chunks *and* 30% — a floor a small integer counter needs, since 6 → 8 is
 +33% and is noise at this scale.
+
+### 3 — Region-keyed palettes: the spec held, but **it needed two files outside this track**
+
+The work landed as specified — `Character` in, tones out, no material
+placement changed, zero frame cost. One part of it did not survive contact
+with the code, and it is the part the ground rules say to report rather
+than improvise around, so it is written up here in full.
+
+**What the spec said was in scope**: "if the 4-entry palettes clamp too
+hard to show a family shift, widening a palette in
+`assets/materials/*.ron` is in-scope (data-only)". They do clamp
+completely — with four entries there is no way to express a family shift at
+all, only a reordering of the same four colours — so the palettes were
+widened: stone to four families of four (neutral / cool damp / warm
+sandstone / pale cap-rock), soil and sand to three each.
+
+**Why that could not stay data-only.** `palette.len()` was doing two jobs
+at once, and widening the list split them apart — CLAUDE.md's *when a fix
+changes what a number means, re-deriving the constants that read it is part
+of the fix*. Two live consumers pick a shade **at random** from
+`palette.len()`:
+
+- `src/sim/world.rs`s brush (`paint_stroke`). Its own comment records the
+  scheme: `shade = below(shades) + shades * below(256/shades)`, low bits
+  choosing the palette entry and high bits carrying grain entropy. Against
+  a 16-entry stone palette that draws uniformly across **all four
+  families**, so a painted wall comes out as confetti of grey, sandstone
+  and bleached cap-rock. Building is a core verb; this is not a subtle
+  regression.
+- `src/sim/decay.rs`s ash → soil. Same shape: decayed ash would land in a
+  random soil family, speckling a wet bank with desert-pale soil.
+
+So the change is:
+
+- `src/sim/material.rs` — a new `MaterialDef::base_colors` (defaulting to
+  `0` = "all of them", so every other material is untouched) and a derived
+  `Material::base_shades`.
+- `src/sim/world.rs`, `src/sim/decay.rs` — draw the *entry* from
+  `base_shades` and keep `palette.len()` as the modulus. For every
+  single-family material the two are equal and the arithmetic is
+  byte-identical to what it was; the brush's high-bit grain trick is
+  preserved rather than removed.
+
+None of those three is on the must-not-touch list, but none is on the owned
+list either, so: **flagged for the reviewer, and kept as small as it can
+be.** Three files, one new field, two call sites.
+
+**One consumer deliberately left alone**: `src/app.rs::spawn_burst` (the
+debug particle burst) still picks from `palette.len()`, so a burst of stone
+particles will show mixed families. `app.rs` is contested and forbidden to
+this track, and the cost of leaving it is that a debug-only tool is
+cosmetically off. If the reviewer wants it, it is the same one-word change.
+
+**Nothing else reaches the widened palettes**, checked rather than assumed:
+`plant.rs`s six random-shade sites all read an organism cell's own material
+(wood, leaf, moss, rootwood, seed); `fire.rs`, `rigid.rs`, `structural.rs`
+and `creature.rs` read `burns_into`/`breaks_into`/corpse materials, none of
+which is stone, soil or sand; `liquid.rs` is water.
+
+**The task-2 sweep is clean, and it must be** — this task writes no
+different cells, only different shade bytes, so the census cannot see it at
+all. The images are the evidence, and the counters that say the mechanism
+fired are in `a_varied_world_uses_more_than_one_rock_family`, which prints
+the per-family rock census beside them (rolling s1: 41,892 neutral / 29,469
+wet / 14,098 cap-rock; canyon s1: 58,863 / 9,327 / 54 dry / 15,907; arid
+s1: 9,531 / 84,558 dry / 2,788; wetland s1: 80,183 wet / 1,004 cap-rock).
+`flat` is asserted to stay in family 0 — it asked for no regional variation
+and the structural workstream compares against its renders.
+
+**Two design notes the reviewer may want to overturn:**
+
+1. The family is chosen by a **cumulative selection over one per-cell noise
+   draw**, so a region boundary is a dither rather than a ruled vertical
+   colour seam through solid rock. Checked at 4x zoom: it reads as mottled
+   sandstone grain, and at 1:1 the sedimentary banding is as legible after
+   as before (the bands still come from the band index; only the four
+   colours they name change). But it is per-cell white noise, and a
+   lower-frequency mottle would read more like real facies change if the
+   reviewer thinks the grain is too fine.
+2. `region_variation <= 0.0` opts a preset out of families entirely, which
+   is what keeps `flat` byte-identical.

@@ -1969,7 +1969,17 @@ impl World {
         material: MaterialId,
         density: f32,
     ) {
-        let shades = self.materials.get(material).palette.len().max(1) as u32;
+        // Two numbers, not one, since the palettes grew families.
+        //
+        // `entries` is the modulus `render::cell_colour` applies; `base` is
+        // how many of them a *random* pick may use. They were the same
+        // number until worldgen started baking a region's rock family into
+        // the shade (`worldgen::passes::palette_family`), and collapsing
+        // them again paints stone as confetti of grey, sandstone and
+        // bleached cap-rock -- the brush must only ever lay down the first
+        // family.
+        let entries = self.materials.get(material).palette.len().max(1) as u32;
+        let base = self.materials.get(material).base_shades.max(1) as u32;
         let r = radius.max(0);
         let r2 = (r * r) as f32;
         let mut touched_structure = false;
@@ -2005,7 +2015,13 @@ impl World {
                 // one piece of per-cell entropy that survives a move, and
                 // therefore the only thing `render::GrainMode::Cell` can
                 // key grain on so the texture travels with the material.
-                let shade = (self.rng.below(shades) + shades * self.rng.below(256 / shades.max(1))) as u8;
+                //
+                // The entry is drawn from `base` and the stride is
+                // `entries`: `shade % entries` then lands inside the first
+                // family for every draw, which keeps this identical to what
+                // it always did for the single-family materials and stops
+                // the multi-family ones being painted at random.
+                let shade = (self.rng.below(base) + entries * self.rng.below(256 / entries.max(1))) as u8;
                 // Background rock has to *join* background rock.
                 //
                 // `Cell::attached` means "backed by mass the slice cannot
