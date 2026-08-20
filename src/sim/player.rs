@@ -140,6 +140,17 @@ pub struct Tuning {
     /// Ticks between strokes. Long enough that swimming reads as a series
     /// of pulls rather than a thruster.
     pub stroke_cooldown: u8,
+    /// What fraction of a standing jump the *exit* jump is — the one that
+    /// fires on the tick his head clears the water.
+    ///
+    /// Separate from `jump_impulse` because the two are different moves. A
+    /// full jump out of a pond launches him clear of it, which reads as
+    /// being fired from the water rather than climbing out of it; what
+    /// getting onto a bank wants is a pull up over the lip. Deliberately
+    /// **not** part of `WaterFeel`: the four feels are buoyancy, damping
+    /// and strokes, and folding this in would make `F4` stomp a value
+    /// someone had just swept in the panel.
+    pub surface_hop: f32,
     /// What fraction of freshly mined rock stays behind as rubble. The
     /// rest leaves the world as dust.
     ///
@@ -189,6 +200,7 @@ impl Default for Tuning {
             swim_damp: 0.84,
             stroke_impulse: 1.3,
             stroke_cooldown: 7,
+            surface_hop: 0.75,
             dig_yield: 0.35,
         }
     }
@@ -462,6 +474,10 @@ pub struct Player {
     /// control schemes and a harness reporting "he is in the water"
     /// cannot infer it from position alone.
     pub swimming: bool,
+    /// Last tick's `swimming`, so the tick he breaks the surface can be
+    /// told from every other tick. That one tick is where the exit hop is
+    /// sized (`Tuning::surface_hop`).
+    was_swimming: bool,
     /// Loose powder overlaps him: slowed, and sunk into it.
     pub wading: bool,
     /// Ticks until the next swimming stroke may fire.
@@ -486,6 +502,7 @@ impl Player {
             jump_was_held: false,
             dig_cooldown: 0,
             swimming: false,
+            was_swimming: false,
             wading: false,
             stroke_cooldown: 0,
             last_bite: None,
@@ -676,8 +693,22 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // keys off any overlap at all, because powder round the boots should
     // already be slowing him.
     let (xi, yi) = p.rect_origin();
+    p.was_swimming = p.swimming;
     p.swimming = (0..PLAYER_WIDTH)
         .any(|dx| world.in_bounds(xi + dx, yi) && world.materials.kind(world.get(xi + dx, yi).material) == MaterialKind::Liquid);
+    // In the water *at all*, which is a different question from `swimming`
+    // and is the one the haul-out below asks.
+    //
+    // `swimming` reads the head row, so it goes false the instant he
+    // surfaces -- and at that moment he is treading at the edge of a pool
+    // with nothing under his feet, which is precisely when he wants to
+    // pull himself onto the bank. Keying the haul-out on `swimming` would
+    // have switched it off exactly where it is needed.
+    let floating = (0..PLAYER_HEIGHT).any(|dy| {
+        (0..PLAYER_WIDTH).any(|dx| {
+            world.in_bounds(xi + dx, yi + dy) && world.materials.kind(world.get(xi + dx, yi + dy).material) == MaterialKind::Liquid
+        })
+    });
     // How *deep* in the powder, not merely whether. Reported from the
     // first playtest: "sand and dirt felt the same, which was just a
     // little slower than rock. It just felt like it changed my speed" —
@@ -737,7 +768,13 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         p.coyote = tuning.coyote_frames;
     }
     if p.jump_buffer > 0 && p.coyote > 0 && !p.swimming {
-        p.vy = -tuning.jump_impulse;
+        // Scaled down on the tick he leaves the water. A full standing
+        // jump out of a pond reads as being fired from it; what the bank
+        // needs is a pull up over the lip, which is what `surface_hop`
+        // sizes. Live-tunable because only play settles how big "a little
+        // jump" is.
+        let scale = if p.was_swimming { tuning.surface_hop } else { 1.0 };
+        p.vy = -tuning.jump_impulse * scale;
         p.jump_buffer = 0;
         p.coyote = 0;
     }
@@ -762,7 +799,25 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         p.vy += tuning.gravity * tuning.buoyancy;
         p.vx *= tuning.swim_damp;
         p.vy *= tuning.swim_damp;
-        p.jump_buffer = 0;
+        // Held `W` leaves a jump armed for the tick his head clears,
+        // rather than clearing the buffer every frame he is under.
+        //
+        // This is the other half of the coyote refresh above, and without
+        // it that refresh had nothing to fire. `jump_pressed` is an *edge*
+        // and `App::update` consumes it (`app.rs`'s
+        // `player_input.jump_pressed = false`), so a swimmer holding `W`
+        // has no press left by the time he surfaces -- and under the
+        // default `DIVER` feel, whose `buoyancy` is positive, holding `W`
+        // is the *only* way to surface at all. So the one input that gets
+        // him to the top was the one input guaranteed to have nothing
+        // armed when he arrived, and he bobbed at the bank. Reported from
+        // play as "getting out of water should have a little jump to it so
+        // you can get over a ledge".
+        //
+        // This cannot turn a stroke into a jump: the gate above refuses to
+        // fire while `swimming`, and a stroke has already been spent on
+        // its own cooldown by the time this runs.
+        p.jump_buffer = if input.jump_held { tuning.jump_buffer_frames } else { 0 };
     } else {
         p.vy = (p.vy + tuning.gravity).min(tuning.fall_clamp);
     }
@@ -784,7 +839,15 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
                 // `step_up` whole cells. Grounded only — the mid-air
                 // version is a climb, not a step.
                 let mut climbed = false;
-                if p.grounded {
+                // Grounded *or* in the water. On land the mid-air version
+                // would be a climb, which is why this was grounded-only --
+                // but a swimmer is never grounded (see the `grounded`
+                // probe's own `!p.swimming`), so pressing into the bank of
+                // a deep pool found no floor to step up from and he simply
+                // stopped against the wall. Water is the floor here: it
+                // holds him at a height, which is the thing step-up needs
+                // and the reason this is not a general airborne climb.
+                if p.grounded || floating {
                     for lift in 1..=tuning.step_up as i32 {
                         if rect_free(world, &bodies, nxi, nyi - lift, wade) {
                             p.x = next_x;
@@ -1620,6 +1683,19 @@ mod tests {
         world
     }
 
+    /// `world_with_pool`, plus a stone bank on the right whose top stands
+    /// `lip` cells clear of the waterline — the situation the exit hop
+    /// exists for, and one no existing scene contained.
+    fn world_with_bank(surface_y: i32, lip: i32) -> World {
+        let mut world = world_with_pool(surface_y);
+        for y in (surface_y - lip)..=95 {
+            for x in 90..=127 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        world
+    }
+
     #[test]
     fn he_sinks_into_a_deep_drift_but_only_to_the_knee() {
         let mut world = world_with_floor();
@@ -1730,15 +1806,53 @@ mod tests {
         // a gnome who had jumped clear, arced, and splashed back in —
         // which is the behaviour it exists to check, reported as its
         // absence.
+        //
+        // **Pressed once, then held.** This read `jump_pressed: true` on
+        // every one of the forty ticks, and passed — against an input the
+        // running game cannot produce, since `App::update` clears
+        // `jump_pressed` after each tick and a held key raises no further
+        // edge. So the test was green while the behaviour it is named for
+        // did not work: holding `W` to surface (which the default `DIVER`
+        // buoyancy makes the only way to surface) left nothing armed, and
+        // he bobbed at the bank. `CLAUDE.md`'s "a test can pass because the
+        // code under it is dead", in the costume of an impossible input.
         let before = world.player.as_ref().unwrap().y;
         let mut apex = before;
+        let mut input = PlayerInput { jump_pressed: true, jump_held: true, ..Default::default() };
         for _ in 0..40 {
-            tick(&mut world, PlayerInput { jump_pressed: true, jump_held: true, ..Default::default() });
+            tick(&mut world, input);
+            input.jump_pressed = false;
             apex = apex.min(world.player.as_ref().unwrap().y);
         }
         assert!(
             apex < before - 6.0,
             "expected a real jump out of the water, not a stroke: {before:.1} -> apex {apex:.1}"
+        );
+    }
+
+    #[test]
+    fn a_held_stroke_carries_him_out_of_the_pool_onto_the_bank() {
+        // The owner's report, as a test: "getting out of water should have
+        // a little jump to it so you can get over a ledge."
+        //
+        // The input is the thing that matters here. `jump_pressed` fires on
+        // *one* tick, because `App::update` clears it after every tick and
+        // a held key produces no further edge — so this is what holding `W`
+        // actually delivers to `step`, and it is what the old code had no
+        // answer to.
+        let mut world = world_with_bank(60, 3);
+        world.player = Some(Player::at(80, 70));
+        let mut input = PlayerInput { right: true, jump_held: true, jump_pressed: true, ..Default::default() };
+        for _ in 0..400 {
+            tick(&mut world, input);
+            input.jump_pressed = false;
+        }
+        let p = world.player.as_ref().unwrap();
+        let feet = p.y.round() as i32 + PLAYER_HEIGHT;
+        assert!(
+            p.grounded && feet <= 60,
+            "expected him out of the water and standing on the bank, got feet at {feet} (waterline 60), grounded {}",
+            p.grounded
         );
     }
 
