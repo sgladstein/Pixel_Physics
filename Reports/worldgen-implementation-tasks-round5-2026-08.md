@@ -1,0 +1,416 @@
+# Worldgen data-track tasks, round 5 — caves that are worth the dig
+
+**STATUS: SPEC ONLY, NOT APPROVED, DO NOT SPAWN.** The owner rules on
+§Decisions first. Everything below is written to be executed cold once
+they have.
+
+You are the implementation session for the worldgen data track, round 5.
+Read, in order: `CLAUDE.md`; `Reports/cave-beauty-review-2026-08.md`
+**including its measured addendum**, which corrects most of the report
+above it; `Reports/world-review-2026-08.md` §7 (the landmines, quoted
+per-task below); and rounds 1–4's Findings in
+`Reports/worldgen-implementation-tasks-2026-08.md`. The planning session
+that wrote this remains the reviewer: **you land small, image-backed
+commits; you do not judge your own visuals.** When a spec below does not
+survive contact with the code, stop and write a finding into this file's
+Findings section instead of improvising — rounds 1–4 did that eleven
+times and every one of those findings is now load-bearing.
+
+## Why this round exists
+
+Round 3 shipped cave systems and the review of them was conducted at
+contact-sheet zoom against the pass's own write counters. Read back off
+the built world over 16 seeds x 7 presets, what actually ships is:
+
+| quantity | shipped | what it means |
+|---|---|---|
+| worlds with a cave system | arid 3/16, canyon 5/16, rolling 7/16, terraced 7/16, wetland 10/16 | most worlds have no cave |
+| system size | **179 x 65–69 in every preset, every seed** | the envelope is the shape |
+| open column | med **30**, p95 58 | no passages — one bore |
+| visible formations / system | **17** | the "125" was a write counter in cells |
+| formation height | med **3**, p90 6, **max 7** | `2 + unit * 6`: uniform, ceiling 8 |
+| near-pairs | 0–2 per 16 seeds, tallest **7** cells combined | the postcard shot does not exist |
+| void share of the deep massif | 0.21–0.66% | |
+
+Regenerate all of it with `cargo run --release --example cave_probe`.
+That probe and `viewshot zoom=/crop=` are the instruments this round is
+judged with; both are already on the branch.
+
+**The three causes are structural, not tuning.** Tasks 1–3 are those
+three. Tasks 4–6 are the decoration the beauty review asked for, and
+they are worthless before 1–3 land: decorating a 179x69 lens that exists
+in a third of worlds, with formations capped at 7 cells, is
+redecoration.
+
+## Ground rules (non-negotiable)
+
+- **Branch**: `claude/worldgen-data-track-r5`, from
+  `claude/game-world-gen-planning-h12713`. One task, one commit. Commit
+  messages carry the numbers (`cave_probe` before/after, sweep results).
+- **Files you own**: `src/worldgen/*`, `assets/worldgen.ron`,
+  `assets/materials/*.ron`, `tests/worldgen.rs`, `scripts/*`. **Do not
+  touch**: `src/render.rs`, `src/sim/*`, `examples/*` (including
+  `cave_probe.rs` and `viewshot.rs` — they are the measuring
+  instruments; changing them changes the ruler), and the contested files
+  (`src/app.rs`, `PLAN.md`, `README.md`, `CLAUDE.md`, `wiki/*` — wiki is
+  folded in by the reviewer at merge). Needing one of those is a
+  finding, not an edit.
+- **Do not retune the erosion constants.** `erosion.rs`'s rates and
+  `HardnessField` were set by eye across a whole tuning session
+  (`Reports/worldgen-erosion-design.md` §Status). If a cave change
+  appears to need them moved, that is a finding.
+- **`noise::Purpose` discriminants reserved for this round, in advance**
+  (24 is `Boulder`, taken; concurrent tracks must not claim these):
+  **25 `CaveChamber`**, **26 `Drip`**, **27 `CeilingGrain`**. Append
+  only, never renumber (§7.5).
+- **Stage explicit paths. Never `git add -A`** (§7.11).
+- **Before every commit**: `cargo test`; `cargo clippy --all-targets --
+  -D warnings`; `cargo test --test worldgen` green; `cargo run --release
+  --example ascii` with no worst-frame regression; and
+  `scripts/worldgen_sweep.sh` re-baselined (§7.9 — this pass governs
+  procedural content, and eight green acceptance scenes have twice
+  rubber-stamped a change that ate 26–50x more world).
+- **Generated terrain must arrive at rest and sleep** (§7.3). Every
+  task here writes cells into a void; `tests/worldgen.rs` enforces zero
+  cells moving in 120 frames and `active_chunk_count() == 0` within 70.
+- **`aux == 0` means FULL on a Liquid and DRY on a Powder** (§7.1).
+  Task 5 writes water; a literal 0 fill manufactures it.
+- **`.ron` edits do nothing until rebuild** (§7.2). Identical output
+  across sweep settings means the knob was never connected.
+- **Every visual change ships with images**: `cargo run --release
+  --example viewshot -- preset=P seed=N vault=1 shots=2 zoom=4
+  crop=140,80,240,170 out=target/filmstrips/r5t<K>-<label>.png`, and a
+  `cave_probe` block in the same commit message. A green suite is not
+  evidence the screen changed (§7.15).
+- **A size cap must bound work, never gate whether something happens**
+  (§7.8). Task 1 is that landmine, found for the third time.
+
+---
+
+## Task 1 — Seal a breach, not a system
+
+**The defect.** `cave_system` (`passes.rs`) checks every cell of the
+void *and* its 2-cell Chebyshev dilation — 12,851 cells — and returns
+`VaultReport::default()` if any one of them is not `stone`. Measured
+with temporary instrumentation (reverted; the finding is in the beauty
+review's addendum): **every** rejection across canyon, rolling and
+wetland is a single `sand` or `gravel` cell from a `pockets` lens. One
+grain deletes an entire cave system, and it does so more often the
+*bigger* the system — the exact shape of the landmine CLAUDE.md records
+twice.
+
+**The fix: erode the void back from the breach, then re-verify.** Not a
+relaxation of the seal — the seal's guarantee is what keeps the world at
+rest, and it must still hold **by construction** at the end:
+
+1. Carve as today (`carve_cave_void`).
+2. Iterate to a fixpoint: any void cell whose 2-cell Chebyshev
+   neighbourhood contains a non-`stone` cell is turned back to solid
+   (removed from the void). Removing a cell can expose a new neighbour,
+   hence the fixpoint.
+3. Re-run `keep_seed_component` and the ceiling-span guard (they already
+   alternate to a fixpoint; step 2 joins that loop or runs before it —
+   your call, state which and why in the commit).
+4. Reject only if what survives is `< MIN_SYSTEM_CELLS`.
+5. Then run the existing seal check **unchanged**, as an assertion. It
+   must now pass by construction; if it ever fails, that is a bug in
+   step 2 and the test below has to catch it.
+
+**Why the at-rest argument still holds**, and say this in the code
+comment: the property the seal buys is "every void cell has solid stone
+within the rind, so nothing loose is flush with a free face and no floor
+can run out through a hole". Step 2 establishes exactly that property
+directly, rather than inferring it from "the whole envelope was already
+stone". The floor verifier and the repose taper are downstream of the
+final void and are unchanged.
+
+**Deliverables**: the fix; a test that builds a world with a pocket lens
+deliberately placed inside a cave envelope and asserts the system still
+places *and* the world arrives at rest; `cave_probe` before/after.
+
+**Bar**, over 16 seeds x 5 caved presets (order statistic, not a seed):
+worlds with at least one cave system rises from **{arid 3, canyon 5,
+rolling 7, terraced 7, wetland 10} / 16** to **≥ 12/16 on every preset
+except arid** (arid's massif genuinely differs; report what it does
+rather than forcing it). Report the *rejection* count too — it should
+fall to near zero, and any residual rejection is a finding worth its
+cause.
+
+**Watch for**: this changes what "a cave" means, so every constant read
+against the old presence rate needs re-deriving (§7.14) —
+`vault_density` most of all. See **Decision D1**.
+
+---
+
+## Task 2 — Give the lattice more than nine cells
+
+**The defect.** `CAVE_CELL 52` against a 181x71 envelope squashed 2x is
+3.5 x 2.7 = ~9 Worley lattice cells, and `CAVE_THRESHOLD 0.34` on
+`F2 - F1` opens ~53% of them. There is no boundary web at that setting —
+what ships is one open lens with the ceiling guard's stone teeth in it,
+read as pillars. This is why every system is envelope-sized and why the
+open column is median 30 in a 69-tall box.
+
+**The fix is the shipped mechanism at a lattice scale that has an
+anatomy.** No new field, no second threshold (see §Refuted). Land these
+three constants together, because each alone is meaningless:
+
+    CAVE_CELL:      52.0 -> 22.0
+    CAVE_THRESHOLD: 0.34 -> 0.09
+    CAVE_SQUASH:     2.0 -> 1.2
+
+**Measured targets** (from `cave_probe field=`, 3 field seeds x 3
+thresholds, so these are not aspirations):
+
+| | shipped | this setting |
+|---|---|---|
+| open column median | 30 | **3–4** |
+| open column p95 | 58 | **9–18** |
+| open column max | 64 | **17–30** |
+| contrast p95/median | 2.0x | **3.0–4.5x** |
+| largest component's share of the union | — | **99%** |
+
+Re-measure with `cave_probe field=1 t=0.09 t3=0 cell=22 squash=1.2` and
+then, after building, with the world census — the two must agree, and if
+they do not, the built world is being reshaped by something downstream
+(the ceiling guard and the gravel floors are the candidates) and that is
+a finding.
+
+**Bar on the built world**: contrast (p95/median open column) **≥ 3.0,
+p10 over 16 seeds** — an order statistic, per §7.9. Median open column
+in **3–8**. Tallest open column **≥ 25**.
+
+**Two riders.**
+
+- `CAVE_SQUASH` dropping from 2.0 to 1.2 reduces the deliberate
+  wider-than-tall anisotropy. The *bedding* alignment is a separate
+  mechanism (`strata_offset`'s shear) and is unaffected — check by eye
+  that systems still lie along the visible dip, and say so with a strip.
+  If they visibly stop following the strata, that is a finding and
+  squash is the wrong lever.
+- `MAX_CEILING_SPAN 36` and its stone teeth were doing architectural
+  work by accident. With real passages, long roof runs should be rare;
+  **report how many teeth are dropped before and after.** If it falls to
+  near zero, say so — the guard stays (it is a load bound, not a
+  decoration), but the "pillar-divided rooms" the review admired will be
+  gone and something has to replace them, which is task 3.
+
+---
+
+## Task 3 — Rooms: one deliberate chamber per system
+
+**The defect.** After task 2 the tallest opening is ~25–30 cells. That
+is a room *relative to* a 3-cell passage, which is most of what
+compression-and-release needs, but there is no monumental space, and
+criterion 3 ("the photograph is always taken at the release point")
+wants one place per system that is conspicuously bigger than everything
+else.
+
+**The mechanism: dilate the single best junction, not every junction.**
+After the void is carved and kept (task 1 step 3), find the void cell
+with the largest clearance — the greatest Chebyshev distance to solid,
+computed over the kept component — and grow a chamber around it:
+
+- Radius from a per-system draw on `Purpose::CaveChamber` (25), giving a
+  vertical half-extent in **12–24** cells and horizontal 1.4x that.
+- The chamber is the union of the existing void with an ellipse, then
+  **re-run task 1's step 2 and the ceiling guard**, so growth cannot
+  breach the rind or hang an unsupported roof. Growth that would be
+  clipped to nothing is reported, not silently skipped.
+- A **cap that bounds the ellipse, never the decision to grow one**
+  (§7.8): if the massif around it is too thin, the chamber comes out
+  smaller — it does not come out absent.
+
+**Bar**: tallest open column **≥ 40, p50 over 16 seeds**, with the
+contrast bar from task 2 still met (a chamber that raises the median as
+much as the p95 has bought size, not drama — that is exactly how the
+refuted `F3` rule failed).
+
+**Do not** implement this as a second threshold on the field. See
+§Refuted; it was measured and it widens everything.
+
+---
+
+## Task 4 — Formations: raise the ceiling, cluster the drips, allow one column
+
+Only after tasks 1–3. Three separate changes, one commit each is fine.
+
+**4a — The height ceiling.** `2 + unit * 6` (`passes.rs`, the speleothem
+block) is a uniform draw with a maximum of 8 cells, clamped further to
+`span - 2`. That is the entire measured distribution: median 3, max 7.
+Replace with a **heavy-tailed draw scaled to the local open span**: most
+formations 1–3 cells (soda straws), a minority mid-size, and a rare one
+reaching a large fraction of the span. A squared or cubed unit draw
+times `(span - 2)` is the cheapest shape that does this; state which you
+used and why. Keep the taper (secondary column shorter — the root is the
+wide end): at these heights it is what stops a 20-cell formation reading
+as a *post*, and a 20-cell rectangle is what the current 2-wide rule
+would produce.
+
+**Bar**: formation height **p50 ≤ 3** (the fringe must stay a fringe),
+**p90 ≥ 10**, **max ≥ 25** — a distribution with a tail, not a bigger
+uniform draw. Both ends are bars; hitting only the top one means
+everything got taller and nothing got exuberant.
+
+**4b — Clustering, and every gallery.** Two rules to change:
+
+- `SPELEO_SPACING 4` enforces even spacing, which is precisely the
+  "reads as a comb" artefact and is the opposite of drip concentration.
+  Replace the fixed minimum with a **drip-focus field** on
+  `Purpose::Drip` (26): a low-frequency noise over x giving a local
+  density, so formations bunch in wet stretches and leave dry ones bare.
+  Keep a **minimum of 1–2 columns** so two formations cannot merge into
+  a wall.
+- Formations are placed only on `floor[i]` — the *bottommost* run per
+  column — so a multi-level system decorates one level. Place on every
+  run tall enough to qualify, not only the lowest.
+
+**Bar**: visible free-standing formations per system **≥ 60** (from 17),
+measured by `cave_probe`, which reads them back off the world rather
+than counting writes. And the eye test the number cannot make: the strip
+must read as clustered, not as a denser comb — the reviewer judges that.
+
+**4c — One fused column, in a chamber only.** `passes.rs` states the
+rule "a formation must never bridge floor to ceiling — a column splits
+the passage the player walks", and enforces two open rows. Keep it for
+passages; **allow exactly one floor-to-ceiling fused column per system,
+inside the task-3 chamber, placed off the chamber's centre line** so it
+divides nothing the player must pass through. This is criterion 2's
+money shot and criterion 1's "monumental anchor formation" in one
+object.
+
+Also raise the near-pair: `SPELEO_PAIR`'s halves are drawn from the same
+capped 2–8 range, which is why the tallest measured pair is 7 cells
+combined. With 4a's draw a pair should reach **two-thirds of the chamber
+height each side with a 1–2 cell gap**.
+
+**Bar**: near-pairs **≥ 1 per world, p50 over 16 seeds** (from 0–2 per
+16 seeds); tallest pair combined **≥ 30 cells**; exactly one fused
+column per system that has a chamber, zero in systems that do not.
+
+**The at-rest landmine here is real**: a fused column is attached solid
+spanning floor to ceiling, which is *more* support, not less, so it is
+safe by the same argument the existing formations use — but it now sits
+on the gravel floor's verified surface. Write it from the **stone under
+the floor** upward, exactly as the stalagmite rule already does
+("rooted in the massif means rooted on rock, not standing on loose
+fill"), and re-run the at-rest suite before believing it.
+
+---
+
+## Task 5 — Waterline formations
+
+Criterion 5, scoped to what is free: no renderer reflections (do not
+chase them). A formation standing **in** the pool, with a crystal
+minority whose glow already spills across water, buys the Luray effect's
+readable half.
+
+The per-system waterline is one row (`water_line`, `carve_cave_void`'s
+caller). Today formations are placed against the floor and the water is
+written over them, so **`cave_probe` counts 0–9 formations at a
+waterline across 16 seeds**. Change the placement to prefer columns
+whose floor is within a few cells *below* the waterline, so a formation
+breaks the surface, and raise the crystal minority (`SPELEO_CRYSTAL
+0.15`) for those columns only.
+
+**Bar**: formations at a waterline **≥ 8 per flooded system** (from
+0–9 per 16 *seeds*), and at least one crystal among them in the median
+flooded system. Ship the strip: a flooded chamber with lit crystal at
+the surface is the picture this task exists for.
+
+**Landmine**: water is written as `ponds` writes it — level, full, one
+row for the system. A formation must not perch water above its own
+level, and `aux == 0` on a Liquid means **full** (§7.1).
+
+---
+
+## Task 6 — Ceiling grain along the strata
+
+Criterion 6. Ceilings are Worley curves with no structural grain; real
+ceilings break along bedding into stepped, blocky profiles, and those
+steps are also where the breakdown mounds below came from.
+
+Snap ceiling rows toward the local strata locus — the same
+`strata_offset(x)` the shade pass, the benches, the lenses and the cave
+shear already use (this would be its fifth consumer; it must agree with
+the other four). A ceiling cell within one row of a band boundary moves
+to it, giving stepped profiles that follow the visible banding. Draw on
+`Purpose::CeilingGrain` (27) only for the per-band jitter, if you need
+any.
+
+**Bar**: this one is by eye — a strip at `zoom=4` showing stepped
+ceilings that line up with the drawn bands. Pair it with a counter of
+rows moved, so "did it fire at all" is a number (§7.15): a change that
+moves zero rows and a change that is too subtle to see look identical.
+
+**Watch**: moving a ceiling row *down* removes void and can orphan a
+component or expose a long roof run; re-run task 1 step 2, the component
+keep and the ceiling guard afterwards. Moving it *up* is the dangerous
+direction — it eats the rind. Prefer down-only and say so.
+
+---
+
+## Decisions for the owner (do not start until these are ruled)
+
+**D1 — How many caves per world?** Task 1 raises the share of worlds
+holding a cave from ~30% to ~90% at unchanged `vault_density 1.6`. The
+round-3 ruling "density 1.6 kept — one system, rarely two, a fifth of
+worlds none" was made against a counter that counts geode vugs as
+systems and so did not describe the world it was ruling on. Options:
+keep 1.6 and let almost every world have a cave; or drop it to ~0.8 to
+restore the intended rarity now that the presence rate is real.
+
+**D2 — Is a monumental chamber wanted (task 3), or is
+passage-vs-30-cell-room enough?** Task 3 is the largest new mechanism in
+this round and the only one that is not a repair. It can be cut and the
+round still fixes the three causes.
+
+**D3 — Cave density vs. pocket density.** The clean way to stop pockets
+from breaching caves is task 1. The *other* way is to keep pockets out
+of the cave depth band. That would also fix the "pockets read as
+ore/loot and are sand" complaint from the world review (§2) by giving
+the deep band a different vocabulary from the shallow one. Out of scope
+here unless you want it in.
+
+**D4 — Rock grain (reviewer-side, not this round).** In every cave
+render, the loudest thing on screen is `render.rs`'s
+`JITTER_STRENGTH 0.12` — a per-pixel ±12% brightness noise applied at
+full strength to deep rock. It reads as television static and it
+competes directly with criterion 4 (darkness preserved) and criterion 6
+(the rock has grain and flow). Grading it down with depth is the same
+pure function of `(x, y, horizon[x])` the depth light already is, so it
+keeps the dirty-rect skip. This is `src/render.rs`, so it is the
+planning session's change, not the data track's, and it wants a runtime
+selector rather than a chosen value (the repo's standing answer for
+look questions). Say whether you want it and it lands beside this round.
+
+---
+
+## Refuted before specification, so it is not tried a third time
+
+Round 3 rejected a second sub-threshold carving discs around Worley
+feature *points*, correctly: such a disc never touches the `F2 - F1`
+boundary web, so every chamber it adds is a sealed satellite. That
+reasoning does **not** carry to `F3 - F1`, which is small at lattice
+*vertices*, and a vertex is on the web by construction. Measured with
+`cave_probe field=`: the union's largest component keeps **94% at
+t3 = 0 rising to 99% at t3 = 0.34** — the second threshold *improves*
+connectivity.
+
+It is still refused, for a different reason the same dump gives: it
+widens **everything**, not junctions. Contrast falls 3.2x → 2.1x as t3
+rises and the median open column doubles. It buys size, not drama, which
+is the failure mode task 3's bar is written to catch.
+
+One methodological note, because it cost time: the first metric used
+here — "what fraction of junction cells are not on the web" — read 31–46%
+and looked damning. It was the wrong question. A bulge cell one step off
+the strip is still in the room, reached through its neighbours; only the
+union's connectivity answers it. Sanity-check a new metric against a case
+you know is fine before trusting it about a case you don't.
+
+## Findings
+
+*(Write here when a spec above does not survive contact with the code.
+One entry per surprise, with the numbers. Rounds 1–4 have eleven and
+every one is load-bearing.)*
