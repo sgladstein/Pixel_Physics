@@ -22,6 +22,39 @@
     ],
     max_unsupported_span: 16,
 
+    // Stone is a **product** of a reaction now (lava quenched by water), and
+    // README.md's rule for that is unconditional: any target of
+    // `burns_into`/`melts_into`/`boils_into`/a reaction inherits the source's
+    // temperature and needs somewhere to put it. Left at the default 0 the
+    // crust arrives at the lava's own 1000C and can *never* cool -- with no
+    // conductivity, no melting point and no reactions, `fire::update` takes
+    // its thermally-inert fast path and returns before it ever reads the
+    // temperature again, so the cell is not merely slow to settle, it is
+    // frozen hot for the rest of the run.
+    //
+    // Measured rather than assumed, because it is not the awake-chunk cost
+    // that note warns about -- it is worse. A quenched flow in
+    // `filmstrip scene=lavapour`, with this line absent: the crust becomes a
+    // permanent 1000C boiler sitting in the pond. `reacted` stops at 811 by
+    // frame ~1100 (all the lava is spent), and `boiled` keeps climbing
+    // *linearly forever* -- 24,803 at frame 1100, 61,851 at frame 2300, a
+    // steady ~30 boil/condense pairs every frame with nothing left burning
+    // and nothing left flowing -- while 10 of 40 chunks never sleep again.
+    // It reads on screen too: the crust draws tan, not grey, because
+    // `render.rs`'s heat glow blends a 1000C cell halfway to its bright fire
+    // tint whatever the material is.
+    //
+    // With this line: `boiled` converges (see the commit that added lava for
+    // the paired numbers) and the crust cools to grey rock. The cost is the
+    // real trade -- stone is the most numerous material in the world, and a
+    // nonzero conductivity takes every *visited* stone cell off that fast
+    // path and onto four neighbour temperature reads. `examples/ascii.rs`
+    // has no stone in its stress scenes, so it cannot see that cost at all;
+    // it was measured on the stone-heavy scenes instead. 0.1, matching
+    // `ash.ron` (the other combustion product) rather than a physical basalt
+    // figure, and well under `diffuse_heat`'s 0.25 stability ceiling.
+    heat_conductivity: 0.1,
+
     // Attached rock -- the massif the slice is cut through -- is braced by
     // material out of plane, so it reaches far further than anything the
     // player stacks in front of it. 16 * 12 = 192 cells, comfortably more

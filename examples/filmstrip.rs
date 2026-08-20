@@ -158,6 +158,102 @@ fn build(args: &Args) -> World {
                 w.set(x, rim_y - 1, slick);
             }
         }
+        // The heat verb (the M14 follow-up's second half): lava poured down
+        // a stone ramp into a walled pond, with a wood stand at the
+        // shoreline. Three separate things to read off the sheet, and only
+        // the first is what the counters answer:
+        //
+        // 1. **A stone crust at the interface**, stippling in over a few
+        //    frames rather than drawing as a line -- that is
+        //    `lava.ron`'s reaction, and `reacted` in the phase-change
+        //    line below the tile is its "did it fire at all" count. Grey
+        //    cells appearing where lava met water and grey cells that were
+        //    already ramp are the same grey at this zoom, which is exactly
+        //    the case `CLAUDE.md` says a picture cannot answer.
+        // 2. **A steam plume** off the pond -- the quench's other product,
+        //    born at the lava's own temperature (`fire::try_react` takes
+        //    the hotter side) so it rises instead of flashing back.
+        // 3. **The wood catching without a flame anywhere in the scene**,
+        //    purely from conducted heat crossing `wood.ron`'s
+        //    `ignition_temperature`. Nothing here is pre-ignited, unlike
+        //    `scene=boil` which has to light an oil slick by hand: that is
+        //    the whole point of the verb. It has no counter of its own on
+        //    the tile line -- the evidence is the ash it leaves (70 cells
+        //    by frame 1500, censused with a throwaway probe) and
+        //    `fire.rs`'s `lava_ignites_adjacent_wood`, which asserts it on
+        //    a sealed pocket where the flow cannot drain away from the
+        //    wood.
+        //
+        // The ramp is a solid wedge rather than a slab on stilts so it
+        // cannot erode structurally -- otherwise the run would be measuring
+        // that instead. Everything stone here is `attached` terrain for the
+        // same reason.
+        "lavapour" => {
+            stone_floor(&mut w);
+            let lava = w.materials.id_of("lava").expect("lava is a compiled-in material");
+            let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+            let (pond_left, pond_right, pond_top) = (250, 430, 250);
+            // Ramp surface height at column `x`: a straight fall from the
+            // head of the ramp down to the pond's near rim.
+            let (ramp_x0, ramp_y0, ramp_y1) = (170, 130, pond_top - 6);
+            let ramp_top = |x: i32| -> i32 {
+                let t = (x - ramp_x0) as f32 / (pond_left - ramp_x0) as f32;
+                ramp_y0 + ((ramp_y1 - ramp_y0) as f32 * t).round() as i32
+            };
+            for x in ramp_x0..=pond_left {
+                for y in ramp_top(x)..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // The pond's far wall. The near one is the ramp itself, which
+            // is what puts the shoreline in the lava's path.
+            for y in pond_top..floor_y {
+                w.set(pond_right, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in (pond_left + 1)..pond_right {
+                for y in (pond_top + 2)..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            // A low wood stand on the ramp just above the waterline. Low
+            // deliberately: wood is `Plant` and never displaced, so a tall
+            // stack would dam the ramp and the lava would never reach the
+            // pond inside the run. Five cells lets the flow pool against
+            // it, heat it, and then overtop it.
+            for x in (pond_left - 26)..(pond_left - 12) {
+                let surface = ramp_top(x);
+                for y in (surface - 5)..surface {
+                    w.set(x, y, Cell::new(wood, (rng::jitter(x, y) * 255.0) as u8));
+                }
+            }
+            // A back wall at the head of the ramp. Not decoration: without
+            // it the first frame's slump spreads the reservoir *left* off
+            // the end of the ramp and a third of the pour lands on the
+            // world floor instead of running down, which reads as a leak
+            // and quietly shrinks everything downstream of it.
+            for y in (ramp_y0 - 24)..=ramp_y0 {
+                w.set(ramp_x0 + 1, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            // The reservoir, at the head of the ramp: a finite pour, not an
+            // emitter. ~660 cells, sized against what it costs rather than
+            // what looks biggest -- every lava cell is pinned off-ambient
+            // and so keeps its own chunk awake for as long as it exists
+            // (see `lava.ron`'s header).
+            //
+            // Do not read `reacted` as "cells of lava consumed": it passes
+            // 660 (794 by frame 700 here) because a flow splits into
+            // partial-fill cells on the way down and each of those reacts
+            // in its own right. It is a "did it fire, and is it still
+            // firing" count, nothing more. The reading that matters is that
+            // it climbs steeply while the front is in the water and then
+            // *flattens* -- and that it never quite stops, because the film
+            // stranded on the ramp keeps dribbling in.
+            for x in (ramp_x0 + 2)..(ramp_x0 + 32) {
+                for y in (ramp_y0 - 22)..ramp_y0 {
+                    w.set(x, y, Cell::new(lava, (rng::jitter(x, y) * 255.0) as u8));
+                }
+            }
+        }
         // Falling and spreading, rather than resting on the floor already:
         // the state the horizontal seam tearing shows up in.
         "fall" => {

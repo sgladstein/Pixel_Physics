@@ -27,6 +27,37 @@
         (114, 81, 51),
     ],
     flammability: 0.25,
+    // Autoignition, added with lava (the heat verb): until lava shipped
+    // nothing in the world could raise a cell's *own* temperature without
+    // already being on fire, so this was left at its "never" default and
+    // `oil.ron`'s header says as much. Lava is exactly the case
+    // `ignition_temperature`'s own doc names -- "contact with lava,
+    // standing in a fire's heat" -- and without it a log dropped in a lava
+    // flow sits there getting hot and never lights.
+    //
+    // 400, not the plan sketch's 300, and the difference is entirely about
+    // what it does to *fire spread*, which is tuned against percolation and
+    // was not up for retuning here. `fire::diffuse_heat` pulls a cell
+    // toward the average of its four neighbours, so a wood cell's steady
+    // state next to N cells pinned at wood's own 700C burn temperature,
+    // with the rest at ambient 20, is (700N + 20(4-N)) / 4: one burning
+    // neighbour 190C, two 360C, three 530C. At 300 a wood cell with two
+    // burning neighbours would light deterministically and instantly,
+    // which is a different fire model from the probabilistic contact
+    // spread the flammability number above was tuned for; at 400 it takes
+    // three, a configuration a spreading front rarely holds. Against lava
+    // (pinned 1000C) the same arithmetic gives 265C for a lone cell
+    // touching a flow -- which does *not* light, deliberately, a stray
+    // splash should not torch a forest -- and 510C for a plank lying on
+    // one (lava below, air above, warm wood either side), which does.
+    // Measured, not just derived. `examples/ascii.rs` is byte-identical
+    // across this change on every scene but one -- including "a worm
+    // burrows through sand, then flees from fire" -- and on the one that
+    // moved (the burned-tree regrowth scene) the *fire* did the same thing
+    // either way: 666 ash before, 664 cells of wood consumed after. Only
+    // the stochastic regrow half downstream of it landed differently, which
+    // that scene's own comment already says it may.
+    ignition_temperature: 400.0,
     burn_temperature: 700.0,
     burn_duration: 420,
     burns_into: "ash",

@@ -1,6 +1,6 @@
 # Liquids & Gases
 
-*Current as of: this build.*
+*Current as of: this build (lava and the quench).*
 
 Where a powder falls and piles, a liquid falls and then spreads sideways
 until it finds a level surface — the same way real water does, settling
@@ -14,6 +14,15 @@ flatter and flatter over time rather than holding any kind of slope.
   it spreads more slowly and sluggishly than water does. Oil catches fire
   easily from a nearby flame (see [Fire & Heat](fire-and-heat.md)), and
   burns hot for a few real seconds before leaving ash behind.
+- **Lava** is the heaviest liquid there is, so it sinks straight through
+  both water and sand rather than floating on anything, and the thickest —
+  it crawls where water runs. It glows, and it is hot enough to boil a pool
+  it is anywhere near. Water and lava annihilate each other where they
+  touch: the lava becomes stone and the water becomes steam, so a flow
+  entering a pond builds its own crust as it goes, cell by cell rather than
+  all at once, and the crust — being loose new rock rather than part of the
+  bank — tends to crumble into rubble and sink. See
+  [Fire & Heat](fire-and-heat.md) for what lava does to everything else.
 
 There are two gases, and both rise rather than fall, drifting upward
 through open space and pooling against a ceiling once they hit one,
@@ -24,8 +33,9 @@ simulation currently produces it on its own; an explosion's crater, for
 instance, is left clean and empty once the dust settles rather than
 smoke-filled.
 
-**Steam** is boiled-off water (see [Fire & Heat](fire-and-heat.md)), pale
-and a little lighter than smoke, so it rises through it. Unlike smoke it
+**Steam** is boiled-off water — or water a lava flow quenched against (see
+[Fire & Heat](fire-and-heat.md)) — pale and a little lighter than smoke, so
+it rises through it. Unlike smoke it
 does not last: steam is born hot, cools as it drifts, and once cool enough
 it turns back into water wherever it happens to be — beading up under a
 ceiling and dripping back down, or condensing in mid-air into droplets

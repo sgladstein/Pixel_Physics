@@ -1073,6 +1073,14 @@ const EMBEDDED: &[&str] = &[
     // milestone's gas phase; ice joins it here (at the end, same rule)
     // when the freezing half ships.
     include_str!("../../assets/materials/steam.ron"),
+    // Appended, never inserted -- see the comments above. The heat verb.
+    // Another branch is appending `ice.ron` for the freezing half of the
+    // same milestone; on a merge conflict here, **keep both in either
+    // order** -- neither has a pinned convenience constant (the contracts,
+    // `STONE` through `SMOKE` and `RUBBLE = 15`, are all further up), so
+    // the only thing the ordering decides is two ids nothing addresses by
+    // number.
+    include_str!("../../assets/materials/lava.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

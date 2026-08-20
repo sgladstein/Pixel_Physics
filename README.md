@@ -1553,11 +1553,23 @@ Known limitations:
 - **Repose angles come out a few degrees shallower than requested** — roughly
   39/30/18 against 45/34/22 — because reach is a whole number of cells. Fine as
   a tuning knob, not a physical measurement.
-- **Only oil, ash, wood and moss have real thermal numbers.** Every other
-  shipped material defaults to non-flammable, non-meltable,
-  `heat_conductivity: 0.0` — correct for sand/water/stone/gravel/smoke, which
-  have no business catching fire. Lava, steam and richer reactions are
-  natural additions once there is a design reason to want them.
+- **Most shipped materials still have no thermal numbers.** Oil, ash, wood,
+  moss, water, steam, stone and lava now carry real ones; sand, gravel,
+  smoke and the rest default to non-flammable, non-meltable,
+  `heat_conductivity: 0.0`, which is correct for material with no business
+  catching fire. The rule for adding more has not changed and is in
+  `stone.ron`'s and `ash.ron`'s headers: **any material that can be the
+  target of `burns_into`/`melts_into`/`boils_into`/a reaction needs a real
+  `heat_conductivity`**, or the heat it inherits has nowhere to go. Stone
+  gained one for exactly that reason when it became lava's quench product,
+  measured both ways — see the commit that added lava.
+- **Lava that never reaches water never stops being lava.** The
+  `intrinsic_temperature` pin has no cooling model behind it, so a flow
+  which stalls on a slope stays molten and holds its chunks awake
+  indefinitely (measured: 143 cells still molten after 3000 frames of
+  `filmstrip scene=lavapour`). Quenching against water is the only exit
+  today. Stone has no `melting_point` either, deliberately — see
+  `lava.ron`'s header for why the cycle is one-way for now.
 - **Plants don't reseed, and a burned forest doesn't regrow on its own** —
   the plan's M16 verify criterion "a forest burns and regrows" only got the
   "burns" half; there's no mechanic yet for a burned-out patch to spawn a

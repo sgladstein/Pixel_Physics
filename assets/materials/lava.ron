@@ -1,0 +1,150 @@
+// Lava is the heat verb: the first thing in the world that is hot *because
+// of what it is* rather than because something set it on fire. Everything
+// before it needed a flame -- oil had to be lit, wood had to be next to
+// something already burning -- so there was no way to *apply* heat to a
+// scene. Pour this instead.
+//
+// # The pin, and what it costs
+//
+// `intrinsic_temperature` re-pins the cell to 1000C on every visit, after
+// diffusion, and pushes heat and light into the coarse field the way
+// `tick_burn` does for a flame. Two consequences worth knowing before
+// reaching for this field again for something else:
+//
+// - A pinned cell is permanently off-ambient, so `fire::must_stay_dirty`
+//   keeps its own chunk awake for as long as it exists. Acceptable here
+//   only because lava is rare *and self-limiting* -- it quenches to stone
+//   the moment it touches water, which is the whole reaction below.
+//   Ruinous for anything bulk; do not hand this to a terrain material.
+//
+//   **"Self-limiting" is conditional on the lava actually reaching water,
+//   and a flow down a slope does not all reach it.** Measured, because it
+//   is not obvious: a viscous liquid creeping down a ramp strands a thin
+//   film behind its front -- horizontal transfer stops once neighbouring
+//   fills are within `min_transfer` of each other -- and every cell of
+//   that film stays molten. `filmstrip scene=lavapour` still held 195
+//   lava cells at frame 1500 and 143 at frame 3000, declining but nowhere
+//   near gone, with 9 of 40 chunks permanently awake and the pond below
+//   them simmering at a steady ~25 boil/condense pairs a frame with
+//   nothing left flowing. That is the pin's advertised cost being paid in
+//   full rather than a bug, and it is the thing a "lava freezes into
+//   stone as it cools" model would fix. Until then: a scene that wants a
+//   flow to *finish* has to pour it somewhere the water can reach all of
+//   it.
+// - The pin bypasses `fire::diffuse_heat` entirely, so `heat_conductivity`
+//   below is **not read today**. It is stated anyway, and honestly: it is
+//   what lava would conduct at if the pin were ever lifted (a cooling-crust
+//   model, say), and leaving the field absent would read as "lava is
+//   thermally inert", which is the opposite of true. Neighbours still cool
+//   lava in the only way that matters -- by conducting heat away from the
+//   pinned boundary through *their* diffusion.
+//
+// 1000C is chosen against the two thresholds it has to clear, not from a
+// basalt table: it is far above water's 100C boiling point (so a pool near
+// lava boils rather than merely warming) and far enough above the 400C
+// `wood.ron` now autoignites at that a log lying *against* a flow lights
+// without needing a flame first -- though a single wood cell brushed by a
+// single lava cell does not, which is deliberate; see wood.ron for the
+// arithmetic. `render.rs`'s heat glow saturates at 400C above ambient,
+// so anything from ~420C up draws identically -- the number is a
+// simulation statement, not a colour one.
+//
+// # Quench
+//
+// The reaction lives **here, on lava**, never on `water.ron`, and that is
+// a performance contract rather than a style preference:
+// `fire::update`'s thermally-inert fast path tests `reactions.is_empty()`,
+// and `try_react` clones the reaction `Vec` once per visited cell that has
+// one. Water is one of the most numerous materials in any scene, so a
+// reaction listed on water would be paid for by every water cell in the
+// world; lava is a handful of cells. Same pair, same outcome, opposite
+// cost.
+//
+// `produces: ("stone", "steam")` is ordered `(self, with)` -- lava becomes
+// stone, the water it touched becomes steam. Both take the hotter side's
+// temperature (see `fire::try_react`), so the steam is born at ~1000C and
+// rises as a real plume instead of flashing straight back to water under
+// its own 45C condensation point.
+//
+// chance 0.8, not 1.0: at 1.0 a lava front meeting a pool converts a whole
+// contact row in a single frame and the interface reads as a drawn line.
+// Below 1 the crust stipples in over a few frames, which is the same
+// argument `fire::PHASE_CHANGE_CHANCE` makes for a boiling surface.
+//
+// # Stone does not melt back
+//
+// **Deliberately off**: `stone.ron` has no `melting_point`/`melts_into`,
+// so there is no stone -> lava direction and the cycle is one-way. Adding
+// it is a one-line content change, and it is left undone on purpose --
+// stone is the single most numerous solid in the world, and a finite
+// `melting_point` takes every stone cell off the thermally-inert fast
+// path for a transition that essentially never fires (nothing in the world
+// reaches 1200C except lava itself, which is already stone's *product*).
+// Revisit when there is a heat source that is meant to melt terrain.
+(
+    name: "lava",
+    display: "Lava",
+    kind: Liquid,
+    // Molten rock, and the number does real work: 2.7 sinks through water
+    // (1.0) and through sand (1.6), so lava poured into a pond goes to the
+    // bottom and quenches from below rather than skating across the
+    // surface. Stone is `Solid` and never displaced regardless.
+    density: 2.7,
+    // Viscous. Water runs at 1000 (i.e. uncapped -- see water.ron for why
+    // that is deliberate there); lava is the material that should visibly
+    // *crawl*, and this is the knob that says so.
+    //
+    // Swept 20/40/80 on `filmstrip scene=lavapour`, rebuilding between
+    // points (this file is `include_str!`'d -- identical output across a
+    // sweep means the knob was never connected; these three differ, so it
+    // was). **The honest result is that the three are hard to tell apart by
+    // eye on that scene**, because its ramp is steep enough that the pour
+    // is dominated by falling rather than by horizontal transfer, and
+    // flow_rate only governs the latter. What did separate them was the
+    // quench count: `reacted` at frame 1500 came to 749 / 803 / 685 for
+    // 20 / 40 / 80, i.e. 40 delivers the most lava into the water over the
+    // run, with 20 leaving a thicker residual film stalled on the ramp and
+    // 80 thinning the front out. Kept at 40 on that, not on a look
+    // judgement nobody could actually make from the sheet. Re-sweep it on a
+    // *flat* pour, where horizontal transfer is the whole story, if the
+    // crawl ever needs to be tuned for its own sake.
+    flow_rate: 40,
+    // Well above water's 16: lava is allowed to stop levelling while still
+    // visibly uneven, which is both what molten rock looks like and one
+    // less pool shuffling fill forever to keep its chunks awake (a pinned
+    // material's chunks are expensive to keep awake -- see the note above).
+    //
+    // What it trades, since two knobs here move the same number in
+    // different currencies: this is also the knob that decides how thick
+    // the residual film stranded on a slope is, because horizontal
+    // transfer stops exactly when neighbouring fills come within it. A pool
+    // that stops levelling sooner is a flow that stops *draining* sooner,
+    // and every cell it leaves behind is pinned at 1000C forever. Lowering
+    // it toward water's 16 thins that film at the cost of keeping the pool
+    // trading for longer; it does not remove it, because a cell with any
+    // fill at all is still a lava cell. The real fix is a cooling model,
+    // not this number.
+    min_transfer: 60,
+    // Explicit, against the surrounding default: lava must not dry up in
+    // the open the way a puddle does. It leaves by quenching, or not at
+    // all.
+    evaporates: false,
+    // Not read while the pin above is in force. See the header.
+    heat_conductivity: 0.2,
+    intrinsic_temperature: 1000.0,
+    reactions: [
+        (with: "water", produces: ("stone", "steam"), chance: 0.8),
+    ],
+    // Deep reds and oranges rather than the bright yellow lava is usually
+    // drawn as: `render.rs`'s heat glow already blends a non-burning cell
+    // halfway toward its bright `FIRE_TINT_HIGH` (255, 210, 110) at this
+    // temperature, so a palette that started bright would clip to a flat
+    // cream. Starting dark leaves the glow somewhere to travel, and leaves
+    // the per-cell shade grain visible through it.
+    colors: [
+        (198, 72, 24),
+        (176, 52, 18),
+        (214, 96, 30),
+        (160, 40, 14),
+    ],
+)

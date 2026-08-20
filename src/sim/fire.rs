@@ -1056,6 +1056,301 @@ mod tests {
         }
     }
 
+    /// A stone-walled basin of water with a lava blob **submerged in it**,
+    /// the scene the quench tests below share. Returns the world and the
+    /// lava id.
+    ///
+    /// Submerged, not dropped in from above, and that is the whole design
+    /// of the scene rather than a convenience. A lava cell only quenches
+    /// where it actually touches water; anything that ends up somewhere the
+    /// pool cannot reach -- a rim, a corner, a thin film on a slope -- stays
+    /// molten, stays pinned off-ambient, and holds its own chunk awake for
+    /// the rest of the run *by design* (see `lava.ron`). A first version of
+    /// this helper dropped a 5x5 blob from above the waterline and left
+    /// exactly one lava cell stranded on the basin rim, which is a true
+    /// fact about lava and not the thing these tests are about. Starting
+    /// the blob inside the pool with water on all six sides of it makes
+    /// "all of it quenches" a property of the geometry.
+    fn lava_dropped_in_a_basin() -> (World, MaterialId) {
+        let mut w = test_world();
+        let lava = w.materials.id_of("lava").unwrap();
+        for y in 36..=50 {
+            w.set(20, y, Cell::new(material::STONE, 0).with_attached(true));
+            w.set(44, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        for x in 20..=44 {
+            w.set(x, 50, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        for x in 21..44 {
+            for y in 42..50 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        for x in 30..=32 {
+            for y in 45..=47 {
+                w.set(x, y, Cell::new(lava, 0));
+            }
+        }
+        (w, lava)
+    }
+
+    #[test]
+    fn water_quenches_lava_into_stone_and_steam() {
+        // M14's own verify line ("water quenches lava into stone and
+        // steam"), on shipped content with no debug brush and nothing
+        // pre-ignited. **Both** cells have to transform: a reaction that
+        // converted the lava and left the water alone would still produce a
+        // grey crust on a contact sheet and would be conserving nothing.
+        //
+        // The pair is checked directly first, so the assertion is about the
+        // reaction and not about whether a blob happened to touch a pool
+        // this run; the driver runs below then confirm the same thing
+        // happens when the sweep is the one doing the visiting.
+        let mut w = test_world();
+        let lava = w.materials.id_of("lava").unwrap();
+        let steam = w.materials.id_of("steam").unwrap();
+        w.set(30, 30, Cell::new(lava, 0));
+        w.set(31, 30, Cell::new(material::WATER, 0));
+        // chance 0.8 per visit: a handful of visits is a vanishing failure
+        // probability, and the roll is deterministic for a given build.
+        for _ in 0..40 {
+            update(&mut w, 30, 30);
+            if w.phase_changes.reacted > 0 {
+                break;
+            }
+        }
+        assert_eq!(w.get(30, 30).material, material::STONE, "lava did not become stone");
+        assert_eq!(w.get(31, 30).material, steam, "the water it quenched against did not become steam");
+
+        // And through the sweep, both drivers -- behaviour only the player
+        // sees is behaviour only the parallel driver produces.
+        for parallel_driver in [false, true] {
+            let (mut w, lava) = lava_dropped_in_a_basin();
+            let lava_before = count_of(&w, lava);
+            for _ in 0..400 {
+                if parallel_driver {
+                    crate::sim::parallel::step(&mut w);
+                } else {
+                    super::super::update::step(&mut w);
+                }
+            }
+            assert!(
+                w.phase_changes.reacted > 0,
+                "a lava blob dropped into a pool never reacted in 400 frames (parallel: {parallel_driver})"
+            );
+            assert!(
+                count_of(&w, lava) < lava_before,
+                "lava was still all there after {} reactions (parallel: {parallel_driver})",
+                w.phase_changes.reacted
+            );
+        }
+    }
+
+    #[test]
+    fn quench_steam_is_born_hot_and_rises() {
+        // The half of `try_react`'s hotter-side temperature rule that only
+        // shows up in play: quench steam born at the *water's* ~20C would
+        // sit below its own 45C condensation point and flash straight back
+        // to water on its next visit, so the reaction would produce a
+        // grey crust and no plume at all. Born at the lava's pin it rises
+        // first and condenses somewhere else later, which is the visible
+        // thing the quench owes.
+        //
+        // Asserted as two separate claims, because either one alone passes
+        // for the wrong reason: a hot cell that never moves is a stuck
+        // pocket, and a cell that rises while cold is just a gas.
+        let mut w = test_world();
+        let lava = w.materials.id_of("lava").unwrap();
+        let steam = w.materials.id_of("steam").unwrap();
+        let intrinsic = w.materials.get(lava).intrinsic_temperature;
+        for x in 28..=32 {
+            w.set(x, 40, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        w.set(30, 39, Cell::new(lava, 0));
+        // Above the lava, not beside it: water is lighter (1.0 against
+        // 2.7) so it rests on top rather than sinking through, and the
+        // steam it becomes then has open sky to rise into.
+        w.set(30, 38, Cell::new(material::WATER, 0));
+
+        let mut born = None;
+        for _ in 0..40 {
+            update(&mut w, 30, 39);
+            let cell = w.get(30, 38);
+            if cell.material == steam {
+                born = Some(cell.temperature());
+                break;
+            }
+        }
+        let born = born.expect("water above lava never became steam");
+        assert!(
+            (born as f32) >= intrinsic,
+            "quench steam was born at {born}C, below lava's own {intrinsic}C -- \
+             the hotter-side rule in try_react is not holding"
+        );
+
+        // Now let it move. Serial and parallel both, since rising is a
+        // movement rule and movement is where the drivers differ.
+        for parallel_driver in [false, true] {
+            let mut w = test_world();
+            w.set(30, 38, Cell::new(steam, 0).with_temperature(born));
+            let mut highest = 38;
+            for _ in 0..200 {
+                if parallel_driver {
+                    crate::sim::parallel::step(&mut w);
+                } else {
+                    super::super::update::step(&mut w);
+                }
+                // Scanned across the whole world, not just the column it
+                // started in: a `Gas` disperses sideways as it rises, and
+                // the first draft of this looked only at x == 30 and
+                // reported "never rose" for steam that had risen and
+                // drifted two cells over.
+                if let Some(y) = (0..40).find(|&y| (0..64).any(|x| w.get(x, y).material == steam)) {
+                    highest = highest.min(y);
+                }
+            }
+            assert!(
+                highest < 38,
+                "steam born at {born}C never rose from row 38 (parallel: {parallel_driver})"
+            );
+        }
+    }
+
+    #[test]
+    fn lava_ignites_adjacent_wood() {
+        // The heat *verb*: before lava there was no way to set anything
+        // alight except by putting it next to something already burning,
+        // and `oil.ron`'s header says exactly that. Nothing here is
+        // pre-ignited and nothing is flammable-adjacent -- the wood catches
+        // because conducted heat carried it over `wood.ron`'s
+        // `ignition_temperature`, which is the whole point.
+        //
+        // The wood is walled into a lava-filled pocket rather than left on
+        // an open flow, because `fire::diffuse_heat` pulls a cell toward the
+        // *average* of its four neighbours: one lava neighbour and three at
+        // ambient settles at (1000 + 60)/4 = 265C, deliberately below the
+        // threshold (see wood.ron), so a scene where the flow can drain
+        // away from the wood would be testing the flow, not the ignition.
+        for parallel_driver in [false, true] {
+            let mut w = test_world();
+            let lava = w.materials.id_of("lava").unwrap();
+            let wood = w.materials.id_of("wood").unwrap();
+            for x in 24..=40 {
+                for y in 34..=46 {
+                    let edge = x == 24 || x == 40 || y == 34 || y == 46;
+                    if edge {
+                        w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                    } else {
+                        w.set(x, y, Cell::new(lava, 0));
+                    }
+                }
+            }
+            for x in 31..=33 {
+                for y in 39..=41 {
+                    w.set(x, y, Cell::new(wood, 0));
+                }
+            }
+
+            let mut caught = false;
+            for _ in 0..600 {
+                if parallel_driver {
+                    crate::sim::parallel::step(&mut w);
+                } else {
+                    super::super::update::step(&mut w);
+                }
+                caught = (31..=33).any(|x| (39..=41).any(|y| w.get(x, y).is_burning()));
+                if caught {
+                    break;
+                }
+            }
+            let hottest = (31..=33)
+                .flat_map(|x| (39..=41).map(move |y| (x, y)))
+                .map(|(x, y)| w.get(x, y).temperature())
+                .max()
+                .unwrap();
+            assert!(
+                caught,
+                "wood sealed into a lava pocket never caught in 600 frames \
+                 (hottest wood cell {hottest}C, parallel: {parallel_driver})"
+            );
+        }
+    }
+
+    #[test]
+    fn a_quenched_lava_flow_lets_its_chunks_sleep() {
+        // The guard on the decision `stone.ron`'s `heat_conductivity` note
+        // records. A quench hands its stone the *lava's* temperature, and
+        // with stone left at the default conductivity of 0 that cell can
+        // never give the heat back: `fire::update`'s thermally-inert fast
+        // path returns before it ever looks at the temperature again, so
+        // the crust is a permanent 1000C boiler and the pool it is sitting
+        // in simmers for the rest of the run.
+        //
+        // Deliberately worded as "the world sleeps", not "the crust cools":
+        // a temperature assertion would pass on a crust that cooled while
+        // something else it had already boiled kept the chunks awake, and
+        // the cost this is guarding is wakefulness. Confirmed to fail for
+        // the thing it guards, which is the whole reason it is worded this
+        // way. Paired, same scene, same content: with stone.ron's
+        // `heat_conductivity` present this sleeps at frame **204** (serial)
+        // / **198** (parallel) with a lifetime `boiled` of **61**; with
+        // that one line deleted it runs the full 4000-frame budget with a
+        // chunk still awake, every lava cell long since quenched, and
+        // `boiled` at **3968** and still climbing linearly.
+        //
+        // The blob is dropped *into* the pool, not poured down a slope,
+        // and that is load-bearing: a viscous flow on a slope strands a
+        // thin film of lava that never reaches water (measured at 143
+        // cells still molten after 3000 frames of `filmstrip
+        // scene=lavapour`), and every one of those cells is pinned
+        // off-ambient and holds its own chunk awake by design. This scene
+        // has to be one where all of the lava really does quench, or it
+        // would be measuring that instead.
+        for parallel_driver in [false, true] {
+            let (mut w, lava) = lava_dropped_in_a_basin();
+            let mut slept_at = None;
+            for frame in 0..4000 {
+                if parallel_driver {
+                    crate::sim::parallel::step(&mut w);
+                } else {
+                    super::super::update::step(&mut w);
+                }
+                if w.active_chunk_count() == 0 {
+                    slept_at = Some(frame);
+                    break;
+                }
+            }
+            let p = w.phase_changes;
+            assert!(
+                slept_at.is_some(),
+                "a quenched lava flow never let its chunks sleep in 4000 frames \
+                 (parallel: {parallel_driver}): {} chunks awake, {} lava cells left, \
+                 reacted {}, boiled {}",
+                w.active_chunk_count(),
+                count_of(&w, lava),
+                p.reacted,
+                p.boiled,
+            );
+            assert_eq!(count_of(&w, lava), 0, "lava survived the quench (parallel: {parallel_driver})");
+        }
+    }
+
+    /// How many cells of one material the world holds. A census, not an
+    /// event count -- `CLAUDE.md`'s "a failure count is not a damage count"
+    /// applies here too: `PhaseCounts::reacted` says how many reactions
+    /// fired, which is not the same question as how much lava is left.
+    fn count_of(w: &World, material: MaterialId) -> usize {
+        let mut n = 0;
+        for y in 0..64 {
+            for x in 0..64 {
+                if w.get(x, y).material == material {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
     #[test]
     fn a_sealed_steam_pocket_still_condenses_and_settles() {
         // Condensation must not depend on the steam being able to move: a
