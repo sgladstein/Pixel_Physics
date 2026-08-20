@@ -503,3 +503,69 @@ and the structural workstream compares against its renders.
    reviewer thinks the grain is too fine.
 2. `region_variation <= 0.0` opts a preset out of families entirely, which
    is what keeps `flat` byte-identical.
+
+### 4 — Pockets: the spec held, and the gravel palette did **not** have to serve two masters badly
+
+Lenses are rotated onto the local bedding (`strata_offset`s own gradient,
+so the third consumer of that field agrees with the two that already
+existed), stretched 2-4x along it, and their count and size keyed to
+`Character.sediment` damped by `resistance`, thinning quadratically toward
+bedrock. Both factors are exactly `1.0` at a neutral character and zero
+depth, so a preset with no regional variation generates what it always did.
+The collect-then-verify-seal skeleton and the one-cell rind are untouched;
+only the shape function they evaluate changed, plus the scan bounds, which
+had to become the rotated ellipse's bounding box.
+
+**Paired measurement, canyon seed 1 at 512x320** (same world, same seed,
+pass toggled):
+
+| | lenses | mean bounding box | aspect | cells |
+|---|---|---|---|---|
+| before | 15 | 14.7 x 6.3 | 2.3:1 | 876 |
+| after | 4 | 38.0 x 8.5 | 4.5:1 | 633 |
+
+Fewer, much longer lenses — which is the direction the review asked for
+(the complaint was polka dots), but worth stating plainly rather than
+burying: **this seed loses two thirds of its lens count**. Across the
+16-seed sweep the cell totals go the other way, p90 `pockets` +42% to +70%
+(canyon 1193 → 2005, arid 1507 → 2557, rolling 1075 → 1676, terraced 1075
+→ 1523, wetland 921 → 1084). Outcomes are chaotic in the seed exactly as
+CLAUDE.md says, and seed 1 is not the sweep. Nothing else moved with them.
+
+The 8.5-cell mean height is how the *rotation* is shown to have fired at
+all rather than being a silent no-op: an unrotated lens is `2b` tall, 4-8
+cells. At canyon's dip a half-length of 19 contributes `2 x 19 x 0.09` =
+3.4 cells of extra height, which is what the measurement shows.
+
+**Gravel: the palette did not have to be forced.** The task offered a
+finding proposing a shade-range split as the fallback if one palette could
+not serve both scree and buried lens. It can — because task 3 built the
+families mechanism, so the split is now a four-line data change rather than
+a proposal. `assets/gravel.ron` gains a second family: family 0 is exactly
+what shipped and is what the brush, `talus`'s aprons and the soil profile's
+stony contact all still get; family 1 is warmer and darker and is used only
+by a lens sealed in rock. So scree still reads as broken rock against sky
+and soil, and a lens reads as a conglomerate bed against stone. Recolouring
+the material outright was the alternative and is recorded in the file as
+rejected rather than untried.
+
+Deliberately kept dull: the review found these reading as *ore*, a promise
+the game does not keep, so the buried family is warm and dark rather than
+bright or saturated.
+
+**One test method note, because it cost two wrong versions.** Both cheap
+classifiers for "is this gravel cell a lens or scree" miscounted, and for
+the same reason — they inferred which pass wrote a cell from where the cell
+is. "More than ten cells below the ground line" called 37 soil-contact
+cells buried, because a blanket is up to 34 cells deep and its stony base is
+family 0 by design. "Fully surrounded by rock" called 78, because a contact
+cell at the bottom of a blanket usually is. The version that works is a
+**paired comparison** against the same world built with `pocket_density:
+0.0` — the repo's own preferred shape, and here it is not merely better but
+exact, since `pockets` writes only into solid stone and nothing downstream
+reads a buried lens.
+
+Strips: `target/filmstrips/task4-after-{rolling,canyon}-s{1,7}.png`, against
+`task3-after-*` as the before. Canyon s1 at 1:1 is the clearest: round pale
+blobs become elongated lenses lying in the bedding, and brown gravel lenses
+appear where there was nothing legible at all.

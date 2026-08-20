@@ -41,6 +41,18 @@ const FAMILY_DRY: u8 = 2;
 /// sand ship three families, and resistance is a property of rock.
 const FAMILY_RESISTANT: u8 = 3;
 
+/// Gravel's second family: the buried read, for lenses sealed in the rock.
+///
+/// Not a region family — it is a *context* family, and that distinction is
+/// what let one palette serve two masters instead of trading them off.
+/// Gravel is read against two completely different backgrounds: scree
+/// against sky and rock face, and a lens against solid stone. Its shipped
+/// greys are within a few points of stone's, which is right for scree and
+/// makes a buried lens invisible. Recolouring the whole material to fix the
+/// lens would have made every talus apron read as something other than
+/// broken rock.
+const BURIED_FAMILY: u8 = 1;
+
 /// Which palette family a cell at `(x, y)` takes, from the blended region
 /// `Character` at `x`.
 ///
@@ -935,12 +947,37 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
 /// plant that will not be there. Far enough apart to both have a chance, near
 /// enough that a stand still reads as a stand.
 const TREE_SPACING: i32 = 7;
+/// How far a lens is stretched along its bedding plane, at the two ends of
+/// the draw.
+///
+/// A lens whose long axis is 2-4x its old one, at the same thickness. Round
+/// ellipses at a uniform density are what made these read as polka dots
+/// rather than as geology — and worse, as *ore*, which is a promise the game
+/// does not keep. A sedimentary lens is deposited within a bed, so it is
+/// long, thin and lies along the bedding; that shape is the whole difference
+/// between "a lens in the rock" and "a spot".
+const LENS_STRETCH: (f32, f32) = (2.0, 4.0);
+
 /// Sand and gravel lenses sealed inside the rock.
 ///
 /// Loose material the player only finds by digging, and which behaves the
 /// moment it is exposed — cut into one and it pours. Fully enclosed, so it is
 /// trivially at rest until something opens it, which is why this is the one
 /// place generated powder can sit at any shape at all.
+///
+/// **Lenses lie in the bedding.** Each ellipse's long axis is rotated onto
+/// the local strata band — the same `strata_offset` the shade pass bands the
+/// rock with and the surface benches snap to, so a lens sits *in* a visible
+/// bed rather than cutting across it. One noise field doing a third job that
+/// has to agree with the other two.
+///
+/// **Density and size follow the country and the depth.** `Character.
+/// sediment` makes a sedimentary region richer and a resistant one sparse,
+/// and both thin out toward bedrock: loose lenses are a shallow-burial
+/// feature, and a massif that is equally spotty at every depth reads as
+/// wallpaper. Both factors are exactly `1.0` at a neutral character and zero
+/// depth, so a preset with no regional variation generates what it always
+/// did.
 pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
     let mut n = 0;
     let p = ctx.terrain.params;
@@ -949,21 +986,59 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
     }
     const REGION: i32 = 64;
     let seed = ctx.terrain.seed;
+    let w = ctx.terrain.w;
     for ry in 0..ctx.terrain.h.div_euclid(REGION) + 1 {
-        for rx in 0..ctx.terrain.w.div_euclid(REGION) + 1 {
+        for rx in 0..w.div_euclid(REGION) + 1 {
+            // The region's own character and burial depth, sampled at its
+            // centre column. Per region rather than per candidate because the
+            // *count* has to be decided before a candidate exists, and a
+            // 64-cell region is well inside one region of the world map.
+            let mx = (rx * REGION + REGION / 2).clamp(0, w - 1);
+            let plan = ctx.plans[mx as usize];
+            let ch = ctx.terrain.character(mx);
+            // Sedimentary country is richer, resistant country is sparse.
+            // Written so that `sediment == 1` and `resistance == 1` -- the
+            // neutral character -- comes out at exactly 1.0.
+            let richness = (ch.sediment * (1.6 - 0.6 * ch.resistance)).clamp(0.0, 2.5);
+            // Depth, as a fraction of the massif's own thickness rather than
+            // an absolute row: a canyon massif is five times the depth of a
+            // wetland one and "near bedrock" has to mean the same thing in
+            // both.
+            let my = ry * REGION + REGION / 2;
+            let thickness = (plan.bedrock_top_y - plan.surface_y).max(1) as f32;
+            let t = ((my - plan.surface_y) as f32 / thickness).clamp(0.0, 1.0);
+            // Quadratic, for the same reason `plan`'s soil taper is: a linear
+            // fall thins lenses out as soon as the rock deepens at all, so
+            // the upper massif -- the part a player actually digs -- loses
+            // the feature it is supposed to have most of.
+            let with_depth = 0.15 + 0.85 * (1.0 - t) * (1.0 - t);
+            let density = p.pocket_density * richness * with_depth;
             // A fractional density means "sometimes one": the whole number is
             // guaranteed and the remainder is a per-region coin flip.
-            let whole = p.pocket_density.floor() as i32;
-            let extra = i32::from(noise::unit(seed, Purpose::Pocket, rx, ry) < p.pocket_density.fract());
+            let whole = density.floor() as i32;
+            let extra = i32::from(noise::unit(seed, Purpose::Pocket, rx, ry) < density.fract());
             for k in 0..whole + extra {
                 let cx = rx * REGION + (noise::unit(seed, Purpose::Pocket, rx * 31 + k, ry) * REGION as f32) as i32;
                 let cy = ry * REGION + (noise::unit(seed, Purpose::Pocket, rx, ry * 31 + k) * REGION as f32) as i32;
-                if cx < 0 || cx >= ctx.terrain.w {
+                if cx < 0 || cx >= w {
                     continue;
                 }
-                let a = 4.0 + noise::unit(seed, Purpose::Pocket, cx, cy) * 6.0;
-                let b = 2.0 + noise::unit(seed, Purpose::Pocket, cy, cx) * 2.0;
+                // Size follows the same supply as the count, gently -- 1.0 at
+                // a neutral character, 0.6..1.4 across the range regions
+                // actually draw.
+                let bulk = (0.5 + 0.5 * ch.sediment).clamp(0.5, 1.5);
+                let stretch = LENS_STRETCH.0
+                    + noise::unit(seed, Purpose::Pocket, cx * 7, cy * 5) * (LENS_STRETCH.1 - LENS_STRETCH.0);
+                let a = (4.0 + noise::unit(seed, Purpose::Pocket, cx, cy) * 6.0) * stretch * bulk;
+                let b = (2.0 + noise::unit(seed, Purpose::Pocket, cy, cx) * 2.0) * bulk;
                 let m = if noise::unit(seed, Purpose::Pocket, cx + 1, cy + 1) < 0.5 { ctx.sand } else { ctx.gravel };
+                // The bedding plane through this lens. A band is the locus of
+                // constant `y + strata_offset(x)`, so its gradient is minus
+                // the offset's -- a central difference over the same pure
+                // function `strata_shade` and `terraced` both read.
+                let dip = -(ctx.terrain.strata_offset(cx + 1) - ctx.terrain.strata_offset(cx - 1)) / 2.0;
+                let norm = (1.0 + dip * dip).sqrt();
+                let (cos_t, sin_t) = (1.0 / norm, dip / norm);
 
                 // Collect first, write only if the whole lens plus a one-cell
                 // rind is solid stone.
@@ -977,17 +1052,26 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                 // of them is written, not approximated per cell.
                 let mut lens = Vec::new();
                 let mut sealed = true;
-                'lens: for dy in -(b as i32) - 1..=(b as i32) + 1 {
-                    for dx in -(a as i32) - 1..=(a as i32) + 1 {
+                // The rotated ellipse's bounding box, so the scan still
+                // covers the whole shape once the long axis is no longer
+                // along x. Same +1 margin the rind always had.
+                let ext_x = ((a * cos_t).abs() + (b * sin_t).abs()).ceil() as i32 + 1;
+                let ext_y = ((a * sin_t).abs() + (b * cos_t).abs()).ceil() as i32 + 1;
+                'lens: for dy in -ext_y..=ext_y {
+                    for dx in -ext_x..=ext_x {
                         let (px, py) = (cx + dx, cy + dy);
-                        let d = (dx as f32 / a).powi(2) + (dy as f32 / b).powi(2);
+                        // Into the bed's own frame: `u` along the bedding,
+                        // `v` across it.
+                        let u = dx as f32 * cos_t + dy as f32 * sin_t;
+                        let v = -(dx as f32) * sin_t + dy as f32 * cos_t;
+                        let d = (u / a).powi(2) + (v / b).powi(2);
                         // The rind: one cell beyond the lens must also be
                         // stone, so the lens is never flush with a free face.
-                        let rind = (dx.abs() as f32 / (a + 1.0)).powi(2) + (dy.abs() as f32 / (b + 1.0)).powi(2);
+                        let rind = (u / (a + 1.0)).powi(2) + (v / (b + 1.0)).powi(2);
                         if rind > 1.0 {
                             continue;
                         }
-                        if px < 0 || px >= ctx.terrain.w || py < 0 || py >= ctx.terrain.h {
+                        if px < 0 || px >= w || py < 0 || py >= ctx.terrain.h {
                             sealed = false;
                             break 'lens;
                         }
@@ -1004,7 +1088,18 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                     continue;
                 }
                 for (px, py) in lens {
-                    world.set(px, py, Cell::new(m, loose_shade(ctx, Purpose::Pocket, px, py)));
+                    // Buried gravel takes its own palette family, so a lens
+                    // is not grey-on-grey invisible inside grey rock. Scree
+                    // at a cliff foot and the stony base of a soil profile
+                    // keep family 0 -- they are read against sky and soil,
+                    // not against stone, and they are what "gravel" looks
+                    // like when the player paints it. See `assets/gravel.ron`.
+                    let shade = if m == ctx.gravel {
+                        BURIED_FAMILY * TONES + loose_shade(ctx, Purpose::Pocket, px, py)
+                    } else {
+                        loose_shade(ctx, Purpose::Pocket, px, py)
+                    };
+                    world.set(px, py, Cell::new(m, shade));
                     n += 1;
                 }
             }

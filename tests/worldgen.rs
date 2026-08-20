@@ -610,7 +610,7 @@ fn every_generated_shade_indexes_a_real_palette_entry() {
     for (name, params) in &presets.presets {
         for seed in SEEDS {
             let world = build(params, seed);
-            for material in ["stone", "soil", "sand"] {
+            for material in ["stone", "soil", "sand", "gravel"] {
                 let id = world.materials.id_of(material).expect("compiled-in material");
                 let len = world.materials.get(id).palette.len();
                 let mut worst = 0u8;
@@ -630,6 +630,115 @@ fn every_generated_shade_indexes_a_real_palette_entry() {
             }
         }
     }
+}
+
+#[test]
+fn buried_gravel_is_not_the_same_colour_as_scree() {
+    // The counter behind the gravel legibility fix, and it needs to be a
+    // counter rather than a strip: a lens drawn in scree grey inside grey
+    // rock is invisible, which looks exactly like the pockets pass not
+    // having run -- and the pass *does* run, at full count. That is the
+    // failure the world review actually found.
+    //
+    // Two claims, and both matter. A talus apron that quietly moved into the
+    // buried family would make every cliff foot stop reading as broken rock,
+    // which is the trade this split exists to avoid.
+    //
+    // **A paired comparison against the same world with `pocket_density: 0`,
+    // which is the only thing that separates the two populations exactly.**
+    // Two cheaper classifiers were tried and both miscounted, for the same
+    // reason: they inferred which pass wrote a cell from where the cell is.
+    // "More than ten cells below the ground line" called 37 soil-contact
+    // cells buried, because a soil blanket is up to 34 cells deep and its
+    // stony base is family 0 by design. "Fully surrounded by rock" called
+    // 78, because a contact cell at the very bottom of a blanket often is.
+    // Turning the pass off and diffing asks the question directly -- pockets
+    // writes only into solid stone and nothing downstream reads a buried
+    // lens, so the two worlds differ in exactly this pass's cells.
+    let presets = presets();
+    let params = presets.get("canyon").expect("canyon preset");
+    let world = build(params, 1);
+    let without = build(&WorldgenParams { pocket_density: 0.0, ..params.clone() }, 1);
+    let gravel = world.materials.id_of("gravel").expect("gravel");
+
+    let (mut lens, mut other) = (0usize, 0usize);
+    let (mut lens_wrong, mut other_wrong) = (0usize, 0usize);
+    for y in 0..=BOUNDS.1 {
+        for x in 0..=BOUNDS.0 {
+            let c = world.get(x, y);
+            if c.material != gravel {
+                continue;
+            }
+            if without.get(x, y).material == gravel {
+                // Present with the pass off too: talus, or the soil profile's
+                // stony contact. Must stay in the scree family.
+                other += 1;
+                if c.shade / 4 != 0 {
+                    other_wrong += 1;
+                }
+            } else {
+                lens += 1;
+                if c.shade / 4 != 1 {
+                    lens_wrong += 1;
+                }
+            }
+        }
+    }
+    println!("canyon seed 1 gravel: {lens} cells in sealed lenses, {other} in scree and soil contact");
+
+    // And the shape, because "lenses now lie along the bedding" is a claim a
+    // colour census cannot support and a contact sheet reads at the wrong
+    // zoom to settle. An unrotated lens is `2b` tall -- 4 to 8 cells -- so a
+    // mean bounding-box height meaningfully above that is the rotation
+    // having fired. Sand lenses count here too: the shape change applies to
+    // both materials, only the palette split is gravel-only.
+    let sand = world.materials.id_of("sand").expect("sand");
+    let mut seen: std::collections::HashSet<(i32, i32)> = Default::default();
+    let mut boxes: Vec<(i32, i32)> = Vec::new();
+    for y in 0..=BOUNDS.1 {
+        for x in 0..=BOUNDS.0 {
+            let m = world.get(x, y).material;
+            if (m != gravel && m != sand) || without.get(x, y).material == m || seen.contains(&(x, y)) {
+                continue;
+            }
+            // Flood fill at 8 neighbours, matching how the ellipse was drawn.
+            let (mut lo_x, mut hi_x, mut lo_y, mut hi_y) = (x, x, y, y);
+            let mut stack = vec![(x, y)];
+            seen.insert((x, y));
+            while let Some((px, py)) = stack.pop() {
+                lo_x = lo_x.min(px);
+                hi_x = hi_x.max(px);
+                lo_y = lo_y.min(py);
+                hi_y = hi_y.max(py);
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let (nx, ny) = (px + dx, py + dy);
+                        if nx < 0 || ny < 0 || nx > BOUNDS.0 || ny > BOUNDS.1 || seen.contains(&(nx, ny)) {
+                            continue;
+                        }
+                        let nm = world.get(nx, ny).material;
+                        if (nm == gravel || nm == sand) && without.get(nx, ny).material != nm {
+                            seen.insert((nx, ny));
+                            stack.push((nx, ny));
+                        }
+                    }
+                }
+            }
+            boxes.push((hi_x - lo_x + 1, hi_y - lo_y + 1));
+        }
+    }
+    let n = boxes.len().max(1) as f32;
+    let mean_w = boxes.iter().map(|b| b.0 as f32).sum::<f32>() / n;
+    let mean_h = boxes.iter().map(|b| b.1 as f32).sum::<f32>() / n;
+    println!(
+        "canyon seed 1: {} sealed lenses, mean bounding box {mean_w:.1} x {mean_h:.1} cells (aspect {:.1}:1)",
+        boxes.len(),
+        mean_w / mean_h.max(1.0)
+    );
+    assert!(lens > 0, "the pockets pass placed no gravel lens at all");
+    assert!(other > 0, "talus and the soil contact placed no gravel at all");
+    assert_eq!(lens_wrong, 0, "{lens_wrong} of {lens} lens cells are in the scree family -- invisible in rock");
+    assert_eq!(other_wrong, 0, "{other_wrong} of {other} scree cells drifted into the buried family");
 }
 
 #[test]
