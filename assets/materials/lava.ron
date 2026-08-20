@@ -4,40 +4,30 @@
 // something already burning -- so there was no way to *apply* heat to a
 // scene. Pour this instead.
 //
-// # The pin, and what it costs
+// # The cooling model (which replaced a pin)
 //
-// `intrinsic_temperature` re-pins the cell to 1000C on every visit, after
-// diffusion, and pushes heat and light into the coarse field the way
-// `tick_burn` does for a flame. Two consequences worth knowing before
-// reaching for this field again for something else:
+// A lava cell is **born** at `intrinsic_temperature` on its first visit,
+// then cools through its own (deliberately tiny) `heat_conductivity` and
+// crusts into stone at `cooling_point` -- the same downward phase
+// machinery water -> ice uses. The emergent behaviour is the point: edge
+// cells against air lose heat fast and skin over, interior cells feel
+// almost no pull and stay searing, so a flow advances under its own crust
+// and a stranded film -- all edge, no interior -- is the first thing to
+// freeze. A finished flow is stone all the way down, and its chunks
+// sleep.
 //
-// - A pinned cell is permanently off-ambient, so `fire::must_stay_dirty`
-//   keeps its own chunk awake for as long as it exists. Acceptable here
-//   only because lava is rare *and self-limiting* -- it quenches to stone
-//   the moment it touches water, which is the whole reaction below.
-//   Ruinous for anything bulk; do not hand this to a terrain material.
-//
-//   **"Self-limiting" is conditional on the lava actually reaching water,
-//   and a flow down a slope does not all reach it.** Measured, because it
-//   is not obvious: a viscous liquid creeping down a ramp strands a thin
-//   film behind its front -- horizontal transfer stops once neighbouring
-//   fills are within `min_transfer` of each other -- and every cell of
-//   that film stays molten. `filmstrip scene=lavapour` still held 195
-//   lava cells at frame 1500 and 143 at frame 3000, declining but nowhere
-//   near gone, with 9 of 40 chunks permanently awake and the pond below
-//   them simmering at a steady ~25 boil/condense pairs a frame with
-//   nothing left flowing. That is the pin's advertised cost being paid in
-//   full rather than a bug, and it is the thing a "lava freezes into
-//   stone as it cools" model would fix. Until then: a scene that wants a
-//   flow to *finish* has to pour it somewhere the water can reach all of
-//   it.
-// - The pin bypasses `fire::diffuse_heat` entirely, so `heat_conductivity`
-//   below is **not read today**. It is stated anyway, and honestly: it is
-//   what lava would conduct at if the pin were ever lifted (a cooling-crust
-//   model, say), and leaving the field absent would read as "lava is
-//   thermally inert", which is the opposite of true. Neighbours still cool
-//   lava in the only way that matters -- by conducting heat away from the
-//   pinned boundary through *their* diffusion.
+// The first shipped model *pinned* the cell to 1000C on every visit
+// instead, and its cost was measured before being paid twice: a pinned
+// cell can never cool, so every scrap a flow stranded where water
+// couldn't reach stayed molten forever -- `filmstrip scene=lavapour` held
+// 195 molten cells at frame 1500 and 143 at 3000 with 9 of 40 chunks
+// permanently awake and the pond below simmering at ~25 boil/condense
+// pairs a frame with nothing left flowing. Do not bring the pin back for
+// another material: any always-off-ambient cell holds its chunk awake for
+// as long as it exists (`fire::must_stay_dirty`), which is ruinous for
+// anything that can be stranded. A born-hot material must also set a
+// `cooling_point` above ambient -- `Material::from` asserts it at load --
+// or it would cool to the exact ambient default and be re-born forever.
 //
 // 1000C is chosen against the two thresholds it has to clear, not from a
 // basalt table: it is far above water's 100C boiling point (so a pool near
@@ -117,21 +107,49 @@
     // What it trades, since two knobs here move the same number in
     // different currencies: this is also the knob that decides how thick
     // the residual film stranded on a slope is, because horizontal
-    // transfer stops exactly when neighbouring fills come within it. A pool
-    // that stops levelling sooner is a flow that stops *draining* sooner,
-    // and every cell it leaves behind is pinned at 1000C forever. Lowering
-    // it toward water's 16 thins that film at the cost of keeping the pool
-    // trading for longer; it does not remove it, because a cell with any
-    // fill at all is still a lava cell. The real fix is a cooling model,
-    // not this number.
+    // transfer stops exactly when neighbouring fills come within it.
+    // Under the pin that film was a permanent cost (every stranded cell
+    // stayed molten forever); under the cooling model it is a look --
+    // the film crusts into the stone scab the flow leaves along its path,
+    // and this number is how thick that scab runs.
     min_transfer: 60,
     // Explicit, against the surrounding default: lava must not dry up in
-    // the open the way a puddle does. It leaves by quenching, or not at
-    // all.
+    // the open the way a puddle does. It leaves by quenching or by
+    // crusting, never by evaporating.
     evaporates: false,
-    // Not read while the pin above is in force. See the header.
-    heat_conductivity: 0.2,
+    // This is lava's *cooling rate*, and its smallness is the whole
+    // character of the material -- it does NOT throttle how fast lava
+    // heats other things (each cell warms using its own conductivity, so
+    // wood at 0.15 and water at 0.08 heat just as fast off a 0.02 lava
+    // cell as off a 0.2 one). What it decides is how long lava itself
+    // stays molten: an edge cell against open air loses roughly
+    // (neighbour_avg - 1000) * 0.02 ≈ 10C a visit and crusts in tens of
+    // frames, while an interior cell surrounded by other lava feels
+    // almost no pull and stays searing until the flow thins -- so a pour
+    // skins over at its face and stays molten in the body, and a stranded
+    // film (all edge, no body) is the *first* thing to freeze rather than
+    // the thing that never does.
+    heat_conductivity: 0.002,
+    // Born at 1000C -- once, on first visit, not re-pinned (see
+    // `MaterialDef::intrinsic_temperature` for the measured cost of the
+    // pin this replaced: 195 stranded molten cells and 9/40 chunks awake
+    // forever on `scene=lavapour`). From birth it only cools.
     intrinsic_temperature: 1000.0,
+    // The cooling model's floor: below 700C molten rock stops being
+    // molten. Uses the same downward phase machinery as water -> ice,
+    // stipple-gated per visit, so a cooling front crusts in over a few
+    // frames rather than drawing a line. Stone is born at ~700 and hands
+    // its remaining heat back through its own conductivity, so a finished
+    // flow's chunks genuinely sleep.
+    cooling_point: 700.0,
+    cools_into: "stone",
+    // Zero, against water's 900 default: the fill gate exists to conserve
+    // volume around the freeze/thaw *loop*, and lava -> stone is one-way
+    // (stone never melts back). A stranded partial-fill film crusting into
+    // a thin stone scab along the slope is the look a finished flow owes,
+    // and the modest volume gain becomes inert terrain rather than
+    // circulating water.
+    freeze_min_fill: 0,
     reactions: [
         (with: "water", produces: ("stone", "steam"), chance: 0.8),
     ],

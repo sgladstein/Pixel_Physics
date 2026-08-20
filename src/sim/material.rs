@@ -439,17 +439,37 @@ pub struct MaterialDef {
     /// `melts_into` above, for the same RON-friction reason.
     #[serde(default)]
     pub cools_into: String,
-    /// A temperature this material *pins itself to* every visit, after
-    /// diffusion — the "lava is hot because it is lava" field `fire.rs`'s
-    /// M14 notes deferred. A cell of such a material never cools by
-    /// diffusion (its neighbours do the cooling instead, by conducting heat
-    /// away from the pinned boundary), so it keeps its own chunk awake for
-    /// as long as it exists — acceptable for rare, self-limiting content
-    /// like lava (which quenches to stone on contact with water), ruinous
-    /// for anything bulk. Defaults to unset (`INFINITY`, read via
-    /// `is_finite`), which costs nothing.
+    /// The temperature a cell of this material is **born at** — the "lava
+    /// is hot because it is lava" field `fire.rs`'s M14 notes deferred.
+    /// Applied once, when `fire::update` visits a cell still sitting at
+    /// the ambient default every cell is created with; from then on the
+    /// cell cools through its own `heat_conductivity` like anything else,
+    /// and its `cooling_point` (which such a material **must** set — see
+    /// the load-time assert in `Material::from`) turns it to its solid
+    /// form before it ever gets back near ambient.
+    ///
+    /// This replaced a per-visit *pin*, and the difference was measured,
+    /// not aesthetic: a pinned cell can never cool, so every scrap of lava
+    /// a flow stranded where water couldn't reach stayed molten and held
+    /// its chunk awake forever — `filmstrip scene=lavapour` held 195
+    /// molten cells at frame 1500 with 9 of 40 chunks permanently awake
+    /// and the pond under them simmering at ~25 boil/condense pairs a
+    /// frame with nothing left flowing. Born-once keeps the verb (poured
+    /// lava arrives searing) and lets the world finish.
     #[serde(default = "default_never")]
     pub intrinsic_temperature: f32,
+    /// Fill (of `material::LIQUID_FULL` = 1000) below which a `Liquid`
+    /// cell refuses its `cooling_point` transition. The default of 900
+    /// exists for conserved loops like water ↔ ice: a Solid's `aux` is an
+    /// anchor distance and cannot carry fill through, so freezing a
+    /// fill-100 cell into ice that melts back to a *full* water cell
+    /// would manufacture volume — the partial fringe at a pool's surface
+    /// stays chilled liquid instead. A one-way transition has no loop to
+    /// conserve and can set this to 0: lava's stranded films crusting
+    /// into thin stone scabs along a slope is the look wanted, and the
+    /// modest volume gain becomes inert stone rather than circulating.
+    #[serde(default = "default_freeze_min_fill")]
+    pub freeze_min_fill: u16,
     /// What this material becomes when its burn timer (`burn_duration`)
     /// finishes, or empty to simply extinguish and revert to being itself,
     /// unchanged. Deliberately a separate field from `melts_into` rather than
@@ -681,6 +701,13 @@ fn default_never_cold() -> f32 {
     f32::NEG_INFINITY
 }
 
+/// 900: the value `fire.rs`'s `FREEZE_MIN_FILL` constant carried before it
+/// became per-material data, so a `.ron` that says nothing freezes exactly
+/// as water always did. See `MaterialDef::freeze_min_fill`.
+fn default_freeze_min_fill() -> u16 {
+    900
+}
+
 /// Zero: no diffusion at all unless a material opts in. This is not
 /// physically motivated — a moderate default like 0.15 was tried first, so
 /// every material conducted heat plausibly without having to think about it.
@@ -770,6 +797,8 @@ pub struct Material {
     /// See `MaterialDef::intrinsic_temperature`. Unset is `INFINITY`,
     /// read via `is_finite`.
     pub intrinsic_temperature: f32,
+    /// See `MaterialDef::freeze_min_fill`.
+    pub freeze_min_fill: u16,
     pub max_unsupported_span: u16,
     /// See `MaterialDef::floats`.
     pub floats: bool,
@@ -982,6 +1011,23 @@ impl From<MaterialDef> for Material {
             super::chunk::MAX_REACH,
         );
 
+        // A born-hot material with no downward transition would cool all
+        // the way to the exact ambient default and be re-born at its birth
+        // temperature by `fire::update`'s `== AMBIENT_TEMPERATURE` check --
+        // a perpetual oscillator that keeps its chunk awake forever. The
+        // `cooling_point` above ambient is what guarantees such a cell
+        // turns solid long before its temperature can ever revisit the
+        // birth trigger. Caught at load time, where a content author sees
+        // it, rather than as an unkillable warm spot downstream.
+        debug_assert!(
+            !def.intrinsic_temperature.is_finite()
+                || (def.cooling_point.is_finite()
+                    && def.cooling_point > super::cell::AMBIENT_TEMPERATURE as f32),
+            "material `{}` sets intrinsic_temperature but no cooling_point above ambient -- \
+             it would re-birth forever at the ambient default",
+            def.name,
+        );
+
         Self {
             display: if def.display.is_empty() {
                 title_case(&def.name)
@@ -1018,6 +1064,7 @@ impl From<MaterialDef> for Material {
             boiling_point: def.boiling_point,
             cooling_point: def.cooling_point,
             intrinsic_temperature: def.intrinsic_temperature,
+            freeze_min_fill: def.freeze_min_fill,
             max_unsupported_span: def.max_unsupported_span,
             floats: def.floats,
             // Floored at 1: 0 would silently make attached rock *weaker*
@@ -1199,6 +1246,7 @@ impl MaterialRegistry {
             cooling_point: f32::NEG_INFINITY,
             cools_into: String::new(),
             intrinsic_temperature: f32::INFINITY,
+            freeze_min_fill: default_freeze_min_fill(),
             burns_into: String::new(),
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
@@ -1238,6 +1286,7 @@ impl MaterialRegistry {
             cooling_point: f32::NEG_INFINITY,
             cools_into: String::new(),
             intrinsic_temperature: f32::INFINITY,
+            freeze_min_fill: default_freeze_min_fill(),
             burns_into: String::new(),
             reactions: Vec::new(),
             // Bedrock is the anchor itself — it must never be the thing

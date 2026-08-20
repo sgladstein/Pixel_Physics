@@ -41,7 +41,9 @@ water was — see [Liquids & Gases](liquids-and-gases.md) for the steam.
 Fresh-quenched stone comes out searing and cools off over the following
 seconds like anything else hot.
 
-A flow that never meets water, though, simply stays molten. There is no
-"lava cools into rock on its own" yet, so a spill that stalls part-way
-down a slope is still glowing much later; water is the only thing that
-stops it.
+A flow that never meets water cools on its own instead: lava skins over
+where it touches air, stays molten inside its own crust, and a spill that
+stalls part-way down a slope hardens into a scab of new stone along the
+path it took — quickly at its thin edges, slowly in its glowing heart.
+Fresh crust comes out hot and sheds its heat over the following seconds;
+water just gets there much faster.

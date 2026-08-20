@@ -285,19 +285,21 @@ fn build(args: &Args) -> World {
                 w.set(ramp_x0 + 1, y, Cell::new(material::STONE, 0).with_attached(true));
             }
             // The reservoir, at the head of the ramp: a finite pour, not an
-            // emitter. ~660 cells, sized against what it costs rather than
-            // what looks biggest -- every lava cell is pinned off-ambient
-            // and so keeps its own chunk awake for as long as it exists
-            // (see `lava.ron`'s header).
+            // emitter. ~660 cells -- every molten cell is off-ambient and
+            // keeps its chunk awake until it crusts, so the size is still a
+            // cost, just a finite one now (see `lava.ron`'s header for the
+            // cooling model that made it finite).
             //
-            // Do not read `reacted` as "cells of lava consumed": it passes
-            // 660 (794 by frame 700 here) because a flow splits into
-            // partial-fill cells on the way down and each of those reacts
-            // in its own right. It is a "did it fire, and is it still
-            // firing" count, nothing more. The reading that matters is that
-            // it climbs steeply while the front is in the water and then
-            // *flattens* -- and that it never quite stops, because the film
-            // stranded on the ramp keeps dribbling in.
+            // Do not read `reacted` as "cells of lava consumed": a flow
+            // splits into partial-fill cells on the way down and each of
+            // those reacts in its own right. It is a "did it fire, and is
+            // it still firing" count, nothing more. The reading that
+            // matters is that it climbs steeply while the front is in the
+            // water and then goes *flat* alongside `froze` -- flat together
+            // means the pour is finished, crusted where it stranded and
+            // quenched where it reached. The standing census printed under
+            // each tile is the cross-check: molten should read 0 from
+            // there on.
             for x in (ramp_x0 + 2)..(ramp_x0 + 32) {
                 for y in (ramp_y0 - 22)..ramp_y0 {
                     w.set(x, y, Cell::new(lava, (rng::jitter(x, y) * 255.0) as u8));
@@ -2271,6 +2273,28 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             "    phase changes: boiled {}, condensed {}, froze {}, melted {}, reacted {}",
             p.boiled, p.condensed, p.froze, p.melted, p.reacted
         );
+        // A census to read against the event counts above -- `CLAUDE.md`'s
+        // "a failure count is not a damage count" bites here too: `froze`
+        // going flat can mean "all the lava finished" or "the remaining
+        // lava stopped cooling", and only a standing count tells them
+        // apart. `burning` likewise separates "the pond simmers off stored
+        // heat" from "something at the shoreline is still on fire".
+        let (mut molten, mut burning, mut hot) = (0u32, 0u32, 0u32);
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let cell = world.get(x, y);
+                if world.materials.get(cell.material).intrinsic_temperature.is_finite() {
+                    molten += 1;
+                }
+                if cell.is_burning() {
+                    burning += 1;
+                }
+                if cell.temperature() >= 100 {
+                    hot += 1;
+                }
+            }
+        }
+        println!("    standing: molten {molten}, burning {burning}, cells at >=100C {hot}");
         // The water cycle's standing state, next to the counters above --
         // and the pair is the point. The counters say the mechanism fired;
         // this says what is *there*, which is the question a freeze-and-thaw

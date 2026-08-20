@@ -47,6 +47,51 @@ census water in cell-equivalents across a freeze-and-thaw, which
 `weather.rs`'s `ice_melts_back_and_the_pool_refills` now has the helper
 for.
 
+### 0b. `scene=lavapour`'s pond simmers forever after every source is gone
+
+At frame 18,000 the scene still boils a steady ~5.5 cells a frame with
+7/40 chunks awake — and the standing census says there is nothing left to
+do it: **molten 0, burning 0** (the census lines filmstrip now prints were
+added for exactly this hunt), with `boiled - condensed` holding a
+population of ~1,250 steam cells outstanding and 592→616 cells at ≥100°C
+*growing* slightly between frames 8,000 and 12,000.
+
+Ruled out by measurement, in order:
+
+- **The cooling model is not the cause** — the pin-era scene had the same
+  simmer, worse (~25 boil/condense pairs a frame), on top of 195 cells of
+  permanently molten lava.
+- **The boil/condense loop does not manufacture heat in general.**
+  `fire.rs`'s `a_finite_heat_inventory_stops_boiling_and_the_world_sleeps`
+  is the control: a sealed basin with one 700°C stone row boils 30 cells,
+  stops, and sleeps before frame 2,000.
+- **A pond alone terminates.** `scene=boil` reads flat at frame 8,000:
+  boiled 228,297 vs condensed 228,296, zero cells ≥100°C, awake 4/40 and
+  draining. Its long tail had a real source the census exposed — 33 cells
+  *still burning* at frame 4,000, fire creeping through the slick far past
+  any single cell's 180-frame duration.
+
+So the residual is specific to lavapour's geometry: the quench delta —
+stone with overhangs and cavities built where the flow met the pond. The
+two suspects, neither yet separated: a **steam pocket trapped under the
+crust** that can neither rise nor cool below its 45° condensation point
+while boils keep replenishing it, and **non-pairwise heat diffusion at a
+sustained cloud/water interface** (each cell moves toward its neighbour
+average by its *own* conductivity, so a dense hot cloud hugging a cool
+surface can hand over more than it books as lost — the explicit scheme
+was never enthalpy-conserving, it just never had a standing configuration
+that noticed). Discriminator worth running first: dump where the ≥100°
+cells and the outstanding steam actually *sit* (a per-cell temperature
+overlay does not exist yet — `render.rs`'s FieldOverlay shows the coarse
+field, which the exploration notes already flagged as a gap).
+
+Reproduce: `cargo run --release --example filmstrip -- scene=lavapour
+start=8000 every=4000 count=2` and read the standing census under each
+tile. Cost while unfixed: one warm pocket of chunks (7/40 on this scene)
+stays awake indefinitely after a big pour into water — bounded, visible,
+and honest on the census line, but it defeats the "a finished flow lets
+the world sleep" property everywhere a delta with cavities forms.
+
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a

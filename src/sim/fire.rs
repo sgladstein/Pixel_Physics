@@ -70,16 +70,12 @@ const THERMAL_SETTLE_EPSILON: f32 = 1.0;
 /// front reads wrong.
 const PHASE_CHANGE_CHANCE: f32 = 0.4;
 
-/// A `Liquid` cell must hold at least this much fill (of
-/// `material::LIQUID_FULL` = 1000) to freeze solid. The partial fringe a
-/// resting body wears at its surface stays chilled water instead of
-/// snapping into full-volume solid cells — freezing a fill-100 cell into
-/// ice that later melts back to a *full* water cell would manufacture
-/// volume from nowhere, since a Solid's `aux` is an anchor distance and
-/// cannot carry the fill through. The ~1% of a resting body's cells that
-/// are partial (see water.ron's `fill_dimming` note) is the accepted loss
-/// of coverage.
-const FREEZE_MIN_FILL: u16 = 900;
+/// Non-burning cells at or above this temperature push heat and light into
+/// the coarse field each visit, the way `tick_burn` does for flames —
+/// molten lava and fresh quench crust radiate whether or not anything is
+/// on fire. Well above any burn-adjacent residual, so the population is
+/// only ever the handful of searing cells, shrinking as they cool.
+const FIELD_GLOW_MIN_TEMPERATURE: f32 = 500.0;
 
 /// Cumulative "did it fire at all" counters for temperature-triggered
 /// transitions, in the style of `world::FailureCounts` and for the same
@@ -202,22 +198,34 @@ pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     // Extracted while `material`'s borrow is live, same as everything below.
     let intrinsic_temperature = material.intrinsic_temperature;
 
-    if intrinsic_temperature.is_finite() {
-        // The material *is* this temperature (lava) — pin it rather than
-        // diffusing, which would only be overwritten. Neighbours still cool
-        // it in the only way that matters: by conducting heat away from the
-        // pinned boundary through their own `diffuse_heat`. The pinned cell
-        // is permanently off-ambient, so `must_stay_dirty` below keeps its
-        // chunk awake for as long as it exists — by design, and acceptable
-        // only because such content is rare and self-limiting (lava
-        // quenches to stone). The field pushes mirror `tick_burn`'s: a
-        // small, bounded set of cells telling the coarse field it is hot
-        // and bright, not a per-swept-cell coupling.
+    // Born hot, **once** — a cell of such a material (lava) still sitting
+    // at the ambient default every cell is created with gets its birth
+    // temperature here, then cools through its own conductivity like
+    // anything else and turns solid at its `cooling_point` long before it
+    // could revisit the trigger (guaranteed by `Material::from`'s
+    // load-time assert: born-hot materials must set a cooling point above
+    // ambient). This replaced a per-visit *pin*: pinned cells could never
+    // cool, so every scrap a flow stranded where water couldn't reach
+    // stayed molten and held its chunk awake forever — 195 cells and 9/40
+    // chunks at frame 1500 of `scene=lavapour`, measured. One narrow edge
+    // stays, documented rather than defended: a fresh cell chilled *below*
+    // ambient before its first visit (painted mid-blizzard) skips its
+    // birth and crusts immediately, which reads fine for the one material
+    // that uses this.
+    if intrinsic_temperature.is_finite() && cell.temperature() == AMBIENT_TEMPERATURE {
         cell.set_temperature(intrinsic_temperature.round() as i16);
+    }
+    diffuse_heat(surface, x, y, &mut cell);
+
+    // Very hot cells tell the coarse field they are hot and bright, the
+    // way `tick_burn` does for flames — searing lava and fresh quench
+    // crust glow and radiate whether or not anything is on fire. Gated on
+    // temperature rather than on the born-hot flag so the push follows the
+    // heat itself and stops on its own as the cell cools: a bounded,
+    // self-shrinking population, never a per-swept-cell coupling.
+    if !cell.is_burning() && (cell.temperature() as f32) >= FIELD_GLOW_MIN_TEMPERATURE {
         surface.add_heat(x, y, 1, 2.0);
         surface.add_light(x, y, 1, 1.0);
-    } else {
-        diffuse_heat(surface, x, y, &mut cell);
     }
 
     if cell.is_burning() {
@@ -506,6 +514,7 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
     let boils_into = material.boils_into;
     let cooling_point = material.cooling_point;
     let cools_into = material.cools_into;
+    let freeze_min_fill = material.freeze_min_fill;
     let from_kind = material.kind;
     // `material`'s borrow ends here, before `transform` needs `&mut surface`.
 
@@ -532,10 +541,12 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
     if temp <= cooling_point {
         if let Some(into) = cools_into {
             if from_kind == MaterialKind::Liquid {
-                // Freezing. Partial cells stay chilled water — see
-                // `FREEZE_MIN_FILL` — and the front creeps via the same
-                // per-visit roll boiling uses.
-                if super::update::liquid_fill(*cell) < FREEZE_MIN_FILL {
+                // Freezing. Whether partial cells transition is the
+                // material's own call — water holds its fringe liquid to
+                // conserve the freeze/thaw loop, lava crusts its stranded
+                // films (see `MaterialDef::freeze_min_fill`) — and the
+                // front creeps via the same per-visit roll boiling uses.
+                if super::update::liquid_fill(*cell) < freeze_min_fill {
                     return;
                 }
                 if surface.rng().chance(PHASE_CHANGE_CHANCE) {
@@ -651,20 +662,33 @@ fn try_react<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
                 continue;
             }
 
-            // Both products take the *hotter* side's temperature — the
-            // interface heats what it makes. Deliberate, not an oversight:
-            // quench steam born at the water's ~20°C would sit below its
-            // own condensation point and flash straight back to water on
-            // its next visit; born at the lava's temperature it rises and
-            // condenses on a ceiling later, which is the visible plume the
-            // reaction owes. Both sides also go through `transform`, not a
-            // bare `Cell::new` — the neighbour write used to bypass it,
-            // which would have dropped a quenched water cell's fill and
-            // reset its steam to `aux 0` (= full), manufacturing volume.
+            // The reaction *exchanges* the pair's heat: the neighbour's
+            // product takes the hotter side's temperature, the self product
+            // takes the cooler side's. Both halves are load-bearing, and
+            // each was measured separately. The hot half: quench steam born
+            // at the water's ~20°C would sit below its own condensation
+            // point and flash straight back to water on its next visit;
+            // born at the lava's temperature it rises and condenses
+            // somewhere else later, which is the visible plume the reaction
+            // owes. The cold half: quench stone born at the *lava's*
+            // temperature made a submerged delta of hundreds of 1000°C
+            // cells whose heat had nowhere to go but back into the pond —
+            // `scene=lavapour` was still boiling ~5 cells a frame with 9/40
+            // chunks awake at frame 8000, because the boil/condense loop
+            // rains most of the heat straight back. Quenching *means* the
+            // coolant carried the heat off; the steam is that heat leaving.
+            // A first version gave both products the max and paid exactly
+            // that cost.
+            //
+            // Both sides also go through `transform`, not a bare
+            // `Cell::new` — the neighbour write used to bypass it, which
+            // would have dropped a quenched water cell's fill and reset its
+            // steam to `aux 0` (= full), manufacturing volume.
             let mut other = surface.get(nx, ny);
-            let pair_temp = cell.temperature().max(other.temperature());
-            cell.set_temperature(pair_temp);
-            other.set_temperature(pair_temp);
+            let hotter = cell.temperature().max(other.temperature());
+            let cooler = cell.temperature().min(other.temperature());
+            cell.set_temperature(cooler);
+            other.set_temperature(hotter);
 
             transform(surface, x, y, cell, reaction.becomes);
             transform(surface, nx, ny, &mut other, reaction.other_becomes);
@@ -962,13 +986,17 @@ mod tests {
     }
 
     #[test]
-    fn a_reaction_born_cell_takes_the_hotter_sides_temperature_and_keeps_fill() {
-        // The two `try_react` fixes that landed with the cooling branch,
+    fn a_reaction_exchanges_the_pairs_heat_and_keeps_fill() {
+        // The two `try_react` rules that landed with the cooling branch,
         // asserted together: the neighbour's write goes through `transform`
         // (so a Liquid product keeps the neighbour's fill instead of being
-        // rebuilt full), and both products take the *hotter* side's
-        // temperature (so quench steam is born hot enough to rise instead
-        // of flashing straight back to water).
+        // rebuilt full), and the pair's heat is *exchanged* — the
+        // neighbour's product takes the hotter side's temperature (quench
+        // steam born cold would flash straight back to water) while the
+        // self product takes the cooler side's (quench stone born at the
+        // lava's 1000°C made a submerged delta that boiled the pond for
+        // 8000+ frames; the coolant carrying the heat off is what
+        // quenching is).
         let dir = std::env::temp_dir().join("pixel-physics-react-temp-test");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
@@ -998,7 +1026,11 @@ mod tests {
         let other = w.get(31, 30);
         assert_eq!(product.material, c);
         assert_eq!(other.material, d);
-        assert_eq!(product.temperature(), 900, "the self product should keep the hot side's temperature");
+        assert_eq!(
+            product.temperature(),
+            AMBIENT_TEMPERATURE,
+            "the self product should take the cooler side's temperature — the coolant carried the heat off"
+        );
         assert_eq!(other.temperature(), 900, "the neighbour product should take the hot side's temperature, not stay at ambient");
         assert_eq!(other.aux(), 400, "a Liquid → Liquid neighbour product should keep its fill, not be rebuilt full");
         assert_eq!(w.phase_changes.reacted, 1);
@@ -1061,16 +1093,16 @@ mod tests {
     /// lava id.
     ///
     /// Submerged, not dropped in from above, and that is the whole design
-    /// of the scene rather than a convenience. A lava cell only quenches
+    /// of the scene rather than a convenience. A lava cell only *quenches*
     /// where it actually touches water; anything that ends up somewhere the
-    /// pool cannot reach -- a rim, a corner, a thin film on a slope -- stays
-    /// molten, stays pinned off-ambient, and holds its own chunk awake for
-    /// the rest of the run *by design* (see `lava.ron`). A first version of
-    /// this helper dropped a 5x5 blob from above the waterline and left
-    /// exactly one lava cell stranded on the basin rim, which is a true
-    /// fact about lava and not the thing these tests are about. Starting
-    /// the blob inside the pool with water on all six sides of it makes
-    /// "all of it quenches" a property of the geometry.
+    /// pool cannot reach -- a rim, a corner, a thin film on a slope --
+    /// finishes by the slower cooling path instead (crusting to stone at
+    /// its `cooling_point`), which is a different mechanism than the one
+    /// these tests are about. A first version of this helper dropped a 5x5
+    /// blob from above the waterline and left exactly one lava cell
+    /// stranded on the basin rim. Starting the blob inside the pool with
+    /// water on all six sides of it makes "all of it quenches" a property
+    /// of the geometry.
     fn lava_dropped_in_a_basin() -> (World, MaterialId) {
         let mut w = test_world();
         let lava = w.materials.id_of("lava").unwrap();
@@ -1162,7 +1194,6 @@ mod tests {
         let mut w = test_world();
         let lava = w.materials.id_of("lava").unwrap();
         let steam = w.materials.id_of("steam").unwrap();
-        let intrinsic = w.materials.get(lava).intrinsic_temperature;
         for x in 28..=32 {
             w.set(x, 40, Cell::new(material::STONE, 0).with_attached(true));
         }
@@ -1182,10 +1213,17 @@ mod tests {
             }
         }
         let born = born.expect("water above lava never became steam");
+        // Far above steam's own 45C condensation point, not "exactly the
+        // birth temperature": under the cooling model the lava legitimately
+        // sheds a few degrees per visit while the 0.8 reaction roll waits
+        // to land, so an equality against 1000 would flake on the rng
+        // stream. The contract being asserted is that the steam is born hot
+        // enough to rise and condense elsewhere rather than flashing
+        // straight back — hundreds of degrees of margin, not a knife edge.
         assert!(
-            (born as f32) >= intrinsic,
-            "quench steam was born at {born}C, below lava's own {intrinsic}C -- \
-             the hotter-side rule in try_react is not holding"
+            born >= 500,
+            "quench steam was born at {born}C — cool enough to flash back, \
+             so try_react's hotter-side rule is not holding"
         );
 
         // Now let it move. Serial and parallel both, since rising is a
@@ -1300,12 +1338,11 @@ mod tests {
         //
         // The blob is dropped *into* the pool, not poured down a slope,
         // and that is load-bearing: a viscous flow on a slope strands a
-        // thin film of lava that never reaches water (measured at 143
-        // cells still molten after 3000 frames of `filmstrip
-        // scene=lavapour`), and every one of those cells is pinned
-        // off-ambient and holds its own chunk awake by design. This scene
-        // has to be one where all of the lava really does quench, or it
-        // would be measuring that instead.
+        // thin film that never reaches water and finishes by *cooling*
+        // instead (the stranded-film test below owns that path). This
+        // scene has to be one where all of the lava really does quench, or
+        // it would be measuring the cooling model instead of the stone
+        // conductivity decision it exists to guard.
         for parallel_driver in [false, true] {
             let (mut w, lava) = lava_dropped_in_a_basin();
             let mut slept_at = None;
@@ -1333,6 +1370,144 @@ mod tests {
             );
             assert_eq!(count_of(&w, lava), 0, "lava survived the quench (parallel: {parallel_driver})");
         }
+    }
+
+    #[test]
+    fn lava_is_born_hot_once_and_only_cools_from_there() {
+        // The contract that replaced the pin. First visit: a fresh cell at
+        // the ambient default takes its birth temperature. Every visit
+        // after: it cools through its own conductivity and is never
+        // re-raised — the pin's failure mode was exactly that it re-raised
+        // forever, so a cell mid-cool jumping back up is the regression
+        // this exists to catch.
+        let mut w = test_world();
+        let lava = w.materials.id_of("lava").unwrap();
+        w.set(30, 30, Cell::new(lava, 0));
+        update(&mut w, 30, 30);
+        // Not exactly 1000: birth and the first cooling step share the
+        // visit (diffusion runs right after, deliberately), so a lone cell
+        // with four ambient neighbours reads 1000 minus one step (~980).
+        // The claim is "born searing", not "born untouched".
+        let born = w.get(30, 30).temperature();
+        assert!(
+            born >= 900,
+            "a fresh lava cell should be born near its intrinsic 1000C, read {born}C"
+        );
+
+        // Mid-cool (well above the 700C crust point, so it stays lava),
+        // surrounded by ambient: the next visits must move it down, never
+        // back toward 1000.
+        w.set(30, 30, w.get(30, 30).with_temperature(800));
+        update(&mut w, 30, 30);
+        let after_one = w.get(30, 30).temperature();
+        assert!(
+            after_one < 800,
+            "a lava cell at 800C surrounded by ambient should cool, read {after_one}C — the pin is back"
+        );
+    }
+
+    #[test]
+    fn a_stranded_lava_film_crusts_to_stone_and_its_chunk_sleeps() {
+        // The measured cost that motivated the cooling model: a partial-
+        // fill film stranded where no water can reach held its chunk awake
+        // forever under the pin (195 cells and 9/40 chunks at frame 1500
+        // of scene=lavapour). Under the cooling model the film is all edge
+        // and no interior, so it is the *first* thing to crust — through
+        // lava's freeze_min_fill of 0, which is what lets a partial cell
+        // transition at all — and once the young stone sheds its heat the
+        // world genuinely sleeps. Both drivers: sleeping is chunk
+        // bookkeeping, and the parallel driver is the one the player runs.
+        for parallel_driver in [false, true] {
+            let mut w = test_world();
+            let lava = w.materials.id_of("lava").unwrap();
+            for x in 28..=34 {
+                w.set(x, 40, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            // A thin partial film, the stranded-flow state itself — below
+            // water's 900 gate on purpose, so this also proves the
+            // per-material gate is what lets it finish.
+            for x in 29..=33 {
+                w.set(x, 39, Cell::new(lava, 0).with_aux(220));
+            }
+
+            let mut slept_at = None;
+            for frame in 0..2500 {
+                if parallel_driver {
+                    crate::sim::parallel::step(&mut w);
+                } else {
+                    super::super::update::step(&mut w);
+                }
+                if w.active_chunk_count() == 0 {
+                    slept_at = Some(frame);
+                    break;
+                }
+            }
+            assert!(
+                slept_at.is_some(),
+                "a stranded lava film never let its chunk sleep in 2500 frames \
+                 ({} lava cells still molten, froze {}, parallel: {parallel_driver})",
+                count_of(&w, lava),
+                w.phase_changes.froze,
+            );
+            assert_eq!(
+                count_of(&w, lava),
+                0,
+                "the film should have crusted entirely (parallel: {parallel_driver})"
+            );
+            assert!(
+                w.phase_changes.froze > 0,
+                "the film left no molten cells yet froze counted nothing — \
+                 it vanished by some other path than the cooling transition (parallel: {parallel_driver})"
+            );
+        }
+    }
+
+    #[test]
+    fn a_finite_heat_inventory_stops_boiling_and_the_world_sleeps() {
+        // The thermodynamic sanity check for the whole boil/condense loop:
+        // a basin, a pool, and one row of floor set to 700C — a known,
+        // finite amount of heat and nothing that generates more. The heat
+        // boils some surface water, the steam condenses and rains back,
+        // the stone drains through its conductivity, and everything must
+        // *end*: boiling stops and the chunks sleep. Written as a control
+        // while chasing `scene=lavapour`'s never-ending simmer (see
+        // `Reports/open-bugs-handoff.md`), and kept because it separates
+        // "the loop manufactures heat" (it does not — this passes, and the
+        // pond-only `scene=boil` also terminates once its fire is out)
+        // from "some scene still holds a source or a pocket" (lavapour's
+        // open question). Measured when written: 30 cells boiled, asleep
+        // well before frame 2000.
+        let mut w = test_world();
+        for y in 36..=50 {
+            w.set(20, y, Cell::new(material::STONE, 0));
+            w.set(44, y, Cell::new(material::STONE, 0));
+        }
+        for x in 20..=44 {
+            w.set(x, 50, Cell::new(material::STONE, 0).with_temperature(700));
+        }
+        for x in 21..44 {
+            for y in 44..50 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+
+        let mut slept_at = None;
+        for frame in 0..4000 {
+            crate::sim::parallel::step(&mut w);
+            if w.active_chunk_count() == 0 {
+                slept_at = Some(frame);
+                break;
+            }
+        }
+        assert!(
+            slept_at.is_some(),
+            "a finite 700C inventory never let the world sleep in 4000 frames ({} boiled and counting)",
+            w.phase_changes.boiled
+        );
+        assert!(
+            w.phase_changes.boiled > 0,
+            "the inventory never boiled anything at all — the control controls nothing"
+        );
     }
 
     /// How many cells of one material the world holds. A census, not an
