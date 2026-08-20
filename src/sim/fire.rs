@@ -77,6 +77,19 @@ const PHASE_CHANGE_CHANCE: f32 = 0.4;
 /// only ever the handful of searing cells, shrinking as they cool.
 const FIELD_GLOW_MIN_TEMPERATURE: f32 = 500.0;
 
+// A latent-heat cost on boiling (steam born ~40° cooler than the water
+// that boiled) was implemented here while hunting open-bugs 0b's eternal
+// simmer, on the theory that a lossless boil/condense loop needed a sink.
+// It worked — and the isolation control showed it was unnecessary: the
+// loop was not lossless by nature, it had a literal heater in it (hot,
+// thermally-inert rubble; see rubble.ron), and with that fixed the scene
+// sleeps *sooner without* the latent cost than with it. Reverted per
+// keep-each-fix-minimal, recorded here because the idea will look
+// attractive again the next time a vapour loop misbehaves: check for an
+// inert heat reservoir first — any material that can inherit temperature
+// through transform, burnout, crush or reaction and has zero
+// heat_conductivity is a permanent radiator.
+
 /// Cumulative "did it fire at all" counters for temperature-triggered
 /// transitions, in the style of `world::FailureCounts` and for the same
 /// reason: a steam plume and a puff of brush-painted smoke are
@@ -787,10 +800,19 @@ fn try_react<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
             // would have dropped a quenched water cell's fill and reset its
             // steam to `aux 0` (= full), manufacturing volume.
             let mut other = surface.get(nx, ny);
-            let hotter = cell.temperature().max(other.temperature());
-            let cooler = cell.temperature().min(other.temperature());
-            cell.set_temperature(cooler);
-            other.set_temperature(hotter);
+            if reaction.mixes_heat {
+                // Absorption: the pair's heat spreads over both products —
+                // see `ReactionDef::mixes_heat` for the measured pump the
+                // exchange rule makes of a condensation.
+                let mean = ((cell.temperature() as i32 + other.temperature() as i32) / 2) as i16;
+                cell.set_temperature(mean);
+                other.set_temperature(mean);
+            } else {
+                let hotter = cell.temperature().max(other.temperature());
+                let cooler = cell.temperature().min(other.temperature());
+                cell.set_temperature(cooler);
+                other.set_temperature(hotter);
+            }
 
             transform(surface, x, y, cell, reaction.becomes);
             transform(surface, nx, ny, &mut other, reaction.other_becomes);
@@ -1724,6 +1746,41 @@ mod tests {
             }
         }
         n
+    }
+
+    #[test]
+    fn a_mixes_heat_reaction_gives_both_products_the_mean() {
+        // The absorption rule kept from the reverted contact-condensation
+        // attempt (see steam.ron's revert note): exchange semantics hand a
+        // collapsing bubble's whole heat to one cell and mint a boiler, so
+        // an absorption-shaped reaction declares mixes_heat and both
+        // products take the pair's mean. Synthetic content, the same
+        // temp-dir technique the other reaction tests use — no shipped
+        // material declares this yet, and the machinery must not rot
+        // untested while it waits.
+        let dir = std::env::temp_dir().join("pixel-physics-mixes-heat-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("a.ron"),
+            "(name: \"mix_a\", kind: Gas, density: 0.1, colors: [(1, 1, 1)], \
+             reactions: [(with: \"mix_b\", produces: (\"mix_b\", \"mix_b\"), chance: 1.0, mixes_heat: true)])",
+        )
+        .unwrap();
+        std::fs::write(dir.join("b.ron"), "(name: \"mix_b\", kind: Liquid, density: 1.0, colors: [(2, 2, 2)])").unwrap();
+
+        let mut w = test_world();
+        w.materials.reload(&dir).unwrap();
+        let a = w.materials.id_of("mix_a").unwrap();
+        let b = w.materials.id_of("mix_b").unwrap();
+        w.set(30, 30, Cell::new(a, 0).with_temperature(160));
+        w.set(31, 30, Cell::new(b, 0).with_temperature(20));
+        update(&mut w, 30, 30);
+
+        assert_eq!(w.get(30, 30).material, b);
+        assert_eq!(w.get(30, 30).temperature(), 90, "self product should take the pair mean");
+        assert_eq!(w.get(31, 30).temperature(), 90, "neighbour product should take the pair mean, not the hotter side");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

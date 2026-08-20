@@ -30,6 +30,16 @@
     density: 2.0,
     friction_angle: 55.0,
     max_stability_angle: 65.0,
+    // Mandatory, by README's own rule for every `breaks_into` target
+    // (ash.ron states the same rule for burns_into): rubble inherits the
+    // temperature of whatever crushed, and a crush inside a quench delta
+    // crushes *hot* stone. Left at the default 0, the heat it inherits has
+    // nowhere to go -- measured on open-bugs 0b's simmering delta as 90
+    // rubble cells pinned at a mean of 302C, byte-identical across 4,500
+    // frames, acting as permanent heaters that kept ~600 cells of trapped
+    // steam at 157C and the pond simmering indefinitely. 0.1, matching
+    // stone: it is the same rock, loose.
+    heat_conductivity: 0.1,
     colors: [
         (124, 124, 128),
         (106, 106, 112),

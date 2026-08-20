@@ -66,14 +66,47 @@ pond went on freezing); it is now
 `a_snowstorm_leaves_no_snow_raft_insulating_the_pond` and asserts the two
 things a raft would actually do.
 
-### 0b. `scene=lavapour`'s pond simmers forever after every source is gone
+### 0b. ~~`scene=lavapour`'s pond simmers forever~~ — **CLOSED: the "eternal loop" had a literal heater in it**
 
-At frame 18,000 the scene still boils a steady ~5.5 cells a frame with
-7/40 chunks awake — and the standing census says there is nothing left to
-do it: **molten 0, burning 0** (the census lines filmstrip now prints were
-added for exactly this hunt), with `boiled - condensed` holding a
-population of ~1,250 steam cells outstanding and 592→616 cells at ≥100°C
-*growing* slightly between frames 8,000 and 12,000.
+The fix is one line of content: `rubble.ron` gains `heat_conductivity:
+0.1`, per README's own rule that every `breaks_into` target needs one
+(stone breaks into rubble, and a crush inside a quench delta crushes *hot*
+stone). With it, the scene that boiled ~5.5 cells a frame at frame 18,000
+with 7/40 chunks awake now stops boiling at 1,862 events total and the
+world is **fully asleep (0/40) by frame 4,500**.
+
+The hunt is worth keeping because three attractive wrong answers were
+measured on the way, and each would have shipped without the per-material
+spatial census filmstrip now prints (`>=100C in <material>: n cells, mean,
+box`) — added for this hunt, kept as instrumentation:
+
+1. **It looked like a thermodynamic pump** — molten 0, burning 0, yet the
+   ≥100°C population held steady. The finite-inventory control
+   (`fire.rs`'s `a_finite_heat_inventory_stops_boiling_and_the_world_
+   sleeps`) ruled that out: the loop manufactures nothing in general.
+2. **The census found a trapped steam pocket** (~1,400 cells at a mean of
+   163°C sealed inside the quench delta), so **direct-contact
+   condensation** was built — a `steam + water -> water + water` reaction,
+   in two thermal variants. Both made the system *worse* (exchange rule:
+   every collapse minted a ≥100° boiler, ~35 events/frame; mean rule,
+   added as `ReactionDef::mixes_heat`, kept: lossless churn at ~34
+   boils/frame with the warm population growing). Two variants failing
+   the same way meant the approach, not the tuning — reverted, machinery
+   kept with a test.
+3. **A latent-heat cost on boiling** (steam born 40° cooler) was
+   implemented on the "lossless loop needs a sink" theory. It worked —
+   and the isolation control showed the rubble fix alone sleeps *sooner
+   without it* (0/40 vs 2/40 at frame 4,500), so it was reverted per
+   keep-each-fix-minimal. The idea is recorded at its site in `fire.rs`.
+
+What the census finally showed, in one line: `>=100C in rubble: 90 cells,
+mean 302C` — **byte-identical across 4,500 frames**. Hot rubble with zero
+conductivity can never cool, and 90 permanent 300° radiators inside the
+cavity re-warmed everything the other rules drained. The general lesson,
+now also in `fire.rs`: any material that can *inherit* a temperature —
+through `transform`, burnout, a crush, or a reaction — and has zero
+`heat_conductivity` is a permanent radiator, and the next "eternal" heat
+loop should be checked for one before any thermodynamics is redesigned.
 
 Ruled out by measurement, in order:
 

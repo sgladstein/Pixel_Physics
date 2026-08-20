@@ -35,6 +35,26 @@
     heat_conductivity: 0.12,
     cooling_point: 45.0,
     cools_into: "water",
+    // **Tried and reverted: direct-contact condensation** -- a
+    // `(with: "water", produces: ("water", "water"))` reaction here, so a
+    // steam bubble touching subcooled water collapses into it the way real
+    // ones do. Built to drain open-bugs-handoff 0b's trapped delta pocket
+    // (~1,400 steam cells at a mean of 163C that `cooling_point` can never
+    // reach, because a near-uniform cavity in warm rock has no gradient).
+    // It conserves water exactly and it did drain the pocket's steam --
+    // and it made the system as a whole *worse*, in both thermal variants,
+    // which per CLAUDE.md means the approach and not the tuning: under the
+    // exchange rule every collapse handed the bubble's whole heat to one
+    // water cell and minted a >=100C boiler (~35 boil/react events a frame,
+    // up from ~5.5); under `mixes_heat` both products sat near 100C and
+    // the boil/collapse loop churned lossless at ~34 boils a frame with
+    // the warm-water population *growing*. Contact condensation moves heat
+    // between phases faster than anything here removes it — and the loop
+    // never needed a new sink at all: its energy source was 90 cells of
+    // hot, thermally-inert rubble acting as permanent radiators inside the
+    // delta (see rubble.ron's heat_conductivity note). With that fixed the
+    // pocket condenses through the ordinary cooling_point above and the
+    // scene sleeps outright.
     colors: [
         (222, 228, 236),
         (206, 214, 226),

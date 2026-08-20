@@ -740,6 +740,20 @@ pub struct ReactionDef {
     pub produces: (String, String),
     #[serde(default = "default_reaction_chance")]
     pub chance: f32,
+    /// How the pair's heat lands on the products. `false` (the default) is
+    /// the *exchange* rule: the neighbour's product takes the hotter side's
+    /// temperature and the self product the cooler's — right for a violent
+    /// reaction like quenching, where the steam must be born hot enough to
+    /// rise and the stone is what the coolant chilled. `true` gives **both
+    /// products the pair's mean** — right for an absorption like steam's
+    /// direct-contact condensation, where the bubble's heat spreads into
+    /// the water mass. The distinction is load-bearing, found by measuring
+    /// the wrong one: contact condensation under the exchange rule handed
+    /// each collapsing bubble's full heat to a single water cell, minting a
+    /// ≥100°C boiler per collapse — a heat-recirculation pump that took
+    /// `scene=lavapour` from ~5.5 to ~35 boil/react events a frame.
+    #[serde(default)]
+    pub mixes_heat: bool,
 }
 
 fn default_reaction_chance() -> f32 {
@@ -846,6 +860,8 @@ pub struct Reaction {
     pub becomes: MaterialId,
     pub other_becomes: MaterialId,
     pub chance: f32,
+    /// See `ReactionDef::mixes_heat`.
+    pub mixes_heat: bool,
 }
 
 impl Material {
@@ -1403,6 +1419,7 @@ impl MaterialRegistry {
                         becomes: resolve(&r.produces.0)?,
                         other_becomes: resolve(&r.produces.1)?,
                         chance: r.chance,
+                        mixes_heat: r.mixes_heat,
                     })
                 })
                 .collect();

@@ -2446,6 +2446,40 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             }
         }
         println!("    standing: molten {molten}, burning {burning}, cells at >=100C {hot}, liquid hot enough to bubble {bubbling}");
+        // WHERE the heat is, not just how much -- open-bugs-handoff 0b's own
+        // discriminator ("dump where the >=100C cells and the outstanding
+        // steam actually sit"). Per-material counts with a bounding box per
+        // material, because "592 hot cells" was compatible with a hot stone
+        // core, a trapped steam pocket, and a simmering pool all at once,
+        // and only the location separates them. Bounded work: one scan,
+        // printed only when something is hot, so quiet scenes stay quiet.
+        if hot > 0 {
+            use std::collections::HashMap as Map;
+            let mut by_material: Map<u16, (u32, i64, i32, i32, i32, i32)> = Map::new();
+            for y in 0..HEIGHT {
+                for x in 0..WIDTH {
+                    let cell = world.get(x, y);
+                    if cell.temperature() >= 100 {
+                        let e = by_material.entry(cell.material.0).or_insert((0, 0, i32::MAX, i32::MIN, i32::MAX, i32::MIN));
+                        e.0 += 1;
+                        e.1 += cell.temperature() as i64;
+                        e.2 = e.2.min(x);
+                        e.3 = e.3.max(x);
+                        e.4 = e.4.min(y);
+                        e.5 = e.5.max(y);
+                    }
+                }
+            }
+            let mut rows: Vec<_> = by_material.into_iter().collect();
+            rows.sort_by_key(|(_, (n, ..))| std::cmp::Reverse(*n));
+            for (id, (n, temp_sum, x0, x1, y0, y1)) in rows.into_iter().take(4) {
+                let name = &world.materials.get(pixel_physics::sim::material::MaterialId(id)).name;
+                println!(
+                    "      >=100C in {name}: {n} cells, mean {}C, box x {x0}..{x1} y {y0}..{y1}",
+                    temp_sum / n as i64
+                );
+            }
+        }
         // The water cycle's standing state, next to the counters above --
         // and the pair is the point. The counters say the mechanism fired;
         // this says what is *there*, which is the question a freeze-and-thaw
