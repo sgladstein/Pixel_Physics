@@ -73,6 +73,29 @@ const DEPTH_LIGHT_FLOOR: f32 = 0.62;
 /// for a skyline highlight, not a glowing crust.
 const DEPTH_LIGHT_HIGHLIGHT: f32 = 1.12;
 
+/// Half-width of the window that decides which skyline features the depth
+/// light believes in.
+///
+/// Measured against the raw per-column skyline, the depth light drew a
+/// bright vertical shaft under every narrow notch: a slot seven columns
+/// wide and thirty deep dropped its columns' skyline by thirty rows, so
+/// the rock beside its floor read as "near the surface" and lit up in a
+/// stripe against its neighbours — conspicuous on canyon terrain, whose
+/// terrace snap cuts exactly such slots (the merged data track's 1b
+/// finding). Light does not pour down a slot like that; it comes from the
+/// whole sky.
+///
+/// So the light's datum is the skyline with narrow dips clipped to their
+/// shoulders — a morphological opening: a dip narrower than
+/// `2 * DEPTH_LIGHT_SHOULDER_REACH + 1` columns is treated as still being
+/// at its shoulders' level, while anything wider (a real valley, a canyon
+/// floor, a cliff step) passes through *exactly* unchanged, which is the
+/// property that makes an opening the right tool rather than a blur: a
+/// blur would soften every cliff base in the world to fix a dozen slots.
+/// Nine columns of half-width clears the measured slot census (worst
+/// notch 7 columns) with margin, and stays well under real valley widths.
+const DEPTH_LIGHT_SHOULDER_REACH: usize = 9;
+
 const CHUNK_BORDER_ACTIVE: [u8; 4] = [80, 200, 120, 255];
 const CHUNK_BORDER_SETTLED: [u8; 4] = [60, 60, 70, 255];
 
@@ -684,6 +707,14 @@ pub struct Renderer {
     /// undercut. Reported from play, and obvious in hindsight: "empty" and
     /// "open to the sky" are not the same question.
     horizon: Vec<i32>,
+    /// The skyline as the *depth light* reads it: `horizon` with dips
+    /// narrower than the shoulder window clipped to their shoulders (see
+    /// `DEPTH_LIGHT_SHOULDER_REACH`). Rebuilt beside `horizon` from the same
+    /// frozen source, so it carries the same purity guarantee. Only the
+    /// terrain depth light reads it — sky-vs-cave (`sky_depth`) stays on the
+    /// raw skyline, because the air in a narrow notch genuinely *is* open
+    /// sky even though the rock beside it should not light up.
+    light_datum: Vec<i32>,
     /// World x the `horizon` entries start at.
     horizon_origin: i32,
 }
@@ -745,6 +776,7 @@ impl Renderer {
             },
             last_moon_rect: None,
             horizon: Vec::new(),
+            light_datum: Vec::new(),
             horizon_origin: 0,
         }
     }
@@ -1478,6 +1510,7 @@ impl Renderer {
             self.horizon.clear();
             self.horizon.extend_from_slice(world.sky_surface());
             self.horizon_origin = b.min_x;
+            self.rebuild_light_datum();
             return;
         }
         // Fallback, for a world nothing has ever stepped. That is a handful
@@ -1505,6 +1538,60 @@ impl Renderer {
             })
             .collect();
         self.horizon_origin = b.min_x;
+        self.rebuild_light_datum();
+    }
+
+    /// `light_datum` from `horizon`: a grayscale morphological opening —
+    /// min-filter then max-filter, both over the shoulder window — which
+    /// clips any dip narrower than the window to its shoulders' level and
+    /// passes everything wider through exactly unchanged (see
+    /// `DEPTH_LIGHT_SHOULDER_REACH` for why an opening and not a blur).
+    ///
+    /// Naive windowed filters, not sliding-window minima: the window is 19
+    /// wide and the skyline 2048 columns, so this is ~80k comparisons per
+    /// rebuild against a draw that touches every pixel — the same budget
+    /// argument `rebuild_horizon`'s own memcpy note makes. Columns that have
+    /// never held ground (`i32::MAX`) stay `MAX` in the datum, so they keep
+    /// reading as bottomless sky rather than borrowing a neighbour's depth.
+    fn rebuild_light_datum(&mut self) {
+        let n = self.horizon.len();
+        self.light_datum.clear();
+        self.light_datum.resize(n, i32::MAX);
+        if n == 0 {
+            return;
+        }
+        let r = DEPTH_LIGHT_SHOULDER_REACH;
+        // Erode: highest ground (smallest y) in each window.
+        let eroded: Vec<i32> = (0..n)
+            .map(|i| (i.saturating_sub(r)..=(i + r).min(n - 1)).map(|j| self.horizon[j]).min().unwrap_or(i32::MAX))
+            .collect();
+        // Dilate back: lowest of the eroded values in each window. Together
+        // the two passes are an opening, `datum[i] <= horizon[i]` always —
+        // the datum only ever *raises* ground toward its shoulders, never
+        // sinks it, so no column can get brighter than the raw skyline gave
+        // it.
+        for (i, slot) in self.light_datum.iter_mut().enumerate() {
+            if self.horizon[i] == i32::MAX {
+                continue;
+            }
+            let d = (i.saturating_sub(r)..=(i + r).min(n - 1)).map(|j| eroded[j]).max().unwrap_or(i32::MAX);
+            *slot = d.min(self.horizon[i]);
+        }
+    }
+
+    /// `y` relative to this column's *light* datum — the notch-clipped
+    /// skyline. Same sign convention as `sky_depth`; only the terrain depth
+    /// light reads this one.
+    fn light_depth(&self, x: i32, y: i32) -> i32 {
+        let i = x - self.horizon_origin;
+        if i < 0 || i as usize >= self.light_datum.len() {
+            return -1;
+        }
+        let floor = *self.light_datum.get(i as usize).unwrap_or(&i32::MAX);
+        if floor == i32::MAX {
+            return -1;
+        }
+        y - floor
     }
 
     /// Whether this position is open to the sky, rather than a void inside
@@ -1788,7 +1875,7 @@ impl Renderer {
         let rgb = match self.terrain_light {
             TerrainLight::Off => rgb,
             TerrainLight::Depth => {
-                let depth = self.sky_depth(x, y);
+                let depth = self.light_depth(x, y);
                 if depth < 0 {
                     rgb
                 } else {
@@ -2304,8 +2391,8 @@ mod tests {
         fn brightness(c: [u8; 4]) -> u32 {
             c[0] as u32 + c[1] as u32 + c[2] as u32
         }
-        let mut world = World::new(Rect::new(0, 0, 127, 255));
-        for x in 0..128 {
+        let mut world = World::new(Rect::new(0, 0, 191, 255));
+        for x in 0..192 {
             for y in 64..256 {
                 world.set(x, y, Cell::new(material::STONE, 0));
             }
@@ -2316,6 +2403,21 @@ mod tests {
         for x in 40..90 {
             for y in 58..64 {
                 world.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        // A narrow notch (5 columns, well under the shoulder window) and a
+        // wide valley (42 columns, well over it), both dropping the skyline
+        // 32 rows. The light datum must clip the notch to its shoulders and
+        // leave the valley alone — the property that kills the bright
+        // shafts the raw skyline drew under canyon slots.
+        for x in 110..115 {
+            for y in 64..96 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        for x in 140..182 {
+            for y in 64..96 {
+                world.set(x, y, Cell::EMPTY);
             }
         }
         world.begin_step();
@@ -2355,6 +2457,23 @@ mod tests {
             "deep rock stays legible — dimmer is not dark ({deep} vs underground {})",
             brightness(UNDERGROUND)
         );
+
+        r.terrain_light = TerrainLight::Depth;
+        // One row under the notch floor: raw skyline says depth 1, the
+        // clipped datum says 33 — it must draw as deep rock, not as a
+        // bright shaft. Same row under the wide valley floor: genuinely
+        // depth 1, stays bright. Grain differs by position, so the
+        // comparison needs the ramp's spread (~2.4x at these depths), not
+        // equality.
+        let notch_rock = brightness(r.cell_colour(&world, 112, 97));
+        let valley_rock = brightness(r.cell_colour(&world, 160, 97));
+        assert!(
+            notch_rock < valley_rock * 3 / 4,
+            "rock beside a narrow notch floor must not light up as if at the surface ({notch_rock} vs valley {valley_rock})"
+        );
+        // The notch's *air* is still open sky — the datum is the light's
+        // business only.
+        assert!(r.under_sky(112, 80), "a narrow notch's air is still sky, not cave");
     }
 
     /// Reported from play: "the effect where light is blocked below plants
