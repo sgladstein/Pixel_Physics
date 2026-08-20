@@ -104,6 +104,17 @@ toward bedrock. You will not see them from outside; you find them by digging,
 and they pour once opened. Buried gravel reads as its own brown against the
 stone, where scree at the surface stays rock-grey.
 
+**Sealed chambers** hide far below the surface — much deeper than any
+pocket, in the quiet rock a couple of hundred rows down. Most worlds have
+one at most, some none, and nothing on the surface marks where. Dig deep
+enough in the right place and the wall breaks into a room: a lumpy grotto
+with a level gravel floor, or a geode — a hollow ringed with pale crystal,
+the one bright thing in the deep massif. At that depth the ground water
+has usually found the floor first, so a discovered chamber often holds a
+still pool under its dome, dark until you bring the roof down or learn to
+see in the dark. They are rare on purpose: finding one is meant to be an
+event.
+
 **Bedrock** lines the bottom of the world. It is the thing everything else is
 ultimately anchored to.
 
@@ -176,11 +187,13 @@ genuinely different places.
 
 ## What is not here yet
 
-Rivers, springs, rain and evaporation — water currently sits where it was
-generated and does not cycle. Caves, and plant cover that arrives with the
-world rather than being planted by hand. Worlds are also still a fixed
-size — a large one, but bounded — rather than continuing indefinitely as
-you travel.
+Rivers and springs in generated worlds — the water machinery exists (rain
+falls, puddles dry, moving water runs white), but no world yet generates a
+spring or a flowing course, and what evaporates does not come back as rain
+somewhere else. Open cave *systems* to wander — the sealed chambers above
+are rooms, not passages. Plant cover that arrives with the world grown
+rather than as seeds. And worlds are still a fixed size — a large one, but
+bounded — rather than continuing indefinitely as you travel.
 
 ## How big a world is
 
