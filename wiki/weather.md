@@ -1,6 +1,7 @@
 # Weather
 
-*Current as of: this build (the water-cycle polish pass — the thaw).*
+*Current as of: this build (the water bank — rain now comes out of what
+evaporated).*
 
 Every world has weather, and it is a property of the world rather than
 something that happens to it: the same seed gets the same weather at the
@@ -128,6 +129,36 @@ back.
 Water sealed under rock never dries at all, and neither does anything under
 a roof; there has to be open air above it for the water to go anywhere.
 
+## And it comes back as rain
+
+Water that evaporates is not destroyed — it goes into the sky, and the sky
+is what rain comes out of. A world holds a fixed amount of water, and every
+drop that falls on you was standing in a puddle somewhere first.
+
+This is not something you have to manage, and most of the time you will not
+notice it: a world starts with a good reserve overhead, so the first storms
+of a new world are exactly as heavy as they ever were. What it does mean is
+that the sky can run low. A world that has rained a great deal without
+drying anything back out gets **thinner** rain — fewer streaks falling, less
+water landing, the same front delivering less — and it recovers as puddles
+and shorelines evaporate again. The rain you see falling and the rain that
+actually lands are always the same rain; the sky never puts on a downpour it
+cannot pay for.
+
+Two things do *not* come out of the sky's reserve, deliberately. Damp ground
+is one: a front still darkens and wets what it passes over even when it has
+very little water left to drop, because ground being damp is a condition
+rather than a quantity of water sitting somewhere. Snow melting, water
+boiling to steam, steam condensing and ponds freezing are the other: none of
+those involve the sky at all, and each of them already gives back exactly
+what it took.
+
+One rough edge worth knowing: water that soaks into soil is, for now, gone
+for good — it does not evaporate back out. So a world that is all soil and
+no stone will see its rain thin out over a long session and settle at
+roughly half strength, where a world with rock to puddle on holds its level
+indefinitely.
+
 ## What is not here yet
 
 Thunder — lightning flashes and forks, but the world is silent. Rain does
@@ -135,6 +166,10 @@ not yet erode anything or fill rivers, and there are no seasons — a world's
 weather wanders but does not have a winter. A cold snap is the nearest thing
 to one, and it lasts hours rather than months. Ice forms only from standing
 water and only under falling snow: cold alone will not do it, and there is
-no black ice on a clear winter night. Evaporated water is gone rather
-than banked: it does not come back as rain somewhere else, and the world's
-total water only goes down between showers.
+no black ice on a clear winter night.
+
+The sky's water is one pool for the whole world rather than clouds that
+drift: water that evaporates on one side of the map can fall on the other,
+and there is no sense in which a particular cloud is carrying a particular
+puddle. Water that has soaked into soil does not evaporate back out yet
+either — see above.

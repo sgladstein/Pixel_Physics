@@ -352,6 +352,21 @@ front passing thaws it back. Judged on `filmstrip` scenes `boil`, `simmer`,
 `lavapour` and `coldsnap`, the last of which is an acceptance case
 (`scripts/acceptance.sh` §11).
 
+**The outer half of it — evaporation and rain — is closed too, as of the
+water bank.** Evaporation used to delete water and credit nothing while
+precipitation created it out of nothing, so a world's total was whatever the
+difference between two independently tuned rates happened to be. Both halves
+now go through one `f64` on `World` in cell-equivalents: evaporation credits
+exactly what it removes, a storm scales its whole column budget by what the
+bank can afford, and `render.rs` thins the *drawn* rain by the same factor so
+a bankrupt sky cannot draw a downpour it will not land. Measured flat to
+-0.0000% across 6,000 frames spanning a storm and a drought, on both drivers.
+Judged on `filmstrip scene=stormcycle`, whose census prints the bank next to
+the standing water. **Still open:** water that infiltrates soil leaves the
+ledger and nothing credits it back, so an all-soil world's rain thins to
+about half strength over ~45,000 frames and settles there — see
+`weather::STORM_RESERVE`'s doc for the trajectory.
+
 **Non-goal, stated so it is a decision rather than an omission: there is no
 day/night temperature oscillation yet**, although the field carries a temperature
 channel and the light channel has oscillated since M16. Three reasons, and the

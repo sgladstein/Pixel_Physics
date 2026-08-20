@@ -185,9 +185,15 @@ wants an opinion before it wants code.
   lake several times a second. That is a weather question, not an evaporation
   one, and it is left alone deliberately — but it is what `shelter` exists to
   work around, and fixing it would simplify this file.
-- **Evaporated water is gone, not banked.** Nothing condenses it back, so a
-  world's total water only falls between showers. The water cycle in
-  `PLAN.md` wants the other half.
+- ~~**Evaporated water is gone, not banked.**~~ **Closed** by the water
+  bank: one `f64` on `World` in liquid-water cell-equivalents, credited by
+  `evaporation::tick` and spent by `weather::step`, with `render.rs` thinning
+  the drawn rain by the same supply factor the storm is throttled by.
+  Measured flat to -0.0000% across 6,000 frames spanning a storm and a
+  drought, both drivers. What is *not* closed is infiltration: a landing
+  water cell's fill becomes soil wetness and nothing credits it back, so an
+  all-soil world's supply settles at about half — see
+  `weather::STORM_RESERVE`'s own doc for the sizing and the trajectory.
 - **The rate constants are set from feel, not from anything physical.** A
   six-cell puddle four rows deep takes ~11,600 frames, a little over three
   in-game days; two rows deep, about half that. `probe_drying_curve` is the thing to re-run after touching
