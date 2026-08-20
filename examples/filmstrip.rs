@@ -42,7 +42,7 @@
 
 use std::collections::HashSet;
 
-use pixel_physics::render::{FieldOverlay, GrainMode, OrganismOverlay, Renderer};
+use pixel_physics::render::{FieldOverlay, GrainMode, OrganismOverlay, Renderer, TreeDepth};
 mod common;
 
 use pixel_physics::sim::cell::Cell;
@@ -1044,6 +1044,11 @@ struct Args {
     genome: String,
     out: String,
     grain: GrainMode,
+    /// `trees=weave|haze|front|behind` -- which `TreeDepth` the sheet is
+    /// shot in. The whole value of a selector is being able to put its
+    /// settings side by side, and a still image is the only way to compare
+    /// two of them at once.
+    tree_depth: TreeDepth,
     /// `channel=` -- render the sheet through one of `render.rs`'s debug
     /// overlays instead of ordinary material colour. The whole reason the
     /// plant work needs this harness: resource, canopy density and (later)
@@ -1232,6 +1237,7 @@ fn parse() -> Args {
         parallel_driver: true,
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
         grain: GrainMode::Position,
+        tree_depth: TreeDepth::default(),
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
         gif: false,
@@ -1283,6 +1289,15 @@ fn parse() -> Args {
                     "animated" => GrainMode::Animated,
                     "motion" => GrainMode::Motion,
                     other => panic!("unknown grain {other:?}"),
+                }
+            }
+            "trees" => {
+                a.tree_depth = match v {
+                    "weave" => TreeDepth::Weave,
+                    "haze" => TreeDepth::Haze,
+                    "front" => TreeDepth::Front,
+                    "behind" => TreeDepth::Behind,
+                    other => panic!("unknown trees {other:?}"),
                 }
             }
             // One flag for both overlay families, resolved by name: they are
@@ -1693,6 +1708,21 @@ impl Gnome {
         if let Some(from) = self.start_x {
             s.push_str(&format!(", travelled {:.0} cells", p.x - from));
         }
+        // How much of him a tree is actually covering this frame.
+        //
+        // The depth effect is invisible in a still unless the sheet happens
+        // to catch a frame with real overlap, and hunting for one by eye is
+        // exactly the "an image says what and where, only a number says how
+        // much" trap. This says whether there was anything to see.
+        let (px0, py0, px1, py1) = p.bounds();
+        let covered = (py0..=py1)
+            .flat_map(|y| (px0..=px1).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let c = world.get(x, y);
+                c.organism_id() != 0 && world.materials.get(c.material).climbable
+            })
+            .count();
+        s.push_str(&format!(", {covered}/{} cells behind foliage", (px1 - px0 + 1) * (py1 - py0 + 1)));
         if self.script == Script::Climb {
             match self.grabbed {
                 true => s.push_str(&format!(", climbed {:.0} cells (gripped at y={:.0})", self.grabbed_at - self.highest, self.grabbed_at)),
@@ -1893,6 +1923,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     let cave_before = roofed_void(&world);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
+    renderer.tree_depth = args.tree_depth;
     renderer.organism_overlay = args.organism_overlay;
     renderer.field_overlay = args.field_overlay;
     let mut particles = ParticleSystem::new();

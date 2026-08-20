@@ -493,10 +493,89 @@ const GNOME_SWING: [[Option<[u8; 4]>; 7]; 14] = [
     [B, B, B, X, B, B, X],
 ];
 
+/// Whether the gnome draws over a tree, behind it, or a mix — the owner's
+/// "sometimes walking in front of trees and sometimes behind".
+///
+/// A **selector rather than a decision**, per `CLAUDE.md`: this is a
+/// does-this-look-right question, and five grain modes behind one key once
+/// settled in minutes what no amount of argument or still images had.
+///
+/// Purely graphical. Nothing about collision, light or the simulation
+/// changes with it — a tree is walk-through either way, and this only says
+/// which of the two gets the pixel where they overlap.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum TreeDepth {
+    /// Half the trees draw over him, chosen per tree and stable for its
+    /// life. The default, because it is the effect that was asked for.
+    #[default]
+    Weave,
+    /// The previous behaviour: he draws over everything.
+    Front,
+    /// Every tree draws over him — the far end, for judging how readable a
+    /// half-hidden gnome actually is before settling on the middle.
+    Behind,
+    /// `Weave`, and the trees he passes *behind* are also dimmed, so the
+    /// two layers read as layers rather than as random occlusion.
+    Haze,
+}
+
+impl TreeDepth {
+    pub fn next(self) -> Self {
+        match self {
+            TreeDepth::Weave => TreeDepth::Haze,
+            TreeDepth::Haze => TreeDepth::Front,
+            TreeDepth::Front => TreeDepth::Behind,
+            TreeDepth::Behind => TreeDepth::Weave,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TreeDepth::Weave => "WEAVE (current)",
+            TreeDepth::Haze => "WEAVE+HAZE",
+            TreeDepth::Front => "FRONT",
+            TreeDepth::Behind => "BEHIND",
+        }
+    }
+
+    /// Whether the tree owned by `organism_id` draws in front of him.
+    ///
+    /// **A hash, not `id & 1`.** Organism ids are handed out sequentially,
+    /// so parity makes consecutively-planted trees alternate — a
+    /// correlation the eye picks out at once in a row of them, and worldgen
+    /// plants a stand left to right.
+    ///
+    /// A pure function of world state and nothing else, which is what keeps
+    /// `dirty_rect_skip_is_pixel_identical_to_a_full_redraw` true: a fresh
+    /// `Renderer` and one with history agree by construction. The reverted
+    /// stateful skyline is the recorded case of getting this wrong.
+    fn in_front(self, organism_id: u16) -> bool {
+        match self {
+            TreeDepth::Front => false,
+            TreeDepth::Behind => true,
+            TreeDepth::Weave | TreeDepth::Haze => (organism_id as u32).wrapping_mul(2_654_435_761) >> 16 & 1 == 1,
+        }
+    }
+}
+
+/// How much of him still shows through a tree he is passing behind.
+///
+/// Not zero, and that is the whole of "he stays findable": a gnome who
+/// vanishes into a crown is a gnome you have lost, and the picture stops
+/// being playable however good it looks. Low enough to read as *behind*
+/// rather than as in front of a translucent tree.
+const OCCLUDED_ALPHA: f32 = 0.28;
+
+/// How far a background tree is dimmed under `TreeDepth::Haze`.
+const HAZE_DIM: u16 = 168;
+
 pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
     /// Prototype switch — see the enum's own doc.
     pub grain: GrainMode,
+    /// Whether the gnome weaves through a stand or draws over it — see
+    /// `TreeDepth`. Cycled with `F10`.
+    pub tree_depth: TreeDepth,
     /// Frame counter, advanced by `draw`, read only by `GrainMode::Animated`.
     frame: u64,
     /// Screen rectangles the chunk bodies occupied on the previous `draw`.
@@ -660,6 +739,7 @@ impl Renderer {
     pub fn new() -> Self {
         Self {
             grain: GrainMode::default(),
+            tree_depth: TreeDepth::default(),
             frame: 0,
             last_body_rects: Vec::new(),
             last_player_pose: None,
@@ -702,6 +782,12 @@ impl Renderer {
     /// the only way a "does this look right" question gets answered, and it
     /// stays for the same reason: the look is expected to keep being
     /// iterated on rather than settled once.
+    /// Cycle the tree-depth selector. `F10`.
+    pub fn cycle_tree_depth(&mut self) -> TreeDepth {
+        self.tree_depth = self.tree_depth.next();
+        self.tree_depth
+    }
+
     pub fn cycle_grain(&mut self) {
         self.grain = self.grain.next();
     }
@@ -1367,12 +1453,33 @@ impl Renderer {
                 // Mirrored on the *sprite* column, so the world rectangle
                 // he occupies is unchanged whichever way he faces.
                 let column = if player.facing_left { row.len() - 1 - dx } else { dx };
-                let Some((sx, sy)) = self.world_to_screen(ox + column as i32, oy + dy as i32) else {
+                let (wx, wy) = (ox + column as i32, oy + dy as i32);
+                let Some((sx, sy)) = self.world_to_screen(wx, wy) else {
                     continue;
                 };
+                // Is a tree standing between him and the camera here?
+                //
+                // Done inside this loop rather than as a `draw_foreground`
+                // pass after it, and the cost is the argument: this loop
+                // already resolves a world coordinate per sprite pixel, so
+                // occluding here is at most 98 `World::get` calls a frame
+                // (7x14). A separate pass would have to re-run `cell_colour`
+                // over every candidate position to repaint trees *over* the
+                // sprite -- 163,840 at 512x320 -- for the same picture.
+                let cell = world.get(wx, wy);
+                let occluded = cell.organism_id() != 0
+                    && world.materials.get(cell.material).climbable
+                    && self.tree_depth.in_front(cell.organism_id());
                 for by in 0..block {
                     for bx in 0..block {
-                        put(frame, width, height, sx + bx, sy + by, *colour);
+                        match occluded {
+                            // Blended, not skipped. A gnome who disappears
+                            // into a crown is a gnome you have lost; a
+                            // shape showing through the leaves still reads
+                            // as *behind* them.
+                            true => blend(frame, width, height, sx + bx, sy + by, *colour, OCCLUDED_ALPHA),
+                            false => put(frame, width, height, sx + bx, sy + by, *colour),
+                        }
                     }
                 }
             }
@@ -1521,6 +1628,22 @@ impl Renderer {
         // Darkening rather than tinting blue: damp soil is the same soil,
         // and a blue cast reads as a different material rather than as the
         // same one being wet.
+        // A tree he passes *behind* is dimmed, so the stand reads as two
+        // layers rather than as random occlusion. `Haze` only — the plain
+        // `Weave` leaves every tree its own colour, and which of the two
+        // looks right is the question the selector exists to answer.
+        //
+        // Gated on `organism_id` first, which is a field of the `Cell`
+        // already in hand, so a world with no organisms in it pays one
+        // compare per non-empty pixel and nothing else.
+        if self.tree_depth == TreeDepth::Haze && cell.organism_id() != 0 && !self.tree_depth.in_front(cell.organism_id()) {
+            base = [
+                (base[0] as u16 * HAZE_DIM / 256) as u8,
+                (base[1] as u16 * HAZE_DIM / 256) as u8,
+                (base[2] as u16 * HAZE_DIM / 256) as u8,
+                base[3],
+            ];
+        }
         let saturation = crate::sim::update::soil_moisture(cell);
         if saturation > 0 {
             let t = saturation as u32 * (256 - DAMP_DARKEN) / material::SOIL_SATURATED.max(1) as u32;
@@ -2913,6 +3036,75 @@ mod tests {
     }
 
     // --- §11: dirty-rect render skip -----------------------------------
+
+    #[test]
+    fn weave_puts_the_gnome_behind_some_trees_and_in_front_of_others() {
+        // The owner's ask, as a property: "sometimes walking in front of
+        // trees and sometimes behind". Both answers have to occur, and a
+        // given tree has to keep its answer.
+        let mut front = 0;
+        let mut behind = 0;
+        for id in 1..200u16 {
+            match TreeDepth::Weave.in_front(id) {
+                true => behind += 1,
+                false => front += 1,
+            }
+            assert_eq!(
+                TreeDepth::Weave.in_front(id),
+                TreeDepth::Weave.in_front(id),
+                "a tree must not change which side of him it is on"
+            );
+        }
+        assert!(front > 60 && behind > 60, "expected a real mix, got {front} in front and {behind} behind");
+    }
+
+    #[test]
+    fn consecutively_planted_trees_do_not_simply_alternate() {
+        // Why this is a hash and not `id & 1`. Organism ids are handed out
+        // sequentially and worldgen plants a stand left to right, so parity
+        // would lay down front-back-front-back across the screen — a
+        // correlation the eye picks out at once.
+        let runs = (2..60u16).filter(|&id| TreeDepth::Weave.in_front(id) == TreeDepth::Weave.in_front(id - 1)).count();
+        assert!(runs > 8, "only {runs} of 58 neighbouring pairs matched, which is parity in disguise");
+    }
+
+    #[test]
+    fn a_tree_in_front_of_the_gnome_shows_through_him() {
+        use crate::sim::player::Player;
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        let wood = world.materials.id_of("wood").expect("wood is compiled in");
+        let species = world.species.id_of("tree").expect("tree is compiled in");
+        // Find an organism whose hash puts it in front of him.
+        let organism = (0..64)
+            .map(|_| world.push_organism(species))
+            .find(|&id| TreeDepth::Weave.in_front(id))
+            .expect("some organism id hashes to the front");
+        for y in 20..50 {
+            for x in 28..40 {
+                world.set(x, y, Cell::new(wood, 0).with_organism_id(organism));
+            }
+        }
+        world.end_step();
+        world.player = Some(Player::at(32, 32));
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut over = Renderer::new();
+        over.tree_depth = TreeDepth::Front;
+        let mut a = vec![0u8; (uw * uh * 4) as usize];
+        over.draw(&world, &particles, &HashSet::new(), &mut a, (uw, uh), true);
+
+        let mut through = Renderer::new();
+        through.tree_depth = TreeDepth::Weave;
+        let mut b = vec![0u8; (uw * uh * 4) as usize];
+        through.draw(&world, &particles, &HashSet::new(), &mut b, (uw, uh), true);
+
+        assert_ne!(a, b, "a tree in front of him should not draw the same as one behind him");
+    }
 
     #[test]
     fn turning_on_the_spot_repaints_him() {

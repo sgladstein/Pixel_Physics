@@ -446,6 +446,13 @@ impl App {
     /// fields it owns, and says so: the two are the coarse and fine
     /// halves of the same job, and silently keeping a hand-swept value
     /// while announcing a preset name would make the label a lie.
+    /// Cycle whether the gnome weaves through a stand of trees or draws
+    /// over it. `F10`.
+    pub fn cycle_tree_depth(&mut self) {
+        let mode = self.renderer.cycle_tree_depth();
+        self.show_toast(format!("TREE DEPTH: {}", mode.label()));
+    }
+
     pub fn cycle_movement_feel(&mut self) {
         self.movement_feel = (self.movement_feel + 1) % player::MOVEMENT_FEELS.len();
         let feel = &player::MOVEMENT_FEELS[self.movement_feel];
@@ -1455,7 +1462,7 @@ impl App {
     /// silently — the line describing the gnome's dig outlived the
     /// mechanism it described by two commits, still telling players to
     /// click *near him* long after proximity meant anything.
-    fn help_lines() -> [&'static str; 25] {
+    fn help_lines() -> [&'static str; 27] {
         [
             "LEFT CLICK PAINT    RIGHT CLICK ERASE",
             "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
@@ -1464,7 +1471,9 @@ impl App {
             "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
             "  SUMMONING ARMS HIS DIG: LMB CUTS AT THE YELLOW RING, RMB ERASES",
             "  IN WATER: W STROKE UP    S SWIM DOWN",
+            "  IN A TREE: W CLIMB UP    S CLIMB DOWN    WALK OUT TO LET GO",
             "  F3 JUMP FEEL  F4 WATER FEEL  F2 SPOIL (CYCLE, SAY WHICH IS BEST)",
+            "  F10 TREES IN FRONT OF HIM / BEHIND HIM (CYCLE)",
             "C STRIKE ROCK    H DIG (PRECISE CUT)",
             "F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    J PLANT WORM",
@@ -1778,7 +1787,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1814,6 +1823,14 @@ impl App {
                 String::new()
             } else {
                 format!(" — spoil {}", player::SPOIL_MODES[self.spoil_mode].name)
+            },
+            // Same rule again: silent at the default, named the moment it
+            // is not, so a screenshot of a stand can be reported as having
+            // been taken in a particular mode.
+            if self.renderer.tree_depth == render::TreeDepth::default() {
+                String::new()
+            } else {
+                format!(" — trees {}", self.renderer.tree_depth.label())
             },
             // Same "only once turned on" rule as spoil: silent at the
             // default, named on screen the moment it is not, because a
