@@ -1789,6 +1789,12 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
             ok = false;
         }
     }
+    // Printed unconditionally, not only when `min_bodies` is set: "did any
+    // piece actually come away" is the counter half of every destruction
+    // sheet (`CLAUDE.md`, "did it fire at all" needs a counter), and a body
+    // whose whole life falls between two tiles is invisible in the per-tile
+    // lines above.
+    println!("  peak chunk bodies in flight at once: {peak_bodies}");
     if ok && (args.min_overloaded.is_some() || args.max_failures.is_some() || args.max_frame_ms.is_some() || args.min_bodies.is_some()) {
         println!("  OK: scene={} met its expectations", args.scene);
     }
@@ -2043,6 +2049,17 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // to a single blast's own radius.
         if let Some(&(ex, ey, er, ..)) = args.explosions.last() {
             println!("    cracked cells within 3x radius of ({ex}, {ey}): {}", cracked_census(&world, ex, ey, er));
+            // The anti-"permanent sticker" counter. Scorched stone has no
+            // conductivity, so nothing in `fire.rs` ever cools it (its
+            // thermally-inert fast path returns before any decay) -- a hot
+            // ring written by a blast used to be *permanent*, and an image
+            // cannot tell a glow that is fading from one that is frozen:
+            // both are orange in a still. Max and count together, because
+            // they answer different halves: the max says how bright the
+            // brightest cell still is, the count says how much of the ring
+            // is still lit at all.
+            let (hottest, lit) = heat_census(&world, ex, ey, er);
+            println!("    hottest cell within 3x radius: {hottest} C, cells above ambient: {lit}");
         }
         // Pieces or grit. A region below `MIN_FRACTURE_CELLS` is not
         // fractured at all -- it falls through to per-cell conversion,
@@ -2162,6 +2179,28 @@ fn occupied(world: &World) -> i64 {
 /// `3x radius` rather than the crack halo's own `length` so the box stays
 /// meaningful across a sweep of `crack_reach` without having to be
 /// recomputed by hand each time.
+/// The hottest cell in the same box, and how many cells in it are still
+/// above ambient at all -- `(hottest, lit)`.
+///
+/// Companion to `cracked_census`, and it exists for the same "a counter,
+/// not a picture" reason: whether a blast's glow is *going away* is a
+/// trajectory, and one still frame of an orange ring looks identical
+/// whether it is cooling or frozen forever.
+fn heat_census(world: &World, cx: i32, cy: i32, radius: i32) -> (i16, u32) {
+    let box_r = radius * 3;
+    let (mut hottest, mut lit) = (pixel_physics::sim::cell::AMBIENT_TEMPERATURE, 0u32);
+    for y in (cy - box_r)..=(cy + box_r) {
+        for x in (cx - box_r)..=(cx + box_r) {
+            let t = world.get(x, y).temperature();
+            hottest = hottest.max(t);
+            if t > pixel_physics::sim::cell::AMBIENT_TEMPERATURE {
+                lit += 1;
+            }
+        }
+    }
+    (hottest, lit)
+}
+
 fn cracked_census(world: &World, cx: i32, cy: i32, radius: i32) -> u32 {
     let box_r = radius * 3;
     let mut n = 0u32;

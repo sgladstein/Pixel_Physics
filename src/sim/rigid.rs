@@ -1156,6 +1156,82 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
 /// exists to remove. Only `explosion.rs` calls this today, so the argument
 /// is always real confinement data, never a "no gating" sentinel.
 pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: i32, force: f32, size_bias: u32, confinement: super::explosion::Confinement) {
+    let loosened = loosen_shell(world, origin, inner, outer, confinement, ShellSectors::Open);
+    if loosened.len() >= MIN_FRACTURE_CELLS {
+        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
+    }
+}
+
+/// Which half of a blast's ring a shell scan is interested in.
+///
+/// The blast's own stages only ever want `Open` — a contained sector's rim
+/// must stay exactly where it is, which is the whole of R2. The calving
+/// collar wants both, in two different places: the open rim it can throw
+/// into the void, and the *contained* pocket wall, which is the only rock a
+/// fully buried charge has anywhere to move.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShellSectors {
+    /// Sectors that vented — reach equals the blast radius.
+    Open,
+    /// Sectors that read as buried, cleared only to the crush pocket.
+    Contained,
+}
+
+/// Break a collar off the rim along the cracks, once the blast's fissure
+/// star has finished growing. Returns how many cells were handed to the
+/// fragmenter.
+///
+/// This is `fracture_shell`'s sibling and shares its scan
+/// (`loosen_shell`), and the difference between them is *when* and *which
+/// way*: the shell fracture runs on every stage, on the rock the blast is
+/// breaking, thrown outward. This runs once, seconds later, on standing
+/// rock the star has just cut wedges out of, thrown inward (the caller
+/// passes a negative force) so the wedges tumble into the hole.
+///
+/// The seams are the cracks: `take_fragment` will not flood across a cracked
+/// edge, so what comes away is bounded by the fissures the player watched
+/// race outward rather than by BFS rings. That is the entire reason the
+/// calving waits for the star to finish instead of happening on the bang
+/// frame — before the walks have run there is nothing to break *along*.
+#[allow(clippy::too_many_arguments)]
+pub fn calve_collar(
+    world: &mut World,
+    origin: (i32, i32),
+    inner: i32,
+    outer: i32,
+    force: f32,
+    size_bias: u32,
+    confinement: super::explosion::Confinement,
+    sectors: ShellSectors,
+) -> u32 {
+    let loosened = loosen_shell(world, origin, inner, outer, confinement, sectors);
+    if loosened.len() < MIN_FRACTURE_CELLS {
+        // Below the fragmenter's own floor, and deliberately nothing else:
+        // converting a handful of cells to rubble here would make a blast
+        // with almost no rim to give eat a little of it anyway, every time.
+        return 0;
+    }
+    fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
+    loosened.len() as u32
+}
+
+/// The annulus scan both `fracture_shell` and `calve_collar` run: collect
+/// the body cells in `inner..outer` whose sector matches `sectors`,
+/// unattaching each as it goes.
+///
+/// One function rather than two copies of the loop for the reason this file
+/// keeps re-learning: the sector test, the raggedness and the loosening rule
+/// all have to agree with `Blast::clear_annulus` about where this blast's
+/// edge is, and a second copy would drift from that agreement the first time
+/// either changed.
+fn loosen_shell(
+    world: &mut World,
+    origin: (i32, i32),
+    inner: i32,
+    outer: i32,
+    confinement: super::explosion::Confinement,
+    sectors: ShellSectors,
+) -> Vec<(i32, i32)> {
     let mut loosened = Vec::new();
     // An annulus, not a disc. Scanning the whole disc also swept up the
     // crater's *interior* -- material the blast was still working through --
@@ -1176,7 +1252,8 @@ pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: 
             // same draw, so the thrown shell's boundary is the crater's own
             // boundary rather than a clean 22.5-degree pie cut laid over a
             // ragged hole.
-            if super::explosion::ragged_sector_limit(&confinement.sector_reach, dx, dy, x, y) < confinement.radius as f32 {
+            let is_open = super::explosion::ragged_sector_limit(&confinement.sector_reach, dx, dy, x, y) >= confinement.radius as f32;
+            if is_open != (sectors == ShellSectors::Open) {
                 continue;
             }
             let cell = world.get(x, y);
@@ -1208,10 +1285,8 @@ pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: 
             loosened.push((x, y));
         }
     }
-    if loosened.len() >= MIN_FRACTURE_CELLS {
-        loosened.sort_unstable(); // deterministic seed order
-        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
-    }
+    loosened.sort_unstable(); // deterministic seed order
+    loosened
 }
 
 /// Advance every body one frame, settling any that have come to rest.

@@ -984,6 +984,10 @@ struct Walker {
     /// not leave the crater as one synchronised starburst. Ignored entirely
     /// by `run_to_completion`, which has no frames to count.
     delay: u16,
+    /// Cells still to be entered before the current straight run ends and
+    /// the heading kinks. `CrackStyle::Brittle` only -- the wandering style
+    /// turns at every cell and never reads this.
+    run_left: u16,
     /// Set when the walk ends -- budget spent, out of bounds, or out of
     /// rock. Needed because `is_done` cannot tell "spent" from "stopped at a
     /// free face" from `steps` alone.
@@ -1024,6 +1028,39 @@ struct Walker {
 /// the crush path only ever calls the first, the blast only ever the
 /// second -- so the property that matters (each is deterministic in the
 /// site) holds for both.
+/// Which *shape* a walk draws — the one thing that differs between the
+/// crush's cracks and a blast's.
+///
+/// # Why black rock needs its own style
+///
+/// The wandering walker turns a little at *every* cell, which integrates
+/// into a smooth curve: over a 40-cell ray that reads as a meander. The
+/// owner's verdict on the growing star was that the cracks were "a little
+/// too organic", and the answer is not less wander but a different
+/// *statistic*. Brittle fracture in a hard, homogeneous rock is angular:
+/// the crack front runs nearly straight until it meets something that
+/// deflects it, then turns sharply and runs straight again. Near-straight
+/// segments, sharp kinks, acute branches — a lightning bolt, not a river.
+///
+/// So this is a distribution swap, not a tuning: the same per-cell
+/// position-keyed jitter budget is spent in a few large turns instead of
+/// many small ones.
+///
+/// **The crush keeps `Wander`, byte for byte.** `crush_in_place`'s output
+/// is pinned by a PNG hash on `scene=strike` and there is no reason to
+/// change what a confined failure inside a mountain looks like in the same
+/// pass that changes what a blast looks like. Whether the crush should
+/// adopt this later is a question for a sheet, not for this enum.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CrackStyle {
+    /// Turn by up to `CRACK_WANDER` at every cell. The original, and what
+    /// every crush draws.
+    Wander,
+    /// Hold the heading for a run of cells, then kink sharply. See
+    /// `brittle_run`/`brittle_kink`.
+    Brittle,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct FissureWalks {
     walkers: Vec<Walker>,
@@ -1045,13 +1082,27 @@ pub(crate) struct FissureWalks {
     /// frame's worth: reset it per frame and the second frame's walkers
     /// would be bonused by the first frame's own writes.
     scored_now: std::collections::HashSet<(i32, i32)>,
+    /// See [`CrackStyle`].
+    style: CrackStyle,
+    /// Temperature written into every cell the walk crosses, if the cell is
+    /// colder — the crack tip's own incandescence. `0` is off, which is what
+    /// every crush walk uses: rock parting under load 80 cells inside a
+    /// mountain is not hot, and a blast's fracture front genuinely is.
+    ///
+    /// Owned here rather than written by the caller afterwards because only
+    /// the walker knows *which* cells it crossed on any given frame, and the
+    /// whole point is that the glow tracks the racing tip rather than
+    /// appearing all at once along the finished star.
+    glow: i16,
 }
 
 impl FissureWalks {
     /// The crush star: `primaries` strokes leaving one origin at even
     /// angles, sharing one fork pool. Exactly what `walk_fissures` took.
     pub(crate) fn new(start: (i32, i32), heading: f32, primaries: usize, length: usize, forks: usize, detach: bool) -> Self {
-        let mut walks = Self::empty(detach);
+        // `Wander`, and no glow: this is the crush constructor, and both
+        // halves of that are load-bearing (`CrackStyle`'s own doc).
+        let mut walks = Self::empty(detach, CrackStyle::Wander, 0);
         walks.forks = forks;
         for i in 0..primaries {
             walks.push_walker(start, heading + i as f32 * std::f32::consts::TAU / primaries.max(1) as f32, length, 0);
@@ -1062,8 +1113,25 @@ impl FissureWalks {
     /// An empty star, for callers that add their rays one at a time --
     /// the blast's fan, whose spokes each have their own start point,
     /// length and start delay.
-    pub(crate) fn empty(detach: bool) -> Self {
-        Self { walkers: Vec::new(), head: 0, forks: 0, detach, scored_now: std::collections::HashSet::new() }
+    pub(crate) fn empty(detach: bool, style: CrackStyle, glow: i16) -> Self {
+        Self { walkers: Vec::new(), head: 0, forks: 0, detach, scored_now: std::collections::HashSet::new(), style, glow }
+    }
+
+    /// Every cell this star has scored so far, in no particular order.
+    ///
+    /// Exposed for the blast's afterglow, which has to cool the cells the
+    /// walkers heated and cannot find them any other way: the star reaches
+    /// far outside the scorch disc's own bounding box (a ray starts past the
+    /// crater and runs `crack_reach` blast-radii further), so a box scan
+    /// large enough to contain it would be mostly untouched rock.
+    ///
+    /// Iteration order is a `HashSet`'s and therefore not stable between
+    /// runs. That is fine for the one caller and must stay that way: it
+    /// applies an *order-independent* operation to each cell (a temperature
+    /// it computes from that cell alone). Anything order-sensitive needs to
+    /// sort first.
+    pub(crate) fn scored(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.scored_now.iter().copied()
     }
 
     /// Add one ray, contributing `forks` to the shared pool and waiting
@@ -1083,6 +1151,16 @@ impl FissureWalks {
             steps: 0,
             ceiling: budget + (super::rigid::CRACK_TIP_BONUS * super::rigid::CRACK_TIP_MAX_STEPS) as usize,
             delay,
+            // A fork inherits the segment rhythm rather than the remainder of
+            // its parent's run: a branch that leaves at an acute angle and
+            // then immediately kinks reads as a tangle, not as a splinter.
+            // Rolled from the fork point, so it is still a property of the
+            // rock. Not computed at all for `Wander`, which never reads it --
+            // one hash per walker, but the crush path must not pay even that.
+            run_left: match self.style {
+                CrackStyle::Wander => 0,
+                CrackStyle::Brittle => brittle_run(pos),
+            },
             done: budget == 0,
         });
     }
@@ -1140,7 +1218,7 @@ impl FissureWalks {
     /// steps of walker `i`. Everything that decides where a crack goes lives
     /// here and only here, so the two drivers cannot drift.
     fn step_walker(&mut self, world: &mut World, i: usize, max_steps: usize) -> u32 {
-        let Walker { mut pos, mut fx, mut fy, mut heading, mut budget, mut steps, ceiling, .. } = self.walkers[i];
+        let Walker { mut pos, mut fx, mut fy, mut heading, mut budget, mut steps, ceiling, mut run_left, .. } = self.walkers[i];
         let mut fissured = 0u32;
         let mut done = false;
         let mut taken = 0usize;
@@ -1148,7 +1226,13 @@ impl FissureWalks {
             steps += 1;
             taken += 1;
             let wobble = super::rng::jitter(pos.0, pos.1);
-            heading += (wobble - 0.5) * CRACK_WANDER;
+            // `wobble` is still drawn for both styles -- the fork chance
+            // below reads it, and it must stay the *same* draw at the same
+            // point in the sequence or the crush path stops being
+            // bit-identical.
+            if self.style == CrackStyle::Wander {
+                heading += (wobble - 0.5) * CRACK_WANDER;
+            }
             let (dx, dy) = (heading.cos(), heading.sin());
             // The path is carried at sub-cell precision and rounded only to
             // decide which cell it is in. Stepping to an axis neighbour
@@ -1198,10 +1282,23 @@ impl FissureWalks {
             // way it travels -- get this backwards and the crack runs
             // across itself, slicing the rock into rings rather than
             // parting it. `rigid::score_cracks` records the same trap.
-            let scored = if step.0.abs() >= step.1.abs() { cell.with_crack_down(true) } else { cell.with_crack_right(true) };
+            let mut scored = if step.0.abs() >= step.1.abs() { cell.with_crack_down(true) } else { cell.with_crack_right(true) };
+            // Counted off the crack bit alone, and *before* any glow is
+            // written: `cells_fissured` means "rock that was not cracked
+            // here before", and a cell whose bit was already set but which
+            // this walk reheated is not new damage.
+            if scored != cell {
+                fissured += 1;
+            }
+            // The crack tip is incandescent while it races (`glow`'s own
+            // doc). Never cools a cell that is already hotter -- the same
+            // one-way rule `scorch` uses, for the same reason: two
+            // overlapping blasts, or a crack crossing something on fire.
+            if self.glow > 0 && scored.temperature() < self.glow {
+                scored.set_temperature(self.glow);
+            }
             if scored != cell {
                 world.set(next.0, next.1, scored);
-                fissured += 1;
             }
             if self.detach {
                 self.scored_now.insert(next);
@@ -1215,6 +1312,19 @@ impl FissureWalks {
                 world.schedule_structural_check_around(next.0, next.1);
             }
             pos = next;
+            // The brittle style's whole shape, in three lines: the heading
+            // is untouched for a run of cells, and then turns sharply. The
+            // run is counted in **cells entered**, not in walker steps --
+            // a step that stays inside its own cell has not advanced the
+            // fracture, and counting those would make a segment's drawn
+            // length depend on how obliquely the heading crosses the grid.
+            if self.style == CrackStyle::Brittle {
+                run_left = run_left.saturating_sub(1);
+                if run_left == 0 {
+                    heading += brittle_kink(pos);
+                    run_left = brittle_run(pos);
+                }
+            }
             // Forking, not crossing. A branch leaves at a wide angle and
             // gets a shorter budget than its parent, which is what makes
             // the result read as a crack with side-cracks rather than as a
@@ -1222,7 +1332,20 @@ impl FissureWalks {
             // several origins produced, and it looked like scribble.
             if self.forks > 0 && wobble < CRACK_FORK_CHANCE {
                 self.forks -= 1;
-                let (fork_pos, fork_heading, fork_budget) = (pos, heading + CRACK_FORK_ANGLE, budget / 2);
+                // Brittle branches leave *acutely* and to a side the rock
+                // chooses, where the wandering style always turns the same
+                // way by a fixed wide angle. A fixed side is invisible on a
+                // meandering crack and glaring on a straight one: every
+                // branch of every ray would rake the same way, which reads
+                // as a feather rather than as fracture.
+                let fork_angle = match self.style {
+                    CrackStyle::Wander => CRACK_FORK_ANGLE,
+                    CrackStyle::Brittle => {
+                        let side = super::rng::jitter(pos.0 + BRITTLE_SIDE_KEY, pos.1);
+                        if side < 0.5 { -BRITTLE_FORK_ANGLE } else { BRITTLE_FORK_ANGLE }
+                    }
+                };
+                let (fork_pos, fork_heading, fork_budget) = (pos, heading + fork_angle, budget / 2);
                 self.push_walker(fork_pos, fork_heading, fork_budget, 0);
             }
         }
@@ -1233,10 +1356,74 @@ impl FissureWalks {
         w.heading = heading;
         w.budget = budget;
         w.steps = steps;
+        w.run_left = run_left;
         w.done = done || steps >= budget;
         fissured
     }
 }
+
+/// How many cells a brittle crack runs before it kinks.
+///
+/// Position-keyed, so the segmentation is a property of the rock like
+/// everything else here: 3 to 8 cells, which at the blast's 10-55 cell ray
+/// lengths gives a handful of segments per ray -- enough to read as angular,
+/// few enough that each segment is visibly straight. Shorter and it is a
+/// meander again with extra steps; longer and a ray is one straight spoke,
+/// which is the asterisk the walker replaced.
+fn brittle_run(pos: (i32, i32)) -> u16 {
+    BRITTLE_RUN_MIN + (super::rng::jitter(pos.0, pos.1 + BRITTLE_RUN_KEY) * BRITTLE_RUN_SPREAD) as u16
+}
+
+/// How sharply a brittle crack turns at the end of a run, in radians,
+/// signed.
+///
+/// Two draws: one for the size of the turn, one for which way it goes. The
+/// side has to be its own draw -- deriving it from the magnitude (turn left
+/// when small, right when large, say) couples the two, and a crack that only
+/// ever turns hard one way spirals.
+///
+/// Most kinks are ordinary (0.2-0.6 rad, roughly 11-34 degrees); about one
+/// in twelve is a real deflection of up to 0.9. That tail is the difference
+/// between "regularly zigzagging" and "brittle": a crack that meets a flaw
+/// changes direction *decisively*, and without the rare large turn the ray
+/// still tracks its original heading over its whole length.
+fn brittle_kink(pos: (i32, i32)) -> f32 {
+    let j = super::rng::jitter(pos.0 + BRITTLE_KINK_KEY, pos.1);
+    let side = super::rng::jitter(pos.0, pos.1 + BRITTLE_SIDE_KEY);
+    let magnitude = if j < BRITTLE_SNAP_CHANCE {
+        // Remapped onto its own range rather than reusing `j` raw, which
+        // would make every rare deflection a *small* one -- `j` is tiny by
+        // construction inside this branch.
+        BRITTLE_SNAP_MIN + (j / BRITTLE_SNAP_CHANCE) * (BRITTLE_SNAP_MAX - BRITTLE_SNAP_MIN)
+    } else {
+        BRITTLE_KINK_MIN + j * BRITTLE_KINK_SPREAD
+    };
+    if side < 0.5 {
+        -magnitude
+    } else {
+        magnitude
+    }
+}
+
+/// The brittle style's numbers. Offsets keyed into `rng::jitter`'s two
+/// inputs so that a cell's run length, kink size and kink side are three
+/// different values rather than the same hash read three times -- the same
+/// trick `explosion.rs`'s `JITTER_AXIS_OFFSET` exists for, and arbitrary
+/// primes for the same reason.
+const BRITTLE_RUN_KEY: i32 = 6_733;
+const BRITTLE_KINK_KEY: i32 = 15_486_277;
+const BRITTLE_SIDE_KEY: i32 = 2_654_435;
+const BRITTLE_RUN_MIN: u16 = 3;
+const BRITTLE_RUN_SPREAD: f32 = 5.0;
+const BRITTLE_KINK_MIN: f32 = 0.2;
+const BRITTLE_KINK_SPREAD: f32 = 0.4;
+const BRITTLE_SNAP_CHANCE: f32 = 0.08;
+const BRITTLE_SNAP_MIN: f32 = 0.45;
+const BRITTLE_SNAP_MAX: f32 = 0.9;
+/// Acute, where `CRACK_FORK_ANGLE` is deliberately wide. A brittle branch
+/// splits *forward* off the parent -- the shallow Y a struck pane makes --
+/// rather than heading off sideways.
+const BRITTLE_FORK_ANGLE: f32 = 0.55;
 
 /// How many primary fissures leave the point that gave way.
 ///
@@ -3099,6 +3286,103 @@ mod tests {
             cracked_cells(&piecewise),
             "the staged walk drew a different crack -- sub-cell position is not surviving the resume"
         );
+    }
+
+    /// **The brittle style turns rarely and hard, where the wandering one
+    /// turns constantly and softly.**
+    ///
+    /// Asserted on the *headings*, not on the picture, and that is the point
+    /// of the test. The obvious world-level statistic -- how far the crack
+    /// gets from where it started -- cannot tell these two apart at all:
+    /// measured, a 40-step wandering ray reaches 37.5 cells and a brittle
+    /// one 35.4, because the per-cell wander is a zero-mean random walk in
+    /// the heading and mostly cancels itself over a short ray. It is not the
+    /// *net* curvature that reads as organic on screen, it is that the
+    /// curvature is spread evenly over every single cell, and only the turn
+    /// sequence shows that.
+    ///
+    /// So: a brittle walk turns at a handful of cells out of sixty, and
+    /// every turn it makes is at least `BRITTLE_KINK_MIN`. "No per-cell
+    /// wander" is exactly the second half of that, stated as an assertion.
+    #[test]
+    fn a_brittle_crack_turns_rarely_and_sharply() {
+        // The heading after every single step, read off the walker itself --
+        // `mod tests` is inside this module, so the private state is
+        // reachable and this needs no accessor of its own.
+        let turns_of = |style: CrackStyle| -> Vec<f32> {
+            let mut w = test_world();
+            massif(&mut w);
+            let mut walks = FissureWalks::empty(false, style, 0);
+            walks.add_ray((32, 32), 0.7, 60, 0, 0);
+            let mut headings = vec![walks.walkers[0].heading];
+            for _ in 0..60 {
+                walks.advance(&mut w, 1);
+                headings.push(walks.walkers[0].heading);
+                if walks.is_done() {
+                    break;
+                }
+            }
+            headings.windows(2).map(|p| p[1] - p[0]).filter(|d| d.abs() > 1e-6).collect()
+        };
+
+        let wander = turns_of(CrackStyle::Wander);
+        let brittle = turns_of(CrackStyle::Brittle);
+        assert!(wander.len() > 40, "test setup: the wandering walk should turn at nearly every cell, turned {} times", wander.len());
+        assert!(
+            brittle.len() * 3 < wander.len(),
+            "the brittle walk turned {} times against the wandering walk's {} -- it is still wandering",
+            brittle.len(),
+            wander.len()
+        );
+        assert!(!brittle.is_empty(), "the brittle walk never turned at all -- a straight ray is the asterisk this replaced");
+        for turn in &brittle {
+            assert!(
+                turn.abs() >= BRITTLE_KINK_MIN,
+                "a brittle walk made a {turn:.3} rad turn -- kinks are sharp by definition, anything smaller is per-cell wander"
+            );
+            assert!(turn.abs() <= BRITTLE_SNAP_MAX + 1e-6, "a brittle kink of {turn:.3} rad is past the deflection ceiling");
+        }
+    }
+
+    /// And it is still a property of the *rock*: same site, same star, every
+    /// time. Position-keyed jitter only -- a `world.rng` draw anywhere in the
+    /// segmented walker would put the blast into the replay draw order and
+    /// stop a repeat charge retracing its own fissures.
+    #[test]
+    fn a_brittle_star_is_the_same_star_every_time() {
+        let draw = || -> Vec<(i32, i32)> {
+            let mut w = test_world();
+            massif(&mut w);
+            let mut walks = FissureWalks::empty(false, CrackStyle::Brittle, 0);
+            for i in 0..3 {
+                walks.add_ray((32, 32), 0.7 + i as f32, 30, 1, 0);
+            }
+            walks.run_to_completion(&mut w);
+            (0..64).flat_map(|y| (0..64).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).cracked()).collect()
+        };
+        let first = draw();
+        assert!(first.len() > 20, "test setup: the star should have scored a real crack, got {}", first.len());
+        assert_eq!(first, draw(), "the same site drew a different brittle star on the second run");
+    }
+
+    /// The crack tip writes its own heat, and only when asked to. A crush
+    /// walk (`glow: 0`) must leave the rock exactly as cold as it found it --
+    /// rock parting under load inside a mountain is not incandescent.
+    #[test]
+    fn only_a_glowing_walk_heats_the_rock_it_cracks() {
+        let hot_cells = |glow: i16| -> usize {
+            let mut w = test_world();
+            massif(&mut w);
+            let mut walks = FissureWalks::empty(true, CrackStyle::Brittle, glow);
+            walks.add_ray((32, 32), 0.7, 30, 0, 0);
+            walks.run_to_completion(&mut w);
+            (0..64)
+                .flat_map(|y| (0..64).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).temperature() > super::super::cell::AMBIENT_TEMPERATURE)
+                .count()
+        };
+        assert_eq!(hot_cells(0), 0, "a walk with no glow heated the rock anyway");
+        assert!(hot_cells(300) > 0, "a glowing walk left no heat behind at all");
     }
 
     /// W4's one hard rule. Erosion only: a cell may be dropped from a

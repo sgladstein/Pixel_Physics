@@ -417,6 +417,32 @@ const FLASH_LIFT: f32 = 0.34;
 
 const DAMP_DARKEN: u32 = 150;
 const CRACK_DARKEN: u16 = 110;
+/// What a cracked cell draws as when the zoom gives the crack pixels of its
+/// own: a darkened strip along the severed edge instead of the whole cell.
+///
+/// A crack is *edge* state — `FLAG_CRACK_RIGHT` says this cell has parted
+/// from the one to its right — and darkening the whole cell was always a
+/// stand-in for having nowhere else to put it. At 1:1 that is still true and
+/// nothing here changes it. Past that, the cell is a block of pixels and the
+/// edge has real ones: `CRACK_STRIP_DIVISOR` of the block (at least one
+/// pixel) along the bottom for `crack_down`, along the right for
+/// `crack_right`. The result reads as a hairline fracture threading the rock
+/// rather than a fat one-cell smear, and it follows the actual geometry of
+/// the break — a horizontal run of `crack_down` cells draws one continuous
+/// line, where the whole-cell version drew a thick dashed band with no
+/// direction at all.
+///
+/// The strip darkens harder than the whole cell did (0.35x against 0.43x)
+/// because it is a fraction of the area: the same visual weight has to come
+/// out of fewer pixels or a fissure that was faint at play zoom becomes
+/// invisible.
+///
+/// Cost: unchanged. Same per-cell draw path, one extra comparison on cells
+/// that are cracked, and the output is still a pure function of the cell's
+/// own data plus the pixel's offset inside its block — so the dirty-rect
+/// skip is untouched.
+const CRACK_EDGE_DARKEN: u16 = 90;
+const CRACK_STRIP_DIVISOR: i32 = 3;
 
 /// The gnome's colored-cell sprite, `PLAYER_HEIGHT` rows of
 /// `PLAYER_WIDTH`, top to bottom: a pointed hat over a bearded face, a
@@ -963,7 +989,7 @@ impl Renderer {
                 let sx = (i % width as usize) as i32;
                 let sy = (i / width as usize) as i32;
                 let (wx, wy) = self.screen_to_world(sx, sy);
-                let colour = self.cell_colour(world, wx, wy);
+                let colour = self.cell_colour(world, wx, wy, self.sub_cell(sx, sy));
                 pixel.copy_from_slice(&colour);
             }
             self.last_player_rect = player_rect;
@@ -1045,7 +1071,7 @@ impl Renderer {
                 for sy in rect.min_y..=rect.max_y {
                     for sx in rect.min_x..=rect.max_x {
                         let (wx, wy) = self.screen_to_world(sx, sy);
-                        let colour = self.cell_colour(world, wx, wy);
+                        let colour = self.cell_colour(world, wx, wy, self.sub_cell(sx, sy));
                         put(frame, width, height, sx, sy, colour);
                         n += 1;
                     }
@@ -1437,7 +1463,17 @@ impl Renderer {
         y - floor
     }
 
-    fn cell_colour(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
+    /// The colour of one *pixel*, which is nearly always the colour of the
+    /// cell it lands in.
+    ///
+    /// `sub` is that pixel's offset inside its zoom block — `(0, 0)` at zoom
+    /// 1, where a cell is one pixel and there is nothing to be inside of.
+    /// Exactly one thing reads it (the crack strip, see `CRACK_EDGE_DARKEN`),
+    /// and everything else here is per *cell*, which is why this stays one
+    /// function rather than splitting into a cell pass and a pixel pass: the
+    /// heat glow, the grain and the sky light all cost more than the strip
+    /// test that needs the offset.
+    fn cell_colour(&self, world: &World, x: i32, y: i32, sub: (i32, i32)) -> [u8; 4] {
         if !world.in_bounds(x, y) {
             return VOID;
         }
@@ -1453,13 +1489,28 @@ impl Renderer {
         // the rock at any zoom. Without this the entire mechanic is
         // invisible: rock would weaken, sag and eventually drop with nothing
         // on screen ever having looked damaged.
+        //
+        // Zoomed in, the edge does have pixels of its own and gets them: a
+        // strip along the bottom of the block for `crack_down`, along the
+        // right for `crack_right`. See `CRACK_EDGE_DARKEN`. At `block == 1`
+        // every test below collapses to `cell.cracked()` and the darken
+        // reverts to `CRACK_DARKEN`, so the 1:1 picture is bit-identical to
+        // what it always was -- including the minified view, which draws at
+        // `zoom == 1` and samples one cell per pixel.
         if cell.cracked() {
-            base = [
-                (base[0] as u16 * CRACK_DARKEN / 256) as u8,
-                (base[1] as u16 * CRACK_DARKEN / 256) as u8,
-                (base[2] as u16 * CRACK_DARKEN / 256) as u8,
-                base[3],
-            ];
+            let block = self.zoom.max(1);
+            let strip = (block / CRACK_STRIP_DIVISOR).max(1);
+            let on_edge =
+                (cell.crack_down() && sub.1 >= block - strip) || (cell.crack_right() && sub.0 >= block - strip);
+            if on_edge {
+                let darken = if block == 1 { CRACK_DARKEN } else { CRACK_EDGE_DARKEN };
+                base = [
+                    (base[0] as u16 * darken / 256) as u8,
+                    (base[1] as u16 * darken / 256) as u8,
+                    (base[2] as u16 * darken / 256) as u8,
+                    base[3],
+                ];
+            }
         }
         // Wet ground is dark ground. Saturation already existed on every
         // powder that can hold water -- infiltration writes it, roots read
@@ -1921,6 +1972,22 @@ impl Renderer {
     /// negative infinity the same way `ChunkCoord::containing` already
     /// establishes is required — truncating division would fold screen
     /// column -1 onto the same world cell as column 0.
+    /// Where a screen pixel sits *inside* the cell `screen_to_world` maps it
+    /// to, in pixels from the block's top-left.
+    ///
+    /// `(0, 0)` at zoom 1 and at every minified scale, where one pixel is
+    /// one cell (or several) and there is no inside. `rem_euclid` to match
+    /// `screen_to_world`'s `div_euclid`: left of the camera the two have to
+    /// agree, or a block one cell to the left of the origin would be drawn
+    /// with its strip on the wrong side.
+    fn sub_cell(&self, sx: i32, sy: i32) -> (i32, i32) {
+        if self.zoom > 1 {
+            (sx.rem_euclid(self.zoom), sy.rem_euclid(self.zoom))
+        } else {
+            (0, 0)
+        }
+    }
+
     pub fn screen_to_world(&self, sx: i32, sy: i32) -> (i32, i32) {
         if self.zoom > 1 {
             (self.camera_x + sx.div_euclid(self.zoom), self.camera_y + sy.div_euclid(self.zoom))
@@ -2220,9 +2287,9 @@ mod tests {
         r.sky = crate::sky::Sky::at(600, 0, 127, 0, 127); // mid-morning, so the sky is bright
 
         let brightness = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
-        let sky = brightness(r.cell_colour(&world, 64, 19));
-        let just_under = brightness(r.cell_colour(&world, 64, 21));
-        let deep = brightness(r.cell_colour(&world, 64, 21 + CAVE_FADE_DEPTH));
+        let sky = brightness(r.cell_colour(&world, 64, 19, (0, 0)));
+        let just_under = brightness(r.cell_colour(&world, 64, 21, (0, 0)));
+        let deep = brightness(r.cell_colour(&world, 64, 21 + CAVE_FADE_DEPTH, (0, 0)));
         let dark = brightness(UNDERGROUND);
 
         assert!(
@@ -2375,7 +2442,112 @@ mod tests {
             (base[2] as i32 + (base[2] as i32 * jitter_permille) / 1000).clamp(0, 255) as u8,
             255,
         ];
-        assert_eq!(renderer.cell_colour(&world, 10, 10), expected);
+        assert_eq!(renderer.cell_colour(&world, 10, 10, (0, 0)), expected);
+    }
+
+    /// **K4's degradation pin: at zoom 1 a crack draws exactly what it
+    /// always drew.**
+    ///
+    /// The strip is a magnification feature — a cell has no interior at 1:1,
+    /// so the whole cell darkens by `CRACK_DARKEN` regardless of which edge
+    /// carries the bit, which is what the last several years of sheets show
+    /// and what every filmstrip still renders (that harness draws at renderer
+    /// zoom 1 and upscales the pixels afterwards). If this ever stops being
+    /// true, every archived contact sheet stops being comparable.
+    ///
+    /// Asserted as "all three crack states draw the same colour, darker than
+    /// no crack": direction-agnostic is precisely the old behaviour, and it
+    /// is what a naive strip implementation breaks first (a `crack_right`
+    /// cell would stop darkening at all, because at block size 1 there is no
+    /// right-hand column to put it in).
+    #[test]
+    fn at_zoom_one_a_cracked_cell_still_darkens_whole() {
+        let mut world = World::new(Rect::new(0, 0, 31, 31));
+        let stone = Cell::new(material::STONE, 0);
+        let r = Renderer::new();
+        assert_eq!(r.zoom, 1, "test setup: this is the 1:1 pin");
+        // **One position, four states.** The grain is keyed on position
+        // (`rng::jitter(x, y)`), so two cells side by side do not render the
+        // same colour even with identical contents -- comparing neighbours
+        // would be measuring the grain, not the crack.
+        let mut colour_of = |cell: Cell| {
+            world.set(10, 10, cell);
+            r.cell_colour(&world, 10, 10, (0, 0))
+        };
+
+        let plain = colour_of(stone);
+        let down = colour_of(stone.with_crack_down(true));
+        let right = colour_of(stone.with_crack_right(true));
+        let both = colour_of(stone.with_crack_down(true).with_crack_right(true));
+
+        assert!(down[0] < plain[0], "a cracked cell must draw darker than an uncracked one at 1:1");
+        assert_eq!(down, right, "at 1:1 a crack must darken the whole cell whichever edge carries it");
+        assert_eq!(down, both, "at 1:1 two crack bits must draw the same as one");
+
+        // And the exact pixel, not merely "darker": the 1:1 look is
+        // `CRACK_DARKEN` over the whole cell and then the ordinary grain, and
+        // an archived contact sheet is only comparable while that is true to
+        // the byte. Computed the pre-K4 way by hand, the same technique
+        // `field_overlay_off_matches_the_pre_overlay_render_exactly` uses --
+        // asserting against a second `cell_colour` call would pass whatever
+        // either of them did.
+        let base = world.materials.get(material::STONE).palette[0];
+        let jitter_permille = ((rng::jitter(10, 10) - 0.5) * 2000.0 * JITTER_STRENGTH) as i32;
+        let expected: Vec<u8> = (0..3)
+            .map(|c| {
+                let darkened = (base[c] as u16 * CRACK_DARKEN / 256) as u8 as i32;
+                (darkened + (darkened * jitter_permille) / 1000).clamp(0, 255) as u8
+            })
+            .collect();
+        assert_eq!(&down[..3], &expected[..], "the 1:1 crack pixel is not what it has always been");
+    }
+
+    /// And zoomed in, it is a line along the severed edge rather than a
+    /// smear over the cell — the other half of K4, and the half that is
+    /// visible in the app.
+    ///
+    /// The geometry is the assertion: for `crack_down`, the bottom rows of
+    /// the block darken and the top rows are left exactly as the uncracked
+    /// cell beside them; for `crack_right`, the right-hand columns. A
+    /// whole-cell darken passes neither.
+    #[test]
+    fn zoomed_in_a_crack_draws_only_along_its_own_edge() {
+        let mut world = World::new(Rect::new(0, 0, 31, 31));
+        let stone = Cell::new(material::STONE, 0);
+        world.set(10, 10, stone);
+        let mut r = Renderer::new();
+        r.zoom = 6; // strip = 6 / CRACK_STRIP_DIVISOR = 2 px
+
+        // Same cell, same grain, three states -- see the 1:1 pin above.
+        let mut cracked = |cell: Cell, sub: (i32, i32)| {
+            world.set(10, 10, cell);
+            r.cell_colour(&world, 10, 10, sub)
+        };
+        let plain = cracked(stone, (0, 0));
+        let down = stone.with_crack_down(true);
+        let right = stone.with_crack_right(true);
+
+        // `crack_down`: top rows untouched, bottom rows darkened, all the way
+        // across.
+        for sx in 0..6 {
+            let (top, middle, bottom) = (cracked(down, (sx, 0)), cracked(down, (sx, 3)), cracked(down, (sx, 5)));
+            assert_eq!(top, plain, "the top of a crack_down cell must not darken");
+            assert_eq!(middle, plain, "the middle of a crack_down cell must not darken");
+            assert!(bottom[0] < plain[0], "the bottom row of a crack_down cell is the crack and must darken");
+        }
+        // `crack_right`: the same, rotated a quarter turn.
+        for sy in 0..6 {
+            let (left, edge) = (cracked(right, (0, sy)), cracked(right, (5, sy)));
+            assert_eq!(left, plain, "the left of a crack_right cell must not darken");
+            assert!(edge[0] < plain[0], "the right column of a crack_right cell is the crack and must darken");
+        }
+        // And the strip darkens *harder* than the 1:1 whole-cell version it
+        // replaces, because the same visual weight comes out of fewer pixels.
+        let strip = cracked(down, (0, 5));
+        let mut flat = Renderer::new();
+        flat.zoom = 1;
+        let whole = flat.cell_colour(&world, 10, 10, (0, 0));
+        assert!(strip[0] < whole[0], "the strip should darken harder than the whole-cell version it replaces");
     }
 
     #[test]
@@ -2392,7 +2564,7 @@ mod tests {
         world.set(50, 50, Cell::new(material::STONE, 0));
         world.add_pressure_impulse(5, 5, 3, 40.0); // disturbance confined to a far corner
         let mut renderer = Renderer::new();
-        let off = renderer.cell_colour(&world, 50, 50);
+        let off = renderer.cell_colour(&world, 50, 50, (0, 0));
         // **Blend channels only, deliberately.** `PheromoneA`/`PheromoneB`
         // are excluded because they are full-replace by design: a cell with
         // a zero reading draws at `SCALAR_RAMP_FLOOR` of its ramp colour,
@@ -2403,7 +2575,7 @@ mod tests {
         // applied.
         for overlay in [FieldOverlay::Pressure, FieldOverlay::Temperature, FieldOverlay::Light, FieldOverlay::Moisture] {
             renderer.field_overlay = overlay;
-            assert_eq!(renderer.cell_colour(&world, 50, 50), off, "{overlay:?} tinted an unaffected cell far from any real disturbance");
+            assert_eq!(renderer.cell_colour(&world, 50, 50, (0, 0)), off, "{overlay:?} tinted an unaffected cell far from any real disturbance");
         }
     }
 
@@ -2484,8 +2656,8 @@ mod tests {
         let mut r = Renderer::new();
         r.field_overlay = FieldOverlay::PheromoneA;
         assert_eq!(
-            r.cell_colour(&world, 10, 10),
-            r.cell_colour(&world, 20, 20),
+            r.cell_colour(&world, 10, 10, (0, 0)),
+            r.cell_colour(&world, 20, 20, (0, 0)),
             "equal pheromone over different materials must draw identically -- a blend would leak the material colour through"
         );
 
@@ -2494,10 +2666,10 @@ mod tests {
         let off_pixel = {
             let mut plain = Renderer::new();
             plain.field_overlay = FieldOverlay::Off;
-            plain.cell_colour(&world, 40, 40)
+            plain.cell_colour(&world, 40, 40, (0, 0))
         };
-        assert_ne!(r.cell_colour(&world, 40, 40), off_pixel, "a zero reading must draw at the ramp floor, so an empty channel reads as empty rather than as absent");
-        assert_ne!(r.cell_colour(&world, 40, 40), r.cell_colour(&world, 10, 10), "and a zero reading must still be distinguishable from a strong one");
+        assert_ne!(r.cell_colour(&world, 40, 40, (0, 0)), off_pixel, "a zero reading must draw at the ramp floor, so an empty channel reads as empty rather than as absent");
+        assert_ne!(r.cell_colour(&world, 40, 40, (0, 0)), r.cell_colour(&world, 10, 10, (0, 0)), "and a zero reading must still be distinguishable from a strong one");
     }
 
     #[test]

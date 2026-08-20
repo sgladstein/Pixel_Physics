@@ -1,7 +1,22 @@
 # Explosions
 
-*Current as of: this build (confinement, the crack halo, and per-material
-blast resistance are new).*
+*Current as of: this build (the crack star grows over time, breaks pieces
+loose along its own lines, glows like an ember and cools to nothing; also
+confinement, the crack halo, and per-material blast resistance).*
+
+**A blast's fissures propagate.** They race outward from the crater over
+the half-second after the flash — angular, kinked lines, the way brittle
+rock actually breaks, their tips glowing dark-red as they run and cooling
+behind the front. When the star finishes, the crater's rim lets go along
+those same lines: pieces bounded by the fissures the blast just drew break
+away and tumble into the hole. Even a fully buried charge shifts a few
+pieces into its own pocket rather than only painting damage.
+
+**The glow is an ember, not a lantern.** The scorched ring around a blast
+hugs the crater, burns deep red rather than pale orange, and fades back to
+cold rock over a couple of seconds. Once it does, the marks that remain
+are the honest ones: the crater, its rubble, and thin dark fissure lines
+threading the rock along the actual breaks.
 
 A blast doesn't happen in a single instant — the cavity expands outward
 over a brief span of time, not all at once. Right at the center, material

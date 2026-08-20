@@ -33,7 +33,7 @@
 //!   blast is enclosed on all sides. `particle::Particle::pierce` is the
 //!   answer to that one; see its own doc.
 
-use super::cell::Cell;
+use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::field::FIELD_SCALE;
 use super::material;
 use super::particle::ParticleSystem;
@@ -117,6 +117,18 @@ pub struct Tuning {
     /// `ignition_temperature` below this catch fire through `fire.rs`'s own
     /// deterministic path; materials without one (stone) just glow and cool,
     /// which is the behaviour the old `ignite_circle` call got wrong.
+    ///
+    /// **900 was the wrong end of that ramp and it was measured, not
+    /// guessed.** The non-burning blend is capped at half strength, so every
+    /// value past ~420 drew the *same* flat wash of `FIRE_TINT_HIGH`
+    /// ([255, 210, 110]) at 50% into grey stone — desaturated bone-tan, not
+    /// ember, which is the owner's "the orange glow around also doesn't look
+    /// great". 260 lands in the deep-red half of the ramp where
+    /// `FIRE_TINT_LOW` ([180, 55, 20]) still dominates, and the headroom
+    /// costs nothing to give up: no shipped material has a finite
+    /// `ignition_temperature` at all (oil catches on a flammability roll in
+    /// `scorch`, which this does not touch), so the excess was buying
+    /// ignition that nothing performs.
     pub flash_temperature: f32,
     /// Chance a cleared cell is backfilled with `SMOKE` instead of left
     /// empty. Nothing else in the simulation has ever produced a smoke cell
@@ -216,6 +228,63 @@ pub struct Tuning {
     /// on the crack halo (`crack_rays`/`crack_reach` above), not on
     /// widening a cavity that has nowhere to vent into.
     pub confined_cavity_fraction: f32,
+    /// How deep a collar the crack star calves off the crater rim once it
+    /// has finished growing, in cells past `radius`.
+    ///
+    /// This is the mechanic that answers "I don't see the pieces moving at
+    /// all after the crack". The star was a *graphic*: the fissures were
+    /// written, the load model heard about them, and nothing was ever
+    /// released, so the two-beat the whole mechanism promises — cracks race
+    /// outward, then the rim lets go — only ever played its first beat.
+    /// `rigid::take_fragment` refuses to flood across a cracked edge, so the
+    /// collar comes apart **along the fissures the player just watched
+    /// grow**: wedge pieces bounded by visible cracks, not BFS rings.
+    ///
+    /// 8 is a rim, not a second crater: deep enough that a piece is a piece
+    /// rather than a chip, shallow enough that the calving cannot be
+    /// mistaken for the blast having a larger radius than it does. `0` turns
+    /// calving off entirely.
+    pub calve_depth: u32,
+    /// What fraction of a scorched cell's heat *above ambient* survives each
+    /// frame once the blast's own stages are done — the afterglow fade.
+    ///
+    /// # Why the blast has to own this
+    ///
+    /// Scorched stone never cools by itself, and that is not a bug in
+    /// `fire.rs`: stone's `heat_conductivity` is 0, which puts it on
+    /// `fire::update`'s thermally-inert fast path, and that path returns
+    /// before any decay runs. It is a real and deliberate optimisation —
+    /// most shipped materials are inert on every thermal axis, and a hot
+    /// disc's *interior* would not cool by diffusion anyway. The
+    /// consequence was that a blast's 900-degree ring was **permanent**:
+    /// measured at 2,665 cells still above ambient and unchanged from frame
+    /// 121 to frame 361 on `boom_stone`, which is a sticker of a fireball
+    /// pasted on the rock forever.
+    ///
+    /// Giving stone conductivity would fix it by making every stone cell in
+    /// the world pay for the one event that ever heats them. So the blast
+    /// cools what the blast heated, for as long as the blast exists, and
+    /// then both are gone.
+    ///
+    /// `0.94` takes the default flash (260, i.e. 240 above ambient) back
+    /// under a degree in about 90 frames — a second and a half of visible
+    /// fade. `1.0` (or anything above) turns the fade off and restores the
+    /// permanent halo exactly, which is how the older tests pin the
+    /// contract they were written against. It cannot hang the game whatever
+    /// it is set to: `AFTERGLOW_MAX_FRAMES` bounds the fade regardless.
+    pub afterglow_retention: f32,
+    /// Temperature the crack walkers write into the rock they score, in
+    /// Celsius — the incandescent tip. `0` is off.
+    ///
+    /// Separate from `flash_temperature` rather than reusing it: they are
+    /// different events (a fireball venting into a cavity, and rock parting
+    /// under a shock front) and the tip wants to read a shade hotter than
+    /// the halo it is racing away from, or it disappears into it. Stone
+    /// cannot ignite from this (`flammability` 0, and `fire::try_ignite`
+    /// needs a finite `ignition_temperature` nothing shipped has); a walker
+    /// crossing wood heats it, which is honest — it is a hot fracture — and
+    /// the walk stops at anything that is not `Solid` anyway.
+    pub crack_glow_temperature: f32,
     /// Divides `strength` to give each debris particle its pierce budget —
     /// cells of loose material it may punch through before coming to rest
     /// (`particle::Particle::pierce`).
@@ -236,8 +305,12 @@ impl Default for Tuning {
             vaporize_fraction: 0.12,
             debris_fraction: 0.4,
             shockwave_multiplier: 1.8,
-            fireball_fraction: 0.5,
-            flash_temperature: 900.0,
+            // The halo hugs the crater. At 0.5 the scorch ring reached half
+            // a blast radius past a hole that is already 22 cells across,
+            // which is a wash of tint over a quarter of the screen rather
+            // than a rim of hot rock.
+            fireball_fraction: 0.3,
+            flash_temperature: 260.0,
             smoke_fraction: 0.18,
             heat_fraction: 3.0,
             speed_per_strength: 0.05,
@@ -249,6 +322,9 @@ impl Default for Tuning {
             crack_stagger: 8.0,
             containment_floor: 1.4,
             confined_cavity_fraction: 0.35,
+            calve_depth: 8,
+            afterglow_retention: 0.94,
+            crack_glow_temperature: 300.0,
         }
     }
 }
@@ -570,16 +646,27 @@ pub struct BlastReport {
     /// is what `filmstrip`'s report line already waits for; sampled mid-blast
     /// it is a progress reading, not a total.
     pub cells_fissured: u32,
+    /// Cells the calving collar handed to the fragmenter once the star had
+    /// finished growing — rim that let go along the cracks.
+    ///
+    /// The "did it fire at all" counter for K2, and it needs to be a counter
+    /// rather than a look at the sheet for the reason `CLAUDE.md` records
+    /// against exactly this mechanism: loose rubble that happens to hold its
+    /// shape and a calved wedge tumbling into the crater are the same grey
+    /// pixels at the zoom a contact sheet is read at. A buried blast scored
+    /// **zero** bodies before this existed, which is the number to watch.
+    pub calved: u32,
 }
 
 impl std::fmt::Display for BlastReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "cleared {} cells, {} held by containment, {} fissured, sectors open {}/{} contained {}/{}",
+            "cleared {} cells, {} held by containment, {} fissured, {} calved, sectors open {}/{} contained {}/{}",
             self.cells_cleared,
             self.cells_held_by_containment,
             self.cells_fissured,
+            self.calved,
             self.open_sectors,
             CONFINEMENT_SECTORS,
             self.contained_sectors,
@@ -624,6 +711,17 @@ pub struct Blast {
     /// `clear_annulus` runs on each stage, and `cells_fissured` accumulates
     /// as the crack star grows — which now outlives the last stage.
     report: BlastReport,
+    /// The collar is calved **once**, on the frame the star finishes. A flag
+    /// rather than a test on the walks themselves, because `is_done` stays
+    /// true for every frame afterwards and the blast is still alive through
+    /// its afterglow — without this it would re-scan and re-fracture the rim
+    /// once a frame for the rest of the fade.
+    calved: bool,
+    /// Frames of afterglow already run, against `AFTERGLOW_MAX_FRAMES`. The
+    /// hard bound on a blast's life: no setting of `afterglow_retention` can
+    /// make a `Blast` immortal, the same way `crack_growth` is clamped where
+    /// it is read so that `0` cannot freeze the star half-drawn forever.
+    afterglow_frames: u16,
 }
 
 /// Every blast currently expanding, plus the tuning they all read.
@@ -791,7 +889,12 @@ impl Blast {
         let fissures = if struck_solid {
             let from = (radius + BLAST_SHELL_REACH + 1) as f32;
             let base = radius as f32 * tuning.crack_reach;
-            let mut walks = structural::FissureWalks::empty(true);
+            // Brittle, and glowing: the two halves of what a blast's own
+            // fissures are and a crush's are not. See
+            // `structural::CrackStyle` for the shape and
+            // `Tuning::crack_glow_temperature` for the heat.
+            let glow = tuning.crack_glow_temperature.clamp(0.0, i16::MAX as f32) as i16;
+            let mut walks = structural::FissureWalks::empty(true, structural::CrackStyle::Brittle, glow);
             for i in 0..tuning.crack_rays {
                 let slot = rng::jitter(cx + i as i32 * 7919, cy);
                 let theta = (i as f32 + slot) * std::f32::consts::TAU / tuning.crack_rays as f32;
@@ -828,7 +931,16 @@ impl Blast {
             stage: 0,
             sector_reach,
             fissures,
-            report: BlastReport { open_sectors, contained_sectors, cells_cleared: 0, cells_held_by_containment: 0, cells_fissured: 0 },
+            report: BlastReport {
+                open_sectors,
+                contained_sectors,
+                cells_cleared: 0,
+                cells_held_by_containment: 0,
+                cells_fissured: 0,
+                calved: 0,
+            },
+            calved: false,
+            afterglow_frames: 0,
         }
     }
 
@@ -845,6 +957,12 @@ impl Blast {
     /// `trigger_tuned` (`while blast.advance {}`) therefore still leaves the
     /// world in a final state with nothing left to step -- it just spins a
     /// few dozen more times.
+    ///
+    /// **And it now outlives its own cracks too**, by however long its
+    /// afterglow takes to fade (`Tuning::afterglow_retention`), which is
+    /// bounded by `AFTERGLOW_MAX_FRAMES` however that is tuned. The three
+    /// phases overlap rather than queue: the cavity expands while the first
+    /// rays leave, and the fade runs under the tail of the crack growth.
     fn advance(&mut self, world: &mut World, particles: &mut ParticleSystem, tuning: &Tuning) -> bool {
         let stages = tuning.stages();
         if self.stage < stages {
@@ -863,7 +981,148 @@ impl Blast {
         } else {
             false
         };
-        self.stage < stages || growing
+        // The second beat: the star has finished racing, so the rim it cut
+        // free lets go. Deliberately gated on the *cavity* being finished
+        // too, not on the star alone -- `crack_growth` set high enough
+        // finishes the walks while the front is still expanding, and calving
+        // a collar that `clear_annulus` is about to clear anyway would throw
+        // pieces out of rock that is about to stop existing.
+        if !self.calved && !growing && self.stage >= stages && self.fissures.is_some() {
+            self.calved = true;
+            self.report.calved += self.calve(world, tuning);
+        }
+        // Only after the last stage: while the front is still expanding,
+        // `scorch` is writing the ring this would be taking back down, and
+        // the two would fight over the same cells every frame.
+        let cooling = self.stage >= stages && self.afterglow(world, tuning);
+        self.stage < stages || growing || cooling
+    }
+
+    /// Break the crater rim off along the cracks, once, when the star is
+    /// done — K2, the answer to "I don't see the pieces moving at all after
+    /// the crack".
+    ///
+    /// Two collars, because a blast has two kinds of sector and *neither*
+    /// released anything before this:
+    ///
+    /// - **Open sectors** get the real one: `radius .. radius + calve_depth`,
+    ///   the same scan `fracture_shell` runs on each stage but deeper, and
+    ///   thrown *inward*. A rim wedge that has been cut free on both sides
+    ///   by fissures falls into the hole; it does not fly away from it,
+    ///   which is what the shell fracture already does on the bang frame for
+    ///   the rock the blast actually broke.
+    /// - **Contained sectors** get a thin one, two cells into the crush
+    ///   pocket. A fully buried charge has nowhere to throw anything and
+    ///   used to produce *no* moving pieces at all (peak bodies 0, measured);
+    ///   two cells of pocket wall dropping into its own cavity is small,
+    ///   honest, and visible.
+    ///
+    /// `rigid::take_fragment` refuses to cross a cracked edge, so both
+    /// collars come apart along the star rather than along BFS rings — the
+    /// cracks the player just watched grow are the seams the pieces break
+    /// on, which is the entire reason this is worth doing at the end of the
+    /// growth instead of on the bang frame.
+    fn calve(&mut self, world: &mut World, tuning: &Tuning) -> u32 {
+        if tuning.calve_depth == 0 {
+            return 0;
+        }
+        let confinement = Confinement { sector_reach: self.sector_reach, radius: self.radius };
+        let depth = tuning.calve_depth as i32;
+        let mut cells = 0;
+        // Inward, so the force is negative: `rigid::promote` throws a piece
+        // *away* from the origin it is given, and a calving rim goes the
+        // other way.
+        let force = -(self.strength * CALVE_FORCE);
+        if self.report.open_sectors > 0 {
+            cells += super::rigid::calve_collar(
+                world,
+                (self.cx, self.cy),
+                self.radius,
+                self.radius + depth,
+                force,
+                CALVE_SIZE_BIAS,
+                confinement,
+                super::rigid::ShellSectors::Open,
+            );
+        }
+        if self.report.contained_sectors > 0 {
+            // The pocket wall, wherever the smoothed reach put it. Taken off
+            // the *tuning* rather than off `sector_reach` so the collar sits
+            // just outside the pocket in every contained sector at once; the
+            // per-sector raggedness inside `calve_collar` is what keeps it
+            // from being a drawn ring.
+            let pocket = ((self.radius as f32 * tuning.confined_cavity_fraction).round() as i32).max(1);
+            cells += super::rigid::calve_collar(
+                world,
+                (self.cx, self.cy),
+                pocket,
+                pocket + POCKET_COLLAR_THICKNESS,
+                force,
+                0,
+                confinement,
+                super::rigid::ShellSectors::Contained,
+            );
+        }
+        cells
+    }
+
+    /// Cool everything this blast heated, a little, every frame — K3's
+    /// second half, and the one that makes the glow *honest*.
+    ///
+    /// Returns whether anything is still warm, which is what keeps the blast
+    /// alive: a blast dies when its own heat is gone, so when the object
+    /// goes there is no baked halo left behind it. See
+    /// `Tuning::afterglow_retention` for why this cannot live in `fire.rs`.
+    ///
+    /// Three guards, all of them load-bearing:
+    ///
+    /// - **Never raise a temperature.** The new value is `min`'d against the
+    ///   old one, so however this is tuned it cannot become a second heat
+    ///   source; a blast may only ever take back what it put in.
+    /// - **Never touch a burning cell.** `fire.rs` owns a cell that is
+    ///   alight — its temperature is that fire's business, and cooling it
+    ///   from here would put out a fire the blast started.
+    /// - **Never write to a cell already at ambient.** Both a correctness
+    ///   guard (it is the termination condition) and the whole frame cost:
+    ///   settled cells are read and skipped, never written, so the box does
+    ///   not keep its chunks awake once it has finished cooling.
+    ///
+    /// The box is the scorch disc's own bounding box, plus the walker-scored
+    /// cells outside it (the star reaches much further than the fireball
+    /// does). It is a *superset* of what the blast heated — a cell inside
+    /// the box that some other event left warm gets cooled too. Accepted
+    /// knowingly: the alternative is a per-blast set of every scorched cell,
+    /// which is thousands of entries for a mechanism whose entire purpose is
+    /// to return the area to ambient anyway.
+    fn afterglow(&mut self, world: &mut World, tuning: &Tuning) -> bool {
+        // At or past 1.0 the fade is off: nothing cools, and the blast does
+        // not stay alive pretending to wait for it. This is the setting that
+        // reproduces the permanent halo exactly, which is what the tests
+        // written against that contract pin themselves with.
+        if tuning.afterglow_retention >= 1.0 || self.afterglow_frames >= AFTERGLOW_MAX_FRAMES {
+            return false;
+        }
+        self.afterglow_frames += 1;
+        let retention = tuning.afterglow_retention.clamp(0.0, AFTERGLOW_MAX_RETENTION);
+        let reach = front_reach((self.radius as f32 * (1.0 + tuning.fireball_fraction)).powi(2));
+        let mut warm = false;
+        for y in (self.cy - reach)..=(self.cy + reach) {
+            for x in (self.cx - reach)..=(self.cx + reach) {
+                warm |= cool_toward_ambient(world, x, y, retention);
+            }
+        }
+        // The star's own cells, which run far outside the box above. Only
+        // the ones that do: the overlap is most of the star and re-cooling a
+        // cell twice in one frame would fade the near half of every fissure
+        // at double rate.
+        if let Some(walks) = self.fissures.as_ref() {
+            for (x, y) in walks.scored() {
+                if (x - self.cx).abs() > reach || (y - self.cy).abs() > reach {
+                    warm |= cool_toward_ambient(world, x, y, retention);
+                }
+            }
+        }
+        warm
     }
 
     /// One stage of the cavity front — everything `advance` used to be.
@@ -1196,6 +1455,43 @@ impl Blast {
     }
 }
 
+/// Take one cell a fraction of the way back to ambient, and say whether it
+/// is still warm afterwards.
+///
+/// Free-standing rather than a method because it is the *rule*, and the
+/// rule is what the guard test drives directly: every one of the three
+/// promises in `Blast::afterglow`'s doc is enforced here, in four lines, so
+/// there is one place to read them and one place to break when checking
+/// that the test can fail.
+///
+/// The excess is truncated to `i16`, which is what makes this terminate:
+/// `retention` is strictly below 1, so an excess of 1 or more strictly
+/// decreases, and anything under 1 snaps to exactly ambient.
+fn cool_toward_ambient(world: &mut World, x: i32, y: i32, retention: f32) -> bool {
+    if !world.in_bounds(x, y) {
+        return false;
+    }
+    let mut cell = world.get(x, y);
+    // `fire.rs` owns a burning cell's temperature, and nothing here may
+    // touch it. Materially-empty cells hold no heat worth tracking.
+    if cell.material == material::EMPTY || cell.is_burning() {
+        return false;
+    }
+    let now = cell.temperature();
+    if now <= AMBIENT_TEMPERATURE {
+        return false; // at ambient, or genuinely cold -- either way, not ours to warm
+    }
+    let excess = (now - AMBIENT_TEMPERATURE) as f32 * retention;
+    let next = if excess < 1.0 { AMBIENT_TEMPERATURE } else { AMBIENT_TEMPERATURE + excess as i16 };
+    // Never *raise* a temperature, whatever the arithmetic above produced.
+    let next = next.min(now);
+    if next != now {
+        cell.set_temperature(next);
+        world.set(x, y, cell);
+    }
+    next > AMBIENT_TEMPERATURE
+}
+
 /// How much the scorch shell cools across its own width, as a fraction of
 /// the peak — so the ring's inner edge reads hotter than its outer one.
 const SCORCH_FALLOFF: f32 = 0.75;
@@ -1238,6 +1534,39 @@ const BLAST_SHELL_REACH: i32 = 3;
 /// Fraction of a blast's strength that gets spent throwing crater-wall
 /// chunks, as opposed to the debris particles and pressure it already wrote.
 const BLAST_SHELL_FORCE: f32 = 0.06;
+
+/// The calving collar's own version of `BLAST_SHELL_FORCE`, and half of it:
+/// this is rock *letting go* seconds after the bang, not rock being thrown
+/// by it. Most of what moves a calved wedge is gravity; the impulse only has
+/// to unstick it from the rim and point it into the hole.
+const CALVE_FORCE: f32 = 0.03;
+/// One rung up the fragment ladder for the open-sector collar, so what comes
+/// off the rim reads as slabs rather than chips — the same reason
+/// `fracture_shell` biases its own shell. The pocket collar takes no bias: it
+/// is two cells thick, and biasing it up would only ask for pieces that do
+/// not fit in it.
+const CALVE_SIZE_BIAS: u32 = 1;
+/// How far into a contained blast's crush pocket the thin collar reaches.
+/// Two cells: enough that a piece can be a piece, little enough that a
+/// buried charge does not quietly widen its own pocket every time it fires.
+const POCKET_COLLAR_THICKNESS: i32 = 2;
+
+/// The hard ceiling on a blast's afterglow, in frames — three seconds at
+/// 60fps, against the ~90 frames the shipped `afterglow_retention` actually
+/// takes.
+///
+/// This exists so that **no tuning value can make a `Blast` immortal**.
+/// `afterglow_retention` at 0.9999 would otherwise cool a 240-degree excess
+/// over some 55,000 frames with the blast alive and scanning its box for
+/// every one of them, which is a setting that hangs the game rather than one
+/// that tunes it — exactly what `crack_growth`'s `max(1)` clamp exists to
+/// prevent one field along. A blast that hits this cap simply stops fading
+/// and dies; the halo it leaves is the old permanent one, which is a
+/// visible, honest consequence of a silly setting rather than a freeze.
+const AFTERGLOW_MAX_FRAMES: u16 = 180;
+/// And the retention actually used is clamped strictly below 1, so the
+/// arithmetic itself is monotone even before the frame cap is reached.
+const AFTERGLOW_MAX_RETENTION: f32 = 0.995;
 
 const BURN_DURATION_JITTER: f32 = 0.5;
 
@@ -1381,7 +1710,6 @@ fn debris_velocity(world: &World, x: i32, y: i32, cx: i32, cy: i32, strength: f3
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sim::cell::AMBIENT_TEMPERATURE;
 
     /// The tests exercise the shipped defaults unless they say otherwise.
     fn tuning() -> Tuning {
@@ -1722,24 +2050,42 @@ mod tests {
         blasts.trigger_with(&mut w, &mut particles, cx, cy, radius, 180.0);
         let mut at_2 = 0;
         let mut at_30 = 0;
-        let mut done_by = None;
+        // **The star finishing and the blast dying are two different
+        // events now.** They were the same event when the blast's whole
+        // life was its stages plus its cracks; a blast outlives its star by
+        // however long the afterglow takes to fade (`Blast::afterglow`), so
+        // asserting on `blasts.is_empty()` here would be asserting the
+        // cooling schedule under a name about crack growth. What this test
+        // is *for* is that the star stops growing inside about half a
+        // second, so it watches the census stop moving.
+        let mut star_settled_at = None;
+        let mut previous = 0;
         for frame in 1..=60 {
             blasts.step(&mut w, &mut particles);
+            let now = cracked(&w, cx, cy, radius);
             match frame {
-                2 => at_2 = cracked(&w, cx, cy, radius),
-                30 => at_30 = cracked(&w, cx, cy, radius),
+                2 => at_2 = now,
+                30 => at_30 = now,
                 _ => {}
             }
-            if done_by.is_none() && blasts.is_empty() {
-                done_by = Some(frame);
+            if now == previous {
+                if star_settled_at.is_none() {
+                    star_settled_at = Some(frame);
+                }
+            } else {
+                star_settled_at = None; // it moved again -- not settled after all
             }
+            previous = now;
         }
         let staged = cracked(&w, cx, cy, radius);
 
         // The growth itself. This is the assertion the old one-call star
         // could not have passed -- it was already finished at frame 0.
         assert!(at_2 < at_30, "the crack star did not grow: {at_2} cracked cells at frame 2, {at_30} at frame 30");
-        assert!(done_by.is_some(), "the blast was still growing cracks at frame 60 -- the star has to finish inside about half a second");
+        assert!(
+            star_settled_at.is_some(),
+            "the crack star was still growing at frame 60 -- it has to finish inside about half a second"
+        );
         assert!(staged >= 100, "the staged driver's finished star is only {staged} cracked cells");
 
         // And the synchronous driver, which the tests and every headless
@@ -1749,6 +2095,214 @@ mod tests {
         trigger(&mut w2, &mut particles2, cx, cy, radius, 180.0);
         let synchronous = cracked(&w2, cx, cy, radius);
         assert!(synchronous >= 100, "the synchronous driver's star is only {synchronous} cracked cells");
+    }
+
+    /// A buried stone world with nothing else in it — the geometry every
+    /// test below shares, and the one a blast has the least to work with.
+    fn buried_stone() -> World {
+        let mut w = test_world();
+        for y in 10..118 {
+            for x in 10..118 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w
+    }
+
+    /// Run a staged blast to its own end, and report `(frames, peak bodies,
+    /// report)`. Bounded so a blast that never dies fails the bound instead
+    /// of hanging the suite.
+    fn run_staged(w: &mut World, tuning: Tuning, cx: i32, cy: i32, radius: i32, limit: u32) -> (u32, usize, BlastReport) {
+        let mut particles = ParticleSystem::new();
+        let mut blasts = Blasts::with_tuning(tuning);
+        blasts.trigger_with(w, &mut particles, cx, cy, radius, 180.0);
+        let mut peak = w.chunk_bodies.len();
+        let mut frames = 0;
+        while !blasts.is_empty() && frames < limit {
+            blasts.step(w, &mut particles);
+            peak = peak.max(w.chunk_bodies.len());
+            frames += 1;
+        }
+        (frames, peak, blasts.last_blast_report())
+    }
+
+    /// The hottest cell in a box, which is how "is the glow still there"
+    /// gets asked as a number rather than looked at.
+    fn hottest(w: &World, cx: i32, cy: i32, box_r: i32) -> i16 {
+        ((cy - box_r)..=(cy + box_r))
+            .flat_map(|y| ((cx - box_r)..=(cx + box_r)).map(move |x| (x, y)))
+            .map(|(x, y)| w.get(x, y).temperature())
+            .max()
+            .unwrap_or(AMBIENT_TEMPERATURE)
+    }
+
+    /// **The blast takes its own glow away with it.**
+    ///
+    /// Scorched stone never cools on its own — `heat_conductivity` 0 puts it
+    /// on `fire::update`'s thermally-inert fast path, which returns before
+    /// any decay — so before this the ring a blast wrote was permanent:
+    /// measured at 2,665 cells above ambient, unchanged from frame 121 to
+    /// frame 361 and forever after, a fireball sticker pasted on the rock.
+    ///
+    /// Asserted as a *trajectory with an end*, not an end state: hot while
+    /// the blast lives, exactly ambient once it dies. An end-state check
+    /// alone would pass on a blast that never heated anything.
+    #[test]
+    fn the_afterglow_takes_the_glow_with_it_when_the_blast_dies() {
+        let mut w = buried_stone();
+        let (cx, cy, radius) = (64, 64, 20);
+        let box_r = radius * 3;
+
+        let mut particles = ParticleSystem::new();
+        let mut blasts = Blasts::new();
+        blasts.trigger_with(&mut w, &mut particles, cx, cy, radius, 180.0);
+        let while_alive = hottest(&w, cx, cy, box_r);
+
+        let mut frames = 0;
+        while !blasts.is_empty() && frames < 600 {
+            blasts.step(&mut w, &mut particles);
+            frames += 1;
+        }
+
+        assert!(
+            while_alive > AMBIENT_TEMPERATURE + 100,
+            "the blast never heated anything: hottest cell {while_alive} C on the bang frame"
+        );
+        assert!(frames < 600, "the blast never finished -- still alive after {frames} frames");
+        assert_eq!(
+            hottest(&w, cx, cy, box_r),
+            AMBIENT_TEMPERATURE,
+            "the blast died leaving a permanent halo behind it -- the whole point of the afterglow is that it does not"
+        );
+    }
+
+    /// **No tuning value may make a `Blast` immortal.**
+    ///
+    /// The afterglow keeps the blast alive until what it heated is cool, so
+    /// a retention set absurdly close to 1 is a setting that would otherwise
+    /// hang the game rather than one that tunes it — the exact shape of trap
+    /// `crack_growth`'s `max(1)` clamp exists for one field along.
+    /// `AFTERGLOW_MAX_FRAMES` is the bound, and this is the test that says
+    /// the bound is real.
+    #[test]
+    fn no_tuning_value_can_keep_a_blast_alive_forever() {
+        let mut w = buried_stone();
+        // Would take some 55,000 frames to fade on the arithmetic alone.
+        let glacial = Tuning { afterglow_retention: 0.999_99, ..Tuning::default() };
+        let limit = 4 * AFTERGLOW_MAX_FRAMES as u32;
+        let (frames, ..) = run_staged(&mut w, glacial, 64, 64, 20, limit);
+        assert!(
+            frames < limit,
+            "a blast with afterglow_retention 0.99999 was still alive after {frames} frames -- the cap is not bounding it"
+        );
+    }
+
+    /// The afterglow's three promises, tested on the rule itself rather than
+    /// through a blast: it never raises a temperature, never touches a cell
+    /// that is on fire, and always terminates at exactly ambient.
+    ///
+    /// Driven directly at `cool_toward_ambient` because that is where all
+    /// three live — a blast-level test would exercise them through 4,000
+    /// cells of noise and could pass with any one of them broken.
+    #[test]
+    fn the_afterglow_never_warms_anything_and_never_touches_a_fire() {
+        let mut w = test_world();
+        let cold = AMBIENT_TEMPERATURE - 50;
+        w.set(20, 20, Cell::new(material::STONE, 0).with_temperature(cold));
+        w.set(21, 20, Cell::new(material::STONE, 0)); // exactly ambient
+        let mut burning = Cell::new(material::OIL, 0).with_temperature(500);
+        burning.ignite(200);
+        w.set(22, 20, burning);
+        w.set(23, 20, Cell::new(material::STONE, 0).with_temperature(500));
+
+        for _ in 0..500 {
+            for x in 20..=23 {
+                cool_toward_ambient(&mut w, x, 20, 0.94);
+            }
+        }
+
+        assert_eq!(w.get(20, 20).temperature(), cold, "the afterglow warmed a cell that was colder than ambient");
+        assert_eq!(w.get(21, 20).temperature(), AMBIENT_TEMPERATURE, "the afterglow moved a cell that was already at ambient");
+        assert_eq!(w.get(22, 20).temperature(), 500, "the afterglow cooled a burning cell -- fire.rs owns those");
+        assert!(w.get(22, 20).is_burning(), "the afterglow put a fire out");
+        assert_eq!(w.get(23, 20).temperature(), AMBIENT_TEMPERATURE, "a hot cell never reached ambient");
+
+        // And monotonically, one step at a time -- a fade that overshot into
+        // *cold* would still land on ambient eventually above.
+        let mut w2 = test_world();
+        w2.set(20, 20, Cell::new(material::STONE, 0).with_temperature(500));
+        let mut last = 500;
+        for _ in 0..500 {
+            cool_toward_ambient(&mut w2, 20, 20, 0.94);
+            let now = w2.get(20, 20).temperature();
+            assert!(now <= last, "the afterglow raised a temperature: {last} -> {now}");
+            assert!(now >= AMBIENT_TEMPERATURE, "the afterglow cooled a cell past ambient: {now}");
+            last = now;
+        }
+    }
+
+    /// **The cracks release pieces.** K2, and the counter half of the
+    /// owner's "I don't see the pieces moving at all after the crack".
+    ///
+    /// A fully buried blast used to end with peak bodies **0**: the star was
+    /// drawn, the load model was told, and nothing ever came away, so the
+    /// whole mechanic read as a graphic. The collar calved into the crush
+    /// pocket is the smallest honest answer -- a buried charge has nowhere
+    /// else to put anything.
+    ///
+    /// A **paired** comparison against `calve_depth: 0`, per `CLAUDE.md`:
+    /// outcomes here have enormous spread, and the pair cancels everything
+    /// the calving is not about. The control is also the proof the bodies
+    /// come from *this* mechanism and not from the blast's own shell
+    /// fracture.
+    #[test]
+    fn a_buried_blast_calves_pieces_once_its_star_has_finished() {
+        let (cx, cy, radius) = (64, 64, 20);
+        let mut with = buried_stone();
+        let (_, calving_bodies, report) = run_staged(&mut with, Tuning::default(), cx, cy, radius, 600);
+
+        let mut without = buried_stone();
+        let off = Tuning { calve_depth: 0, ..Tuning::default() };
+        let (_, control_bodies, control_report) = run_staged(&mut without, off, cx, cy, radius, 600);
+
+        assert_eq!(control_report.calved, 0, "calve_depth 0 still calved {} cells", control_report.calved);
+        assert!(report.calved > 0, "the collar released nothing at all -- the star finished and the rim did not let go");
+        assert!(
+            calving_bodies > control_bodies,
+            "calving produced no more moving pieces than the control: {calving_bodies} bodies against {control_bodies}"
+        );
+    }
+
+    /// The crack tips are incandescent while they race, and that heat is the
+    /// walker's own — not a spill from the fireball.
+    ///
+    /// Paired against `crack_glow_temperature: 0`, and with the fireball
+    /// turned off in both, so the only thing that can put heat on a cracked
+    /// cell is the walker.
+    #[test]
+    fn the_crack_tips_glow_as_they_run() {
+        let hot_cracked_cells = |glow: f32| {
+            let mut w = buried_stone();
+            let mut particles = ParticleSystem::new();
+            let tuning = Tuning { flash_temperature: 0.0, crack_glow_temperature: glow, ..Tuning::default() };
+            let mut blasts = Blasts::with_tuning(tuning);
+            blasts.trigger_with(&mut w, &mut particles, 64, 64, 20, 180.0);
+            // Mid-growth: the star is still extending, so the tips are the
+            // freshest thing in the world.
+            for _ in 0..12 {
+                blasts.step(&mut w, &mut particles);
+            }
+            (10..118)
+                .flat_map(|y| (10..118).map(move |x| (x, y)))
+                .filter(|&(x, y)| {
+                    let c = w.get(x, y);
+                    c.cracked() && c.temperature() > AMBIENT_TEMPERATURE
+                })
+                .count()
+        };
+
+        assert_eq!(hot_cracked_cells(0.0), 0, "crack_glow_temperature 0 still heated the rock it cracked");
+        assert!(hot_cracked_cells(300.0) > 0, "the crack tips never lit up");
     }
 
     /// R2's material term, the other direction from the test above (§7c(ii)):
@@ -1997,7 +2551,16 @@ mod tests {
         // without this pin the inner disc would only partially clear,
         // which is a different, true thing this test was never written to
         // check.
-        let no_smoke = Tuning { smoke_fraction: 0.0, containment_floor: f32::INFINITY, ..Tuning::default() };
+        // `afterglow_retention: 1.0` pins the *pre-afterglow* contract, the
+        // same way `containment_floor: INFINITY` above pins the pre-R2 one.
+        // This test asks whether the scorch write happened at all, and it
+        // reads the world after `trigger_tuned` has run the blast to
+        // completion -- which now includes the blast cooling everything it
+        // heated back to ambient before it dies. Left un-pinned it would
+        // still pass, but only via the oil the fireball set *burning*
+        // (afterglow never touches a burning cell), which is a different
+        // claim than the one in the name.
+        let no_smoke = Tuning { smoke_fraction: 0.0, containment_floor: f32::INFINITY, afterglow_retention: 1.0, ..Tuning::default() };
         trigger_tuned(&mut w, &mut particles, 40, 40, 8, 150.0, &no_smoke);
 
         // The clearing radius (8) must be empty — nothing left to ignite

@@ -700,6 +700,51 @@ its own open crater vents the confinement probe (`struck_solid` false) —
 the accumulation story holds for charges near, not in, the old crater.
 Both belong to whoever picks up R3a/R4.
 
+## 11. Round three — brittle cracks, calving pieces, an ember that cools
+
+Owner playtest verdicts on §10: cracks "a little too organic" (what does
+real black rock look like?); "I don't see the pieces moving at all after
+the crack"; "the orange glow around also doesn't look great." Exploration
+turned the third into mechanics: **scorched stone never cooled** (stone's
+`heat_conductivity` 0.0 hits `fire::update`'s thermally-inert fast path, so
+a 900° ring was permanent), the render ramp saturates at 420° with
+non-burning blend capped at 0.5 (900° drew as flat bone-tan, not ember),
+and cracks drew as whole-cell 0.43× smears with no direction. Also found
+and parked: **blast smoke never dissipates anywhere in the sim** (no
+removal rule; pools under ceilings forever) — a standing issue for a later
+pass.
+
+What landed (K1-K4):
+- **Brittle crack style** (blast path only): straight runs of 3-8 cells,
+  sharp position-keyed kinks, rare large deflections, acute-angle forks —
+  jagged lightning instead of meanders. Crush path bit-identical again
+  (PNG hash). An A/B sheet of `strike` with the brittle style exists for
+  the owner to choose later (`round3_ab_strike_brittle.png`).
+- **Calving**: when the star finishes growing (and the cavity is done),
+  the rim fractures along the cracks — open sectors 8 deep, contained
+  pockets 2 — and `take_fragment`'s crack-seam rule means the pieces are
+  bounded by the fissures the player watched grow. Buried-stone peak
+  bodies: **0 → 4**; `calved` added to the blast report.
+- **The ember**: `flash_temperature` 900 → 260, `fireball_fraction` 0.5 →
+  0.3 (both also corrected in `assets/explosion.ron`, which the app loads
+  and which still pinned the old values — the one place the change would
+  have been invisible in play). Crack tips write ~300° as they race
+  (`crack_glow_temperature`). The blast then owns its afterglow: each
+  frame it cools everything it heated toward ambient
+  (`afterglow_retention` 0.94/frame; never raises, never touches burning
+  cells, hard-capped at 180 frames — no tuning value can make a blast
+  immortal, mutation-tested). Buried-stone hottest/lit cells: **891°/2,665
+  frozen forever → 20°/0 by frame 181.**
+- **Hairline cracks**: at zoom > 1, only a strip along the actually-severed
+  edge darkens (harder, 0.35× vs 0.43×), so a crack is a directional line
+  threading the rock; zoom 1 draws exactly the old way (pinned by test).
+
+All §10 bars held: cave wall 5,367 (≥ 5,269), roof +144 retained, sandbed
+unchanged, strike hash identical, `ascii` settled 0.000 ms, 625 tests,
+clippy clean. Acceptance 14/16 with the same two pre-existing failures.
+Net cells lost in the buried case unchanged at 112 — calving relocates
+rim rock into the pocket, it does not eat more world.
+
 ### What is still open, in order
 
 1. **R3a** (fracture pacing) — small, specced in §7e, still wanted.
