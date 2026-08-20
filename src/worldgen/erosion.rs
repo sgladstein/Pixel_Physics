@@ -127,6 +127,13 @@ pub struct Deposits {
     /// as outlets, so conservation is `moved = deposited + exported`.
     pub exported: f32,
     pub iterations: u32,
+    /// Wall-clock time the loop itself took, in milliseconds. Round-4 task
+    /// 5's "did it fire, and what did it cost" counter -- printed beside
+    /// the pass table by `generate_reported`, never asserted on: timing is
+    /// read by eye, not gated (`Reports/worldgen-erosion-design.md`'s ≤50ms
+    /// budget line is a by-eye check, and CI machine speed varies run to
+    /// run per CLAUDE.md's re-measure-the-baseline rule).
+    pub wall_time_ms: f32,
 }
 
 impl Deposits {
@@ -138,6 +145,7 @@ impl Deposits {
             volume_moved: 0.0,
             exported: 0.0,
             iterations: 0,
+            wall_time_ms: 0.0,
         }
     }
 }
@@ -151,6 +159,7 @@ pub fn erode(t: &Terrain, h: &mut [f32]) -> Deposits {
         return d;
     }
     d.iterations = iters;
+    let started = std::time::Instant::now();
 
     // Rain supply and a shed-from-hard accumulator, both per column.
     let rain: Vec<f32> =
@@ -277,6 +286,7 @@ pub fn erode(t: &Terrain, h: &mut [f32]) -> Deposits {
             }
         }
     }
+    d.wall_time_ms = started.elapsed().as_secs_f32() * 1000.0;
     d
 }
 

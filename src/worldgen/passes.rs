@@ -389,6 +389,7 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
                 // lying on open ground -- same reasoning as a sealed lens
                 // (`pockets`) and the vug floor (`cave_system`), both of
                 // which draw buried gravel the same way.
+                ctx.talus_recolored.set(ctx.talus_recolored.get() + 1);
                 (ctx.gravel, BURIED_FAMILY * TONES + loose_shade(ctx, Purpose::Dither, x, y))
             } else if noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < stony * 0.85 {
                 (ctx.gravel, loose_shade(ctx, Purpose::Dither, x, y))
@@ -2371,6 +2372,7 @@ pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
         if !sealed {
             continue;
         }
+        ctx.boulders_seated.set(ctx.boulders_seated.get() + 1);
         for (px, py) in cells {
             // The pale cap-rock family, unconditionally: a boulder is a
             // hard-band survivor by construction (`erosion.rs`'s
