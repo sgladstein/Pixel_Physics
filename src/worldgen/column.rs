@@ -478,7 +478,12 @@ impl Terrain<'_> {
 
     /// Where elevation zero sits, in rows. Chosen so the highest possible
     /// ridge still leaves `sky_rows` of clear sky above it.
-    fn datum(&self) -> f32 {
+    ///
+    /// `pub(crate)` rather than private: `passes.rs`'s valley-floor check
+    /// needs to invert `surface_y` back to elevation (`elev = datum -
+    /// surface_y`) on the *eroded* surface, which only `ColumnPlan` carries
+    /// -- round-4 task 4.
+    pub(crate) fn datum(&self) -> f32 {
         self.params.sky_rows + self.params.relief_amplitude
     }
 
@@ -741,8 +746,12 @@ mod tests {
         // pre-erosion world staying bit-identical. Whole plans compared,
         // not just surfaces, so a slope-plumbing slip in the soil gate
         // cannot hide.
-        let p = WorldgenParams::default();
-        assert_eq!(p.world_age, 0.0);
+        //
+        // `WorldgenParams::default()` stopped being age 0 in round-4 task 4
+        // (`rolling` ships `world_age: 0.8`); the no-op guarantee this test
+        // pins is about age 0 itself, not about the default, so it is
+        // reached explicitly here rather than assumed from `default()`.
+        let p = WorldgenParams { world_age: 0.0, ..Default::default() };
         for seed in 0..6u64 {
             let t = terrain(seed, &p);
             let mut expected: Vec<ColumnPlan> = (0..t.w).map(|x| t.plan(x)).collect();

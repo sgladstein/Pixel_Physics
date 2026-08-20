@@ -240,12 +240,16 @@ pub struct WorldgenParams {
     /// ecological age joins it there later. It is **not** a live process:
     /// nothing erodes at runtime.
     ///
-    /// **`0.0` — the current default — is the pre-erosion world, exactly.**
-    /// At zero the erosion pass returns before touching a column and every
-    /// plan is what it was before the mechanism existed, so the sweep
-    /// baselines and the round-3 branch's guards stay meaningful while the
-    /// mechanism is tuned by eye at explicit ages. Flipping per-preset
-    /// defaults on is deliberately a separate, sweep-re-baselined change.
+    /// **`0.0` is the pre-erosion world, exactly** -- at zero the erosion
+    /// pass returns before touching a column. That *was* the default for
+    /// every preset (`Reports/worldgen-erosion-design.md`'s "Status,
+    /// 2026-08"), kept there deliberately while the mechanism was tuned by
+    /// eye at explicit ages against the sweep baselines. Round-4 task 4
+    /// flips it on: `rolling` (and so `WorldgenParams::default`, which
+    /// `rolling` is asserted equal to) ships `0.8`, and the 16-seed sweep
+    /// was re-baselined in the same task to match. `flat` -- the structural
+    /// test bed -- stays `0.0` explicitly in `assets/worldgen.ron`, since it
+    /// must not inherit whatever `rolling`'s age becomes.
     pub world_age: f32,
 
     // ---- life ----
@@ -306,7 +310,7 @@ impl Default for WorldgenParams {
             vault_density: 1.6,
             vault_min_depth: 200,
             vault_bedrock_margin: 16,
-            world_age: 0.0,
+            world_age: 0.8,
             moss_density: 0.10,
             tree_density: 0.26,
             life_cluster_wavelength: 70.0,

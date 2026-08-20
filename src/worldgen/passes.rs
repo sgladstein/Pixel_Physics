@@ -331,8 +331,21 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
         // own elevation rather than from the world's lowest point, so the
         // pass stays local to its declared margin and survives the move to
         // per-chunk generation unchanged.
-        let is_valley_floor =
-            ctx.terrain.slope(x) < 0.1 && ctx.terrain.elev(x) < -0.45 * p.relief_amplitude;
+        //
+        // Read off the *plans* (the eroded surface), not `Terrain::slope`/
+        // `elev` (the pre-erosion curve): round-4 task 4. `surface_y` is a
+        // central difference away from a slope the same way `elev` is --
+        // the two differ only by the sign flip `elev = datum - surface_y`,
+        // so `|Δsurface_y| == |Δelev|` and the slope reads identically. At
+        // `world_age == 0` `surface_y` is `round(datum - elev)`, so this is
+        // the same quantity `Terrain::slope`/`elev` gave before, rounding
+        // aside; at `world_age > 0` it is the *true* eroded surface, which
+        // is the whole point -- a valley the erosion pass just filled with
+        // sediment should read as a valley floor here too.
+        let plan_surface_y = |x: i32| ctx.plans[x.clamp(0, ctx.terrain.w - 1) as usize].surface_y;
+        let plan_slope = ((plan_surface_y(x + 1) - plan_surface_y(x - 1)) as f32 / 2.0).abs();
+        let plan_elev = ctx.terrain.datum() - c.surface_y as f32;
+        let is_valley_floor = plan_slope < 0.1 && plan_elev < -0.45 * p.relief_amplitude;
         // Dry country carries sand instead of soil, all the way down rather
         // than as a skin over it: a desert whose dunes sit on a soil profile
         // reads as a costume over the same world, which is exactly the
@@ -498,6 +511,21 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
         return n;
     }
     for (x, dir, drop) in cliff_edges(&ctx.plans, ctx.terrain.w) {
+        // Only hang a lip from bare rock. The origin's own topmost cell is
+        // what every written cell ultimately has to trace an attached path
+        // back through, and a soil-covered origin's topmost cell is loose
+        // Powder -- not part of the attached network at all, whatever sits
+        // under it. A lip hung there is structurally disconnected from the
+        // massif however solid it looks, which the far escarpment scale's
+        // "gentler but tall" detection (`RUN_FAR`/`CLIFF_DROP_FAR`) makes
+        // reachable: a long, gradual slope can qualify as an edge at many
+        // consecutive columns without any one of them being steep enough to
+        // clear `plan_from`'s soil cutoff. Round-4 finding R4-3 has the
+        // repro this was found from (erosion turning per-preset ages on
+        // made these gentle escarpments common enough to hit reliably).
+        if ctx.plans[x as usize].soil_depth > 0 {
+            continue;
+        }
         if noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir) >= p.brow_chance {
             continue;
         }
@@ -520,6 +548,18 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
             + (drop / 22).min(3);
         for row in 0..thick {
             let y = top + row;
+            // Never below the local water table. A lip that dips underwater
+            // can end up with `ponds` filling both above and below it --
+            // the same round-4 finding R4-3 as the soil-origin gate above,
+            // a different way to reach it: the origin was bare rock, but
+            // the *lip* still hung over a hollow that turned out to be
+            // flooded on both sides once ponds ran. `ponds` only knows how
+            // to fill a hollow that reaches the open surface (`vaults`
+            // handles the sealed-chamber case, deliberately, with its own
+            // equator rule); a rock shelf straddling the table is not that.
+            if y >= ctx.plans[x as usize].table_y {
+                break;
+            }
             // Tapered underside, so the lip is a wedge rather than a slab.
             for step in 1..=(reach - row).max(0) {
                 let lx = x + dir * step;
