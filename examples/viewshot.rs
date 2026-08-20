@@ -20,6 +20,7 @@
 //! cargo run --release --example viewshot
 //! cargo run --release --example viewshot -- seed=7 preset=arid shots=6
 //! cargo run --release --example viewshot -- frame=1800   # night, for stars and moon
+//! cargo run --release --example viewshot -- vault=1 crop=180,90,160,140 zoom=4
 //! ```
 //!
 //! Written for the world-size step, kept for weather: a rain or snow sky is
@@ -45,6 +46,8 @@ struct Args {
     reveal: bool,
     light: pixel_physics::render::TerrainLight,
     spring: i32,
+    zoom: usize,
+    crop: Option<(usize, usize, usize, usize)>,
     out: String,
 }
 
@@ -64,6 +67,8 @@ fn main() {
         reveal: false,
         light: pixel_physics::render::TerrainLight::default(),
         spring: 0,
+        zoom: 1,
+        crop: None,
         out: "target/filmstrips/viewshot.png".to_string(),
     };
     for arg in std::env::args().skip(1) {
@@ -115,6 +120,21 @@ fn main() {
             // seep, `spring=4` a waterfall. The ledger prints beside the
             // image so "did it fire" is a number, not a reading of pixels.
             "spring" => a.spring = v.parse().expect("spring=N columns"),
+            // `zoom=K` and `crop=x,y,w,h` exist because a cave is judged at
+            // the scale its formations are *drawn* at, and a 512x320 viewport
+            // tile reduced onto a contact sheet is not that scale: a
+            // stalactite is four pixels tall there, so "a comb of teeth" and
+            // "a forest of formations" are the same picture. `crop` is in
+            // viewport coordinates (the same frame the shot draws), applied
+            // per shot before the tiles are laid side by side; `zoom` is a
+            // nearest-neighbour magnify, never a filter -- a smoothed pixel
+            // grid would invent detail that is not in the world.
+            "zoom" => a.zoom = v.parse::<usize>().expect("zoom=K").max(1),
+            "crop" => {
+                let n: Vec<usize> = v.split(',').map(|t| t.parse().expect("crop=x,y,w,h")).collect();
+                assert_eq!(n.len(), 4, "crop=x,y,w,h");
+                a.crop = Some((n[0], n[1], n[2], n[3]));
+            }
             "out" => a.out = v.to_string(),
             _ => panic!("unknown argument {arg:?}"),
         }
@@ -267,7 +287,12 @@ fn main() {
     renderer.reveal_voids = a.reveal;
     let particles = ParticleSystem::new();
     let (vw, vh) = (WIDTH as usize, HEIGHT as usize);
-    let mut sheet = vec![0u8; vw * vh * a.shots * 4];
+    // The tile written into the sheet: the crop window magnified, or the
+    // whole viewport at 1x when neither was asked for.
+    let (cx0, cy0, cw, ch) = a.crop.unwrap_or((0, 0, vw, vh));
+    assert!(cx0 + cw <= vw && cy0 + ch <= vh, "crop {cx0},{cy0},{cw},{ch} is outside the {vw}x{vh} viewport");
+    let (tw, th) = (cw * a.zoom, ch * a.zoom);
+    let mut sheet = vec![0u8; tw * th * a.shots * 4];
     let mut frame = vec![0u8; vw * vh * 4];
 
     // Where a system is, if one was asked for. Round 3 made the subject a
@@ -399,10 +424,12 @@ fn main() {
             pixel_physics::sim::parallel::step(&mut world);
         }
 
-        for y in 0..vh {
-            let src = y * vw * 4;
-            let dst = (y * vw * a.shots + shot * vw) * 4;
-            sheet[dst..dst + vw * 4].copy_from_slice(&frame[src..src + vw * 4]);
+        for y in 0..th {
+            for x in 0..tw {
+                let src = ((cy0 + y / a.zoom) * vw + cx0 + x / a.zoom) * 4;
+                let dst = (y * tw * a.shots + shot * tw + x) * 4;
+                sheet[dst..dst + 4].copy_from_slice(&frame[src..src + 4]);
+            }
         }
         // Step between shots so the day advances a little and the sky is not
         // bit-identical in every tile -- a sheet of identical skies hides a
@@ -412,7 +439,7 @@ fn main() {
         }
     }
 
-    let (sw, sh) = ((vw * a.shots) as u32, vh as u32);
+    let (sw, sh) = ((tw * a.shots) as u32, th as u32);
     if let Some(dir) = std::path::Path::new(&a.out).parent() {
         std::fs::create_dir_all(dir).expect("creating the output directory");
     }
