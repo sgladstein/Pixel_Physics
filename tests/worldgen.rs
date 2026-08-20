@@ -880,6 +880,69 @@ fn buried_gravel_is_not_the_same_colour_as_scree() {
 }
 
 #[test]
+fn erosion_talus_draws_as_buried_gravel_at_the_top_of_the_cover() {
+    // Round-4 task 2. Checked by recomputing `Deposits::talus` independently
+    // through the public plan-side API and confirming the realise side put
+    // gravel exactly where the plan says rockfall landed -- not by turning
+    // erosion off and diffing (world_age reshapes the whole surface, so a
+    // paired diff the way `buried_gravel_is_not_the_same_colour_as_scree`
+    // does it would be swamped by every other thing erosion moves).
+    //
+    // `world_age` forced well past any shipped preset: the tuning record
+    // (`Reports/worldgen-erosion-design.md`) measured only 1-5 boulder
+    // markers and comparable talus on the 2048-column probe world at age
+    // 1.0, and this suite runs at the 512-column harness size -- forcing the
+    // age is what gives the guard something to see, per the r2/r3 lesson
+    // that a guard which cannot see the feature has no teeth.
+    use pixel_physics::worldgen::column::Terrain;
+    let presets = presets();
+    let base = presets.get("rolling").expect("rolling preset");
+    let params = WorldgenParams { world_age: 6.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+
+    let mut total_talus_cells = 0usize;
+    let mut wrong_family = 0usize;
+    for seed in SEEDS {
+        let world = build(&params, seed);
+        let gravel = world.materials.id_of("gravel").expect("gravel");
+        let soil = world.materials.id_of("soil").expect("soil");
+        let sand = world.materials.id_of("sand").expect("sand");
+        let soil_tan = world.materials.get(soil).friction_angle.to_radians().tan();
+        let sand_tan = world.materials.get(sand).friction_angle.to_radians().tan();
+        let terrain = Terrain::new(seed, &params, BOUNDS.0 + 1, BOUNDS.1 + 1, soil_tan, sand_tan);
+        let (plans, deposits) = terrain.plan_all_with_deposits();
+
+        for (x, plan) in plans.iter().enumerate() {
+            let talus = deposits.talus[x];
+            if talus < 1.0 {
+                continue;
+            }
+            let talus_cells = (talus.round() as i32).min(plan.soil_depth);
+            let top = plan.surface_y.max(0);
+            for depth in 0..talus_cells {
+                let (px, py) = (x as i32, top + depth);
+                let c = world.get(px, py);
+                if c.material != gravel {
+                    // Legitimate: the soil/stone dithered contact can also
+                    // claim a cell inside the talus band on a shallow
+                    // column, and that draw is untouched by this feature.
+                    continue;
+                }
+                total_talus_cells += 1;
+                if c.shade / 4 != 1 {
+                    wrong_family += 1;
+                }
+            }
+        }
+    }
+    println!("rolling age 6.0, seeds {SEEDS:?}: {total_talus_cells} talus cells drawn as gravel");
+    assert!(total_talus_cells > 0, "no column had talus >= 1 realise as gravel -- the pass never fired");
+    assert_eq!(
+        wrong_family, 0,
+        "{wrong_family} of {total_talus_cells} talus-gravel cells are in the scree family, not buried -- invisible against the rock behind them"
+    );
+}
+
+#[test]
 fn a_varied_world_uses_more_than_one_rock_family() {
     // "Did it fire at all needs a counter, not a picture" -- and this
     // mechanism is *exactly* the case that rule was written for, because

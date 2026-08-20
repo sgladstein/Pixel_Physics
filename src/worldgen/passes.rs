@@ -338,6 +338,18 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
         // reads as a costume over the same world, which is exactly the
         // sameness this regional layer exists to break.
         let sandy = ctx.terrain.is_sandy(x);
+        // Talus reads as gravel, at the *top* of the profile rather than the
+        // bottom: rockfall lands on the blanket, it does not seep under it.
+        // `plan_from` already folded this depth into `soil_depth` (deposits
+        // deepen the blanket, never mint elevation -- `column.rs`'s note on
+        // `extra_cover`), so this is purely a recolouring of cover cells
+        // that were already going to be placed; zero new placement, and the
+        // dithered soil/stone contact at the bottom is untouched by it.
+        let talus_cells = if ctx.deposits.talus[x as usize] >= 1.0 {
+            (ctx.deposits.talus[x as usize].round() as i32).min(c.soil_depth)
+        } else {
+            0
+        };
         for y in top..bottom {
             // A dithered band where soil meets stone, rather than a clean
             // horizon. Two materials meeting on an exact line is the single
@@ -358,7 +370,14 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
             } else {
                 0.0
             };
-            let (m, shade) = if noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < stony * 0.85 {
+            let (m, shade) = if depth < talus_cells {
+                // Rockfall, not the native profile: gravel takes its buried
+                // family so it reads as broken rock rather than as scree
+                // lying on open ground -- same reasoning as a sealed lens
+                // (`pockets`) and the vug floor (`cave_system`), both of
+                // which draw buried gravel the same way.
+                (ctx.gravel, BURIED_FAMILY * TONES + loose_shade(ctx, Purpose::Dither, x, y))
+            } else if noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < stony * 0.85 {
                 (ctx.gravel, loose_shade(ctx, Purpose::Dither, x, y))
             } else if sandy || (is_valley_floor && y < top + 2) {
                 (ctx.sand, cover_shade(ctx, Purpose::Shade, x, y))
