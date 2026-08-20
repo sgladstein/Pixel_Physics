@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""End-to-end checks for the review queue. Run: python3 scripts/review_selftest.py
+
+These are not unit tests. What can actually break here is not a function's
+return value but the claims the design makes about *concurrency and loss*:
+several agents in several worktrees write to one directory, a killed post must
+leave nothing half-written, and a verdict must survive the worktree that asked
+for it. Each check below is one of those claims.
+
+The browser half -- pixelated upscale, the frame scrubber, blind reveal -- has
+to be judged by eye and is not covered here. See .claude/skills/review/SKILL.md.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import zlib
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import review_lib as rl  # noqa: E402
+
+FAILURES = []
+
+
+def check(ok: bool, label: str, detail: str = "") -> None:
+    print(("  PASS  " if ok else "  FAIL  ") + label + (" -- " + detail if detail else ""))
+    if not ok:
+        FAILURES.append(label)
+
+
+def run(*args, root=None, expect=0, stdin=None):
+    env = dict(os.environ)
+    if root:
+        env[rl.ROOT_ENV] = str(root)
+    proc = subprocess.run([sys.executable, str(HERE / "review.py"), *args],
+                          capture_output=True, text=True, env=env, input=stdin)
+    if expect is not None and proc.returncode != expect:
+        raise AssertionError("review.py %s exited %d\n%s" % (args, proc.returncode, proc.stderr))
+    return proc
+
+
+def png(path: Path, w=24, h=16, fill=(120, 90, 60)) -> Path:
+    raw = bytearray()
+    for _ in range(h):
+        raw.append(0)
+        raw.extend(bytes(fill) * w)
+
+    def chunk(tag, data):
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff))
+    path.write_bytes(b"\x89PNG\r\n\x1a\n"
+                     + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                     + chunk(b"IDAT", zlib.compress(bytes(raw), 1))
+                     + chunk(b"IEND", b""))
+    return path
+
+
+# --------------------------------------------------------------------------
+
+def test_concurrent_posts(root: Path, art: Path) -> None:
+    """The claim that makes 'nothing gets lost' true: no index, no lock."""
+    print("\nconcurrent posts from many agents")
+    procs = [subprocess.Popen(
+        [sys.executable, str(HERE / "review.py"), "post", "--board", "burst",
+         "--title", "burst %d" % i, "--question", "q", "--image", str(art)],
+        env={**os.environ, rl.ROOT_ENV: str(root)},
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for i in range(24)]
+    for p in procs:
+        p.wait()
+    cards = rl.load_cards(root)
+    check(len(cards) == 24, "all 24 cards survive", "got %d" % len(cards))
+    check(len({c["id"] for c in cards}) == 24, "no id collisions")
+    check(len({c["title"] for c in cards}) == 24, "no card overwrote another")
+    check(all((rl.media_dir(root) / c["items"][0]["files"][0]).is_file() for c in cards),
+          "every card's media landed")
+
+
+def test_crash_safety(root: Path) -> None:
+    """A card is visible only once it is complete -- tmp + os.replace."""
+    print("\nposts killed mid-write")
+    big = png(root.parent / "big.png", 700, 500)
+    for i in range(14):
+        p = subprocess.Popen(
+            [sys.executable, str(HERE / "review.py"), "post", "--title", "crash %d" % i,
+             "--question", "q", "--image", str(big)],
+            env={**os.environ, rl.ROOT_ENV: str(root)},
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.03 + (i % 7) * 0.035)
+        p.kill()
+        p.wait()
+
+    unreadable = [f.name for f in rl.cards_dir(root).glob("*.json")
+                  if rl.read_json(f) is None]
+    check(not unreadable, "no half-written card is readable", str(unreadable))
+    stray = [f.name for f in rl.cards_dir(root).iterdir() if f.name.startswith(".")]
+    check(not stray, "no temp files left in cards/", str(stray))
+
+    size = big.stat().st_size
+    truncated = [rel for c in rl.load_cards(root) for it in c["items"] for rel in it["files"]
+                 if not (rl.media_dir(root) / rel).is_file()
+                 or (rl.media_dir(root) / rel).stat().st_size != size]
+    # Media is copied before the card is written, so a card can never reference
+    # an artifact that did not finish copying.
+    check(not truncated, "no card points at truncated media", str(truncated[:3]))
+
+    # Construct the case rather than hoping a kill produced one: this run may
+    # legitimately have zero orphans, and a check that cannot fail proves
+    # nothing about the code it is named for.
+    orphan = rl.media_dir(root) / "20200101T000000000Z-deadbe"
+    orphan.mkdir(parents=True, exist_ok=True)
+    (orphan / "000-x.png").write_bytes(b"x")
+    kept = [rel for c in rl.load_cards(root) for it in c["items"] for rel in it["files"]]
+    pruned = rl.prune_orphan_media(root)
+    check(orphan.name in pruned and not orphan.exists(), "gc removes media with no card")
+    check(all((rl.media_dir(root) / rel).is_file() for rel in kept),
+          "gc leaves every carded artifact alone", "%d kept" % len(kept))
+
+
+def test_media_outlives_source(root: Path) -> None:
+    """The producing worktree is disposable; the card is not."""
+    print("\nmedia survives its source")
+    tmp = Path(tempfile.mkdtemp())
+    art = png(tmp / "doomed.png")
+    out = json.loads(run("post", "--title", "from a doomed tree", "--question", "q",
+                         "--image", str(art), root=root).stdout)
+    shutil.rmtree(tmp)
+    card = rl.load_card(root, out["id"])
+    stored = rl.media_dir(root) / card["items"][0]["files"][0]
+    check(stored.is_file() and stored.stat().st_size > 0,
+          "artifact still readable after its source directory is deleted")
+
+
+def test_blind_resolves_to_real_label(root: Path, art_a: Path, art_b: Path) -> None:
+    """Blinding must cost the agent nothing: the stored verdict names the real
+    option, not the shuffled slot the owner clicked."""
+    print("\nblind A/B")
+    out = json.loads(run("ab", "--title", "blind", "--question", "which?",
+                         "--a", str(art_a), "--b", str(art_b),
+                         "--a-label", "uniform", "--b-label", "graded",
+                         "--blind", root=root).stdout)
+    card = rl.load_card(root, out["id"])
+    check(card["blind"] is True, "card is flagged blind")
+    # The server resolves index -> label; mimic that write here.
+    rl.save_response(root, card["id"], {
+        "card_id": card["id"], "answered_at": rl.utc_now(), "choice": 1,
+        "choice_label": card["items"][1]["label"], "rating": 4,
+        "comment": "grit reads right", "annotations": [], "archived": False})
+    got = rl.load_card(root, card["id"])
+    check(got["status"] == "answered", "status derives from the response file")
+    check(got["response"]["choice_label"] == "graded", "verdict names the real option")
+
+
+def test_wait_degrades(root: Path, art: Path) -> None:
+    """Blocking must never be load-bearing: a timeout leaves the same disk
+    state as a plain post."""
+    print("\nblocking wait")
+    proc = run("post", "--title", "blocker", "--question", "q", "--image", str(art),
+               "--wait", "--timeout", "2", root=root, expect=2)
+    card_id = json.loads(proc.stdout)["id"]
+    card = rl.load_card(root, card_id)
+    check(card is not None and card["status"] == "open", "card still queued after a timeout")
+    check(card["blocking"] is True, "card is marked as blocking")
+    check("inbox" in proc.stderr, "timeout tells the agent how to retrieve later")
+
+    def answer():
+        time.sleep(1.0)
+        rl.save_response(root, card_id, {
+            "card_id": card_id, "answered_at": rl.utc_now(), "choice": 0,
+            "choice_label": "x", "rating": 5, "comment": "", "annotations": [],
+            "archived": False})
+    threading.Thread(target=answer, daemon=True).start()
+    started = time.monotonic()
+    run("wait", card_id, "--timeout", "20", root=root)
+    check(time.monotonic() - started < 15, "wait returns as soon as the answer lands")
+
+
+def test_inbox_is_never_silently_empty(root: Path, art: Path) -> None:
+    """An empty inbox must mean 'no answers', never 'the filter matched
+    nothing because it could not tell who I am'."""
+    print("\ninbox identity")
+    outside = Path(tempfile.mkdtemp())
+    env = {**os.environ, rl.ROOT_ENV: str(root)}
+    env.pop("PIXEL_PHYSICS_REVIEW_AGENT", None)
+    proc = subprocess.run([sys.executable, str(HERE / "review.py"), "inbox"],
+                          capture_output=True, text=True, env=env, cwd=str(outside))
+    shutil.rmtree(outside, ignore_errors=True)
+    check("cannot identify this agent" in proc.stderr,
+          "an unidentifiable caller is warned, not silently filtered to nothing")
+    check(len(json.loads(proc.stdout)) > 0, "and still sees the answers that exist")
+
+
+def test_root_is_shared_across_worktrees() -> None:
+    """The one hard requirement: every worktree of a clone resolves to one queue."""
+    print("\ncross-worktree root")
+    repo = HERE.parent
+    try:
+        main_root = subprocess.run(
+            [sys.executable, str(HERE / "review.py"), "root", "--no-create"],
+            capture_output=True, text=True, cwd=str(repo),
+            env={k: v for k, v in os.environ.items() if k != rl.ROOT_ENV}).stdout.strip()
+    except Exception as exc:
+        return check(False, "resolve root in the main checkout", str(exc))
+
+    wt = Path(tempfile.mkdtemp()) / "wt"
+    made = subprocess.run(["git", "worktree", "add", "-q", "--detach", str(wt), "HEAD"],
+                          cwd=str(repo), capture_output=True, text=True)
+    if made.returncode != 0:
+        return check(False, "create a linked worktree", made.stderr.strip()[:120])
+    try:
+        wt_root = subprocess.run(
+            [sys.executable, str(HERE / "review.py"), "root", "--no-create"],
+            capture_output=True, text=True, cwd=str(wt),
+            env={k: v for k, v in os.environ.items() if k != rl.ROOT_ENV}).stdout.strip()
+        check(wt_root == main_root and main_root.endswith("pixel-physics-review"),
+              "a linked worktree resolves to the same queue as the main checkout",
+              "%s vs %s" % (wt_root, main_root))
+        check(Path(main_root).is_absolute(),
+              "the root is absolute (a relative one gives every worktree its own queue)")
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(wt)],
+                       cwd=str(repo), capture_output=True)
+        shutil.rmtree(wt.parent, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------
+
+def main() -> int:
+    base = Path(tempfile.mkdtemp(prefix="review-selftest-"))
+    art_a, art_b = png(base / "a.png"), png(base / "b.png", fill=(60, 90, 120))
+    try:
+        test_concurrent_posts(base / "q1", art_a)
+        test_crash_safety(base / "q2")
+        test_media_outlives_source(base / "q3")
+        test_blind_resolves_to_real_label(base / "q4", art_a, art_b)
+        test_wait_degrades(base / "q5", art_a)
+        test_inbox_is_never_silently_empty(base / "q4", art_a)
+        test_root_is_shared_across_worktrees()
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+    print("\n%d checks failed" % len(FAILURES) if FAILURES else "\nall checks passed")
+    return 1 if FAILURES else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

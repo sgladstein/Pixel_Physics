@@ -95,6 +95,14 @@ structural test bed — or set
 `PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start>,<interval>,<count>`; frames and a GIF
 land under `%TEMP%`.
 
+**Having rendered something, show it — don't describe it.** `scripts/review.py`
+posts an artifact plus a written question to a queue the owner judges in a
+browser (`python3 scripts/review.py serve`), and hands the verdict back to
+whichever session asks for it. The queue is shared by every worktree of the
+clone, so a card posted from `.claude/worktrees/foo` and one from the main
+checkout land in the same place, and an answer survives the session that asked.
+Posting is fire-and-forget by default. See `.claude/skills/review/SKILL.md`.
+
 ## Working alongside another session
 
 **This tree is worked in concurrently, and often by more than one agent at
