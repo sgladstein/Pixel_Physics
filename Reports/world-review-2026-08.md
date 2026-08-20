@@ -467,6 +467,35 @@ from upstream area instead of authored constants); the emission
 machinery, throttle, harness and tests carry over unchanged. Nothing
 about plausible-first is throwaway.
 
+### §4-addendum — what has landed since (2026-08-20)
+
+The rivers track moved from plan to shipped mechanics in one day; state
+of play, so a cold reader doesn't re-plan finished work:
+
+- **Springs and drains are shipped** (`sim/spring.rs`): world-registered,
+  stepped beside weather in both drivers, drowned-spring throttle (also
+  the player's dam verb), capped drains, `SpringLedger` counters printed
+  beside every render. Worldgen *placement* still pends the data track's
+  round 2 (their files); `viewshot spring=N` places by scan meanwhile.
+- **Springs have a span** — the owner judged the one-column seep
+  correctly ("no draw treatment makes two pixels a waterfall") and flow
+  became the knob: 1 = seep, 4–6 = cascade, budget 16 columns world-wide
+  enforced at registration. **Price: ~1 ms/frame per column of flow**
+  (paired, this container). Span 4 exceeds the 2.0 ms always-on bar —
+  deliberately: placement will spend flow where a world earns it.
+- **Moving water draws as foam** (`FOAM_BLEND`, every grain mode): falls
+  and streams pale, still pools deep. Pure cell-flag function; skip-safe.
+- **The sleeping-tile clone is dead** (§2c's banked lever, triggered by
+  span-4 breaking the bar): `field::step` solves a subset and merges;
+  `apply_sky` attenuates through the old map outside it. Held-local
+  field cost is now **flat in world area** (5.0/6.1/6.3 ms across
+  512×320→2048×1280, vs 3.9→7.3 growing before) — the half of the idle
+  bill that would have grown with M10's sizes is gone. The reverted
+  merge's failure mechanism is honored in the design and its tests pass.
+- Also landed: depth light + notch-clipped datum, data-track round 1
+  merged (regions colour their country), wiki pages current. Round 2 is
+  mid-flight on `claude/worldgen-data-track-r2-*`.
+
 ## §5 Roadmap
 
 Sequenced by the prosecutor's recommended order, folded with the owner's
