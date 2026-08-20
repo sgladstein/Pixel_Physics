@@ -214,7 +214,12 @@ fn main() {
     structural_scene("M17: cutting a bridge's far support collapses the far span", 30, 15);
 
     terrain_generation_cost();
-    river_cost_scene();
+    // Harness size first (the historical series), then THE SHIPPED WORLD
+    // SIZE — the second is the number that actually decides the rivers
+    // track, because the field-step's per-sleeping-tile clone grows with
+    // world area while the river's own awake ring does not.
+    river_cost_scene(512, 320);
+    river_cost_scene(pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
 
     // M18: a worm burrows through a sand field (should visibly relocate from
     // its seed position over the run), then a fire is lit nearby partway
@@ -905,8 +910,8 @@ fn terrain_generation_cost() {
 /// The spring throttles itself while its outlet cell is occupied (the
 /// drowned-spring guard), so a blocked fall self-limits instead of flooding
 /// the measurement.
-fn river_cost_scene() {
-    println!("\n=== river-cost: a spring, a fall and a pool held at steady state (world review §4) ===");
+fn river_cost_scene(w: i32, h: i32) {
+    println!("\n=== river-cost at {w}x{h}: a spring, a fall and a pool held at steady state (world review §4) ===");
     let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
     if let Some(e) = err {
         println!("worldgen presets unavailable ({e}); skipping river-cost scene");
@@ -917,7 +922,6 @@ fn river_cost_scene() {
         return;
     };
     let spec = || pixel_physics::worldgen::Spec::Generated { params, seed: 1 };
-    let (w, h) = (512i32, 320i32);
     const SETTLE_FRAMES: usize = 600;
     const MEASURE_FRAMES: usize = 1400;
 

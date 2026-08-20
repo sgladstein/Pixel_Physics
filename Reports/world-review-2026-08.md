@@ -411,9 +411,49 @@ respect why), and it gates the track. So the sequence is:
    still needs the audit before the 2048×640 verdict); and the spring
    arm shows a 43 ms worst-frame spike (mean is the standing bill; the
    spike wants attribution — likely the initial cascade or a structural
-   check — before the prototype ships). Verdict so far: **rivers are
-   affordable at harness scale**; the 2048×640 verdict re-runs this
-   scene at the shipped size during the audit.
+   check — before the prototype ships; a later same-session run measured
+   the same arm at worst 7.0 ms, so the spike is not reproducible and is
+   plausibly container noise).
+
+   **Shipped-size verdict (2048×640, same session, scene re-run at both
+   sizes):** standing bill mean **+0.97 ms/frame** — comfortably under
+   the 2.0 ms bar, and *smaller* than at harness size, because the
+   feared field-step overhead turns out to be a pre-existing background
+   cost, not a river cost: the spring-off control at 2048×640 already
+   runs at **10.5 ms mean with zero awake chunks and 79 unsettled field
+   tiles** (the day/night amplitude ramp keeps surface tiles stepping on
+   any generated world). Awake chunks stabilize at 5 of 320; the water
+   ledger closes **exactly** (emitted 2.0M = drained 1.49M + standing
+   0.51M, unaccounted 0). **Rivers are affordable at the shipped world
+   size. The gate is open.** Two consequences: the spring/fall/pool
+   prototype can proceed on the review's design without waiting on any
+   field-step work, and the audit's real target shifts to the *control*
+   number — the 10.5 ms background bill of an idle generated world —
+   which is a pre-existing cost worth its own line in the next
+   performance pass (the `apply_sky`-subset mechanism in 2c is the named
+   lever).
+2c. **Field-step audit (measure-first, finding not fix).** The feared
+   "~7 ms for any held activity" decomposes, on numbers already on
+   record: a full solve at 2048×1280 is 90.6 ms over 640 tiles
+   (~0.14 ms/tile), so a held disturbance's bounded awake ring (~25
+   tiles with halo) accounts for ~3.5 ms of the 7.15 ms measured — the
+   other ~3.6 ms is the **per-sleeping-tile clone** (`FieldTile` owns
+   five boxed slices; ~615 untouched tiles cloned every frame, ~6 µs
+   each). The clone is the world-area-proportional half, which is why it,
+   not the ring, decides the shipped-size verdict. The naive fix
+   (merge solved tiles into the live map) was **tried and reverted** —
+   recorded in `field.rs` with the mechanism: `apply_sky` must write
+   before convergence is judged, or every lit tile reads "changed"
+   forever (one impulse went 5.2 → 47 ms). The safe seam is also already
+   named there: `apply_sky` writing into the solved subset while walking
+   full columns — *a second mechanism, not a reordering*. Recommendation
+   standing: implement that mechanism only if the shipped-size river
+   measurement breaks the bar; otherwise bank it as the known lever. One
+   more rider from the harness: on a generated world the field never
+   fully settles during day/night amplitude ramps anyway (23 tiles
+   unsettled, control mean 2.58 ms at 512×320), so a river's *marginal*
+   field cost during ramps is small; the plateaus (flat noon/night) are
+   where the river alone pays the wake bill.
 3. **The priced fallback if the bill doesn't fit**: the *settled river*
    — a river bed generated with water born at rest (level per pool
    step, exactly as ponds are born), reading as moving via the
