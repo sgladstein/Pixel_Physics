@@ -159,6 +159,98 @@ const STORMCYCLE_STORM: (u64, u64) = (19_080, 24_060);
 const STORMCYCLE_SHORE_Y: i32 = 200;
 const STORMCYCLE_DEPTH: i32 = 6;
 
+/// `scene=watercycle`: **the outer water loop's closing demonstration** —
+/// `stormcycle`'s pond and shore, cell for cell, over a window four times as
+/// long and starting two clear days earlier.
+///
+/// A sibling rather than a longer `stormcycle`, per this file's own rule at
+/// `build`: that scene's numbers are quoted in `weather.rs` and in the
+/// milestone write-up, and a scene that changed underneath a recorded
+/// measurement is worse than no scene. The two share a seed and a geometry,
+/// so anything true of one is true of the other in its own window.
+///
+/// # What the window is chosen to make legible
+///
+/// Three separate things, and none of them shows up in a run that spans less
+/// than a day:
+///
+/// * **The sky fills faster by day than by night.** `evaporation::warmth`
+///   made the drying rate diurnal; the bank is where that becomes visible
+///   over a whole world rather than over one basin. Sampling every 900
+///   frames puts each tile on a quarter of `field::DAY_NIGHT_PERIOD_FRAMES`,
+///   so consecutive tiles are noon, sunset, midnight, sunrise — and the
+///   credit between them rises and falls with them.
+/// * **A storm empties it again.** Seed 31337's front runs 19,022 to 24,060
+///   (`weather`'s `probe_find_a_dry_lead_before_a_storm`; `STORMCYCLE_STORM`
+///   quotes 19,080, which is that probe's coarse 60-frame grid rather than
+///   the true first frame). Starting at 10,800 leaves 2.28 clear days in
+///   front of it and the run carries on 4,700 frames past its end.
+/// * **Nothing is created or destroyed while either happens.** The census
+///   prints `water_equivalents + bank` on every tile, and it must be the
+///   same number on all twenty of them.
+///
+/// 10,800 rather than 11,822 (exactly two days before the front) so that the
+/// start lands on a multiple of `DAY_NIGHT_PERIOD_FRAMES` — the sun is at
+/// noon on tile 0 and every fourth tile after it, which is what makes the
+/// bank column readable as a day at all instead of as a drift.
+///
+/// Run it as:
+///
+/// ```text
+/// cargo run --release --example filmstrip -- \
+///     scene=watercycle start=0 every=900 count=20 zoom=2 crop=0,168,512,72
+/// ```
+///
+/// # What the picture shows, and what only the census can
+///
+/// **The sheet is the control, not the result.** It shows the sky cycling
+/// blue -> pink -> black -> orange four times over, and it shows real rain
+/// streaking across the middle six tiles — which is what says the day and
+/// the front are actually running, and that the numbers below are not a
+/// readout of a clock nobody wired up. What it cannot show is the pond
+/// shrinking: 1,440.0 cell-equivalents down to 1,394.1 over five days is
+/// 3%, which across a 240-cell pond is a fifth of one row. Reading the sheet
+/// for that and concluding nothing happened is the mistake this paragraph
+/// exists to head off. An image says what and where; the census says how
+/// much.
+///
+/// Measured, on the run above (`sky:` deltas, cell-equivalents banked per
+/// quarter-day, in tile order):
+///
+/// | quarter ending at | on the two clear days | through the front | after it |
+/// |---|---|---|---|
+/// | noon | +4.36, +4.36 | -2.53 | +4.41 |
+/// | sunset | +4.54, +4.35, +5.13 | +3.53 | +4.52 |
+/// | midnight | +1.16, +1.16 | +0.65, +2.43 | +1.19 |
+/// | sunrise | +1.19, +1.19 | -2.45 | +2.83, +3.87 |
+///
+/// The warm quarters credit about 4.4 and the cool ones about 1.18 — **3.7
+/// to one**, and wider than the 2.5 the `evaporation` basin guards measure,
+/// because this pond sits under open sky while that basin sits under a lid
+/// that attenuates the sky's forcing to 4.59 of its 6 degrees. Through the
+/// front the sign flips outright: the sky spends faster than a whole pond's
+/// shoreline can refill it.
+///
+/// Two readings in that table that look wrong and are not. The night
+/// quarters *inside* the front (+0.65, +2.43) bracket the wet-channel peak
+/// rather than sitting on it — the front is easing by then, and the second
+/// is a night crediting more than a clear night does because the rain left
+/// puddles all over the bare rock and unsheltered puddles dry fast. Same
+/// reason for the two elevated sunrises after it (+2.83, +3.87), which is
+/// the shore giving the storm's water back and is the return half of the
+/// loop rather than an anomaly.
+///
+/// And `water + sky` reads 3940.0 on every one of the twenty tiles: the
+/// coupling changed the rate and never the ledger.
+///
+/// `seed=` is deliberately not wired to this: the frame window is chosen for
+/// this seed and means nothing on another one.
+const WATERCYCLE_START: u64 = 10_800;
+/// The true first and last frames of the front this scene runs through, as
+/// opposed to `STORMCYCLE_STORM`'s grid-rounded pair. Printed in the header
+/// so the census lines can be read against it.
+const WATERCYCLE_STORM: (u64, u64) = (19_022, 24_060);
+
 /// Water with a varied `shade`, the way the brush lays it down
 /// (`World::paint_capsule` rolls a random shade per cell). The scenes below
 /// would otherwise use `Cell::new(WATER, 0)` and give every cell an
@@ -491,7 +583,12 @@ fn build(args: &Args) -> World {
         // pre-existing one-way sink out of the ledger (see
         // `weather::STORM_RESERVE`), and a scene built on soil would show
         // that leak rather than the cycle.
-        "stormcycle" => {
+        //
+        // `watercycle` is the same geometry in a longer, earlier window --
+        // see `WATERCYCLE_START`. It shares this arm rather than copying it
+        // so that the two scenes cannot drift apart cell by cell; only the
+        // frame the world starts on differs.
+        "stormcycle" | "watercycle" => {
             for x in 0..WIDTH {
                 for y in STORMCYCLE_SHORE_Y..HEIGHT {
                     // Attached, so the shore is terrain rather than
@@ -510,11 +607,22 @@ fn build(args: &Args) -> World {
                 }
             }
             w.seed = STORMCYCLE_SEED;
-            w.frame = STORMCYCLE_START;
-            println!(
-                "stormcycle: seed {STORMCYCLE_SEED}, world frame {STORMCYCLE_START}; the front runs {}..{}, so a run of 8400 frames is dry, wet, dry. Sky starts holding {:.1} cell-equivalents",
-                STORMCYCLE_STORM.0, STORMCYCLE_STORM.1, w.atmospheric_bank
-            );
+            if args.scene == "watercycle" {
+                w.frame = WATERCYCLE_START;
+                println!(
+                    "watercycle: seed {STORMCYCLE_SEED}, world frame {WATERCYCLE_START}; the front runs {}..{}, so a run of 18000 frames is two clear days, a storm, and a clear day after it. A day is {} frames, so every=900 puts each tile a quarter-day apart. Sky starts holding {:.1} cell-equivalents",
+                    WATERCYCLE_STORM.0,
+                    WATERCYCLE_STORM.1,
+                    pixel_physics::sim::field::DAY_NIGHT_PERIOD_FRAMES,
+                    w.atmospheric_bank
+                );
+            } else {
+                w.frame = STORMCYCLE_START;
+                println!(
+                    "stormcycle: seed {STORMCYCLE_SEED}, world frame {STORMCYCLE_START}; the front runs {}..{}, so a run of 8400 frames is dry, wet, dry. Sky starts holding {:.1} cell-equivalents",
+                    STORMCYCLE_STORM.0, STORMCYCLE_STORM.1, w.atmospheric_bank
+                );
+            }
         }
         // Falling and spreading, rather than resting on the floor already:
         // the state the horizontal seam tearing shows up in.
@@ -2436,6 +2544,10 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     // visibly threw rock is exactly the confusion this harness exists to
     // prevent.
     let mut peak_bodies = 0usize;
+    // The bank at the previous tile, so the census can print a *rate* beside
+    // the standing total. `None` on the first tile, which prints +0.00 rather
+    // than a delta against a number that does not exist.
+    let mut last_bank: Option<f64> = None;
     while captured < args.count {
         let target = args.start + captured * args.every;
         while step_no < target {
@@ -2637,6 +2749,48 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
                 world.atmospheric_bank,
                 standing + world.atmospheric_bank
             );
+            // **How fast the sky filled or emptied since the last tile, next
+            // to what time of day it is and whether anything is falling.**
+            // The absolute figure above is the conservation reading; this is
+            // the *rate*, and it is a different question that the same
+            // number cannot answer by eye. `evaporation::warmth` made drying
+            // diurnal, so what this column should show on a dry scene is a
+            // credit that rises through the morning, peaks around noon and
+            // goes nearly flat overnight -- and then goes hard negative for
+            // as long as a front is spending it.
+            //
+            // Printed as a delta rather than left for the reader to subtract
+            // because the credit over a quarter-day is a percent or two of
+            // the standing total, and a trend that small is invisible in a
+            // column of four-figure numbers. It is also the counter that
+            // says the coupling *fired*: two very different rates look
+            // identical in a picture of a pond (`CLAUDE.md`, "did it fire at
+            // all needs a counter").
+            let elevation = pixel_physics::sim::field::sun_elevation(world.frame);
+            let phase = match (elevation, pixel_physics::sim::field::sun_rising(world.frame)) {
+                (e, _) if e > 0.7 => "noon",
+                (e, _) if e < -0.7 => "midnight",
+                (_, true) => "sunrise",
+                (_, false) => "sunset",
+            };
+            let sky = pixel_physics::sim::weather::at(world.seed, world.frame);
+            // The window *ends* at this tile, so the phase named is the phase
+            // it ended in. Said outright in the line rather than left to the
+            // reader: "+4.54 at sunset" and "+4.54 since sunset" are opposite
+            // readings of the same number, and on a scene whose whole point is
+            // which half of the day dries faster, guessing wrong inverts the
+            // result.
+            print!(
+                "    sky: {:+.2} banked over the {} frames ending at {phase} (sun {elevation:+.2})",
+                world.atmospheric_bank - last_bank.unwrap_or(world.atmospheric_bank),
+                args.every,
+            );
+            if sky.is_precipitating() {
+                println!(", {:?} at intensity {:.2}", sky.kind, sky.intensity);
+            } else {
+                println!(", clear");
+            }
+            last_bank = Some(world.atmospheric_bank);
         }
         println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
         // How much of the damage happened to rock with nowhere to go --

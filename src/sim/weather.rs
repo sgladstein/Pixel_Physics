@@ -2038,6 +2038,48 @@ mod tests {
 
     #[test]
     #[ignore = "probe, not a guard"]
+    fn probe_find_a_dry_lead_before_a_storm() {
+        // **What `filmstrip`'s `watercycle` scene's frame window is picked
+        // from.** That scene has to show the sky filling across whole days
+        // *before* a storm empties it again, so it needs a dry lead of at
+        // least two full 3,600-frame days ending at a front — which is a
+        // property of `(seed, frame)` alone and so costs nothing to search.
+        //
+        // Reported per seed rather than picking one here, because which
+        // window reads best on a contact sheet is a judgement about the
+        // picture and not about the numbers.
+        println!("seed   storm start    end   dry lead (frames / days)");
+        for seed in [7u64, 20, 2900, 12345, 31337] {
+            let mut from = 0u64;
+            for _ in 0..6 {
+                let Some((coarse, end)) = one_storm(seed, from) else { break };
+                // `first_frame_with` walks the frame axis in steps of 60, so
+                // the frame it reports is up to a minute *inside* the front.
+                // Walk back to where it really began before measuring the dry
+                // lead in front of it -- reading the lead from the coarse
+                // frame reports zero for every storm in the table, which is
+                // what this probe did first and what a plain "0.00 everywhere"
+                // column should always be read as.
+                let mut start = coarse;
+                while start > 0 && at(seed, start - 1).is_precipitating() {
+                    start -= 1;
+                }
+                let mut lead = 0u64;
+                while lead < start && !at(seed, start - lead - 1).is_precipitating() {
+                    lead += 1;
+                }
+                println!(
+                    "{seed:5}  {start:11}  {end:5}   {lead:8} / {:.2}{}",
+                    lead as f64 / DAY_NIGHT_PERIOD_FRAMES as f64,
+                    if lead >= 2 * DAY_NIGHT_PERIOD_FRAMES { "   <- two clear days" } else { "" }
+                );
+                from = end + 1;
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "probe, not a guard"]
     fn probe_storm_yield() {
         // **What `STORM_RESERVE` is set from.** One whole front, end to end,
         // over a 512-wide world, with the bank pinned full every frame so
