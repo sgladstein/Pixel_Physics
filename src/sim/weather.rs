@@ -27,6 +27,33 @@
 //! The consequence to keep in mind when reading a test: at a given frame the
 //! answer is usually `Precipitation::None`, and a test that wants rain has to
 //! go looking for a frame that has some (see `first_frame_with`).
+//!
+//! # Rain comes out of a bank, and the bank is real
+//!
+//! The sky above is a pure function and stores nothing. What *falls* out of
+//! it is not free: every water cell this file spawns is charged to
+//! `World::atmospheric_bank`, which `evaporation::tick` is the only thing
+//! that fills. Before that existed the two halves did not know each other --
+//! evaporation deleted water and credited nothing, precipitation created it
+//! out of nothing, and a world's total water was whatever the difference
+//! between two independently tuned rates happened to be.
+//!
+//! Three consequences worth having in mind before editing anything here:
+//!
+//! * **The storm scales with the balance**, through [`supply`], and the
+//!   *renderer reads the same factor*. Falling precipitation is drawn from
+//!   `at(seed, frame)` and never simulated (see [`step`]'s own doc), so a
+//!   gate on the landing side alone would draw a downpour that deposits
+//!   nothing.
+//! * **The bank is not part of the pure function.** `at(seed, frame)` still
+//!   answers the same thing forever; what a given frame of weather *does* to
+//!   a world now depends on that world's history. Determinism is unaffected
+//!   -- it is f(seed, initial world, frame sequence), and nothing here draws
+//!   from `world.rng` -- but a forecast is no longer a prediction of how
+//!   much water will land.
+//! * **Two things a storm does are deliberately outside the ledger**: the
+//!   field moisture write and the soil soak. Both are commented at their own
+//!   sites with why.
 
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
@@ -181,6 +208,102 @@ const MAX_COLUMNS_PER_FRAME: f32 = 24.0;
 /// thins out on them -- which is the right trade, because frame cost is a
 /// hard constraint and rain density is a feel.
 const REFERENCE_WIDTH: f32 = 2048.0;
+
+/// The bank balance, in liquid-water cell-equivalents, at which a storm runs
+/// at full strength. Below it the whole storm scales down in proportion; at
+/// zero the sky is empty and nothing falls.
+///
+/// **Set from measurement, with headroom, per `probe_storm_yield`.** That
+/// probe pins the bank full and runs one whole front end to end over a
+/// 512-wide world — the filmstrip's width — counting what the sky actually
+/// spends. Five seeds, three surfaces, cell-equivalents per front:
+///
+/// | seed | frames | bare rock | dry soil | damp soil |
+/// |---|---|---|---|---|
+/// | 7 | 3,660 | 55 | 141 | 141 |
+/// | 20 | 3,480 | 51 | 170 | 170 |
+/// | 12345 | 6,120 | 42 | 788 | 788 |
+/// | 31337 | 4,980 | 87 | 616 | 616 |
+/// | 2900 | 18,660 | 14 | 6,944 | 6,147 |
+///
+/// **The surface matters far more than the seed, and the reason is a rule
+/// in `step` itself.** Rain refuses to stack on standing water, so a storm
+/// over bare rock covers the shelf with its own first few dozen cells and
+/// then delivers almost nothing for the rest of the front — the rock column
+/// is a storm that throttled *itself*, and a reserve sized off it would be
+/// sized off an artefact. Over soil the landing cells are swallowed by
+/// infiltration, the surface never becomes liquid, and the storm spends at
+/// its full rate start to finish. Damp soil (at `SOIL_FIELD_CAPACITY`)
+/// reads the same as bone-dry soil on four seeds of five, so this is not a
+/// first-fill transient: soil drains as fast as it drinks at these rates.
+///
+/// Seed 2900 is left in the table and out of the sizing. Its 18,660 frames
+/// are two and a half wet *epochs* run together, not a front, and it is
+/// mostly snow — `SNOW_CELL_CHANCE` is nine times rain's, so it spends at
+/// 330/1000 frames against rain's 40 to 130. It is the case the throttle
+/// exists for rather than the case it should be sized around.
+///
+/// So: 788 is the worst genuine front, and **2,500 is a shade over three of
+/// them**. Three rather than one for two separate reasons. A world that
+/// could afford exactly one storm would spend the whole of it on the first
+/// front and thin visibly through the second, which reads as the weather
+/// breaking rather than as a dry spell. And the factor is *linear* in the
+/// balance, so a reserve sized at one storm means a world halfway through
+/// its first front is already raining at half strength — the throttle would
+/// be a constant presence instead of the thing that shows up when a world
+/// has genuinely run dry.
+///
+/// This is also the endowment a fresh world starts with (`World::new`), so
+/// it is simultaneously "how much rain a brand-new world gets before
+/// evaporation has paid anything back".
+///
+/// # What this number cannot fix, and what will move it
+///
+/// **Infiltration is an un-credited sink.** `update::update_soil_water`
+/// turns a landing water cell's fill into soil wetness, and nothing ever
+/// turns it back — soil moisture drains and is drunk by roots, and
+/// `evaporation` never sees it. So on a soil world the outer cycle is not
+/// closed: it is a bank with a leak, and this constant sets how long the
+/// leak takes to show. That was true before the bank existed too; the only
+/// thing that changed is that it is now *visible* (as rain thinning) rather
+/// than invisible (as water quietly appearing from nowhere to replace it).
+/// Closing it means crediting soil drainage, which is a second credit path
+/// and a separate piece of work.
+///
+/// Measured (`probe_long_run_balance`, 60,000 frames, seed 12345, the same
+/// world with the two surfaces):
+///
+/// | frame | bare rock: bank / supply | soil: bank / supply |
+/// |---|---|---|
+/// | 25,000 | 2,500 / 1.00 | 2,500 / 1.00 |
+/// | 35,000 | 2,491 / 1.00 | 1,815 / 0.73 |
+/// | 45,000 | 2,494 / 1.00 | 1,357 / 0.54 |
+/// | 60,000 | **2,500 / 1.00** | 1,360 / 0.54 |
+///
+/// Over rock the loop closes exactly: every cell the sky spends puddles,
+/// dries and comes back, and the balance returns to its opening figure to
+/// the last unit. Over soil it settles at about half supply after some
+/// sixteen minutes of play, which is the leak, drawn at the rate the leak
+/// actually runs at. That it *settles* rather than running to zero is the
+/// soil reaching capacity -- the sink has a bottom.
+pub const STORM_RESERVE: f64 = 2500.0;
+
+/// How much of a full-strength storm a bank holding `bank` cell-equivalents
+/// can pay for, `0.0..=1.0`.
+///
+/// Linear and clamped, deliberately not a curve: the one thing this must do
+/// is reach exactly zero when the sky is empty, and every shaping function
+/// anyone reaches for here (a root, a smoothstep) either lifts the empty end
+/// off zero or makes the interesting middle of the range harder to reason
+/// about. `evaporation::dryness` takes a root and says why in its own
+/// comment — that case needed the *shallow* end lifted and this one must not
+/// be.
+///
+/// Read through `World::storm_supply` by both the simulation and the
+/// renderer. Free function so it stays testable without a world.
+pub fn supply(bank: f64) -> f32 {
+    (bank / STORM_RESERVE).clamp(0.0, 1.0) as f32
+}
 
 /// How wet one drop makes the ground it lands on.
 ///
@@ -611,7 +734,20 @@ pub fn step(world: &mut World) {
     // low intensity on a small world the honest answer is "less than one
     // column this frame", and rounding that to one is how a drizzle becomes
     // a downpour on a test world.
-    let wanted = (w.intensity * MAX_COLUMNS_PER_FRAME * width as f32 / REFERENCE_WIDTH).min(MAX_COLUMNS_PER_FRAME);
+    //
+    // **The whole storm scales with what the sky is holding**, rather than
+    // only the spawns being refused one at a time at the bottom. A front
+    // that goes through all its motions and then declines to deposit
+    // anything is the "no verb behind the effect" failure in miniature: the
+    // rain would be *drawn*, the ground would be *wetted*, and the one
+    // visible consequence would silently stop. Thinning the column budget
+    // makes a low bank read as a thinner shower -- fewer columns touched,
+    // less of everything, all the way down -- which is what running out of
+    // water should look like. `World::spend_atmosphere` is still the hard
+    // floor underneath it; see `storm_supply`.
+    let supply = world.storm_supply();
+    let wanted =
+        (w.intensity * MAX_COLUMNS_PER_FRAME * width as f32 / REFERENCE_WIDTH).min(MAX_COLUMNS_PER_FRAME) * supply;
     let mut pick = rng::stream(world.seed, 0x5241_494E, world.frame, u64::MAX);
     let columns = wanted.floor() as usize + usize::from(pick.chance(wanted.fract()));
     if columns == 0 {
@@ -622,6 +758,18 @@ pub fn step(world: &mut World) {
     // case rain still wets the ground and simply never puddles.
     let water = world.materials.id_of("water");
     let snow = world.materials.id_of("snow");
+    // What one spawned cell of each phase costs the bank, in liquid-water
+    // cell-equivalents. A full water cell is 1.0 by the definition of the
+    // unit; a flake is worth its density ratio, read off the materials
+    // rather than written as a literal so that it is *the same number*
+    // `fire::melt_fill` hands back when the flake thaws. Snow at density 0.3
+    // melts into 0.3 of a water cell, so a sky that charged itself a whole
+    // cell for one would be quietly destroying 0.7 of a cell per flake --
+    // conservation broken by the very code that exists to close it, and in
+    // the direction no test looking for manufactured water would ever see.
+    let snow_cost = snow.map_or(0.0, |s| {
+        world.materials.get(s).density as f64 / world.materials.get(material::WATER).density as f64
+    });
     // The front's cold over the *whole* ground it is above, on a fixed
     // period, independent of where flakes land -- see
     // `CHILL_REVISIT_FRAMES` for why the drops cannot carry this on their
@@ -653,6 +801,19 @@ pub fn step(world: &mut World) {
         // melts -- at which point it becomes water and the ordinary
         // infiltration path takes over, which is both correct and one less
         // mechanism to write.
+        //
+        // **Outside the water ledger, on purpose.** This writes the field's
+        // moisture channel, which is not water and is not conserved by
+        // anybody: `field.rs`'s forcing manufactures it and its own decay
+        // destroys it every step, quite independently of anything the sky or
+        // a puddle does. Charging the bank for it would be charging for a
+        // quantity that evaporates back into nothing, so the bank would
+        // drain to zero over any long run and never recover. And the
+        // consequence would be the wrong one to look at: a bankrupt sky that
+        // cannot even *wet the ground* is a front passing overhead with no
+        // effect at all, which is exactly the inert mechanic this file's
+        // storm scaling exists to avoid. The storm as a whole already thins
+        // with the bank; a column that does run wets what it lands on.
         if w.kind == Precipitation::Rain {
             world.add_moisture(x, surface_y, 1, MOISTURE_PER_DROP * w.intensity);
         }
@@ -666,6 +827,17 @@ pub fn step(world: &mut World) {
         // convention on a Liquid, where 0 means full. Getting this backwards
         // does not merely mis-shade a cell, it hands every root in the world
         // a full drink.
+        //
+        // **Also outside the ledger**, and for a different reason from the
+        // moisture write above: a Powder's `aux` is a *wetness*, not a fill.
+        // `material::SOIL_SATURATED` is a saturation fraction on its own
+        // scale, there is no conversion from it to a cell-equivalent that
+        // means anything, and nothing anywhere gives it back as water --
+        // `update::soil_moisture` spends it on roots and evaporation never
+        // sees it. It is a state a cell is in, not a quantity the world
+        // holds. The day soil genuinely stores and releases water, this line
+        // joins the ledger and `evaporation` grows a second credit path;
+        // until then, pretending would be worse than not accounting.
         for d in 0..if w.kind == Precipitation::Rain { SOAK_DEPTH } else { 0 } {
             let y = surface_y + d;
             if y > bounds.max_y {
@@ -759,7 +931,15 @@ pub fn step(world: &mut World) {
             if let Some(snow) = snow {
                 if !open_water && r.chance(SNOW_CELL_CHANCE * w.intensity) && surface_y > bounds.min_y {
                     let above = surface_y - 1;
-                    if world.get(x, above).material == material::EMPTY {
+                    // The roll happens whether or not the bank can pay, and
+                    // deliberately: `r` is a per-(seed, frame, column)
+                    // stream shared with the chill walk above, so making a
+                    // draw conditional on an accumulated balance would make
+                    // the *rest* of this column's weather a function of how
+                    // much it had rained earlier. Determinism here is
+                    // f(seed, initial world, frame sequence) and the bank is
+                    // part of the initial world, not part of the stream.
+                    if world.get(x, above).material == material::EMPTY && world.spend_atmosphere(snow_cost) {
                         world.set(x, above, Cell::new(snow, 0).with_temperature(cold));
                     }
                 }
@@ -770,12 +950,82 @@ pub fn step(world: &mut World) {
         if let Some(water) = water {
             if !is_liquid && r.chance(WATER_CELL_CHANCE * w.intensity) && surface_y > bounds.min_y {
                 let above = surface_y - 1;
-                if world.get(x, above).material == material::EMPTY {
+                // 1.0: a full water cell is the unit the bank is counted in.
+                // Charged *before* the write and only if it goes through, so
+                // the identity "cells the sky made == cell-equivalents the
+                // bank lost" holds exactly rather than approximately -- which
+                // is what lets `the_worlds_water_is_flat_across_storm_and_
+                // drought_cycles` be a conservation assertion instead of a
+                // trend.
+                if world.get(x, above).material == material::EMPTY && world.spend_atmosphere(1.0) {
                     world.set(x, above, Cell::new(water, 0));
                 }
             }
         }
     }
+}
+
+/// How much *water* a world holds, in liquid-water cell-equivalents,
+/// counting every phase at what it would come back as. The standing half of
+/// the conservation law whose other half is `World::atmospheric_bank`, so
+/// `water_equivalents(w) + w.atmospheric_bank` is the quantity that should
+/// not move.
+///
+/// **Deliberately a different question from a phase census**, and the
+/// difference is the whole point of it. "How much of each phase is standing"
+/// counts a flake and a full water cell alike as one cell — correct for
+/// asking whether a pond froze over, useless for conservation, because the
+/// two are not the same amount of water. Here a cell's *density* is the
+/// conversion factor: fresh snow is 0.3 the density of water, so 1,700
+/// flakes are ~510 cells of meltwater and anything more than that was
+/// manufactured.
+///
+/// Liquids counted as **fill, not occupancy** (`CLAUDE.md`'s metric traps: a
+/// resting body wears a fringe of near-empty cells, and six full cells
+/// spreading into a film across thirty-eight is a 6 -> 228 *increase* by cell
+/// count at constant volume).
+///
+/// Steam is counted from its `aux` rather than from its density, because
+/// steam's `aux` is not a density at all — `fire::transform` carries the
+/// source water's fill across the boil and gives it back on condensing, on
+/// `LIQUID_FULL`'s 0-means-full convention (steam.ron's header documents it
+/// on the content side), so that loop is already exact per cell and a
+/// density factor would double-count it.
+///
+/// Keyed on the materials' own phase-change fields rather than on names, so
+/// a new liquid that freezes, or a new solid that melts back, is counted
+/// without this function learning about it.
+///
+/// **A whole-world scan**, so it is a measurement tool — tests and
+/// `examples/filmstrip.rs` — and not something to call per frame.
+pub fn water_equivalents(w: &World) -> f64 {
+    let Some(b) = w.bounds() else { return 0.0 };
+    let full = material::LIQUID_FULL as f64;
+    let water_density = w.materials.get(material::WATER).density as f64;
+    let mut total = 0.0f64;
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
+            let cell = w.get(x, y);
+            let m = w.materials.get(cell.material);
+            match m.kind {
+                // Water itself, and anything else that freezes.
+                MaterialKind::Liquid if m.cooling_point.is_finite() => {
+                    total += crate::sim::update::liquid_fill(cell) as f64 / full * (m.density as f64 / water_density);
+                }
+                // Steam and anything else that condenses back.
+                MaterialKind::Gas if m.cools_into.is_some() => {
+                    total += crate::sim::update::liquid_fill(cell) as f64 / full;
+                }
+                // Ice, snow — a whole cell of a solid or powder phase, worth
+                // its own density in water.
+                MaterialKind::Solid | MaterialKind::Powder if m.melts_into.is_some() => {
+                    total += m.density as f64 / water_density;
+                }
+                _ => {}
+            }
+        }
+    }
+    total
 }
 
 /// Hold the crust cold across the ground the front is over: a band of
@@ -1662,54 +1912,13 @@ mod tests {
         assert!(ice > 100, "only {ice} cells of ice formed over the storm; something on the surface is insulating the pond");
     }
 
-    /// How much *water* the world holds, in liquid-water cell-equivalents,
-    /// counting every phase at what it would come back as.
-    ///
-    /// **Deliberately a different question from `water_census` above, and
-    /// the difference is the whole point of it.** That one answers "how
-    /// much of each phase is standing", and counts a flake and a full water
-    /// cell alike as one cell — correct for asking whether a pond froze
-    /// over. This one answers "how much water is this", which is the only
-    /// question a conservation bound can be written against, and for that a
-    /// cell's *density* is the conversion factor: fresh snow is 0.3 the
-    /// density of water, so 1,700 flakes are ~510 cells of meltwater and
-    /// anything more than that was manufactured.
-    ///
-    /// Steam is counted from its `aux` rather than its density, because
-    /// steam's `aux` is not a density at all — `fire::transform` carries the
-    /// source water's fill across the boil and gives it back on condensing,
-    /// on `LIQUID_FULL`'s 0-means-full convention (steam.ron's header
-    /// documents it on the content side), so that loop is already exact per
-    /// cell and a density factor would double-count it.
-    fn water_equivalents(w: &World) -> f64 {
-        let full = material::LIQUID_FULL as f64;
-        let water_density = w.materials.get(material::WATER).density as f64;
-        let mut total = 0.0f64;
-        for y in 0..80 {
-            for x in 0..128 {
-                let cell = w.get(x, y);
-                let m = w.materials.get(cell.material);
-                match m.kind {
-                    // Water itself, and anything else that freezes: fill,
-                    // not occupancy (`CLAUDE.md`'s metric traps).
-                    MaterialKind::Liquid if m.cooling_point.is_finite() => {
-                        total += crate::sim::update::liquid_fill(cell) as f64 / full * (m.density as f64 / water_density);
-                    }
-                    // Steam and anything else that condenses back.
-                    MaterialKind::Gas if m.cools_into.is_some() => {
-                        total += crate::sim::update::liquid_fill(cell) as f64 / full;
-                    }
-                    // Ice, snow — a whole cell of a solid or powder phase,
-                    // worth its own density in water.
-                    MaterialKind::Solid | MaterialKind::Powder if m.melts_into.is_some() => {
-                        total += m.density as f64 / water_density;
-                    }
-                    _ => {}
-                }
-            }
-        }
-        total
-    }
+    // `water_equivalents` used to live here, `#[cfg(test)]` and hardcoded to
+    // this module's 128x80 scene. It is a real function in the module above
+    // now (reached through `use super::*`), because the bank made it the
+    // standing half of a conservation law rather than one test's helper:
+    // `examples/filmstrip.rs` prints it beside the bank on every scene, and
+    // a census the harness and the guards do not share is a census that can
+    // disagree with itself.
 
     #[test]
     fn a_thaw_does_not_manufacture_water() {
@@ -1780,6 +1989,310 @@ mod tests {
             assert!(
                 after <= before * 1.10,
                 "the thaw manufactured water: {after:.1} cell-equivalents against {before:.1} standing before it (parallel: {parallel_driver})"
+            );
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // The water bank: the sky spends what evaporation has banked.
+    // ---------------------------------------------------------------
+
+    /// A 512-wide world with a flat stone shelf under open sky — the width
+    /// `examples/filmstrip.rs` runs at, which is what `STORM_RESERVE` is
+    /// quoted against.
+    ///
+    /// **Attached stone**, so the shelf is terrain rather than something
+    /// stacked in front of it: an unattached slab has to hold itself up and
+    /// erodes inward from every free face, which would slowly change where
+    /// `surface_under_sky` finds the ground underneath a measurement that
+    /// runs for thousands of frames.
+    /// `soil` picks which of the two surfaces a storm can land on, and the
+    /// difference between them is enormous rather than cosmetic — see
+    /// `probe_storm_yield`.
+    fn open_shelf_world(seed: u64, frame: u64, soil: Option<u16>) -> World {
+        const SHELF_Y: i32 = 240;
+        const SOIL_DEPTH: i32 = 24;
+        let mut w = World::new(Rect::new(0, 0, 511, 319));
+        w.seed = seed;
+        w.frame = frame;
+        let soil_id = w.materials.id_of("soil").expect("soil must exist");
+        for x in 0..512 {
+            for y in SHELF_Y..320 {
+                let cell = match soil {
+                    Some(wetness) if y < SHELF_Y + SOIL_DEPTH => Cell::new(soil_id, 0).with_aux(wetness),
+                    _ => Cell::new(material::STONE, 0),
+                };
+                w.set(x, y, cell.with_attached(true));
+            }
+        }
+        w
+    }
+
+    /// The frame one frame after the front that starts at or after `from`
+    /// has finished — so `(start, end)` brackets exactly one storm.
+    fn one_storm(seed: u64, from: u64) -> Option<(u64, u64)> {
+        let start = first_frame_with(seed, from, |w| w.is_precipitating())?;
+        let end = first_frame_with(seed, start + 60, |w| !w.is_precipitating())?;
+        Some((start, end))
+    }
+
+    #[test]
+    #[ignore = "probe, not a guard"]
+    fn probe_storm_yield() {
+        // **What `STORM_RESERVE` is set from.** One whole front, end to end,
+        // over a 512-wide world, with the bank pinned full every frame so
+        // the supply factor is 1.0 throughout and the storm runs
+        // unthrottled — the question is what a storm *wants* to spend, not
+        // what a throttled one does spend.
+        //
+        // Measured as the drop across `parallel::step` alone, which is where
+        // `weather::step` lives; the scheduler (and therefore evaporation's
+        // credit) runs after and is read separately, so the two directions
+        // never net each other out. A single before/after on the bank would
+        // have reported debits minus credits and called it yield.
+        //
+        // Swept over seeds and reported as a max, not a mean, per
+        // `CLAUDE.md`: outcomes here are chaotic in the seed, and a constant
+        // set from one sample is a sample from a wide distribution.
+        // **Two surfaces, because the difference between them is the whole
+        // spread of the answer and neither one alone is the number.** Rain
+        // refuses to stack on standing water, so a storm over bare rock
+        // covers the shelf with its own first few hundred cells and then
+        // delivers essentially nothing for the rest of the front. Over soil
+        // the landing cells are swallowed by infiltration, the surface never
+        // becomes liquid, and the storm spends at its full rate from the
+        // first frame to the last. A reserve sized off the rock figure would
+        // be a reserve sized off a storm that had throttled *itself*.
+        println!("surface  seed   frames   spawned (cell-equivalents)   per 1000 frames");
+        let mut worst = 0.0f64;
+        for (label, soil) in
+            [("rock", None), ("drysoil", Some(0)), ("dampsoil", Some(material::SOIL_FIELD_CAPACITY))]
+        {
+            for seed in [7u64, 20, 2900, 12345, 31337] {
+                let Some((start, end)) = one_storm(seed, 0) else { continue };
+                let mut w = open_shelf_world(seed, start, soil);
+                let mut spent = 0.0f64;
+                for _ in start..end {
+                    let before = w.atmospheric_bank;
+                    parallel::step(&mut w);
+                    spent += (before - w.atmospheric_bank).max(0.0);
+                    w.step_active_sites();
+                    w.step_fields();
+                    w.atmospheric_bank = STORM_RESERVE;
+                }
+                let frames = end - start;
+                println!("{label:7}  {seed:5}  {frames:6}   {spent:26.1}   {:.1}", spent * 1000.0 / frames as f64);
+                worst = worst.max(spent);
+            }
+        }
+        println!("worst storm: {worst:.1} cell-equivalents; STORM_RESERVE is {STORM_RESERVE:.0} ({:.1} storms)", STORM_RESERVE / worst.max(1.0));
+    }
+
+    #[test]
+    #[ignore = "probe, not a guard"]
+    fn probe_long_run_balance() {
+        // **Where the balance actually goes over a long run**, which no
+        // single-storm number can answer and which is the question the
+        // owner would ask second: does a world settle into a cycle, or does
+        // the sky simply run out?
+        //
+        // Two surfaces, and the contrast is the whole readout. Bare rock is
+        // the closed case — rain puddles, puddles evaporate, the credit
+        // comes back. Soil is the leaky case: infiltration takes a landing
+        // cell's fill into wetness and nothing credits it back, so whatever
+        // the sky spends over soil is spent for good. Run side by side so
+        // the difference is attributable rather than inferred.
+        for (label, soil) in [("rock", None), ("soil", Some(material::SOIL_FIELD_CAPACITY))] {
+            let seed = 12345;
+            let mut w = open_shelf_world(seed, 0, soil);
+            println!("{label}: frame   bank   supply   standing water");
+            for block in 0..12 {
+                for _ in 0..5_000 {
+                    parallel::step(&mut w);
+                    w.step_active_sites();
+                    w.step_fields();
+                }
+                println!(
+                    "{label}: {:6}  {:6.0}  {:5.2}  {:8.1}",
+                    (block + 1) * 5_000,
+                    w.atmospheric_bank,
+                    w.storm_supply(),
+                    water_equivalents(&w)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_bankrupt_sky_spawns_no_water() {
+        // **The "and then it stops" test, written first and confirmed red
+        // against the pre-bank code**, per `Reports/weather-handoff.md`'s
+        // single lesson: every guard this area has produced tested that a
+        // mechanism fires and none tested that it stops. Before the gate was
+        // wired, this exact world -- bank at zero, a hard front overhead --
+        // filled with rain regardless, because rain came out of nothing and
+        // nothing was counting.
+        //
+        // Two halves, and the second is the one that would have been left
+        // out. Zero *spawned* is the simulation half. Zero *drawn supply* is
+        // the render half, and it is not cosmetic: falling precipitation is
+        // drawn straight from `at(seed, frame)` and is never simulated, so a
+        // gate on the landing side alone leaves a bankrupt sky drawing a
+        // full downpour that deposits nothing, for as long as the front
+        // lasts.
+        for (label, seed, kind) in [("rain", 12345u64, Precipitation::Rain), ("snow", 2900, Precipitation::Snow)] {
+            let start =
+                first_frame_with(seed, 0, |w| w.kind == kind && w.intensity > 0.8).expect("these seeds each have a hard front");
+            let mut w = open_shelf_world(seed, start, None);
+            w.atmospheric_bank = 0.0;
+
+            assert_eq!(w.storm_supply(), 0.0, "{label}: a drained bank must draw no rain either");
+            let before = water_equivalents(&w);
+            assert_eq!(before, 0.0, "{label}: the shelf world starts dry, or this measures the wrong thing");
+
+            for _ in 0..600 {
+                parallel::step(&mut w);
+            }
+            let spawned = water_equivalents(&w);
+            assert_eq!(w.atmospheric_bank, 0.0, "{label}: the bank went negative -- {}", w.atmospheric_bank);
+            assert_eq!(spawned, 0.0, "{label}: a bankrupt sky put {spawned:.1} cell-equivalents into the world");
+
+            // The control. Same seed, same frames, same scene, bank full --
+            // and it must deposit something, or the assertion above passed
+            // because the front was not raining rather than because the gate
+            // held. `CLAUDE.md`: an exactly-zero delta means suspect the
+            // condition you keyed on is degenerate, before concluding the
+            // lever works.
+            let mut c = open_shelf_world(seed, start, None);
+            for _ in 0..600 {
+                parallel::step(&mut c);
+            }
+            let control = water_equivalents(&c);
+            println!("{label}: bankrupt sky deposited {spawned:.1}, full sky deposited {control:.1}");
+            assert!(control > 0.0, "{label}: the control front deposited nothing either, so this guard is vacuous");
+        }
+    }
+
+    #[test]
+    fn a_thinning_sky_thins_the_drawn_rain_by_the_same_factor() {
+        // The other half of the render agreement, at the settings between
+        // the two ends: the drawn storm and the landing storm have to scale
+        // *together*, not merely switch off together. `render.rs` multiplies
+        // this factor into the intensity it hands `sky::drops`, which thins
+        // the drop field rather than dimming it, and `step` multiplies the
+        // identical factor into its column budget.
+        //
+        // Asserted on the factor itself rather than on pixels, because what
+        // can drift here is the two call sites reading *different* numbers,
+        // and a pixel count cannot tell that apart from a tuning change.
+        let mut w = open_shelf_world(12345, 0, None);
+        for (bank, want) in [(0.0, 0.0), (STORM_RESERVE / 4.0, 0.25), (STORM_RESERVE, 1.0), (STORM_RESERVE * 3.0, 1.0)] {
+            w.atmospheric_bank = bank;
+            assert!(
+                (w.storm_supply() - want).abs() < 1e-6,
+                "a bank of {bank} should supply {want}, got {}",
+                w.storm_supply()
+            );
+        }
+        // Clamped at both ends: a surplus does not make it rain harder than
+        // the weather says, and a deficit cannot go negative and invert the
+        // drawn field.
+        assert_eq!(supply(-1.0), 0.0);
+    }
+
+    /// A walled stone basin holding a pond, under open sky.
+    ///
+    /// **Stone and not soil, deliberately.** `update::update_soil_water`
+    /// turns a landing water cell's fill into soil wetness and nothing ever
+    /// credits it back -- a real, pre-existing, one-way sink out of the water
+    /// ledger (see `STORM_RESERVE`'s own doc). A conservation guard built on
+    /// soil would measure that leak instead of the thing it is named for.
+    ///
+    /// **Walled**, for the reason `evaporation_tests.rs`'s scene is walled:
+    /// an unwalled pond spreads away across the floor and the test measures
+    /// spreading. No lid, though -- this one *wants* the rain.
+    fn walled_basin_world(seed: u64, frame: u64) -> World {
+        const FLOOR_Y: i32 = 100;
+        const DEPTH: i32 = 6;
+        const BASIN: (i32, i32) = (40, 200);
+        let mut w = World::new(Rect::new(0, 0, 255, 127));
+        w.seed = seed;
+        w.frame = frame;
+        for x in 0..256 {
+            for y in FLOOR_Y..128 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for y in (FLOOR_Y - DEPTH)..FLOOR_Y {
+            w.set(BASIN.0 - 1, y, Cell::new(material::STONE, 0).with_attached(true));
+            w.set(BASIN.1 + 1, y, Cell::new(material::STONE, 0).with_attached(true));
+            for x in BASIN.0..=BASIN.1 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        w
+    }
+
+    #[test]
+    fn the_worlds_water_is_flat_across_storm_and_drought_cycles() {
+        // **The conservation law, end to end**: standing water plus banked
+        // water is the quantity that must not move, across a window that
+        // contains both a front (the sky spending) and a dry spell (the
+        // pond paying it back). Either half alone proves nothing -- a world
+        // that only rains looks conserved if the debit is right and the
+        // credit is dead, and a world that only dries looks conserved the
+        // other way round.
+        //
+        // Both drivers, per `CLAUDE.md`: `App::update` runs the parallel one,
+        // and `weather::step` and the scheduler are called by both.
+        for parallel_driver in [false, true] {
+            let seed = 12345;
+            // A window that starts dry, meets a front, and comes out the
+            // other side. `first_frame_with` finds the front; starting a
+            // little before it is what buys the leading dry spell.
+            let storm = first_frame_with(seed, 0, |x| x.is_precipitating()).expect("seed 12345 has a front");
+            let start = storm.saturating_sub(1_500);
+            let mut w = walled_basin_world(seed, start);
+
+            let opening = water_equivalents(&w) + w.atmospheric_bank;
+            let (mut wet_frames, mut dry_frames) = (0u32, 0u32);
+            for _ in 0..6_000 {
+                if parallel_driver {
+                    parallel::step(&mut w);
+                } else {
+                    crate::sim::update::step(&mut w);
+                }
+                w.step_active_sites();
+                w.step_fields();
+                if at(seed, w.frame).is_precipitating() {
+                    wet_frames += 1;
+                } else {
+                    dry_frames += 1;
+                }
+            }
+            let closing = water_equivalents(&w) + w.atmospheric_bank;
+            let drift = (closing - opening) / opening;
+            println!(
+                "conservation (parallel: {parallel_driver}): {opening:.2} -> {closing:.2} ({:+.4}%); {wet_frames} wet frames, {dry_frames} dry; bank {:.1}, standing {:.1}",
+                drift * 100.0,
+                w.atmospheric_bank,
+                water_equivalents(&w)
+            );
+            assert!(
+                wet_frames > 500 && dry_frames > 500,
+                "the window did not span both a storm and a dry spell ({wet_frames} wet, {dry_frames} dry); this is not measuring a cycle"
+            );
+            // A tenth of a percent. The slack is not tolerance for a leak --
+            // both halves are exact arithmetic on `LIQUID_FULL` units -- it
+            // is for the freeze/melt round trip, which gives a cell that
+            // froze at `freeze_min_fill` back full and is a structural
+            // ceiling `a_thaw_does_not_manufacture_water` documents at up to
+            // 10% on a world that is *all* ice. Bounded on both sides:
+            // manufacture and loss are the same bug wearing different signs.
+            assert!(
+                drift.abs() < 0.001,
+                "the world's water moved by {:+.3}% across a storm and a drought (parallel: {parallel_driver})",
+                drift * 100.0
             );
         }
     }

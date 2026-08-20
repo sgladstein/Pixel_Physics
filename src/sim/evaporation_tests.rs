@@ -208,6 +208,74 @@ fn a_lake_survives_the_gale_that_dries_the_puddle() {
 }
 
 #[test]
+fn evaporating_a_puddle_credits_exactly_what_it_held() {
+    // **The credit half of the outer water cycle, asserted as an identity
+    // rather than as a trend.** Every fill unit this file removes from a
+    // cell goes into `World::atmospheric_bank`, so the bank's rise across a
+    // run must equal the basin's fall, exactly -- not approximately, not
+    // "within a few percent". Both sides are integer arithmetic on
+    // `material::LIQUID_FULL`'s scale and the only float is the division
+    // into cell-equivalents, so anything past floating-point noise is a real
+    // leak.
+    //
+    // **The branch this is really guarding is the one that empties a cell.**
+    // `tick` credits `fill` there and not `loss`, because the whole of what
+    // is left is what goes; crediting `loss` instead is right on any cell
+    // that happens to hold exactly `loss` and short by the remainder on
+    // every other one. That error would never show up as water disappearing
+    // -- the cell empties either way -- only as a sky that had quietly lost
+    // the ability to rain, months later. So the run below is long enough to
+    // take the puddle all the way down, which is what makes that branch fire
+    // once per surface cell.
+    //
+    // The scene is rain-proof (`scene`'s lid), so nothing debits: the bank
+    // moves in one direction only and the arithmetic is unambiguous.
+    let mut w = scene(PUDDLE_W);
+    let opening_bank = w.atmospheric_bank;
+    let opening_volume = volume(&w, PUDDLE_W);
+    run(&mut w, 6_000);
+    let lost = opening_volume - volume(&w, PUDDLE_W);
+    let credited = w.atmospheric_bank - opening_bank;
+    let expected = lost as f64 / material::LIQUID_FULL as f64;
+    println!(
+        "puddle lost {lost} fill ({expected:.3} cell-equivalents); bank {opening_bank:.3} -> {:.3} (+{credited:.3})",
+        w.atmospheric_bank
+    );
+    assert!(
+        lost as f32 / opening_volume as f32 > 0.95,
+        "the puddle did not finish drying ({lost} of {opening_volume}), so the emptying branch may never have fired"
+    );
+    assert!(
+        (credited - expected).abs() < 1e-9,
+        "the bank gained {credited:.6} for a puddle that lost {expected:.6} cell-equivalents"
+    );
+}
+
+#[test]
+fn a_sheltered_lake_banks_only_what_it_actually_loses() {
+    // The "and then it stops" side of the credit, and the control that says
+    // the identity above is not passing by arithmetic that happens to be
+    // zero on both sides. A sheltered lake evaporates at exactly zero and
+    // *stays on the schedule* -- see the module doc -- so it is checked
+    // sixty times a day forever. A credit that leaked once per check rather
+    // than once per fill unit removed would be invisible in every other test
+    // here and would fill the sky from a lake that never lost a drop.
+    let mut w = scene(LAKE_W);
+    run(&mut w, 400);
+    let settled_bank = w.atmospheric_bank;
+    let settled_volume = volume(&w, LAKE_W);
+    run(&mut w, 2_000);
+    let credited = w.atmospheric_bank - settled_bank;
+    let lost = settled_volume - volume(&w, LAKE_W);
+    println!("lake: lost {lost} fill over 2000 frames, banked {credited:.3} cell-equivalents");
+    assert!(pending_evaporation_sites(&w) > 0, "the lake retired off the schedule, so this is not the state being tested");
+    assert!(
+        (credited - lost as f64 / material::LIQUID_FULL as f64).abs() < 1e-9,
+        "the sheltered lake banked {credited:.6} against {lost} fill actually lost"
+    );
+}
+
+#[test]
 fn evaporation_keeps_going_after_the_ca_sweep_stops_entirely() {
     // **The guard the reverted version could not pass, and the reason this
     // file exists.** That version evaporated from the sweep's own `Liquid`

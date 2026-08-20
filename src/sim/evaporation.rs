@@ -95,6 +95,22 @@
 //! rather than size — is a third discriminator on a design that has two and
 //! is a decision rather than an omission. See `Reports/weather-handoff.md`.
 //!
+//! # Where the water goes
+//!
+//! Into `World::atmospheric_bank`, and out of it again as rain
+//! (`weather::step`). This file used to be one-way: it deleted water and
+//! credited nothing, so a world's total only ever fell, and the handoff
+//! recorded that as the outstanding half of the cycle. Both fill reductions
+//! below now credit exactly what they removed — the partial one credits
+//! `loss`, the one that empties the cell credits the *whole remaining fill*,
+//! which is the difference between an accounting identity and a leak
+//! proportional to how often puddles finish.
+//!
+//! Nothing about the *rate* changed, and nothing here reads the bank: a
+//! puddle dries at the same speed over a full sky as over an empty one,
+//! because what stops evaporation is the humidity above it, which is a local
+//! reading and not a global balance.
+//!
 //! # Two things deliberately not done
 //!
 //! * **No day/night division.** `field::noon_equivalent_light` exists
@@ -369,6 +385,16 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
 
     let fill = liquid_fill(cell);
     if fill <= loss {
+        // **`fill`, not `loss`** — the whole of what is left, because the
+        // whole of what is left is what goes. Crediting `loss` here instead
+        // is the silent leak this branch is built to avoid: it is correct on
+        // any cell that happens to hold exactly `loss`, wrong by the
+        // remainder on every other one, and the size of the error is a
+        // function of how often puddles finish rather than of anything
+        // physical. It would not show up as water disappearing; it would
+        // show up, months later, as a world whose sky had quietly stopped
+        // being able to rain.
+        world.credit_atmosphere(fill);
         // Gone. `Cell::EMPTY`, never `with_aux(0)` — on a `Liquid`, `aux ==
         // 0` means *full*, so writing a drained cell that way manufactures a
         // full one out of nothing.
@@ -389,6 +415,10 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         return Vec::new();
     }
 
+    // The ordinary case: `loss` came off the cell, so `loss` goes into the
+    // sky. The two credit sites are the only two places a fill reduction
+    // happens in this file, and each credits exactly what it removed.
+    world.credit_atmosphere(loss);
     world.set(x, y, cell.with_aux(fill - loss));
     vec![reschedule]
 }

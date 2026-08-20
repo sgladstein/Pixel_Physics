@@ -410,6 +410,39 @@ pub struct World {
     /// steam plume and painted smoke are indistinguishable in a contact
     /// sheet. Read by `examples/filmstrip.rs` beside the image.
     pub phase_changes: crate::sim::fire::PhaseCounts,
+    /// **The atmosphere's water, in liquid-water cell-equivalents** — the
+    /// credit half of the outer water cycle, and the one number that closes
+    /// it.
+    ///
+    /// The inner cycle (boil, condense, freeze, melt) is conserved per cell
+    /// already: `fire::transform` carries a cell's fill across every
+    /// transition and hands it back. The *outer* cycle was not conserved at
+    /// all. `evaporation::tick` deleted water and credited nothing;
+    /// `weather::step` spawned water cells out of the sky. A world's total
+    /// water was whatever the difference between those two rates happened to
+    /// be, and neither of them knew the other existed.
+    ///
+    /// This is where the one goes and where the other comes from. Scaled so
+    /// **1.0 is one full water cell** (`material::LIQUID_FULL`'s 0..1000
+    /// scale divided out), which is the same unit `weather`'s
+    /// `water_equivalents` census reports, so `water_equivalents(world) +
+    /// atmospheric_bank` is a constant a test can actually assert on.
+    ///
+    /// `f64` for the reason `energy_ledger` is one: it accumulates over long
+    /// runs, and an `f32` total stops being able to represent a single cell's
+    /// worth of credit once it passes about sixteen million.
+    ///
+    /// **One bank for the whole world, not a per-column or per-region one.**
+    /// The atmosphere mixes — that is `evaporation::shelter`'s whole story
+    /// about why a gale makes the air over a puddle and the air over a lake
+    /// read identically — so a bank that tracked *where* the water went would
+    /// be modelling a thing the field channel already models badly on
+    /// purpose, at the cost of an extra grid. What this is for is the
+    /// conservation law, and a conservation law is global.
+    ///
+    /// Written only by `credit_atmosphere` and `spend_atmosphere`; `pub` so
+    /// a test can drain it and a harness can print it.
+    pub atmospheric_bank: f64,
     /// Where a denser cell displaced near-full liquid at a free surface
     /// this frame — **candidate** splash sites, not splashes. See
     /// `CellSurface::report_splash` for why the sweep only reports them,
@@ -641,6 +674,16 @@ impl World {
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
             phase_changes: crate::sim::fire::PhaseCounts::default(),
+            // **A fresh world's early storms run on an endowment.** The sky
+            // starts holding exactly one full-supply storm's reserve, so
+            // frame 0 of a brand-new world rains exactly as hard as it did
+            // before this existed — every scene and every guard written
+            // against the old behaviour still sees it — and only a world
+            // that has spent more than it has evaporated back starts to
+            // thin out. Seeding it at zero instead would mean no world ever
+            // saw rain until something had dried up first, which is not a
+            // water cycle, it is a drought with a cycle bolted on.
+            atmospheric_bank: crate::sim::weather::STORM_RESERVE,
             splash_sites: Vec::new(),
             splashes_thrown: 0,
             seed: DEFAULT_WORLD_SEED,
@@ -1279,6 +1322,64 @@ impl World {
 
         self.register_body_chunks(id, &body);
         self.bodies[id.index as usize].state = Some(body);
+    }
+
+    /// Put `fill` units of water into the sky's bank — the credit half of
+    /// the outer cycle. `fill` is on `material::LIQUID_FULL`'s 0..1000
+    /// scale, which is what every liquid write in the engine already speaks;
+    /// the division to cell-equivalents happens here so no caller has to
+    /// remember it.
+    ///
+    /// **Only `evaporation::tick` calls this**, and it is water-only by
+    /// construction: `evaporates` is set on exactly one material
+    /// (`assets/materials/water.ron`). If it is ever set on a second liquid,
+    /// this needs the density ratio the melt path already carries
+    /// (`fire::melt_fill`) — a cell-equivalent is a *water* cell-equivalent,
+    /// and a lighter liquid's fill is not worth the same water.
+    #[inline]
+    pub(crate) fn credit_atmosphere(&mut self, fill: u16) {
+        self.atmospheric_bank += fill as f64 / crate::sim::material::LIQUID_FULL as f64;
+    }
+
+    /// Take `cells` cell-equivalents out of the bank for something the sky is
+    /// about to create, or refuse and change nothing.
+    ///
+    /// **All-or-nothing, and floored at zero**, which is what keeps this an
+    /// accounting identity rather than an approximation: a caller that gets
+    /// `true` has already been charged and must create the cell, and a
+    /// caller that gets `false` must not. There is no partial spend, because
+    /// there is no such thing as three-tenths of a spawned water cell.
+    ///
+    /// The gross throttle is `storm_supply` below — by the time a spawn asks
+    /// here the storm has already been thinned to what the bank can afford,
+    /// so a refusal is the rounding at the very bottom of the barrel rather
+    /// than the mechanism. Both exist: the supply factor is what the storm
+    /// *looks* like, this is what it may actually *spend*.
+    #[inline]
+    pub(crate) fn spend_atmosphere(&mut self, cells: f64) -> bool {
+        if self.atmospheric_bank < cells {
+            return false;
+        }
+        self.atmospheric_bank -= cells;
+        true
+    }
+
+    /// How much of a full-strength storm the sky can currently pay for,
+    /// `0.0..=1.0`.
+    ///
+    /// **The same factor the simulation throttles the storm by and the
+    /// renderer thins the drawn rain by**, which is the whole reason it is a
+    /// method here rather than a local in `weather::step`. Falling
+    /// precipitation is drawn straight from `weather::at(seed, frame)` and
+    /// is not simulated at all (`weather::step`'s own doc: it is simulated
+    /// where it lands, not where it falls), so a bankrupt sky with the gate
+    /// on the landing side alone would *draw* a downpour that deposits
+    /// nothing — visibly, for as long as the front lasts. One factor, read
+    /// in both places, is what keeps the drawn storm and the landing storm
+    /// the same storm.
+    #[inline]
+    pub fn storm_supply(&self) -> f32 {
+        crate::sim::weather::supply(self.atmospheric_bank)
     }
 
     /// Register every chunk `body`'s current full footprint touches in

@@ -1122,6 +1122,17 @@ impl Renderer {
         // sky is doing -- a downpour drawn against a clear blue gradient
         // being the obvious way that goes wrong.
         let weather = crate::sim::weather::at(world.seed, world.frame);
+        // **The drawn storm and the landing storm have to be the same
+        // storm.** Falling precipitation is drawn straight from
+        // `weather::at` and is never simulated -- `weather::step` puts water
+        // in where it *lands*, deliberately writing nothing into a sky column
+        // -- so the two are only ever kept in agreement by both reading the
+        // same numbers. `World::storm_supply` is the second such number
+        // (intensity was the first): the sky can only rain what it is
+        // holding, and a bankrupt one that still drew a full downpour would
+        // be visibly lying, for the whole length of a front, about the one
+        // thing the player can see.
+        let storm_supply = world.storm_supply();
         self.sky = Sky::at(world.frame, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
             .muted(sky::overcast(weather.intensity));
         self.daylight = sky::daylight_level(world.frame);
@@ -1145,7 +1156,13 @@ impl Renderer {
             // ends when the rain does. This is exactly the cost that made
             // `ParticleSystem` the wrong vehicle -- there it would have been
             // permanent instead.
-            || weather.is_precipitating()
+            //
+            // Gated on the supply as well, so a front over a bankrupt sky
+            // does not buy the full-redraw cost for a frame with no streaks
+            // in it. Same factor as the draw below, or this would force
+            // repaints for rain that is not there (or, worse the other way,
+            // skip repaints for rain that is).
+            || (weather.is_precipitating() && storm_supply > 0.0)
             // A strike lifts every pixel in the frame, so the frame after one
             // has to be repainted or the flash sticks around as a permanently
             // brightened world.
@@ -1263,7 +1280,7 @@ impl Renderer {
         // Over the world, not just over sky cells: rain falls in *front* of
         // the rock as well as against the sky. Drawn after the cells and
         // before the gnome, so he is in the weather rather than behind it.
-        self.draw_precipitation(weather, world.frame, (vx0, vy0), (vx1, vy1), frame, width, height);
+        self.draw_precipitation(weather, storm_supply, world.frame, (vx0, vy0), (vx1, vy1), frame, width, height);
         if let Some(s) = crate::sim::weather::strike(world.seed, world.frame, world.bounds()) {
             self.draw_lightning(s, (vx0, vy0), (vx1, vy1), frame, width, height);
         }
@@ -1289,6 +1306,7 @@ impl Renderer {
     fn draw_precipitation(
         &self,
         weather: crate::sim::weather::Weather,
+        storm_supply: f32,
         world_frame: u64,
         (vx0, vy0): (i32, i32),
         (vx1, vy1): (i32, i32),
@@ -1302,7 +1320,17 @@ impl Renderer {
             Precipitation::Rain => sky::Fall::Rain,
             Precipitation::Snow => sky::Fall::Snow,
         };
-        for drop in sky::drops(world_frame, fall, weather.intensity, weather.wind, (vx0, vy0), (vx1, vy1)) {
+        // **Multiplied into the intensity, which is exactly the right knob
+        // for it.** `sky::drops` treats intensity as a *thinning* factor --
+        // light rain is fewer drops, not fainter ones, and its own comment
+        // says why (fading them instead reads as fog). So a half-supplied sky
+        // draws half the streaks, which is the same picture a half-supplied
+        // storm deposits: `weather::step` thins its column budget by the
+        // identical factor. Dimming the drops here instead would put the two
+        // out of step -- a full-density downpour that lands a trickle.
+        for drop in
+            sky::drops(world_frame, fall, weather.intensity * storm_supply, weather.wind, (vx0, vy0), (vx1, vy1))
+        {
             // Walked in **world** space from tail to head -- downward, the
             // way it falls -- so the walk can stop at the ground. Drawn in
             // screen space by projecting each sample, rather than walking
