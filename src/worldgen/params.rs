@@ -78,6 +78,26 @@ pub struct WorldgenParams {
     /// everywhere reads as a rendering artifact; terracing in patches reads
     /// as geology.
     pub mask_wavelength: f32,
+    /// Regional slope at which the terrace snap starts to yield, and the
+    /// slope by which it has yielded completely.
+    ///
+    /// **Where the ground is already steep, terracing must give way.** A
+    /// riser is a single-column jump of `terrace_step * mask` rows whatever
+    /// the ground under it is doing, so on an escarpment the snap stacks its
+    /// own face on top of a face the relief already supplies: `canyon` seed 7
+    /// put three risers of 27, 34 and 33 rows six columns apart, which is a
+    /// ladder rather than a staircase. Attenuating by the *pre-terrace*
+    /// regional slope leaves benches on gentle ground at full strength — a
+    /// bluff standing out of quiet country is the landform this is for — and
+    /// stops the snap contributing anything where the relief is already
+    /// doing the work.
+    ///
+    /// Measured on the pre-terrace elevation over a +-8 column central
+    /// difference, so it reads the escarpment and not the detail term.
+    /// `terrace_slope_hi <= terrace_slope_lo` disables the attenuation and
+    /// restores the pre-round-2 surface exactly.
+    pub terrace_slope_lo: f32,
+    pub terrace_slope_hi: f32,
 
     // ---- layers ----
     /// Nominal soil blanket thickness on flat ground.
@@ -169,6 +189,39 @@ pub struct WorldgenParams {
     /// "different numbers" and "a different world".
     pub region_variation: f32,
 
+    // ---- vaults ----
+    /// Expected number of sealed chambers per world. Zero disables the pass
+    /// entirely and leaves the world byte-identical.
+    ///
+    /// Fractional on purpose, and read as "roughly this many": the whole
+    /// number is guaranteed and the remainder is one coin flip, the same
+    /// shape `pockets` uses for its per-region count. The default is set so
+    /// that about half of worlds carry one chamber, which is what makes
+    /// finding one an event rather than a feature of the terrain.
+    pub vault_density: f32,
+    /// How far below the local genesis surface a chamber must sit, in rows.
+    ///
+    /// Concealment comes free from the viewport rather than from any render
+    /// work: a chamber this far down is simply never on screen until someone
+    /// digs to it. **Note this interacts with world height** -- at the
+    /// 512x320 test size the band between this depth and the bedrock margin
+    /// is empty, so no vault can be placed at all. See the round-2 finding;
+    /// it is the reason the vault tests build at the shipped size or lower
+    /// this number explicitly.
+    pub vault_min_depth: i32,
+    /// How far above the bedrock band a chamber must stop, in rows.
+    pub vault_bedrock_margin: i32,
+    /// How far the slow 2-D field is allowed to displace a palette-family
+    /// probability, in absolute probability.
+    ///
+    /// `0.0` restores the per-column threshold round 1 shipped (the aridity
+    /// ramp widths changed with it, so it is not quite byte-identical -- see
+    /// the round-2 finding), and a preset with `region_variation <= 0.0`
+    /// never reaches this code at all. Behind a param because "does this read
+    /// as country or as stipple" is a by-eye question, and the repo's
+    /// convention for those is a runtime selector rather than an argument.
+    pub palette_field: f32,
+
     // ---- life ----
     /// Per-column moss probability scale. Zero disables plant scatter.
     pub moss_density: f32,
@@ -201,6 +254,8 @@ impl Default for WorldgenParams {
             terrace_strength: 0.9,
             riser_roughness: 0.45,
             mask_wavelength: 150.0,
+            terrace_slope_lo: 0.6,
+            terrace_slope_hi: 2.0,
             soil_depth: 26.0,
             soil_slope_cutoff: 0.8,
             bedrock_band: 4.0,
@@ -221,6 +276,10 @@ impl Default for WorldgenParams {
             dune_variation: 0.7,
             aridity_table_drop: 90.0,
             region_variation: 0.75,
+            palette_field: 0.30,
+            vault_density: 0.6,
+            vault_min_depth: 200,
+            vault_bedrock_margin: 16,
             moss_density: 0.10,
             tree_density: 0.26,
             life_cluster_wavelength: 70.0,

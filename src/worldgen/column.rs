@@ -90,6 +90,11 @@ impl<'a> Terrain<'a> {
 /// Aridity past which loose cover is sand rather than soil.
 const SAND_ARIDITY: f32 = 0.62;
 
+/// Half-width of the central difference the terrace attenuation measures its
+/// slope over, in columns. Escarpment reach, not neighbour reach — see
+/// [`Terrain::terrace_yield`].
+const SLOPE_REACH: i32 = 8;
+
 /// Wavelength of the riser-roughening noise, in columns.
 ///
 /// **Deliberately near the grid**, which is the opposite of every other
@@ -230,8 +235,18 @@ impl Terrain<'_> {
         (profile * amplitude - 0.5 * base_amplitude) * strength
     }
 
-    /// Surface elevation in cells, **+up**, before conversion to a row.
-    pub fn elev(&self, x: i32) -> f32 {
+    /// The elevation the terrace snap is applied *to*: the macro silhouette
+    /// plus the hill octaves, with no detail, no dunes and no snap.
+    ///
+    /// Factored out of [`Terrain::elev`] so that `terraced` can measure the
+    /// slope of the ground it is about to step without recursing — `slope()`
+    /// differences `elev`, and `elev` calls `terraced`, so a terrace rule
+    /// that asked `slope()` how steep it is would call itself forever. This
+    /// is also the *right* quantity rather than merely the available one:
+    /// what has to be detected is a regional escarpment, and detail and
+    /// dune terms are exactly the short-wavelength content that would make
+    /// a gentle bench read as steep.
+    fn pre_terrace_elev(&self, x: i32) -> f32 {
         let p = self.params;
         let ch = self.character(x);
         let wx = self.warped_x(x);
@@ -239,6 +254,13 @@ impl Terrain<'_> {
         // broken country can sit in the same world.
         let hills =
             p.hill_amplitude * ch.relief * noise::fbm_1d_c(self.seed, Purpose::Height, wx / p.hill_wavelength, 4);
+        self.base_wave(x) + hills
+    }
+
+    /// Surface elevation in cells, **+up**, before conversion to a row.
+    pub fn elev(&self, x: i32) -> f32 {
+        let p = self.params;
+        let ch = self.character(x);
         let detail =
             p.detail_amplitude * noise::fbm_1d_c(self.seed, Purpose::Detail, x as f32 / p.detail_wavelength, 2);
         // Detail is added *after* terracing, not before. Snapping a surface
@@ -248,7 +270,7 @@ impl Terrain<'_> {
         // and the whole feature reads as cut from a solid rather than
         // weathered out of one. Applied afterwards, the same noise roughens
         // the treads and ragged the lips.
-        self.terraced(x, self.base_wave(x) + hills) + detail + self.dunes(x, ch.aridity)
+        self.terraced(x, self.pre_terrace_elev(x)) + detail + self.dunes(x, ch.aridity)
     }
 
     /// How far the sedimentary banding is displaced at this column: a steady
@@ -261,6 +283,40 @@ impl Terrain<'_> {
     pub fn strata_offset(&self, x: i32) -> f32 {
         let p = self.params;
         p.strata_tilt * x as f32 + p.strata_fold * noise::fbm_1d_c(self.seed, Purpose::Strata, x as f32 / 130.0, 2)
+    }
+
+    /// How much of the terrace snap survives the ground it is standing on:
+    /// 1 on gentle country, 0 on an escarpment.
+    ///
+    /// A riser is a single-column jump of `terrace_step * m` rows *regardless
+    /// of the slope beneath it*, so on steep ground the snap adds its own
+    /// face to a face the relief already supplies. Round 1's finding 1b
+    /// measured the result: canyon seed 7 carries risers of 27, 34 and 33
+    /// rows at x 610, 616 and 622, six-column treads between 30-cell faces.
+    /// Its note named the lever — `terrace_step` against the local
+    /// escarpment slope, not more roughening, because roughening makes each
+    /// riser shorter and *more numerous* rather than rarer.
+    ///
+    /// Read off the **pre-terrace** elevation, which matters twice over.
+    /// `slope()` differences `elev()`, and `elev()` calls this, so asking
+    /// `slope()` would recurse; and detail and dune terms are short-
+    /// wavelength by construction, so including them would make a gently
+    /// benched surface read as steep and switch terracing off across worlds
+    /// that should keep it.
+    fn terrace_yield(&self, x: i32) -> f32 {
+        let p = self.params;
+        if p.terrace_slope_hi <= p.terrace_slope_lo {
+            return 1.0;
+        }
+        // A central difference at escarpment reach rather than at the
+        // neighbouring column: the quantity wanted is "is this a regional
+        // face", and a one-column difference on a hill octave answers a
+        // different question. Eight columns is the same order as the treads
+        // being protected.
+        let slope =
+            (self.pre_terrace_elev(x + SLOPE_REACH) - self.pre_terrace_elev(x - SLOPE_REACH)).abs()
+                / (2 * SLOPE_REACH) as f32;
+        1.0 - noise::smoothstep(p.terrace_slope_lo, p.terrace_slope_hi, slope)
     }
 
     /// Snap the surface onto strata boundaries, where the mask allows.
@@ -292,7 +348,8 @@ impl Terrain<'_> {
         // and the result reads as a flight of stairs rather than as a bluff.
         // Bluffs want to be occasional.
         let m = (p.terrace_strength * self.character(x).resistance).clamp(0.0, 1.0)
-            * noise::smoothstep(0.62, 0.82, mask);
+            * noise::smoothstep(0.62, 0.82, mask)
+            * self.terrace_yield(x);
         if m <= 0.0 {
             return e;
         }
@@ -821,6 +878,188 @@ mod tests {
                     "  {x:>6} {mask:>8.3} {m:>8.3} {base:>8.2} {hills:>8.2} {snap_delta:>8.2} {detail:>8.2} {elev:>8.2} {surf:>6}  {note}"
                 );
             }
+        }
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts (round-2 task 1)"]
+    fn probe_r2t1_slope_at_the_steps() {
+        // What pre-terrace slope does a keyhole riser actually sit on?
+        //
+        // The round-2 design attenuates the snap by regional slope, so the
+        // thresholds have to be *derived* from where the bad steps are rather
+        // than guessed: print the slope distribution at every big step beside
+        // the distribution over the whole world, so the two can be separated.
+        // Measuring first is the point -- a cutoff chosen before anyone had
+        // looked would be the repo's recurring mistake.
+        let (presets, err) = super::super::params::WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        println!("\n=== pre-terrace regional slope (+-8 central difference) ===");
+        println!(
+            "  {:>10} {:>5} {:>7} {:>8} {:>8} {:>8} {:>8} {:>8}",
+            "preset", "seed", "worst", "@worst", "step>=6", "med@stp", "min@stp", "world p50"
+        );
+        for preset in ["rolling", "terraced", "canyon", "wetland", "arid"] {
+            let params = presets.get(preset).expect("preset");
+            for seed in [1u64, 2, 7, 13] {
+                let t = shipped(seed, params);
+                let surf = |x: i32| (t.datum() - t.elev(x)).round() as i32;
+                let slope = |x: i32| (t.pre_terrace_elev(x + 8) - t.pre_terrace_elev(x - 8)).abs() / 16.0;
+                let mut at_steps: Vec<f32> = Vec::new();
+                let mut all: Vec<f32> = Vec::new();
+                let mut worst = 0i32;
+                let mut worst_slope = 0.0f32;
+                for x in 9..2039 {
+                    all.push(slope(x));
+                    let d = (surf(x) - surf(x - 1)).abs();
+                    if d >= 6 {
+                        at_steps.push(slope(x));
+                        if d > worst {
+                            worst = d;
+                            worst_slope = slope(x);
+                        }
+                    }
+                }
+                all.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                at_steps.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let med = |v: &Vec<f32>| if v.is_empty() { f32::NAN } else { v[v.len() / 2] };
+                println!(
+                    "  {preset:>10} {seed:>5} {worst:>7} {worst_slope:>8.3} {:>8} {:>8.3} {:>8.3} {:>8.3}",
+                    at_steps.len(),
+                    med(&at_steps),
+                    at_steps.first().copied().unwrap_or(f32::NAN),
+                    med(&all)
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts (round-2 task 1)"]
+    fn probe_r2t1_what_the_worst_steps_are() {
+        // A step is not automatically an artifact. The review's complaint was
+        // a *slot* -- a 1-2 column notch that drops and comes straight back
+        // -- and a single drop that stays down is a bluff, which is what a
+        // terrace is supposed to produce. Print the worst few steps of each
+        // world with enough shape around them to tell the two apart, because
+        // the fix for one is not the fix for the other.
+        let (presets, err) = super::super::params::WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        println!("\n=== the three worst steps per world: slot or bluff? ===");
+        println!("  {:>10} {:>5} {:>6} {:>6} {:>7} {:>8} {:>10}", "preset", "seed", "x", "step", "slope", "recover", "verdict");
+        for preset in ["rolling", "terraced", "canyon"] {
+            let params = presets.get(preset).expect("preset");
+            for seed in [1u64, 2, 7, 13] {
+                let t = shipped(seed, params);
+                let surf = |x: i32| (t.datum() - t.elev(x)).round() as i32;
+                let slope = |x: i32| (t.pre_terrace_elev(x + 8) - t.pre_terrace_elev(x - 8)).abs() / 16.0;
+                let mut steps: Vec<(i32, i32)> = Vec::new();
+                for x in 9..2039 {
+                    let d = surf(x) - surf(x - 1);
+                    if d.abs() >= 6 {
+                        steps.push((d.abs(), x));
+                    }
+                }
+                steps.sort_by(|a, b| b.0.cmp(&a.0));
+                for &(mag, x) in steps.iter().take(3) {
+                    let d = surf(x) - surf(x - 1);
+                    // How much of the drop is given back within four columns
+                    // either side -- a slot gives nearly all of it back.
+                    // How much of the drop comes back within four columns.
+                    // Measured from x+1 onward -- including k=0 compares the
+                    // step against itself and reports "fully recovered" for
+                    // every step in the world, which is what the first
+                    // version of this line did.
+                    let back = (1..=4).map(|k| (surf(x) - surf(x + k)) * d.signum()).max().unwrap_or(0);
+                    let recover = (back as f32 / mag as f32).clamp(0.0, 1.0);
+                    let verdict = if recover > 0.6 { "SLOT" } else { "bluff" };
+                    println!("  {preset:>10} {seed:>5} {x:>6} {d:>6} {:>7.3} {recover:>8.2} {verdict:>10}", slope(x));
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts (round-2 task 1)"]
+    fn probe_r2t1_threshold_sweep() {
+        // Derive `terrace_slope_lo/hi` from the census rather than choosing
+        // them. Prints the worst single-column step per preset x seed at each
+        // setting, which is the pre-registered acceptance quantity, plus the
+        // count of steps so a "worst fell" that is really "the relief was
+        // flattened" is visible as the count falling with it.
+        let (presets, err) = super::super::params::WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        let settings: &[(f32, f32)] =
+            &[(0.0, 0.0), (1.0, 3.0), (0.6, 2.0), (0.4, 1.2), (0.25, 0.9), (0.15, 0.6), (0.10, 0.40)];
+        println!("\n=== worst single-column step (and count >= 6) by attenuation window ===");
+        print!("  {:>10} {:>5}", "preset", "seed");
+        for (lo, hi) in settings {
+            print!("  {:>11}", format!("{lo}-{hi}"));
+        }
+        println!();
+        for preset in ["rolling", "terraced", "canyon", "wetland", "arid"] {
+            let base = presets.get(preset).expect("preset");
+            for seed in [1u64, 2, 7, 13] {
+                print!("  {preset:>10} {seed:>5}");
+                for &(lo, hi) in settings {
+                    let params = WorldgenParams { terrace_slope_lo: lo, terrace_slope_hi: hi, ..base.clone() };
+                    let t = shipped(seed, &params);
+                    let surf = |x: i32| (t.datum() - t.elev(x)).round() as i32;
+                    let (mut worst, mut n) = (0i32, 0i32);
+                    for x in 1..2048 {
+                        let d = (surf(x) - surf(x - 1)).abs();
+                        if d >= 6 {
+                            n += 1;
+                            worst = worst.max(d);
+                        }
+                    }
+                    print!("  {:>11}", format!("{worst}/{n}"));
+                }
+                println!();
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts (round-2 task 1)"]
+    fn probe_r2t1_rolling_needs_a_different_lever() {
+        // `rolling` seeds 1 and 2 carry the two tallest risers that slope
+        // attenuation cannot reach, because they stand on gentle ground --
+        // which is exactly the country the attenuation is written to leave
+        // alone. The remaining lever named by finding 1b is `terrace_step`
+        // itself. Measure what it would cost, so the finding carries numbers
+        // rather than a suggestion.
+        let (presets, err) = super::super::params::WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        let base = presets.get("rolling").expect("preset");
+        println!("\n=== rolling: worst step / count, by terrace_step (attenuation 0.6-2.0) ===");
+        print!("  {:>5}", "seed");
+        for step in [26.0f32, 22.0, 18.0, 15.0, 12.0] {
+            print!("  {:>10}", format!("step {step:.0}"));
+        }
+        println!();
+        for seed in [1u64, 2, 7, 13] {
+            print!("  {seed:>5}");
+            for step in [26.0f32, 22.0, 18.0, 15.0, 12.0] {
+                let params = WorldgenParams {
+                    terrace_slope_lo: 0.6,
+                    terrace_slope_hi: 2.0,
+                    terrace_step: step,
+                    ..base.clone()
+                };
+                let t = shipped(seed, &params);
+                let surf = |x: i32| (t.datum() - t.elev(x)).round() as i32;
+                let (mut worst, mut n) = (0i32, 0i32);
+                for x in 1..2048 {
+                    let d = (surf(x) - surf(x - 1)).abs();
+                    if d >= 6 {
+                        n += 1;
+                        worst = worst.max(d);
+                    }
+                }
+                print!("  {:>10}", format!("{worst}/{n}"));
+            }
+            println!();
         }
     }
 

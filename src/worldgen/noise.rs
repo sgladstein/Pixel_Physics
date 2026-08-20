@@ -85,6 +85,23 @@ pub enum Purpose {
     DuneShape = 16,
     /// Column-scale roughening applied to terrace risers.
     Riser = 17,
+    /// The slow 2-D field that makes a palette-family transition wander with
+    /// depth instead of standing as a vertical pier.
+    ///
+    /// Its own stream rather than sharing `Palette`, which supplies the
+    /// per-cell dither draw at the same `(x, y)`: sharing would correlate
+    /// where the band *is* with which cells inside it flip, so the band would
+    /// dither hardest exactly along its own centre line and reintroduce an
+    /// edge.
+    PaletteField = 18,
+    /// Sealed vault placement: where a chamber sits, how big it is, and which
+    /// shape it takes.
+    ///
+    /// Its own stream rather than sharing `Pocket`, which decides lens
+    /// placement over the same rock: sharing would tie a vault's position to
+    /// whether a lens happened to be drawn nearby, which is exactly the
+    /// correlation the purpose tag exists to prevent.
+    Vault = 19,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.
@@ -130,6 +147,57 @@ pub fn value_1d(seed: u64, purpose: Purpose, x: f32) -> f32 {
     // crease at every lattice point, which on a heightfield reads as
     // regularly spaced kinks in the skyline.
     a + (b - a) * (t * t * (3.0 - 2.0 * t))
+}
+
+/// 2D value noise in `[0, 1)`: the same lattice as [`value_1d`], bilinearly
+/// interpolated with the same smoothstep weights.
+///
+/// Added for the palette-family modulation, which needs a field that varies
+/// slowly in *both* directions. Everything else in this file is 1D because
+/// the surface heightfield is a function of `x` alone; a shade decision is
+/// not, and reusing a 1D field for it is exactly what produced the artifact
+/// this exists to fix — a probability that is constant down a whole column
+/// draws a full-height vertical pier of one colour however finely the
+/// per-cell dither is stippled.
+///
+/// Value rather than gradient noise for the same reason [`value_1d`] is: the
+/// axis-alignment gradient noise buys is worth paying for when the field is
+/// the *shape* of something, and this one is a slow weight on a probability
+/// that is then dithered per cell, which destroys any lattice signature long
+/// before it reaches a pixel.
+pub fn value_2d(seed: u64, purpose: Purpose, x: f32, y: f32) -> f32 {
+    let (x0f, y0f) = (x.floor(), y.floor());
+    let (tx, ty) = (x - x0f, y - y0f);
+    let (x0, y0) = (x0f as i32, y0f as i32);
+    let (sx, sy) = (tx * tx * (3.0 - 2.0 * tx), ty * ty * (3.0 - 2.0 * ty));
+    let c00 = unit(seed, purpose, x0, y0);
+    let c10 = unit(seed, purpose, x0 + 1, y0);
+    let c01 = unit(seed, purpose, x0, y0 + 1);
+    let c11 = unit(seed, purpose, x0 + 1, y0 + 1);
+    let a = c00 + (c10 - c00) * sx;
+    let b = c01 + (c11 - c01) * sx;
+    a + (b - a) * sy
+}
+
+/// 2D fractional Brownian motion in `[0, 1)`. Same cascade as [`fbm_1d`],
+/// including the per-octave sub-seed and the reason for it.
+pub fn fbm_2d(seed: u64, purpose: Purpose, x: f32, y: f32, octaves: u32) -> f32 {
+    let mut sum = 0.0f32;
+    let mut amp = 1.0f32;
+    let mut freq = 1.0f32;
+    let mut norm = 0.0f32;
+    for i in 0..octaves {
+        let s = seed.wrapping_add((i as u64 + 1).wrapping_mul(0xA076_1D64_78BD_642F));
+        sum += amp * value_2d(s, purpose, x * freq, y * freq);
+        norm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+    }
+    if norm > 0.0 {
+        sum / norm
+    } else {
+        0.0
+    }
 }
 
 /// 1D fractional Brownian motion in `[0, 1)`.

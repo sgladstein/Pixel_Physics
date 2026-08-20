@@ -41,6 +41,7 @@ struct Args {
     settle: usize,
     rain: String,
     mine: bool,
+    vault: bool,
     light: pixel_physics::render::TerrainLight,
     spring: i32,
     out: String,
@@ -58,6 +59,7 @@ fn main() {
         settle: 60,
         rain: String::new(),
         mine: false,
+        vault: false,
         light: pixel_physics::render::TerrainLight::default(),
         spring: 0,
         out: "target/filmstrips/viewshot.png".to_string(),
@@ -81,6 +83,17 @@ fn main() {
             // the failure was reported for a *narrow* one and a fix that only
             // worked for narrow ones would be worth knowing about.
             "mine" => a.mine = v != "0",
+            // `vault=1` aims the camera at a sealed chamber and sinks a shaft
+            // into it, which is the only way to photograph the round-2 vault
+            // pass at all: a vault sits 200+ rows below the surface, so every
+            // other view in this harness -- all of which frame the skyline --
+            // is guaranteed to miss it, and `filmstrip`'s worldgen scene
+            // builds at 512x320 where the depth band does not even exist.
+            //
+            // The chamber is *found* rather than passed in, because its
+            // position is a noise draw and a hardcoded coordinate would go
+            // stale the moment anything upstream of `Purpose::Vault` changes.
+            "vault" => a.vault = v != "0",
             // `light=flat` renders the pre-review look, for A/B strips of
             // the terrain depth light (`F10` in the app).
             "light" => {
@@ -251,6 +264,41 @@ fn main() {
     let mut sheet = vec![0u8; vw * vh * a.shots * 4];
     let mut frame = vec![0u8; vw * vh * 4];
 
+    // Where a chamber is, if one was asked for. Crystal first because a vug
+    // is the more interesting picture; otherwise any deep gravel, which at
+    // this depth can only be a grotto floor -- the soil profile's stony base
+    // and talus aprons are all near the surface.
+    let vault_at = if a.vault {
+        let crystal = world.materials.id_of("crystal");
+        let gravel = world.materials.id_of("gravel");
+        let deep = WORLD_HEIGHT as i32 / 2;
+        let mut found = None;
+        for want in [crystal, gravel] {
+            let Some(want) = want else { continue };
+            for y in deep..WORLD_HEIGHT as i32 {
+                for x in 0..WORLD_WIDTH as i32 {
+                    if world.get(x, y).material == want {
+                        found = Some((x, y));
+                        break;
+                    }
+                }
+                if found.is_some() {
+                    break;
+                }
+            }
+            if found.is_some() {
+                break;
+            }
+        }
+        match found {
+            Some((x, y)) => println!("  vault found at ({x}, {y})"),
+            None => println!("  NO VAULT in this world -- try another seed"),
+        }
+        found
+    } else {
+        None
+    };
+
     // Camera targets spread across the world's width at the height of the
     // ground, so each shot frames a different region rather than a different
     // patch of sky. Reported next to the image, because a contact sheet
@@ -262,14 +310,21 @@ fn main() {
         // world four screens wide, so a shot framed anywhere else is a render
         // of a flash with the interesting part outside it.
         let aimed = pixel_physics::sim::weather::strike(world.seed, world.frame, world.bounds()).map(|s| s.x);
-        let x = match (a.mine, aimed) {
-            (true, _) => WORLD_WIDTH as i32 / 4,
-            (_, Some(sx)) => sx,
+        let x = match (a.vault, a.mine, aimed) {
+            (true, _, _) => vault_at.map(|(vx, _)| vx).unwrap_or(WORLD_WIDTH as i32 / 2),
+            (_, true, _) => WORLD_WIDTH as i32 / 4,
+            (_, _, Some(sx)) => sx,
             _ => ((shot as f32 + 0.5) / a.shots as f32 * WORLD_WIDTH as f32) as i32,
         };
-        let ground = (0..WORLD_HEIGHT as i32)
-            .find(|&y| world.get(x, y).material != material::EMPTY)
-            .unwrap_or(WORLD_HEIGHT as i32 / 2);
+        // Normally the camera is aimed at the skyline, which is the right
+        // target for every other scene here and exactly wrong for a vault:
+        // the whole feature is below the bottom of that frame.
+        let ground = match (a.vault, vault_at) {
+            (true, Some((_, vy))) => vy,
+            _ => (0..WORLD_HEIGHT as i32)
+                .find(|&y| world.get(x, y).material != material::EMPTY)
+                .unwrap_or(WORLD_HEIGHT as i32 / 2),
+        };
         renderer.follow((x, ground), (WIDTH, HEIGHT), world.bounds());
         let (cam_x, cam_y) = (renderer.camera_x, renderer.camera_y);
         // Clamped hard against an edge is legitimate at the ends of the
@@ -299,6 +354,24 @@ fn main() {
         // the sky comes down the hole and the fix appears not to work. The
         // reproduction has to contain the order of events, not just the
         // final state.
+        // The found-a-secret moment: a shaft sunk from the surface all the
+        // way to the chamber, so the strip shows the breach rather than a
+        // sealed room nobody could have reached. Cut on the *second* shot so
+        // the sheet carries the before and the after side by side.
+        if a.vault && shot == 1 {
+            if let Some((vx, vy)) = vault_at {
+                let top = (0..WORLD_HEIGHT as i32)
+                    .find(|&y| world.get(vx, y).material != material::EMPTY)
+                    .unwrap_or(0);
+                for x in vx - 1..=vx + 1 {
+                    for y in top..=vy {
+                        world.set(x, y, pixel_physics::sim::cell::Cell::EMPTY);
+                    }
+                }
+                println!("  mined a 3-wide shaft at x={vx} from y={top} down to the chamber at y={vy}");
+                pixel_physics::sim::parallel::step(&mut world);
+            }
+        }
         if a.mine && shot == 0 {
             for (i, w) in [1i32, 3, 8].iter().enumerate() {
                 let cx = cam_x + 140 + i as i32 * 90;

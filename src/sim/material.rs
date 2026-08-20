@@ -1055,6 +1055,18 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/ant.ron"),
     include_str!("../../assets/materials/nest.ron"),
     include_str!("../../assets/materials/beetle.ron"),
+    // Appended, per the rule stated three times above: never inserted among
+    // the others, because the well-known constants (`STONE` through `SMOKE`,
+    // and `RUBBLE = 15`) are positions in this array and inserting anywhere
+    // but the end renumbers every material after the insertion point at
+    // runtime rather than in a test.
+    //
+    // The round-2 vault pass's pair. `crystal` before `shard` because that is
+    // the order they are written in -- a lining, and what the lining breaks
+    // into -- and neither has a pinned constant, so nothing depends on which
+    // of the two comes first beyond keeping this list readable.
+    include_str!("../../assets/materials/crystal.ron"),
+    include_str!("../../assets/materials/shard.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

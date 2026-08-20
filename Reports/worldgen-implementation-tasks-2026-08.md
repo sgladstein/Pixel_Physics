@@ -837,6 +837,461 @@ actually shipped.
 
 ---
 
+# Round-2 findings
+
+Round 2's queue is `Reports/worldgen-implementation-tasks-round2-2026-08.md`;
+its findings are appended here, as that file instructs, so one file holds the
+whole track's record.
+
+Reproductions, all `#[ignore]`d probes kept rather than thrown away:
+
+```
+cargo test --release --lib worldgen::column::tests::probe_r2t1 -- --ignored --nocapture
+```
+
+### R2-1 — Slope attenuation works on the escarpment risers, and **cannot reach `rolling`'s two tallest**
+
+The mechanism landed exactly as specified. `terraced()` now scales its mask
+by `terrace_yield(x)`, which is `1 - smoothstep(terrace_slope_lo,
+terrace_slope_hi, slope)` over a +-8 column central difference of the
+**pre-terrace** elevation (`base_wave + hills`, factored out as
+`pre_terrace_elev` — `slope()` differences `elev()` and `elev()` calls
+`terraced()`, so a terrace rule asking `slope()` would recurse forever).
+Shipped window `0.6..2.0` on every preset.
+
+**Against the pre-registered bar — no single-column surface step > 18 rows on
+`probe_1b_how_often_the_surface_steps` — 18 of 20 worlds pass and two do
+not.** Both misses are `rolling`, and both are unchanged by the mechanism
+rather than merely under-tuned by it:
+
+| world | worst before | worst after | count before -> after |
+|---|---|---|---|
+| canyon s7 | **31** | **15** | 14 -> 10 |
+| terraced s2 | 20 | 12 | 6 -> 5 |
+| terraced s13 | 18 | 17 | 7 -> 4 |
+| terraced s7 | 16 | 9 | 8 -> 7 |
+| canyon s13 | 16 | 9 | 4 -> 1 |
+| rolling s7 | 18 | 15 | 4 -> 2 |
+| **rolling s1** | **21** | **21** | 21 -> 21 |
+| **rolling s2** | **25** | **25** | 15 -> 13 |
+
+canyon s2 is the escarpment exemption finding 1b already carved out; its
+worst is 8 either way, so it never needed one.
+
+**Why the two misses are structural, not a tuning gap.** The design premise
+is that a tall riser stacks on top of ground the relief has already made
+steep. That premise is *measured true* for the population it was written
+for and *measured false* for these two. Pre-terrace regional slope at each
+world's worst step, beside the world's own median slope:
+
+| world | worst step | slope at it | world p50 slope |
+|---|---|---|---|
+| canyon s7 | 31 | **5.03** | 0.140 |
+| terraced s2 | 20 | 1.44 | 0.135 |
+| rolling s1 | 21 | **0.204** | 0.156 |
+| rolling s2 | 25 | **0.272** | 0.140 |
+
+`rolling` s1 and s2 put their tallest risers on ground at essentially the
+world median slope — the gentle country the spec explicitly instructs the
+snap to keep at full strength ("benches keep their full snap on gentle
+ground"). The bar and the mechanism are asking for opposite things there.
+
+The sweep of the attenuation window says the same thing from the other side,
+and says what forcing it would cost. Worst step / count of steps >= 6:
+
+| window | rolling s1 | rolling s2 | rolling s7 | rolling s13 | terraced s1 | canyon s13 |
+|---|---|---|---|---|---|---|
+| off | 21/21 | 25/15 | 18/4 | 8/3 | 18/4 | 16/4 |
+| 0.6-2.0 *(shipped)* | 21/21 | 25/13 | 15/2 | 8/3 | 18/4 | 9/1 |
+| 0.25-0.9 | 21/21 | 25/10 | **0/0** | 8/2 | 18/3 | **0/0** |
+| 0.10-0.40 | 14/13 | 13/2 | **0/0** | **0/0** | **0/0** | **0/0** |
+
+The only settings that reach `rolling` s1 and s2 are the ones that delete
+terracing outright from five of the twenty worlds. **Read the count beside
+the worst**, which is why the probe prints both: a worst that falls while
+the count falls to zero is not a tamed riser, it is a flattened world — the
+same trap round 1's finding 5b called out for `riser_roughness`.
+
+**The lever that does reach them, measured rather than proposed.** Finding
+1b named `terrace_step` as the alternative, and on `rolling` it works. With
+the shipped `0.6..2.0` window and `terrace_step` reduced from 26:
+
+| terrace_step | s1 | s2 | s7 | s13 |
+|---|---|---|---|---|
+| 26 *(shipped)* | 21/21 | 25/13 | 15/2 | 8/3 |
+| 22 | 18/8 | 24/12 | 12/2 | 15/5 |
+| **18** | **16/4** | **18/5** | **8/2** | **8/1** |
+| 15 | 18/8 | 17/5 | 8/3 | 12/2 |
+
+`terrace_step: 18` clears the bar on all four `rolling` seeds with no count
+zeroed. **It is not shipped**, and deliberately: `terrace_step` is the
+height of every bench on the preset, so cutting it 30% re-spaces `rolling`'s
+entire benched vocabulary — a landform decision of the kind the ground rules
+reserve to the reviewing session, not a tuning of the mechanism this task
+specified. The numbers are here so the call can be made without re-deriving
+them. It is a one-line `assets/worldgen.ron` edit, runtime-loaded, no
+rebuild.
+
+**One framing correction, cheap and worth having.** The round-1 name for
+these is "keyhole slots", and a slot implies a notch that drops and comes
+straight back. Measured, they do not: of the three worst steps in each of
+twelve worlds, all but four are one-way drops that stay down (recovery
+within four columns < 0.6). They are bluff faces, which is what finding 1b
+concluded from the elevation chain and what this confirms from the surface.
+The first version of that recovery metric reported "SLOT" for every step in
+every world, because it included `k = 0` and so compared each step against
+itself — the repo's *ask what a metric counts when nothing is wrong* trap,
+hit again, caught by the answer being unanimous.
+
+**Gates.** `cargo test` green (the one failure on the way was real and
+correct: `the_default_preset_matches_the_compiled_in_fallback` caught
+`WorldgenParams::default()` drifting from `rolling` the moment the field was
+added, so the default carries `0.6/2.0` too). Clippy clean. At-rest suite
+green. Sweep `compare`: **0 counters moved past +/-30%**, the largest move
+being `terraced` talus p90 719 -> 707 (-1.7%) — this changes surface
+geometry slightly, so the formation passes see slightly different faces.
+`flat` is untouched by construction: `terrace_strength: 0.0` returns before
+`terrace_yield` is ever called.
+
+**Cost: below this machine's noise floor, and the noise floor is the number
+worth recording.** One extra `pre_terrace_elev` pair per column, only where
+the mask gate is already open. `ascii`'s 2048x640 place time, both directions
+re-measured back to back in this session rather than against a remembered
+number:
+
+```
+attenuation off : 215.4  211.9  217.6  235.3      mean 220.0   (also one 170.2, see below)
+attenuation on  : 218.2  219.2  222.2  217.2      mean 219.2
+```
+
+The means differ by 0.4%, which is nothing, and the *spread within a single
+setting* is 212-235 ms — larger than any effect being looked for. An early
+sample of the off case returned 170.2 ms on the same binary and the same
+settings, a 28% swing, which is what a shared container does to a wall-clock
+measurement. So the honest statement is not "+0.4%" but **"the added work
+does not register against a +-10% run-to-run spread"**, and anyone re-testing
+this should expect to need many runs to see an effect this small at all.
+Recorded this way deliberately: quoting 219.2 against a single 170.2 baseline
+would have manufactured a 29% "regression" out of container noise, which is
+exactly the trap CLAUDE.md's *re-measure the baseline in the same session*
+rule exists for — and re-measuring is what caught it here.
+
+Frame timings unchanged: `ascii` reports 0/40 chunks awake in every settled
+scene and a 0.002 ms render skip.
+
+**Images**: `target/filmstrips/task1-{before,after}-canyon-s{7,13}.png`. The
+mesa constraint holds — all four of canyon s7's buttes keep their
+silhouettes and their caps. What changes is the second butte's left face,
+which is a single dark full-height slot in the before strip and a stepped
+flight in the after.
+
+### R2-2 — The piers were real, canyon-only, and the fix needed a metric that was not the dither
+
+Two changes in `palette_family`, together: the family probability is now
+displaced by a slow 2-D field (`Purpose::PaletteField`, appended at **18** --
+17 was already `Riser`, and the collision was a compile error rather than a
+silent renumber, which is the registry rule working), and the aridity ramps
+are widened from `0.50..0.78` / `0.10..0.34` to `0.42..0.86` / `0.06..0.42`.
+Behind a per-preset `palette_field`, `0.0` reaching the per-column threshold
+round 1 shipped.
+
+**The metric took two attempts and the first one was worthless in an
+instructive way.** Version one measured per-cell run length of the family
+along y against along x. It reported **y/x = 0.99 for every preset at every
+setting, before and after** -- which reads as "the mechanism does nothing"
+and is actually "the question is wrong": the per-cell dither is white noise
+from `unit(seed, Palette, x, y)`, so its run lengths are isotropic by
+construction no matter what the probability behind them does. It was
+measuring the stipple and could never have seen the band. The tell was the
+answer being identical in cases already known to differ.
+
+Version two measures at the scale the artifact has: family *mix* per 8x8
+block, then the mean L1 change between vertically adjacent blocks against
+horizontally adjacent ones. A pier is a column of blocks that agree beside
+blocks that do not, so `v/h` is the shape number.
+
+**It localises the complaint, which is worth as much as fixing it.** At
+`palette_field: 0.0`, canyon is the *only* preset that is columnar:
+
+| preset (seed) | v/h before | v/h after | top-family share before -> after |
+|---|---|---|---|
+| canyon s7 | **0.58** | **0.75** | 0.47 -> 0.44 |
+| canyon s13 | **0.56** | **0.74** | 0.50 -> 0.45 |
+| rolling s1 | 0.91 | 0.94 | 0.54 -> 0.51 |
+| wetland s1 | 0.96 | 0.98 | 0.88 -> 0.84 |
+| arid s1 | 0.98 | 0.99 | 0.91 -> 0.88 |
+
+The merge review saw this on canyon and only on canyon, and the number agrees:
+rolling, wetland and arid were already near-isotropic and had no artifact to
+fix. That is why the knob is **per-preset** rather than one global setting --
+canyon 0.45, rolling/terraced 0.30, wetland/arid 0.15, flat 0.0 -- which is
+the branch the task's own text sanctions ("sweep both knobs behind preset
+params if a single setting doesn't hold across presets"). It does not hold:
+the sweep is monotone in both directions at once.
+
+| `palette_field` | canyon s7 v/h | wetland s1 top family |
+|---|---|---|
+| 0.00 | 0.58 | 0.88 |
+| 0.15 | 0.66 | 0.84 |
+| 0.30 | 0.71 | 0.80 |
+| 0.45 | 0.75 | 0.76 |
+| 0.60 | 0.79 | 0.71 |
+
+**`v/h = 1.0` is not the target, and chasing it would undo round 1's task 3.**
+Some horizontal anisotropy is *signal*: aridity genuinely varies with x, and
+a family boundary that has no preference for x at all means regions have
+stopped being different country. The cost column is what says where to stop
+-- pushing wetland to 0.60 takes its dominant family from 88% to 71%, which
+is a wet country that is no longer notably wet. So the artifact removed is
+the part pinned to a *column*; the part that tracks the region stays.
+
+**The ramp widening earns its place, measured separately rather than assumed.**
+Held at `palette_field: 0.0` with only the ramps reverted, canyon s7 reads
+v/h 0.50 and canyon s13 0.46, against 0.58 and 0.56 widened. On s13 the
+widening alone is the larger of the two contributions (+0.10 against the
+field's +0.13 on top of it). It costs canyon s13 four points of dominant
+family and arid two, and wetland nothing.
+
+**Sweep compare is the proof this is shade-only, and it is exact**: the
+`compare` output after this task is **byte-identical** to the output after
+task 1 -- same eight sub-threshold rows, same numbers, 0 counters past
++/-30%. This task writes no different cell anywhere; only shade bytes change,
+which the census cannot see by construction.
+
+`flat` and any `region_variation <= 0.0` preset are untouched:
+`palette_family` returns `FAMILY_NEUTRAL` before the field is evaluated, and
+`a_varied_world_uses_more_than_one_rock_family` still asserts flat is family
+0 only.
+
+Per-family rock census at 512x320 seed 1, beside round 1's, as the counter
+that says the mechanism fired (0 neutral / 1 wet / 2 dry / 3 cap-rock):
+
+```
+rolling  round 1: 41892 / 29469 /     - / 14098      now: 37443 / 35201 /  1200 / 13968
+canyon   round 1: 58863 /  9327 /    54 / 15907      now: 55197 / 10835 /  3334 / 15719
+arid     round 1:  9531 /     - / 84558 /  2788      now: 16291 /  1048 / 74042 /  4011
+wetland  round 1:     - / 80183 /     - /  1004      now:  4717 / 75037 /  1615 /  2349
+```
+
+`-` is a family round 1's finding did not list, which for that census means
+absent; the widened ramps are why every preset now draws all four. The
+direction to read is that the minority families gained -- canyon's dry went
+54 -> 3334, which is the "warm country" the review wanted the grey to be
+intergrown *with*.
+
+Images: `target/filmstrips/task2-after-canyon-s{7,13}.png` against
+`task1-after-canyon-s{7,13}.png` as the before, plus
+`task2-after-{rolling,wetland,arid}-s1.png` for collateral, which is clean --
+no confetti, no family appearing where its country is not.
+
+Reproduction:
+
+```
+cargo test --release --test worldgen probe_r2t2 -- --ignored --nocapture
+```
+
+### R2-3 — Vaults: the pass works, and three things about it did not survive contact with the code
+
+A `vaults` pass (margin **32**, finite and derived: `MAX_VAULT_EXTENT` 30 +
+`VAULT_RIND` 2 + the shape test's 1 cell of scan margin, rounded up),
+`crystal.ron` and `shard.ron` appended to `EMBEDDED`, `Purpose::Vault` = 19,
+and three preset params (`vault_density`, `vault_min_depth`,
+`vault_bedrock_margin`). The collect-then-verify-seal skeleton is `pockets`'
+own, kept whole.
+
+**It fires.** At the shipped 2048x640, chambers place in 5 of 8 seeds on
+every preset; `rolling` seed 4 writes 267 cells, seed 7 213, seed 1 161. The
+cross-sections are in `probe_r2t3_dump_a_chamber` and are the acceptance
+artifact for shape: a vug comes out as a crystal ring around an air dome
+over a pool over a flat gravel floor, a grotto as a lumpy multi-lobe cavern
+with the same interior.
+
+#### 1. The size cap was capping the wrong thing, and it broke the seal
+
+First version capped the *scan box* at `MAX_VAULT_EXTENT`. A lobe reaching
+past the cap then had its far end never visited -- so those cells were
+neither written **nor seal-checked**. The chamber came out with a flat
+sawn-off face and the guarantee that the whole envelope is stone quietly
+stopped covering all of it. The cap now applies to the lobe radii, so the
+shape is always inside the box and the scan always covers the whole
+envelope. This is CLAUDE.md's twice-written landmine arriving in a third
+costume: *a size cap must bound work, never gate whether something happens*
+-- here it was silently deforming the thing it bounded.
+
+#### 2. "Floor filled flat" read literally is not a floor
+
+`floor_y` is the lowest row the hollow reaches, and filling *that row* is
+what the phrase says. It leaves the chamber's curved bottom as bare stone
+with a two-cell strip of gravel at the very bottom of the bowl. The floor is
+now every hollow cell from a chosen row downward, which makes the gravel's
+top surface a horizontal line **by construction** -- and that is structural,
+not cosmetic: gravel following the curve is loose powder on a slope at every
+cell and runs on frame one.
+
+#### 3. The water level is set by the chamber's *shape*, not by the table alone
+
+The spec's rule -- standing water when the floor sits below the local water
+table -- is implemented, and at `vault_min_depth: 200` it is **unconditional**:
+the table is always hundreds of rows above the depth band, so every chamber
+in every world qualifies. Filling to the table therefore means filling to the
+ceiling, and that does not hold still.
+
+Measured rather than reasoned about. `rolling` seed 1 lost **exactly one
+cell**, at (70, 257): the single hollow cell on row 257 of a chamber whose
+next row down is fourteen wide. A one-cell column of water standing on a wide
+body is a head difference, and the liquid solver drains it, which is correct
+behaviour by the solver and a bad chamber by me.
+
+Two fixes were tried and the first is recorded as wrong rather than untried:
+
+| rule | result |
+|---|---|
+| surface row must be >= 3 cells wide | `rolling` s1 fixed, `rolling` s4 lost 6 cells |
+| surface row must be >= 5 cells wide | `rolling` s4 still lost 6 cells off a 6-wide row |
+| **surface is the chamber's widest row** | **green, every preset x 5 seeds** |
+
+The quantity was never absolute width. A chamber is an ellipse (or a union of
+them), so filling to any row *above the equator* makes a **flask** -- a narrow
+neck standing on a wide body -- and the neck drains. Filling to the equator
+makes a **bowl**, where every row below the surface is narrower than it, which
+is the shape a pond has and the shape that holds.
+
+The side effect is the better picture, which is worth saying plainly because
+it was not the goal: the upper half of a flooded chamber is now a pocket of
+trapped air under the roof rather than solid water. That is what a sealed
+flooded void actually contains, and it is a far better thing to break into.
+
+#### The depth band does not exist at the sweep's world size
+
+`vault_min_depth: 200` plus `vault_bedrock_margin: 16` needs about 250 rows of
+massif. The shipped world is 2048x640 and has it; **the sweep, `filmstrip` and
+the whole `tests/worldgen.rs` suite run at 512x320, where the surface sits
+around y 100-200 and bedrock around y 300, so the band is empty and no chamber
+can ever be placed.** Consequences, all handled rather than left implicit:
+
+- The sweep's new `vaults` row is `0 0` for all six presets, and will stay
+  that way. **The sweep cannot guard this pass at its current size** -- which
+  is exactly the brows/talus blindness the sweep exists to prevent, arriving
+  from the other direction. Recorded here because a future reader seeing a
+  row of zeros should know it is by construction and not a regression.
+- `every_pass_writes_something` would have failed, and correctly. Rather than
+  excusing `vaults` from the guard, it now asserts **zero at 512x320 and
+  non-zero at 2048x640** -- so the guard still has teeth, and it documents the
+  size constraint where someone will hit it.
+- The at-rest and seal tests build with `vault_min_depth: 40`, which is stated
+  in `vault_test_params` as a fact about the world size rather than a
+  convenience.
+
+**For the reviewer**: if the sweep should guard this pass, the lever is either
+sweeping worldgen at the shipped size (96 runs of a 4x larger world) or
+expressing the depth as a *fraction of the massif's thickness* the way
+`pockets` already does -- its own comment says why ("a canyon massif is five
+times the depth of a wetland one and 'near bedrock' has to mean the same thing
+in both"), and that argument applies here word for word. Not done unilaterally
+because it changes what the shipped `200` means.
+
+#### Gates and the seal contract
+
+`a_forced_vault_world_is_sealed_and_arrives_at_rest` is a **paired build**
+against the same world with `vault_density: 0.0` -- exact here, because the
+pass writes nothing unless it writes a whole chamber and nothing downstream
+reads a vault, so every difference is a vault cell and no difference is
+anything else. Inferring vault cells from *where they are* is the mistake
+that miscounted twice in round 1's task 4. It asserts every written cell was
+stone beforehand, every 8-neighbour of a written cell was stone or is itself
+part of the chamber, and zero cells move in 120 frames -- across three presets
+x five seeds, with a counter (>= 8 worlds must actually have placed one) so
+the test cannot pass by never running.
+
+`vault_water_cannot_wet_the_massif_around_it` states the moisture-inert claim
+as the task asks. The reason is structural, not lucky: `soil_moisture` writes
+only to cells with non-zero `water_capacity`, and **soil is the only material
+in the registry that has one**, so a chamber sealed in rock has nothing in
+reach it could wet even though its water does seed the distance transform.
+
+`a_world_with_no_vaults_is_byte_identical` pins the opt-out by world hash.
+`flat` ships `vault_density: 0.0` for the same reason it opts out of palette
+families -- the destruction workstream compares against its renders.
+
+Sweep re-baselined, as the task instructs, to add the `vaults` row. That
+refresh also absorbs tasks 1 and 2's sub-threshold movement; those numbers are
+preserved in the two commit messages and in findings R2-1 and R2-2.
+
+#### One file outside the owned set
+
+`examples/viewshot.rs` gained a `vault=1` mode: it locates a chamber, aims the
+camera at it, and sinks a shaft from the surface into it on the second shot.
+Flagged rather than slipped in, the way round 1's finding 3 flagged
+`material.rs`/`world.rs`/`decay.rs`. It was necessary: the task asks for a
+mined strip showing a breach, and **every other rendering path in the repo is
+incapable of showing a vault** -- `filmstrip` builds at 512x320 where no
+chamber exists, and `viewshot`'s camera aims at the skyline, which is 200+
+rows above the subject. The change is additive and default-preserving; no
+existing invocation renders differently.
+
+**On reading the strips**: at 1:1 a chamber is 40-60 cells across in a
+512-wide viewport, so it renders as a small dark hole with a pale rim -- the
+`task3-vault-*` strips show it *in context* and show the shaft reaching it,
+but they are not where the structure can be judged. The ASCII cross-sections
+are, which is why the probe prints them: a render at the zoom a contact sheet
+is read at cannot distinguish a lined vug from an unlined grotto, and those
+are the two shapes this task delivers.
+
+Images: `target/filmstrips/task3-vault-{rolling-s4,canyon-s7}.png` -- three
+shots each, the third with a shaft sunk from the surface into the chamber.
+
+Reproductions:
+
+```
+cargo test --release --test worldgen probe_r2t3 -- --ignored --nocapture
+cargo run --release --example viewshot -- seed=4 preset=rolling vault=1 shots=3
+```
+
+### R2-4 — Water's fourth tone: the one-line fix, and the test that has to fail for the *right* reason
+
+`assets/materials/water.ron` gains a fourth colour, exactly the midpoint of
+the two lightest it already had: `(68, 121, 213)` between `(64, 116, 208)` and
+`(72, 126, 218)`. No new hue, and the set still spans the range it always did
+(58 / 64 / 68 / 72 in red) with the gap between the two lightest filled in.
+
+**Measured before and after, which the one-line description does not need but
+the claim does.** `ponds` draws shades 0..3 and `render.rs` colours a cell
+`palette[shade % palette.len()]`, so against three entries shade 3 folded onto
+entry 0. Censusing rendered tone across `wetland` x 5 seeds, 8,616 water cells:
+
+| | entry 0 | fair share |
+|---|---|---|
+| three colours | 4,293 (49.8%) | 33.3% -- **1.49x** |
+| four colours | even, every entry within 25% of 1/4 | 25% |
+
+**The test asserts the distribution, not the palette length**, and that
+distinction is the whole of it. A length check would pass just as well for a
+future change that adds a fifth colour without touching `TONES = 4`, which
+reintroduces exactly this bug pointing the other way -- entry 4 would never
+draw at all. Asking the question the bug is actually about survives that.
+
+Deliberately broken to check it fails for the right reason, per the repo's
+rule about a guard that must be able to fail: with the fourth colour removed
+it reports `water tone 0 drew 4293 of 8616 cells, 1.49x its fair share of
+1/3`, which is the bug named in its own terms rather than a length mismatch.
+
+**One consequence worth stating**: the brush now paints water in four tones
+rather than three, because `world.rs`'s `paint_stroke` draws its entry from
+`base_shades`, which is the whole list for any material without a
+`base_colors` cap. That is the same evenly-weighted set generated water uses,
+so painted and generated water match, which they did not quite do before.
+
+`fill_dimming` is untouched, as instructed -- it is `0.0`, that is round 1's
+finding 1c, and it is an open owner question rather than this task's.
+
+Images: `target/filmstrips/task4-{before,after}-wetland-s1.png`. They look the
+same, and that is the correct outcome: an interpolated tone drawn a quarter of
+the time instead of a third changes the weighting of a three-point-wide
+brightness spread. The census is the evidence here; the strip only confirms
+nothing else moved.
+
+---
+
 ## Track summary — what changed, and what the next session should know
 
 Six tasks, six commits, all gates green at each one. What the world looks
@@ -897,3 +1352,71 @@ misplaced. The fix in four of the six was a **paired comparison** — build
 the same world with the mechanism switched off and diff — which is exact
 rather than merely better, and is now the shape every counter in
 `tests/worldgen.rs` uses.
+
+---
+
+## Round-2 summary — four tasks, four commits, and what the reviewer owns
+
+All gates green at each commit: `cargo test`, `cargo clippy --all-targets --
+-D warnings`, the at-rest suite, and the task-2 sweep.
+
+- **Keyhole risers (R2-1)** — terracing now yields on steep ground. canyon s7
+  31 rows → 15, terraced s2 20 → 12, canyon s13 16 → 9; mesas intact.
+  **18 of 20 worlds clear the pre-registered ≤ 18 bar; `rolling` s1 and s2 do
+  not**, and cannot be reached by this mechanism because their tall risers
+  stand on *gentle* ground — the country the spec keeps at full snap.
+- **Palette piers (R2-2)** — a slow 2-D field plus wider aridity ramps.
+  canyon v/h 0.58 → 0.75 and 0.56 → 0.74; the metric also showed the artifact
+  is **canyon-only**, so the knob is per-preset. Shade-only, proved by a
+  sweep `compare` byte-identical to task 1's.
+- **Vaults (R2-3)** — a sealed `vaults` pass with two shapes, two new
+  materials, a 2-cell rind and a paired-build seal test. Chambers place in 5
+  of 8 seeds at the shipped size and arrive at rest.
+- **Water tones (R2-4)** — a fourth interpolated colour. Entry 0 went from
+  1.49× its fair share to even.
+
+**Decisions left to the reviewing session, in the order they matter:**
+
+1. **`rolling`'s two tall risers (R2-1).** Slope attenuation cannot reach
+   them. `terrace_step: 18` (from 26) clears the bar on all four rolling
+   seeds with no count zeroed — measured, not proposed — but it re-spaces
+   every bench on the preset, which is a landform call. One runtime-loaded
+   `.ron` line.
+2. **The sweep cannot see the vault pass (R2-3).** `vault_min_depth: 200`
+   needs ~250 rows of massif; the sweep, `filmstrip` and the whole test suite
+   run at 512x320, where the band is empty. The `vaults` row is `0 0` for
+   every preset and will stay so. `every_pass_writes_something` covers the
+   pass at the shipped size instead. Lever: sweep at the shipped size, or
+   express depth as a fraction of massif thickness the way `pockets` already
+   argues for.
+3. **Every chamber floods (R2-3).** The spec's rule — water when the floor is
+   below the table — is unconditional at a 200-row depth. Air now occupies
+   the dome above the waterline because the water level had to become the
+   chamber's widest row for at-rest reasons, which improved the picture by
+   accident. Whether some chambers should be dry is an owner call.
+4. **`examples/viewshot.rs` was touched** (a `vault=1` mode), outside the
+   owned set, because no other rendering path in the repo can show a vault.
+   Additive and default-preserving.
+5. Round 1's open items still stand, in particular that **generated worlds do
+   not stay asleep** (finding 2) and **`talus`'s margin is 200** (finding 6).
+
+**Method notes from this round**, all the same shape as round 1's:
+
+- **A metric can be isotropic by construction.** The first columnarity metric
+  measured per-cell run lengths and read 0.99 everywhere, before and after,
+  because the per-cell dither is white noise — it was measuring the stipple
+  and could never see the band. Caught by the answer being *identical in
+  cases known to differ*.
+- **A metric can compare a thing to itself.** The first slot/bluff metric
+  included `k = 0` and so reported "fully recovered" for every step in every
+  world. Caught by unanimity.
+- **A size cap can deform what it bounds.** The vault cap was applied to the
+  scan box, so an oversized lobe was neither written nor *seal-checked*.
+  CLAUDE.md's landmine in a third costume.
+- **The quantity that fixes a bug is often not the one the bug is stated in.**
+  Draining chamber water looked like a minimum-width problem and was a
+  *shape* problem: fill above the equator makes a flask, fill to it makes a
+  bowl. Two width bars failed before the shape rule worked.
+- **A guard must fail for the right reason.** The water-tone test asserts the
+  rendered distribution, not `palette.len()`, so it also catches the inverse
+  bug; deliberately broken, it names the 1.49x fold rather than a length.
