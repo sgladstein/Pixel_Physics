@@ -1497,7 +1497,13 @@ fn displace(world: &mut World, occupied: &HashSet<(i32, i32)>, x: i32, y: i32) -
 ///   reads as debris that can never come to rest.
 /// - **Structural checks are scheduled around the landing.** Otherwise a
 ///   landed chunk is invisible to the system that created it — it could not
-///   support anything, and nothing could be brought down by it.
+///   support anything, and nothing could be brought down by it. This is
+///   also the one re-check `load::powder_surcharge` relies on: a settled
+///   body is the bounded "something heavy just arrived on top of you"
+///   event, and the powder sweep itself schedules nothing. Every cell is
+///   scheduled, not just the footprint row, which is the superset the
+///   surcharge needs — do not narrow it to the bottom row as an
+///   optimisation without re-reading that function's re-check note.
 /// - **A cell with nowhere to go searches** rather than being dropped, so
 ///   landing on uneven ground does not quietly delete the overlapping part
 ///   of the body.

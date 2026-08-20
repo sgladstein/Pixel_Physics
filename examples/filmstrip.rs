@@ -1079,6 +1079,19 @@ struct Args {
     /// which is what isolates the *physiological* response from the
     /// mechanical one.
     cuts: Vec<(i32, i32, i32, i32, usize)>,
+    /// `depowder=frame` -- erase every `Powder`-kind cell in the world at
+    /// the given frame, and say how many.
+    ///
+    /// **The paired control for the powder surcharge**, and it exists
+    /// because neither `cut` nor `explode` can express it. The question R4
+    /// has to answer is "did the roof come down because the muck on top of
+    /// it now weighs something, or because the blast quietly took the
+    /// shell's capacity away" -- and the only way to separate those is to
+    /// run the identical blast and then take the muck away, leaving the
+    /// cracked, detached shell exactly as the blast left it. `cut` erases a
+    /// rectangle including the rock, which changes the thing under test;
+    /// this erases only what is loose.
+    depowder: Option<usize>,
     /// `load=x,y` -- print `sim::load::evaluate` at that cell for every
     /// tile. Repeatable. The structural counterpart of the `bodies` line:
     /// an image says a shelf is still up, and only a number says whether it
@@ -1242,6 +1255,7 @@ fn parse() -> Args {
         gif: false,
         explosions: Vec::new(),
         cuts: Vec::new(),
+        depowder: None,
         probes: Vec::new(),
         loadmap: false,
         repeat: 1,
@@ -1350,6 +1364,7 @@ fn parse() -> Args {
                 assert_eq!(n.len(), 5, "cut=x,y,w,h,frame");
                 a.cuts.push((n[0], n[1], n[2], n[3], n[4] as usize));
             }
+            "depowder" => a.depowder = Some(v.parse().expect("depowder")),
             "crop" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
                 assert_eq!(n.len(), 4, "crop=x,y,w,h");
@@ -1400,6 +1415,52 @@ fn fire_due_cuts(world: &mut World, pending: &mut Vec<(i32, i32, i32, i32, usize
         } else {
             i += 1;
         }
+    }
+}
+
+/// Keep the world free of loose material from `frame` onward -- erase every
+/// `Powder`-kind cell, every frame, and say how many the first pass took.
+///
+/// **Continuous, not one-shot, and that was measured rather than assumed.**
+/// A single sweep at the blast frame removed *zero* cells (the muck is still
+/// in the particle system, not in the grid), one at frame 75 removed 74 and
+/// one at frame 100 removed 123 -- the plug is still arriving, so any single
+/// instant is an arbitrary fraction of it. What the control has to hold
+/// still is "nothing ever stands on the shell", which is a standing state,
+/// not an event (`CLAUDE.md`: measure the standing state, not the event
+/// rate).
+///
+/// Reports the first pass's count, because "the control removed the plug" is
+/// a counter question: a sheet of a cave with no rubble in it and a sheet of
+/// a cave whose rubble had already poured away look identical.
+///
+/// The cave-volume and cells-lost lines are **not comparable across this
+/// flag** -- vacuuming rubble empties cells the census would otherwise still
+/// count. Compare a vacuumed run only against another vacuumed run.
+fn fire_due_depowder(world: &mut World, pending: &mut Option<usize>, first: &mut bool, now: usize) {
+    match *pending {
+        Some(frame) if frame <= now => {}
+        _ => return,
+    }
+    let mut removed = 0;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if world.materials.kind(world.get(x, y).material) == MaterialKind::Powder {
+                world.set(x, y, Cell::EMPTY);
+                // Taking a load off is a disturbance exactly as putting one
+                // on is, so the rock underneath has to be asked the question
+                // again -- the same fan-out `World::paint_capsule` already
+                // does for an ordinary erase. Around the erased cell only:
+                // a world-wide reschedule every frame would swamp the site
+                // budget and measure the scheduler instead of the model.
+                world.schedule_structural_check_around(x, y);
+                removed += 1;
+            }
+        }
+    }
+    if *first {
+        println!("  depowder: from frame {now} on, the world is kept clear of loose material -- first pass took {removed} cells");
+        *first = false;
     }
 }
 
@@ -1843,6 +1904,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
     let mut pending_cuts = args.cuts.clone();
+    let mut pending_depowder = args.depowder;
+    let mut depowder_first = true;
     let mut blasts = explosion::Blasts::new();
     let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield);
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
@@ -1873,11 +1936,13 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             while step_no < target {
                 fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
                 fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
                 advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome);
                 step_no += 1;
             }
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
 
@@ -1942,6 +2007,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         while step_no < target {
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
             let began = std::time::Instant::now();
             advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome);
             let ms = began.elapsed().as_secs_f64() * 1000.0;
@@ -1960,6 +2026,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         }
         fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
         fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
         // `force_full`, not the dirty-rect path: this must draw the whole
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.

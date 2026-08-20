@@ -32,6 +32,10 @@ than being something you'd paint on purpose:
   from a living tree's own moisture, it catches fire more readily than
   living wood does.
 
+Any of them piled on top of rock is *weight* on that rock — see
+[Structural Collapse](structural-collapse.md). A dusting is nothing; a deep
+pile on a thin span is enough to bring the span down.
+
 A third material outside this list, **rubble**, is what broken stone
 becomes when a structure fails — see [Structural Collapse](structural-collapse.md)
 for the full story of where it comes from. It piles at roughly the same

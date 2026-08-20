@@ -776,18 +776,155 @@ clippy clean. Known residuals, stated: confined crushes are not paced (a
 20,000-cell confined crush is still one tick); the transient slice
 boundary reads as a wobbly diagonal for the 5 frames each stage lives.
 
+## 13. R4 — powder weighs on the stone beneath it
+
+Built per §4's R4 and §7f trap 12. `load::powder_surcharge` walks the
+contiguous `Powder` column above each cell the load walk enters, capped at
+`POWDER_SURCHARGE_CAP = 12`, and adds `depth x POWDER_SURCHARGE_WEIGHT`
+(1.0) to that cell's own mass and moment — the same accumulator the cell's
+own `LOAD_SCALE` enters, before the `support_count` share division, so it
+stays conserved across parallel routes. `Liquid` is deliberately excluded.
+
+### The specced roof blast does not contain the situation any more
+
+`scene=cavern explode=256,200,20,180,60` came back **byte-identical**
+before and after: overloaded 3 (49 cells), cave 5,269 -> 5,413 (+144),
+lost 214, in both. A `dump=` of the crater at frame 300 says why — the
+crater is *empty*, one loose cell in seventy-two columns. R1+R2 already fixed
+that case: the breach opens downward and the muck falls into the cave
+instead of plugging, exactly as §5 predicted ("R4 makes standing plugs
+matter afterwards"). There is no plug left for the surcharge to charge.
+This is `CLAUDE.md`'s "when a mechanism appears inert, check the scene
+still contains the situation you think it does", and it cost one dump
+rather than an afternoon.
+
+Raising the charge until the crater floor is a shell rather than a hole
+puts the plug back. At **`explode=256,184,...`** (28 cells above the cave
+roof) the crater fills and stands on ~8 cells of cracked shell:
+
+| `explode=256,184,20,180,60` | weight 0.0 | weight 1.0 |
+|---|---|---|
+| overloaded failures | 7 (478 cells) | **95 (5,693 cells)** |
+| cave volume | 5,400 (+131) | **5,682 (+413)** |
+| cells lost | 174 | 467 |
+| largest failing region | 219 | 1,258 |
+| peak bodies in flight | 3 | **36** |
+
+The sheets (`scratchpad/r4_roof184_wide_*.png`) show it as the two-beat:
+blast, pause, and then the roof left of the crater comes down into the cave
+with rubble landing on the cave floor. At weight 0.0 nothing moves after
+tile 3.
+
+### The paired control, as a 2x2 rather than a single arm
+
+`filmstrip depowder=<frame>` keeps the world clear of loose material from
+that frame on. Continuous, not one-shot, and that was measured: a single
+sweep at the blast frame removes **zero** cells (the muck is still in the
+particle system), one at frame 75 removes 74 and one at frame 100 removes
+123 — the plug is still arriving, so any single instant is an arbitrary
+fraction of it.
+
+| overloaded / cave volume | plug standing | plug vacuumed |
+|---|---|---|
+| weight 0.0 | 7 (478 cells) / 5,400 | **0 (0 cells)** / 5,528 |
+| weight 1.0 | 95 (5,693 cells) / 5,682 | **0 (0 cells)** / 5,528 |
+
+The two vacuumed arms are identical to the digit. So the bare cracked shell
+holds at either weight, and the surcharge — not a capacity regression
+wearing its clothes — is the whole of what moved. (Cave volume is not
+comparable *across* the vacuum flag: vacuuming empties cells the census
+would otherwise still count. Compare vacuumed only to vacuumed.)
+
+### The sweeps
+
+Re-baselined in the same session on the same machine, per `CLAUDE.md`,
+because the recorded `scratchpad/sweep_base_strike.log` does **not**
+reproduce against current `HEAD`: it has `rolling/1` at 147 lost where a
+clean `HEAD` build measures 351, and `flat/3` at 557 where `HEAD` measures
+442. Every other row matches. That log predates something on this branch;
+it is quoted below but the gate is the same-session weight-0.0 arm, which
+was verified byte-identical to a clean-`HEAD` binary on three seeds.
+
+| `strike=12`, 24 runs | recorded log | weight 0.0 (same session) | weight 1.0 | vs 0.0 |
+|---|---|---|---|---|
+| cells lost, max | 557 | 442 | 583 | 1.32x (bar 2x) |
+| cells lost, p90 | 168 | 254 | 120 | 0.47x (bar 1.5x) |
+| rock destroyed, max | 1,649 | 1,548 | 1,349 | 0.87x |
+| rock destroyed, p90 | 726 | 1,111 | 948 | 0.85x |
+
+`dig=6` is **bit-identical** across all three — every one of its 24 runs
+produces zero overload failures at every seed, so there is nothing for a
+surcharge to change. (Identical output is normally the tell that a knob was
+never connected; here `strike` moves hard on the same binaries, and the
+`overload` column is 0 in the baseline log too.)
+
+So the term *cost* nothing at 1.0 and mostly bought margin: three of the
+four order statistics improved. The escape hatch (halve the weight) was not
+needed and was left in place. What did grow is the largest single failing
+region on the worst seed — `flat/3` 1,598 -> 2,509 — which R3a stages at
+1,000 cells a tick, so it arrives in three bites rather than one frame.
+
+Frame cost, paired, `repeat=3` minimum: `cavern` 28.39 -> 30.95 ms on the
+scene that now promotes 36 bodies instead of 3 (w00's own spread on that
+scene is 28-85 ms, so this is inside noise and under the 60 ms acceptance
+budget); `capped` 26.17 -> 17.83 ms; `terrain` unchanged. `ascii` still
+reports every scene settling to 0/N chunks awake with the field's settled
+pass at 0.0018 ms — a settled world pays nothing, because the scan runs
+only inside a load walk and load walks run only on scheduled checks.
+
+Acceptance 15/16, the same as before: only `roomcut`, which fails for its
+pre-existing reason (0 overload failures against a bar of 5) and is
+recorded in §10. 632 lib tests, clippy clean.
+
+### The re-check hole, and what is left open
+
+Powder movement schedules no structural check on the stone beneath it, and
+that is unchanged. The bounded case was already covered rather than needing
+building: `rigid::settle` schedules a check around **every** cell of a body
+it writes back, not just the footprint row, so a slab arriving on a shelf
+is re-judged. `settle`'s doc now says the surcharge depends on that, so
+nobody narrows it later as an optimisation.
+
+Deliberately not closed: scheduling from ordinary per-cell powder movement
+would flood the scheduler from every avalanche in the world. The residual,
+stated: **slow powder creep onto a marginal shelf may not re-trigger
+judgment until something else disturbs it.** Closing it properly wants a
+coalesced "this pile changed" signal, not a per-cell one.
+
+Also stated rather than left to be rediscovered: the surcharge reaches
+`bearing_moment` through `mass`, and the kern criterion is mass-independent
+by construction, so loading a slab that stands on rubble raises both sides
+equally and does not move that verdict. That is the physically right answer
+and it is the quiet one — if the surcharge ever looks like it is tipping
+pieces that used to sit still, that is the line to read first.
+
 ### What is still open, in order
 
 1. ~~R3a~~ — done, §12.
-2. **R4** (powder surcharge) — the roof-drop completion, behind the seed
-   sweep (§7f trap 12).
+2. ~~R4~~ — done, this section. Not yet judged **in play**: every number
+   above is headless, and the ethos says the verdict is the hand, not the
+   diff. The specific thing to look for is whether a *deep* pile now reads
+   as too heavy — the cap is 12 and nobody has felt it.
 3. **R3b** (converged relax after mass failure) — behind the
    ground-rooting port (§5).
-4. Live-panel wiring for the four new `Tuning` fields (`tunables.rs` —
-   deliberately left out of the prototype's scope).
+4. ~~Live-panel wiring~~ — done: all 22 `Tuning` fields are in the panel,
+   and the round-trip test now destructures `Tuning` exhaustively so an
+   unwired field fails to compile.
 5. Crack-tint contrast (R5) — the halo is the mining loop's progress bar
    and still draws faint at play zoom. (§8b's ray-shape polish is done —
-   this section.)
+   §9/§11.)
 6. The bedrock-edge flag above, if blasting near the world floor ever
    shows it.
+7. ~~The stale sweep baseline~~ — resolved: `sweep_base_*.log` was frozen
+   against the round-3 binary (`990758b`), and the only behavioural commit
+   between it and `HEAD` is **R3a** (`ed58fc9`; the tunables commit is
+   panel-only). Staged fracture changes cascade timing, and outcomes are
+   chaotic in the seed, so `rolling/1` and `flat/3` reshuffling while the
+   envelope holds (max fell 557 → 442) is R3a behaving as measured, not a
+   mystery. Standing lesson kept: a sweep baseline is only valid against
+   the exact commit it was taken on — re-baseline in-session, which is
+   what §13's gate did.
+8. Smoke never dissipates (found in the §11 exploration; no removal rule
+   exists anywhere in the sim, so blast smoke pools under ceilings
+   forever). Small, contained fix; not yet scheduled.
 

@@ -4,8 +4,10 @@
 a section, sharing load between supports — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
 building, and a very large collapse now arrives in stages that spread out
-from the break rather than in one frame. Digging into open ground no
-longer spreads: a hole is a hole,
+from the break rather than in one frame. Loose material piled on rock now
+weighs on it, which is new and is what makes a blasted cave roof drop its
+own muck through — expect to find that in play before anywhere else.
+Digging into open ground no longer spreads: a hole is a hole,
 and the rock around it stops where the damage stops. What is still in flux
 is **how big a room you can build**: a wide, thin-walled one can still
 fail to hold its own roof up the moment you finish it, and the exact width
@@ -90,14 +92,30 @@ Broken stone leaves rubble behind in stone's own colour (see
 [Powders](powders.md)), so a collapsed span visibly reads as "this used to
 be part of the structure" rather than a material swap.
 
-Rubble is something rock can stand *on*, and that is all. Loose material
-holds a piece up the way a gravel bed holds up a paving slab — it takes
-weight, and it takes it wherever the piece actually touches down — but it
-cannot hold anything *steady*. A piece whose weight sits over its footing
-rests on rubble indefinitely, however heavy it is; one reaching out past
-the edge of what it's standing on tips off, however light. Nothing in
-between is special-cased, and the same rule covers a boulder settling into
-a scree slope and a ledge that overhangs the pile beneath it.
+Rubble is something rock can stand *on*. Loose material holds a piece up
+the way a gravel bed holds up a paving slab — it takes weight, and it takes
+it wherever the piece actually touches down — but it cannot hold anything
+*steady*. A piece whose weight sits over its footing rests on rubble
+indefinitely, however heavy it is; one reaching out past the edge of what
+it's standing on tips off, however light. Nothing in between is
+special-cased, and the same rule covers a boulder settling into a scree
+slope and a ledge that overhangs the pile beneath it.
+
+Rubble is also something rock can be *crushed by*. A pile standing on a
+span is weight on that span, exactly as more rock would be, and a deep one
+counts for a lot — so muck left sitting on a roof you have just blasted is
+a load that roof did not have before, and a thin one over a cave will give
+way under it and pour through. This is the mining beat: blow the roof,
+wait, and the broken stuff comes down of its own accord a moment later.
+Only what is directly *on top* counts — sand heaped against the side of a
+beam, or lying under it, is not a burden — and past about a dozen cells
+deep a pile stops getting heavier, the way real fill arches over itself
+instead of pressing its whole weight down.
+
+One rough edge worth knowing: a pile that grows very slowly, a grain at a
+time, may not be noticed by the rock underneath until something else
+happens nearby. Anything that *arrives* — a slab landing, a blast, a
+blow — is noticed immediately.
 
 What that rules out is the thing rubble used to do: a slab lying on debris
 from its own collapse was treated as though the debris were what held it
