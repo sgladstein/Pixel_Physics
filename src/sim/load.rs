@@ -345,8 +345,29 @@ fn is_anchor(world: &World, x: i32, y: i32) -> bool {
 /// 1-cell skin resting on nothing much, and a sprinkle of sand under a
 /// cantilever made it arbitrarily long. See `capacity`, which now charges
 /// a cell supported this way for what the pile can actually carry.
+///
+/// **`Liquid` below counts only for material that claims to float**, and
+/// the claim is data on the material rather than anything this function
+/// could infer — see `MaterialDef::floats`. It grants ground, not
+/// immunity: a floating cell still owes the torque test, and is still
+/// judged against `capacity`, so a loaded sheet gives way. What it does
+/// *not* owe is the `bearing_moment` footing clamp — buoyancy is
+/// distributed rather than a patch to tip about, and the caller skips it
+/// via `floats_on_liquid` for exactly that reason.
 fn rests_on_ground(world: &World, x: i32, y: i32) -> bool {
-    world.materials.kind(world.get(x, y + 1).material) == MaterialKind::Powder
+    match world.materials.kind(world.get(x, y + 1).material) {
+        MaterialKind::Powder => true,
+        MaterialKind::Liquid => floats_on_liquid(world, x, y),
+        _ => false,
+    }
+}
+
+/// The buoyant half of `rests_on_ground`, split out because the caller of
+/// `bearing_moment` has to tell the two cases apart: a pile is a footing
+/// and a liquid is not. See `MaterialDef::floats`.
+fn floats_on_liquid(world: &World, x: i32, y: i32) -> bool {
+    world.materials.kind(world.get(x, y + 1).material) == MaterialKind::Liquid
+        && world.materials.get(world.get(x, y).material).floats
 }
 
 /// Whether the support chain from `(x, y)` reaches an anchor.
@@ -1269,8 +1290,24 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     }
     // A piece the ground alone holds up is judged on what the ground can do,
     // as well as on what the rock can do -- whichever gives first.
+    //
+    // **Except when the ground is a liquid it is floating on.**
+    // `bearing_moment` is a *footing* argument: a pile carries a load
+    // through the patch it touches, and a narrow patch tips. Buoyancy is
+    // not a footing -- the support is distributed over the whole underside
+    // in proportion to displacement, and there is no eccentricity for a
+    // uniform floating body to tip about. Applying the footing clamp to
+    // one anyway charged every small patch of new ice against a
+    // kern-limited moment its own two-to-five-cell width could not meet,
+    // so a sheet destroyed itself as it formed: measured on
+    // `scene=coldsnap`, 333 overload failures on ice in 600 frames, every
+    // one of them a patch of 2 to 5 cells, and the crushed cells then
+    // broke the support chain for the ice above them and took another 678
+    // with them as unsupported. What still limits a floating sheet is
+    // `capacity` itself -- `max_unsupported_span` squared, scaled by
+    // section -- so thin ice under a real load does still give way.
     let mut capacity = capacity(world, x, y);
-    if support_parent(world, x, y).is_none() && rests_on_ground(world, x, y) {
+    if support_parent(world, x, y).is_none() && rests_on_ground(world, x, y) && !floats_on_liquid(world, x, y) {
         capacity = capacity.min(bearing_moment(world, x, y, mass));
     }
     Some(Load { mass, moment, torque, capacity, supported, truncated })

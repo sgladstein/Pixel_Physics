@@ -235,6 +235,187 @@ const SNOW_CHILL: f32 = 26.0;
 /// How deep into an existing drift a snowfall keeps the cold going.
 const SNOW_CHILL_DEPTH: i32 = 6;
 
+/// How deep into a body of standing water a snowfall keeps the cold going,
+/// in cells.
+///
+/// Shallower than `SNOW_CHILL_DEPTH`, and for a different reason rather
+/// than as a saving: a drift has to be held cold all the way through or it
+/// rots from underneath, while water only has to be held cold at the
+/// *surface*, because that is the only place a sheet can form. Three cells
+/// rather than one so that the water immediately under a fresh sheet is
+/// cold too and the sheet thickens downward -- a single chilled row freezes
+/// one cell thick onto water sitting at ambient, and then melts from below
+/// while the storm is still falling on it.
+const WATER_CHILL_DEPTH: i32 = 3;
+
+/// How cold a snowfall holds standing water, in degrees below ambient at
+/// full intensity and full chill -- the same shape as `SNOW_CHILL`, and
+/// deliberately so.
+///
+/// # The number is set by *when* a pond should freeze, not by how cold
+///
+/// The first version was an absolute target rather than a magnitude
+/// (`-2 - 8 * intensity * chill`), which put water below its 0-degree
+/// freezing point in **any** snowfall however light. That is wrong on its
+/// own terms -- a trace of snow melts on contact with open water, it does
+/// not freeze a lake -- and it broke a guard that had nothing to do with
+/// ice: `tests/worldgen.rs`'s `generated_terrain_is_already_at_rest`
+/// reported 411 cells "leaving their position" on the `terraced` preset,
+/// seed 3, which turned out to be a lake quietly turning to ice under a
+/// 0.36-intensity flurry (`worldgen::generate` sets `World::seed` from the
+/// generation seed, so each preset seed gets its own weather). A material
+/// change in place reads as movement to that test, and it was right to
+/// complain.
+///
+/// So freezing is tied to the same bar snow already has to clear to *lie*:
+/// a landing flake melts unless `SNOW_CHILL` puts it under snow's own
+/// 2-degree melting point, which needs intensity above ~0.69, and
+/// `SNOW_THRESHOLD` already requires chill above 0.70 for snow at all --
+/// so the product crosses ~0.48 exactly when snow starts settling. 40
+/// crosses zero at 0.50. **Water freezes when snow lies**, which is one
+/// rule to remember instead of two thresholds to reconcile, and it is what
+/// a player would guess.
+///
+/// At the other end it is deep: `scene=coldsnap`'s front (intensity 0.97,
+/// chill 0.76) holds water at -9.5, which is margin enough that a sheet
+/// survives the gaps between drops on its own conductivity.
+const WATER_CHILL: f32 = 40.0;
+
+/// How deep a *crust* the front's own sweep will hold cold, in cells./// How deep a *crust* the front's own sweep will hold cold, in cells.
+///
+/// Generous, and it needs to be, because the crust is two materials
+/// stacked: a sheet of ice with a snow drift lying on it. Sharing
+/// `SNOW_CHILL_DEPTH` between them was tried and is what kept freeze-over
+/// from ever completing -- the drift spent the whole budget, the ice
+/// beneath it was never reached, and the middle of the pond (where the
+/// drift settles first) melted out from under the snow while the storm was
+/// still falling. Patches of ice appeared and never joined up.
+///
+/// Costs nothing to set high: the walk stops at the first cell that is
+/// neither crust nor freezable liquid, so on bare rock it reads one cell
+/// and stops, and it can only ever be as deep as the crust actually is.
+///
+/// Deliberately *not* shared with the landing drops, which keep the tighter
+/// `SNOW_CHILL_DEPTH` -- see `hold_column_cold`'s `crust_depth`. That
+/// asymmetry is what bounds how thick a sheet gets: a drop can only chill
+/// water it can reach through the crust, so once the ice is
+/// `SNOW_CHILL_DEPTH` thick nothing below it is chilled again and the sheet
+/// stops growing downward at about nine cells. Without the bound a pond
+/// froze solid to its bed.
+const CRUST_CHILL_DEPTH: i32 = 16;
+
+/// How far to either side of a landing drop the cold reaches *into water*,
+/// in columns.
+///
+/// # A nucleus, and then how much of the surface holds ice
+///
+/// 0 does not work at all. A single chilled column freezes a single cell of
+/// ice, and a lone ice cell cannot survive: its neighbours are 20-degree
+/// water either side and 20-degree air above, so it warms past its own
+/// melting point in four frames and melts straight back. Measured on
+/// `scene=coldsnap` at radius 0 -- **654 freezes and 645 melts over 450
+/// frames**, a one-for-one churn, with never more than a dozen cells of ice
+/// standing on a 60-cell pond. Freeze-over could not start. A run of
+/// columns freezes together and the middle of the run sees ice either side,
+/// which is what lets a patch survive its first few frames; after that the
+/// sheet grows by accretion, because a chilled column next to the sheet
+/// keeps its ice while one out in open water still loses it.
+///
+/// # What it does *not* control, measured rather than assumed
+///
+/// It is not the pacing knob it looks like. At this storm's intensity a
+/// 512-wide world takes ~6 drops a frame, so a 60-cell pond is reached
+/// within a few frames whatever this is set to, and the ice standing on it
+/// is at an **equilibrium between freezing and the warm water underneath**,
+/// not partway through a march across the surface. Swept on `scene=coldsnap`
+/// (rebuilding between points, since materials and this file are compiled
+/// in), reading standing ice cells against the ~540 the surface could hold:
+///
+/// | radius | columns/drop | standing ice | reads as |
+/// |---|---|---|---|
+/// | 0 | 1 | ~10, churning 1:1 | nothing forms |
+/// | 2 | 5 | 114 by frame 100, ~150 after | permanently patchy |
+/// | 4 | 9 | 217 by frame 20, 250-360 after | a crust with holes, consolidating |
+/// | 6 | 13 | 355 by frame 60, flat after | closed almost at once |
+///
+/// So "freeze-over creeps" is true of a **wide** body of water and not of a
+/// small one: on `pond=300` the same setting goes 668 cells at frame 40 to
+/// 2,026 at frame 600, visibly joining up across a contact sheet, while a
+/// 60-cell pond is done before the first tile. That is the right way round
+/// -- a puddle should freeze in seconds and a lake should not -- and it is
+/// what `CLAUDE.md`'s "thin ice far from shore" note anticipated.
+///
+/// 4 is the setting: a small pond gets a crust immediately, a large one
+/// takes hundreds of frames, and neither closes so completely that the
+/// water underneath stops being visible through the gaps.
+///
+/// Far smaller than the crust sweep's coverage below, and deliberately so:
+/// holding lying snow cold is a *maintenance* job that has to reach
+/// everywhere often, while freezing water is an *event* that should start
+/// where the snow is actually falling.
+const WATER_CHILL_RADIUS: i32 = 4;
+
+/// How often the front comes back to any given column with its cold, in
+/// frames -- the period of the banded sweep in `hold_the_ground_cold`.
+///
+/// # Why the cold cannot be delivered by the drops alone
+///
+/// A drop chills the column it lands in, and one column per drop is what
+/// makes a freeze-over *creep*: the storm has to come back to a pond column
+/// by column, and a 60-cell pond takes a few hundred frames to close over.
+/// That is the behaviour to keep, and this sweep deliberately does not
+/// freeze anything -- it holds a *crust* (a drift, or a sheet of ice) and
+/// stops at open water.
+///
+/// A drift cannot live on the drops' terms. Empty air in this engine is a
+/// fixed 20-degree reservoir (`Cell::EMPTY` carries `AMBIENT_TEMPERATURE`
+/// and nothing cools it), so a snow cell's warmest neighbour is always the
+/// sky above it, and once snow has real conductivity it warms back at 2
+/// degrees a *frame*: -5, -3, -1, 1, melt. Measured directly -- a lone
+/// flake written at -8 melts after 4 frames, at -30 after 11, and a
+/// six-deep drift is entirely gone 9 frames after the cold stops, because
+/// depth buys nothing once the first row's meltwater arrives at 20 degrees
+/// and eats downward faster than the air did.
+///
+/// At full intensity a 512-wide world takes ~6 drops a frame, so a given
+/// column sees one about every 90 frames, and the drops are Poisson: even
+/// widening each drop's cold to 21 columns leaves gaps of ten frames and
+/// more. Both were measured on `scene=coldsnap`, and both produced the same
+/// artifact -- 3.1 flakes a frame landing, never more than 40 cells
+/// standing, and every one of them melting into a **meltwater flood that
+/// spread across the whole world and drowned the pond the scene is about**,
+/// with the world's water doubling over one storm. That is the real cost of
+/// giving snow conductivity, and it is `CLAUDE.md`'s "fixing a bug often
+/// exposes a constant that was compensating for it": snow's missing
+/// conductivity was standing in for there being no cold-air model.
+///
+/// So the front holds the ground it is over, on a fixed period rather than
+/// wherever flakes happen to land. Two frames leaves two frames of margin
+/// against the four-frame melt; three would just fit and one is twice the
+/// work for nothing.
+///
+/// **It is nearly free, and for a reason worth keeping**: the walk writes
+/// only to cells that hold cold or can freeze, so a column of bare rock
+/// costs one surface lookup and one material read and *writes nothing*.
+/// Bare terrain therefore does not get dirtied and its chunks still sleep
+/// through a snowstorm -- which is what keeps this off the list of things
+/// that cost the dirty-rect render skip.
+const CHILL_REVISIT_FRAMES: u64 = 2;
+
+/// How far up or down a neighbouring column's surface may be from the one
+/// beside it and still be found, when the crust chill walks outward from a
+/// landing drop.
+///
+/// The chill walk deliberately does **not** re-run `surface_under_sky` per
+/// column: that scans a column from the top of the sky (240-odd rows here)
+/// and doing it 21 times a drop would put a real cost on weather, which is
+/// exactly what `MAX_COLUMNS_PER_FRAME`'s own doc says must not happen. It
+/// instead carries the previous column's surface as a hint and searches a
+/// short window around it, updating the hint as it goes, so a slope is
+/// tracked one step at a time and a cliff simply ends the walk. 8 is about
+/// the steepest single-column step generated terrain produces.
+const LOCAL_RELIEF: i32 = 8;
+
 /// Wind strength past which gusts start firing.
 ///
 /// Below it the air is moving but not eventfully, and a world should not be
@@ -441,6 +622,21 @@ pub fn step(world: &mut World) {
     // case rain still wets the ground and simply never puddles.
     let water = world.materials.id_of("water");
     let snow = world.materials.id_of("snow");
+    // The front's cold over the *whole* ground it is above, on a fixed
+    // period, independent of where flakes land -- see
+    // `CHILL_REVISIT_FRAMES` for why the drops cannot carry this on their
+    // own. Crust only: it never freezes water, so freeze-over still creeps
+    // one drop at a time.
+    //
+    // Deliberately *after* the `columns == 0` return above, so a frame that
+    // delivers no precipitation at all delivers no cold either. At full
+    // intensity that never happens; at a drizzle's intensity it happens
+    // most frames, and the drift then melts between them. That is the
+    // "light snow does not lie" behaviour rather than an oversight -- the
+    // same bar `SNOW_CHILL` and `WATER_CHILL` are both set against.
+    if w.kind == Precipitation::Snow {
+        hold_the_ground_cold(world, w, bounds, snow);
+    }
     let soak = (SOIL_SOAK_PER_DROP as f32 * w.intensity) as u16;
 
     for i in 0..columns {
@@ -503,27 +699,65 @@ pub fn step(world: &mut World) {
             // the field was the first version and every flake melted on the
             // frame it landed, flooding the surface with meltwater: a
             // snowstorm that produced a lake.
+            //
+            // **This one push is the field half for the whole column**,
+            // water included -- it fires before the walk below has decided
+            // whether this column is ground, a drift or a pond, and its
+            // radius already spans the cells that walk reaches. A second
+            // push for the water would double the cold in the coarse
+            // channel and wake field tiles a frame's worth of nothing, and
+            // the field does not decide freezing any more than it decides
+            // melting.
             world.add_heat(x, surface_y, 2, -SNOW_CHILL * w.intensity * w.chill);
             let cold = (AMBIENT_TEMPERATURE as f32 - SNOW_CHILL * w.intensity.max(0.4)) as i16;
-            // The drift itself is re-chilled, not just the arriving flake.
-            // A pile kept cold only at the moment of landing warms from the
-            // ground up between flakes and rots away underneath, so the
-            // storm has to hold the whole column it is falling on.
-            for d in 0..SNOW_CHILL_DEPTH {
-                let y = surface_y + d;
-                if y > bounds.max_y {
-                    break;
-                }
-                let cell = world.get(x, y);
-                if cell.material != snow.unwrap_or(material::EMPTY) {
-                    break;
-                }
-                if cell.temperature() > cold {
-                    world.set(x, y, cell.with_temperature(cold));
+            let water_cold = (AMBIENT_TEMPERATURE as f32 - WATER_CHILL * w.intensity * w.chill) as i16;
+            // A short run of columns centred on where the drop landed,
+            // each walked down through drift and ice crust and into the top
+            // `WATER_CHILL_DEPTH` cells of the water -- see
+            // `hold_column_cold` for what it recognises, and
+            // `WATER_CHILL_RADIUS` for why the run is five columns wide and
+            // not one. This is the only thing in the file that can freeze
+            // water, and a drop lands in a randomly chosen column, so
+            // freeze-over starts somewhere rather than everywhere.
+            hold_column_cold(world, x, surface_y, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH);
+            for dir in [-1i32, 1] {
+                let mut hint = surface_y;
+                for step in 1..=WATER_CHILL_RADIUS {
+                    let cx = x + dir * step;
+                    if cx < bounds.min_x || cx > bounds.max_x {
+                        break;
+                    }
+                    // Hinted from the last column found rather than
+                    // re-walking the sky, the same way the crust sweep
+                    // does; a cliff simply ends the run.
+                    let Some(cy) = surface_near(world, cx, hint, bounds) else {
+                        break;
+                    };
+                    hint = cy;
+                    hold_column_cold(world, cx, cy, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH);
                 }
             }
+            // **Snow does not lie on open water**, the same refusal the
+            // rain path below makes and for a stronger reason. Snow is a
+            // `Powder` lighter than water, so a flake landing on a pond
+            // floats -- and flakes kept coming, so a raft built up. Two
+            // things went wrong at once: the raft is what the sky can see,
+            // so `surface_under_sky` returned *it* instead of the water,
+            // and once it was `SNOW_CHILL_DEPTH` deep the walk above spent
+            // its whole crust budget inside it and the water underneath
+            // stopped being chilled at all. A pond under a blizzard
+            // therefore never froze -- measured at 9 to 20 cells of ice
+            // over a whole storm, against a 60-cell surface.
+            //
+            // A flake that lands in water has simply joined it, which is
+            // both what happens and what leaves the surface visible. Once
+            // the surface *is* ice -- a `Solid`, not a `Liquid` -- this
+            // stops applying and drifts build on the frozen pond with no
+            // code of their own, which is the behaviour the milestone
+            // wanted.
+            let open_water = world.materials.kind(world.get(x, surface_y).material) == MaterialKind::Liquid;
             if let Some(snow) = snow {
-                if r.chance(SNOW_CELL_CHANCE * w.intensity) && surface_y > bounds.min_y {
+                if !open_water && r.chance(SNOW_CELL_CHANCE * w.intensity) && surface_y > bounds.min_y {
                     let above = surface_y - 1;
                     if world.get(x, above).material == material::EMPTY {
                         world.set(x, above, Cell::new(snow, 0).with_temperature(cold));
@@ -542,6 +776,159 @@ pub fn step(world: &mut World) {
             }
         }
     }
+}
+
+/// Hold the crust cold across the ground the front is over: a band of
+/// columns per frame, the band chosen by the frame so that every column is
+/// reached once per `CHILL_REVISIT_FRAMES`.
+///
+/// **A band rather than a scatter**, because the columns are then
+/// consecutive and each one's surface can be found from its neighbour's
+/// (`surface_near`) instead of re-scanning a 240-row sky each time. And a
+/// band rather than every column every frame, because the period is what
+/// sets the cost and two frames is all the drift needs.
+///
+/// Derived from the frame, so it stores nothing and stays a pure function
+/// of `(seed, frame)` like the rest of this file -- two runs of the same
+/// seed chill the same columns on the same frames.
+///
+/// This never freezes anything: `hold_column_cold` is called with a liquid
+/// depth of 0, so it stops at open water and only the drops themselves can
+/// start a freeze-over.
+fn hold_the_ground_cold(world: &mut World, w: Weather, bounds: Rect, snow: Option<material::MaterialId>) {
+    let cold = (AMBIENT_TEMPERATURE as f32 - SNOW_CHILL * w.intensity.max(0.4)) as i16;
+    let water_cold = (AMBIENT_TEMPERATURE as f32 - WATER_CHILL * w.intensity * w.chill) as i16;
+    let width = bounds.max_x - bounds.min_x + 1;
+    let per_frame = (width as u64).div_ceil(CHILL_REVISIT_FRAMES) as i32;
+    let band = (world.frame % CHILL_REVISIT_FRAMES) as i32;
+    let from = bounds.min_x + band * per_frame;
+    let to = (from + per_frame).min(bounds.max_x + 1);
+    // The first column of the band pays a full sky walk; the rest follow
+    // the surface from their neighbour. A column whose surface is more than
+    // `LOCAL_RELIEF` from the last one found -- a cliff, a chasm -- resets
+    // to a full walk rather than being skipped, or the far side of every
+    // cliff in the world would never be chilled.
+    let mut hint = None;
+    for x in from..to {
+        let found = match hint {
+            Some(h) => surface_near(world, x, h, bounds).or_else(|| surface_under_sky(world, x, bounds.min_y, bounds.max_y)),
+            None => surface_under_sky(world, x, bounds.min_y, bounds.max_y),
+        };
+        let Some(y) = found else {
+            hint = None;
+            continue;
+        };
+        hint = Some(y);
+        hold_column_cold(world, x, y, bounds, snow, cold, water_cold, CRUST_CHILL_DEPTH, 0);
+    }
+}
+
+/// Hold one column of the surface cold: **one walk down whatever the storm
+/// is falling on.**
+///
+/// Three kinds of cell can appear, in this order from the top, and the walk
+/// ends at anything else:
+///
+/// - **a drift** the storm has already built, held at `cold`. The drift
+///   itself is re-chilled, not just the arriving flake: a pile kept cold
+///   only at the moment of landing warms from the ground up between flakes
+///   and rots away underneath, so the storm has to hold the whole column.
+/// - **a crust the cold itself made** out of the liquid below it -- a sheet
+///   of ice. Recognised by its melting point sitting *below ambient*, which
+///   is `snow.ron`'s way of saying a material exists only while something
+///   holds it there, and the storm is the only thing in the world that can.
+///   Held at `water_cold` rather than `cold`: without this the surface froze
+///   over and then melted from underneath while the snow was still falling
+///   on it, because the loop this replaced stopped at the first cell that
+///   was not snow -- i.e. at the ice it had just made.
+/// - **the liquid itself**, held at `water_cold` for `liquid_depth` cells,
+///   which is what freezes it (`fire.rs`'s downward phase change against
+///   water.ron's `cooling_point`). `liquid_depth` is 0 for every column the
+///   front's own sweep reaches, so only a landing drop can start a freeze.
+///
+/// The two depths are separate budgets and the caller sets them apart on
+/// purpose: `CRUST_CHILL_DEPTH` for the sweep, so a drift on a sheet of ice
+/// is held all the way through, and the tighter `SNOW_CHILL_DEPTH` for a
+/// drop, so it can only reach water through a *thin* crust and a sheet
+/// therefore stops thickening. See both constants.
+///
+/// Gated on the *materials' own fields*, never on `id_of("water")` -- that
+/// is a string hash per cell in the sweep, and a rule that would only ever
+/// have worked for one name (`CLAUDE.md`'s hot-path convention). The one id
+/// compare left is against the already-hoisted `snow`, and it decides which
+/// of two temperatures to write rather than whether to act at all.
+///
+/// Only the *cells'* own temperature. The field's coarse channel is written
+/// once per landing drop by the caller and is a separate thing that does
+/// not decide melting or freezing -- `fire::update` compares
+/// `cell.temperature` against the thresholds. Writing only the field was
+/// the first version of snow and every flake melted on the frame it
+/// landed, flooding the surface with meltwater: a snowstorm that produced
+/// a lake.
+#[allow(clippy::too_many_arguments)]
+fn hold_column_cold(
+    world: &mut World,
+    x: i32,
+    surface_y: i32,
+    bounds: Rect,
+    snow: Option<material::MaterialId>,
+    cold: i16,
+    water_cold: i16,
+    crust_depth: i32,
+    liquid_depth: i32,
+) {
+    let (mut crust_chilled, mut liquid_chilled) = (0, 0);
+    for d in 0..(crust_depth + liquid_depth) {
+        let y = surface_y + d;
+        if y > bounds.max_y {
+            break;
+        }
+        let cell = world.get(x, y);
+        let (freezable, holds_cold) = {
+            let m = world.materials.get(cell.material);
+            (
+                m.kind == MaterialKind::Liquid && m.cooling_point.is_finite(),
+                m.melting_point < AMBIENT_TEMPERATURE as f32,
+            )
+        };
+        if freezable && liquid_chilled >= liquid_depth {
+            break;
+        }
+        if !freezable && !holds_cold {
+            break;
+        }
+        let target = if cell.material == snow.unwrap_or(material::EMPTY) { cold } else { water_cold };
+        if cell.temperature() > target {
+            world.set(x, y, cell.with_temperature(target));
+        }
+        // Each class keeps its own depth budget, so a drift is chilled
+        // exactly as deep as it always was and the water under six cells of
+        // snow is insulated from the storm rather than reached through it.
+        if freezable {
+            liquid_chilled += 1;
+        } else {
+            crust_chilled += 1;
+        }
+        if crust_chilled >= crust_depth {
+            break;
+        }
+    }
+}
+
+/// The surface of a column near one already found, without re-walking the
+/// sky -- see `LOCAL_RELIEF` for why this exists rather than a second
+/// `surface_under_sky` call.
+///
+/// Searches downward from `LOCAL_RELIEF` above the hint, so a drift that
+/// has built up beside the hinted column is found at its own top rather
+/// than part way into it. `None` means nothing solid within the window,
+/// which is a cliff edge or a hole, and the caller stops there rather than
+/// hunting: the cold is a local effect and a column whose surface is a long
+/// way from its neighbour's is not under the same part of the shower.
+fn surface_near(world: &World, x: i32, hint_y: i32, bounds: Rect) -> Option<i32> {
+    let from = (hint_y - LOCAL_RELIEF).max(bounds.min_y);
+    let to = (hint_y + LOCAL_RELIEF).min(bounds.max_y);
+    (from..=to).find(|&y| world.get(x, y).material != material::EMPTY)
 }
 
 /// The topmost solid cell in column `x`, or `None` if the column is empty all
@@ -970,5 +1357,257 @@ mod tests {
             drift(4, onset, onset + 600) > 0.01,
             "ten seconds of a front arriving registered as no change at all"
         );
+    }
+    // ---- the freezing half of the water cycle (the ice milestone) -------
+
+    /// A pond in a walled basin cut into an attached stone shelf, under
+    /// open sky, at a frame `seed` is snowing hard on.
+    ///
+    /// The shore is `attached` terrain because it is the pond's only
+    /// neighbour that anchors, and a shoreline that had to hold itself up
+    /// would erode and take the answer about the ice with it. Flush with
+    /// the shelf top, so the sky sees the water rather than a lip
+    /// (`surface_under_sky` returns the first non-empty cell, so a sunken
+    /// pond is a pond under an overhang).
+    ///
+    /// **Deliberately deeper than `WATER_CHILL_DEPTH`.** The claim under
+    /// test is that a cold snap freezes the *surface*, and a pond three
+    /// cells deep would freeze to its bed and prove nothing about which
+    /// cells the cold reaches.
+    fn frozen_pond_world(seed: u64, frame: u64) -> World {
+        const SHORE_Y: i32 = 40;
+        const DEPTH: i32 = 16;
+        let mut w = World::new(Rect::new(0, 0, 127, 79));
+        w.seed = seed;
+        w.frame = frame;
+        for x in 0..128 {
+            for y in SHORE_Y..80 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in POND.0..=POND.1 {
+            for y in SHORE_Y..(SHORE_Y + DEPTH) {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        w
+    }
+
+    /// The pond's columns in `frozen_pond_world`, and its surface row.
+    const POND: (i32, i32) = (34, 93);
+    const POND_SURFACE: i32 = 40;
+
+    /// A frame at which `seed` is snowing hard enough for snow to lie.
+    ///
+    /// The intensity bar is not decoration: `SNOW_CHILL` is a magnitude
+    /// below ambient, so at intensity 0.7 a landing flake is written at
+    /// 2 degrees, which is snow's own melting point, and it melts on the
+    /// frame it lands. Any test that wants a drift has to find a real
+    /// front, not merely a snowy one.
+    fn a_hard_snowy_frame(seed: u64) -> u64 {
+        first_frame_with(seed, 0, |w| w.kind == Precipitation::Snow && w.intensity > 0.8)
+            .expect("the seeds used by these tests should each have a hard snowfall")
+    }
+
+    /// How much water the world holds, in cell-equivalents, in whatever
+    /// phase it is in.
+    ///
+    /// Liquid measured as **fill, not occupancy** (`CLAUDE.md`'s metric
+    /// traps: a resting body wears a fringe of near-empty cells), ice and
+    /// snow as whole cells, because they are whole cells -- a `Solid`'s
+    /// `aux` is an anchor distance and carries no fill, which is why
+    /// `fire.rs` will only freeze a near-full cell.
+    fn water_census(w: &World) -> (f64, i64, i64) {
+        let (mut liquid, mut ice, mut snow) = (0.0f64, 0i64, 0i64);
+        let ice_id = w.materials.id_of("ice");
+        let snow_id = w.materials.id_of("snow");
+        for y in 0..80 {
+            for x in 0..128 {
+                let cell = w.get(x, y);
+                if cell.material == material::WATER {
+                    liquid += crate::sim::update::liquid_fill(cell) as f64 / material::LIQUID_FULL as f64;
+                } else if Some(cell.material) == ice_id {
+                    ice += 1;
+                } else if Some(cell.material) == snow_id {
+                    snow += 1;
+                }
+            }
+        }
+        (liquid, ice, snow)
+    }
+
+    fn advance(w: &mut World, frames: usize, parallel_driver: bool) {
+        for _ in 0..frames {
+            if parallel_driver {
+                parallel::step(w);
+            } else {
+                crate::sim::update::step(w);
+            }
+        }
+    }
+
+    #[test]
+    fn pond_freezes_at_the_surface_in_a_cold_snap() {
+        // Both drivers, per `CLAUDE.md`: `App::update` calls the parallel
+        // one, so behaviour only the player sees is behaviour only that
+        // driver produces -- and this mechanism runs entirely inside the
+        // sweep, through `fire::update`.
+        //
+        // Asserted as **surface against interior**, not as a cell count: a
+        // count says "some ice appeared" and would pass just as well if the
+        // whole pond froze solid, which is the wrong behaviour and the one
+        // `WATER_CHILL_DEPTH` exists to bound.
+        for parallel_driver in [false, true] {
+            let seed = 2900;
+            let mut w = frozen_pond_world(seed, a_hard_snowy_frame(seed));
+            let ice = w.materials.id_of("ice").expect("ice.ron should be embedded");
+            advance(&mut w, 400, parallel_driver);
+
+            // **Ice within the top few rows, not in the top row.**
+            // Measured before this was written that way: a fixed-row
+            // reading found 7 of 60 columns frozen while the pond plainly
+            // had a crust on it, because water evaporates from its own
+            // surface and a settled pond's top row is a fringe of
+            // partly-filled cells that `FREEZE_MIN_FILL` refuses to
+            // freeze. A column reads `water, ice, ice, ice, ice, water`
+            // from row 40 down -- a film over a sheet, which is what a
+            // frozen pond looks like here and is the case fire.rs's fill
+            // gate documents as the accepted loss of coverage.
+            let surface_ice = (POND.0..=POND.1)
+                .filter(|&x| (POND_SURFACE..POND_SURFACE + 4).any(|y| w.get(x, y).material == ice))
+                .count();
+            let deep_ice = (POND.0..=POND.1).filter(|&x| w.get(x, POND_SURFACE + 14).material == ice).count();
+            let deep_water = (POND.0..=POND.1).filter(|&x| w.get(x, POND_SURFACE + 14).material == material::WATER).count();
+            assert!(
+                surface_ice > 20,
+                "only {surface_ice} of 60 surface columns froze in a hard cold snap (parallel: {parallel_driver}); froze {}",
+                w.phase_changes.froze
+            );
+            assert_eq!(deep_ice, 0, "the cold reached 14 cells down; freezing is a surface effect (parallel: {parallel_driver})");
+            assert!(
+                deep_water > 50,
+                "the pond's interior should still be water, found {deep_water} of 60 columns (parallel: {parallel_driver})"
+            );
+        }
+    }
+
+    #[test]
+    fn ice_melts_back_and_the_pool_refills() {
+        // The round trip, as a **bound rather than an equality**, for two
+        // reasons that both matter: `fire.rs` will not freeze a cell below
+        // `FREEZE_MIN_FILL`, so the partial fringe at the surface never
+        // becomes ice and never comes back as a full cell; and the storm
+        // drops snow on the shore that melts into the pond as well, so the
+        // world ends with *more* water than it started with rather than the
+        // same. What must not happen is water going missing.
+        for parallel_driver in [false, true] {
+            let seed = 2900;
+            let snowy = a_hard_snowy_frame(seed);
+            let mut w = frozen_pond_world(seed, snowy);
+            let (before, _, _) = water_census(&w);
+
+            advance(&mut w, 400, parallel_driver);
+            let (during, ice, _) = water_census(&w);
+            assert!(ice > 20, "nothing froze, so there is no thaw to measure (parallel: {parallel_driver})");
+            assert!(
+                during < before - 10.0,
+                "freezing should take real volume out of the liquid tally: {during:.1} against {before:.1} (parallel: {parallel_driver})"
+            );
+
+            // The front passes. Jump the clock rather than waiting out a
+            // real front: weather is a pure function of `(seed, frame)`, so
+            // moving the frame *is* the front passing, and it keeps the
+            // test to a few hundred frames instead of a few thousand.
+            w.frame = first_frame_with(seed, snowy, |x| !x.is_precipitating()).expect("seed 2900's front should end");
+            advance(&mut w, 300, parallel_driver);
+
+            let (after, ice_left, snow_left) = water_census(&w);
+            assert_eq!(ice_left, 0, "every cell of ice should be above its melting point once the front has gone (parallel: {parallel_driver})");
+            assert_eq!(snow_left, 0, "and so should every flake (parallel: {parallel_driver})");
+            // **A bound, and the direction of the slack is stated.** The
+            // pool comes back to a little *under* what it started at, not
+            // over: water evaporates from its own surface all through the
+            // ~700 frames this runs (`water.ron`'s `evaporates`), and this
+            // test world is small enough that the snow melting into it does
+            // not make up the difference -- on the 512-wide `coldsnap`
+            // scene, where a storm lays thousands of cells of drift, the
+            // world ends with three times the water it began with. Measured
+            // here: 960.0 before, 941.9 after, so 98.1% recovered. The bar
+            // is 90%, which leaves room for evaporation and for the
+            // never-frozen fringe without admitting water disappearing into
+            // the phase change -- which is the failure this is for.
+            assert!(
+                after > before * 0.90,
+                "the pool did not refill: {after:.1} against {before:.1} before the freeze (parallel: {parallel_driver})"
+            );
+            assert!(
+                after > during,
+                "the thaw put nothing back: {after:.1} against {during:.1} while frozen (parallel: {parallel_driver})"
+            );
+            assert!(
+                w.phase_changes.melted > 0 && w.phase_changes.froze > 0,
+                "counters say the mechanism never fired (parallel: {parallel_driver})"
+            );
+        }
+    }
+
+    #[test]
+    fn thawed_world_sleeps() {
+        // **The reason snow.ron gained a `heat_conductivity` at all.** A
+        // cell the storm chilled and nothing can warm sits permanently off
+        // ambient, and `fire.rs`'s `must_stay_dirty` then keeps its chunk
+        // awake for the rest of the run -- so a world that has been snowed
+        // on never sleeps again, and the dirty-rect render skip is gone
+        // with it. Ice is a far larger version of the same cell, which is
+        // why ice.ron has one too.
+        //
+        // **This test can fail, and that was checked rather than assumed**
+        // (`CLAUDE.md`: a guard that cannot fail is not a guard). It sleeps
+        // 42 frames after the front passes as shipped. Setting ice.ron's
+        // `heat_conductivity` to 0.0 locally and rebuilding leaves 2 chunks
+        // awake at the 1,200-frame budget; taking snow.ron's back to 0 --
+        // the state this milestone found it in -- does exactly the same.
+        // Either material alone is enough to hold a world awake forever.
+        let seed = 2900;
+        let snowy = a_hard_snowy_frame(seed);
+        let mut w = frozen_pond_world(seed, snowy);
+        advance(&mut w, 400, true);
+        assert!(w.phase_changes.froze > 0, "nothing froze, so there is nothing to thaw and the test is vacuous");
+
+        w.frame = first_frame_with(seed, snowy, |x| !x.is_precipitating()).expect("seed 2900's front should end");
+        for frame in 0..1200 {
+            parallel::step(&mut w);
+            if w.active_chunk_count() == 0 {
+                println!("the world went to sleep {frame} frames after the front passed");
+                return;
+            }
+        }
+        panic!(
+            "{} chunks were still awake 1200 frames after the front passed -- something the cold touched cannot settle",
+            w.active_chunk_count()
+        );
+    }
+
+    #[test]
+    fn a_snowstorm_leaves_no_snow_floating_on_open_water() {
+        // Snow is lighter than water, so a flake landing on a pond floats,
+        // and flakes keep coming: a raft builds up, `surface_under_sky`
+        // starts returning *it* instead of the water, and once it is
+        // `CRUST_CHILL_DEPTH` deep the cold never reaches the pond at all.
+        // Measured before the refusal went in: 9 to 20 cells of ice over a
+        // whole storm, against a 60-cell surface. The guard is on the
+        // *standing* raft rather than on the spawn, because that is the
+        // artifact -- and a few grains that rolled off the bank are not it.
+        let seed = 2900;
+        let mut w = frozen_pond_world(seed, a_hard_snowy_frame(seed));
+        let snow = w.materials.id_of("snow").unwrap();
+        advance(&mut w, 400, true);
+        let floating = (POND.0..=POND.1)
+            .filter(|&x| {
+                (POND_SURFACE..POND_SURFACE + 16)
+                    .any(|y| w.get(x, y).material == snow && w.materials.kind(w.get(x, y + 1).material) == MaterialKind::Liquid)
+            })
+            .count();
+        assert!(floating < 6, "{floating} of 60 pond columns had snow floating on water; a raft insulates the pond and it never freezes");
     }
 }

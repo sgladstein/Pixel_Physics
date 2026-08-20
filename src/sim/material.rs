@@ -495,6 +495,58 @@ pub struct MaterialDef {
     #[serde(default)]
     pub breaks_into: String,
 
+    /// Whether a `Liquid` directly beneath this material holds it up —
+    /// **buoyancy, stated as data because the load model cannot infer it.**
+    ///
+    /// `structural.rs`'s and `load.rs`'s "is it standing on the ground"
+    /// predicates accept a `Powder` below as support and deliberately
+    /// exclude `Liquid`, with the reason written down in both: *"floating
+    /// is buoyancy, not support, and nothing here models it."* That was
+    /// true and cost nothing while no material floated. Ice does: a sheet
+    /// on a pond has no solid under any part of it, so its only path to an
+    /// anchor runs sideways to the shore, and the middle of an ordinary
+    /// pond is past any span worth giving a thin crust. Worse, a sheet
+    /// cannot even *form*: freezing is per cell, so the first cell to
+    /// freeze mid-pond is a lone solid with no anchor path at all, at any
+    /// finite span, and it is taken apart the frame after it appears.
+    /// Measured on `scene=coldsnap` before this field existed: 3,969
+    /// freezes over one storm and never more than ten cells of ice
+    /// standing at once, with 382 unsupported failures. Freeze-over could
+    /// not happen.
+    ///
+    /// The alternative was leaving `max_unsupported_span` unset, and it is
+    /// worse than it looks: `load::capacity` reads that sentinel as *"this
+    /// material does not participate in the structural system at all"* and
+    /// returns infinite capacity, so ice would also stop failing under
+    /// load and an ice bridge would hang in the air with nothing under it.
+    /// Exempting it is not the same as floating it.
+    ///
+    /// So this is `CLAUDE.md`'s "when a rule must tell apart two things
+    /// that can look identical, state the difference as data" applied
+    /// literally: geometry cannot distinguish a sheet floating on water
+    /// from a cantilever reaching out over it, and a bit on the material
+    /// can. Opt-in and defaulting to `false`, so **no material that does
+    /// not ask for it can change behaviour** — which is what makes this
+    /// safe to land in the load model at all (see `CLAUDE.md` on seed
+    /// sweeps before changing anything that governs procedural content:
+    /// the sweep is unchanged to the cell, because nothing generated is
+    /// buoyant).
+    ///
+    /// It grants *ground*, not immunity: the cell still owes its own torque
+    /// test and is still judged against `load::capacity`, so a sheet under
+    /// a heavy enough load does give way — measured on `scene=coldsnap`,
+    /// a snow-laden sheet breaks up somewhere between a third and half the
+    /// world's width. What it does *not* owe, unlike a cell resting on
+    /// powder, is `load::bearing_moment`'s footing clamp: a pile carries a
+    /// load through the patch it touches and a narrow patch tips, whereas
+    /// buoyancy is distributed over the whole underside and has no
+    /// eccentricity to tip about. Charging new ice that clamp anyway
+    /// destroyed the sheet as it formed — 333 overload failures on
+    /// two-to-five-cell patches in 600 frames, and the crushed cells then
+    /// broke the chain for the ice above them and took 678 more with them.
+    #[serde(default)]
+    pub floats: bool,
+
     /// How much further this material spans when it is part of the
     /// background mass (`Cell::attached`) rather than standing in front of
     /// it: `effective_span = max_unsupported_span * this` for attached
@@ -719,6 +771,8 @@ pub struct Material {
     /// read via `is_finite`.
     pub intrinsic_temperature: f32,
     pub max_unsupported_span: u16,
+    /// See `MaterialDef::floats`.
+    pub floats: bool,
     /// See `MaterialDef::attached_span_bonus`. Always >= 1.
     pub attached_span_bonus: u16,
     /// See `MaterialDef::fragment_rungs`. Always >= 1.
@@ -965,6 +1019,7 @@ impl From<MaterialDef> for Material {
             cooling_point: def.cooling_point,
             intrinsic_temperature: def.intrinsic_temperature,
             max_unsupported_span: def.max_unsupported_span,
+            floats: def.floats,
             // Floored at 1: 0 would silently make attached rock *weaker*
             // than loose material, which is never what a content author
             // means by leaving a field small.
@@ -1070,17 +1125,15 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/nest.ron"),
     include_str!("../../assets/materials/beetle.ron"),
     // Appended, never inserted -- see the comments above. The water-cycle
-    // milestone's gas phase; ice joins it here (at the end, same rule)
-    // when the freezing half ships.
+    // milestone's three arrivals, in the order their branches merged: the
+    // gas phase, the heat verb, the freezing half. Lava and ice landed on
+    // concurrent branches that each appended here; both kept, lava first --
+    // neither has a pinned convenience constant (the contracts, `STONE`
+    // through `SMOKE` and `RUBBLE = 15`, are all further up), so the only
+    // thing the ordering decided was two ids nothing addresses by number.
     include_str!("../../assets/materials/steam.ron"),
-    // Appended, never inserted -- see the comments above. The heat verb.
-    // Another branch is appending `ice.ron` for the freezing half of the
-    // same milestone; on a merge conflict here, **keep both in either
-    // order** -- neither has a pinned convenience constant (the contracts,
-    // `STONE` through `SMOKE` and `RUBBLE = 15`, are all further up), so
-    // the only thing the ordering decides is two ids nothing addresses by
-    // number.
     include_str!("../../assets/materials/lava.ron"),
+    include_str!("../../assets/materials/ice.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -1149,6 +1202,7 @@ impl MaterialRegistry {
             burns_into: String::new(),
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
+            floats: false,
             breaks_into: String::new(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
@@ -1190,6 +1244,7 @@ impl MaterialRegistry {
             // that breaks free, so this stays unset regardless of what any
             // other material's span is.
             max_unsupported_span: u16::MAX,
+            floats: false,
             breaks_into: String::new(),
             attached_span_bonus: 1,
             fragment_rungs: 5,

@@ -38,11 +38,52 @@ When a cold front arrives, precipitation falls as snow instead. Snow does
 not soak in. It settles, banks up against anything upright, and holds a
 steeper face than sand does.
 
+It has to be a real front for anything to lie. A light flurry lands on
+20-degree ground and is gone as fast as it arrives; a hard fall holds the
+ground it is over cold, and then the drift builds. So the same world can
+have snow that leaves nothing and snow that blankets a hillside, and which
+one you get is how hard it is coming down.
+
+Snow does not lie on open water. A flake landing in a pond has joined the
+pond.
+
 **Snow is temporary by nature.** It survives while the cold that brought
 it is overhead, and when the front moves on, the drifts thaw into
 meltwater over the following seconds — which then behaves like any other
 water, soaking in or running off. Nothing freezes water back into snow;
 only weather makes snow.
+
+A thaw leaves *more* water than the snow looked like it held, and a heavy
+fall melting off can put a shallow flood across a whole hillside for a
+while. That is more than it should be and is a known rough edge, not the
+intended amount.
+
+## Cold snaps freeze standing water
+
+A hard snowfall does not only pile up — **it freezes what it falls on.**
+Standing water under a cold front grows a crust of ice, starting where the
+snow is actually landing and spreading along the surface from there. A
+puddle skins over almost at once. A pond takes a while, in patches that
+widen and join. A lake can be part frozen and part open for a long time,
+and that reads exactly as it should.
+
+What you get is a surface effect, not a solid block: the crust thickens
+downward a few cells and the water underneath stays water. Look closely
+and its underside is ragged, with the odd hole still open.
+
+Ice is real footing. It floats, it carries the snow that drifts onto it,
+and you can walk and build on it — but it is *ice*, not rock. Pile enough
+on a wide sheet and it gives way, and what comes away is crushed ice:
+slush, which floats for a while and then melts like everything else.
+
+And it goes when the cold goes. Ice cannot survive an ordinary day any more
+than snow can, so the moment the front passes the crust is above its
+melting point, and within a few seconds the sheet, the drift on top of it
+and the slush are all water again and the pool is back. Nothing remembers
+that the pond was ever frozen; the cold being gone is the whole of it.
+
+A frozen pond is a way to cross water, and a temporary one. It is worth
+knowing which way the weather is going before you build on it.
 
 ## Wind and storms
 
@@ -89,6 +130,9 @@ a roof; there has to be open air above it for the water to go anywhere.
 
 Thunder — lightning flashes and forks, but the world is silent. Rain does
 not yet erode anything or fill rivers, and there are no seasons — a world's
-weather wanders but does not have a winter. Evaporated water is gone rather
+weather wanders but does not have a winter. A cold snap is the nearest thing
+to one, and it lasts hours rather than months. Ice forms only from standing
+water and only under falling snow: cold alone will not do it, and there is
+no black ice on a clear winter night. Evaporated water is gone rather
 than banked: it does not come back as rain somewhere else, and the world's
 total water only goes down between showers.

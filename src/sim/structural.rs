@@ -1510,13 +1510,31 @@ const DETACH_DEPTH: i32 = 3;
 /// Treating a granular pile as ground is safe in a way that treating solid
 /// as ground is not: powder is under the CA sweep's control, so if it flows
 /// out from underneath, that write dirties the chunk and whatever was
-/// sitting on it gets re-examined. Liquids and gases are excluded — floating
-/// is buoyancy, not support, and nothing here models it.
+/// sitting on it gets re-examined.
+///
+/// **Gases stay excluded; `Liquid` is now excluded only for material that
+/// does not claim to float.** The original rule read "floating is buoyancy,
+/// not support, and nothing here models it", which was true and free while
+/// nothing floated. Ice does, and the claim is a bit on the material rather
+/// than a shape this function could infer — see `MaterialDef::floats` for
+/// what went wrong without it and why the flag is opt-in. The safety
+/// argument for powder carries over unchanged and is the reason this is a
+/// small change rather than a new mechanism: a `Liquid` is under the CA
+/// sweep's control too, so if it flows out from underneath, that write
+/// dirties the chunk and whatever was floating on it is re-examined.
 ///
 /// Only the cell *directly below*: this answers "is it standing on the
 /// ground", not "is there a second, weaker way to span a gap sideways".
 fn is_resting_on_ground(world: &World, x: i32, y: i32) -> bool {
-    world.materials.kind(world.get(x, y + 1).material) == MaterialKind::Powder
+    match world.materials.kind(world.get(x, y + 1).material) {
+        MaterialKind::Powder => true,
+        // Read from the cell being judged, not from the liquid: buoyancy is
+        // a property of the thing floating. One `Vec` index behind a kind
+        // compare that has already failed, so the ordinary case pays
+        // nothing for it.
+        MaterialKind::Liquid => world.materials.get(world.get(x, y).material).floats,
+        _ => false,
+    }
 }
 
 /// Whether `material` participates in the structural system at all —
@@ -1664,6 +1682,135 @@ mod tests {
             scheduler::step(w);
             w.end_step();
         }
+    }
+
+    // ---- buoyancy: `MaterialDef::floats` (the ice milestone) ------------
+
+    /// A raft of ice on water is held up by the water, and the paired
+    /// negative is the whole point of the test: **the same geometry in
+    /// stone is not**.
+    ///
+    /// Geometry cannot tell a sheet floating on a pond from a slab
+    /// suspended in one, which is `CLAUDE.md`'s "when a rule must tell
+    /// apart two things that can look identical, state the difference as
+    /// data" -- so the difference is a bit on the material and this test
+    /// asserts on the bit, not on the shape. A single assertion about ice
+    /// would pass just as well if the predicate had been widened to accept
+    /// any `Liquid` below anything, which is the change that would quietly
+    /// make undercut rock below a lake unfallable.
+    #[test]
+    fn a_floating_solid_is_held_up_by_the_water_under_it_and_a_sinking_one_is_not() {
+        for (name, expect_held) in [("ice", true), ("stone", false)] {
+            let mut w = test_world();
+            let id = w.materials.id_of(name).expect("both materials ship");
+            // A basin with no floor under the middle of the water, so the
+            // only thing beneath the raft is liquid. Walls of bedrock, or
+            // the water would run out from under it and the test would be
+            // measuring drainage.
+            for y in 30..40 {
+                w.set(19, y, Cell::new(material::BEDROCK, 0));
+                w.set(45, y, Cell::new(material::BEDROCK, 0));
+            }
+            for x in 19..=45 {
+                w.set(x, 40, Cell::new(material::BEDROCK, 0));
+            }
+            for x in 20..45 {
+                for y in 32..40 {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+            // A raft in the middle of the span, touching neither wall: the
+            // *only* thing that can hold it is what is underneath.
+            for x in 28..37 {
+                w.set(x, 31, Cell::new(id, 0));
+            }
+            compute_world_distances(&mut w);
+
+            let held = is_resting_on_ground(&w, 32, 31);
+            assert_eq!(
+                held, expect_held,
+                "{name} on water: is_resting_on_ground said {held}, expected {expect_held} -- \
+                 buoyancy is opt-in per material and must not leak to material that never asked"
+            );
+        }
+    }
+
+    /// **Ice participates in the load model**: freeze a bridge over open
+    /// air, take away what holds it up, and it comes apart into snow.
+    ///
+    /// The other half of the buoyancy pair above, and the reason `floats`
+    /// grants *ground* rather than immunity: a sheet on water is supported,
+    /// and a span over nothing is not. Leaving ice's
+    /// `max_unsupported_span` unset would have passed the freeze-over case
+    /// and failed this one -- `load::capacity` reads that sentinel as "not
+    /// in the structural system at all" and returns infinite capacity, so
+    /// the bridge would hang there. See `MaterialDef::floats`.
+    ///
+    /// The debris material is read from the registry rather than named, the
+    /// same way `stone_debris` does it: retargeting ice.ron's
+    /// `breaks_into` should not silently turn this into an assertion about
+    /// a material the engine no longer makes.
+    #[test]
+    fn ice_participates_in_load() {
+        let mut w = test_world();
+        let ice = w.materials.id_of("ice").expect("ice.ron should be embedded");
+        let debris = w.materials.get(ice).breaks_into.expect("ice must define a breaks_into");
+        // Two piers of bedrock with a long ice span between them, in air --
+        // no water anywhere, so nothing floats and the span is carried by
+        // its ends alone.
+        for y in 30..40 {
+            w.set(10, y, Cell::new(material::BEDROCK, 0));
+            w.set(60, y, Cell::new(material::BEDROCK, 0));
+        }
+        for x in 10..=60 {
+            w.set(x, 29, Cell::new(ice, 0));
+        }
+        compute_world_distances(&mut w);
+        run(&mut w, 30);
+        let spanning = (11..60).filter(|&x| w.get(x, 29).material == ice).count();
+        assert!(spanning > 40, "the bridge should stand while both piers hold it: only {spanning} of 49 cells left");
+
+        // Erase one pier. Erasing delivers no load and no impulse -- it is
+        // the cheapest way to ask "was this being held", which is exactly
+        // the question here.
+        for y in 30..40 {
+            w.set(60, y, Cell::EMPTY);
+        }
+        w.schedule_structural_check_around(60, 29);
+        run(&mut w, 240);
+
+        let left = (11..60).filter(|&x| w.get(x, 29).material == ice).count();
+        let snow = (0..64)
+            .flat_map(|x| (0..64).map(move |y| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == debris)
+            .count();
+        assert!(left < spanning, "the bridge lost nothing when its support went: {left} cells against {spanning}");
+        // **The counter, not just the picture.** A span that quietly slid
+        // sideways under the CA sweep and one the load model took down look
+        // the same in a cell count, and only one of them is this mechanism
+        // (`CLAUDE.md`: "did it fire at all" needs a counter).
+        //
+        // Either criterion counts. Measured: the 49-cell cantilever off one
+        // remaining pier goes by **overload**, one event carrying the whole
+        // span, rather than by running past its `max_unsupported_span` --
+        // the bending moment on a span that long exceeds ice's capacity
+        // before the distance does. Asserting specifically on `unsupported`
+        // failed here for that reason, which is worth recording: the two
+        // modes are interchangeable from the player's side and not from the
+        // model's.
+        let f = w.structural_failures;
+        assert!(
+            f.overloaded + f.unsupported > 0,
+            "no structural failure fired at all, so whatever moved the ice was not the load model \
+             (overloaded {}, unsupported {})",
+            f.overloaded,
+            f.unsupported
+        );
+        // Graded debris, not nothing and not one coherent slab: measured
+        // 14 cells of snow off a 49-cell span, the rest going as bodies in
+        // flight. `CLAUDE.md`'s ethos section: a destructive event that
+        // produces no debris is not finished.
+        assert!(snow > 0, "ice that gives way should come away as {} -- graded debris, not nothing", w.materials.get(debris).name);
     }
 
     /// The rule that `compute_world_distances`'s flat mirror had to be told

@@ -1385,18 +1385,25 @@ mod tests {
         }
     }
 
-    /// The Phase 0 probe for the latent snow bug, kept as the bar the ice
-    /// milestone's snow fix must meet (`Reports`' revert-keeps-the-knowledge
-    /// convention, applied forward): snow.ron has no `heat_conductivity`, so
-    /// a cell the storm chilled below its 2°C melting point can never warm
-    /// back up — `diffuse_heat` early-exits at conductivity ≤ 0 — and
-    /// `must_stay_dirty` keeps its chunk awake forever while it waits. The
-    /// wiki's "drifts thaw when the front passes" is therefore only true of
-    /// cells the storm never chilled below 2°C. Un-ignore when snow gains
-    /// real conductivity (the ice milestone), and expect it to pass in well
-    /// under the frame budget here.
+    /// The Phase 0 probe for the latent snow bug, **now the guard for its
+    /// fix** (`Reports`' revert-keeps-the-knowledge convention, applied
+    /// forward). It shipped `#[ignore]`d against a real gap: snow.ron had
+    /// no `heat_conductivity`, so a cell the storm chilled below its 2°C
+    /// melting point could never warm back up — `diffuse_heat` early-exits
+    /// at conductivity ≤ 0 — and `must_stay_dirty` kept its chunk awake
+    /// forever while it waited. The wiki's "drifts thaw when the front
+    /// passes" was therefore only true of the cells a storm never actually
+    /// chilled.
+    ///
+    /// Measured across the fix: **panicked at the 2000-frame budget
+    /// before, thaws at frame 3 after** (snow.ron's 0.08 conductivity pulls
+    /// a lone flake ≈2°/visit toward ambient: -6 → -4 → -2 → 0 → 2, and
+    /// 2°C is its melting point). The budget below is set from that with
+    /// two orders of headroom rather than from the old 2000, so it is a
+    /// bar rather than a formality: it fails if the conductivity is
+    /// dropped again, and it fails if a thaw ever takes seconds instead of
+    /// a few frames.
     #[test]
-    #[ignore = "fails today: snow has no heat_conductivity, so a chilled flake can neither warm nor melt — the ice milestone fixes snow.ron and un-ignores this"]
     fn a_snow_drift_chilled_by_a_storm_thaws_after_it_passes() {
         let mut w = test_world();
         let snow = w.materials.id_of("snow").unwrap();
@@ -1408,14 +1415,16 @@ mod tests {
         // looks like a bug in the code).
         w.set(30, 63, Cell::new(snow, 0).with_temperature(-6));
 
-        for _ in 0..2000 {
+        // 120 rather than 2000: see the doc above -- the measurement is 3.
+        for frame in 0..120 {
             crate::sim::parallel::step(&mut w);
             if w.get(30, 63).material != snow {
                 assert_eq!(w.phase_changes.melted, 1, "the flake left (30,63) without melting — scene broken again?");
+                println!("thawed at frame {frame}");
                 return;
             }
         }
-        panic!("a chilled flake never thawed in 2000 frames after the storm passed");
+        panic!("a chilled flake never thawed in 120 frames after the storm passed");
     }
 
     #[test]

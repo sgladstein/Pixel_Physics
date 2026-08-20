@@ -43,3 +43,10 @@ that fall. Boiled water is moved, not destroyed: what leaves a heated pool
 as steam comes back as exactly that much water, so a sealed chamber over a
 boiling pool rains its own water back instead of filling up with gas
 forever.
+
+**Ice** is water's other phase, and it comes from the other direction:
+weather, not heat. A hard snowfall freezes standing water into a floating
+crust that carries snow and bears weight, and the crust turns back into
+water within seconds of the front passing — see
+[Weather](weather.md#cold-snaps-freeze-standing-water). It is the only
+solid in the world that floats, and the only one that will not last a day.
