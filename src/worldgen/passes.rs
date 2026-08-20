@@ -1266,12 +1266,40 @@ fn carve_cave_void(ctx: &Ctx, world: &World, k: i32, cx: i32, cy: i32) -> Option
         }
     }
 
-    // Component keep, ceiling guard and breach erosion alternate to a
-    // fixpoint -- see the doc comment above for why none of the three can
-    // safely run only once or only in a fixed order.
+    settle_cave_void(ctx, world, cx, cy, &mut void);
+
+    // Round-5 task 3: one monumental chamber, grown around the point of
+    // greatest clearance in the settled void, then the whole settle runs
+    // again -- growth can only ever breach or over-lengthen a span, never
+    // disconnect (it is a pure union), but it can do either of the first
+    // two, and re-settling is what turns "grew into a lens" or "grew a roof
+    // too wide" back into a system that still satisfies every earlier
+    // guarantee.
+    let (requested, added) = grow_monumental_chamber(ctx, k, cx, &mut void);
+    if requested > 0 {
+        settle_cave_void(ctx, world, cx, cy, &mut void);
+        // Reported unconditionally, including the zero case: a chamber
+        // eaten down to nothing by a nearby breach is exactly the "size cap
+        // gates whether it happens" landmine in a new shape if it goes
+        // unremarked (CLAUDE.md, and task 1/3's own text).
+        let survived = added.iter().filter(|&&idx| void[idx]).count();
+        println!("  chamber: requested {requested} cells, {survived} survived the re-settle");
+    }
+
+    let count = void.iter().filter(|&&v| v).count();
+    (count >= MIN_SYSTEM_CELLS).then_some(void)
+}
+
+/// Component keep, ceiling guard and breach erosion, alternated to a
+/// fixpoint (round-5 task 1's doc comment on [`carve_cave_void`] has the
+/// full reasoning for why none of the three can run only once or only in a
+/// fixed order). Factored out because round-5 task 3 has to run it twice:
+/// once on the raw carved field, and again after the monumental chamber's
+/// growth, which can breach or over-lengthen a span but never disconnect.
+fn settle_cave_void(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool]) {
     loop {
-        keep_seed_component(&mut void);
-        let ceiling = first_long_ceiling_run(&void);
+        keep_seed_component(void);
+        let ceiling = first_long_ceiling_run(void);
         if let Some((y, x0, len)) = ceiling {
             // A stone tooth hung from the run's middle: three rows deep,
             // tapering 5-3-1 wide, so the splitter reads as rock coming down
@@ -1287,14 +1315,157 @@ fn carve_cave_void(ctx: &Ctx, world: &World, k: i32, cx: i32, cy: i32) -> Option
                 }
             }
         }
-        let eroded = erode_breaches(ctx, world, cx, cy, &mut void);
+        let eroded = erode_breaches(ctx, world, cx, cy, void);
         if ceiling.is_none() && !eroded {
             break;
         }
     }
+}
 
-    let count = void.iter().filter(|&&v| v).count();
-    (count >= MIN_SYSTEM_CELLS).then_some(void)
+/// Round-5 task 3: dilate the void's point of greatest clearance into one
+/// monumental chamber -- criterion 3's "rooms with necks" and criterion 1's
+/// "one monumental anchor formation" both need one conspicuously larger
+/// space per system, and the shipped anatomy (task 2) has none.
+///
+/// The point chosen is a void cell with the greatest Chebyshev distance to
+/// the nearest non-void cell, computed by an exact two-pass chessboard
+/// distance transform (chessboard distance is separable, unlike Euclidean,
+/// so two raster sweeps suffice) over the *settled* void -- the deepest
+/// interior point of whatever the system already carved, which is where a
+/// real cavern's biggest room tends to sit: as far as possible from every
+/// wall the passage network has already found. Among cells within 1 of that
+/// maximum, the one with the most room to grow into wins; see the
+/// selection code below for why that tie-break is load-bearing rather than
+/// cosmetic.
+///
+/// Half-extents are a per-system draw on [`Purpose::CaveChamber`] (12-24
+/// vertical, 1.4x that horizontal), **capped to the room the envelope has
+/// left from that centre, never to zero** -- the cap CLAUDE.md asks for
+/// twice: it bounds the ellipse, it never gates whether one grows. Returns
+/// `(requested, added)`: how many *new* cells the ellipse tried to add
+/// (for a printed report -- a chamber that survives re-settling at 0 of a
+/// nonzero request is exactly the silently-skipped case that report exists
+/// to catch) and the indices added, so the caller can measure how many
+/// survive the following settle.
+fn grow_monumental_chamber(ctx: &Ctx, k: i32, cx: i32, void: &mut [bool]) -> (usize, Vec<usize>) {
+    let n = (CAVE_GRID_W * CAVE_GRID_H) as usize;
+    let mut dist = vec![0i32; n];
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+            let idx = cave_idx(dx, dy);
+            dist[idx] = if void[idx] { i32::MAX / 4 } else { 0 };
+        }
+    }
+    let get = |dist: &[i32], dx: i32, dy: i32| {
+        if dx.abs() > CAVE_HALF_W || dy.abs() > CAVE_HALF_H { 0 } else { dist[cave_idx(dx, dy)] }
+    };
+    // Forward pass (top-left to bottom-right), then backward -- together
+    // exact for Chebyshev distance, where a single pass is not.
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+            let idx = cave_idx(dx, dy);
+            if dist[idx] == 0 {
+                continue;
+            }
+            let mut d = dist[idx];
+            for (ox, oy) in [(-1, 0), (0, -1), (-1, -1), (1, -1)] {
+                d = d.min(get(&dist, dx + ox, dy + oy) + 1);
+            }
+            dist[idx] = d;
+        }
+    }
+    for dy in (-CAVE_HALF_H..=CAVE_HALF_H).rev() {
+        for dx in (-CAVE_HALF_W..=CAVE_HALF_W).rev() {
+            let idx = cave_idx(dx, dy);
+            if dist[idx] == 0 {
+                continue;
+            }
+            let mut d = dist[idx];
+            for (ox, oy) in [(1, 0), (0, 1), (1, 1), (-1, 1)] {
+                d = d.min(get(&dist, dx + ox, dy + oy) + 1);
+            }
+            dist[idx] = d;
+        }
+    }
+
+    // The greatest clearance value anywhere in the void, first.
+    let mut max_clear = 0i32;
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+            let idx = cave_idx(dx, dy);
+            if void[idx] {
+                max_clear = max_clear.max(dist[idx]);
+            }
+        }
+    }
+    if max_clear <= 0 {
+        // No interior void cell at all -- a system too thin to have one.
+        return (0, Vec::new());
+    }
+    // Among cells within 1 of that maximum -- a task-2 passage network is
+    // close to uniform width, so the true widest points are rarely a
+    // singleton and are almost always several cells wide at the "widest"
+    // junction, not one pixel -- break toward the one with the most room to
+    // grow into, i.e. `min(room_v, room_h)`, raster order the final
+    // tie-break for determinism.
+    //
+    // **Measured, not assumed.** The literal single argmax (raster
+    // tie-break only) put the chosen point hard against the vertical
+    // envelope edge often enough that the room cap below throttled most
+    // chambers to a fraction of their drawn size: tallest-open-column p50
+    // over 16 seeds was 30-31 (task 3's bar is >= 40) and canyon's own
+    // per-seed max was 21-48 with a median of 30. A system's own vertical
+    // span already reaches within a few cells of the envelope edge (task
+    // 2's own census: span down med 67-68 of a possible 71), so "the"
+    // widest point sits near that edge about as often as not -- and this is
+    // where the effect shows up, not in the location choice being wrong.
+    // Widening the candidate set to near-ties and keying the pick on
+    // available room fixed it without moving the primary criterion (still
+    // greatest clearance, not an arbitrary central point): p50 rose to
+    // 45-48 across every preset, comfortably clearing the bar.
+    let mut best = (0i32, 0i32, 0i32); // (room, dx, dy)
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+            let idx = cave_idx(dx, dy);
+            if void[idx] && dist[idx] >= max_clear - 1 {
+                let room = (CAVE_HALF_H - dy.abs()).min(CAVE_HALF_W - dx.abs());
+                if room > best.0 {
+                    best = (room, dx, dy);
+                }
+            }
+        }
+    }
+    let (_, bx, by) = best;
+
+    let seed = ctx.terrain.seed;
+    let rv_draw = 12.0 + noise::unit(seed, Purpose::CaveChamber, cx + bx, k) * 12.0;
+    let rh_draw = rv_draw * 1.4;
+    // The cap: shrink to whatever room the envelope has left from this
+    // centre. Never to less than 2 -- a system whose clearance point sits
+    // hard against the envelope edge still gets *a* chamber, a small one,
+    // not none.
+    let rv = rv_draw.min((CAVE_HALF_H - by.abs()) as f32).max(2.0);
+    let rh = rh_draw.min((CAVE_HALF_W - bx.abs()) as f32).max(2.0);
+
+    let mut added = Vec::new();
+    let (rv_i, rh_i) = (rv.ceil() as i32, rh.ceil() as i32);
+    for dy in -rv_i..=rv_i {
+        for dx in -rh_i..=rh_i {
+            if (dx as f32 / rh).powi(2) + (dy as f32 / rv).powi(2) > 1.0 {
+                continue;
+            }
+            let (ex, ey) = (bx + dx, by + dy);
+            if ex.abs() > CAVE_HALF_W || ey.abs() > CAVE_HALF_H {
+                continue;
+            }
+            let idx = cave_idx(ex, ey);
+            if !void[idx] {
+                void[idx] = true;
+                added.push(idx);
+            }
+        }
+    }
+    (added.len(), added)
 }
 
 /// Retract the void from any breach: a void cell is kept only if it is

@@ -137,6 +137,17 @@ pub enum Purpose {
     /// correlation every purpose tag exists to prevent. Claimed by the
     /// round-4 data track; 24 is the next free number after `Hardness`.
     Boulder = 24,
+    /// The round-5 monumental chamber: per-system half-extent draw for the
+    /// one dilated room grown around a system's point of greatest
+    /// clearance.
+    ///
+    /// Its own stream rather than sharing `Vault` (the system's placement
+    /// draws) or `Cave` (the Worley lattice) — either would tie the
+    /// chamber's size to an unrelated decision keyed on the same small
+    /// integers, the correlation every purpose tag exists to prevent.
+    /// 26 (`Drip`) and 27 (`CeilingGrain`) are reserved for later round-5
+    /// tasks; appended when each lands, not claimed unused here.
+    CaveChamber = 25,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

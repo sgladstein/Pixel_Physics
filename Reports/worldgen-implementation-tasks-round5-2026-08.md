@@ -485,3 +485,61 @@ the plan against "the slide rule powder actually obeys," and it was
 checking a rule that was not that one. Confirmed fixed: the reproduction
 no longer moves, and the full `cargo test --release` suite (615+31+2+8
 tests) passes with both task 1 and task 2 landed.
+
+### R5-3 — Task 3's chamber closes most of R5-1's contrast gap, and needed a tie-break the spec's literal reading did not have
+
+Landed as specced -- greatest-Chebyshev-clearance point, per-system draw on
+`Purpose::CaveChamber` (12-24 vertical half-extent, 1.4x horizontal),
+capped to room, re-settled after growth -- the first build measured
+tallest-open-column p50 **30-31** over 16 seeds (bar: >= 40), a clear miss.
+Instrumented and reverted rather than guessed at: printing the chosen
+point, its drawn half-extents and its room cap showed the room cap was the
+active constraint on *most* draws, not the draw itself (draws matched the
+specified 12-24 range). The reason is geometric, not a bug: task 2's own
+census already says a system's vertical span reaches within a few cells of
+the envelope's edge in the typical case (span down med 67-68 of a possible
+71), so the single literal argmax of clearance -- raster tie-break only --
+lands near that edge about as often as not, where the "cap the ellipse to
+the room left" rule (task 3's own text) throttles it hard. The location
+rule was not wrong; the *tie-break* on it was silently picking cramped
+points as often as roomy ones among near-equal candidates, because a
+task-2 passage network is close to uniform width and rarely has a single
+best cell.
+
+Fix, within the same rule: among void cells within 1 of the maximum
+clearance (not a singleton in this geometry), prefer the one with the most
+room to grow into (`min(room_v, room_h)`), raster order the final
+tie-break. This does not move the primary criterion -- still greatest
+clearance, never an arbitrary central point -- it only resolves which
+near-tied cell wins. Measured after: tallest-open-column p50 rose to
+**45-48** across every preset (bar >= 40, met with headroom), and
+per-system contrast (task 2's own stalled bar, R5-1) rose with it --
+p10 over 16 seeds is now **362-414%** (3.6-4.1x) for arid, canyon, rolling
+and terraced, against R5-1's 2.2-2.6x. `wetland` alone is still short at
+**243%** (2.43x). Chamber growth's own reporting (`requested`/`survived`,
+printed whenever a chamber is attempted) never showed a zero-survival
+case across the full sweep -- worst measured was 66% of a request
+surviving re-settle, so the "grew into nothing" failure mode task 3 warns
+about is exercised (0 teeth-drop-equivalent silent failures) without
+having actually happened yet in this seed range; the report exists for
+when it does.
+
+**`wetland`'s contrast p10 is an open gap, not closed by this task.**
+Median contrast for `wetland` was already the one preset reading lower
+than the rest back in task 2 (280 vs 300 x100 for every other preset), so
+this is consistent with `wetland` differing in some way this round has not
+traced further (its relief or character sampling puts systems in a
+slightly different part of the massif, most likely) rather than a new
+effect from task 3. Left as a known gap rather than chased further within
+this task's budget; a future session re-measuring cave criteria should
+re-check `wetland` specifically before assuming the round-5 chamber work
+closed every preset evenly.
+
+Gates: `cargo test --release` and `cargo test --release --test worldgen`
+both green (the at-rest and seal tests exercise the chamber path directly,
+since it is default-on and every forced-vault test world now grows one);
+`cargo clippy --all-targets -- -D warnings` clean; `cargo run --release
+--example ascii` shows no timing change (chambers are genesis-only).
+Strips: `target/filmstrips/r5t3-canyon-s1-{wide,zoom}.png` -- the zoomed
+one shows a solid dark oval chamber several times the diameter of the
+passage web it opens off, the "rooms with necks" criterion in one frame.
