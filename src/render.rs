@@ -249,6 +249,29 @@ const GRAIN_SMOOTH_PERIOD: u64 = 20;
 /// `GrainMode::Motion`.
 const MOTION_GRAIN_LIFT: f32 = 0.10;
 
+/// Moving water reads as foam: a `FLAG_FLOWING` liquid cell blends this
+/// far toward `FOAM_TINT`, in every grain mode.
+///
+/// The one-column spring prototype made the case by failing it: a real
+/// waterfall rendered as a barely-visible navy thread, because water's
+/// palette is dark and nothing distinguished falling water from a still
+/// pool's edge (owner: "very little water" — looking at 19,000 cells of
+/// through-flow). White water is *how humans read moving water* at any
+/// distance; the pool stays deep because its interior genuinely does not
+/// move (`FLAG_FLOWING` clears on settle), so a fall is a bright ribbon
+/// into a dark basin, which is what a waterfall looks like.
+///
+/// A pure function of the cell's own flag — no neighbour reads, so no
+/// stale pixels at touched-chunk borders, and the dirty-rect skip's
+/// pixel-identity argument holds: the flag's own transitions (move, or
+/// the settle-clear write) both dirty the chunk that owns the cell.
+const FOAM_BLEND: f32 = 0.45;
+
+/// The colour moving water blends toward: pale, slightly blue-cold —
+/// aerated water, not paint-white, so a fall still reads as water against
+/// snow or sky.
+const FOAM_TINT: [f32; 3] = [205.0, 226.0, 242.0];
+
 
 /// How far above ambient a cell needs to be for `HEAT_GLOW_RANGE` to
 /// saturate the warm-tint blend fully. Oil burns at 900C, so this is a
@@ -1756,6 +1779,16 @@ impl Renderer {
             let strength = (1.0 - dimming) + dimming * fill.clamp(0.0, 1.0);
             for c in &mut rgb {
                 *c = (*c as f32 * strength).round() as u8;
+            }
+        }
+
+        // Foam: moving water blends toward pale — see `FOAM_BLEND`. Before
+        // the grain so the jitter textures the foam too, after the fill
+        // dimming so a thin flying sheet is pale *and* faint rather than
+        // opaque white.
+        if world.materials.kind(cell.material) == material::MaterialKind::Liquid && cell.flowing() {
+            for (c, foam) in rgb.iter_mut().zip(FOAM_TINT) {
+                *c = (*c as f32 + (foam - *c as f32) * FOAM_BLEND).round() as u8;
             }
         }
 
