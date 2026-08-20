@@ -1455,11 +1455,12 @@ impl App {
     /// silently — the line describing the gnome's dig outlived the
     /// mechanism it described by two commits, still telling players to
     /// click *near him* long after proximity meant anything.
-    fn help_lines() -> [&'static str; 25] {
+    fn help_lines() -> [&'static str; 27] {
         [
             "LEFT CLICK PAINT    RIGHT CLICK ERASE",
             "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
             "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
+            "F6 NEW WORLD    F7 NEXT PRESET    F8 PREVIOUS SEED",
             "",
             "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
             "  SUMMONING ARMS HIS DIG: LMB CUTS AT THE YELLOW RING, RMB ERASES",
@@ -1475,6 +1476,7 @@ impl App {
             "B STAMP A 200x160 REFERENCE ROOM (BRUSH = WALL THICKNESS)",
             "F1 CHUNK OVERLAY    G WATER GRAIN",
             "L ORGANISM OVERLAY  (CELL TYPE/RESOURCE/CANOPY)",
+            "; DEPTH LIGHT ON/OFF    0 REVEAL CAVES  (ALSO F10/F11)",
             "",
             "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
             "             ENTER PIN AND CLOSE, S SAVE)",
