@@ -194,6 +194,16 @@ pub struct World {
     /// rather than `App` so the renderer (which takes `&World`) can draw
     /// it and so the sim step stays a pure function of (world, input).
     pub player: Option<crate::sim::player::Player>,
+    /// Where water crosses the plane of the world — see `spring.rs`'s
+    /// module doc for the design and the off-plane-flux decision it
+    /// implements. Plain `Vec`s in insertion order, the `chunk_bodies`
+    /// determinism reasoning; registered via `add_spring`/`add_drain`
+    /// (worldgen's placement pass later, harnesses and `viewshot` today).
+    pub springs: Vec<(i32, i32)>,
+    pub drains: Vec<(i32, i32)>,
+    /// Spring/drain flow accounting — the counter that gets printed next
+    /// to every waterfall image.
+    pub spring_ledger: crate::sim::spring::SpringLedger,
     /// M16: growing plant tips (and M17/M18's structural checks and
     /// creature ticks), due soonest at the top -- a min-heap keyed on
     /// `ActiveSite::next_frame`, see `scheduler::step`'s own doc for why
@@ -593,6 +603,9 @@ impl World {
             rng: Rng::default(),
             chunk_bodies: Vec::new(),
             player: None,
+            springs: Vec::new(),
+            drains: Vec::new(),
+            spring_ledger: crate::sim::spring::SpringLedger::default(),
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             pending_evaporation: std::collections::HashSet::new(),
@@ -2150,6 +2163,24 @@ impl World {
 
     pub fn chunk_count(&self) -> usize {
         self.chunks.len()
+    }
+
+    /// Register a spring outlet. Refuses past `spring::MAX_SPRINGS` — the
+    /// budget is enforced here, at registration, loudly, rather than by
+    /// silently skipping springs at step time (a cap bounds work; it must
+    /// not quietly gate whether a registered thing happens).
+    pub fn add_spring(&mut self, x: i32, y: i32) -> bool {
+        if self.springs.len() >= crate::sim::spring::MAX_SPRINGS {
+            return false;
+        }
+        self.springs.push((x, y));
+        true
+    }
+
+    /// Register a drain cell — the spring's inverse; no budget, since a
+    /// drain only ever removes work.
+    pub fn add_drain(&mut self, x: i32, y: i32) {
+        self.drains.push((x, y));
     }
 
     /// Number of chunks that will be swept next step. Drives the debug overlay

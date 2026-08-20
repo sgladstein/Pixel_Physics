@@ -74,6 +74,9 @@ pub fn step(world: &mut World) {
     // anything notices it. Both drivers, deliberately: `CLAUDE.md`'s "two
     // drivers, and the app runs the parallel one".
     super::weather::step(world);
+    // Springs beside weather and for the same reason: water that arrives
+    // this frame is material the sweep then moves. Both drivers.
+    super::spring::step(world);
 
     // Sweeping right-to-left on alternate frames cancels the directional bias
     // that a fixed scan order would otherwise bake into every pile and flow.

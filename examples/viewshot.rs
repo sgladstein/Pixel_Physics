@@ -42,6 +42,7 @@ struct Args {
     rain: String,
     mine: bool,
     light: pixel_physics::render::TerrainLight,
+    spring: bool,
     out: String,
 }
 
@@ -58,6 +59,7 @@ fn main() {
         rain: String::new(),
         mine: false,
         light: pixel_physics::render::TerrainLight::default(),
+        spring: false,
         out: "target/filmstrips/viewshot.png".to_string(),
     };
     for arg in std::env::args().skip(1) {
@@ -88,6 +90,12 @@ fn main() {
                     other => panic!("unknown light {other:?} (depth|flat)"),
                 }
             }
+            // `spring=1` installs one spring at the tallest cliff rim and a
+            // drain at the lowest basin — the shipped mechanics from
+            // `sim/spring.rs`, placed by the same scan worldgen's placement
+            // pass will refine later. The ledger prints beside the image so
+            // "did it fire" is a number, not a reading of pixels.
+            "spring" => a.spring = v != "0",
             "out" => a.out = v.to_string(),
             _ => panic!("unknown argument {arg:?}"),
         }
@@ -150,6 +158,46 @@ fn main() {
             field::sun_elevation(end(chosen)),
             end(chosen) / day
         );
+    }
+
+    if a.spring {
+        // The tallest single-sided drop in the world, measured over a
+        // 12-column window on the raw surface — where an aquifer would
+        // daylight. Worldgen's placement pass replaces this scan with the
+        // planned water table; the registration and mechanics are the
+        // shipped ones either way.
+        let surface = |x: i32| -> i32 {
+            (0..WORLD_HEIGHT as i32)
+                .find(|&y| {
+                    matches!(
+                        world.materials.kind(world.get(x, y).material),
+                        pixel_physics::sim::material::MaterialKind::Solid | pixel_physics::sim::material::MaterialKind::Powder
+                    )
+                })
+                .unwrap_or(WORLD_HEIGHT as i32 - 1)
+        };
+        let heights: Vec<i32> = (0..WORLD_WIDTH as i32).map(surface).collect();
+        let mut best = (0i32, 1i32, 0i32); // (rim_x, dir, drop)
+        for x in 0..WORLD_WIDTH as i32 {
+            for dir in [1i32, -1] {
+                let mut deepest = 0;
+                for d in 1..=12 {
+                    let nx = (x + dir * d).clamp(0, WORLD_WIDTH as i32 - 1);
+                    deepest = deepest.max(heights[nx as usize] - heights[x as usize]);
+                }
+                if deepest > best.2 {
+                    best = (x, dir, deepest);
+                }
+            }
+        }
+        let (rim, dir, drop) = best;
+        let outlet = ((rim + dir).clamp(0, WORLD_WIDTH as i32 - 1), heights[rim as usize]);
+        assert!(world.add_spring(outlet.0, outlet.1));
+        // The drain sits at the world's lowest floor — the basin the fall
+        // ultimately feeds.
+        let low = (0..WORLD_WIDTH as i32).max_by_key(|&x| heights[x as usize]).unwrap_or(0);
+        world.add_drain(low, heights[low as usize] - 1);
+        println!("spring at ({}, {}) over a {drop}-cell drop; drain at ({low}, {})", outlet.0, outlet.1, heights[low as usize] - 1);
     }
 
     // Let it settle before looking. Generated terrain is meant to be at rest
@@ -263,4 +311,10 @@ fn main() {
     }
     image::save_buffer(&a.out, &sheet, sw, sh, image::ColorType::Rgba8).expect("writing the sheet");
     println!("contact sheet ({sw}x{sh}, {} viewport shots): {}", a.shots, a.out);
+    if a.spring {
+        // The counter next to the picture. A fall on screen with emitted=0
+        // would be pond water wandering into frame, not the spring working.
+        let l = world.spring_ledger;
+        println!("spring ledger: emitted {} drained {} throttled {} (fill units; {} cells emitted)", l.emitted, l.drained, l.throttled, l.emitted / pixel_physics::sim::material::LIQUID_FULL as u64);
+    }
 }
