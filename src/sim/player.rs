@@ -149,6 +149,14 @@ pub struct Tuning {
     /// Ticks between strokes. Long enough that swimming reads as a series
     /// of pulls rather than a thruster.
     pub stroke_cooldown: u8,
+    /// Tallest lip, in cells, that he can catch at the top of a jump and
+    /// pull himself up over.
+    ///
+    /// The step-up's airborne sibling, and fenced in by the four conditions
+    /// at its call site rather than by this number — in particular it can
+    /// only fire onto a surface he can actually stand on, so a flat wall is
+    /// unmantle-able at any reach. Set to 0 to switch it off entirely.
+    pub mantle_reach: u8,
     /// How fast he goes up, down and along a tree, in cells per tick.
     ///
     /// Set directly rather than accelerated toward, and slower than
@@ -216,6 +224,7 @@ impl Default for Tuning {
             swim_damp: 0.84,
             stroke_impulse: 1.3,
             stroke_cooldown: 7,
+            mantle_reach: 4,
             climb_speed: 0.9,
             surface_hop: 0.75,
             dig_yield: 0.35,
@@ -987,27 +996,65 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
             if rect_free(world, &bodies, nxi, nyi, wade) {
                 p.x = next_x;
             } else {
-                // Step-up: try the same horizontal move lifted by up to
-                // `step_up` whole cells. Grounded only — the mid-air
-                // version is a climb, not a step.
+                // Lift the same horizontal move over whatever blocked it,
+                // by up to a few whole cells. Three cases, and they differ
+                // in how far and in what they demand of the landing.
+                //
+                // **Grounded** is the original step-up: rubble and rough
+                // terrain are the norm here, and stopping dead at a
+                // two-cell bump feels sticky.
+                //
+                // **In the water** is the haul-out. A swimmer is never
+                // grounded (see the `grounded` probe's `!p.swimming`), so
+                // pressing into the bank of a deep pool found no floor to
+                // step up from and he simply stopped against the wall.
+                // Water is the floor in that case: it holds him at a
+                // height, which is the thing step-up needs, and the reason
+                // this is not a general airborne climb.
+                //
+                // **Airborne** is the mantle — catching a lip at the top of
+                // a jump and pulling up over it — and it is fenced in on
+                // four sides, because an unfenced version is a wall climb:
+                //   - at or past the apex (`vy >= 0`); mantling on the way
+                //     up would let him run up a wall,
+                //   - *pushing into* the ledge, so a dead drop alongside a
+                //     wall does not snap him onto it,
+                //   - not while climbing — inside a tree the ladder owns
+                //     the vertical axis,
+                //   - and the landing must be a real surface. That last one
+                //     is what actually makes it safe rather than merely
+                //     tuned: a flat wall offers no footing at any lift, so
+                //     nothing ever fires against one, at any reach.
+                let mantling = !p.grounded && !floating && !p.climbing && p.vy >= 0.0 && ((step_x > 0.0 && input.right) || (step_x < 0.0 && input.left));
+                let lift_limit = if p.grounded || floating {
+                    tuning.step_up as i32
+                } else if mantling {
+                    tuning.mantle_reach as i32
+                } else {
+                    0
+                };
                 let mut climbed = false;
-                // Grounded *or* in the water. On land the mid-air version
-                // would be a climb, which is why this was grounded-only --
-                // but a swimmer is never grounded (see the `grounded`
-                // probe's own `!p.swimming`), so pressing into the bank of
-                // a deep pool found no floor to step up from and he simply
-                // stopped against the wall. Water is the floor here: it
-                // holds him at a height, which is the thing step-up needs
-                // and the reason this is not a general airborne climb.
-                if p.grounded || floating {
-                    for lift in 1..=tuning.step_up as i32 {
-                        if rect_free(world, &bodies, nxi, nyi - lift, wade) {
-                            p.x = next_x;
-                            p.y -= lift as f32;
-                            climbed = true;
-                            break;
+                for lift in 1..=lift_limit {
+                    if !rect_free(world, &bodies, nxi, nyi - lift, wade) {
+                        continue;
+                    }
+                    if mantling {
+                        let lands_on_something = (0..PLAYER_WIDTH)
+                            .any(|dx| matches!(footing(world, &bodies, nxi + dx, nyi - lift + PLAYER_HEIGHT), Footing::Hard | Footing::Soft));
+                        if !lands_on_something {
+                            continue;
                         }
                     }
+                    p.x = next_x;
+                    p.y -= lift as f32;
+                    if mantling {
+                        // Arriving, not still falling. Without this he
+                        // keeps his descent speed and drops straight back
+                        // off the lip he just pulled onto.
+                        p.vy = 0.0;
+                    }
+                    climbed = true;
+                    break;
                 }
                 if !climbed {
                     p.vx = 0.0;
@@ -2092,6 +2139,75 @@ mod tests {
             through_leaves < bare * 0.6,
             "a crown should take real speed off a fall: bare landing at {bare:.2} cells/tick, through leaves {through_leaves:.2}"
         );
+    }
+
+    /// A stone floor with a wall on the right whose top is at `lip_y`.
+    /// `capped` decides whether there is anything to stand on up there.
+    fn world_with_lip(lip_y: i32, capped: bool) -> World {
+        let mut world = world_with_floor();
+        let bottom = if capped { lip_y } else { 0 };
+        for y in bottom..88 {
+            for x in 80..=127 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        world
+    }
+
+    #[test]
+    fn a_lip_just_out_of_reach_at_the_apex_is_mantled() {
+        // A wall a couple of cells taller than a full jump clears: his
+        // feet reach row 66 at the apex against a lip at 64. Without the
+        // mantle he bonks and slides back down it.
+        let mut world = world_with_lip(64, true);
+        world.player = Some(Player::at(60, 80));
+        let mut input = PlayerInput { right: true, jump_held: true, jump_pressed: true, ..Default::default() };
+        for _ in 0..200 {
+            tick(&mut world, input);
+            input.jump_pressed = false;
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(
+            p.grounded && p.y.round() as i32 + PLAYER_HEIGHT <= 64,
+            "expected him up on the ledge at row 64, feet at {} grounded {}",
+            p.y.round() as i32 + PLAYER_HEIGHT,
+            p.grounded
+        );
+    }
+
+    #[test]
+    fn a_wall_with_no_top_is_not_mantled() {
+        // The clause that keeps the mantle from being a wall climb, and the
+        // one that makes the reach safe to raise. A face with nothing to
+        // stand on offers no footing at any lift, so nothing fires against
+        // it however hard he pushes.
+        let mut world = world_with_lip(0, false);
+        world.player = Some(Player::at(60, 80));
+        let mut input = PlayerInput { right: true, jump_held: true, jump_pressed: true, ..Default::default() };
+        let mut apex = world.player.as_ref().unwrap().y;
+        for i in 0..400 {
+            tick(&mut world, input);
+            // Re-press every so often, so he is jumping at it repeatedly
+            // rather than getting one attempt.
+            input.jump_pressed = i % 30 == 0;
+            apex = apex.min(world.player.as_ref().unwrap().y);
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.x < 80.0, "he climbed a wall he should not have: x={:.1}", p.x);
+        assert!(apex > 40.0, "he ratcheted up the face: reached y={apex:.1}");
+    }
+
+    #[test]
+    fn a_dead_drop_beside_a_ledge_does_not_snap_him_onto_it() {
+        // Pushing into it is required. Falling past a ledge with no input
+        // must read as falling past it.
+        let mut world = world_with_lip(64, true);
+        world.player = Some(Player::at(76, 20));
+        for _ in 0..300 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let p = world.player.as_ref().unwrap();
+        assert_eq!(p.y.round() as i32 + PLAYER_HEIGHT, 88, "he should have fallen to the floor beside the ledge");
     }
 
     #[test]
