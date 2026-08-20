@@ -149,3 +149,55 @@ plumbing, the boulder realise pass from markers (spec'd pattern: clone
 `pockets()`'s collect-verify-write shape), sweep re-baselining, and
 per-preset rate tuning *once the frontier session has established the
 tuning is monotone* (each knob moves its own thing in one direction).
+
+## Status, 2026-08: core landed (stage 1), tuning session record
+
+The core is implemented (`src/worldgen/erosion.rs`, hardness in
+`column::Terrain::surface_hardness` / `HardnessField`) and wired into
+`plan_all` behind `world_age`, **default 0.0 everywhere** — a guaranteed
+bit-exact no-op (`plan_all_at_age_zero_matches_plan` pins it), so nothing
+changes for any shipped preset until per-preset ages are deliberately
+flipped on with the sweep re-baseline. That flip is stage 2.
+
+What the first tuning session established, in strips (canyon s1/s7, arid
+s1, rolling s1 at ages 0/1/2, `target/filmstrips/erosion3_*`):
+
+- **The stable-angle contrast is the picture.** First rates (soft 0.9,
+  hard bonus 2.6) converged every face to ~2.7 cells/cell — 70°, still
+  reads plumb; the probe showed 1,848 cells of height moved while only
+  1.5% of strip pixels changed. A picture cannot distinguish "weak" from
+  "dead"; the probe (`erosion_probe`, `--ignored --nocapture`) can.
+  Landed: soft 0.55, hard bonus 4.5.
+- **Threshold rules never round a crest** — anything shallower than the
+  stable angle is invariant, so "subdued old world" needed the textbook
+  second process: hillslope creep (`SOFT_CREEP` Laplacian, softness-
+  scaled). Rounding at ~4 columns per age unit.
+- **Canyon seed 7 is the acceptance picture**: both mesas survive as
+  coherent multi-column formations with stepped, skirted faces while the
+  badlands beside them subdue and mantle. **Rolling seed 1's 1-column
+  keyhole chimneys (review finding 1b) are erased outright** — the
+  process removes that artifact class as a side effect. Arid weathers
+  gently by construction (rain scales with 1 − aridity).
+- **Deposits realise through the soil blanket** (added to `soil_depth`
+  after the patchiness rule, before `taper_cover`): the deposit's volume
+  is already banked in the surface h, so deepening cover *converts* those
+  rows to loose material rather than minting height. At-rest is inherited
+  from the same gates, and `an_aged_world_arrives_at_rest` holds the
+  suite's own positional bar at age 1 (life off; the full-cell compare
+  version flagged 2,185 pond-surface cells whose fill drifted under
+  evaporation — position-and-material is the honest claim).
+- **Budget**: 37–41 ms at age 1.0, 2048 columns, in-lib release probe —
+  inside the ≤50 ms line — after precomputing the hardness invariants
+  (`HardnessField`; the fBm strata offset and region blend per column per
+  iteration were most of the pass's cost).
+- Boulder sockets fire rarely at the landed rates (rolling: 1–5; canyon/
+  arid: 0). The marker plumbing is in and tested pure; whether the
+  threshold is right is a stage-2 question to answer *with the boulder
+  realise pass on screen*, not before.
+
+Stage 2 (per §Delegation, cheap-model after the erosion core): talus
+drawn as gravel (`Deposits::talus` is already split out), the boulder
+realise pass from markers, per-preset `world_age` defaults + the 16-seed
+sweep re-baseline, and retargeting `soil_blanket`'s valley-floor check
+(passes.rs:335) from pre-erosion `elev`/`slope` to the plans — deferred
+here because the round-3 branch owns `passes.rs` at time of writing.

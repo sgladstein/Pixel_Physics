@@ -102,6 +102,15 @@ pub enum Purpose {
     /// whether a lens happened to be drawn nearby, which is exactly the
     /// correlation the purpose tag exists to prevent.
     Vault = 19,
+    // 20-22 are claimed by the in-flight round-3 cave-systems branch
+    // (`Cave`, `CaveFloor`, `Speleothem`) — reserved here so the erosion
+    // work below could append without colliding at merge. Append-only, as
+    // ever: renumbering any tag reshuffles every world.
+    /// Per-band rock hardness for plan-space erosion: one draw per strata
+    /// band index, so a band is hard or soft along its whole length —
+    /// which is what makes eroded ledges coherent rather than speckled
+    /// (`Reports/worldgen-erosion-design.md`).
+    Hardness = 23,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

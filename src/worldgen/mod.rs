@@ -39,6 +39,7 @@
 //! Caves, erosion, world age and streaming.
 
 pub mod column;
+pub mod erosion;
 pub mod legacy;
 pub mod noise;
 pub mod params;

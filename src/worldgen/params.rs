@@ -222,6 +222,25 @@ pub struct WorldgenParams {
     /// convention for those is a runtime selector rather than an argument.
     pub palette_field: f32,
 
+    // ---- history ----
+    /// How much simulated history the terrain has been through, `0` none.
+    ///
+    /// The iteration budget for plan-space erosion (`erosion.rs`,
+    /// `Reports/worldgen-erosion-design.md`): young worlds are sharp —
+    /// plumb-ish terraces, thin talus, no valley fill — and old worlds are
+    /// subdued and heaped. This is the `age` axis `worldgen-design.md` §6
+    /// reserves in `worldgen(seed, coord, age)`, landed first for erosion;
+    /// ecological age joins it there later. It is **not** a live process:
+    /// nothing erodes at runtime.
+    ///
+    /// **`0.0` — the current default — is the pre-erosion world, exactly.**
+    /// At zero the erosion pass returns before touching a column and every
+    /// plan is what it was before the mechanism existed, so the sweep
+    /// baselines and the round-3 branch's guards stay meaningful while the
+    /// mechanism is tuned by eye at explicit ages. Flipping per-preset
+    /// defaults on is deliberately a separate, sweep-re-baselined change.
+    pub world_age: f32,
+
     // ---- life ----
     /// Per-column moss probability scale. Zero disables plant scatter.
     pub moss_density: f32,
@@ -280,6 +299,7 @@ impl Default for WorldgenParams {
             vault_density: 0.6,
             vault_min_depth: 200,
             vault_bedrock_margin: 16,
+            world_age: 0.0,
             moss_density: 0.10,
             tree_density: 0.26,
             life_cluster_wavelength: 70.0,

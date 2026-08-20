@@ -90,6 +90,33 @@ impl<'a> Terrain<'a> {
 /// Aridity past which loose cover is sand rather than soil.
 const SAND_ARIDITY: f32 = 0.62;
 
+/// See [`Terrain::hardness_field`] — the strata-band hardness sampler with
+/// its per-column invariants (strata offset, regional resistance) baked.
+pub(crate) struct HardnessField {
+    seed: u64,
+    datum: f32,
+    band_thickness: f32,
+    offset: Vec<f32>,
+    regional: Vec<f32>,
+}
+
+impl HardnessField {
+    /// Hardness of the band outcropping at elevation `e` in column `x`,
+    /// `0..=1`. Columns outside the world clamp to the nearest edge
+    /// column's invariants — erosion only asks about in-world columns
+    /// today, but a clamp beats a panic the day a margin read appears.
+    /// The floor exists because a zero-hardness band erodes without limit
+    /// in one pass, and the differential rates that make ledges stop
+    /// being differential.
+    pub(crate) fn at(&self, x: i32, e: f32) -> f32 {
+        const FLOOR: f32 = 0.15;
+        let i = (x.max(0) as usize).min(self.offset.len() - 1);
+        let band = (((self.datum - e) + self.offset[i]) / self.band_thickness).floor() as i32;
+        let raw = noise::unit(self.seed, Purpose::Hardness, band, 0);
+        ((FLOOR + (1.0 - FLOOR) * raw) * self.regional[i]).clamp(0.0, 1.0)
+    }
+}
+
 /// Half-width of the central difference the terrace attenuation measures its
 /// slope over, in columns. Escarpment reach, not neighbour reach — see
 /// [`Terrain::terrace_yield`].
@@ -285,6 +312,39 @@ impl Terrain<'_> {
         p.strata_tilt * x as f32 + p.strata_fold * noise::fbm_1d_c(self.seed, Purpose::Strata, x as f32 / 130.0, 2)
     }
 
+    /// How resistant the strata bands of this world are, as a sampler:
+    /// the erosion pass's material axis (`erosion.rs`,
+    /// `Reports/worldgen-erosion-design.md`), with its per-column
+    /// invariants precomputed.
+    ///
+    /// One draw per **band index**, in the same banded coordinate
+    /// `strata_offset`/`terraced` share, so a band is hard or soft along
+    /// its whole outcrop and eroded ledges sit on the banding the shade
+    /// pass draws — the same one-field-two-jobs argument `terraced` makes.
+    /// Scaled by the region's `resistance` so broken, benched country
+    /// erodes as broken country. Lives here rather than in `erosion.rs`
+    /// because the band coordinate does — the coupling to the drawn strata
+    /// is the point.
+    ///
+    /// `strata_offset` is an fBm and `character` a region blend, and
+    /// neither depends on elevation — but the erosion loop resamples
+    /// hardness for every column on every iteration because the *band* a
+    /// surface sits in changes as it erodes. Building this once turns the
+    /// per-iteration cost into one hash per column (the per-band draw),
+    /// which is the difference between the erosion budget and a second
+    /// build.
+    pub(crate) fn hardness_field(&self) -> HardnessField {
+        HardnessField {
+            seed: self.seed,
+            datum: self.datum(),
+            band_thickness: self.params.strata_thickness.max(1.0),
+            offset: (0..self.w).map(|x| self.strata_offset(x)).collect(),
+            regional: (0..self.w)
+                .map(|x| (0.5 + 0.35 * self.character(x).resistance).clamp(0.0, 1.0))
+                .collect(),
+        }
+    }
+
     /// How much of the terrace snap survives the ground it is standing on:
     /// 1 on gentle country, 0 on an escarpment.
     ///
@@ -446,10 +506,32 @@ impl Terrain<'_> {
             .fold(0.0f32, f32::max)
     }
 
-    /// Decide one column.
+    /// Decide one column, pre-erosion.
+    ///
+    /// The un-aged decision: elevation and slopes straight off the noise
+    /// curve. `plan_all` routes through [`Terrain::plan_from`] with the
+    /// *eroded* surface instead; at `world_age == 0` the two are
+    /// bit-identical (asserted in `plan_all_at_age_zero_matches_plan`),
+    /// which is what keeps every pre-erosion test and baseline meaningful.
     pub fn plan(&self, x: i32) -> ColumnPlan {
+        self.plan_from(x, self.elev(x), self.slope(x), self.slope_near(x), 0.0)
+    }
+
+    /// Decide one column from an already-chosen surface elevation and its
+    /// measured slopes, plus `extra_cover` cells of erosion deposit
+    /// (talus + sediment) to realise as loose cover.
+    ///
+    /// Deposits deepen the blanket rather than adding height because the
+    /// soil pass converts the top `soil_depth` rows *of the massif* —
+    /// erosion already banked the deposit's volume in the surface it
+    /// handed over, so counting it again here would mint elevation. And
+    /// they pass through the same slope gate as soil: a deposit the sim
+    /// dropped near a face that is steeper than repose realises as rock,
+    /// not as a powder ledge waiting to avalanche — the at-rest guarantee
+    /// is inherited, not re-proved.
+    fn plan_from(&self, x: i32, e: f32, slope: f32, slope_near: f32, extra_cover: f32) -> ColumnPlan {
         let p = self.params;
-        let surface_y = (self.datum() - self.elev(x)).round() as i32;
+        let surface_y = (self.datum() - e).round() as i32;
         // The clamp keeps the massif inside the world with room for bedrock
         // beneath it; it bites only on extreme parameter values.
         let surface_y = surface_y.clamp(4, self.h - 12);
@@ -468,7 +550,7 @@ impl Terrain<'_> {
         // the exact column and the drop is two cells away. Still an upper
         // bound on the true local slope, so the at-rest guarantee this gate
         // provides only gets stricter, never looser.
-        let steepness = self.slope(x).max(self.slope_near(x));
+        let steepness = slope.max(slope_near);
         let soil_depth = if cutoff <= 0.0 || steepness >= cutoff {
             0
         } else {
@@ -499,11 +581,17 @@ impl Terrain<'_> {
             // cover is thinnest. It also costs nothing to be sure of — taking
             // powder away can never make a world less at rest than leaving it
             // there.
-            if depth <= 3 && noise::unit(self.seed, Purpose::SoilNoise, x, 0) < 0.45 {
+            let depth = if depth <= 3 && noise::unit(self.seed, Purpose::SoilNoise, x, 0) < 0.45 {
                 0
             } else {
                 depth
-            }
+            };
+            // Erosion deposits stack on (or substitute for) the native
+            // blanket, *after* the patchiness rule: an apron heaped at the
+            // foot of a cliff is real accumulated material and must not be
+            // deleted by the bare-rock-shows-through draw, which models a
+            // thin native crust wearing away — the opposite situation.
+            depth + extra_cover.round() as i32
         };
 
         // Dry country's water table sits deeper, which is most of what makes
@@ -522,8 +610,41 @@ impl Terrain<'_> {
     /// Every column of the world, in x order. Computed once and shared by
     /// every pass, since several passes need their neighbours' plans and
     /// recomputing the noise per lookup would be the generator's whole cost.
+    ///
+    /// This is also where the terrain gets its history: the raw elevation
+    /// curve goes through plan-space erosion (`erosion.rs`,
+    /// `params.world_age` iterations of thermal + hydraulic weathering)
+    /// before any column is decided, and every slope the soil gate reads is
+    /// measured on the *eroded* surface — soil placed against the curve the
+    /// world no longer has would be the at-rest failure this file exists to
+    /// prevent. At `world_age == 0` (every preset today) `erode` is a
+    /// guaranteed no-op and this is bit-identical to mapping [`Terrain::plan`]
+    /// over the columns, which the tests pin.
+    ///
+    /// Columns outside the world fall back to the un-eroded `elev(x)` for
+    /// slope reads at the two edges — out-of-world ground was never eroded
+    /// (the sim treats the edge as an outlet), and two columns of slightly
+    /// stale slope beats pretending the world extends.
     pub fn plan_all(&self) -> Vec<ColumnPlan> {
-        let mut plans: Vec<ColumnPlan> = (0..self.w).map(|x| self.plan(x)).collect();
+        let mut h: Vec<f32> = (0..self.w).map(|x| self.elev(x)).collect();
+        let deposits = super::erosion::erode(self, &mut h);
+        let at = |x: i32| -> f32 {
+            if x < 0 || x >= self.w {
+                self.elev(x)
+            } else {
+                h[x as usize]
+            }
+        };
+        let mut plans: Vec<ColumnPlan> = (0..self.w)
+            .map(|x| {
+                let slope = ((at(x + 1) - at(x - 1)) / 2.0).abs();
+                let slope_near = (1..=3)
+                    .map(|k| ((at(x + k) - at(x - k)) / (2 * k) as f32).abs())
+                    .fold(0.0f32, f32::max);
+                let extra = deposits.talus[x as usize] + deposits.sediment[x as usize];
+                self.plan_from(x, at(x), slope, slope_near, extra)
+            })
+            .collect();
         self.taper_cover(&mut plans);
         plans
     }
@@ -588,6 +709,24 @@ mod tests {
             let _ = t.plan(x);
         }
         assert_eq!(a, t.plan(200));
+    }
+
+    #[test]
+    fn plan_all_at_age_zero_matches_plan() {
+        // The restructure that routed `plan_all` through the eroded surface
+        // must be invisible while `world_age` is 0 — every baseline, every
+        // sweep, and the concurrent data-track branch depend on the
+        // pre-erosion world staying bit-identical. Whole plans compared,
+        // not just surfaces, so a slope-plumbing slip in the soil gate
+        // cannot hide.
+        let p = WorldgenParams::default();
+        assert_eq!(p.world_age, 0.0);
+        for seed in 0..6u64 {
+            let t = terrain(seed, &p);
+            let mut expected: Vec<ColumnPlan> = (0..t.w).map(|x| t.plan(x)).collect();
+            t.taper_cover(&mut expected);
+            assert_eq!(t.plan_all(), expected, "seed {seed}: age 0 changed a plan");
+        }
     }
 
     #[test]
