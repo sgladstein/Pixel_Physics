@@ -1247,6 +1247,49 @@ cargo test --release --test worldgen probe_r2t3 -- --ignored --nocapture
 cargo run --release --example viewshot -- seed=4 preset=rolling vault=1 shots=3
 ```
 
+### R2-4 — Water's fourth tone: the one-line fix, and the test that has to fail for the *right* reason
+
+`assets/materials/water.ron` gains a fourth colour, exactly the midpoint of
+the two lightest it already had: `(68, 121, 213)` between `(64, 116, 208)` and
+`(72, 126, 218)`. No new hue, and the set still spans the range it always did
+(58 / 64 / 68 / 72 in red) with the gap between the two lightest filled in.
+
+**Measured before and after, which the one-line description does not need but
+the claim does.** `ponds` draws shades 0..3 and `render.rs` colours a cell
+`palette[shade % palette.len()]`, so against three entries shade 3 folded onto
+entry 0. Censusing rendered tone across `wetland` x 5 seeds, 8,616 water cells:
+
+| | entry 0 | fair share |
+|---|---|---|
+| three colours | 4,293 (49.8%) | 33.3% -- **1.49x** |
+| four colours | even, every entry within 25% of 1/4 | 25% |
+
+**The test asserts the distribution, not the palette length**, and that
+distinction is the whole of it. A length check would pass just as well for a
+future change that adds a fifth colour without touching `TONES = 4`, which
+reintroduces exactly this bug pointing the other way -- entry 4 would never
+draw at all. Asking the question the bug is actually about survives that.
+
+Deliberately broken to check it fails for the right reason, per the repo's
+rule about a guard that must be able to fail: with the fourth colour removed
+it reports `water tone 0 drew 4293 of 8616 cells, 1.49x its fair share of
+1/3`, which is the bug named in its own terms rather than a length mismatch.
+
+**One consequence worth stating**: the brush now paints water in four tones
+rather than three, because `world.rs`'s `paint_stroke` draws its entry from
+`base_shades`, which is the whole list for any material without a
+`base_colors` cap. That is the same evenly-weighted set generated water uses,
+so painted and generated water match, which they did not quite do before.
+
+`fill_dimming` is untouched, as instructed -- it is `0.0`, that is round 1's
+finding 1c, and it is an open owner question rather than this task's.
+
+Images: `target/filmstrips/task4-{before,after}-wetland-s1.png`. They look the
+same, and that is the correct outcome: an interpolated tone drawn a quarter of
+the time instead of a third changes the weighting of a three-point-wide
+brightness spread. The census is the evidence here; the strip only confirms
+nothing else moved.
+
 ---
 
 ## Track summary — what changed, and what the next session should know
@@ -1309,3 +1352,71 @@ misplaced. The fix in four of the six was a **paired comparison** — build
 the same world with the mechanism switched off and diff — which is exact
 rather than merely better, and is now the shape every counter in
 `tests/worldgen.rs` uses.
+
+---
+
+## Round-2 summary — four tasks, four commits, and what the reviewer owns
+
+All gates green at each commit: `cargo test`, `cargo clippy --all-targets --
+-D warnings`, the at-rest suite, and the task-2 sweep.
+
+- **Keyhole risers (R2-1)** — terracing now yields on steep ground. canyon s7
+  31 rows → 15, terraced s2 20 → 12, canyon s13 16 → 9; mesas intact.
+  **18 of 20 worlds clear the pre-registered ≤ 18 bar; `rolling` s1 and s2 do
+  not**, and cannot be reached by this mechanism because their tall risers
+  stand on *gentle* ground — the country the spec keeps at full snap.
+- **Palette piers (R2-2)** — a slow 2-D field plus wider aridity ramps.
+  canyon v/h 0.58 → 0.75 and 0.56 → 0.74; the metric also showed the artifact
+  is **canyon-only**, so the knob is per-preset. Shade-only, proved by a
+  sweep `compare` byte-identical to task 1's.
+- **Vaults (R2-3)** — a sealed `vaults` pass with two shapes, two new
+  materials, a 2-cell rind and a paired-build seal test. Chambers place in 5
+  of 8 seeds at the shipped size and arrive at rest.
+- **Water tones (R2-4)** — a fourth interpolated colour. Entry 0 went from
+  1.49× its fair share to even.
+
+**Decisions left to the reviewing session, in the order they matter:**
+
+1. **`rolling`'s two tall risers (R2-1).** Slope attenuation cannot reach
+   them. `terrace_step: 18` (from 26) clears the bar on all four rolling
+   seeds with no count zeroed — measured, not proposed — but it re-spaces
+   every bench on the preset, which is a landform call. One runtime-loaded
+   `.ron` line.
+2. **The sweep cannot see the vault pass (R2-3).** `vault_min_depth: 200`
+   needs ~250 rows of massif; the sweep, `filmstrip` and the whole test suite
+   run at 512x320, where the band is empty. The `vaults` row is `0 0` for
+   every preset and will stay so. `every_pass_writes_something` covers the
+   pass at the shipped size instead. Lever: sweep at the shipped size, or
+   express depth as a fraction of massif thickness the way `pockets` already
+   argues for.
+3. **Every chamber floods (R2-3).** The spec's rule — water when the floor is
+   below the table — is unconditional at a 200-row depth. Air now occupies
+   the dome above the waterline because the water level had to become the
+   chamber's widest row for at-rest reasons, which improved the picture by
+   accident. Whether some chambers should be dry is an owner call.
+4. **`examples/viewshot.rs` was touched** (a `vault=1` mode), outside the
+   owned set, because no other rendering path in the repo can show a vault.
+   Additive and default-preserving.
+5. Round 1's open items still stand, in particular that **generated worlds do
+   not stay asleep** (finding 2) and **`talus`'s margin is 200** (finding 6).
+
+**Method notes from this round**, all the same shape as round 1's:
+
+- **A metric can be isotropic by construction.** The first columnarity metric
+  measured per-cell run lengths and read 0.99 everywhere, before and after,
+  because the per-cell dither is white noise — it was measuring the stipple
+  and could never see the band. Caught by the answer being *identical in
+  cases known to differ*.
+- **A metric can compare a thing to itself.** The first slot/bluff metric
+  included `k = 0` and so reported "fully recovered" for every step in every
+  world. Caught by unanimity.
+- **A size cap can deform what it bounds.** The vault cap was applied to the
+  scan box, so an oversized lobe was neither written nor *seal-checked*.
+  CLAUDE.md's landmine in a third costume.
+- **The quantity that fixes a bug is often not the one the bug is stated in.**
+  Draining chamber water looked like a minimum-width problem and was a
+  *shape* problem: fill above the equator makes a flask, fill to it makes a
+  bowl. Two width bars failed before the shape rule worked.
+- **A guard must fail for the right reason.** The water-tone test asserts the
+  rendered distribution, not `palette.len()`, so it also catches the inverse
+  bug; deliberately broken, it names the 1.49x fold rather than a length.

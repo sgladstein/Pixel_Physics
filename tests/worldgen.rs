@@ -1604,3 +1604,53 @@ fn probe_r2t3_what_moves_in_a_vault() {
         prev = now;
     }
 }
+
+#[test]
+fn pond_water_uses_its_four_tones_evenly() {
+    // `ponds` draws shades 0..3 (`loose_shade` against `TONES = 4`) and
+    // `render.rs` colours a cell with `palette[shade % palette.len()]`. While
+    // water shipped three colours, shade 3 folded onto entry 0 and that entry
+    // drew twice as often as either of the others -- a resting pool was half
+    // one tone rather than even thirds.
+    //
+    // Asserted on the *rendered* distribution rather than on the palette
+    // length, because the length is the mechanism and the weighting is the
+    // claim: a future change that adds a fifth colour without touching
+    // `TONES` would pass a length check and reintroduce exactly this bug in
+    // the other direction.
+    let presets = presets();
+    let params = presets.get("wetland").expect("wetland preset");
+    let mut counts = [0usize; 8];
+    let mut total = 0usize;
+    let mut tones = 0usize;
+    for seed in SEEDS {
+        let world = build(params, seed);
+        let water = world.materials.id_of("water").expect("water");
+        let len = world.materials.get(water).palette.len();
+        assert!(len > 0, "water has no palette");
+        assert!(len <= counts.len(), "water has more tones than this census array holds");
+        tones = len;
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                let c = world.get(x, y);
+                if c.material == water {
+                    counts[(c.shade as usize) % len] += 1;
+                    total += 1;
+                }
+            }
+        }
+    }
+    assert!(total > 5_000, "vacuous: only {total} water cells across {} seeds", SEEDS.len());
+    // Even means every entry within a quarter of its fair share. The bar is
+    // deliberately loose: this is a hash over a few thousand cells, not a
+    // uniformity proof, and the failure it exists to catch is a 2:1 fold --
+    // which is 100% off, not 25%.
+    let fair = total as f64 / tones as f64;
+    for (i, &n) in counts.iter().take(tones).enumerate() {
+        let ratio = n as f64 / fair;
+        assert!(
+            (0.75..1.25).contains(&ratio),
+            "water tone {i} drew {n} of {total} cells, {ratio:.2}x its fair share of 1/{tones}"
+        );
+    }
+}
