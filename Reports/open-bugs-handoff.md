@@ -11,18 +11,99 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
-### 1. Whiskers on a spreading front (the remaining half of "banding")
+### 1. ~~Whiskers on a spreading front~~ — **CLOSED in the movement rule, and the render-side successor is falsified with it**
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a
 comb of detached horizontal ledges along a spreading front. Reported from
 live play. Distinct from the row banding that was fixed — that was a fill
 deficit *inside* the body; this is the shape of its *edge*.
 
-Barred, not fixed: `update.rs`'s
-`a_spreading_front_does_not_shed_a_comb_of_detached_ledges`, at 400 against
-a measured 290. The bar holds the line; it does not claim a fix.
+**Fixed by `LIQUID_SETTLE_DROP`** (`update.rs`): a `find_lateral_descent`
+move now continues down to where the cell comes to *rest*, at most two extra
+rows, instead of landing one row down in a column that is open by
+construction. The bar
+`a_spreading_front_does_not_shed_a_comb_of_detached_ledges` is 40 against a
+measured **0**, where the artifact stood at 277.
 
-**Three candidates measured and rejected** (numbers in the test's own doc):
+This entry previously said the honest fix was probably not in the movement
+rule at all but in how a one-cell sheet is *drawn*. **That reading has now
+been measured and it is wrong**, and the numbers below are here so nobody
+spends a session on it. Diagnosis harness: `examples/film_probe.rs`, and
+`filmstrip scene=shelf`.
+
+**Verified by disabling the fix and re-running, not by trusting the bar.**
+`LIQUID_SETTLE_DROP: i32 = 0` reproduces the pre-fix engine exactly, and the
+paired comparison is unambiguous by eye as well as by number — the fringe of
+detached dashes along the front is gone. Set it to 0, rebuild (`include_str!`
+is not involved but the constant is compiled in), and shoot the same crop
+twice:
+
+```
+cargo run --release --example filmstrip -- scene=fall  start=150 every=50 count=4 cols=2 zoom=3 crop=200,230,180,70
+cargo run --release --example filmstrip -- scene=pour  start=300 every=100 count=4 cols=2 zoom=3 crop=150,230,180,70
+cargo run --release --example filmstrip -- scene=shelf start=110 every=8  count=4 cols=2 zoom=3 crop=140,170,220,60
+cargo run --release --example film_probe -- scene=fall frames=400
+```
+
+| scene | comb cells, peak / mean / % of frames present | with the fix disabled |
+|---|---|---|
+| `fall`, 400 frames | 6 / 0.0 / **0.2%** | 276 / 88.1 / 72% |
+| `pour`, 600 frames | 11 / 0.2 / 2% | 307 / 124.2 / 100% |
+| `waterbed`, 400 frames | 0 / 0 / 0% | — |
+| `shelf`, 400 frames (new; water onto an unwalled ledge) | 32 / 7.2 / 37% | 232 / 102.9 / 72% |
+
+*Comb cells* means cells in a horizontal run of six or more films, per
+frame — the same quantity the bar counts. `pour` run out to 1500 frames
+settles to **zero** films and zero comb cells: whatever a future film
+treatment does, it cannot touch a resting pool, because a resting pool has
+no films at all.
+
+**The metric that matters, and the third way this bug has been measured
+wrong.** `CLAUDE.md` already records two: a raw film count counts every
+falling droplet, and film *creation* blamed the straight-down fall for 76%.
+The obvious correction — count films that **persist at the same cell** —
+is worse than either, because it reads **exactly zero on a world where the
+comb is unmistakable**. With the fix disabled, `fall` holds 247 comb cells
+and **not one cell survives three frames** (lifetime p50 1, max 2); no
+*row* holds a comb for more than 2 consecutive frames either. The comb
+**travels**: the front advances a diagonal step per frame and every tooth
+is a new cell. Anything keyed by position sees a shower of droplets. Use
+the per-frame snapshot, and treat "standing" as a property of the pattern,
+not of a cell.
+
+**Why the render-side treatment is dead.** Every candidate keyed on fill —
+draw a sub-threshold film as a partial row, dim it toward the sky — needs a
+population of near-empty films to act on, and there is none. Of all film
+cells seen with the fix disabled, on `fall`: **67.2% are completely full,
+86.1% are at 80% or more, and 3.7% are below 40%**. On `pour`, the same
+shape: 68.5% full, 89.2% at 80% or more, 3.1% below 40%. The comb is not a
+rendering of thin water; it is full cells of water genuinely sitting in air,
+drawn correctly. A fill-keyed treatment
+would have addressed under 4% of the artifact — and, being a per-material
+`fill_dimming`, would have hit the resting waterline instead, which is
+exactly why `water.ron` sets `fill_dimming: 0.0` (see that field's doc:
+a settled top row spans fill 286..1002 and dims into a mottled band).
+
+The other render candidate, merging a film's pixel into the surface below,
+fails on geometry rather than fill: with the fix disabled only **46.8%** of
+comb cells sit within one row of anything, 22% hang 4–9 rows up. It reaches
+under half the artifact and misreports where the water is for the rest.
+
+Two more things ruled out with numbers. It is **not** chunk decomposition:
+3.0% of comb cells on `fall` and 3.5% on `pour` lie on a horizontal
+chunk-seam row, against the ~3% a uniform scatter gives. And **evaporation
+is irrelevant to it** — films die by moving, in one or two frames, orders of
+magnitude before evaporation could reach them; the `evaporate` scene
+produces zero films across 600 frames.
+
+Also **not** the VOF flotsam-and-jetsam the liquid research reports
+diagnose. Their fix is a three-cell height function for partial-fill
+droplets orphaned by interface reconstruction; measured here, the drained
+basin strands 54 cells while producing **zero** films, and the films
+elsewhere are mostly *full* cells, as the table above now quantifies.
+
+**Three earlier candidates, measured and rejected** — kept because a revert
+keeps the knowledge, and because two of them are still tempting:
 
 | tried | result |
 |---|---|
@@ -30,21 +111,22 @@ a measured 290. The bar holds the line; it does not claim a fix.
 | Land the mover at `(tx, y)`, fall next frame | whiskers 2540 → 1635, but enclosed holes 289 → **1040** |
 | Shrink `LIQUID_LATERAL_REACH` | pure trade against levelling, no path to zero: 24/12/6/3 → whiskers 290/175/151/119, levelling 343/557/1017/1661 frames |
 
-**What the measurements say about the cause**, which is *not* what it looks
-like: `find_lateral_descent` is not teleporting water. **75% of its moves
-are a single-cell diagonal step and only 3% land with air two cells below**,
-and whiskers survive at reach 3. So they are not primarily long jumps. They
-look instead like the surface monolayer advancing one diagonal step per
-frame with nothing above it to refill the row it vacates — which raises the
-real possibility that the honest fix is not in the movement rule at all, but
-in how a one-cell-thick sheet is *drawn*. See the grain prototype below.
-
-Note this is **not** the VOF flotsam-and-jetsam the liquid research reports
-diagnose. Their fix is a three-cell height function for partial-fill
-droplets orphaned by interface reconstruction; measured here, the drained
-basin strands 54 cells while producing **zero** films, and the films
-elsewhere are mostly *full* cells. Do not adopt that fix without first
-measuring which mechanism is producing the cells.
+**What is left open, and it is small.** A shelf pour — water onto a short
+unwalled ledge, spreading with open air under most of its length — still
+sheds a residual comb: worst 38 cells in the bare `parallel::step` loop, 32
+under the probe's fuller step, against `fall`'s 0. It is barred at 80
+(`a_shelf_pour_does_not_shed_a_comb_either`), and that bar exists because
+the `fall` bar sits at 40 — **the geometry that sheds the most was sitting
+under an untested bar**, `CLAUDE.md`'s "check that a guard's inputs actually
+vary what it guards" in its liquid costume. 81.5% of the residue sits one
+row above a surface, and its films are the only substantially partial ones
+in the engine (19% below 40% fill against 2.5% on `fall`) — so if a
+fill-keyed render treatment is ever built, *this* is the population it would
+act on, and `filmstrip scene=shelf` is where to judge it. At 32 cells in a
+falling curtain, where a one-cell horizontal streak reads as spray rather
+than as a ledge, it does not look worth the frame cost: the renderer has no
+dirty-rect equivalent, and distinguishing a comb tooth from a droplet needs
+the run length, i.e. a neighbour scan on every liquid pixel every frame.
 
 ### 2. Sand-into-water displacement
 
