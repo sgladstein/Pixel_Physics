@@ -1185,11 +1185,35 @@ fn first_long_ceiling_run(void: &[bool]) -> Option<(i32, i32, i32)> {
 /// Collect a cave system's void as a boolean grid over the envelope.
 ///
 /// Worley `F2 - F1` under [`CAVE_THRESHOLD`], evaluated in a frame sheared
-/// onto the local bedding and squashed by [`CAVE_SQUASH`]; then only the
-/// seed component is kept; then the ceiling-span guard drops a stone tooth
-/// into any roof run longer than [`MAX_CEILING_SPAN`] until every span
-/// complies. Returns `None` when what survives is too small to be a system.
-fn carve_cave_void(ctx: &Ctx, k: i32, cx: i32) -> Option<Vec<bool>> {
+/// onto the local bedding and squashed by [`CAVE_SQUASH`]; then three
+/// repairs alternate to a fixpoint (round-5 task 1): the seed component is
+/// kept, the ceiling-span guard drops a stone tooth into any roof run
+/// longer than [`MAX_CEILING_SPAN`], and [`erode_breaches`] retracts the
+/// void from anything that is not stone. Returns `None` when what survives
+/// is too small to be a system.
+///
+/// **Why erosion joins this loop rather than running once before or after
+/// it.** The old seal check scanned the *whole* dilated envelope in one go
+/// and rejected the entire system for a single non-stone cell anywhere in
+/// it -- measured (see the round-5 task file's addendum): every rejection
+/// across canyon/rolling/wetland was one stray `sand` or `gravel` cell from
+/// a `pockets` lens, and the bigger the system the likelier one fell inside
+/// its rind. That is the size-cap landmine in a new costume: a check meant
+/// to guarantee "nothing loose sits flush with a free face" was instead
+/// gating *whether a system exists at all*. Retracting only the void near
+/// the breach keeps the guarantee -- by construction, not by inference --
+/// while losing only the few cells actually threatened.
+///
+/// The three repairs cannot run in a fixed sequence because each can create
+/// work for another: the ceiling guard's tooth leaves whatever the world
+/// already had at that cell un-carved, and if that happens to be a stray
+/// grain rather than stone, erosion has a new breach source to react to;
+/// erosion shrinking the void can sever a passage and orphan a component,
+/// which only the seed-component keep notices; and either can shorten or
+/// lengthen a roof run enough to cross [`MAX_CEILING_SPAN`]. Looping until
+/// none of the three changes anything terminates because each one that
+/// fires removes at least one void cell from a finite grid.
+fn carve_cave_void(ctx: &Ctx, world: &World, k: i32, cx: i32, cy: i32) -> Option<Vec<bool>> {
     // A per-system field seed derived from the placement stream: two systems
     // in one world must not share a Worley lattice, or a pair placed near
     // each other would carve correlated shapes.
@@ -1218,25 +1242,30 @@ fn carve_cave_void(ctx: &Ctx, k: i32, cx: i32) -> Option<Vec<bool>> {
         }
     }
 
-    // Component keep and ceiling guard alternate to a fixpoint: a dropped
-    // tooth can sever a low wide slit and orphan the far side, and an
-    // orphaned region turning back to stone can expose a new, lower ceiling
-    // run. Each tooth removes at least one void cell, so this terminates.
+    // Component keep, ceiling guard and breach erosion alternate to a
+    // fixpoint -- see the doc comment above for why none of the three can
+    // safely run only once or only in a fixed order.
     loop {
         keep_seed_component(&mut void);
-        let Some((y, x0, len)) = first_long_ceiling_run(&void) else { break };
-        // A stone tooth hung from the run's middle: three rows deep,
-        // tapering 5-3-1 wide, so the splitter reads as rock coming down
-        // from the roof rather than as a one-cell film. It splits the span
-        // into two runs of at most half the original.
-        let mx = x0 + len / 2;
-        for j in 0..3 {
-            let half = 2 - j;
-            for x in mx - half..=mx + half {
-                if x.abs() <= CAVE_HALF_W && (y + j).abs() <= CAVE_HALF_H {
-                    void[cave_idx(x, y + j)] = false;
+        let ceiling = first_long_ceiling_run(&void);
+        if let Some((y, x0, len)) = ceiling {
+            // A stone tooth hung from the run's middle: three rows deep,
+            // tapering 5-3-1 wide, so the splitter reads as rock coming down
+            // from the roof rather than as a one-cell film. It splits the
+            // span into two runs of at most half the original.
+            let mx = x0 + len / 2;
+            for j in 0..3 {
+                let half = 2 - j;
+                for x in mx - half..=mx + half {
+                    if x.abs() <= CAVE_HALF_W && (y + j).abs() <= CAVE_HALF_H {
+                        void[cave_idx(x, y + j)] = false;
+                    }
                 }
             }
+        }
+        let eroded = erode_breaches(ctx, world, cx, cy, &mut void);
+        if ceiling.is_none() && !eroded {
+            break;
         }
     }
 
@@ -1244,23 +1273,102 @@ fn carve_cave_void(ctx: &Ctx, k: i32, cx: i32) -> Option<Vec<bool>> {
     (count >= MIN_SYSTEM_CELLS).then_some(void)
 }
 
+/// Retract the void from any breach: a void cell is kept only if it is
+/// itself stone in the world today, and every cell within [`VAULT_RIND`]
+/// Chebyshev cells of it that is *not itself part of the void* is stone too
+/// (the world edge counts as not-stone, via `Cell::OUT_OF_BOUNDS`'s bedrock
+/// sentinel). A neighbour that is still part of the void poses no risk --
+/// it is carved to air as well, not loose material left flush with a free
+/// face, which is the property this check exists to guarantee.
+///
+/// **Iterated to its own fixpoint inside this call**, because retracting a
+/// void cell that was itself non-stone turns it into exactly the kind of
+/// solid, non-stone neighbour that can breach whatever void survives next
+/// to it -- the grain of sand does not disappear when it stops being void,
+/// it just becomes a permanent resident of the rind. Each pass that removes
+/// anything shrinks a finite grid, so this terminates.
+///
+/// Returns whether anything was removed, so the caller's outer fixpoint
+/// (component keep, ceiling guard, this) knows whether to loop again.
+fn erode_breaches(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool]) -> bool {
+    let is_stone = |px: i32, py: i32| world.get(px, py).material == ctx.stone;
+    let mut any = false;
+    loop {
+        let mut to_remove = Vec::new();
+        for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+            for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+                if !void[cave_idx(dx, dy)] {
+                    continue;
+                }
+                let mut breached = !is_stone(cx + dx, cy + dy);
+                if !breached {
+                    'nb: for ry in -VAULT_RIND..=VAULT_RIND {
+                        for rx in -VAULT_RIND..=VAULT_RIND {
+                            if rx == 0 && ry == 0 {
+                                continue; // the cell itself, checked above
+                            }
+                            let (nx, ny) = (dx + rx, dy + ry);
+                            let still_void = nx.abs() <= CAVE_HALF_W
+                                && ny.abs() <= CAVE_HALF_H
+                                && void[cave_idx(nx, ny)];
+                            if still_void {
+                                continue;
+                            }
+                            if !is_stone(cx + nx, cy + ny) {
+                                breached = true;
+                                break 'nb;
+                            }
+                        }
+                    }
+                }
+                if breached {
+                    to_remove.push(cave_idx(dx, dy));
+                }
+            }
+        }
+        if to_remove.is_empty() {
+            break;
+        }
+        any = true;
+        for idx in to_remove {
+            void[idx] = false;
+        }
+    }
+    any
+}
+
 /// One cave system: carve the void, verify the seal, write the cells.
 ///
 /// Returns cells written; zero is a wholesale rejection -- the
 /// collect-then-verify contract, kept from `pockets` through the round-2
-/// vaults: nothing is written unless the entire envelope passed.
+/// vaults: nothing is written unless the entire envelope passed. After
+/// round-5 task 1, that rejection should be near-never: [`carve_cave_void`]
+/// now erodes the void away from any breach as it carves, so the seal check
+/// below is expected to pass by construction and is kept as an assertion
+/// rather than a silent reject -- a failure here is a bug in the erosion
+/// step, not a normal outcome, and the test suite has to be able to see it
+/// fail for that reason.
 fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultReport {
-    let Some(void) = carve_cave_void(ctx, k, cx) else { return VaultReport::default() };
+    let Some(void) = carve_cave_void(ctx, world, k, cx, cy) else { return VaultReport::default() };
 
-    // The seal: every cell within the rind of the kept component -- a
-    // 2-cell Chebyshev dilation, diagonals included -- must be solid stone,
-    // or the whole system is rejected before a single write. The dilation is
-    // this shape's equivalent of the ellipse path's `inside(.., VAULT_RIND)`:
-    // the *envelope grown by the rind*, not the bounding box. The spec
-    // sketched "bounding box + rind, all stone", and that reading rejects a
-    // system for a sand lens tens of cells from the nearest void -- see the
-    // round-3 finding; the r2 skeleton this grew from never checked a box
-    // either, it checked the dilated shape.
+    // The seal, kept as an assertion rather than a silent reject (round-5
+    // task 1). Every cell within the rind of the kept component -- a 2-cell
+    // Chebyshev dilation, diagonals included -- must be solid stone. The
+    // dilation is this shape's equivalent of the ellipse path's
+    // `inside(.., VAULT_RIND)`: the *envelope grown by the rind*, not the
+    // bounding box. The spec sketched "bounding box + rind, all stone", and
+    // that reading rejects a system for a sand lens tens of cells from the
+    // nearest void -- see the round-3 finding; the r2 skeleton this grew
+    // from never checked a box either, it checked the dilated shape.
+    //
+    // This used to reject the whole system wholesale on the first breach it
+    // found, and that is what round 5 replaced: `carve_cave_void` now erodes
+    // the void away from every breach as part of carving it, so by the time
+    // control reaches here the property below is expected to hold *by
+    // construction*, not by luck. Asserting rather than returning turns a
+    // regression in that erosion into a loud, attributable failure instead
+    // of a silent drop back to the old "one grain deletes the system"
+    // behaviour wearing a passing test.
     for dy in -(CAVE_HALF_H + VAULT_RIND)..=(CAVE_HALF_H + VAULT_RIND) {
         for dx in -(CAVE_HALF_W + VAULT_RIND)..=(CAVE_HALF_W + VAULT_RIND) {
             let in_grid = dx.abs() <= CAVE_HALF_W && dy.abs() <= CAVE_HALF_H;
@@ -1269,9 +1377,11 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             // *inside* the would-be void is just as much a breach as one in
             // the rind.
             if in_grid && void[cave_idx(dx, dy)] {
-                if world.get(cx + dx, cy + dy).material != ctx.stone {
-                    return VaultReport::default();
-                }
+                assert_eq!(
+                    world.get(cx + dx, cy + dy).material,
+                    ctx.stone,
+                    "cave system k={k} at ({cx},{cy}): void cell ({dx},{dy}) was not eroded from a breach"
+                );
                 continue;
             }
             let near_void = (-VAULT_RIND..=VAULT_RIND).any(|ry| {
@@ -1282,8 +1392,12 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                         && void[cave_idx(nx, ny)]
                 })
             });
-            if near_void && world.get(cx + dx, cy + dy).material != ctx.stone {
-                return VaultReport::default();
+            if near_void {
+                assert_eq!(
+                    world.get(cx + dx, cy + dy).material,
+                    ctx.stone,
+                    "cave system k={k} at ({cx},{cy}): rind cell ({dx},{dy}) was not eroded from a breach"
+                );
             }
         }
     }

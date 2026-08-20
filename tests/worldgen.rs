@@ -1573,6 +1573,96 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
 }
 
 #[test]
+fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
+    // Round-5 task 1's own reproduction. Before this fix, a `pockets` lens
+    // landing inside or against a cave system's envelope deleted the *whole
+    // system* -- measured (see the round-5 task file's addendum): every
+    // wholesale rejection across canyon/rolling/wetland was a single stray
+    // `sand` or `gravel` cell. `pocket_density` cranked to 20 (the shipped
+    // default is 0.6) saturates the deep massif with lenses, so one lands
+    // inside a cave envelope in every seed here rather than waiting for a
+    // seed that happens to produce it -- and the "lens nearby" count below
+    // is what proves the collision actually happened, so this cannot pass
+    // by having gotten lucky and never meeting one.
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = WorldgenParams { pocket_density: 20.0, ..vault_test_params(base) };
+    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+    let mut placed = 0;
+    let mut overlapped = 0;
+    for seed in SEEDS {
+        let mut world = build(&with, seed);
+        let control = build(&without, seed);
+        let mut carved: Vec<(i32, i32)> = Vec::new();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                if world.get(x, y).material != control.get(x, y).material
+                    || world.get(x, y).shade != control.get(x, y).shade
+                {
+                    carved.push((x, y));
+                }
+            }
+        }
+        if carved.is_empty() {
+            continue;
+        }
+        placed += 1;
+
+        // Evidence the reproduction is real: sand/gravel within a
+        // Chebyshev-6 dilation of the carved envelope, read off the
+        // *control* world -- no cave carving happened there at all, so this
+        // counts what `pockets` left behind on its own, not anything the
+        // vault pass wrote.
+        let (x0, x1) = (
+            carved.iter().map(|&(x, _)| x).min().unwrap() - 6,
+            carved.iter().map(|&(x, _)| x).max().unwrap() + 6,
+        );
+        let (y0, y1) = (
+            carved.iter().map(|&(_, y)| y).min().unwrap() - 6,
+            carved.iter().map(|&(_, y)| y).max().unwrap() + 6,
+        );
+        let (sand, gravel) = (
+            control.materials.id_of("sand").expect("sand"),
+            control.materials.id_of("gravel").expect("gravel"),
+        );
+        let mut lens_cells = 0;
+        for y in y0.max(0)..=y1.min(BOUNDS.1) {
+            for x in x0.max(0)..=x1.min(BOUNDS.0) {
+                let m = control.get(x, y).material;
+                if m == sand || m == gravel {
+                    lens_cells += 1;
+                }
+            }
+        }
+        assert!(
+            lens_cells > 0,
+            "seed {seed}: no pocket lens fell near the carved system -- this seed proves nothing"
+        );
+        overlapped += 1;
+
+        // And it still arrives at rest, exactly like the plain seal test --
+        // this is the same claim, just under a reproduction that used to
+        // delete the system outright rather than merely stress it.
+        let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        for _ in 0..120 {
+            step(&mut world);
+        }
+        let after: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        let gone: Vec<_> = before.difference(&after).copied().collect();
+        assert!(
+            gone.is_empty(),
+            "seed {seed}: {} cells left their position in a lens-stressed cave world; first {:?}",
+            gone.len(),
+            gone.iter().take(6).collect::<Vec<_>>()
+        );
+    }
+    // The counters beside the claim: a run where nothing placed, or placed
+    // without ever actually meeting a lens, would pass vacuously.
+    assert!(placed >= 3, "only {placed}/{} lens-stressed worlds placed a system at all", SEEDS.len());
+    assert_eq!(overlapped, placed, "every placed system should have a lens nearby at this density");
+}
+
+#[test]
 fn vault_water_cannot_wet_the_massif_around_it() {
     // Stated as a test because the task asks for it stated: water sealed in a
     // chamber is moisture-inert. The reason is structural rather than lucky
