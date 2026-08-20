@@ -129,6 +129,27 @@ fn build(args: &Args) -> World {
                 }
             }
         }
+        // A column of water dropped onto a short unwalled shelf in open air:
+        // the front spreads with *nothing under it* for most of its length,
+        // then pours off both ends. Built for open bug #1 (whiskers), which
+        // `fall` and `pour` no longer reproduce: this is the geometry that
+        // still sheds a residual comb, and the one whose films are actually
+        // partial-fill rather than full cells thrown sideways. Shared cell
+        // for cell with `examples/film_probe.rs`'s scene of the same name --
+        // the numbers and the picture have to come from the same world.
+        "shelf" => {
+            stone_floor(&mut w);
+            for x in 180..332 {
+                for y in 200..204 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for x in 236..276 {
+                for y in 120..190 {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+        }
         // Stage 2 of the creature milestone: two synthetic trails on the
         // pheromone planes, over ordinary terrain, so the overlay ramps can
         // be judged **against a real signal**. An empty plane renders as a
@@ -964,7 +985,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride"
+            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride"
         ),
     }
     w
