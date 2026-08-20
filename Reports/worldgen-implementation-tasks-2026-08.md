@@ -834,3 +834,66 @@ to ignore it, which is exactly how a rubber-stamped baseline happens. The
 before numbers are preserved here and in the commit messages; the file now
 carries the post-track state, so the next change compares against what is
 actually shipped.
+
+---
+
+## Track summary — what changed, and what the next session should know
+
+Six tasks, six commits, all gates green at each one. What the world looks
+like now, against the review's own list of what it cost the picture:
+
+- **Problem 2, "presets don't differentiate at play scale"** — a region's
+  `Character` now picks the rock, soil and sand *palette family* at genesis
+  (task 3), so crossing an escarpment crosses into different country at zero
+  frame cost. Canyon s7 and arid s1 are where it is unmissable.
+- **Problem 4, "arid dunes read as a mechanical sawtooth"** — partly. The
+  premise was measurably wrong (spacing already varied, cv 0.42); the real
+  uniformity was in height and was caused by the preset asking for more
+  amplitude than repose allows. Fixed by varying downward from the cap
+  (task 5).
+- **Problem 5, "the keyhole artifact"** — traced, not fixed, as instructed.
+  It is `round()` in the terrace snap, not the mask edge, and the step is
+  exactly `terrace_step * mask` rows (task 1). Riser roughening (task 5)
+  makes each one shorter and more numerous rather than rarer.
+- **Problem 6, "pale dashes on pond surfaces"** — settled: submerged
+  shoreline sand at the pond bed, not a water artifact, and not caused by
+  `fill_dimming: 0.0` either (task 1).
+- **The blue slivers** — sky through a gap, with zero water cells anywhere
+  in either world (task 1).
+- **"brows 34 / talus 148, too rare to register"** — rescued at region
+  scale, p90 up 140-350% across every preset, 100% of the cells landing at
+  real cliffs (task 6). Pockets stopped reading as polka dots and buried
+  gravel stopped being invisible (task 4).
+
+**Left for the reviewer, in rough order of how much they matter:**
+
+1. **Three files outside this track's owned set were touched** —
+   `src/sim/material.rs`, `src/sim/world.rs`, `src/sim/decay.rs` — because
+   widening a palette split what `palette.len()` meant. Full reasoning in
+   finding 3; `src/app.rs::spawn_burst` was deliberately left alone.
+2. **Generated worlds do not stay asleep** (finding 2): 3-8 of 40 chunks
+   awake at frame 100 on every preset including `flat`, with active sites
+   climbing to one per column. Pre-existing, points at
+   `src/sim/structural.rs`, and it matters for landmine 7.20.
+3. **`talus`'s declared margin was wrong by 40x** before this track and is
+   now 200 (finding 6). Any streaming work inherits that.
+4. **`wetland` seeds 1-3 have no cliffs at all** (finding 6) — a relief/
+   terrace-strength question, not a detection one.
+5. Two design choices in task 3 that are cheap to overturn: per-cell white
+   noise for the palette dither (a lower-frequency mottle would read more
+   like facies change), and `region_variation <= 0` opting a preset out of
+   families entirely.
+
+**Method notes worth carrying forward.** Six metrics were written wrong in
+this track and every one failed the same way — it measured where a thing is
+instead of asking what produced it, or it was written before anyone had
+looked at the subject. A "water-coloured pixel" count matched the entire
+sky; a notch detector comparing 3 columns out found none in a world with a
+7-column notch; a crest detector using a 4-column window found zero crests
+in a world with 35; a crest *height* measured the hill it sat on; two gravel
+classifiers inferred the writing pass from the cell's position; a relief
+metric looked only downhill and called 91 of 216 correctly-placed brow cells
+misplaced. The fix in four of the six was a **paired comparison** — build
+the same world with the mechanism switched off and diff — which is exact
+rather than merely better, and is now the shape every counter in
+`tests/worldgen.rs` uses.
