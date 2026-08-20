@@ -1980,13 +1980,24 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
                 // humidity does not go diurnal. Left raw, this term makes
                 // every surface field cell in the world evaporate faster at
                 // noon and not at all at night (the `max(0.0)` swallows the
-                // cool half), which is a real effect that a later phase means
-                // to introduce *deliberately*, with `MOISTURE_BASE_DECAY` and
-                // `MOISTURE_EVAPORATION_PER_DEGREE` re-derived against it --
-                // `evaporation.rs` predicted this exact hazard. Introducing
-                // it here as a side effect of the sky writing a channel would
-                // retune every humidity-dependent constant in the engine
-                // silently. See `humidity_does_not_go_diurnal`.
+                // cool half), and it would retune every humidity-dependent
+                // constant in the engine silently. See
+                // `humidity_does_not_go_diurnal`.
+                //
+                // **The later phase that phrasing pointed at has landed, and
+                // it deliberately did not land here.** `evaporation::warmth`
+                // reads the *raw* field temperature, so standing water dries
+                // two and a half times faster by day than by night -- and it
+                // is the only site in the engine that does. This one stays
+                // noon-equivalent on purpose rather than by omission: the
+                // rate there is `dryness * (1 - shelter) * warmth`, and
+                // `dryness` is a function of the humidity this line decays.
+                // Making both diurnal multiplies the day into the rate twice,
+                // giving a swing nobody set and nobody can tune from either
+                // end. One oscillating read, at the site where the effect is
+                // wanted; `days_evaporate_more_than_nights` asserts it is
+                // there and `humidity_does_not_go_diurnal` asserts it is not
+                // here.
                 let evaporation = (MOISTURE_BASE_DECAY
                     - (noon_equivalent_temperature(here) - AMBIENT_TEMPERATURE as f32).max(0.0)
                         * MOISTURE_EVAPORATION_PER_DEGREE)

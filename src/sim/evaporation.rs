@@ -111,24 +111,41 @@
 //! because what stops evaporation is the humidity above it, which is a local
 //! reading and not a global balance.
 //!
-//! # Two things deliberately not done
+//! # Warm days dry, cool nights barely do
 //!
-//! * **No day/night division.** `field::noon_equivalent_light` exists
-//!   because light swings 20:1 over a cycle by design, and a threshold
-//!   sampled at an arbitrary phase of a designed oscillator is a different
-//!   threshold every hour. Moisture has no such oscillator: the sky writes
-//!   light and never temperature, so nothing drives humidity round the day.
-//!   Checked rather than assumed — the probe below reads identical humidity
-//!   at frames 1000 and 3000 of a 3600-frame day. If anything ever heats the
-//!   field from the sun this needs revisiting, because moisture decay *is*
-//!   temperature-dependent.
+//! The rate's third factor, and the one thing in the engine that reads an
+//! oscillating channel *without* dividing the oscillation back out. The sky
+//! now writes a day/night temperature (`field::apply_sky_temperature_to`),
+//! and `warmth` turns it into a multiplier that is 1.0 at ambient, rises
+//! above and falls below. Over the 32-cell basin, whose stone lid attenuates
+//! the sky to +-4.59 degrees at the water, a noon-centred window of 1,800
+//! frames loses 8.49 cell-equivalents against a midnight-centred one's 3.44
+//! — two and a half to one, on the same basin at the same age.
+//!
+//! **`HUMID_STOP` and the width table above were re-derived against this and
+//! did not move**, digit for digit, and neither did `FILL_PER_CHECK`; the
+//! numbers are at `WARMTH_PER_DEGREE` and `warmth`.
+//!
+//! Three things about it that are load-bearing and are argued at `warmth`
+//! itself: it is at **one site**, so the day cannot compound through
+//! humidity as well; it is **linear**, so a day's total drying is unchanged
+//! and `FILL_PER_CHECK` still means what it meant; and it is **floored above
+//! zero**, so a cold night is a brake and never a stop.
+//!
+//! It supersedes this file's own note that there was no oscillator to worry
+//! about, which was true when it was written and stopped being true the day
+//! the sky started writing temperature — the note said so, and this is the
+//! revisit it asked for.
+//!
+//! # One thing deliberately not done
+//!
 //! * **No roll.** The loss is a straight subtraction rather than a
 //!   probability, so this draws nothing from `world.rng` and cannot shift
 //!   what any other consumer of that stream sees. Water levels itself, so a
 //!   uniform per-surface-cell loss does not read as uniform on screen
 //!   anyway.
 
-use super::cell::Cell;
+use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::field::FIELD_SCALE;
 use super::material::MaterialKind;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -165,6 +182,69 @@ const HUMID_STOP: f32 = 2.0;
 /// Set from the timescale that reads right rather than from anything
 /// physical — see the tests for what it actually produces.
 const FILL_PER_CHECK: u16 = 100;
+
+/// How much one degree above `AMBIENT_TEMPERATURE` adds to the drying rate,
+/// as a fraction of the ambient rate. See [`warmth`] for the shape and for
+/// why it is linear.
+///
+/// **Swept on the 32-cell basin, a noon-centred against a midnight-centred
+/// window of 1,800 frames each** (`probe_day_against_night_drying`), in
+/// cell-equivalents credited to the bank. The basin's lid attenuates the sky
+/// to +-4.59C at the water (`probe_temperature_over_water_across_a_day`), so
+/// these ratios are the *shaded* case and open sky gives more:
+///
+/// | per degree | noon | midnight | ratio | day + night |
+/// |---|---|---|---|---|
+/// | 0.00 (before) | 5.760 | 5.760 | 1.00 | 11.52 |
+/// | 0.06 | 6.958 | 4.978 | 1.40 | 11.94 |
+/// | 0.10 | 7.652 | 4.255 | 1.80 | 11.91 |
+/// | 0.15 | 8.488 | 3.441 | **2.47** | 11.93 |
+/// | 0.20 | 9.296 | 3.096 | 3.00 | 12.39 |
+///
+/// 0.15 is the setting. Two and a half to one is legible without watching a
+/// clock — a puddle visibly shrinking through the afternoon and visibly
+/// sitting there overnight — while 0.20 starts to read as a switch rather
+/// than as weather, and below 0.10 nobody watching would call it a day. The
+/// last column is the mean-neutrality this shape was chosen for, holding
+/// across the whole sweep: the coupling moves *when* a day's water goes, not
+/// how much.
+///
+/// **The 6-cell puddle is the wrong width to sweep on and was the first
+/// thing tried.** It reads 10.28 / 10.33 / 10.24 / 10.15 at the four live
+/// settings — nearly flat, and not because the knob was disconnected but
+/// because a 12-cell-equivalent puddle *finishes* inside a noon window at
+/// any of them. A saturated metric, and exactly the shape `CLAUDE.md` warns
+/// about: ask what the number does when nothing is wrong. The 32-cell basin
+/// and the 176-cell lake are both rate-limited for the whole window and
+/// agree with each other to within 2% on the ratio at every point.
+///
+/// The lake is not slower to dry than before in absolute terms, and it is
+/// not faster either: a *sheltered* surface is at exactly zero rate and zero
+/// times anything is still zero, so the contract that a lake outlives a
+/// drought is untouched by this constant at any value.
+const WARMTH_PER_DEGREE: f32 = 0.15;
+
+/// Floor under [`warmth`]. Cold slows drying and never stops it — see that
+/// function. Reached at 13.7 degrees below ambient, which the sky cannot do
+/// on its own (its swing is 6) and a blizzard's `weather::SNOW_CHILL` (26)
+/// very much can.
+///
+/// A quarter rather than a tenth because the thing on the other side of it is
+/// a mechanic with no other way to resume: a chilled surface still has to be
+/// visibly *drying slowly* rather than parked, or the only difference between
+/// "cold" and "sealed under rock" is how long you watch.
+const WARMTH_FLOOR: f32 = 0.25;
+
+/// Ceiling on [`warmth`]. Reached at 13.3 degrees above ambient — again, out
+/// of the sky's reach and well inside a fire's.
+///
+/// Three, so a fire beside a pond boils it off at three times the ordinary
+/// rate: fast enough to watch, bounded so that a plume reading 400 degrees
+/// for two frames cannot take a lake with it. The cap bounds *work per
+/// check* and gates nothing — a hot surface still evaporates, it just stops
+/// getting faster (`CLAUDE.md`: a size cap must bound work, never gate
+/// whether something happens).
+const WARMTH_CEIL: f32 = 3.0;
 
 /// Consecutive checks finding the cell covered before it stops rescheduling
 /// itself. Three, so brief cover (a splash landing on a pool, a grain
@@ -286,6 +366,96 @@ fn dryness(world: &World, x: i32, y: i32) -> f32 {
     ((HUMID_STOP - humidity) / HUMID_STOP).clamp(0.0, 1.0).sqrt()
 }
 
+/// How fast this surface dries for being warm or cold, as a multiplier on
+/// the rate — the third factor, and **the one place in the engine that reads
+/// a channel the sky oscillates without dividing the oscillation back out**.
+///
+/// # Why the raw temperature, when everything else takes the noon-equivalent
+///
+/// `CLAUDE.md`'s rule is that a channel which oscillates by design must be
+/// divided out of *decisions*, and every other consumer obeys it:
+/// `field.rs`'s moisture decay, the worm's heat threshold and its thermotaxis
+/// all go through `field::noon_equivalent_temperature`. This one does the
+/// opposite on purpose, because the diurnal signal *is the effect being
+/// asked for* — warm days dry a puddle and cool nights barely touch it — and
+/// there is nothing else in the reading to be aliased by. The rule's hazard
+/// is a fixed threshold sampled at an arbitrary phase; this is not a
+/// threshold, it is a continuous factor whose whole job is to follow the
+/// phase.
+///
+/// **One site, and one site only.** Moisture decay stays noon-equivalent
+/// (`field.rs`'s `step_diffusion`, and its comment says so from the other
+/// end). If it went diurnal too, the day would reach evaporation twice —
+/// once here directly, and once through a humidity channel that itself dried
+/// out faster by day — and the two would compound into a swing nobody set
+/// and nobody could tune, because `dryness` and this factor multiply.
+///
+/// # Linear, because linear is what keeps `FILL_PER_CHECK` meaning what it meant
+///
+/// `1 + slope * (T - ambient)`, clamped. The sky's forcing
+/// (`field::sky_temperature_offset`) is a zero-mean cosine over a day, so a
+/// factor *linear* in it has a day-mean of exactly 1.0 wherever the clamps do
+/// not bite — the timescale `FILL_PER_CHECK` was set from survives per day
+/// unchanged, and all the coupling does is redistribute a day's drying inside
+/// the day.
+///
+/// **That is a measurement and not only an argument**
+/// (`probe_whole_days_of_drying`, cell-equivalents credited over a whole
+/// number of whole days, with the coupling off and at 0.15):
+///
+/// | basin | days | before | after | delta |
+/// |---|---|---|---|---|
+/// | 32-wide | 1 | 11.520 | 11.929 | +3.6% |
+/// | 32-wide | 4 | 62.920 | 62.132 | -1.3% |
+/// | 176-wide | 1 | 10.560 | 10.894 | +3.2% |
+/// | 176-wide | 4 | 59.357 | 59.275 | -0.1% |
+///
+/// One day still carries a percent or three of phase (a run that starts
+/// settled at noon has spent its settling frames in the warm half); four
+/// days is within a tenth of a percent on the lake. So `FILL_PER_CHECK` was
+/// re-derived and **did not move**, and neither did `HUMID_STOP` — the
+/// humidity-against-width table in the module doc reads identically at 0.00
+/// and at 0.15, digit for digit, which is what it should do given that
+/// moisture decay is still on the noon-equivalent reading.
+///
+/// An Arrhenius or exponential shape is the physical one and was rejected for
+/// exactly that reason: `exp(k * dT)` has a day-mean *above* 1.0 (Jensen),
+/// so it silently speeds every body of water in the world up by an amount
+/// that depends on the swing, and `FILL_PER_CHECK` would have to be
+/// re-derived against a constant it does not otherwise care about. This
+/// project does not want exactness (`CLAUDE.md`), and it does want a knob
+/// that means the same thing after the change as before it.
+///
+/// # The clamps, and what actually reaches them
+///
+/// The sky alone cannot reach either: `SKY_TEMPERATURE_SWING` is 6 degrees
+/// and attenuates with depth, so open-air day/night lands at 1.60 / 0.40.
+/// What reaches them is everything else that writes field temperature.
+/// `weather.rs`'s blizzard drives a chilled column up to `SNOW_CHILL` (26)
+/// degrees below ambient, which without a floor would be a *negative* rate;
+/// and fire's plume goes hundreds of degrees the other way. So:
+///
+/// * `WARMTH_FLOOR` is above zero, deliberately. A cold night, and a cold
+///   snap far more so, should slow drying to a crawl and never stop it —
+///   a hard zero here would give the mechanic a second permanent off-state,
+///   which is the failure the module doc's "and then it stops" section
+///   exists to keep out. Freezing is `fire.rs`'s job and happens to the
+///   *cell*; this is the air over it.
+/// * `WARMTH_CEIL` bounds a fire boiling a pond dry in a handful of checks.
+///   It still does it fast — three times the ordinary rate — which is the
+///   satisfying answer, and bounded so that a plume that briefly reads 400
+///   degrees does not delete a lake between two frames.
+fn warmth(world: &World, x: i32, y: i32) -> f32 {
+    // **The water's own block, not the block above.** `dryness` reads one
+    // block up because a water cell pins its own block's *moisture* to
+    // saturation and so carries no signal there. Temperature has no such
+    // degeneracy — the field's temperature channel is not forced by the
+    // presence of water — and the block a surface actually sits in is the
+    // air that is in contact with it.
+    let here = world.field_at(x, y).temperature;
+    (1.0 + (here - AMBIENT_TEMPERATURE as f32) * WARMTH_PER_DEGREE).clamp(WARMTH_FLOOR, WARMTH_CEIL)
+}
+
 /// How much standing water there is either side of `(x, y)`, `0.0..=1.0` —
 /// the shelter half of the rate, and the half that survives a gale.
 ///
@@ -372,10 +542,12 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     let reschedule =
         ActiveSite { x, y, kind: ActiveKind::Evaporate { stale_ticks: 0 }, next_frame: world.frame + CHECK_INTERVAL };
 
-    // The two factors multiply: dry air *and* an unsheltered surface. Either
-    // one at zero stops evaporation, which is what makes a lake safe in a
-    // gale and a puddle safe in a downpour.
-    let rate = dryness(world, x, y) * (1.0 - shelter(world, x, y));
+    // The three factors multiply: dry air, an unsheltered surface, and warm
+    // air over it. Either of the first two at zero stops evaporation, which
+    // is what makes a lake safe in a gale and a puddle safe in a downpour —
+    // and `warmth` is deliberately *not* one of those, because it is floored
+    // above zero (see it) so that cold is a brake and never a stop.
+    let rate = dryness(world, x, y) * (1.0 - shelter(world, x, y)) * warmth(world, x, y);
     let loss = (FILL_PER_CHECK as f32 * rate) as u16;
     if loss == 0 {
         // Sheltered. Deliberately still on the schedule — see the module

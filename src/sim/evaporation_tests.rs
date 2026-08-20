@@ -174,12 +174,87 @@ fn a_puddle_dries_up_and_a_lake_does_not() {
     // The headline paired comparison. Same seed, so the same weather; same
     // frame count; same depth, so the same surface-to-volume ratio. The two
     // bodies differ only in width, and nothing in the mechanic reads a width.
-    let puddle = fraction_lost(PUDDLE_W, 2_500);
-    let lake = fraction_lost(LAKE_W, 2_500);
-    println!("2500 frames: puddle lost {:.1}%, lake lost {:.1}%", puddle * 100.0, lake * 100.0);
+    //
+    // **A whole day, not 2,500 frames, since evaporation went diurnal.** The
+    // old length covered 0.69 of a 3,600-frame day starting at noon, so it
+    // was weighted toward the cool half and the same puddle read 100.0% lost
+    // before the coupling and 87.3% after — a *phase* artefact, not a
+    // slowdown, and a bar sitting on it would have drifted with any retune of
+    // `WARMTH_PER_DEGREE` rather than with anything about the contract. Over
+    // a whole number of whole days the coupling is mean-neutral by
+    // construction (see `warmth`), so this measures the thing it is named
+    // for again. Measured at one day: 100.0% and 100.0% respectively, so
+    // this length is also *cheaper* than the one it replaces in the only
+    // sense that matters -- it is no longer sitting near a bar.
+    let puddle = fraction_lost(PUDDLE_W, field::DAY_NIGHT_PERIOD_FRAMES as usize);
+    let lake = fraction_lost(LAKE_W, field::DAY_NIGHT_PERIOD_FRAMES as usize);
+    println!("one full day: puddle lost {:.1}%, lake lost {:.1}%", puddle * 100.0, lake * 100.0);
 
     assert!(puddle > 0.80, "the puddle should have all but gone, lost {:.1}%", puddle * 100.0);
     assert!(lake < 0.05, "the lake should be essentially untouched, lost {:.1}%", lake * 100.0);
+}
+
+#[test]
+fn days_evaporate_more_than_nights() {
+    // **The guard this phase exists to pass, and the mirror of
+    // `field::humidity_does_not_go_diurnal`** — that one asserts the sky
+    // stays out of humidity, this one asserts it gets into evaporation. The
+    // pair is the whole design: one diurnal site, and exactly one.
+    //
+    // Two separate runs of the same geometry, one window centred on noon and
+    // one on midnight, comparing the *summed credit to the bank* over each.
+    // Three things about that shape, each of which a simpler test gets
+    // wrong:
+    //
+    // * **Summed over a window, never sampled at an instant.** `rng::stream`
+    //   is keyed on `world.frame`, so two phases of the same world diverge
+    //   for reasons that have nothing to do with the sky; the baseline pair
+    //   read 8.755 against 8.718 with no coupling at all. A bound, not an
+    //   equality, on both sides.
+    // * **The bank, not the basin's volume.** Same number here, and the bank
+    //   is the one that stays meaningful if a body ever finishes mid-window.
+    // * **The 32-cell basin, not the 6-cell puddle.** A puddle dries out
+    //   inside the noon window and then reads its own volume rather than a
+    //   rate — 10.28 against 10.15 across the whole sweep of
+    //   `WARMTH_PER_DEGREE`, a saturated metric that looks exactly like a
+    //   disconnected knob. This width is rate-limited for the whole window.
+    //
+    // **Confirmed able to fail for the wrong plumbing**, which is the point
+    // of the guard rather than a nicety: swapping `warmth`'s read from
+    // `field_at(x, y).temperature` to
+    // `field::noon_equivalent_temperature(world.field_at(x, y))` scores
+    // 5.760 against 5.760 -- a ratio of 1.000 against the bar of 1.5 below,
+    // and a clean failure. It is not enough for this test to notice that
+    // *something* evaporates; it has to notice that the temperature read is
+    // the raw one.
+    const WIDTH: i32 = 32;
+    let half = field::DAY_NIGHT_PERIOD_FRAMES / 4;
+    let window = |centre: u64| -> f64 {
+        let mut w = scene(WIDTH);
+        // Start a whole day in, so the phase arithmetic cannot go negative,
+        // and settle before opening the window: what is being compared is a
+        // standing rate, not the transient of a freshly painted basin.
+        w.frame = field::DAY_NIGHT_PERIOD_FRAMES + centre - half;
+        run(&mut w, 300);
+        let opening = w.atmospheric_bank;
+        run(&mut w, (2 * half) as usize);
+        w.atmospheric_bank - opening
+    };
+    let noon = window(0);
+    let midnight = window(field::DAY_NIGHT_PERIOD_FRAMES / 2);
+    println!("half-day windows: noon banked {noon:.3}, midnight banked {midnight:.3} (ratio {:.2})", noon / midnight);
+
+    // Bars from measurement with headroom, and from *both* sides. The
+    // measured pair is 8.488 / 3.441, a ratio of 2.47.
+    assert!(
+        noon / midnight > 1.5,
+        "the day should dry a great deal faster than the night: noon banked {noon:.3}, midnight {midnight:.3}"
+    );
+    // And the night has not stopped, which is the other half of the shape
+    // `WARMTH_FLOOR` exists for: a cold night is a brake, never a stop. A
+    // factor with a hard zero, or one steep enough to reach zero at this
+    // swing, passes the bound above and fails here.
+    assert!(midnight > 0.20 * noon, "the night stopped drying altogether: {midnight:.3} against the day's {noon:.3}");
 }
 
 #[test]
@@ -407,6 +482,95 @@ fn probe_drying_curve() {
             l.field_at(BASIN_X + LAKE_W / 2, ys).moisture,
             crate::sim::weather::at(SEED, p.frame).wind,
         );
+    }
+}
+
+#[test]
+#[ignore = "probe, not a guard"]
+fn probe_temperature_over_water_across_a_day() {
+    // What the sky actually delivers to a water surface in *this* scene,
+    // which is the number the diurnal factor is shaped against. Reads the
+    // water's own field block — the block `tick` reads — raw and
+    // noon-equivalent, so the two together say how much of the reading is
+    // the day and how much is anything else.
+    //
+    // The scene's stone lid on row 0 attenuates the sky's forcing by one
+    // partly-blocked field block before it ever reaches the basin, so the
+    // swing here is *not* `SKY_TEMPERATURE_SWING`; measuring it rather than
+    // assuming it is the point of the probe.
+    println!("phase   raw C   noon-equiv C   sky term");
+    for (label, frame) in [
+        ("noon", 0u64),
+        ("afternoon", field::DAY_NIGHT_PERIOD_FRAMES / 8),
+        ("sunset", field::DAY_NIGHT_PERIOD_FRAMES / 4),
+        ("evening", 3 * field::DAY_NIGHT_PERIOD_FRAMES / 8),
+        ("midnight", field::DAY_NIGHT_PERIOD_FRAMES / 2),
+        ("sunrise", 3 * field::DAY_NIGHT_PERIOD_FRAMES / 4),
+    ] {
+        let mut w = scene(PUDDLE_W);
+        w.frame = frame;
+        run(&mut w, 200);
+        let c = w.field_at(BASIN_X + PUDDLE_W / 2, FLOOR_Y - DEPTH);
+        println!(
+            "{label:10} {:6.2}  {:8.2}  {:8.2}",
+            c.temperature,
+            field::noon_equivalent_temperature(c),
+            c.sky_temperature
+        );
+    }
+}
+
+#[test]
+#[ignore = "probe, not a guard"]
+fn probe_day_against_night_drying() {
+    // The paired comparison the `days_evaporate_more_than_nights` guard is
+    // set from: the same basin, the same number of frames, one window
+    // centred on noon and one on midnight. Separate runs, because
+    // `rng::stream` is keyed on `world.frame` and two phases of the same
+    // world diverge for reasons that have nothing to do with the sky — so
+    // this is a summed quantity over a window and never an equality.
+    let half = field::DAY_NIGHT_PERIOD_FRAMES / 4;
+    println!("width  window      credited (cell-equivalents)  fill lost");
+    for &width in &[PUDDLE_W, 32, LAKE_W] {
+        for (label, centre) in [("noon", 0u64), ("midnight", field::DAY_NIGHT_PERIOD_FRAMES / 2)] {
+            let mut w = scene(width);
+            w.frame = field::DAY_NIGHT_PERIOD_FRAMES + centre - half;
+            run(&mut w, 300); // settle, so the window itself is standing state
+            let bank0 = w.atmospheric_bank;
+            let vol0 = volume(&w, width);
+            run(&mut w, (2 * half) as usize);
+            println!(
+                "{width:5}  {label:9}  {:24.3}  {:9}",
+                w.atmospheric_bank - bank0,
+                vol0 - volume(&w, width)
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "probe, not a guard"]
+fn probe_whole_days_of_drying() {
+    // **The measurement `WARMTH_PER_DEGREE`'s mean-neutrality claim rests
+    // on, and the re-derivation of `FILL_PER_CHECK`.** A day-centred window
+    // says how much the coupling redistributes; only a whole number of whole
+    // days says whether it moved the *total*, which is what the drying
+    // timescale is set from.
+    //
+    // Width 32 rather than the 6-cell puddle because a puddle finishes
+    // inside the first day and a finished puddle reads the same total at
+    // every setting — a saturated metric, and one that hid the difference at
+    // three of the five sweep points before this probe existed.
+    println!("width  days  credited (cell-equivalents)  per day");
+    for &width in &[32i32, LAKE_W] {
+        for days in [1u64, 4] {
+            let mut w = scene(width);
+            run(&mut w, 300);
+            let bank0 = w.atmospheric_bank;
+            run(&mut w, (days * field::DAY_NIGHT_PERIOD_FRAMES) as usize);
+            let credited = w.atmospheric_bank - bank0;
+            println!("{width:5}  {days:4}  {credited:26.3}  {:7.3}", credited / days as f64);
+        }
     }
 }
 
