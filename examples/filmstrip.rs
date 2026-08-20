@@ -121,6 +121,44 @@ const COLDSNAP_SNOW_ENDS: u64 = 25010;
 const COLDSNAP_SHORE_Y: i32 = 240;
 const COLDSNAP_POND_DEPTH: i32 = 20;
 
+/// `scene=stormcycle`: seed 31337's front runs from frame 19,080 to 24,060 —
+/// a rain storm peaking at intensity 0.83, with epochs of clear sky either
+/// side of it. Starting at 17,400 buys about 1,700 dry frames before it
+/// arrives, and a run of 8,400 frames comes out the far side with another
+/// 1,700 to spare.
+///
+/// Picked by sweeping `weather::at`, which is a pure function of
+/// `(seed, frame)` and so costs nothing to search. Rain and not snow
+/// deliberately: snow puts the whole freeze/melt loop between the sky and
+/// the census, and what this scene is for is the *outer* cycle on its own.
+///
+/// Run it as:
+///
+/// ```text
+/// cargo run --release --example filmstrip -- \
+///     scene=stormcycle start=0 every=700 count=12 zoom=2 crop=0,168,512,72
+/// ```
+///
+/// **`every=700` is a measured choice, not a default.** At 350 the numbers
+/// still show the storm but half the sheet is spent on it; at 1400 the dip
+/// during the front is one tile wide and reads as noise. At 700 the twelve
+/// census lines run 2500.0 up to 2510.1 across the dry lead, *down* to
+/// 2505.7 through the front, and back up to 2521.3 after it — the shape the
+/// scene exists to show, in numbers, next to the picture.
+///
+/// The crop is the shore band: at zoom 1 over a 320-row world the pond is a
+/// six-pixel line and the rain is what the eye finds instead. Half the tiles
+/// land at night, which is the day/night cycle doing its job over an 8,400
+/// frame run rather than a fault in the sheet.
+///
+/// `seed=` is deliberately not wired to this: the frame window is chosen for
+/// this seed and means nothing on another one.
+const STORMCYCLE_SEED: u64 = 31337;
+const STORMCYCLE_START: u64 = 17_400;
+const STORMCYCLE_STORM: (u64, u64) = (19_080, 24_060);
+const STORMCYCLE_SHORE_Y: i32 = 200;
+const STORMCYCLE_DEPTH: i32 = 6;
+
 /// Water with a varied `shade`, the way the brush lays it down
 /// (`World::paint_capsule` rolls a random shade per cell). The scenes below
 /// would otherwise use `Cell::new(WATER, 0)` and give every cell an
@@ -416,6 +454,66 @@ fn build(args: &Args) -> World {
                 COLDSNAP_SNOW_ENDS,
                 left,
                 left + pond - 1
+            );
+        }
+        // **The outer water cycle, end to end, in one sheet.** A dry spell,
+        // a front, and another dry spell, over water that is bare rock all
+        // the way down.
+        //
+        // What is being judged here is not the picture on its own -- rain
+        // falling and a puddle shrinking both looked exactly like this
+        // before any of it was conserved. It is the picture *next to the
+        // census*: the `water + sky` line under each tile must hold still
+        // while the `standing` and `bank` halves of it trade places. That
+        // pairing is `CLAUDE.md`'s "did it fire at all needs a counter, not
+        // a picture" in its exact original form -- a storm that manufactures
+        // water and a storm that spends banked water are the same image, and
+        // only the number tells them apart.
+        //
+        // **One shallow pond and a lot of bare rock, and no soil**, and each
+        // of the three is load-bearing. The first geometry tried here was a
+        // 32-cell puddle beside a 240-cell pond, both 24 rows deep, and it
+        // failed to show the thing: the bank climbed monotonically through
+        // the front, because a puddle that narrow is entirely unsheltered
+        // (`evaporation::shelter` is a fixed-radius stencil) and the credit
+        // from it swamped everything the storm spent. Six rows rather than
+        // twenty-four cuts the evaporating shoreline to a quarter without
+        // touching the pond's *width*, which is the only thing shelter
+        // reads -- so the dry-spell credit comes down to the same order as
+        // the storm's debit and the two become legible against each other.
+        //
+        // The bare rock either side is not empty space. It is where the
+        // front's own drops puddle, and those puddles drying afterwards is
+        // most of the credit that comes back once it has passed.
+        //
+        // No soil because `update::update_soil_water` takes a landing water
+        // cell's fill into wetness and nothing credits it back -- a real,
+        // pre-existing one-way sink out of the ledger (see
+        // `weather::STORM_RESERVE`), and a scene built on soil would show
+        // that leak rather than the cycle.
+        "stormcycle" => {
+            for x in 0..WIDTH {
+                for y in STORMCYCLE_SHORE_Y..HEIGHT {
+                    // Attached, so the shore is terrain rather than
+                    // something stacked in front of the sky: an unattached
+                    // shelf erodes inward from every free face over the
+                    // thousands of frames this scene runs for, and the pond
+                    // would drain through the hole.
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for (x0, width) in [(136, 240)] {
+                for y in STORMCYCLE_SHORE_Y..(STORMCYCLE_SHORE_Y + STORMCYCLE_DEPTH) {
+                    for x in x0..(x0 + width) {
+                        w.set(x, y, water_at(x, y));
+                    }
+                }
+            }
+            w.seed = STORMCYCLE_SEED;
+            w.frame = STORMCYCLE_START;
+            println!(
+                "stormcycle: seed {STORMCYCLE_SEED}, world frame {STORMCYCLE_START}; the front runs {}..{}, so a run of 8400 frames is dry, wet, dry. Sky starts holding {:.1} cell-equivalents",
+                STORMCYCLE_STORM.0, STORMCYCLE_STORM.1, w.atmospheric_bank
             );
         }
         // Falling and spreading, rather than resting on the floor already:
@@ -2466,7 +2564,17 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
                 }
             }
         }
-        println!("    standing: molten {molten}, burning {burning}, cells at >=100C {hot}, liquid hot enough to bubble {bubbling}");
+        // The bank rides on the unconditional standing line rather than on
+        // the self-gating water line below, so **every** scene shows it. It
+        // is the one half of the world's water that no image can contain:
+        // water that has evaporated is not anywhere on screen, and a sheet
+        // showing a pond that has visibly shrunk cannot say whether the
+        // water went into the sky or out of the world. Printed next to a
+        // census of what is standing, the pair is the conservation law.
+        println!(
+            "    standing: molten {molten}, burning {burning}, cells at >=100C {hot}, liquid hot enough to bubble {bubbling}, bank {:.1}",
+            world.atmospheric_bank
+        );
         // WHERE the heat is, not just how much -- open-bugs-handoff 0b's own
         // discriminator ("dump where the >=100C cells and the outstanding
         // steam actually sit"). Per-material counts with a bounding box per
@@ -2512,6 +2620,22 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             println!(
                 "    water: {liquid:.1} cell-equivalents liquid, {frozen} frozen, {snowy} as snow (total {:.1})",
                 liquid + frozen as f64 + snowy as f64
+            );
+            // ...and the same water counted the *other* way, which is the
+            // only way that closes. The line above counts a flake and a full
+            // water cell alike as one cell, which is right for asking
+            // whether a pond froze over and wrong for conservation, because
+            // snow is 0.3 the density of water.
+            // `weather::water_equivalents` converts every phase at what it
+            // would come back as, so this figure plus the bank is the
+            // quantity that must hold still across a whole storm-and-drought
+            // cycle -- and a tile-by-tile printout is where a drift shows up
+            // as a trend rather than as a single end-of-run number.
+            let standing = pixel_physics::sim::weather::water_equivalents(&world);
+            println!(
+                "    water + sky: {standing:.1} standing + {:.1} banked = {:.1} cell-equivalents",
+                world.atmospheric_bank,
+                standing + world.atmospheric_bank
             );
         }
         println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
