@@ -1,7 +1,8 @@
 # Weather
 
 *Current as of: this build (the water bank — rain now comes out of what
-evaporated).*
+evaporated — and drying that follows the sun: warm afternoons take far
+more off a puddle than cold nights do).*
 
 Every world has weather, and it is a property of the world rather than
 something that happens to it: the same seed gets the same weather at the
@@ -129,6 +130,35 @@ back.
 Water sealed under rock never dries at all, and neither does anything under
 a roof; there has to be open air above it for the water to go anywhere.
 
+### Puddles dry in the afternoon, and barely overnight
+
+**Drying follows the sun.** The air warms through the morning, peaks at
+noon and cools away to a cold hour before dawn, and standing water goes
+with it: a puddle out in the open loses roughly four times as much across
+a warm afternoon as it does across the night either side. Leave one in the
+evening and it will be much the same in the morning; come back after a
+clear afternoon and it may not be there.
+
+Over a whole day it comes out the same as it always did — a puddle that
+took a day to go still takes a day. What changed is *when* it goes, and it
+is worth planning around: a shallow pool you are relying on will hold
+overnight and empty on you between breakfast and dusk.
+
+Shade counts, because what matters is how warm the air over the water
+actually is. Water at the bottom of a shaft, or under a ledge, feels far
+less of the day than water out on an open shore, and dries much more
+evenly around the clock.
+
+Cold makes the same point from the other end. Under a cold front, drying
+slows to a crawl — which is part of why a front puts more water down than
+it takes back up. It never stops completely, though: even the coldest
+night is still taking a little off, and water only stops drying when
+something covers it or the air above it is already saturated.
+
+And heat runs the other way. A fire beside a pool boils it back visibly
+fast, several times the ordinary rate — the fastest anything dries, short
+of the water actually being turned to steam.
+
 ## And it comes back as rain
 
 Water that evaporates is not destroyed — it goes into the sky, and the sky
@@ -141,7 +171,10 @@ of a new world are exactly as heavy as they ever were. What it does mean is
 that the sky can run low. A world that has rained a great deal without
 drying anything back out gets **thinner** rain — fewer streaks falling, less
 water landing, the same front delivering less — and it recovers as puddles
-and shorelines evaporate again. The rain you see falling and the rain that
+and shorelines evaporate again. **It recovers mostly by day**, for the
+reason above: watch the sky's reserve across a clear stretch and it climbs
+through each afternoon and sits nearly still through each night. The rain
+you see falling and the rain that
 actually lands are always the same rain; the sky never puts on a downpour it
 cannot pay for.
 

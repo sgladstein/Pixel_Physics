@@ -81,14 +81,22 @@ little way underground there is no day and night at all — deep rock sits at
 the same temperature at midnight as at noon, which is what makes a cave feel
 like a different place from the hillside above it.
 
-For now this is something to look at rather than something that acts on the
-world. Everything that decides anything from a temperature — what melts,
-what catches fire, when a worm flees the heat, how fast damp ground dries —
-deliberately ignores the time of day and reads the same value at every hour,
-so nothing behaves differently at night than it does at noon. Making the
-warm afternoons and cold nights actually *do* something is the next step,
-and it is a deliberate one rather than a side effect of the air having a
-temperature at all.
+**One thing acts on it, and exactly one: standing water dries faster when
+it is warm.** A puddle out in the open loses roughly four times as much
+across a warm afternoon as across the night either side of it, so pools
+visibly shrink through the day and hold nearly still overnight — and the
+sky's reserve of water fills on the same rhythm. See
+[Weather](weather.md). Over a whole day it comes to the same total as
+before; what the warmth changes is *when* the water goes.
+
+Everything else still deliberately ignores the time of day. What melts,
+what catches fire, when a worm flees the heat, how fast damp ground itself
+darkens and dries — all of them read the same value at every hour, so
+nothing else behaves differently at night than at noon. That is a choice
+rather than an omission: a threshold that quietly meant something
+different every hour would be impossible to reason about, and drying was
+picked to go first because following the sun is the whole of what it is
+supposed to do.
 
 Destruction isn't always permanent, either. Ash left behind by something
 that actually burned doesn't stay ash forever — over time it slowly

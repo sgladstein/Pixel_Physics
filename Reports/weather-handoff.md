@@ -198,6 +198,63 @@ wants an opinion before it wants code.
   six-cell puddle four rows deep takes ~11,600 frames, a little over three
   in-game days; two rows deep, about half that. `probe_drying_curve` is the thing to re-run after touching
   `FILL_PER_CHECK`, `HUMID_STOP` or `CHECK_INTERVAL`.
+- ~~**Nothing reads the day/night temperature.**~~ **Closed** by
+  `evaporation::warmth`: the rate gains a third factor, `1 + 0.15 * (T -
+  ambient)` clamped to 0.25..3.0, off the **raw** field temperature at the
+  water's own block. The single sanctioned exception to `CLAUDE.md`'s
+  divide-the-oscillator-out rule, and it is one site — `field.rs`'s moisture
+  decay stays noon-equivalent, because `dryness` reads the humidity that
+  decay produces and making both diurnal multiplies the day into the rate
+  twice. Guards: `days_evaporate_more_than_nights` (2.47:1, confirmed to fail
+  at 1.00 if the read is swapped to the noon-equivalent) and
+  `humidity_does_not_go_diurnal`, which is the same assertion pointed the
+  other way.
+
+  **Both re-derivable constants were re-derived and neither moved.** The
+  humidity-against-width table reads identically with the coupling off and at
+  0.15, digit for digit — expected, since decay is still noon-equivalent, and
+  measured rather than assumed. `FILL_PER_CHECK` holds because the factor is
+  *linear* in a zero-mean oscillation and so has a day-mean of exactly 1.0:
+  whole-day totals move +3.6% over one day and −1.3% over four (32-cell
+  basin), −0.1% over four on the lake. An Arrhenius shape would not have this
+  property and was rejected for it.
+
+#### Dry cold air suppressing evaporation: designed, deliberately not built
+
+`weather.rs`'s `chill` channel is real when nothing is falling and nothing
+reads it (`weather.rs`, the `Weather::chill` doc says so outright). The
+obvious next move after the coupling above is for a clear cold snap to slow
+drying the way a snowstorm now does. It was weighed and skipped, and the
+reason is worth having in writing because the cheap version is the wrong
+one.
+
+**The cheap version**: `evaporation::warmth` also reads `weather::at(seed,
+frame).chill` and subtracts. Rejected. `weather::at` is a *global* pure
+function with no position in it, so a puddle at the bottom of a sealed cave
+would slow down because the sky two hundred rows above it is cold — and the
+whole design of this file is that both existing factors are local readings
+(`dryness` from the block above, `shelter` from a fixed stencil either side).
+It would also be a *second* oscillating-ish global read at a site whose one
+selling point is that it has exactly one.
+
+**The version worth building**: `weather::step` writes dry chill into the
+*field's temperature channel*, as a boundary condition on open-sky columns,
+exactly as `hold_column_cold` already does under falling snow — and then
+evaporation reads nothing new at all. The coupling above picks it up for
+free, attenuated with depth by the machinery that already attenuates the
+sky's own forcing, so the sealed cave stays warm and the open shore does not.
+It also makes a clear cold night visible in the temperature overlay and to
+anything that later reads field temperature, rather than being a term hidden
+inside one consumer.
+
+Two things to settle before building it: how much of `SNOW_CHILL`'s 26
+degrees a *dry* snap should be worth (a clear cold night is not a blizzard,
+and `WARMTH_FLOOR` is reached at 13.7 below ambient, so anything much over
+that is indistinguishable from anything else over it); and what it costs the
+field's sleep gate, which currently wakes on `sky_temperature_offset`
+changing and would need the same quantised-staircase treatment
+(`SKY_TEMPERATURE_QUANTUM`'s doc is the whole argument) or it will hold the
+world awake through every cold epoch.
 
 ### 2. Thunder
 
