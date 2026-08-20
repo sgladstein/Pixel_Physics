@@ -38,6 +38,15 @@ instead of soil, shapes itself into dunes, has its water table far below the
 surface, and grows very little; a wet one is deep-soiled, green, and likely to
 hold standing water. Both can occur in the same world.
 
+**Each region colours its own country.** Dry country runs to warm, pale
+sandstone and dusty ground; wet country to cooler, darker rock and rich
+loam; a particularly hard region bleaches toward pale cap-rock. The change
+arrives as a scatter that thickens from one country into the next rather
+than as a painted line, and a cut face keeps its region's colour all the
+way down — so crossing an escarpment changes what the rock *is*, not just
+how high it stands. Nothing you place by hand picks up these regional
+casts; built stone is the same familiar grey everywhere.
+
 Every world is laid out differently. What is guaranteed is not a particular
 shape but a particular amount of *relief*: the regions of a world always
 differ enough in height to give you high ground and low ground. Where they
@@ -51,15 +60,21 @@ form, smaller hills sit on top of that, and finer roughness on top of those.
 **Bluffs and benches** appear in patches: flat steps cut into a hillside with
 steeper faces between them. They are not scattered arbitrarily — they follow
 the rock layering, so a bench forms where a band of rock reaches the surface,
-and its edge lines up with the banding visible in the face below it.
+and its edge lines up with the banding visible in the face below it. The
+faces themselves are broken rather than plumb: a tall riser comes down in
+ragged column-scale steps, not one sheer wall.
 
-**Overhangs** form at the top of some cliffs: a lip of rock that juts out over
-the drop, with open air beneath it. It is holding itself up in the ordinary
+**Overhangs** form at the top of cliffs: a lip of rock that juts out over
+the drop, with open air beneath it. The bigger the face, the further its lip
+reaches and the thicker it is — the great escarpments between regions carry
+them as well as the small bluffs. A lip is holding itself up in the ordinary
 way, not by special dispensation — hit it hard enough and it will come down
 like anything else.
 
 **Scree** heaps at the foot of cliffs: loose gravel, sloped the way shed rock
-naturally piles. It is real loose material, so digging into it makes it run.
+naturally piles, and there is more of it under a taller face — a great
+escarpment sheds a real apron, a terrace step only a scatter. It is real
+loose material, so digging into it makes it run.
 
 **Soil** lies over the rock wherever the ground is gentle enough to hold it,
 thinning as the ground steepens and giving out entirely on steep faces, which
@@ -82,8 +97,12 @@ layer can be followed from one cliff face to another across the world. Every
 cut you make, every tunnel and every blast crater exposes it, so the inside of
 a hill looks like rock rather than like fill.
 
-**Buried pockets** of sand and gravel sit sealed inside the rock. You will not
-see them from outside; you find them by digging, and they pour once opened.
+**Buried pockets** of sand and gravel sit sealed inside the rock — long, thin
+lenses that lie *along* the rock's layering rather than cutting across it,
+richer where the country is sedimentary and near the surface, rare down
+toward bedrock. You will not see them from outside; you find them by digging,
+and they pour once opened. Buried gravel reads as its own brown against the
+stone, where scree at the surface stays rock-grey.
 
 **Bedrock** lines the bottom of the world. It is the thing everything else is
 ultimately anchored to.
@@ -148,7 +167,8 @@ genuinely different places.
   than in occasional patches.
 - **Canyon** — deep relief and big vertical faces, thin soil, tall scree.
 - **Wetland** — low, gentle, deep-soiled ground.
-- **Arid** — desert: a sand sheet with dune crests, low relief, the water
+- **Arid** — desert: a sand sheet whose dune crests come big and small at
+  varying spacing, the way a real field does, low relief, the water
   table far below the surface, and almost nothing growing. Occasionally a
   less dry region sneaks in, which reads as an oasis.
 - **Legacy** — the old hand-built practice terrain: a flat floor and three
