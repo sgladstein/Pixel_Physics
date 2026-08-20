@@ -17,6 +17,7 @@
 //! is how sign errors get written — and it is converted exactly once, in
 //! [`Terrain::plan`].
 
+use super::erosion;
 use super::noise::{self, Purpose};
 use super::params::WorldgenParams;
 use super::region::{Character, RegionMap};
@@ -625,9 +626,30 @@ impl Terrain<'_> {
     /// slope reads at the two edges — out-of-world ground was never eroded
     /// (the sim treats the edge as an outlet), and two columns of slightly
     /// stale slope beats pretending the world extends.
+    ///
+    /// Drops the [`erosion::Deposits`] this computes along the way — see
+    /// [`Self::plan_all_with_deposits`], which is the real body. Kept as the
+    /// name every pure/no-op test already calls, so the round-4 restructure
+    /// that let the realise side see which cover is deposit and which is
+    /// native blanket needed no edits to those tests at all.
     pub fn plan_all(&self) -> Vec<ColumnPlan> {
+        self.plan_all_with_deposits().0
+    }
+
+    /// [`Self::plan_all`], plus the [`erosion::Deposits`] erosion left behind
+    /// on the way to those plans.
+    ///
+    /// Split out so the realise side (`passes.rs`) can tell a deposit apart
+    /// from the native soil blanket it landed in — before this, `plan_from`
+    /// folded `talus + sediment` straight into `soil_depth` and nothing
+    /// downstream could recover which cells were which, so the gravel-as-
+    /// talus and boulder-socket passes had nowhere to read from. Pure
+    /// plumbing: the plans returned are bit-identical to before at every
+    /// `world_age`, which `plan_all_at_age_zero_matches_plan` and the
+    /// erosion purity tests confirm without needing to change.
+    pub fn plan_all_with_deposits(&self) -> (Vec<ColumnPlan>, erosion::Deposits) {
         let mut h: Vec<f32> = (0..self.w).map(|x| self.elev(x)).collect();
-        let deposits = super::erosion::erode(self, &mut h);
+        let deposits = erosion::erode(self, &mut h);
         let at = |x: i32| -> f32 {
             if x < 0 || x >= self.w {
                 self.elev(x)
@@ -646,7 +668,7 @@ impl Terrain<'_> {
             })
             .collect();
         self.taper_cover(&mut plans);
-        plans
+        (plans, deposits)
     }
 
     /// Thin the loose cover toward wherever it runs out, so its own free face

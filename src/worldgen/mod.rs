@@ -134,6 +134,13 @@ pub struct Ctx<'a> {
     pub terrain: Terrain<'a>,
     /// One entry per column of the world, indexed by x.
     pub plans: Vec<ColumnPlan>,
+    /// What plan-space erosion moved and left behind on the way to `plans`
+    /// (`erosion.rs`) — talus and sediment depths per column, boulder-socket
+    /// markers, and the volume counters. `plan_all` already folded the
+    /// deposit depths into `plans[x].soil_depth`; this is what lets a
+    /// realise pass tell a deposit apart from the native blanket it landed
+    /// in, which `plan_all` alone cannot answer.
+    pub deposits: erosion::Deposits,
     pub stone: MaterialId,
     pub soil: MaterialId,
     pub sand: MaterialId,
@@ -168,8 +175,8 @@ impl<'a> Ctx<'a> {
         let gravel_tan = world.materials.get(gravel).friction_angle.to_radians().tan();
         let terrain =
             Terrain::new(seed, params, bounds.max_x + 1, bounds.max_y + 1, soil_tan, sand_tan);
-        let plans = terrain.plan_all();
-        Self { terrain, plans, stone, soil, sand, gravel, water, crystal, gravel_tan }
+        let (plans, deposits) = terrain.plan_all_with_deposits();
+        Self { terrain, plans, deposits, stone, soil, sand, gravel, water, crystal, gravel_tan }
     }
 }
 
