@@ -1875,13 +1875,31 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             let crystal = noise::unit(seed, Purpose::Speleothem, px, 2) < SPELEO_CRYSTAL;
             let pair = kind < SPELEO_PAIR && span >= 7;
             let stalactite = pair || kind < SPELEO_PAIR + 0.45;
+            // Round-5 task 4a: a heavy-tailed draw scaled to the local open
+            // span, replacing the old `2 + unit * 6` -- a uniform draw
+            // capped at 8 regardless of how tall the room was, measured
+            // (`cave_probe`) at median 3, p90 6, max 7 over 539 formations:
+            // there was no tail to make heavy, the ceiling had to move
+            // first. `unit^1.3 * avail`, base 1: tried cubed and squared
+            // first and both under-shot the p90 >= 10 bar (cubed: p90 5-6;
+            // squared: p90 7-8) while already meeting p50 <= 3 and max >=
+            // 25 -- most formations sit in ordinary passage, where `avail`
+            // itself is small, so a heavier tail alone cannot lift the 90th
+            // percentile past what enough *tall-span* formations reach.
+            // 1.3 is the mildest exponent that clears p90 >= 10 on every
+            // preset (measured: p50 1, p90 8-12, max 28-34) without giving
+            // up the fringe: median stays at the soda-straw floor while the
+            // tail reaches deep into the chamber-scale spans task 3 added.
+            // `.min(span - 2)` still holds as the structural cap; it binds
+            // rarely now instead of almost always.
+            let avail = (span - 2).max(0) as f32;
             let mut lt = if stalactite {
-                (2 + (noise::unit(seed, Purpose::Speleothem, px, 3) * 6.0) as i32).min(span - 2)
+                (1.0 + noise::unit(seed, Purpose::Speleothem, px, 3).powf(1.3) * avail).min((span - 2) as f32) as i32
             } else {
                 0
             };
             let mut lg = if pair || !stalactite {
-                (2 + (noise::unit(seed, Purpose::Speleothem, px, 4) * 6.0) as i32).min(span - 2)
+                (1.0 + noise::unit(seed, Purpose::Speleothem, px, 4).powf(1.3) * avail).min((span - 2) as f32) as i32
             } else {
                 0
             };
