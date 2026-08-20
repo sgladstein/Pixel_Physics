@@ -566,31 +566,41 @@ pub(crate) fn is_moisture_source(
     tiles.get(&tile_coord).is_some_and(|tile| tile.moisture_source_local(lx, ly) > 0.0)
 }
 
-/// Whether the field block covering this position holds a glowing material
-/// (`Material::glow`, gathered by `rebuild_blocked` into `FieldTile::glow`).
+/// `(is_blocked, glows)` in a single tile fetch, for `step_diffusion`'s
+/// neighbour read — the diffusion hot path, where asking the two questions
+/// through separate functions cost a second `HashMap` fetch of the same
+/// tile for every blocked neighbour (the first version did, and the paired
+/// `ascii` river scene showed the within-run spring cost rising ~0.5 ms at
+/// 2048x640 for it). `has_glow` short-circuits the per-block array read
+/// for the overwhelmingly common tile with no glow anywhere.
 ///
-/// Exists for exactly the reason `is_moisture_source` does: `blocked` goes
-/// true for a whole 8x8 block the moment one cell in it is `Solid`, and a
-/// glowing lining is by definition solid, so the generic wall rule in
-/// `step_diffusion` read a lit lining's block as "contributes my own value"
-/// and the seed `rebuild_blocked` writes was exactly as unshareable as the
-/// wet rock basin's moisture once was — a lit block over a pitch-dark
-/// cavity, no halo at all. Found by the paired-cavity test, not by eye.
-/// Out of bounds is `false`: the void does not glow.
-pub(crate) fn is_glow_source(
+/// The glow half exists for exactly the reason `is_moisture_source` does:
+/// `blocked` goes true for a whole 8x8 block the moment one cell in it is
+/// `Solid`, and a glowing lining is by definition solid, so the generic
+/// wall rule in `step_diffusion` read a lit lining's block as "contributes
+/// my own value" and the seed `rebuild_blocked` writes was exactly as
+/// unshareable as the wet rock basin's moisture once was — a lit block
+/// over a pitch-dark cavity, no halo at all. Found by the paired-cavity
+/// test, not by eye. Out of bounds is a wall that does not glow; a missing
+/// tile is open and dark — both halves match `is_blocked`'s own edge
+/// semantics.
+fn blocked_and_glow(
     tiles: &HashMap<ChunkCoord, FieldTile>,
     bounds: Option<Rect>,
     world_x: i32,
     world_y: i32,
-) -> bool {
+) -> (bool, bool) {
     if let Some(b) = bounds {
         if !b.contains(world_x, world_y) {
-            return false;
+            return (true, false);
         }
     }
     let (fx, fy) = field_coord_of(world_x, world_y);
     let (tile_coord, lx, ly) = tile_and_local(fx, fy);
-    tiles.get(&tile_coord).is_some_and(|tile| tile.glow_local(lx, ly) > 0.0)
+    match tiles.get(&tile_coord) {
+        Some(tile) => (tile.is_blocked_local(lx, ly), tile.has_glow && tile.glow_local(lx, ly) > 0.0),
+        None => (false, false),
+    }
 }
 
 pub(crate) fn is_blocked(tiles: &HashMap<ChunkCoord, FieldTile>, bounds: Option<Rect>, world_x: i32, world_y: i32) -> bool {
@@ -1701,28 +1711,29 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
                 // contents — the same fallback idea `sample_bilinear` uses
                 // for advection, applied here to diffusion's neighbour read.
                 //
-                // One exception, folded into this closure rather than run as
-                // a second neighbour pass (this is the diffusion hot path —
-                // a separate light-only closure re-paying `is_blocked` and
-                // `sample` for all four neighbours was written first and
-                // cost double the lookups): **light reads through a blocked
-                // neighbour that glows.** The moisture-source exception
-                // below, replayed on the light channel. A glowing lining is
-                // `Solid`, so its whole 8x8 block is `blocked`, and the
-                // strict wall rule made the seed `rebuild_blocked` writes
-                // there unshareable: the lining's own block sat at 1.8 while
-                // the cavity air one block away read 0.0000004 — lit crystal
-                // over pitch dark, no halo. (The paired-cavity test caught
-                // it; nothing on screen had been looked at yet.) Every
-                // non-glowing wall keeps the strict rule, so the sealed-room
-                // optical guard is untouched: this admits light *from a
-                // light source*, not through stone — and the extra
-                // `is_glow_source` lookup is paid only for neighbours that
-                // are blocked in the first place.
+                // One exception, folded into this closure and answered in
+                // the same tile fetch as the blocked test itself
+                // (`blocked_and_glow` — this is the diffusion hot path, and
+                // both a separate light-only closure and a separate
+                // `is_glow_source` call were written first; each cost an
+                // extra `HashMap` fetch per neighbour, the second one
+                // measurably in the river scene): **light reads through a
+                // blocked neighbour that glows.** The moisture-source
+                // exception below, replayed on the light channel. A glowing
+                // lining is `Solid`, so its whole 8x8 block is `blocked`,
+                // and the strict wall rule made the seed `rebuild_blocked`
+                // writes there unshareable: the lining's own block sat at
+                // 1.8 while the cavity air one block away read 0.0000004 —
+                // lit crystal over pitch dark, no halo. (The paired-cavity
+                // test caught it; nothing on screen had been looked at
+                // yet.) Every non-glowing wall keeps the strict rule, so
+                // the sealed-room optical guard is untouched: this admits
+                // light *from a light source*, not through stone.
                 let neighbour = |dx: i32, dy: i32| {
                     let (nx, ny) = (wx + dx, wy + dy);
-                    if is_blocked(old, bounds, nx, ny) {
-                        if is_glow_source(old, bounds, nx, ny) {
+                    let (blocked, glows) = blocked_and_glow(old, bounds, nx, ny);
+                    if blocked {
+                        if glows {
                             let mut wall = here;
                             wall.light = sample(old, bounds, nx, ny).light;
                             wall
