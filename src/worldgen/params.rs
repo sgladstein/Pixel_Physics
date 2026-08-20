@@ -188,6 +188,16 @@ pub struct WorldgenParams {
     /// character — see `region.rs` for why this is the difference between
     /// "different numbers" and "a different world".
     pub region_variation: f32,
+    /// How far the slow 2-D field is allowed to displace a palette-family
+    /// probability, in absolute probability.
+    ///
+    /// `0.0` restores the per-column threshold round 1 shipped (the aridity
+    /// ramp widths changed with it, so it is not quite byte-identical -- see
+    /// the round-2 finding), and a preset with `region_variation <= 0.0`
+    /// never reaches this code at all. Behind a param because "does this read
+    /// as country or as stipple" is a by-eye question, and the repo's
+    /// convention for those is a runtime selector rather than an argument.
+    pub palette_field: f32,
 
     // ---- life ----
     /// Per-column moss probability scale. Zero disables plant scatter.
@@ -243,6 +253,7 @@ impl Default for WorldgenParams {
             dune_variation: 0.7,
             aridity_table_drop: 90.0,
             region_variation: 0.75,
+            palette_field: 0.30,
             moss_density: 0.10,
             tree_density: 0.26,
             life_cluster_wavelength: 70.0,

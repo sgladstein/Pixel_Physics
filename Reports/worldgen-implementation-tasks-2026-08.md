@@ -985,6 +985,111 @@ silhouettes and their caps. What changes is the second butte's left face,
 which is a single dark full-height slot in the before strip and a stepped
 flight in the after.
 
+### R2-2 — The piers were real, canyon-only, and the fix needed a metric that was not the dither
+
+Two changes in `palette_family`, together: the family probability is now
+displaced by a slow 2-D field (`Purpose::PaletteField`, appended at **18** --
+17 was already `Riser`, and the collision was a compile error rather than a
+silent renumber, which is the registry rule working), and the aridity ramps
+are widened from `0.50..0.78` / `0.10..0.34` to `0.42..0.86` / `0.06..0.42`.
+Behind a per-preset `palette_field`, `0.0` reaching the per-column threshold
+round 1 shipped.
+
+**The metric took two attempts and the first one was worthless in an
+instructive way.** Version one measured per-cell run length of the family
+along y against along x. It reported **y/x = 0.99 for every preset at every
+setting, before and after** -- which reads as "the mechanism does nothing"
+and is actually "the question is wrong": the per-cell dither is white noise
+from `unit(seed, Palette, x, y)`, so its run lengths are isotropic by
+construction no matter what the probability behind them does. It was
+measuring the stipple and could never have seen the band. The tell was the
+answer being identical in cases already known to differ.
+
+Version two measures at the scale the artifact has: family *mix* per 8x8
+block, then the mean L1 change between vertically adjacent blocks against
+horizontally adjacent ones. A pier is a column of blocks that agree beside
+blocks that do not, so `v/h` is the shape number.
+
+**It localises the complaint, which is worth as much as fixing it.** At
+`palette_field: 0.0`, canyon is the *only* preset that is columnar:
+
+| preset (seed) | v/h before | v/h after | top-family share before -> after |
+|---|---|---|---|
+| canyon s7 | **0.58** | **0.75** | 0.47 -> 0.44 |
+| canyon s13 | **0.56** | **0.74** | 0.50 -> 0.45 |
+| rolling s1 | 0.91 | 0.94 | 0.54 -> 0.51 |
+| wetland s1 | 0.96 | 0.98 | 0.88 -> 0.84 |
+| arid s1 | 0.98 | 0.99 | 0.91 -> 0.88 |
+
+The merge review saw this on canyon and only on canyon, and the number agrees:
+rolling, wetland and arid were already near-isotropic and had no artifact to
+fix. That is why the knob is **per-preset** rather than one global setting --
+canyon 0.45, rolling/terraced 0.30, wetland/arid 0.15, flat 0.0 -- which is
+the branch the task's own text sanctions ("sweep both knobs behind preset
+params if a single setting doesn't hold across presets"). It does not hold:
+the sweep is monotone in both directions at once.
+
+| `palette_field` | canyon s7 v/h | wetland s1 top family |
+|---|---|---|
+| 0.00 | 0.58 | 0.88 |
+| 0.15 | 0.66 | 0.84 |
+| 0.30 | 0.71 | 0.80 |
+| 0.45 | 0.75 | 0.76 |
+| 0.60 | 0.79 | 0.71 |
+
+**`v/h = 1.0` is not the target, and chasing it would undo round 1's task 3.**
+Some horizontal anisotropy is *signal*: aridity genuinely varies with x, and
+a family boundary that has no preference for x at all means regions have
+stopped being different country. The cost column is what says where to stop
+-- pushing wetland to 0.60 takes its dominant family from 88% to 71%, which
+is a wet country that is no longer notably wet. So the artifact removed is
+the part pinned to a *column*; the part that tracks the region stays.
+
+**The ramp widening earns its place, measured separately rather than assumed.**
+Held at `palette_field: 0.0` with only the ramps reverted, canyon s7 reads
+v/h 0.50 and canyon s13 0.46, against 0.58 and 0.56 widened. On s13 the
+widening alone is the larger of the two contributions (+0.10 against the
+field's +0.13 on top of it). It costs canyon s13 four points of dominant
+family and arid two, and wetland nothing.
+
+**Sweep compare is the proof this is shade-only, and it is exact**: the
+`compare` output after this task is **byte-identical** to the output after
+task 1 -- same eight sub-threshold rows, same numbers, 0 counters past
++/-30%. This task writes no different cell anywhere; only shade bytes change,
+which the census cannot see by construction.
+
+`flat` and any `region_variation <= 0.0` preset are untouched:
+`palette_family` returns `FAMILY_NEUTRAL` before the field is evaluated, and
+`a_varied_world_uses_more_than_one_rock_family` still asserts flat is family
+0 only.
+
+Per-family rock census at 512x320 seed 1, beside round 1's, as the counter
+that says the mechanism fired (0 neutral / 1 wet / 2 dry / 3 cap-rock):
+
+```
+rolling  round 1: 41892 / 29469 /     - / 14098      now: 37443 / 35201 /  1200 / 13968
+canyon   round 1: 58863 /  9327 /    54 / 15907      now: 55197 / 10835 /  3334 / 15719
+arid     round 1:  9531 /     - / 84558 /  2788      now: 16291 /  1048 / 74042 /  4011
+wetland  round 1:     - / 80183 /     - /  1004      now:  4717 / 75037 /  1615 /  2349
+```
+
+`-` is a family round 1's finding did not list, which for that census means
+absent; the widened ramps are why every preset now draws all four. The
+direction to read is that the minority families gained -- canyon's dry went
+54 -> 3334, which is the "warm country" the review wanted the grey to be
+intergrown *with*.
+
+Images: `target/filmstrips/task2-after-canyon-s{7,13}.png` against
+`task1-after-canyon-s{7,13}.png` as the before, plus
+`task2-after-{rolling,wetland,arid}-s1.png` for collateral, which is clean --
+no confetti, no family appearing where its country is not.
+
+Reproduction:
+
+```
+cargo test --release --test worldgen probe_r2t2 -- --ignored --nocapture
+```
+
 ---
 
 ## Track summary — what changed, and what the next session should know

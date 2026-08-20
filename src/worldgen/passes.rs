@@ -41,6 +41,18 @@ const FAMILY_DRY: u8 = 2;
 /// sand ship three families, and resistance is a property of rock.
 const FAMILY_RESISTANT: u8 = 3;
 
+/// Wavelength of the slow field that displaces the family probabilities, in
+/// cells, applied on both axes.
+///
+/// Chosen at the scale of the artifact it breaks up rather than of the
+/// terrain: the piers were tens of columns wide and ran the full height of a
+/// cliff, so a field that turns over every ~48 cells puts several reversals
+/// down any face tall enough to have read as a pier. Much shorter and the
+/// displacement stops being a facies boundary and starts being a second
+/// stipple on top of the first; much longer and a whole cliff sits under one
+/// sign of the bias, which is the pier again with a different threshold.
+const FAMILY_FIELD_WAVELENGTH: f32 = 48.0;
+
 /// Gravel's second family: the buried read, for lenses sealed in the rock.
 ///
 /// Not a region family — it is a *context* family, and that distinction is
@@ -72,9 +84,25 @@ const BURIED_FAMILY: u8 = 1;
 /// artificial thing a layered generator can draw (the soil/stone contact in
 /// `soil_blanket` is dithered for exactly this reason and says so).
 ///
-/// The character is read at `x` only. `y` enters solely through the dither
-/// draw, so a family boundary is ragged in both directions rather than
-/// being a column of one colour beside a column of another.
+/// **The per-cell dither is not enough on its own, and round 1 shipped
+/// without the other half.** The draw `u` varies per cell, but the
+/// *thresholds* it is compared against came from `character(x)` alone — so
+/// the probability of a family was constant down an entire column, and a
+/// transition zone came out as a full-height vertical pier of stipple whose
+/// density never changed with depth. On canyon's jagged terrain the merge
+/// review read exactly that: columns of grey standing inside warm country at
+/// x ~ 290-320, 620-660 and 880-990 on seed 7. A stipple can only hide a
+/// boundary it is allowed to move; this one was pinned to a column.
+///
+/// So the probability is displaced by a slow 2-D field
+/// ([`FAMILY_FIELD_WAVELENGTH`]) before the draw is compared against it. The
+/// family boundary then wanders up and down through the rock over tens of
+/// rows, which is what a facies change actually does, and no column is a
+/// pier because no column has a constant threshold any more.
+///
+/// The character is read at `x` only. `y` enters through the dither draw and
+/// through that field, so a family boundary is ragged in both directions
+/// rather than being a column of one colour beside a column of another.
 fn palette_family(ctx: &Ctx, x: i32, y: i32, cap_rock: bool) -> u8 {
     // A preset that asked for no regional variation gets none, including no
     // palette shift. `flat` is the structural test bed and its whole point
@@ -86,13 +114,25 @@ fn palette_family(ctx: &Ctx, x: i32, y: i32, cap_rock: bool) -> u8 {
     }
     let ch = ctx.terrain.character(x);
     let u = noise::unit(ctx.terrain.seed, Purpose::Palette, x, y);
+    // The slow displacement, centred on zero so it pushes a threshold both
+    // ways: a field that only ever *added* probability would widen every
+    // family into its neighbour rather than making the boundary meander.
+    let bias = ctx.terrain.params.palette_field
+        * (noise::fbm_2d(
+            ctx.terrain.seed,
+            Purpose::PaletteField,
+            x as f32 / FAMILY_FIELD_WAVELENGTH,
+            y as f32 / FAMILY_FIELD_WAVELENGTH,
+            2,
+        ) * 2.0
+            - 1.0);
 
     // Resistance first, and only for rock. Thresholds sit above the neutral
     // 1.0 that `Character::neutral` hands out, so an unremarkable region
     // stays grey and only a genuinely resistant draw bleaches.
     let mut floor = 0.0;
     if cap_rock {
-        let resistant = noise::smoothstep(1.25, 1.80, ch.resistance);
+        let resistant = (noise::smoothstep(1.25, 1.80, ch.resistance) + bias).clamp(0.0, 1.0);
         if u < resistant {
             return FAMILY_RESISTANT;
         }
@@ -101,11 +141,19 @@ fn palette_family(ctx: &Ctx, x: i32, y: i32, cap_rock: bool) -> u8 {
     // Dry and wet are mutually exclusive by construction -- the two ramps do
     // not overlap -- so their probabilities can share the remaining room
     // without either stealing from the other.
-    let dry = noise::smoothstep(0.50, 0.78, ch.aridity);
+    //
+    // The aridity ramps are wider than round 1 shipped them (0.50..0.78 and
+    // 0.10..0.34). A narrow ramp means a region is nearly all-or-nothing dry,
+    // so the dither band -- the only place the two families interleave at all
+    // -- is a few columns wide and the rest is solid blocks of one family.
+    // Widening the ramp is what gives the 2-D field room to work: a broad
+    // band of genuinely mixed probability is what a slow displacement can
+    // make wander.
+    let dry = (noise::smoothstep(0.42, 0.86, ch.aridity) + bias).clamp(0.0, 1.0);
     if u < floor + dry * (1.0 - floor) {
         return FAMILY_DRY;
     }
-    let wet = 1.0 - noise::smoothstep(0.10, 0.34, ch.aridity);
+    let wet = (1.0 - noise::smoothstep(0.06, 0.42, ch.aridity) + bias).clamp(0.0, 1.0);
     if u < floor + (dry + wet) * (1.0 - floor) {
         return FAMILY_WET;
     }

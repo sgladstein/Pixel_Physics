@@ -1132,3 +1132,111 @@ fn probe_1c_the_wetland_white_dashes() {
     }
     println!("  material tally in the dash band (x 760..980, y 158..170): {rect:?}");
 }
+
+#[test]
+#[ignore = "probe: prints, never asserts (round-2 task 2)"]
+fn probe_r2t2_how_columnar_is_a_family_boundary() {
+    // The artifact is *shape*: a family whose probability is constant down a
+    // column paints a full-height vertical band. Measure it at the scale the
+    // band has -- blocks of BLOCK cells -- as the family mix per block, then
+    // ask how much that mix changes between vertically adjacent blocks
+    // against horizontally adjacent ones. A pier is a column of blocks that
+    // all agree (vertical change ~ 0) sitting beside blocks that do not
+    // (horizontal change large), so the ratio is the number to read, and it
+    // rises toward 1 as the boundary starts to wander.
+    //
+    // **The first version of this probe measured per-cell run lengths and was
+    // useless**, in the way CLAUDE.md warns about: it reported y/x = 0.99 for
+    // every preset, at every setting, before and after. That is not a null
+    // result, it is the wrong question -- the per-cell dither is white noise
+    // drawn from `unit(seed, Palette, x, y)`, so its run lengths are
+    // isotropic by construction whatever the probability behind them does.
+    // It was measuring the stipple, never the band. The tell was the answer
+    // being identical in cases known to differ.
+    //
+    // Paired against the same world with the field off, which here is exact:
+    // `palette_field` changes no cell's material and no cell's position, only
+    // which family byte it takes.
+    const BLOCK: i32 = 8;
+    let presets = presets();
+    println!("\n=== family mix change between adjacent blocks, vertical vs horizontal ===");
+    println!(
+        "  {:>10} {:>5} {:>8} {:>9} {:>9} {:>7} {:>9}",
+        "preset", "seed", "field", "d-vert", "d-horiz", "v/h", "top fam"
+    );
+    for (preset, seed) in [("canyon", 7u64), ("canyon", 13), ("rolling", 1), ("wetland", 1), ("arid", 1)] {
+        let base = presets.get(preset).expect("preset");
+        for field in [0.0f32, 0.15, 0.30, 0.45, 0.60] {
+            let params = WorldgenParams { palette_field: field, ..base.clone() };
+            let mut world = World::new(Rect::new(0, 0, REVIEW_BOUNDS.0, REVIEW_BOUNDS.1));
+            worldgen::generate(&mut world, Spec::Generated { params: &params, seed });
+            let stone = world.materials.id_of("stone").expect("stone");
+            let (bw, bh) = ((REVIEW_BOUNDS.0 + 1) / BLOCK, (REVIEW_BOUNDS.1 + 1) / BLOCK);
+            // Per block: the fraction of its stone cells in each family, and
+            // how many stone cells it had. Blocks with too little rock to
+            // characterise are dropped rather than counted as zero -- a
+            // mostly-air block near the skyline would otherwise read as a
+            // huge "change" against the solid one beneath it.
+            let mut mix = vec![None; (bw * bh) as usize];
+            for by in 0..bh {
+                for bx in 0..bw {
+                    let mut counts = [0f32; 4];
+                    let mut total = 0f32;
+                    for y in by * BLOCK..(by + 1) * BLOCK {
+                        for x in bx * BLOCK..(bx + 1) * BLOCK {
+                            let c = world.get(x, y);
+                            if c.material == stone {
+                                counts[(c.shade / 4).min(3) as usize] += 1.0;
+                                total += 1.0;
+                            }
+                        }
+                    }
+                    if total >= (BLOCK * BLOCK) as f32 * 0.75 {
+                        mix[(by * bw + bx) as usize] = Some(counts.map(|c| c / total));
+                    }
+                }
+            }
+            // L1 distance between two blocks' family mixes, averaged over
+            // every adjacent pair that has both.
+            let delta = |a: &[f32; 4], b: &[f32; 4]| (0..4).map(|i| (a[i] - b[i]).abs()).sum::<f32>();
+            let (mut sv, mut nv, mut sh, mut nh) = (0.0f32, 0usize, 0.0f32, 0usize);
+            for by in 0..bh {
+                for bx in 0..bw {
+                    let Some(here) = mix[(by * bw + bx) as usize] else { continue };
+                    if by + 1 < bh {
+                        if let Some(down) = mix[((by + 1) * bw + bx) as usize] {
+                            sv += delta(&here, &down);
+                            nv += 1;
+                        }
+                    }
+                    if bx + 1 < bw {
+                        if let Some(right) = mix[(by * bw + bx + 1) as usize] {
+                            sh += delta(&here, &right);
+                            nh += 1;
+                        }
+                    }
+                }
+            }
+            let (dv, dh) = (sv / nv.max(1) as f32, sh / nh.max(1) as f32);
+            // Beside the shape number, how much regional identity is left:
+            // the share of all stone taken by its most common family. The
+            // point of families is that `character(x)` picks them, so a field
+            // strong enough to drive this toward an even 25/25/25/25 has
+            // dissolved the country it was meant to make legible. v/h = 1 is
+            // therefore NOT the target -- some horizontal anisotropy is the
+            // signal, and only the part pinned to a column is the artifact.
+            let mut tot = [0f32; 4];
+            for m in mix.iter().flatten() {
+                for i in 0..4 {
+                    tot[i] += m[i];
+                }
+            }
+            let sum: f32 = tot.iter().sum();
+            let top = tot.iter().cloned().fold(0.0f32, f32::max) / sum.max(1e-6);
+            println!(
+                "  {preset:>10} {seed:>5} {field:>8.2} {dv:>9.4} {dh:>9.4} {:>7.2} {top:>9.2}",
+                dv / dh.max(1e-6)
+            );
+        }
+    }
+}
