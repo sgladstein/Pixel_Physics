@@ -1,2 +1,7 @@
 /target
 **/*.rs.bk
+# Session-local agent state: worktrees (see CLAUDE.md "Working alongside
+# another session"), workflow scripts, and per-machine permission settings.
+# None of it is project content, and a worktree swept into a commit would
+# carry another session's in-progress tree with it.
+/.claude/
