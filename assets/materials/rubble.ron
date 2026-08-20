@@ -30,6 +30,9 @@
     density: 2.0,
     friction_angle: 55.0,
     max_stability_angle: 65.0,
+    // See Material::blast_resistance -- already-broken rock, a loose pile
+    // like gravel rather than the intact stone it fell from.
+    blast_resistance: 0.4,
     colors: [
         (124, 124, 128),
         (106, 106, 112),

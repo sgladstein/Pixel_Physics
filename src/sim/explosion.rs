@@ -150,6 +150,43 @@ pub struct Tuning {
     /// describes, while staying small enough that the gradient's own shape
     /// still dominates.
     pub debris_jitter: f32,
+    /// Rays `score_cracks` fires from the blast site once, at trigger time,
+    /// into the rock the crater will leave standing — the radial fracture
+    /// halo real confined blasting produces (`Reports/
+    /// explosion-stone-review.md` §2). Fewer than `strike`'s own
+    /// `CRACK_RAYS` because a blast's rays run much further (`crack_reach`
+    /// below is a multiple of the whole blast radius, not a fixed few
+    /// cells), and more rays at that length would mean more overlapping
+    /// writes for no extra visible spread.
+    pub crack_rays: u32,
+    /// How far past the crater wall the crack halo reaches, as a multiple
+    /// of `radius`. The rays themselves start beyond `BLAST_SHELL_REACH`
+    /// past the crater (see the trigger-time call site's own comment for
+    /// why) and run this many blast-radii further from there — a confined
+    /// shot's halo is supposed to reach well past the visible hole, which
+    /// is the whole point of R1 (`Reports/explosion-stone-review.md` §4).
+    pub crack_reach: f32,
+    /// How much resistance-weighted cost a confinement ray may spend before
+    /// its sector counts as "contained" rather than "open", as a multiple
+    /// of the blast's own `radius`. See `probe_confinement`. Set past 1.0
+    /// on purpose: a ray that reaches air at *exactly* `radius` cells of
+    /// stone (cost 1.0 per cell) has barely more headroom than the crater
+    /// itself is about to carve, and the blast would read as "contained"
+    /// for cover it is actually about to break straight through. `1.4`
+    /// gives a genuine margin past the crater's own reach before a sector
+    /// is judged sealed. `f32::INFINITY` reproduces every sector open,
+    /// which is what the pre-R2 code always did — the trick
+    /// `debris_fraction`'s own tests already use to isolate an older
+    /// contract from a newer one.
+    pub containment_floor: f32,
+    /// Effective clear radius for a *contained* sector, as a fraction of
+    /// `radius` — the crush pocket a fully buried charge leaves instead of
+    /// the old uniform circle. Small and deliberate, the same reasoning
+    /// `vaporize_fraction` uses for the vaporize core: real confined
+    /// blasting pulverizes a small volume and spends the rest of its energy
+    /// on the crack halo (`crack_rays`/`crack_reach` above), not on
+    /// widening a cavity that has nowhere to vent into.
+    pub confined_cavity_fraction: f32,
     /// Divides `strength` to give each debris particle its pierce budget —
     /// cells of loose material it may punch through before coming to rest
     /// (`particle::Particle::pierce`).
@@ -177,6 +214,10 @@ impl Default for Tuning {
             speed_per_strength: 0.05,
             debris_jitter: 0.4,
             pierce_divisor: 12.0,
+            crack_rays: 12,
+            crack_reach: 1.5,
+            containment_floor: 1.4,
+            confined_cavity_fraction: 0.35,
         }
     }
 }
@@ -218,6 +259,230 @@ impl Tuning {
     }
 }
 
+/// Number of fixed directions `probe_confinement` casts, and the number of
+/// 22.5-degree pie-slice sectors `sector_of` buckets a cell offset into.
+/// Fixed rather than data-driven: `Blast::sector_reach` below is stored as a
+/// plain array sized by this constant, and both `clear_annulus` and
+/// `rigid::fracture_shell`'s per-cell test have to agree with
+/// `probe_confinement`'s own ray order on what "sector 7" means.
+pub(crate) const CONFINEMENT_SECTORS: usize = 16;
+
+/// tan(22.5 degrees) = sqrt(2) - 1. See `sector_of`.
+const TAN_22_5: f32 = 0.414_213_57;
+
+/// Which of the 16 fixed 22.5-degree pie slices a cell offset `(dx, dy)`
+/// from the epicentre falls into — matching the direction order
+/// `probe_confinement` fires its rays in (`theta = i * TAU / 16`, sweeping
+/// from +x toward +y).
+///
+/// No `atan2` here: both `clear_annulus` and `fracture_shell`'s annulus loop
+/// call this once per cell in their scan box, which at a cavern-scene radius
+/// is tens of thousands of calls per blast stage — a transcendental call per
+/// cell there is real, avoidable cost for a question that only needs "which
+/// 45-degree wedge, then which half of it". Standard octant bucketing (sign
+/// of `dx`/`dy`, `|dx|` vs `|dy|`) picks the wedge in one comparison;
+/// splitting that wedge into its near and far 22.5-degree halves needs one
+/// more comparison against `tan(22.5 degrees)` — but which side of that
+/// comparison is the "far" half **alternates with octant parity** (the minor
+/// axis grows across the wedge in half the octants and shrinks across it in
+/// the other half, depending on which axis is "starting" versus "ending" the
+/// 45-degree sweep). Getting that alternation backwards in only some octants
+/// produces a blast that is inexplicably lopsided in four of its sixteen
+/// directions and nothing else wrong — verified exhaustively against an
+/// `atan2` reference over a 400x400-cell offset grid before this was trusted
+/// (`Reports/explosion-stone-review.md` §7f), rather than re-derived by eye,
+/// because that is exactly the kind of bug eyeballing the trig would not
+/// catch.
+pub(crate) fn sector_of(dx: i32, dy: i32) -> usize {
+    if dx == 0 && dy == 0 {
+        return 0; // the epicentre itself; every sector's reach admits dist2 == 0 regardless
+    }
+    let (ax, ay) = (dx.unsigned_abs(), dy.unsigned_abs());
+    let octant = match (dx >= 0, dy >= 0, ax >= ay) {
+        (true, true, true) => 0,
+        (true, true, false) => 1,
+        (false, true, false) => 2,
+        (false, true, true) => 3,
+        (false, false, true) => 4,
+        (false, false, false) => 5,
+        (true, false, false) => 6,
+        (true, false, true) => 7,
+    };
+    let (minor, major) = (ax.min(ay) as f32, ax.max(ay) as f32);
+    let far_half = if octant % 2 == 0 { minor > major * TAN_22_5 } else { minor < major * TAN_22_5 };
+    (octant * 2 + usize::from(far_half)) % CONFINEMENT_SECTORS
+}
+
+/// Hard cap on how far one confinement ray may march, independent of
+/// resistance — without it a material with `blast_resistance` of exactly
+/// `0.0` (a data mistake, not a shipped value; every material ships above
+/// zero) would march forever instead of quietly reading as "contained".
+/// Generous relative to `containment_floor * radius` at every shipped
+/// material's resistance (worst case today is snow at 0.2, so even a
+/// radius-60 cavern blast needs only ~420 cells to clear the floor) — a
+/// safety rail, not a tuned distance.
+const PROBE_MARCH_CAP: i32 = 800;
+
+/// What one confinement ray found: whether it reached a free face (air, a
+/// gas cell, or a `Liquid` cell — see `cast_confinement_ray`) within its
+/// resistance budget, and how far it got.
+struct RayResult {
+    /// Accumulated `blast_resistance` cost when the ray stopped, either
+    /// because it vented or because it exceeded the floor.
+    cost: f32,
+    /// Whether the ray reached a free face at all (as opposed to running out
+    /// of budget, or hitting the march cap, while still inside solid rock).
+    vented: bool,
+    /// Whether this ray crossed at least one `Solid`-kind cell — gates
+    /// whether the trigger-time crack halo call is worth making at all (an
+    /// airburst, or a blast entirely inside loose powder, has no rock to
+    /// crack).
+    struck_solid: bool,
+}
+
+/// March 16 fixed rays out from the epicentre, accumulating each cell's
+/// `Material::blast_resistance` as they go, to decide which of the blast's
+/// 16 confinement sectors have a nearby free face (R2,
+/// `Reports/explosion-stone-review.md` §4) and which are buried.
+///
+/// Fixed directions, **not** `world.rng` draws: an extra roll here would
+/// shift every later draw in the frame's RNG sequence, breaking replay
+/// determinism (`CLAUDE.md`, "no `world.rng` draws in the probe"). And
+/// sector membership has to be the *same* 16 slices on every stage of one
+/// blast — recomputing per stage would let a cell cross from "contained" to
+/// "open" mid-blast for no physical reason, which is why this runs once, at
+/// trigger, and the result is stored on `Blast` rather than derived fresh
+/// each stage.
+///
+/// Run **before** anything is cleared, for the same reason `score_cracks`'s
+/// trigger-time call has to be: by the blast's last stage the crater is
+/// empty and `fracture_shell` has already removed the annulus around it, so
+/// a probe run then would read a hole where the rock used to be instead of
+/// the rock itself.
+fn probe_confinement(world: &World, cx: i32, cy: i32, radius: i32, tuning: &Tuning) -> ([u8; CONFINEMENT_SECTORS], bool) {
+    let mut reach = [0u8; CONFINEMENT_SECTORS];
+    let mut any_solid = false;
+    let floor = tuning.containment_floor * radius as f32;
+    for (i, slot) in reach.iter_mut().enumerate() {
+        let theta = i as f32 * std::f32::consts::TAU / CONFINEMENT_SECTORS as f32;
+        let (dx, dy) = (theta.cos(), theta.sin());
+        let result = cast_confinement_ray(world, cx, cy, dx, dy, floor);
+        any_solid |= result.struck_solid;
+        *slot = if result.vented && result.cost <= floor {
+            radius.clamp(0, u8::MAX as i32) as u8
+        } else {
+            ((radius as f32) * tuning.confined_cavity_fraction).clamp(0.0, u8::MAX as f32) as u8
+        };
+    }
+    (reach, any_solid)
+}
+
+/// One ray of `probe_confinement` — split out so the loop above stays a
+/// simple per-direction dispatch rather than a nested loop with two exit
+/// conditions tangled into one body.
+fn cast_confinement_ray(world: &World, cx: i32, cy: i32, dx: f32, dy: f32, floor: f32) -> RayResult {
+    let mut cost = 0.0f32;
+    let mut struck_solid = false;
+    for r in 1..=PROBE_MARCH_CAP {
+        let (x, y) = (cx + (dx * r as f32).round() as i32, cy + (dy * r as f32).round() as i32);
+        if !world.in_bounds(x, y) {
+            // The world edge counts as a free face -- there is nothing left
+            // out there to push against, the same reading `debris_velocity`
+            // already gives an unblocked field sample.
+            return RayResult { cost, vented: true, struck_solid };
+        }
+        let cell = world.get(x, y);
+        // A raw material test, not `cell.is_empty()` -- this question is
+        // "is there material here to push through", the same one
+        // `clear_annulus` asks and for the same reason: `is_empty()` is
+        // managed-aware and would read a promoted body's reserved container
+        // cell as occupied even though it holds `material::EMPTY`.
+        let kind = world.materials.kind(cell.material);
+        if cell.material == material::EMPTY || kind == material::MaterialKind::Gas || kind == material::MaterialKind::Liquid {
+            // Vented: air and gas offer no resistance, and a `Liquid` is
+            // treated the same way rather than read through its own
+            // `blast_resistance` (which is never read here as a result --
+            // water and oil need no entry in their `.ron` files). A liquid
+            // cannot brace a blast on the timescale a detonation happens
+            // on: it displaces instead of confining, which is exactly what
+            // round 3 of `Reports/explosion-mechanics-diagnosis.md` found
+            // and fixed ("water, which previously threw *nothing* at any
+            // depth, now opens real cavities") -- a charge under water is a
+            // free face to this probe, full stop, the same as a charge
+            // under open sky. Confining a blast is a *solid's* job.
+            return RayResult { cost, vented: true, struck_solid };
+        }
+        if kind == material::MaterialKind::Solid {
+            struck_solid = true;
+        }
+        cost += world.materials.get(cell.material).blast_resistance;
+        if cost > floor {
+            // Already past the containment floor -- this sector cannot be
+            // open regardless of what lies further out, so stop spending
+            // march budget on it.
+            return RayResult { cost, vented: false, struck_solid };
+        }
+    }
+    // Ran the whole march cap while still under the floor and never hit a
+    // free face -- effectively "contained", the same as exceeding the floor
+    // outright.
+    RayResult { cost, vented: false, struck_solid }
+}
+
+/// R2's confinement result, bundled for `rigid::fracture_shell` — the reach
+/// array and the radius it is measured against always travel together (a
+/// sector is "open" exactly when its reach equals the radius), and passing
+/// them as one `Copy` struct rather than two parameters is also what keeps
+/// `fracture_shell` under clippy's `too_many_arguments`.
+#[derive(Clone, Copy, Debug)]
+pub struct Confinement {
+    pub sector_reach: [u8; CONFINEMENT_SECTORS],
+    pub radius: i32,
+}
+
+/// What one blast actually did — R5's "did it fire at all" line
+/// (`CLAUDE.md`: a discrete event needs a counter printed next to the
+/// image, not just a picture). Filled in at trigger time and updated as the
+/// blast's stages run; left on `Blasts` until the next blast overwrites it,
+/// rather than printed from inside this module, so a test that fires a
+/// blast is not forced to see it on stdout too — a caller that wants the
+/// line (the app's HUD, `filmstrip`'s `boom:` hook) reads
+/// `Blasts::last_blast_report` once the blast has finished.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BlastReport {
+    /// How many of the 16 confinement sectors read as open (a free face
+    /// within `containment_floor * radius` resistance-weighted cells).
+    pub open_sectors: u32,
+    /// The remaining sectors: buried, and cleared only to
+    /// `confined_cavity_fraction * radius`.
+    pub contained_sectors: u32,
+    /// Cells actually converted to debris/vacuum across every stage.
+    pub cells_cleared: u32,
+    /// Cells that would have cleared this stage under the old (uniform)
+    /// geometry but were left standing because their sector is contained —
+    /// the quantity that used to be zero for every blast, always.
+    pub cells_held_by_containment: u32,
+    /// Cells `score_cracks` scored with a fresh fissure — the radial halo,
+    /// R1's whole point.
+    pub cells_fissured: u32,
+}
+
+impl std::fmt::Display for BlastReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "cleared {} cells, {} held by containment, {} fissured, sectors open {}/{} contained {}/{}",
+            self.cells_cleared,
+            self.cells_held_by_containment,
+            self.cells_fissured,
+            self.open_sectors,
+            CONFINEMENT_SECTORS,
+            self.contained_sectors,
+            CONFINEMENT_SECTORS,
+        )
+    }
+}
+
 /// One explosion in progress: a cavity front expanding outward from
 /// `(cx, cy)`, one stage per frame.
 #[derive(Clone, Copy, Debug)]
@@ -229,6 +494,17 @@ pub struct Blast {
     /// Stages already run. The blast is finished once this reaches
     /// `Tuning::stages`.
     stage: u16,
+    /// Effective clear radius per confinement sector, in cells — `radius`
+    /// itself for an open sector, `confined_cavity_fraction * radius` for a
+    /// contained one. Computed once by `probe_confinement` at trigger time
+    /// and read by every later stage's `clear_annulus`/`fracture_shell`
+    /// call, so a cell's sector membership and reach never change mid-blast.
+    sector_reach: [u8; CONFINEMENT_SECTORS],
+    /// Running totals for `Blasts::last_blast_report`. `open_sectors`,
+    /// `contained_sectors` and `cells_fissured` are set once at
+    /// construction; `cells_cleared`/`cells_held_by_containment` accumulate
+    /// as `clear_annulus` runs on each stage.
+    report: BlastReport,
 }
 
 /// Every blast currently expanding, plus the tuning they all read.
@@ -242,6 +518,11 @@ pub struct Blast {
 pub struct Blasts {
     active: Vec<Blast>,
     pub tuning: Tuning,
+    /// See `BlastReport`'s own doc. `Default::default()` (all zero) before
+    /// any blast has ever fired, which is indistinguishable from "the last
+    /// blast fissured nothing" — harmless, since nothing reads this before
+    /// a first blast exists to ask about.
+    last_report: BlastReport,
 }
 
 impl Blasts {
@@ -251,7 +532,7 @@ impl Blasts {
 
     /// Start from tuning loaded off disk rather than the compiled defaults.
     pub fn with_tuning(tuning: Tuning) -> Self {
-        Self { active: Vec::new(), tuning }
+        Self { active: Vec::new(), tuning, last_report: BlastReport::default() }
     }
 
     /// Begin a blast at `(cx, cy)` using the current tuning's own radius and
@@ -276,8 +557,10 @@ impl Blasts {
         // A blast is a disturbance: it licenses failures near it. See
         // `World::chain_reach`.
         world.record_disturbance(cx, cy);
-        let mut blast = Blast { cx, cy, radius, strength, stage: 0 };
-        if blast.advance(world, particles, &self.tuning) {
+        let mut blast = Blast::new(world, cx, cy, radius, strength, &self.tuning);
+        let still_going = blast.advance(world, particles, &self.tuning);
+        self.last_report = blast.report;
+        if still_going {
             self.active.push(blast);
         }
     }
@@ -286,7 +569,17 @@ impl Blasts {
     /// ones. Its own frame phase, called from `App::update`.
     pub fn step(&mut self, world: &mut World, particles: &mut ParticleSystem) {
         let tuning = self.tuning;
-        self.active.retain_mut(|blast| blast.advance(world, particles, &tuning));
+        // Split the borrow so the closure can read the blast it just
+        // advanced back into `self.last_report` while `retain_mut` still
+        // holds `self.active` mutably -- these are disjoint fields, so the
+        // borrow checker allows both at once as long as neither expression
+        // goes through `self` as a whole.
+        let last_report = &mut self.last_report;
+        self.active.retain_mut(|blast| {
+            let still_going = blast.advance(world, particles, &tuning);
+            *last_report = blast.report;
+            still_going
+        });
     }
 
     pub fn is_empty(&self) -> bool {
@@ -296,9 +589,64 @@ impl Blasts {
     pub fn len(&self) -> usize {
         self.active.len()
     }
+
+    /// What the most recently triggered blast did, updated as its stages
+    /// run and left in place once it finishes. See `BlastReport`.
+    pub fn last_blast_report(&self) -> BlastReport {
+        self.last_report
+    }
 }
 
 impl Blast {
+    /// Build a blast at trigger time: probe confinement (R2) and score the
+    /// crack halo (R1) if the probe crossed real rock, both before a single
+    /// cell has been cleared. Shared by `Blasts::trigger_with` (the staged,
+    /// player-facing path) and the synchronous `trigger_tuned` below, the
+    /// same "two drivers, one set of rules" shape `Blast::advance` already
+    /// uses for `update::step`/`parallel::step` -- a second copy of this
+    /// logic in the synchronous path would drift from this one the first
+    /// time either changed.
+    fn new(world: &mut World, cx: i32, cy: i32, radius: i32, strength: f32, tuning: &Tuning) -> Self {
+        let (sector_reach, struck_solid) = probe_confinement(world, cx, cy, radius, tuning);
+        let open_sectors = sector_reach.iter().filter(|&&r| r as i32 >= radius).count() as u32;
+        let contained_sectors = CONFINEMENT_SECTORS as u32 - open_sectors;
+
+        // R1: the radial fracture halo, scored now rather than on any later
+        // stage. `score_cracks`'s rays `break` on the first non-`Solid`
+        // cell (`rigid::is_body_material`), and by the blast's last stage
+        // the crater is empty *and* `fracture_shell` has already removed
+        // the annulus out to `radius + BLAST_SHELL_REACH` -- a ray starting
+        // at `from = radius` would die on its very first cell there, or
+        // inside re-landed debris that eats it the same way. Calling here,
+        // before anything is cleared, means the rays start in what will
+        // remain standing rock once the crater finishes expanding, so
+        // `from` has to clear the band the shell fracture is about to take:
+        // `radius + BLAST_SHELL_REACH + 1` (`Reports/
+        // explosion-stone-review.md` §5's adversarial-verification finding
+        // -- the one place the first draft of this spec was wrong).
+        //
+        // Gated on having actually crossed rock: an airburst, or a blast
+        // entirely inside loose powder, has no rock to crack and should not
+        // pay for the ray scan.
+        let cells_fissured = if struck_solid {
+            let from = radius + BLAST_SHELL_REACH + 1;
+            let length = (radius as f32 * tuning.crack_reach) as i32 + from;
+            super::rigid::score_cracks(world, cx, cy, from, length, tuning.crack_rays)
+        } else {
+            0
+        };
+
+        Self {
+            cx,
+            cy,
+            radius,
+            strength,
+            stage: 0,
+            sector_reach,
+            report: BlastReport { open_sectors, contained_sectors, cells_cleared: 0, cells_held_by_containment: 0, cells_fissured },
+        }
+    }
+
     /// Run one stage. Returns whether the blast is still going.
     fn advance(&mut self, world: &mut World, particles: &mut ParticleSystem, tuning: &Tuning) -> bool {
         let stages = tuning.stages();
@@ -343,7 +691,7 @@ impl Blast {
     }
 
     /// Clear the annulus between two fronts, converting material to debris.
-    fn clear_annulus(&self, world: &mut World, particles: &mut ParticleSystem, tuning: &Tuning, prev2: f32, now2: f32, vaporize2: f32) {
+    fn clear_annulus(&mut self, world: &mut World, particles: &mut ParticleSystem, tuning: &Tuning, prev2: f32, now2: f32, vaporize2: f32) {
         let reach = front_reach(now2);
         let mut struck_rock = false;
         for y in (self.cy - reach)..=(self.cy + reach) {
@@ -380,6 +728,22 @@ impl Blast {
                 if cell.material == material::SMOKE {
                     continue;
                 }
+                // R2: a contained sector never clears past its own effective
+                // radius, however far this stage's front has expanded --
+                // this is what turns a fully buried charge into a crush
+                // pocket instead of the old uniform circle. Open sectors are
+                // unaffected: `sector_reach` there is exactly `radius`,
+                // which `now2` (capped at `radius^2` on the last stage)
+                // never exceeds, so this test never fires for them. Checked
+                // after the material/SMOKE skips above so the counter below
+                // reports cells that would genuinely have cleared, not
+                // candidates that were already air.
+                let sector_limit = self.sector_reach[sector_of(dx, dy)] as f32;
+                if dist2 > sector_limit * sector_limit {
+                    self.report.cells_held_by_containment += 1;
+                    continue;
+                }
+                self.report.cells_cleared += 1;
 
                 if dist2 > vaporize2 && world.rng.chance(tuning.debris_fraction) {
                     let (vx, vy) = debris_velocity(world, x, y, self.cx, self.cy, self.strength, tuning);
@@ -419,7 +783,23 @@ impl Blast {
         // or a blast inside a sand pile, should not pay for a shell scan it
         // has no rock to find.
         if struck_rock {
-            super::rigid::fracture_shell(world, (self.cx, self.cy), reach, reach + BLAST_SHELL_REACH, self.strength * BLAST_SHELL_FORCE, 1);
+            // R2: a contained sector's rim must stay attached. Without
+            // gating this too, "contained" only ever meant `clear_annulus`
+            // -- the shell scan below would still find that rim, strip its
+            // attachment bonus and fracture it, quietly reproducing the
+            // self-refilling bruise this gating exists to remove even
+            // though the sector never lost a cell (`Reports/
+            // explosion-stone-review.md` §5, "sector gating must gate
+            // `fracture_shell` too, not just `clear_annulus`").
+            super::rigid::fracture_shell(
+                world,
+                (self.cx, self.cy),
+                reach,
+                reach + BLAST_SHELL_REACH,
+                self.strength * BLAST_SHELL_FORCE,
+                1,
+                Confinement { sector_reach: self.sector_reach, radius: self.radius },
+            );
         }
     }
 
@@ -641,7 +1021,10 @@ pub fn trigger(world: &mut World, particles: &mut ParticleSystem, cx: i32, cy: i
 pub fn trigger_tuned(world: &mut World, particles: &mut ParticleSystem, cx: i32, cy: i32, radius: i32, strength: f32, tuning: &Tuning) {
     world.add_pressure_impulse(cx, cy, radius, strength);
     world.add_heat(cx, cy, radius, strength / tuning.heat_fraction);
-    let mut blast = Blast { cx, cy, radius, strength, stage: 0 };
+    // `Blast::new` runs the R2 probe and the R1 crack halo, exactly as
+    // `Blasts::trigger_with` does — see its own doc for why both
+    // constructors have to do this rather than just one.
+    let mut blast = Blast::new(world, cx, cy, radius, strength, tuning);
     while blast.advance(world, particles, tuning) {}
 }
 
@@ -931,7 +1314,17 @@ mod tests {
         }
         let mut particles = ParticleSystem::new();
         let radius = 10;
-        let all_debris = Tuning { debris_fraction: 1.0, smoke_fraction: 0.0, ..Tuning::default() };
+        // R2: this fill is exactly "enclosed on all sides by 20+ cells of
+        // material" (the block spans 20 cells past the epicentre on every
+        // side) -- under the new contract that is a *contained* charge, and
+        // a contained charge deliberately clears only its small crush core
+        // (`confined_cavity_fraction`), not the vaporize-curve question
+        // this test exists to isolate. `containment_floor: INFINITY`
+        // reproduces the pre-R2 geometry exactly (every sector reads open),
+        // which is what "most of the blast radius" below is measured
+        // against -- same trick `debris_fraction`'s own isolation above
+        // uses for a different axis of the same tuning.
+        let all_debris = Tuning { debris_fraction: 1.0, smoke_fraction: 0.0, containment_floor: f32::INFINITY, ..Tuning::default() };
         trigger_tuned(&mut w, &mut particles, 40, 40, radius, 150.0, &all_debris);
 
         let cleared = ((40 - radius)..=(40 + radius))
@@ -981,6 +1374,95 @@ mod tests {
         trigger(&mut w, &mut particles, 64, 64, 20, 180.0);
         let n = particles.len();
         assert!(n > 300, "a default blast threw only {n} debris particles");
+    }
+
+    /// R2's whole point, stated positively (§7c(i)): a stone charge with
+    /// 20+ cells of cover in every direction is contained, and a contained
+    /// charge crushes a small pocket and drives fissures into the standing
+    /// rock instead of clearing the old uniform circle. `boom_stone`'s own
+    /// acceptance bar (`Reports/explosion-stone-review.md` §7d) is the same
+    /// shape at world scale: cracked census up, cells lost down.
+    #[test]
+    fn a_fully_buried_stone_blast_crushes_a_pocket_and_scores_a_crack_star() {
+        let mut w = test_world();
+        // 108 cells of stone around the epicentre -- comfortably past
+        // `containment_floor * radius` (28 at the shipped default) in every
+        // direction, including the diagonals, so every one of the 16
+        // probe sectors reads contained regardless of the fill's square
+        // shape.
+        for y in 10..118 {
+            for x in 10..118 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        let mut particles = ParticleSystem::new();
+        let radius = 20;
+        trigger(&mut w, &mut particles, 64, 64, radius, 180.0);
+
+        let in_disc = |x: i32, y: i32| {
+            let (dx, dy) = (x - 64, y - 64);
+            dx * dx + dy * dy <= radius * radius
+        };
+        let disc_cells: Vec<(i32, i32)> = ((64 - radius)..=(64 + radius))
+            .flat_map(|y| ((64 - radius)..=(64 + radius)).map(move |x| (x, y)))
+            .filter(|&(x, y)| in_disc(x, y))
+            .collect();
+        // Not `is_empty()`: `smoke_fraction` backfills part of a cleared
+        // cell with `SMOKE`, which is not `EMPTY` and would undercount
+        // "left the rock" the same way `an_explosion_clears_material_
+        // within_its_radius`'s own comment explains. "No longer solid
+        // stone" is the honest question for both directions of this test.
+        let cleared = disc_cells.iter().filter(|&&(x, y)| w.get(x, y).material != material::STONE).count();
+        // The crack halo's own rays start *beyond* `radius` on purpose
+        // (`from = radius + BLAST_SHELL_REACH + 1`, see `Blast::new`'s own
+        // doc) -- a census confined to the nominal blast disc would find
+        // none of them. `3 * radius` is the same box `filmstrip`'s own
+        // cracked-cell census uses for exactly this reason.
+        let box_r = radius * 3;
+        let cracked = ((64 - box_r)..=(64 + box_r))
+            .flat_map(|y| ((64 - box_r)..=(64 + box_r)).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).cracked())
+            .count();
+
+        assert!(cracked >= 100, "a fully-buried stone blast scored only {cracked} cracked cells within 3x its radius");
+        assert!(
+            cleared < disc_cells.len() / 2,
+            "a fully-contained stone blast cleared {cleared} of {} disc cells -- containment did not shrink the cavity",
+            disc_cells.len()
+        );
+    }
+
+    /// R2's material term, the other direction from the test above (§7c(ii)):
+    /// sand's `blast_resistance` (0.35) is well under stone's 1.0, so the
+    /// *same* 20+-cells-of-cover geometry reads as open for sand and the
+    /// blast clears its old uniform circle unchanged.
+    #[test]
+    fn sand_at_the_same_buried_geometry_still_clears_the_full_disc() {
+        let mut w = test_world();
+        for y in 10..118 {
+            for x in 10..118 {
+                w.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+        let mut particles = ParticleSystem::new();
+        let radius = 20;
+        trigger(&mut w, &mut particles, 64, 64, radius, 180.0);
+
+        let in_disc = |x: i32, y: i32| {
+            let (dx, dy) = (x - 64, y - 64);
+            dx * dx + dy * dy <= radius * radius
+        };
+        let disc_cells: Vec<(i32, i32)> = ((64 - radius)..=(64 + radius))
+            .flat_map(|y| ((64 - radius)..=(64 + radius)).map(move |x| (x, y)))
+            .filter(|&(x, y)| in_disc(x, y))
+            .collect();
+        let cleared = disc_cells.iter().filter(|&&(x, y)| w.get(x, y).material != material::SAND).count();
+
+        assert!(
+            cleared > disc_cells.len() * 3 / 4,
+            "sand under the same 20+-cell cover as the stone test cleared only {cleared} of {} disc cells -- containment should not have engaged for a low-resistance material",
+            disc_cells.len()
+        );
     }
 
     #[test]
@@ -1186,7 +1668,17 @@ mod tests {
             }
         }
         let mut particles = ParticleSystem::new();
-        let no_smoke = Tuning { smoke_fraction: 0.0, ..Tuning::default() };
+        // `containment_floor: INFINITY` reproduces the pre-R2 geometry
+        // exactly (every sector reads as open) -- same trick
+        // `most_of_the_blast_radius_becomes_debris_not_vaporized` uses.
+        // This test's own contract is about the clear/ignite *ordering*
+        // bug its comment describes, not about confinement: a 60x60 fill
+        // of oil (`blast_resistance` unset, defaults to stone's 1.0) reads
+        // as buried under R2's model the same as solid rock would, and
+        // without this pin the inner disc would only partially clear,
+        // which is a different, true thing this test was never written to
+        // check.
+        let no_smoke = Tuning { smoke_fraction: 0.0, containment_floor: f32::INFINITY, ..Tuning::default() };
         trigger_tuned(&mut w, &mut particles, 40, 40, 8, 150.0, &no_smoke);
 
         // The clearing radius (8) must be empty — nothing left to ignite

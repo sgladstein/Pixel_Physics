@@ -468,6 +468,33 @@ pub struct MaterialDef {
     #[serde(default)]
     pub breaks_into: String,
 
+    /// Mechanical resistance to a blast's confinement probe, unitless and
+    /// relative to stone's own `1.0` — a ray marching outward from an
+    /// epicentre spends this much of `Tuning::containment_floor * radius`
+    /// per cell of this material it crosses before it may call a sector
+    /// "open" (`explosion::probe_confinement`). Lower means a blast finds
+    /// the free face through this material sooner, i.e. clears it as if it
+    /// were easier to push through -- sand and soil are well under stone,
+    /// so the same charge under the same cover reads sand's looseness as
+    /// *less resistant to being blown through*, not merely "softer to dig".
+    ///
+    /// Defaults to stone's own value, per `design-philosophy.md` §2a's rule
+    /// that gameplay-facing numbers graduate to data immediately rather than
+    /// waiting for a second material to justify the field -- a `Solid` or
+    /// `Powder` material that says nothing here resists a blast exactly as
+    /// much as rock does, which is the honest default: unset should read as
+    /// "as hard to push through as anything else", not "no resistance at
+    /// all".
+    ///
+    /// **Never read for a `Liquid`-kind material.** `cast_confinement_ray`
+    /// treats every `Liquid` cell as a free face regardless of this field --
+    /// the same as air or gas -- because a liquid cannot brace a blast on a
+    /// detonation's timescale, it displaces instead of confining. Setting
+    /// this on `water.ron`/`oil.ron` would silently do nothing; do not add
+    /// it there.
+    #[serde(default = "default_blast_resistance")]
+    pub blast_resistance: f32,
+
     /// How much further this material spans when it is part of the
     /// background mass (`Cell::attached`) rather than standing in front of
     /// it: `effective_span = max_unsupported_span * this` for attached
@@ -558,6 +585,13 @@ fn default_fragment_rungs() -> u32 {
 
 fn default_attached_span_bonus() -> u16 {
     1
+}
+
+/// 1.0 -- stone's own value, so a `.ron` that says nothing about
+/// `blast_resistance` blasts exactly as every material always has (every
+/// sector reads as open at the shipped `containment_floor`).
+fn default_blast_resistance() -> f32 {
+    1.0
 }
 
 /// 0.65, matching the hardcoded `MIN_LIQUID_BRIGHTNESS` of 0.35 this
@@ -677,6 +711,8 @@ pub struct Material {
     pub melting_point: f32,
     pub boiling_point: f32,
     pub max_unsupported_span: u16,
+    /// See `MaterialDef::blast_resistance`. Always >= 0.
+    pub blast_resistance: f32,
     /// See `MaterialDef::attached_span_bonus`. Always >= 1.
     pub attached_span_bonus: u16,
     /// See `MaterialDef::fragment_rungs`. Always >= 1.
@@ -919,6 +955,14 @@ impl From<MaterialDef> for Material {
             melting_point: def.melting_point,
             boiling_point: def.boiling_point,
             max_unsupported_span: def.max_unsupported_span,
+            // Floored at 0: a negative value would make a probe ray's
+            // accumulated cost go *down* as it marches deeper into this
+            // material, which can only make an already-open sector look
+            // more contained the further the ray travels -- nonsensical,
+            // and not a case any `.ron` file has a legitimate reason to
+            // want, so it is guarded here rather than left to corrupt the
+            // sector classification silently.
+            blast_resistance: def.blast_resistance.max(0.0),
             // Floored at 1: 0 would silently make attached rock *weaker*
             // than loose material, which is never what a content author
             // means by leaving a field small.
@@ -1087,6 +1131,7 @@ impl MaterialRegistry {
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
             breaks_into: String::new(),
+            blast_resistance: default_blast_resistance(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
             support_cost_below: 1,
@@ -1125,6 +1170,7 @@ impl MaterialRegistry {
             // other material's span is.
             max_unsupported_span: u16::MAX,
             breaks_into: String::new(),
+            blast_resistance: default_blast_resistance(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
             support_cost_below: 1,

@@ -551,3 +551,71 @@ total cells fractured comparable to baseline.
   last-resort ground-rooting semantics into it (§5); the diagnosis and the
   gate counters are in §6.
 
+---
+
+## 8. The prototype, built and measured
+
+R1 + R2 + the report line were implemented from §7 (by the cheaper model,
+per the owner's direction; adversarially reviewed and measured before
+landing). Results against §7d's bars, same session, same machine:
+
+| case | counter | baseline | after |
+|---|---|---|---|
+| buried stone | cracked census (3r box) | 47 | **340**, a legible fissure star |
+| buried stone | net cells lost | 286 | **108** (crush pocket only) |
+| buried stone | peak bodies | 20 | **0** |
+| near-face stone | crater | mostly refills, circle rim | open bowl, ejecta plume, muck on the surface |
+| sand 40 deep | behaviour | — | visually unchanged (resistance 0.35 keeps it open) |
+| water 40 deep | behaviour | transient cavity + spray | unchanged after the §8a fix below |
+| cave wall | cave volume | 5,269 → 3,598 | 5,269 → **5,399** — the cave *grows* |
+| cave wall | worst frame / peak bodies | 264 ms / 189 | **19.1 ms / 2** |
+| cave roof | cave volume | +36, nothing falls | +26 with visible breach + small rockfall — the verb works; the full drop correctly awaits R4 (§5 arithmetic) |
+| settled world | `ascii` | 0.000 ms | 0.000 ms |
+
+Two §7d bars were missed for reasons worth keeping: the near-face
+`roofed_void` census *fell* (93 vs 141) while the crater visibly improved,
+because a crater now open to the sky stops counting as "roofed" — a
+metric-definition artifact, the fourth time this investigation has had a
+metric quietly change meaning under a mechanism change. And the 40-deep
+`sandbed` evacuation dropped ~30% because that scene's cover is 40 cells
+*upward only* — sideways and down it is hundreds of cells, which genuinely
+reads contained. The shallow-cover sand cases the mechanic was built for
+are unchanged.
+
+Notable: §1d's chimney collapse and its 264 ms frame disappeared **without
+R3a having been built** — containment means a wall shot no longer clears a
+disc through to the void and never undercuts the overburden. R3a is still
+worth building (any future large failure region still lands in one tick),
+but it is no longer the blast's own emergency.
+
+### 8a. One regression caught by looking, not by the bars
+
+The first build made every underwater charge deeper than ~28 cells read as
+contained (water had no `blast_resistance`, so it defaulted to
+stone-equivalent 1.0), quietly regressing the round-3 water win. No §7d
+row covered water — the reviewer's "look again for what you did not
+measure" pass caught it. Fixed semantically: the confinement ray treats
+`Liquid` as a free face (a liquid displaces rather than confines on a
+detonation's timescale), so `blast_resistance` is never read for liquids
+and an entry in `water.ron`/`oil.ron` would be silently inert — the field's
+doc now says so.
+
+### 8b. Polish noted for a later pass, judged from the sheets
+
+The 12 crack rays at blast scale read slightly *geometric* — straight,
+evenly-spaced spokes, an asterisk more than a fracture star. `score_cracks`
+was tuned for 5 short rays. More wander/fork and per-ray length variance at
+blast scale is a looks-only follow-up; per the runtime-selector convention,
+a keybound A/B against the current look would settle it in minutes.
+
+### What is still open, in order
+
+1. **R3a** (fracture pacing) — small, specced in §7e, still wanted.
+2. **R4** (powder surcharge) — the roof-drop completion, behind the seed
+   sweep (§7f trap 12).
+3. **R3b** (converged relax after mass failure) — behind the
+   ground-rooting port (§5).
+4. Live-panel wiring for the four new `Tuning` fields (`tunables.rs` —
+   deliberately left out of the prototype's scope).
+5. §8b's ray-shape polish; crack-tint contrast (R5).
+

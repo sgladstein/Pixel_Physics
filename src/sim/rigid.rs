@@ -744,7 +744,16 @@ fn distance2_to_segment(p: (i32, i32), a: (i32, i32), b: (i32, i32)) -> i32 {
 /// scribbling a fresh one each time, and the player can work a crack along
 /// deliberately. That is the difference between damage that accumulates and
 /// damage that merely repeats.
-fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, rays: u32) {
+///
+/// Returns how many distinct cells were scored with a fresh fissure —
+/// `explosion.rs`'s blast report needs a count for its "did it fire at all"
+/// line (`CLAUDE.md`: a discrete event needs a counter, not just a
+/// picture), and `scored_now`'s own dedup is exactly that count, already
+/// computed for the crack-tip-bonus logic below. `pub(crate)` rather than
+/// private: the blast's crack halo (R1,
+/// `Reports/explosion-stone-review.md` §4) calls this from `explosion.rs`,
+/// the one other caller in the crate besides `strike`/`mine_swept` here.
+pub(crate) fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, rays: u32) -> u32 {
     // Ray directions are keyed on the *site*, not drawn fresh per blow, and
     // that is what makes damage accumulate. Jittering per call sent every
     // hit off in new directions, so a second blow on the same spot scored
@@ -790,6 +799,7 @@ fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, ray
             r += 1;
         }
     }
+    scored_now.len() as u32
 }
 
 /// Hit the rock at `(cx, cy)` hard enough to break it.
@@ -918,7 +928,9 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
         return 0;
     }
     // Short, so a chisel weakens what it is cutting through without
-    // fissuring the whole wall the way a swing does.
+    // fissuring the whole wall the way a swing does. Return value (cells
+    // scored) ignored here -- only the blast report in `explosion.rs` needs
+    // a count.
     score_cracks(world, cx, cy, radius, radius + MINE_CRACK_REACH, MINE_CRACK_RAYS);
     // The rock around the cut stops being braced, which is what makes a
     // doorway's lintel notice the doorway.
@@ -1055,7 +1067,9 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
         }
     }
     // Cracks reach well past the rock the blow actually removes -- that
-    // reach is the whole point of striking rather than erasing.
+    // reach is the whole point of striking rather than erasing. Return
+    // value (cells scored) ignored here -- only the blast report in
+    // `explosion.rs` needs a count.
     score_cracks(world, cx, cy, chip, radius * CRACK_REACH, CRACK_RAYS);
     // Loosen first, so the fracture below sees rock that is no longer
     // claiming to be braced by the massif.
@@ -1096,7 +1110,16 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
 /// exposed. Only unattached solid cells are eligible, which means the rim
 /// has already been through `structural::detach_exposed_neighbours` and is
 /// genuinely no longer braced by the mass behind it.
-pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: i32, force: f32, size_bias: u32) {
+///
+/// `confinement` is R2's probe result (`explosion::probe_confinement`, via
+/// `explosion::Confinement`) — **required, not optional** (`Reports/
+/// explosion-stone-review.md` §5). Without gating this loop too, a
+/// "contained" sector would still get its rim unattached and fractured by
+/// the call below even though `clear_annulus` never cleared a cell in it,
+/// which quietly reproduces the self-refilling bruise the containment gate
+/// exists to remove. Only `explosion.rs` calls this today, so the argument
+/// is always real confinement data, never a "no gating" sentinel.
+pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: i32, force: f32, size_bias: u32, confinement: super::explosion::Confinement) {
     let mut loosened = Vec::new();
     // An annulus, not a disc. Scanning the whole disc also swept up the
     // crater's *interior* -- material the blast was still working through --
@@ -1107,6 +1130,13 @@ pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: 
             let (x, y) = (origin.0 + dx, origin.1 + dy);
             let d2 = dx * dx + dy * dy;
             if d2 > outer * outer || d2 < inner * inner || !world.in_bounds(x, y) {
+                continue;
+            }
+            // A contained sector's shell stays put -- see this function's
+            // own doc. Sector membership uses the same `sector_of` bucketing
+            // `clear_annulus` used to decide what actually cleared, so the
+            // two never disagree about which 22.5-degree wedge a cell is in.
+            if (confinement.sector_reach[super::explosion::sector_of(dx, dy)] as i32) < confinement.radius {
                 continue;
             }
             let cell = world.get(x, y);

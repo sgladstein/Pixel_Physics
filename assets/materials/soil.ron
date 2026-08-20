@@ -17,6 +17,8 @@
     // universal, and material::SOIL_SATURATED for the scale (0 means dry,
     // the opposite of a Liquid's fill).
     water_capacity: 1000,
+    // See Material::blast_resistance -- loose tilth, well under stone's 1.0.
+    blast_resistance: 0.5,
     colors: [
         (64, 46, 34),
         (74, 54, 40),

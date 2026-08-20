@@ -1459,7 +1459,18 @@ fn advance(
         gnome.act(world, step_no);
     }
     world.step_active_sites();
+    // R5's report line: printed the frame a blast's last stage finishes,
+    // not at the trigger frame (`fire_due_explosions`'s own `boom:` line is
+    // that one) -- `cells_cleared`/`cells_held_by_containment` accumulate
+    // across every stage, so the report is only complete once `blasts` goes
+    // back to empty. Checked by transition (was active, now is not) rather
+    // than printed unconditionally every frame `blasts` is non-empty, or
+    // this would spam one line per stage instead of one per blast.
+    let was_active = !blasts.is_empty();
     blasts.step(world, particles);
+    if was_active && blasts.is_empty() {
+        println!("  blast report: {}", blasts.last_blast_report());
+    }
     particles.step(world);
     world.step_fields();
 }
@@ -2021,6 +2032,18 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             solid - cells_before.0,
             powder - cells_before.1
         );
+        // R1's halo, censused rather than inferred from the image: a
+        // fissure line a cell wide reads as noise at the zoom a contact
+        // sheet is usually read at (baseline measured 47 nearly-invisible
+        // cells on `boom_stone`, per `Reports/explosion-stone-review.md`
+        // §1a), so "did the crack halo actually fire" needs the same
+        // counter-next-to-the-image treatment as `bodies` above. Boxed
+        // around the *last* `explode=` site specifically -- a scene may
+        // schedule more than one, and the box only means anything relative
+        // to a single blast's own radius.
+        if let Some(&(ex, ey, er, ..)) = args.explosions.last() {
+            println!("    cracked cells within 3x radius of ({ex}, {ey}): {}", cracked_census(&world, ex, ey, er));
+        }
         // Pieces or grit. A region below `MIN_FRACTURE_CELLS` is not
         // fractured at all -- it falls through to per-cell conversion,
         // which *is* powder -- so a run whose failures average 1 or 2
@@ -2128,4 +2151,26 @@ fn census(world: &World) -> (i64, i64) {
 fn occupied(world: &World) -> i64 {
     let (solid, powder) = census(world);
     solid + powder
+}
+
+/// Cells with either crack bit set (`Cell::cracked`, the OR of
+/// `crack_right`/`crack_down`) within a `3 * radius` box centred on a blast
+/// site -- the census R1's report line needs `explosion.rs`'s own R5 doc:
+/// "did the crack halo actually fire" is a counter question, the same way
+/// "did the chunk-body mechanism fire" turned out to be earlier in this
+/// project's history (`CLAUDE.md`, "did it fire at all" needs a counter).
+/// `3x radius` rather than the crack halo's own `length` so the box stays
+/// meaningful across a sweep of `crack_reach` without having to be
+/// recomputed by hand each time.
+fn cracked_census(world: &World, cx: i32, cy: i32, radius: i32) -> u32 {
+    let box_r = radius * 3;
+    let mut n = 0u32;
+    for y in (cy - box_r)..=(cy + box_r) {
+        for x in (cx - box_r)..=(cx + box_r) {
+            if world.get(x, y).cracked() {
+                n += 1;
+            }
+        }
+    }
+    n
 }
