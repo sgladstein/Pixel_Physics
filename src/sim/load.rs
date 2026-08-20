@@ -1021,6 +1021,10 @@ pub fn capacity(world: &World, x: i32, y: i32) -> i64 {
     // comes from.
     let keyed = cell.attached() || parent.is_some_and(|(px, py)| world.get(px, py).attached());
     let attachment = if keyed { m.attached_span_bonus as i64 } else { 1 };
+    // `let_and_return` fires here and is wrong about this one: the binding
+    // is what the forty lines of comment below it are attached to, and
+    // inlining it would leave that record annotating nothing.
+    #[allow(clippy::let_and_return)]
     let capacity = base.saturating_mul(section.pow(2)).saturating_mul(attachment).saturating_mul(uncracked_faces(world, x, y)) / CRACK_FACES;
     // A cell whose support is a pile of loose grains is *held*, but it is
     // not braced: sand resists compression and essentially no bending. So

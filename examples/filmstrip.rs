@@ -362,6 +362,20 @@ fn build(args: &Args) -> World {
         "grove" => {
             return common::PlantScene::default().build();
         }
+        // `grove`, plus a gnome who walks the length of it once the trees
+        // are actually trees. The one question it exists to answer: does he
+        // *get through*, or does he wedge against the first trunk the way
+        // he did before living tissue stopped being a wall.
+        //
+        // Read the **distance** printed beside the tile, not the picture. A
+        // gnome standing against a trunk and a gnome standing in one are
+        // the same few pixels at contact-sheet zoom, and the difference
+        // between them is the entire change.
+        "wood" => {
+            let mut world = common::PlantScene::default().build();
+            world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
+            return world;
+        }
         // The sandbox's *real* starting terrain, built by the same
         // `app::build_terrain` the running game calls -- not a replica, so
         // what this renders is what a player actually sees. Exists to answer
@@ -964,7 +978,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, wood"
         ),
     }
     w
@@ -1453,6 +1467,9 @@ struct Gnome {
     script: Script,
     /// Bites that actually landed (the cooldown swallows most frames).
     bites: usize,
+    /// Where he was standing when he set off, so the sheet can report how
+    /// far he actually got. See `Script::Wood`.
+    start_x: Option<f32>,
     /// Loose cells shoved clear of a bore, summed over every bite.
     displaced: usize,
     dusted: usize,
@@ -1476,7 +1493,17 @@ enum Script {
     /// `scene=ride`: no input at all — the shelf under him gives way and
     /// the only question is whether he goes with it.
     Ride,
+    /// `scene=wood`: stand still while the stand grows, then walk the
+    /// length of it.
+    Wood,
 }
+
+/// How long `Script::Wood` waits before setting off.
+///
+/// A grove is planted as *seeds*, and the sheets that judge tree shape are
+/// shot at `start=8000`. Walking into a plot of bare soil would answer
+/// nothing, so he holds still until there is a wood to walk into.
+const WOOD_WALK_FROM: usize = 6000;
 
 impl Gnome {
     fn for_scene(scene: &str, dig_yield: f32) -> Self {
@@ -1485,12 +1512,14 @@ impl Gnome {
             "bury" => Script::Bury,
             "swim" => Script::Swim,
             "ride" => Script::Ride,
+            "wood" => Script::Wood,
             _ => Script::Course,
         };
         Self {
             script,
             tuning: pixel_physics::sim::player::Tuning { dig_yield, ..Default::default() },
             bites: 0,
+            start_x: None,
             displaced: 0,
             dusted: 0,
             went_under: None,
@@ -1533,11 +1562,15 @@ impl Gnome {
                 ..Default::default()
             },
             Script::Ride => PlayerInput::default(),
+            Script::Wood => PlayerInput { right: step_no >= WOOD_WALK_FROM, ..Default::default() },
         };
+        if self.script == Script::Wood && step_no == WOOD_WALK_FROM {
+            self.start_x = world.player.as_ref().map(|p| p.x);
+        }
         // Aim: straight ahead at his own height for the tunnel, and
         // anywhere at all while buried, since a buried bite auto-aims.
         let digging = match self.script {
-            Script::Course | Script::Swim | Script::Ride => false,
+            Script::Course | Script::Swim | Script::Ride | Script::Wood => false,
             Script::Tunnel => true,
             Script::Bury => step_no > 90,
         };
@@ -1598,6 +1631,9 @@ impl Gnome {
             .map(|y| (0..WIDTH).filter(|&x| world.get(x, y).material != material::EMPTY).count())
             .sum();
         s.push_str(&format!(", world holds {held} cells"));
+        if let Some(from) = self.start_x {
+            s.push_str(&format!(", travelled {:.0} cells", p.x - from));
+        }
         if let Some(under) = self.went_under {
             s.push_str(&format!(", went under at {under}"));
             match self.came_back {

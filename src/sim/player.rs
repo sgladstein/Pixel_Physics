@@ -541,7 +541,24 @@ enum Footing {
     Free,
     /// Loose powder. Passable at the feet (see `WADE_ROWS`), a wall above.
     Soft,
-    /// Rock, plants, creatures, a chunk body, or the world edge.
+    /// Living plant tissue: a trunk, a branch, foliage, moss. **Passable
+    /// like `Free`, and never a floor** — but not the same as `Free`, and
+    /// the difference is what the four readers below have to decide.
+    ///
+    /// A tree used to be `Hard`, which made a wood something you got stuck
+    /// in rather than something you walked through: nothing could jump a
+    /// trunk, nothing could go round one, and the dig cannot cut an
+    /// organism cell either, so there was no way out. It is scenery now,
+    /// the way a tree reads in a 3D game, and the trade for that is that
+    /// you can climb it.
+    ///
+    /// Deliberately *not* folded into `Free`. Two readers genuinely want
+    /// the distinction: the aim ray must still stop at a tree you can no
+    /// longer walk into, and `displace_disc` must still count a branch as
+    /// something spoil can come to rest on, because the CA genuinely lets
+    /// powder sit on a `Plant` cell.
+    Climb,
+    /// Rock, creatures, a chunk body, or the world edge.
     Hard,
 }
 
@@ -615,7 +632,24 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
     if bodies.holds(x, y) {
         return Footing::Hard;
     }
-    match world.materials.kind(world.get(x, y).material) {
+    let cell = world.get(x, y);
+    let material = world.materials.get(cell.material);
+    // Living tissue, and only living tissue.
+    //
+    // Both halves are load-bearing and neither works alone. The flag is
+    // what makes this data — a future thorn hedge says "I stop you" in its
+    // own `.ron` without touching this function. The organism id is what
+    // separates a grown tree from a `wood` wall a player painted, which
+    // are the same material and must behave differently; `Plant` kind
+    // cannot tell them apart, and `render.rs`'s organism overlay already
+    // documents the same predicate for the same reason.
+    //
+    // Costs nothing: this resolved the material anyway, and `cell` was
+    // already fetched.
+    if cell.organism_id() != 0 && material.climbable {
+        return Footing::Climb;
+    }
+    match material.kind {
         MaterialKind::Solid | MaterialKind::Plant | MaterialKind::Creature => Footing::Hard,
         MaterialKind::Powder => Footing::Soft,
         _ => Footing::Free,
@@ -883,8 +917,13 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // both let him in and hold him up. A body counts because M9 asks him
     // to stand on a tumbling one, and `bodies` is why that can be seen.
     let (xi, yi) = p.rect_origin();
+    // `Hard | Soft`, not `!= Free`, and the difference is the whole of
+    // "pure ladder". `Climb` is passable, so if it also counted as ground
+    // he would stand *on* a leaf, jump off a twig, and step-up would walk
+    // him up the side of a trunk one bump at a time. A tree holds you
+    // because you are gripping it, never because you are standing on it.
     p.grounded = !p.swimming
-        && (0..PLAYER_WIDTH).any(|dx| footing(world, &bodies, xi + dx, yi + PLAYER_HEIGHT) != Footing::Free);
+        && (0..PLAYER_WIDTH).any(|dx| matches!(footing(world, &bodies, xi + dx, yi + PLAYER_HEIGHT), Footing::Hard | Footing::Soft));
 
     // Riding a body, which needs two rules rather than the one the plan
     // expected. Both are recorded because both were found by measurement.
@@ -1151,6 +1190,14 @@ fn face_toward(world: &World, from: (i32, i32), aim: (i32, i32), reach: i32) -> 
         let cell = (from.0 + (sx * t).round() as i32, from.1 + (sy * t).round() as i32);
         match footing(world, &Bodies::none(), cell.0, cell.1) {
             Footing::Hard => return cell,
+            // A tree stops the *aim* even though it no longer stops the
+            // body, and that split is the whole reason `Climb` is not
+            // `Free`. Movement collision and aim collision are different
+            // questions and this function only ever asked the first one;
+            // once a trunk became passable, the ray would have looked
+            // straight through it and put the dig ring on the cliff
+            // behind, with no way to point at the tree in front of you.
+            Footing::Climb => return cell,
             Footing::Soft => {
                 first_loose.get_or_insert(cell);
             }
@@ -1231,6 +1278,12 @@ fn displace_disc(world: &mut World, p: &Player, cx: i32, cy: i32, radius: i32, s
                         if !world.in_bounds(nx, ny) || !world.is_empty(nx, ny) {
                             continue;
                         }
+                        // `== Free`, deliberately, and do not "simplify"
+                        // this to "is it passable". `Climb` is passable to
+                        // the gnome and is still somewhere spoil can land:
+                        // the CA genuinely rests powder on a `Plant` cell,
+                        // so a branch holds a grain up whether or not a
+                        // character walks through it.
                         if footing(world, &Bodies::none(), nx, ny + 1) == Footing::Free {
                             continue; // nothing under it: that is a floating cell
                         }
@@ -1670,6 +1723,120 @@ mod tests {
             );
             tick(&mut world, PlayerInput::default());
         }
+    }
+
+    /// A stone floor with a living tree trunk standing on it: a real
+    /// organism id, `wood` material, `MatureBody` cells.
+    ///
+    /// Hand-built rather than grown. `plant_tree` plants a seed and takes
+    /// thousands of frames to make anything, and what it makes is a
+    /// different shape every time — these tests are about the collision
+    /// predicate, not about tree architecture, so the trunk is placed where
+    /// the assertion needs it.
+    fn world_with_tree(x0: i32, width: i32, top: i32) -> World {
+        let mut world = world_with_floor();
+        let wood = world.materials.id_of("wood").expect("wood is compiled in");
+        let species = world.species.id_of("tree").expect("tree is compiled in");
+        let organism = world.push_organism(species);
+        let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
+        for y in top..88 {
+            for x in x0..(x0 + width) {
+                world.set(x, y, Cell::new(wood, 0).with_organism_id(organism).with_aux(aux));
+            }
+        }
+        world
+    }
+
+    #[test]
+    fn he_runs_straight_through_a_living_tree() {
+        // The complaint this whole change answers: "we get stuck because we
+        // cannot jump over or get around trees."
+        let mut world = world_with_tree(64, 5, 60);
+        world.player = Some(Player::at(30, 80));
+        for _ in 0..300 {
+            tick(&mut world, PlayerInput { right: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.x > 80.0, "expected him past the trunk at x=64..69, stopped at x={:.1}", p.x);
+    }
+
+    #[test]
+    fn a_painted_wooden_wall_still_stops_him() {
+        // Same material, same `Plant` kind, no organism: a wall someone
+        // built. If this passes only because `wood` is walk-through, the
+        // rule has been stated as the material alone and building is broken.
+        let mut world = world_with_floor();
+        let wood = world.materials.id_of("wood").expect("wood is compiled in");
+        for y in 60..88 {
+            for x in 64..69 {
+                world.set(x, y, Cell::new(wood, 0));
+            }
+        }
+        world.player = Some(Player::at(30, 80));
+        for _ in 0..300 {
+            tick(&mut world, PlayerInput { right: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.x < 64.0, "a painted wooden wall must still be a wall, but he reached x={:.1}", p.x);
+    }
+
+    #[test]
+    fn a_branch_is_never_a_floor() {
+        // Pure ladder: the whole tree is a hold and none of it is ground.
+        // A gnome dropped onto a crown must arrive at the actual floor.
+        let mut world = world_with_tree(60, 12, 40);
+        world.player = Some(Player::at(64, 20));
+        for _ in 0..400 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let p = world.player.as_ref().unwrap();
+        let feet = p.y.round() as i32 + PLAYER_HEIGHT;
+        assert_eq!(feet, 88, "he should have fallen through the tree to the stone floor, feet ended at {feet}");
+    }
+
+    #[test]
+    fn a_tree_growing_over_him_cannot_entomb_him() {
+        // Found by measurement, not predicted: on `filmstrip scene=wood`
+        // the gnome was reported BURIED from frame 4708 to the end of the
+        // run, having travelled 0 cells. He had not walked into a trunk at
+        // all -- a crown grew over the spot he was standing on, and
+        // `depenetrate` read plant tissue as an invasion with no clear push
+        // in any direction, so a tree buried him where he stood.
+        let mut world = world_with_floor();
+        world.player = Some(Player::at(64, 80));
+        tick(&mut world, PlayerInput::default());
+        let (x0, y0) = world.player.as_ref().unwrap().rect_origin();
+        let wood = world.materials.id_of("wood").expect("wood is compiled in");
+        let species = world.species.id_of("tree").expect("tree is compiled in");
+        let organism = world.push_organism(species);
+        let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
+        // Grown right through him, and well past his depenetration reach on
+        // every side, so there is nowhere to be shoved to.
+        for y in (y0 - 8)..(y0 + PLAYER_HEIGHT + 8) {
+            for x in (x0 - 8)..(x0 + PLAYER_WIDTH + 8) {
+                world.set(x, y, Cell::new(wood, 0).with_organism_id(organism).with_aux(aux));
+            }
+        }
+        for _ in 0..60 {
+            tick(&mut world, PlayerInput { right: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(!p.buried, "a tree is not a burial");
+        assert!(p.x > x0 as f32 + 4.0, "he should have walked out of it, moved {:.1}", p.x - x0 as f32);
+    }
+
+    #[test]
+    fn the_dig_aim_still_stops_at_a_tree_he_can_walk_through() {
+        // Movement collision and aim collision are different questions.
+        // Without the split, the ray looks straight through the trunk and
+        // the dig ring lands on whatever is behind it.
+        let world = world_with_tree(80, 5, 60);
+        let mut world = world;
+        world.player = Some(Player::at(60, 80));
+        let p = world.player.take().expect("just placed");
+        let at = bite_point(&world, &p, (127, 80), &Tuning::default());
+        world.player = Some(p);
+        assert_eq!(at.0, 80, "the aim should stop at the near face of the trunk, landed at {at:?}");
     }
 
     /// A pool of water in a stone basin, surface at `surface_y`.

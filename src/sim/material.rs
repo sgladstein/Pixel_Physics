@@ -369,6 +369,31 @@ pub struct MaterialDef {
     /// the neighbour already resolves to is a `Vec` index instead.
     #[serde(default)]
     pub reinforces_powder: bool,
+    /// Whether the character walks *through* this material rather than into
+    /// it, and can climb it — living foliage and stems, which read as
+    /// scenery to move past the way a tree does in a 3D game.
+    ///
+    /// **Only ever true of a cell that belongs to a living organism**; the
+    /// dispatch site (`player::footing`) tests `Cell::organism_id() != 0`
+    /// alongside this. Material alone cannot separate a grown tree from a
+    /// `wood` wall someone painted, and both must stay possible — so the
+    /// flag says *what kind of stuff this is* and the organism id says
+    /// *whether this particular cell is alive*. `CLAUDE.md`'s "when a rule
+    /// must tell apart two things that can look identical, state the
+    /// difference as data", which four support models learned the long way.
+    ///
+    /// A flag rather than a `kind` test for the same reason
+    /// `reinforces_powder` is one: `MaterialKind::Plant` is every plant,
+    /// and a thorn hedge or a cactus has to be able to say "I stop you"
+    /// without a code change. Read off the `Material` the predicate already
+    /// resolves — a `Vec` index, not a string hash.
+    ///
+    /// Deliberately a *player* property. Nothing in the CA sweep, the light
+    /// field, or the structural search reads it: powder still rests on a
+    /// branch, a canopy still casts shade, and a trunk still holds itself
+    /// up.
+    #[serde(default)]
+    pub climbable: bool,
     pub colors: Vec<[u8; 3]>,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
@@ -665,6 +690,8 @@ pub struct Material {
     pub evaporates: bool,
     /// See `MaterialDef::reinforces_powder`.
     pub reinforces_powder: bool,
+    /// See `MaterialDef::climbable`.
+    pub climbable: bool,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
     pub palette: Vec<[u8; 4]>,
@@ -905,6 +932,7 @@ impl From<MaterialDef> for Material {
             water_capacity: def.water_capacity,
             evaporates: def.evaporates,
             reinforces_powder: def.reinforces_powder,
+            climbable: def.climbable,
             palette: def
                 .colors
                 .iter()
@@ -1073,6 +1101,7 @@ impl MaterialRegistry {
             water_capacity: 0,
             evaporates: false,
             reinforces_powder: false,
+            climbable: false,
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
@@ -1108,6 +1137,7 @@ impl MaterialRegistry {
             water_capacity: 0,
             evaporates: false,
             reinforces_powder: false,
+            climbable: false,
             colors: vec![[20, 20, 24]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,

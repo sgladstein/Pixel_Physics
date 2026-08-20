@@ -11,6 +11,12 @@
     name: "leaf",
     display: "Leaf",
     kind: Plant,
+    // Climbable, like the wood it hangs off. Included deliberately rather
+    // than left solid: a pure ladder needs no "is this branch thick enough
+    // to stand on" rule, and that rule would be shape-inference of exactly
+    // the kind four support models already failed at. It is also what makes
+    // a crown catch a fall (`Tuning::canopy_drag`) instead of stopping one.
+    climbable: true,
     // Foliage is not wood. Well under `wood`'s 0.9.
     density: 0.25,
     colors: [
