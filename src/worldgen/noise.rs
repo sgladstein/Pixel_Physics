@@ -127,6 +127,16 @@ pub enum Purpose {
     /// two landed without colliding because each reserved its numbers in
     /// advance — keep doing that.
     Hardness = 23,
+    /// Boulder-socket shape: which run of `erosion::Deposits::boulder`
+    /// markers becomes one cluster, and its width, height and shade.
+    ///
+    /// Its own stream rather than sharing `Pocket` (lens placement over the
+    /// same rock) or `Hardness` (which decided *whether* this socket exists
+    /// in the first place) — sharing either would tie a boulder's drawn
+    /// shape to an unrelated decision at the same coordinate, the
+    /// correlation every purpose tag exists to prevent. Claimed by the
+    /// round-4 data track; 24 is the next free number after `Hardness`.
+    Boulder = 24,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

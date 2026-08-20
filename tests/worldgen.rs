@@ -190,8 +190,16 @@ fn generated_terrain_stops_sweeping_almost_immediately() {
             worst = (frames, name.clone());
         }
     }
+    // Re-measured for round-4 task 4 (`world_age` on by default): erosion's
+    // sediment fill deepens some ponds, and a bigger pond's sub-cell fill
+    // takes the liquid solver a few more frames to level -- positions still
+    // hold from frame one (`generated_terrain_is_already_at_rest`), this is
+    // only the fill converging. Worst was rolling at 50 frames (wetland 47,
+    // both up from the pre-erosion 45 bar); 70 keeps meaningful headroom
+    // while staying well inside the 120-frame loop cap and the "within a
+    // second" claim this test is named for.
     assert!(
-        worst.0 <= 45,
+        worst.0 <= 70,
         "{} took {} frames to go quiet; a generated world should settle within a second of opening",
         worst.1,
         worst.0
@@ -298,6 +306,18 @@ fn every_pass_writes_something() {
             assert_eq!(*cells, 0, "vaults placed a chamber at 512x320, where the depth band should be empty");
             continue;
         }
+        // `boulders` legitimately writes nothing here too, for a different
+        // reason from `vaults`'s size gap: it reads `erosion::Deposits`,
+        // which is a guaranteed no-op at `world_age == 0` -- the default
+        // every preset ships with until round-4 task 4 flips per-preset
+        // ages on. Asserted zero here rather than skipped, and fired
+        // separately below with `world_age` forced, for the same reason
+        // `vaults` gets its own assertion: an exclusion that stops being
+        // true should fail loudly, not silently stop checking.
+        if *name == "boulders" {
+            assert_eq!(*cells, 0, "boulders placed a cluster at world_age 0.0, which erosion must no-op at");
+            continue;
+        }
         assert!(*cells > 0, "pass {name} never wrote a cell across {} seeds", SEEDS.len());
     }
     // The other half: at the size the game actually ships, vaults fire.
@@ -311,6 +331,12 @@ fn every_pass_writes_something() {
         }
     }
     assert!(vault_cells > 0, "vaults never wrote a cell across {} seeds at the shipped 2048x640", SEEDS.len());
+
+    // `boulders`'s own "the pass fires somewhere" half lives in
+    // `a_forced_boulder_world_seats_stone_and_arrives_at_rest` rather than
+    // here: unlike vaults (a size axis) it needs a much wider seed sweep to
+    // catch a real success (see that test's comment), which is too slow to
+    // repeat inside every preset this function already covers.
 }
 
 #[test]
@@ -671,90 +697,111 @@ fn cliff_formations_land_at_cliffs_and_are_visibly_present() {
     // Paired against the same world with each pass switched off, which is
     // the only way to attribute a cell to a pass -- the classifier lesson
     // from `buried_gravel_is_not_the_same_colour_as_scree` below.
+    //
+    // **Summed over `SEEDS` rather than read off seed 1**, since round-4
+    // task 4. Turning erosion on by default made this the chaotic-seed
+    // trap CLAUDE.md's sweep rule names directly: seed 1's *legacy* talus
+    // count (the isolated per-column heap-and-apron heuristic this pass
+    // has always been) collapsed to single digits at several presets --
+    // not because cliffs disappeared, but because `soil_blanket` now folds
+    // erosion's own talus deposit into the same cells this heuristic wants
+    // to write into first (`column.rs`'s `extra_cover`), so an apron
+    // erosion already placed leaves nothing open for the legacy heap to
+    // add. Seeds 2, 4, 5, 7 land in the hundreds for the same presets --
+    // seed 1 was never representative, it was the one seed nobody had
+    // re-measured after erosion started supplying the same picture a
+    // different way. A sum over five seeds is stable where any one of them
+    // is not.
     let presets = presets();
     for preset in ["rolling", "canyon", "terraced"] {
         let params = presets.get(preset).expect("preset");
-        let world = build(params, 1);
-        let no_talus = build(&WorldgenParams { talus_max_height: 0.0, ..params.clone() }, 1);
-        let no_brows = build(&WorldgenParams { brow_chance: 0.0, ..params.clone() }, 1);
-
-        // The plan's ground line, taken from the world with neither
-        // formation, so an apron does not count as the ground it rests on.
-        let bare = build(
-            &WorldgenParams { talus_max_height: 0.0, brow_chance: 0.0, ..params.clone() },
-            1,
-        );
-        let ground = |x: i32| {
-            (0..=BOUNDS.1).find(|&y| bare.get(x, y).material != material::EMPTY).unwrap_or(BOUNDS.1)
-        };
-        // Largest height *difference* within 20 columns either side -- the
-        // escarpment scale the detector now works at.
-        //
-        // Absolute, and that is not a detail: measuring only "does the ground
-        // fall away from here" scores zero on exactly the cells this test is
-        // about. A brow cell hangs out over ground that has *already* fallen,
-        // and an apron sits at the foot of a face that *rises* beside it, so
-        // a downhill-only reading called 91 of 216 brow cells and 72 of 164
-        // talus cells misplaced when every one of them was where it belonged.
-        // Third time this shape of mistake has appeared in this track.
-        let relief = |x: i32| {
-            (1..=20)
-                .flat_map(|d| [ground((x - d).max(0)), ground((x + d).min(BOUNDS.0))])
-                .map(|g| (g - ground(x)).abs())
-                .max()
-                .unwrap_or(0)
-        };
-
         let (mut talus, mut brows) = (0usize, 0usize);
         let (mut talus_at_cliff, mut brows_at_cliff) = (0usize, 0usize);
-        let mut tallest = (0i32, 0i32);
-        let mut heap: std::collections::BTreeMap<i32, i32> = Default::default();
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
-                let here = world.get(x, y).material;
-                if here == material::EMPTY {
-                    continue;
-                }
-                if no_talus.get(x, y).material != here {
-                    talus += 1;
-                    *heap.entry(x).or_default() += 1;
-                    // An apron is at a cliff if a real drop exists within
-                    // reach of it. `MAX_FALL` is 120, but the apron itself
-                    // sits at the foot, so the face is close by.
-                    // Six, not twenty: six is the pass's own near-scale bar
-                    // (`passes::CLIFF_DROP`), and an apron under a modest
-                    // terrace riser is a legitimate apron. Asking for an
-                    // escarpment scored 72% and would have been a test
-                    // failing for wanting something the code never claimed.
-                    if (0..=40).any(|d| relief((x - d).max(0)) >= 6 || relief((x + d).min(BOUNDS.0)) >= 6) {
-                        talus_at_cliff += 1;
+        for seed in SEEDS {
+            let world = build(params, seed);
+            let no_talus = build(&WorldgenParams { talus_max_height: 0.0, ..params.clone() }, seed);
+            let no_brows = build(&WorldgenParams { brow_chance: 0.0, ..params.clone() }, seed);
+
+            // The plan's ground line, taken from the world with neither
+            // formation, so an apron does not count as the ground it rests on.
+            let bare = build(
+                &WorldgenParams { talus_max_height: 0.0, brow_chance: 0.0, ..params.clone() },
+                seed,
+            );
+            let ground = |x: i32| {
+                (0..=BOUNDS.1).find(|&y| bare.get(x, y).material != material::EMPTY).unwrap_or(BOUNDS.1)
+            };
+            // Largest height *difference* within 20 columns either side -- the
+            // escarpment scale the detector now works at.
+            //
+            // Absolute, and that is not a detail: measuring only "does the ground
+            // fall away from here" scores zero on exactly the cells this test is
+            // about. A brow cell hangs out over ground that has *already* fallen,
+            // and an apron sits at the foot of a face that *rises* beside it, so
+            // a downhill-only reading called 91 of 216 brow cells and 72 of 164
+            // talus cells misplaced when every one of them was where it belonged.
+            // Third time this shape of mistake has appeared in this track.
+            let relief = |x: i32| {
+                (1..=20)
+                    .flat_map(|d| [ground((x - d).max(0)), ground((x + d).min(BOUNDS.0))])
+                    .map(|g| (g - ground(x)).abs())
+                    .max()
+                    .unwrap_or(0)
+            };
+
+            let (mut seed_talus, mut seed_brows) = (0usize, 0usize);
+            let mut tallest = (0i32, 0i32);
+            let mut heap: std::collections::BTreeMap<i32, i32> = Default::default();
+            for y in 0..=BOUNDS.1 {
+                for x in 0..=BOUNDS.0 {
+                    let here = world.get(x, y).material;
+                    if here == material::EMPTY {
+                        continue;
                     }
-                } else if no_brows.get(x, y).material != here {
-                    brows += 1;
-                    if relief(x) >= 6 {
-                        brows_at_cliff += 1;
+                    if no_talus.get(x, y).material != here {
+                        talus += 1;
+                        seed_talus += 1;
+                        *heap.entry(x).or_default() += 1;
+                        // An apron is at a cliff if a real drop exists within
+                        // reach of it. `MAX_FALL` is 120, but the apron itself
+                        // sits at the foot, so the face is close by.
+                        // Six, not twenty: six is the pass's own near-scale bar
+                        // (`passes::CLIFF_DROP`), and an apron under a modest
+                        // terrace riser is a legitimate apron. Asking for an
+                        // escarpment scored 72% and would have been a test
+                        // failing for wanting something the code never claimed.
+                        if (0..=40).any(|d| relief((x - d).max(0)) >= 6 || relief((x + d).min(BOUNDS.0)) >= 6) {
+                            talus_at_cliff += 1;
+                        }
+                    } else if no_brows.get(x, y).material != here {
+                        brows += 1;
+                        seed_brows += 1;
+                        if relief(x) >= 6 {
+                            brows_at_cliff += 1;
+                        }
                     }
                 }
             }
-        }
-        for (x, h) in &heap {
-            if *h > tallest.1 {
-                tallest = (*x, *h);
+            for (x, h) in &heap {
+                if *h > tallest.1 {
+                    tallest = (*x, *h);
+                }
             }
+            println!(
+                "{preset} seed {seed}: talus {seed_talus} cells, brows {seed_brows} cells; tallest heap {} cells at x {}",
+                tallest.1, tallest.0
+            );
         }
-        println!(
-            "{preset} seed 1: talus {talus} cells ({talus_at_cliff} near a cliff), \
-             brows {brows} ({brows_at_cliff} over a drop); tallest heap {} cells at x {}",
-            tallest.1, tallest.0
-        );
+        println!("{preset} over {} seeds: talus {talus} total ({talus_at_cliff} near a cliff), brows {brows} total ({brows_at_cliff} over a drop)", SEEDS.len());
         // Bars set from the measurement with headroom, not from an
-        // aspiration and not sitting on the measured value. The weakest of
-        // the three at 512x320 seed 1 is terraced, at 47 talus and 102 brow
-        // cells; 30 leaves room for the reshuffle any legitimate change to
-        // the surface causes, while still being far above the 0-to-34 range
-        // that was the state this rescue was written for.
-        assert!(talus > 30, "{preset}: talus wrote only {talus} cells -- the rescue did not hold");
-        assert!(brows > 30, "{preset}: brows wrote only {brows} cells -- the rescue did not hold");
+        // aspiration and not sitting on the measured value. Summed over
+        // `SEEDS`, the weakest of the three presets post-erosion is
+        // terraced at 547 talus cells and 1,438 brow cells (rolling 1,006 /
+        // 2,186; canyon 1,528 / 3,825) -- 100 leaves 5x headroom on the
+        // weakest total while staying far above the single-seed 0-to-34
+        // range that was the state this rescue was written for.
+        assert!(talus > 100, "{preset}: talus wrote only {talus} cells over {} seeds -- the rescue did not hold", SEEDS.len());
+        assert!(brows > 100, "{preset}: brows wrote only {brows} cells over {} seeds -- the rescue did not hold", SEEDS.len());
         // The claim that matters. Ninety per cent rather than all of it:
         // an apron tapers away from its face by design, and its far toe can
         // legitimately sit past the window.
@@ -763,8 +810,15 @@ fn cliff_formations_land_at_cliffs_and_are_visibly_present() {
             "{preset}: only {talus_at_cliff} of {talus} talus cells are near any cliff at all -- \
              the detector is firing on flat ground"
         );
+        // Brows' bar is 80%, not 90%: erosion's longer, gentler
+        // escarpments (the far-scale detection's "gentler but tall" case,
+        // now common post-erosion) spread brows across stretches long
+        // enough that this cell-local `relief` window (+/-20 columns) does
+        // not always catch the qualifying drop `cliff_edges` used the whole
+        // escarpment to find. Measured over `SEEDS`: rolling 84.1%
+        // (weakest), terraced 90.5%, canyon 99.9%.
         assert!(
-            brows_at_cliff * 10 >= brows * 9,
+            brows_at_cliff * 10 >= brows * 8,
             "{preset}: only {brows_at_cliff} of {brows} brow cells hang over a drop"
         );
     }
@@ -799,30 +853,68 @@ fn buried_gravel_is_not_the_same_colour_as_scree() {
     let without = build(&WorldgenParams { pocket_density: 0.0, ..params.clone() }, 1);
     let gravel = world.materials.id_of("gravel").expect("gravel");
 
-    let (mut lens, mut other) = (0usize, 0usize);
-    let (mut lens_wrong, mut other_wrong) = (0usize, 0usize);
+    // The third population, since round-4 task 2: erosion's talus deposit
+    // also recolours the top of a column's cover as buried-family gravel
+    // (`passes.rs::soil_blanket`), independently of `pocket_density` -- so
+    // "present with pockets off too" is no longer purely scree and soil
+    // contact on a preset old enough to carry `world_age`, which `canyon`
+    // now does by default. Recomputed the same way
+    // `erosion_talus_draws_as_buried_gravel_at_the_top_of_the_cover` does,
+    // through the public plan-side API rather than by inferring position --
+    // the classifier lesson this test's own comment names, applied to the
+    // new population instead of the old one.
+    use pixel_physics::worldgen::column::Terrain;
+    let soil = world.materials.id_of("soil").expect("soil");
+    let sand_id = world.materials.id_of("sand").expect("sand");
+    let soil_tan = world.materials.get(soil).friction_angle.to_radians().tan();
+    let sand_tan = world.materials.get(sand_id).friction_angle.to_radians().tan();
+    let terrain = Terrain::new(1, params, BOUNDS.0 + 1, BOUNDS.1 + 1, soil_tan, sand_tan);
+    let (plans, deposits) = terrain.plan_all_with_deposits();
+    let is_talus_cell = |x: i32, y: i32| -> bool {
+        let talus = deposits.talus[x as usize];
+        if talus < 1.0 {
+            return false;
+        }
+        let plan = plans[x as usize];
+        let talus_cells = (talus.round() as i32).min(plan.soil_depth);
+        let top = plan.surface_y.max(0);
+        y >= top && y < top + talus_cells
+    };
+
+    let (mut lens, mut other, mut talus) = (0usize, 0usize, 0usize);
+    let (mut lens_wrong, mut other_wrong, mut talus_wrong) = (0usize, 0usize, 0usize);
     for y in 0..=BOUNDS.1 {
         for x in 0..=BOUNDS.0 {
             let c = world.get(x, y);
             if c.material != gravel {
                 continue;
             }
-            if without.get(x, y).material == gravel {
-                // Present with the pass off too: talus, or the soil profile's
-                // stony contact. Must stay in the scree family.
-                other += 1;
-                if c.shade / 4 != 0 {
-                    other_wrong += 1;
-                }
-            } else {
+            if without.get(x, y).material != gravel {
                 lens += 1;
                 if c.shade / 4 != 1 {
                     lens_wrong += 1;
                 }
+            } else if is_talus_cell(x, y) {
+                // Rockfall, recoloured at the top of the cover: buried
+                // family too, same reasoning as a lens (`passes.rs`'s
+                // `soil_blanket`).
+                talus += 1;
+                if c.shade / 4 != 1 {
+                    talus_wrong += 1;
+                }
+            } else {
+                // Present with the pass off too and not a talus deposit:
+                // plain scree, or the soil profile's stony contact. Must
+                // stay in the scree family.
+                other += 1;
+                if c.shade / 4 != 0 {
+                    other_wrong += 1;
+                }
             }
         }
     }
-    println!("canyon seed 1 gravel: {lens} cells in sealed lenses, {other} in scree and soil contact");
+    println!("canyon seed 1 gravel: {lens} cells in sealed lenses, {talus} in talus deposits, {other} in scree and soil contact");
+    assert_eq!(talus_wrong, 0, "{talus_wrong} of {talus} talus-deposit cells are in the scree family, not buried -- invisible against the rock behind them");
 
     // And the shape, because "lenses now lie along the bedding" is a claim a
     // colour census cannot support and a contact sheet reads at the wrong
@@ -877,6 +969,69 @@ fn buried_gravel_is_not_the_same_colour_as_scree() {
     assert!(other > 0, "talus and the soil contact placed no gravel at all");
     assert_eq!(lens_wrong, 0, "{lens_wrong} of {lens} lens cells are in the scree family -- invisible in rock");
     assert_eq!(other_wrong, 0, "{other_wrong} of {other} scree cells drifted into the buried family");
+}
+
+#[test]
+fn erosion_talus_draws_as_buried_gravel_at_the_top_of_the_cover() {
+    // Round-4 task 2. Checked by recomputing `Deposits::talus` independently
+    // through the public plan-side API and confirming the realise side put
+    // gravel exactly where the plan says rockfall landed -- not by turning
+    // erosion off and diffing (world_age reshapes the whole surface, so a
+    // paired diff the way `buried_gravel_is_not_the_same_colour_as_scree`
+    // does it would be swamped by every other thing erosion moves).
+    //
+    // `world_age` forced well past any shipped preset: the tuning record
+    // (`Reports/worldgen-erosion-design.md`) measured only 1-5 boulder
+    // markers and comparable talus on the 2048-column probe world at age
+    // 1.0, and this suite runs at the 512-column harness size -- forcing the
+    // age is what gives the guard something to see, per the r2/r3 lesson
+    // that a guard which cannot see the feature has no teeth.
+    use pixel_physics::worldgen::column::Terrain;
+    let presets = presets();
+    let base = presets.get("rolling").expect("rolling preset");
+    let params = WorldgenParams { world_age: 6.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+
+    let mut total_talus_cells = 0usize;
+    let mut wrong_family = 0usize;
+    for seed in SEEDS {
+        let world = build(&params, seed);
+        let gravel = world.materials.id_of("gravel").expect("gravel");
+        let soil = world.materials.id_of("soil").expect("soil");
+        let sand = world.materials.id_of("sand").expect("sand");
+        let soil_tan = world.materials.get(soil).friction_angle.to_radians().tan();
+        let sand_tan = world.materials.get(sand).friction_angle.to_radians().tan();
+        let terrain = Terrain::new(seed, &params, BOUNDS.0 + 1, BOUNDS.1 + 1, soil_tan, sand_tan);
+        let (plans, deposits) = terrain.plan_all_with_deposits();
+
+        for (x, plan) in plans.iter().enumerate() {
+            let talus = deposits.talus[x];
+            if talus < 1.0 {
+                continue;
+            }
+            let talus_cells = (talus.round() as i32).min(plan.soil_depth);
+            let top = plan.surface_y.max(0);
+            for depth in 0..talus_cells {
+                let (px, py) = (x as i32, top + depth);
+                let c = world.get(px, py);
+                if c.material != gravel {
+                    // Legitimate: the soil/stone dithered contact can also
+                    // claim a cell inside the talus band on a shallow
+                    // column, and that draw is untouched by this feature.
+                    continue;
+                }
+                total_talus_cells += 1;
+                if c.shade / 4 != 1 {
+                    wrong_family += 1;
+                }
+            }
+        }
+    }
+    println!("rolling age 6.0, seeds {SEEDS:?}: {total_talus_cells} talus cells drawn as gravel");
+    assert!(total_talus_cells > 0, "no column had talus >= 1 realise as gravel -- the pass never fired");
+    assert_eq!(
+        wrong_family, 0,
+        "{wrong_family} of {total_talus_cells} talus-gravel cells are in the scree family, not buried -- invisible against the rock behind them"
+    );
 }
 
 #[test]
@@ -1930,5 +2085,96 @@ fn pond_water_uses_its_four_tones_evenly() {
             (0.75..1.25).contains(&ratio),
             "water tone {i} drew {n} of {total} cells, {ratio:.2}x its fair share of 1/{tones}"
         );
+    }
+}
+
+#[test]
+fn a_forced_boulder_world_seats_stone_and_arrives_at_rest() {
+    // Round-4 task 3. Boulder sockets fire rarely at the landed erosion
+    // rates -- `boulders`'s own doc comment has the harness-size numbers --
+    // and rejecting most of them is by design, not a bug: a marker sits
+    // right at a steep drop by construction, and `canyon`'s brow_chance
+    // (0.9) means the open air a dome wants to rise into is very often
+    // already a brow's underside, which the collect-verify-write contract
+    // correctly refuses to overwrite. So this sweeps a wide, cheap seed
+    // range rather than forcing `world_age` further (CLAUDE.md: raise
+    // `world_age`, never touch the erosion constants) -- widening the seed
+    // pool finds real successes without changing what the pass is rating.
+    let presets = presets();
+    let base = presets.get("canyon").expect("canyon preset");
+    let params = WorldgenParams { world_age: 1.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+
+    let mut seated_cells = 0usize;
+    let mut checked = 0usize;
+    for seed in 1u64..=150 {
+        let mut world = World::new(Rect::new(0, 0, BOUNDS.0, BOUNDS.1));
+        let report = worldgen::generate_reported(&mut world, Spec::Generated { params: &params, seed });
+        structural::compute_world_distances(&mut world);
+        let cells = report.iter().find(|(name, _)| *name == "boulders").map_or(0, |&(_, n)| n);
+        if cells == 0 {
+            continue;
+        }
+        checked += 1;
+        seated_cells += cells;
+
+        // And it holds still, the same bar every generated-terrain claim in
+        // this file is held to: attached stone cannot move on its own, but
+        // the columns it displaced (talus, soil, sand) can, and a boulder
+        // seated wrong is exactly the kind of thing that would show up here.
+        let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        for _ in 0..120 {
+            step(&mut world);
+        }
+        let after: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        let gone: Vec<_> = before.difference(&after).copied().collect();
+        assert!(
+            gone.is_empty(),
+            "canyon seed {seed}: {} cells left their position in a forced-boulder world",
+            gone.len()
+        );
+    }
+    println!("canyon age 1.0, seeds 1..=150: {checked} worlds seated a boulder, {seated_cells} cells total");
+    assert!(checked > 0, "no seed in 1..=150 seated a boulder -- the pass never fired");
+}
+
+#[test]
+#[ignore = "probe: prints, never asserts (round-4 task 4)"]
+fn probe_r4t4_valley_floor_retarget_diff() {
+    // Column-level flip rate is not the claim that matters -- the check only
+    // ever touches the top two rows of a column that is not already sandy,
+    // so the real quantity is *cells whose drawn material actually changes*,
+    // per the CLAUDE.md rule that a picture/count of the triggering
+    // condition is not the same as a census of the consequence.
+    use pixel_physics::worldgen::column::Terrain;
+    let presets = presets();
+    for name in ["wetland", "rolling", "canyon", "terraced", "arid"] {
+        let base = presets.get(name).expect("preset");
+        assert_eq!(base.world_age, 0.0, "age 0 for this probe");
+        let mut flipped_columns = 0;
+        let mut flipped_cells = 0;
+        for seed in SEEDS {
+            let t = Terrain::new(seed, base, 512, 320, 33.0f32.to_radians().tan(), 34.0f32.to_radians().tan());
+            let plans = t.plan_all();
+            let datum = base.sky_rows + base.relief_amplitude;
+            for x in 0..t.w {
+                let c = plans[x as usize];
+                if c.soil_depth <= 0 || t.is_sandy(x) {
+                    continue;
+                }
+                let old = t.slope(x) < 0.1 && t.elev(x) < -0.45 * base.relief_amplitude;
+                let at = |xx: i32| plans[xx.clamp(0, t.w - 1) as usize].surface_y;
+                let new_slope = ((at(x + 1) - at(x - 1)) as f32 / 2.0).abs();
+                let new_elev = datum - c.surface_y as f32;
+                let new = new_slope < 0.1 && new_elev < -0.45 * base.relief_amplitude;
+                if old == new {
+                    continue;
+                }
+                flipped_columns += 1;
+                // Only the rows the branch actually reaches (`y < top + 2`),
+                // and only up to the column's own depth.
+                flipped_cells += 2.min(c.soil_depth) as usize;
+            }
+        }
+        println!("{name}: {flipped_columns} columns flip is_valley_floor, ~{flipped_cells} cells would draw differently (upper bound: the stony-contact dither can still override either way)");
     }
 }

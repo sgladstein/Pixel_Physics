@@ -331,13 +331,38 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
         // own elevation rather than from the world's lowest point, so the
         // pass stays local to its declared margin and survives the move to
         // per-chunk generation unchanged.
-        let is_valley_floor =
-            ctx.terrain.slope(x) < 0.1 && ctx.terrain.elev(x) < -0.45 * p.relief_amplitude;
+        //
+        // Read off the *plans* (the eroded surface), not `Terrain::slope`/
+        // `elev` (the pre-erosion curve): round-4 task 4. `surface_y` is a
+        // central difference away from a slope the same way `elev` is --
+        // the two differ only by the sign flip `elev = datum - surface_y`,
+        // so `|Δsurface_y| == |Δelev|` and the slope reads identically. At
+        // `world_age == 0` `surface_y` is `round(datum - elev)`, so this is
+        // the same quantity `Terrain::slope`/`elev` gave before, rounding
+        // aside; at `world_age > 0` it is the *true* eroded surface, which
+        // is the whole point -- a valley the erosion pass just filled with
+        // sediment should read as a valley floor here too.
+        let plan_surface_y = |x: i32| ctx.plans[x.clamp(0, ctx.terrain.w - 1) as usize].surface_y;
+        let plan_slope = ((plan_surface_y(x + 1) - plan_surface_y(x - 1)) as f32 / 2.0).abs();
+        let plan_elev = ctx.terrain.datum() - c.surface_y as f32;
+        let is_valley_floor = plan_slope < 0.1 && plan_elev < -0.45 * p.relief_amplitude;
         // Dry country carries sand instead of soil, all the way down rather
         // than as a skin over it: a desert whose dunes sit on a soil profile
         // reads as a costume over the same world, which is exactly the
         // sameness this regional layer exists to break.
         let sandy = ctx.terrain.is_sandy(x);
+        // Talus reads as gravel, at the *top* of the profile rather than the
+        // bottom: rockfall lands on the blanket, it does not seep under it.
+        // `plan_from` already folded this depth into `soil_depth` (deposits
+        // deepen the blanket, never mint elevation -- `column.rs`'s note on
+        // `extra_cover`), so this is purely a recolouring of cover cells
+        // that were already going to be placed; zero new placement, and the
+        // dithered soil/stone contact at the bottom is untouched by it.
+        let talus_cells = if ctx.deposits.talus[x as usize] >= 1.0 {
+            (ctx.deposits.talus[x as usize].round() as i32).min(c.soil_depth)
+        } else {
+            0
+        };
         for y in top..bottom {
             // A dithered band where soil meets stone, rather than a clean
             // horizon. Two materials meeting on an exact line is the single
@@ -358,7 +383,15 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
             } else {
                 0.0
             };
-            let (m, shade) = if noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < stony * 0.85 {
+            let (m, shade) = if depth < talus_cells {
+                // Rockfall, not the native profile: gravel takes its buried
+                // family so it reads as broken rock rather than as scree
+                // lying on open ground -- same reasoning as a sealed lens
+                // (`pockets`) and the vug floor (`cave_system`), both of
+                // which draw buried gravel the same way.
+                ctx.talus_recolored.set(ctx.talus_recolored.get() + 1);
+                (ctx.gravel, BURIED_FAMILY * TONES + loose_shade(ctx, Purpose::Dither, x, y))
+            } else if noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < stony * 0.85 {
                 (ctx.gravel, loose_shade(ctx, Purpose::Dither, x, y))
             } else if sandy || (is_valley_floor && y < top + 2) {
                 (ctx.sand, cover_shade(ctx, Purpose::Shade, x, y))
@@ -479,6 +512,21 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
         return n;
     }
     for (x, dir, drop) in cliff_edges(&ctx.plans, ctx.terrain.w) {
+        // Only hang a lip from bare rock. The origin's own topmost cell is
+        // what every written cell ultimately has to trace an attached path
+        // back through, and a soil-covered origin's topmost cell is loose
+        // Powder -- not part of the attached network at all, whatever sits
+        // under it. A lip hung there is structurally disconnected from the
+        // massif however solid it looks, which the far escarpment scale's
+        // "gentler but tall" detection (`RUN_FAR`/`CLIFF_DROP_FAR`) makes
+        // reachable: a long, gradual slope can qualify as an edge at many
+        // consecutive columns without any one of them being steep enough to
+        // clear `plan_from`'s soil cutoff. Round-4 finding R4-3 has the
+        // repro this was found from (erosion turning per-preset ages on
+        // made these gentle escarpments common enough to hit reliably).
+        if ctx.plans[x as usize].soil_depth > 0 {
+            continue;
+        }
         if noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir) >= p.brow_chance {
             continue;
         }
@@ -501,6 +549,18 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
             + (drop / 22).min(3);
         for row in 0..thick {
             let y = top + row;
+            // Never below the local water table. A lip that dips underwater
+            // can end up with `ponds` filling both above and below it --
+            // the same round-4 finding R4-3 as the soil-origin gate above,
+            // a different way to reach it: the origin was bare rock, but
+            // the *lip* still hung over a hollow that turned out to be
+            // flooded on both sides once ponds ran. `ponds` only knows how
+            // to fill a hollow that reaches the open surface (`vaults`
+            // handles the sealed-chamber case, deliberately, with its own
+            // equator rule); a rock shelf straddling the table is not that.
+            if y >= ctx.plans[x as usize].table_y {
+                break;
+            }
             // Tapered underside, so the lip is a wedge rather than a slab.
             for step in 1..=(reach - row).max(0) {
                 let lx = x + dir * step;
@@ -2199,6 +2259,134 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                     n += 1;
                 }
             }
+        }
+    }
+    n
+}
+
+/// Rounded attached-stone clusters seated where a hard band shed enough to
+/// leave a boulder socket (`erosion::Deposits::boulder`).
+///
+/// Sockets are markers, not shapes: erosion only records *where* a resistant
+/// surface sheds past the threshold, never what should stand there
+/// (`Reports/worldgen-erosion-design.md`'s "markers are data on the plan" --
+/// the state-the-difference-as-data lesson, `CLAUDE.md`). This pass is the
+/// one place that turns a marker into geometry, cloning `pockets`' collect-
+/// verify-write shape: propose every cell of one boulder and only write any
+/// of them if every one is a safe target.
+///
+/// Runs after `pockets` and before `vaults` (`mod.rs`'s `PASSES`), so at the
+/// point this reads the world only `stone_massif`, `bedrock_floor`,
+/// `soil_blanket`, `brows`, `talus` and `pockets` have written -- water and
+/// vault linings do not exist yet. The write-target check still excludes
+/// them: a check that "cannot fire today" is exactly the kind CLAUDE.md
+/// warns rots invisibly the day something upstream of this pass changes.
+///
+/// **Most markers reject.** A hard band that sheds enough to leave a socket
+/// is, by construction, right at a steep drop, and `brows` hangs a lip at
+/// almost every qualifying edge in `canyon` (`brow_chance` 0.9) -- so the
+/// open air a dome wants to rise into is very often already a brow's
+/// underside. Measured at the 512-column harness, canyon age 1.0: roughly
+/// 16-18 markers per 20 seeds, and only about 1 boulder in 30 seeds actually
+/// seats (`a_forced_boulder_world_seats_stone_and_arrives_at_rest`,
+/// `tests/worldgen.rs`). This is read as the collect-verify-write contract
+/// working as designed -- never overwrite a brow -- rather than a bug in
+/// it; see the round-4 Findings entry in
+/// `Reports/worldgen-implementation-tasks-2026-08.md` for the numbers.
+pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    let seed = ctx.terrain.seed;
+    let w = ctx.terrain.w;
+    let mut x = 0;
+    while x < w {
+        if !ctx.deposits.boulder[x as usize] {
+            x += 1;
+            continue;
+        }
+        // Merge the whole run of adjacent markers into one boulder, seated
+        // at the run's centre rather than at its first column.
+        let start = x;
+        while x < w && ctx.deposits.boulder[x as usize] {
+            x += 1;
+        }
+        let cx = (start + x - 1) / 2;
+
+        // Shape, from a stream keyed on the run's centre column: 2-5 cells
+        // wide, 2-4 tall, and clamped to never taller than it is wide --
+        // stricter than (and so still honours) the erosion design's
+        // structural non-negotiable #3, "never taller than 3x its base
+        // width", which a boulder toppling over its own footprint the
+        // moment structural distances are computed would violate outright.
+        let width = 2 + (noise::unit(seed, Purpose::Boulder, cx, 0) * 4.0) as i32;
+        let height = (2 + (noise::unit(seed, Purpose::Boulder, cx, 1) * 3.0) as i32).min(width);
+        let a = width as f32 / 2.0;
+        let b = height as f32 / 2.0;
+        let reach = (a.ceil() as i32).max(1);
+
+        // Collect first, write only if every proposed cell is a safe
+        // target: open air or loose cover (soil/sand/gravel) for the dome,
+        // which is displaced rather than skipped -- a boulder resting on
+        // top of an untouched talus apron would look like it was dropped
+        // there, not eroded out of the rock beneath it. The seat row (the
+        // column's own topmost solid cell) additionally accepts bare stone
+        // without writing it: "sits on rock" needs no displacement, only
+        // contact. Anything else -- the permanent massif reached early,
+        // bedrock, water, a vault lining -- rejects the whole boulder,
+        // never just the one cell, matching `pockets`' all-or-nothing seal.
+        let mut cells: Vec<(i32, i32)> = Vec::new();
+        let mut sealed = true;
+        'run: for dx in -reach..=reach {
+            if (dx as f32 / a).abs() > 1.0 {
+                continue;
+            }
+            let lx = cx + dx;
+            if lx < 0 || lx >= w {
+                sealed = false;
+                break;
+            }
+            let extent = (b * (1.0 - (dx as f32 / a).powi(2)).max(0.0).sqrt()).round() as i32;
+            let dome = extent.max(1);
+            let ground_y = ctx.plans[lx as usize].surface_y;
+            for row in 1..=dome {
+                let py = ground_y - row;
+                if py < 0 {
+                    sealed = false;
+                    break 'run;
+                }
+                let mat = world.get(lx, py).material;
+                if mat == material::EMPTY || mat == ctx.soil || mat == ctx.sand || mat == ctx.gravel {
+                    cells.push((lx, py));
+                } else {
+                    sealed = false;
+                    break 'run;
+                }
+            }
+            let seat = world.get(lx, ground_y).material;
+            if seat == ctx.soil || seat == ctx.sand || seat == ctx.gravel {
+                cells.push((lx, ground_y));
+            } else if seat != ctx.stone {
+                sealed = false;
+                break 'run;
+            }
+        }
+        if !sealed {
+            continue;
+        }
+        ctx.boulders_seated.set(ctx.boulders_seated.get() + 1);
+        for (px, py) in cells {
+            // The pale cap-rock family, unconditionally: a boulder is a
+            // hard-band survivor by construction (`erosion.rs`'s
+            // `BOULDER_HARDNESS` gate on which shed counts toward a
+            // socket), so it should read as the resistant stone it came
+            // from rather than take the region's ordinary shade -- the same
+            // reasoning the speleothem stalactites use for themselves.
+            world.set(
+                px,
+                py,
+                Cell::new(ctx.stone, FAMILY_RESISTANT * TONES + loose_shade(ctx, Purpose::Boulder, px, py))
+                    .with_attached(true),
+            );
+            n += 1;
         }
     }
     n

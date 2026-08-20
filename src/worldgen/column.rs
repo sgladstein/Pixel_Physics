@@ -17,6 +17,7 @@
 //! is how sign errors get written — and it is converted exactly once, in
 //! [`Terrain::plan`].
 
+use super::erosion;
 use super::noise::{self, Purpose};
 use super::params::WorldgenParams;
 use super::region::{Character, RegionMap};
@@ -477,7 +478,12 @@ impl Terrain<'_> {
 
     /// Where elevation zero sits, in rows. Chosen so the highest possible
     /// ridge still leaves `sky_rows` of clear sky above it.
-    fn datum(&self) -> f32 {
+    ///
+    /// `pub(crate)` rather than private: `passes.rs`'s valley-floor check
+    /// needs to invert `surface_y` back to elevation (`elev = datum -
+    /// surface_y`) on the *eroded* surface, which only `ColumnPlan` carries
+    /// -- round-4 task 4.
+    pub(crate) fn datum(&self) -> f32 {
         self.params.sky_rows + self.params.relief_amplitude
     }
 
@@ -625,9 +631,30 @@ impl Terrain<'_> {
     /// slope reads at the two edges — out-of-world ground was never eroded
     /// (the sim treats the edge as an outlet), and two columns of slightly
     /// stale slope beats pretending the world extends.
+    ///
+    /// Drops the [`erosion::Deposits`] this computes along the way — see
+    /// [`Self::plan_all_with_deposits`], which is the real body. Kept as the
+    /// name every pure/no-op test already calls, so the round-4 restructure
+    /// that let the realise side see which cover is deposit and which is
+    /// native blanket needed no edits to those tests at all.
     pub fn plan_all(&self) -> Vec<ColumnPlan> {
+        self.plan_all_with_deposits().0
+    }
+
+    /// [`Self::plan_all`], plus the [`erosion::Deposits`] erosion left behind
+    /// on the way to those plans.
+    ///
+    /// Split out so the realise side (`passes.rs`) can tell a deposit apart
+    /// from the native soil blanket it landed in — before this, `plan_from`
+    /// folded `talus + sediment` straight into `soil_depth` and nothing
+    /// downstream could recover which cells were which, so the gravel-as-
+    /// talus and boulder-socket passes had nowhere to read from. Pure
+    /// plumbing: the plans returned are bit-identical to before at every
+    /// `world_age`, which `plan_all_at_age_zero_matches_plan` and the
+    /// erosion purity tests confirm without needing to change.
+    pub fn plan_all_with_deposits(&self) -> (Vec<ColumnPlan>, erosion::Deposits) {
         let mut h: Vec<f32> = (0..self.w).map(|x| self.elev(x)).collect();
-        let deposits = super::erosion::erode(self, &mut h);
+        let deposits = erosion::erode(self, &mut h);
         let at = |x: i32| -> f32 {
             if x < 0 || x >= self.w {
                 self.elev(x)
@@ -646,7 +673,7 @@ impl Terrain<'_> {
             })
             .collect();
         self.taper_cover(&mut plans);
-        plans
+        (plans, deposits)
     }
 
     /// Thin the loose cover toward wherever it runs out, so its own free face
@@ -719,8 +746,12 @@ mod tests {
         // pre-erosion world staying bit-identical. Whole plans compared,
         // not just surfaces, so a slope-plumbing slip in the soil gate
         // cannot hide.
-        let p = WorldgenParams::default();
-        assert_eq!(p.world_age, 0.0);
+        //
+        // `WorldgenParams::default()` stopped being age 0 in round-4 task 4
+        // (`rolling` ships `world_age: 0.8`); the no-op guarantee this test
+        // pins is about age 0 itself, not about the default, so it is
+        // reached explicitly here rather than assumed from `default()`.
+        let p = WorldgenParams { world_age: 0.0, ..Default::default() };
         for seed in 0..6u64 {
             let t = terrain(seed, &p);
             let mut expected: Vec<ColumnPlan> = (0..t.w).map(|x| t.plan(x)).collect();

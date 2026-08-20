@@ -1566,3 +1566,204 @@ All gates green at each commit: `cargo test`, `cargo clippy --all-targets --
 - **A guard must fail for the right reason.** The water-tone test asserts the
   rendered distribution, not `palette.len()`, so it also catches the inverse
   bug; deliberately broken, it names the 1.49x fold rather than a length.
+
+---
+
+# Round-4 findings
+
+Round 4's queue is `Reports/worldgen-implementation-tasks-round4-2026-08.md`;
+its findings are appended here, as that file instructs.
+
+### R4-1 — Boulders mostly reject, and it is the brow pass doing it, not a bug
+
+Task 3's `boulders` pass (`passes.rs`) clones `pockets`' collect-verify-write
+shape exactly as specified: propose every cell of one boulder's dome, verify
+each is currently open air or loose cover (displaceable) or bare rock (the
+seat, no write needed), and skip the whole boulder if anything else is there
+-- the permanent massif, bedrock, water, a vault lining.
+
+**Measured at the 512-column test harness, canyon, `world_age` 1.0**: 16-18
+boulder markers per 20 seeds (`Deposits::boulder`), essentially none at the
+world edges (that is a separate, harmless edge-outlet effect described
+below). Of those markers, only **about 1 boulder in 30 seeds actually
+seats** -- 5 successes and 28 cells across seeds 1..=150
+(`a_forced_boulder_world_seats_stone_and_arrives_at_rest`,
+`tests/worldgen.rs`). Debug instrumentation (not shipped) confirmed the
+rejection is real, not a bookkeeping slip: the dome's proposed open-air cell
+is already `stone` -- a `brows` lip hanging over the same column.
+
+**Read as the mechanism working as designed, not a bug to fix.** A hard band
+that sheds enough to leave a socket is, by construction, right at a steep
+drop -- the same condition `cliff_edges` uses to hang a brow -- and
+`canyon`'s `brow_chance` is 0.9, so the open air a dome wants to rise into is
+very often already spoken for. The collect-verify-write contract correctly
+refuses to overwrite that brow rather than punching through it, which is the
+behaviour the spec asked for ("never carve into solid massif... else skip
+that boulder"). The alternative -- loosening the dome to tolerate existing
+stone -- would mean boulders sometimes eat brows, which is a worse trade than
+firing rarely. No erosion constant or `HardnessField` shape needed
+retuning to reach this; per the round-4 instructions this is recorded as a
+finding rather than an improvised fix. If the reviewing session wants
+boulders to fire more often, the lever is almost certainly `boulders`'
+own footprint or ordering relative to `brows`, not `BOULDER_SHED_THRESHOLD`
+or `BOULDER_HARDNESS`.
+
+**A separate, harmless edge effect, noted so it is not mistaken for the
+same bug.** At high `world_age` (6.0+, well past any shipped preset)
+boulder markers cluster at the two world edges instead: the hydraulic pass
+treats the edge as a permanent outlet (`nh` is `NEG_INFINITY` there), so an
+edge column never becomes a basin and carves on every hydraulic pass for
+the whole run, digging tens to hundreds of cells deep over enough
+iterations. This is designed behaviour ("the world treats the edge as an
+outlet", `erosion.rs`) operating exactly as documented, just far outside
+the age range (0.7-1.0) task 4 ships. The forced-boulder test avoids it by
+widening the seed sweep at a realistic age instead of raising `world_age`
+further, per this round's "raise `world_age`, never the erosion constants"
+instruction and the CLAUDE.md rule about re-measuring rather than assuming.
+
+### R4-2 — Ages on by default: three numbers that needed re-measuring, and one property that was never globally true
+
+Task 4's own three sub-items (per-preset ages, the valley-floor retarget,
+the sweep re-baseline) went as spec'd. Landing them green also required
+re-measuring three things `cargo test` had pinned to the pre-erosion world,
+none of them erosion-constant changes:
+
+- **`an_old_world_is_smoother_than_a_young_one` (erosion.rs) was reading
+  `WorldgenParams::default()` as a stand-in for age 0**, which broke the
+  moment `rolling` (and so the compiled default) shipped `world_age: 0.8`.
+  Worth stating precisely because the property itself turned out **not to
+  be globally true**: a `roughness_curve` probe (erosion.rs, `--ignored`)
+  swept ages 0-3 and found roughness at `rolling` seed 1 *dips* from 218 at
+  age 0 to 131 at age 0.5, then climbs back past its own age-0 value by age
+  3 — hydraulic incision cuts channels faster than creep rounds crests once
+  the surface is already fairly subdued. The test's original comparison (0
+  vs 2) sits entirely on the monotone stretch and still holds; only `young`
+  needed to say `world_age: 0.0` explicitly instead of trusting the default.
+  Flagged for the reviewing session: any future test or tuning pass that
+  assumes "older is always smoother" without bounding the age range will
+  eventually hit this, and it is a property of the two-process model
+  (thermal creep vs. hydraulic stream power), not a bug in either process.
+- **The legacy `talus` pass's own cell count collapsed** once erosion ran by
+  default (`cliff_formations_land_at_cliffs_and_are_visibly_present`,
+  `tests/worldgen.rs`): `rolling` seed 1 dropped from the pre-erosion
+  baseline of comfortably-over-30 to 5 cells, `canyon` to 9, `terraced` to
+  4. Root cause, not a regression: `soil_blanket` folds erosion's own talus
+  deposit into `soil_depth` (`extra_cover`, `column.rs`) *before* the legacy
+  heap-and-apron pass runs, so an apron erosion already placed leaves
+  nothing open for the legacy pass to add on top — the two mechanisms
+  compete for the same cells, and erosion (which runs first) wins. This is
+  the erosion design doc's own stated intent ("drawn by the existing talus
+  machinery... instead of (or in addition to) its own cliff detection"),
+  just realised as *competition* rather than *addition*. Seed 1 also
+  happened to be a weak draw for this specific pass regardless of erosion
+  (seeds 2/4/5/7 land in the hundreds) -- the test now sums `talus`/`brows`
+  over `SEEDS` instead of reading seed 1 alone, both because seed 1 stopped
+  being representative and because a single-seed count bar is exactly the
+  guard-blindness shape CLAUDE.md's sweep rule warns about. New bars (100
+  cells, summed over 5 seeds; 80% "near a cliff" for brows, down from 90%)
+  measured with headroom the same way the original bars were.
+- **The valley-floor retarget's "tiny diff" claim needed the right unit to
+  read as tiny.** A raw column-classification disagreement between the old
+  (`Terrain::slope`/`elev`, continuous) and new (plan `surface_y`, integer)
+  formulas ran 5.5%-10.5% of all columns — alarming, until measured as
+  *cells that actually draw differently*: ~53-79 cells per seed per preset,
+  0.03-0.05% of a 512x320 world (`probe_r4t4_valley_floor_retarget_diff`,
+  `--ignored`). The column-rate number was real and meant nothing on its
+  own, the same metric-trap shape as CLAUDE.md's whisker-hunt example — a
+  boolean flip rate on a threshold this fine (0.1 cells/cell over a 2-column
+  span) is dominated by rounding noise regardless of what the flip changes
+  downstream.
+- **`generated_terrain_stops_sweeping_almost_immediately`'s settle-time bar**
+  moved from 45 to 70 frames: erosion's sediment fill deepens some ponds,
+  and a bigger pond's sub-cell fill takes the liquid solver a few more
+  frames to converge (`rolling` measured 50, `wetland` 47, both up from the
+  pre-erosion 45). Positions still hold from frame one --
+  `generated_terrain_is_already_at_rest` is unchanged and green -- this is
+  only the fill levelling, the same distinction CLAUDE.md draws between
+  liquid position and liquid fill.
+
+None of the above needed `erosion.rs` or `HardnessField` retuned. The cave/
+vault dual-size guard was also re-checked rather than assumed:
+`probe_r2t3_do_vaults_place_at_all` at the shipped 2048x640 still places a
+system in exactly 32 of 40 preset x seed worlds, unchanged from round 3's
+R3-4 baseline -- no drift, so no nudge and no finding needed there.
+
+### R4-3 — `brows` could hang a lip with no attached path to the massif, pre-existing and made common by turning ages on
+
+Turning `world_age` on by default (task 4) made `cargo test` fail on cells
+CLAUDE.md's §6b landmine test exists for: `every_solid_is_anchored_and_no_
+liquid_carries_a_stale_fill` found stone at `rolling` seed 3 that never
+reached an anchor, and `generated_water_is_full_and_never_inside_the_ground`
+found water buried under stone in `wetland` seed 1. Both are `brows`
+(`passes.rs`) creating a lip with no attached path back to the rest of the
+massif — a real structural defect, not a rendering artifact, and **not
+introduced by this round**: a 20-seed sweep at `world_age: 0.0` (the
+pre-round-4 shipped state) already showed it on 1/20 `rolling` seeds and
+1/20 `wetland` seeds, at lower magnitude. Erosion did not create the bug;
+it roughly doubled-to-quadrupled how often a plausible seed hits it (`rolling`
+0.8 went from 1/20 to 4/20 bad seeds in the same sweep), because the far
+escarpment scale's "gentler but tall" cliff detection
+(`RUN_FAR`/`CLIFF_DROP_FAR`, `passes.rs`) fires on long gradual slopes that
+erosion's thermal/hydraulic smoothing makes more common, and each qualifying
+column along one of those slopes gets its own independent `brows` roll.
+
+**Root cause 1, found and fixed: a soil-covered origin.** `brows` hangs its
+lip from `top = ctx.plans[x].surface_y` without checking whether that row is
+actually bare rock. The near-scale cliff rule (`CLIFF_DROP`/`RUN_NEAR`) is
+steep enough that `plan_from`'s soil-slope cutoff already strips cover from
+a qualifying origin almost always, but the far-scale "gentler but tall" rule
+has no such guarantee — several consecutive columns along a long, gradual
+slope can all qualify as edges while still carrying 1-4 cells of soil. A lip
+hung from one of those touches loose Powder at its origin, which is not part
+of the attached network at all (a `Solid`'s connectivity is what
+`structural.rs` walks; a `Powder` breaks the chain), so the lip is
+disconnected from the massif underneath its own origin however solid it
+looks. Fix: `brows` now skips any edge whose origin has `soil_depth > 0`
+(`passes.rs`, one guard clause). Re-swept 6 presets x 6 ages x 20 seeds
+(720 world builds): unanchored-stone incidents dropped from double digits
+per preset/age to 3 total across the whole sweep (rolling age 0.7 seed 14,
+canyon age 0.5 seed 4, arid age 1.0 seed 8 — 1-4 cells each), and the
+`rolling` seed-3 case that started this investigation is clean.
+
+**Root cause 2, found and fixed: a lip hanging below the local water
+table.** Fixing root cause 1 alone left `generated_water_is_full_and_never_
+inside_the_ground` failing on `wetland` seed 1 — a *different* shape of the
+same class: the origin was bare rock (root cause 1 does not apply), but the
+lip's row sat entirely below `table_y`, and `ponds` filled both the hollow
+above the lip and the hollow below it, producing water directly under stone.
+`ponds` only knows how to fill a hollow that reaches the open surface;
+`vaults` handles the sealed-chamber case on purpose, with its own equator
+rule (round-2 finding R2-3) — a rock shelf straddling the table is neither.
+Fix: `brows` now also stops adding rows once `top + row >= ctx.plans[x].
+table_y` (`passes.rs`). Confirmed the `wetland` seed-1 case clean at its
+shipped age (0.8) after the fix; ages 0.1-0.9 clean, age 1.0 still shows a
+small residual (see below). Presets whose table sits past the world floor
+(`arid`, `flat`) are unaffected by construction (`table_y` is never reached).
+
+**What is not fixed, and should not be read as fixed.** The same 720-build
+sweep, re-run with both fixes in place and also counting *any* water cell
+with non-water/non-empty material directly above it (a broader "roofed
+water" census, not just the specific coordinates the two failing tests
+happened to name), found this pattern **at `world_age: 0.0` too, on a
+majority of seeds for `rolling`, `terraced`, `canyon` and `wetland`** --
+counts from single digits to over 100 cells per world. This is unrelated in
+root cause to erosion (present identically at age 0) and evidently far more
+common than either fix above addresses; root causes 1 and 2 only explain
+the *specific* cases the two hardcoded-seed tests happened to hit, not the
+general phenomenon. `arid` alone showed zero roofed-water cells at any age,
+consistent with its table sitting past the world floor. **This reads as a
+pre-existing, previously-undetected defect in how `ponds` (and/or `brows`)
+handle a hollow with more than one opening to the water table, predating
+this round entirely** -- undetected because no existing test swept more
+than a couple of hardcoded seeds against this specific census. It is well
+outside round-4's scope (turning `world_age` on) to fix properly: a real fix
+needs `ponds` to verify a hollow reaches the open surface before filling it,
+which is a design question for the pass, not a one-line guard. Flagged here
+rather than attempted. The two tests that gate on it today (`generated_
+water_is_full_and_never_inside_the_ground`, `every_solid_is_anchored_and_
+no_liquid_carries_a_stale_fill`) still only sweep one or a few hardcoded
+seeds each, so they are passing "by luck" in exactly the sense CLAUDE.md's
+sweep rule warns about -- a future seed or preset change could reopen either
+without any of this round's changes being at fault. Recommended follow-up:
+a `ponds`-focused session with a proper seed sweep and a fix that checks
+open-surface reachability, not a per-seed dodge.

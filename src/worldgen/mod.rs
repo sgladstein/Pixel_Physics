@@ -108,6 +108,12 @@ const PASSES: &[Pass] = &[
     Pass { name: "brows", margin: 40, run: passes::brows },
     Pass { name: "talus", margin: 200, run: passes::talus },
     Pass { name: "pockets", margin: 0, run: passes::pockets },
+    // Boulder sockets from erosion's shed markers. Zero margin: a marker at
+    // `x` seats a cluster whose footprint is at most a handful of columns
+    // either side of `x`, well inside a single column's worth of slack, and
+    // the marker itself is plan-space data already computed for the whole
+    // world rather than something this pass has to look sideways for.
+    Pass { name: "boulders", margin: 0, run: passes::boulders },
     // Finite, and derived rather than guessed: a cave system is placed at a
     // column and reaches at most `CAVE_HALF_W` (90) either side of it, plus
     // `VAULT_RIND` (2) of stone that must be checked; the geode vug's
@@ -134,6 +140,13 @@ pub struct Ctx<'a> {
     pub terrain: Terrain<'a>,
     /// One entry per column of the world, indexed by x.
     pub plans: Vec<ColumnPlan>,
+    /// What plan-space erosion moved and left behind on the way to `plans`
+    /// (`erosion.rs`) — talus and sediment depths per column, boulder-socket
+    /// markers, and the volume counters. `plan_all` already folded the
+    /// deposit depths into `plans[x].soil_depth`; this is what lets a
+    /// realise pass tell a deposit apart from the native blanket it landed
+    /// in, which `plan_all` alone cannot answer.
+    pub deposits: erosion::Deposits,
     pub stone: MaterialId,
     pub soil: MaterialId,
     pub sand: MaterialId,
@@ -145,6 +158,16 @@ pub struct Ctx<'a> {
     pub crystal: MaterialId,
     /// Tangent of gravel's angle of repose, for the scree pass.
     pub gravel_tan: f32,
+    /// Cover cells `soil_blanket` recoloured as talus (round-4 task 5's
+    /// counter). A `Cell` rather than a return value: `Pass::run` only
+    /// reports cells *written*, and this is a subset of those, counted
+    /// separately so the printed erosion detail line can say how much of
+    /// the deposit actually realised distinct from the raw plan-side sum.
+    pub talus_recolored: std::cell::Cell<usize>,
+    /// Boulders (not boulder *cells* — the pass-table row already has
+    /// those) `boulders` actually seated, out of however many markers
+    /// `erosion::Deposits::boulder` proposed.
+    pub boulders_seated: std::cell::Cell<usize>,
 }
 
 impl<'a> Ctx<'a> {
@@ -168,8 +191,21 @@ impl<'a> Ctx<'a> {
         let gravel_tan = world.materials.get(gravel).friction_angle.to_radians().tan();
         let terrain =
             Terrain::new(seed, params, bounds.max_x + 1, bounds.max_y + 1, soil_tan, sand_tan);
-        let plans = terrain.plan_all();
-        Self { terrain, plans, stone, soil, sand, gravel, water, crystal, gravel_tan }
+        let (plans, deposits) = terrain.plan_all_with_deposits();
+        Self {
+            terrain,
+            plans,
+            deposits,
+            stone,
+            soil,
+            sand,
+            gravel,
+            water,
+            crystal,
+            gravel_tan,
+            talus_recolored: std::cell::Cell::new(0),
+            boulders_seated: std::cell::Cell::new(0),
+        }
     }
 }
 
@@ -205,7 +241,34 @@ pub fn generate_reported(world: &mut World, spec: Spec) -> Vec<(&'static str, us
             // individual at the same coordinate.
             world.seed = seed;
             let ctx = Ctx::new(world, params, seed);
-            PASSES.iter().map(|pass| (pass.name, (pass.run)(&ctx, world))).collect()
+            let report: Vec<(&'static str, usize)> =
+                PASSES.iter().map(|pass| (pass.name, (pass.run)(&ctx, world))).collect();
+            // Erosion runs in the plan phase (`Terrain::plan_all_with_
+            // deposits`, inside `Ctx::new` above), so it has no row of its
+            // own in `PASSES` -- there is nowhere in the pass loop to
+            // report it. A bare `println!` in `plan_all` would fire on
+            // every call, including the many pure per-column tests that
+            // never build a world at all (round-4 task 5); gating it here,
+            // the same way `vaults detail` is gated inside its own pass
+            // function, means it prints only when a real world is
+            // generated, and the `iterations == 0` guard means an age-0
+            // world -- every preset until task 4, `flat` still -- prints
+            // nothing at all.
+            if ctx.deposits.iterations > 0 {
+                println!(
+                    "  erosion detail: moved {:.1} exported {:.1} talus {:.1} sediment {:.1} \
+                     boulder-markers {} boulders-seated {} talus-recoloured {} | {:.1}ms",
+                    ctx.deposits.volume_moved,
+                    ctx.deposits.exported,
+                    ctx.deposits.talus.iter().sum::<f32>(),
+                    ctx.deposits.sediment.iter().sum::<f32>(),
+                    ctx.deposits.boulder.iter().filter(|&&b| b).count(),
+                    ctx.boulders_seated.get(),
+                    ctx.talus_recolored.get(),
+                    ctx.deposits.wall_time_ms,
+                );
+            }
+            report
         }
     }
 }

@@ -127,6 +127,13 @@ pub struct Deposits {
     /// as outlets, so conservation is `moved = deposited + exported`.
     pub exported: f32,
     pub iterations: u32,
+    /// Wall-clock time the loop itself took, in milliseconds. Round-4 task
+    /// 5's "did it fire, and what did it cost" counter -- printed beside
+    /// the pass table by `generate_reported`, never asserted on: timing is
+    /// read by eye, not gated (`Reports/worldgen-erosion-design.md`'s ≤50ms
+    /// budget line is a by-eye check, and CI machine speed varies run to
+    /// run per CLAUDE.md's re-measure-the-baseline rule).
+    pub wall_time_ms: f32,
 }
 
 impl Deposits {
@@ -138,6 +145,7 @@ impl Deposits {
             volume_moved: 0.0,
             exported: 0.0,
             iterations: 0,
+            wall_time_ms: 0.0,
         }
     }
 }
@@ -151,6 +159,7 @@ pub fn erode(t: &Terrain, h: &mut [f32]) -> Deposits {
         return d;
     }
     d.iterations = iters;
+    let started = std::time::Instant::now();
 
     // Rain supply and a shed-from-hard accumulator, both per column.
     let rain: Vec<f32> =
@@ -277,6 +286,7 @@ pub fn erode(t: &Terrain, h: &mut [f32]) -> Deposits {
             }
         }
     }
+    d.wall_time_ms = started.elapsed().as_secs_f32() * 1000.0;
     d
 }
 
@@ -291,8 +301,11 @@ mod tests {
 
     #[test]
     fn age_zero_is_a_bit_exact_no_op() {
-        let p = WorldgenParams::default();
-        assert_eq!(p.world_age, 0.0, "the default is deliberately pre-erosion; flipping it is a sweep-re-baselined change");
+        // `WorldgenParams::default()` is no longer age 0 as of round-4 task
+        // 4 (`rolling` ships `world_age: 0.8`, and `rolling` is asserted
+        // equal to the compiled default) -- the no-op guarantee itself is
+        // unchanged, only how this test reaches age 0 to check it.
+        let p = WorldgenParams { world_age: 0.0, ..Default::default() };
         let t = terrain(5, &p);
         let mut h: Vec<f32> = (0..t.w).map(|x| t.elev(x)).collect();
         let before = h.clone();
@@ -406,7 +419,18 @@ mod tests {
         // reduce total steepness, not just shuffle it. Summed |slope| is
         // the continuous quantity (a count of steep columns would give a
         // knife-edge margin).
-        let young = WorldgenParams::default();
+        //
+        // `young` is age 0 explicitly, not `WorldgenParams::default()`:
+        // round-4 task 4 moved the default to 0.8, and the property this
+        // test checks is **not monotone past roughly age 1** (hydraulic
+        // incision cuts channels faster than creep rounds crests at higher
+        // ages -- rolling seed 1's roughness dips from 218 at age 0 to 131
+        // at age 0.5 and then climbs back past its age-0 value by age 3;
+        // round-4 finding R4-2 has the full curve). 0 vs 2 is what this
+        // test always compared and is still on the monotone stretch; the
+        // failure was `young` silently drifting off age 0, not the
+        // mechanism.
+        let young = WorldgenParams { world_age: 0.0, ..Default::default() };
         let old = WorldgenParams { world_age: 2.0, ..Default::default() };
         for seed in [1u64, 7] {
             let ty = terrain(seed, &young);
@@ -467,6 +491,34 @@ mod probe {
                 max_slope_before,
                 max_slope_after,
             );
+        }
+    }
+
+    /// Round-4 task 4 diagnostic: is roughness monotone in `world_age` past
+    /// the ages the shipped presets carry? Not asserted, printed -- this is
+    /// deciding whether a test's *parameters* still probe the property it
+    /// was written for, not measuring the mechanism itself.
+    ///
+    /// ```text
+    /// cargo test --lib roughness_curve -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn roughness_curve() {
+        use crate::worldgen::params::WorldgenParams;
+        let base = WorldgenParams { world_age: 0.0, ..Default::default() };
+        for seed in [1u64, 7] {
+            let mut prev = f32::INFINITY;
+            for age in [0.0f32, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 3.0] {
+                let p = WorldgenParams { world_age: age, ..base.clone() };
+                let t = Terrain::new(seed, &p, 512, 320, 33.0_f32.to_radians().tan(), 34.0_f32.to_radians().tan());
+                let mut h: Vec<f32> = (0..t.w).map(|x| t.elev(x)).collect();
+                erode(&t, &mut h);
+                let roughness: f32 = h.windows(2).map(|w| (w[1] - w[0]).abs()).sum();
+                let dir = if roughness < prev { "down" } else { "UP" };
+                println!("seed {seed} age {age}: roughness {roughness:.1} ({dir})");
+                prev = roughness;
+            }
         }
     }
 }
