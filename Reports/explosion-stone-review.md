@@ -906,7 +906,14 @@ pieces that used to sit still, that is the line to read first.
    diff. The specific thing to look for is whether a *deep* pile now reads
    as too heavy — the cap is 12 and nobody has felt it.
 3. **R3b** (converged relax after mass failure) — behind the
-   ground-rooting port (§5).
+   ground-rooting port (§5), and **downgraded from emergency to
+   improvement** by a HEAD re-measurement of §1d's livelock: pending
+   sites now peak (~13.8k at f800) and *fall* (6.7k at f1200) with awake
+   chunks declining 7 → 6 → 5, where the §1 baseline climbed forever
+   (17.9k and rising, 10-11 awake). Containment shrank the wound and R3a
+   paced what remains; the queue drains. Still worth doing — f1200
+   should be quiet, not merely quieting — but it is the touchiest
+   remaining change and deliberately not attempted unsupervised.
 4. ~~Live-panel wiring~~ — done: all 22 `Tuning` fields are in the panel,
    and the round-trip test now destructures `Tuning` exhaustively so an
    unwired field fails to compile.
