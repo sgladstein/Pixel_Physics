@@ -43,6 +43,7 @@ struct Args {
     rain: String,
     mine: bool,
     vault: bool,
+    boulder: bool,
     reveal: bool,
     light: pixel_physics::render::TerrainLight,
     spring: i32,
@@ -64,6 +65,7 @@ fn main() {
         rain: String::new(),
         mine: false,
         vault: false,
+        boulder: false,
         reveal: false,
         light: pixel_physics::render::TerrainLight::default(),
         spring: 0,
@@ -101,6 +103,14 @@ fn main() {
             // position is a noise draw and a hardcoded coordinate would go
             // stale the moment anything upstream of `Purpose::Vault` changes.
             "vault" => a.vault = v != "0",
+            // `boulder=1` aims at a seated erosion boulder, which is the
+            // only way to photograph one: they are 2-5 cells wide, they
+            // seat in roughly one world in eight (measured at the shipped
+            // size, canyon), and a strip framed anywhere else is a strip of
+            // hillside. Found rather than passed in, for the same reason
+            // `vault` finds its chamber -- the position is a draw and a
+            // hardcoded coordinate goes stale.
+            "boulder" => a.boulder = v != "0",
             // `reveal=1` turns on the F11 void X-ray, so a strip can show
             // where every sealed chamber and cavity sits without digging.
             "reveal" => a.reveal = v != "0",
@@ -301,6 +311,126 @@ fn main() {
     // system carved most. Air this deep can only be carved void (nothing
     // else makes air under the massif at genesis), which also stops the old
     // gravel search from landing the camera on a pocket lens instead.
+    // A seated boulder: a *stone* cell at the very top of its column with
+    // soil-covered ground either side of it, standing proud of the local
+    // trend. That is what the pass writes -- a dome of stone displacing the
+    // loose cover -- and it is what the eye picks out. The camera is aimed
+    // at the best bump rather than the first, and what was found is printed,
+    // so a finder that latched onto an outcrop instead is visible in the log
+    // rather than silently mis-framing the picture.
+    let boulder_at = if a.boulder {
+        // **Ask the generator where the boulders are, rather than inferring
+        // it from the picture.** Two heuristic finders were written before
+        // this one and both found the wrong object: "the most prominent
+        // stone bump" found an ordinary sandstone outcrop, and "a 2-6 column
+        // run of cap-rock at the surface" found 6-16 candidates per world
+        // (cap-rock *beds* outcrop in the same family) where only one or two
+        // boulders exist. Every judgement made from those renders was a
+        // judgement of something else -- CLAUDE.md's "check the scene still
+        // contains the situation you think it does", arriving in the harness
+        // instead of in the world.
+        //
+        // `erosion::Deposits::boulder` is the marker array the pass itself
+        // reads, and `Terrain::plan_all_with_deposits` is public, so the
+        // answer is exact and costs one extra plan (no cell pass). The run
+        // merge below mirrors `passes::boulders` -- if that pass changes how
+        // it merges, this goes with it.
+        use pixel_physics::worldgen::column::Terrain;
+        let soil = world.materials.id_of("soil").expect("soil is compiled in");
+        let sand = world.materials.id_of("sand").expect("sand is compiled in");
+        let terrain = Terrain::new(
+            a.seed as u64,
+            params,
+            WORLD_WIDTH as i32,
+            WORLD_HEIGHT as i32,
+            world.materials.get(soil).friction_angle.to_radians().tan(),
+            world.materials.get(sand).friction_angle.to_radians().tan(),
+        );
+        let (plans, deposits) = terrain.plan_all_with_deposits();
+        let mut centres: Vec<i32> = Vec::new();
+        let mut x = 0i32;
+        while x < WORLD_WIDTH as i32 {
+            if !deposits.boulder[x as usize] {
+                x += 1;
+                continue;
+            }
+            let start = x;
+            while x < WORLD_WIDTH as i32 && deposits.boulder[x as usize] {
+                x += 1;
+            }
+            centres.push((start + x - 1) / 2);
+        }
+        let top = |x: i32| -> i32 {
+            (0..WORLD_HEIGHT as i32)
+                .find(|&y| world.get(x, y).material != material::EMPTY)
+                .unwrap_or(WORLD_HEIGHT as i32 - 1)
+        };
+        let tops: Vec<i32> = (0..WORLD_WIDTH as i32).map(top).collect();
+        // Prominence over the whole world, so the boulder's own number can
+        // be read against what an ordinary hillside does. A metric with no
+        // null case is a number nobody can interpret.
+        let prom = |x: i32| -> i32 {
+            let l = tops[(x - 5).max(0) as usize];
+            let r = tops[(x + 5).min(WORLD_WIDTH as i32 - 1) as usize];
+            (l - tops[x as usize]).min(r - tops[x as usize])
+        };
+        let mut all: Vec<i32> = (5..WORLD_WIDTH as i32 - 5).map(prom).collect();
+        all.sort_unstable();
+        let q = |f: f32| all[((all.len() as f32 - 1.0) * f) as usize];
+        println!(
+            "  surface prominence over the whole world: med {} p90 {} p99 {} max {}",
+            q(0.5),
+            q(0.9),
+            q(0.99),
+            all[all.len() - 1]
+        );
+        // Seated or not: the pass writes cap-rock-family stone above the
+        // plan surface, so a marker whose crown is not that has been
+        // rejected (round-4 finding R4-1: a `brows` lip usually got there
+        // first). Reported per marker, because "the pass fired" and "you can
+        // see it" are different questions and the counter answers only one.
+        let seated: Vec<i32> = centres
+            .iter()
+            .copied()
+            .filter(|&cx| {
+                let ground = plans[cx as usize].surface_y;
+                (1..=4).any(|row| {
+                    let c = world.get(cx, ground - row);
+                    Some(c.material) == world.materials.id_of("stone") && c.shade / 4 == 3
+                })
+            })
+            .collect();
+        println!(
+            "  boulder markers: {} runs; seated: {}",
+            centres.len(),
+            seated.len()
+        );
+        match seated.first().copied() {
+            Some(cx) => {
+                let y = tops[cx as usize];
+                let p = prom(cx);
+                let pct = 100.0 * all.iter().filter(|&&v| v < p).count() as f32 / all.len() as f32;
+                let height = (1..=6)
+                    .take_while(|&row| {
+                        let c = world.get(cx, plans[cx as usize].surface_y - row);
+                        Some(c.material) == world.materials.id_of("stone") && c.shade / 4 == 3
+                    })
+                    .count();
+                println!(
+                    "  boulder at ({cx}, {y}): {height} cells tall, stands {p} proud -- \
+                     the {pct:.0}th percentile of ordinary hillside (player is 14 tall)"
+                );
+                Some((cx, y))
+            }
+            None => {
+                println!("  NO SEATED BOULDER in this world -- try another seed");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let vault_at = if a.vault {
         let deep = WORLD_HEIGHT as i32 / 2;
         let mut found: Option<(i32, i32)> = None;
@@ -341,8 +471,11 @@ fn main() {
         // world four screens wide, so a shot framed anywhere else is a render
         // of a flash with the interesting part outside it.
         let aimed = pixel_physics::sim::weather::strike(world.seed, world.frame, world.bounds()).map(|s| s.x);
-        let x = match (a.vault, a.mine, aimed) {
-            (true, _, _) => vault_at.map(|(vx, _)| vx).unwrap_or(WORLD_WIDTH as i32 / 2),
+        let x = match (a.vault || a.boulder, a.mine, aimed) {
+            (true, _, _) => vault_at
+                .or(boulder_at)
+                .map(|(vx, _)| vx)
+                .unwrap_or(WORLD_WIDTH as i32 / 2),
             (_, true, _) => WORLD_WIDTH as i32 / 4,
             (_, _, Some(sx)) => sx,
             _ => ((shot as f32 + 0.5) / a.shots as f32 * WORLD_WIDTH as f32) as i32,
@@ -350,7 +483,7 @@ fn main() {
         // Normally the camera is aimed at the skyline, which is the right
         // target for every other scene here and exactly wrong for a vault:
         // the whole feature is below the bottom of that frame.
-        let ground = match (a.vault, vault_at) {
+        let ground = match (a.vault || a.boulder, vault_at.or(boulder_at)) {
             (true, Some((_, vy))) => vy,
             _ => (0..WORLD_HEIGHT as i32)
                 .find(|&y| world.get(x, y).material != material::EMPTY)

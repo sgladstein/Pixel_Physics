@@ -195,6 +195,110 @@ s1, rolling s1 at ages 0/1/2, `target/filmstrips/erosion3_*`):
   threshold is right is a stage-2 question to answer *with the boulder
   realise pass on screen*, not before.
 
+### Boulders on screen, 2026-08-20 — the deferred question, answered
+
+The Status note above deferred "whether the threshold is right" to a
+judgement made *with the boulder realise pass on screen*. This is that
+judgement, at the shipped 2048x640. **The threshold is not the problem.
+A seated boulder is 2-5 cells wide and 1-2 cells tall, on a player who
+is 14 cells tall, and it is less prominent than the median piece of
+hillside.**
+
+**How the object was found matters, because two earlier attempts found
+the wrong one.** `viewshot boulder=1` now asks the generator directly —
+`Terrain::plan_all_with_deposits` is public and `Deposits::boulder` is
+the same marker array the pass reads, so the answer is exact. Before
+that: a "most prominent stone bump" finder returned an ordinary
+sandstone outcrop, and a "2-6 column run of cap-rock at the surface"
+finder returned 6-16 candidates per world, because cap-rock *beds*
+outcrop in the same palette family. A first draft of this section was
+written from a render of one of those. CLAUDE.md's rule — *when a
+mechanism appears inert, check the scene still contains the situation
+you think it does* — applies to the harness as much as to the world.
+
+**Size, measured exactly** (`boulder_true_canyon_s6.png`, seed 6,
+x=809, 8x):
+
+| | |
+|---|---|
+| drawn width | 2-5 cells |
+| drawn height | 2-4 cells, clamped never taller than wide |
+| **height actually standing above ground** | **1-2 cells** |
+| prominence vs its flanks | canyon s6 **0**, s12 **-1**, s23 **-8**; rolling s17 **0** |
+| that prominence as a percentile of ordinary hillside | **2nd to 55th** |
+| player height (`sim::player::PLAYER_HEIGHT`) | **14** |
+
+The visible height is half the drawn height and that is arithmetic, not
+a bug: the dome is an ellipse of full height `height`, `b = height / 2`,
+and only the rows *above* `ground_y` are written — so the centre column
+rises `round(height / 2)` = 1-2 rows. A "4 tall" boulder is two cells of
+stone on a hillside.
+
+The prominence numbers are the ones that settle it. A seated boulder
+stands zero or negative cells proud of the ground five columns either
+side, which puts it below the median hillside column (the median is -1
+because most columns sit on a slope). It is not a landform; it is
+texture.
+
+**Two things that are *not* the defect**, both checked because both were
+the obvious guess:
+
+- **Contrast is already applied.** The pass writes `FAMILY_RESISTANT`
+  (the pale cap-rock family) unconditionally, exactly as round-4 task 3
+  specified, "distinct from the banded wall behind them". A first draft
+  of this section claimed there was no contrast treatment; that was
+  wrong. The treatment is there and cannot rescue a two-cell object.
+- **It is not lost in the terrain's own texture.** Surface prominence
+  over the whole world is **median -1, p90 0, p99 1, max 2-3** — the
+  hillside is smooth at this scale. That is *good* news and it changes
+  the fix: a 6-12 cell dome against a p99-of-1 surface would be
+  unmissable, so raising the size works, and no amount of calming the
+  surrounding terrain would have helped.
+
+**Why the size is capped, since it is the first question anyone asks.**
+Nothing structural requires it. The erosion design's non-negotiable #3
+says only *height ≤ 3x width at the base*, and the round-4 task file
+authored "2-5 cells wide, 2-4 tall" as a concrete reading of that; the
+implementation then clamped tighter still, `height.min(width)` — a
+ratio of 1x where 3x was allowed. A 12-wide, 8-tall boulder is 0.67x
+and satisfies the stated rule with room to spare. **The cap is an
+authored number that was never re-examined against the player's scale,
+not a limit the load model imposes.**
+
+**Frequency, measured at the shipped size** (24 seeds each; round-4's
+R4-1 measured at the 512-column harness):
+
+| preset | marker columns | boulders seated | worlds with one |
+|---|---|---|---|
+| canyon | 49 | 4 | 3 of 24 |
+| rolling | 8 | 1 | 1 of 24 |
+| terraced | 3 | 0 | 0 of 24 |
+
+R4-1's reading stands — the dome's air is usually already spoken for by
+a `brows` lip, and refusing to punch through it is correct — but note
+the ordering of the fix: **frequency is the third problem, not the
+first.** Making a two-cell pimple eight times more common produces
+eight pimples.
+
+**So the fix is, in order**: (1) size — a boulder comparable to the
+player, 6-12 cells across and standing 4-8 proud, which means seating it
+in a socket rather than displacing a couple of cells of cover, and
+re-deriving the height clamp from the real 3x rule; (2) frequency —
+R4-1's footprint/ordering against `brows`; (3) nothing else. Contrast is
+already handled. **Do not reach for the erosion rates** — none of this
+is about where a socket forms, and the rates were set by eye across a
+whole session.
+
+At the new size the structural claim stops being free and has to be
+tested rather than argued: a 12x8 attached dome resting on cover is
+still `Solid` and has no movement rule, but it is also the first object
+in the world that a player can plausibly undermine, so it wants a test
+that digs the cover out from under one and asserts what happens.
+
+Scheduled for round 6 with the palette-dither fix (open bug 0b), both
+being `passes.rs` work, held off while round 5 is mid-flight in that
+file.
+
 Stage 2 (per §Delegation, cheap-model after the erosion core): talus
 drawn as gravel (`Deposits::talus` is already split out), the boulder
 realise pass from markers, per-preset `world_age` defaults + the 16-seed

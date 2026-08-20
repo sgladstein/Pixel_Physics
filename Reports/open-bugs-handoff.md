@@ -90,7 +90,10 @@ pass.
 
 **Owned by the worldgen data track** (`passes.rs`), which is why this is
 recorded rather than fixed: round 5 is mid-flight in that file. Do not
-race it. `DEEP_GRAIN_FLOOR` shipped anyway on the render side — a
+race it. **Scheduled: round 6, immediately after round 5 merges**
+(owner's ruling, 2026-08-20), so the cave strips get judged twice — once
+with the static and once without — and the round-5 bars are not measured
+against a moving palette. `DEEP_GRAIN_FLOOR` shipped anyway on the render side — a
 measured 23% cut for nothing, skip-safe — but it is **not** the fix and
 must not be reported as one.
 
