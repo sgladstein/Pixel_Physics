@@ -565,6 +565,85 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
     }
 }
 
+/// The `aux` a melt writes into its liquid product.
+///
+/// Two cases, and which one applies is a property of the *pair*, not of
+/// either material alone — see `density_scaled_fill` for the measurements
+/// that forced the split.
+///
+/// - **A reciprocal pair** (`liquid.cools_into == Some(solid)`): this
+///   engine froze that cell out of this liquid, and it may only have done
+///   so from a near-full one (`MaterialDef::freeze_min_fill`). It goes back
+///   full — `0`, on the `Liquid` convention — which makes the freeze/thaw
+///   loop exact for the overwhelmingly common full cell and over-pays by at
+///   most `LIQUID_FULL - freeze_min_fill` on the fringe that froze partial.
+/// - **Anything else**: the phase arrived from somewhere other than this
+///   liquid (snow falls out of the sky), so the only honest statement of
+///   how much water it is worth is its density. See `density_scaled_fill`.
+fn melt_fill(materials: &material::MaterialRegistry, from: MaterialId, into: MaterialId) -> u16 {
+    let liquid = materials.get(into);
+    if liquid.cools_into == Some(from) {
+        return 0; // full: the freeze gate is the promise this rests on
+    }
+    density_scaled_fill(materials.get(from).density, liquid.density)
+}
+
+/// The `aux` a melt writes into its liquid product: how much liquid one
+/// whole cell of the solid or powder phase is actually worth, in
+/// `material::LIQUID_FULL` units, from the two densities.
+///
+/// # Not used when the melt is the exact inverse of a freeze
+///
+/// `melt_fill` above decides that, and the distinction is stated as data
+/// rather than inferred: if the liquid's own `cools_into` names the phase
+/// that is melting, then this engine made that cell out of this liquid, and
+/// `MaterialDef::freeze_min_fill` is the content's own promise about how
+/// full it was when it did. Ice comes back full on that promise. Snow does
+/// not, because nothing here freezes water into snow — the sky makes it —
+/// and its 0.3 density is the only statement anywhere of how much water a
+/// flake is.
+///
+/// **Measured, because the obvious reading is that the density ratio should
+/// simply apply to both.** It should not, and the cost of applying it to
+/// ice is not the ~2% the arithmetic suggests. A `Solid` carries no fill,
+/// so density-scaling the melt makes the round trip `1000 -> ice -> 920`
+/// — an 8% loss on every cell that freezes *full*, which is nearly all of
+/// them, and `scene=coldsnap` cycles its surface roughly ten times in one
+/// front (froze 2,608, melted 4,671 against a 60-cell pond). It compounds:
+/// the pond measured 1,200 cell-equivalents at the cut and 1,050 by frame
+/// 361, and dropping two rows below the shore took the ice sheet's end
+/// cells out from beside their anchor — 2 unconfined overloads (133 cells)
+/// and 4 unsupported, a visible wedge of sheet slumping into the water, on
+/// a scene whose acceptance bar is that nothing is dismantled. Returning it
+/// full instead closes that loop exactly and the case is green again.
+///
+/// Returned on the `Liquid` convention, so a phase at least as dense as
+/// what it melts into comes back as `0` — **full** — rather than as a
+/// literal 1000. Both read the same through `update::liquid_fill`; 0 is what
+/// every other liquid-creating call site in the engine writes, and matching
+/// it keeps a melted cell indistinguishable from a painted one.
+///
+/// The floor of 1 is not cosmetic. Rounding a very light phase down to 0
+/// would not produce an empty cell — it would produce a *full* one, which
+/// is the exact failure this function exists to remove, at its most
+/// extreme. A 1-unit cell is a near-empty one the transfer logic will fold
+/// away, which is honest; a 1000-unit one is water out of nothing.
+fn density_scaled_fill(from_density: f32, to_density: f32) -> u16 {
+    // Written with `is_finite` rather than `!(x > 0.0)`, which clippy
+    // rejects on a partially-ordered type -- and it is the clearer form
+    // anyway: what is being excluded is a zero, a negative, or a NaN
+    // density, all three of which are content errors.
+    if !to_density.is_finite() || to_density <= 0.0 || !from_density.is_finite() || from_density < 0.0 {
+        return 0; // a content error, not a phase: fall back to the old "full"
+    }
+    let fill = (material::LIQUID_FULL as f32 * from_density / to_density).round();
+    if fill >= material::LIQUID_FULL as f32 {
+        0
+    } else {
+        (fill as u16).max(1)
+    }
+}
+
 /// Draws a fresh shade from `surface.rng()` rather than defaulting to 0, so a
 /// field of stone melting into lava shows the same per-cell grain any other
 /// bulk material does — see `World::paint_circle` for the same pattern.
@@ -583,13 +662,33 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
 ///   0-means-full convention and gives it back on condensing — per-cell
 ///   exact conservation through the boil→condense loop. (steam.ron's header
 ///   documents the convention on the content side.)
+/// - **Solid → Liquid and Powder → Liquid** (melting): the source's `aux`
+///   is an anchor distance or a moisture reading and must never be read as
+///   a fill — but writing 0 instead is not the safe answer it looks like,
+///   because 0 on a `Liquid` means **full**. `melt_fill` below decides
+///   instead, and it asks whether the pair is *reciprocal*: ice comes back
+///   full because water froze it and only ever from a near-full cell, and
+///   snow comes back at 300 because nothing here freezes water into snow
+///   and its 0.3 density is the only statement of what a flake is worth.
+///
+///   **This arm shipped as a flat 0 and manufactured water for a whole
+///   milestone** (`Reports/open-bugs-handoff.md` item 0): a storm's drift
+///   of 1,700 flakes thawed into 1,700 *full* cells, a factor of 3.3, and
+///   the hillside flood that produced was visible from across the scene.
+///   It was latent until snow gained a `heat_conductivity` and melting
+///   became reachable at all — `CLAUDE.md`'s "fixing a bug often exposes a
+///   constant that was compensating for it", here in the form of a whole
+///   dead code path. Guarded by `weather.rs`'s
+///   `a_thaw_does_not_manufacture_water`, which is a bound on *creation*;
+///   every water test written before it was written against loss and none
+///   of them could fail for this.
 /// - **everything else**: 0, "no meaning to carry". For a freeze
 ///   (Liquid → Solid) that is the same transient state a brush-painted
 ///   stone cell has — distance-0 "claims anchored" until the scheduled
 ///   structural check below corrects it; the fill that cannot ride along is
-///   what `FREEZE_MIN_FILL` bounds to a near-full cell. For a melt
-///   (Solid → Liquid) 0 deliberately reads as a *full* cell — never carry
-///   an anchor distance across as a fill amount.
+///   what `FREEZE_MIN_FILL` bounds to a near-full cell, so the round trip
+///   through ice closes to within the ~8% the two densities differ by
+///   rather than gifting a full cell back.
 ///
 /// A transform that adds or removes a structural (`Solid`/`Plant`) cell
 /// schedules the same 5-position StructuralCheck fan-out a burnout does
@@ -606,6 +705,9 @@ fn transform<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell, i
         (MaterialKind::Liquid, MaterialKind::Liquid)
         | (MaterialKind::Liquid, MaterialKind::Gas)
         | (MaterialKind::Gas, MaterialKind::Liquid) => cell.aux(),
+        (MaterialKind::Solid, MaterialKind::Liquid) | (MaterialKind::Powder, MaterialKind::Liquid) => {
+            melt_fill(surface.materials(), cell.material, into)
+        }
         _ => 0,
     };
     *cell = Cell::new(into, shade).with_temperature(temp);
@@ -949,27 +1051,54 @@ mod tests {
     }
 
     #[test]
-    fn a_melting_solid_becomes_a_full_liquid_not_a_drained_one() {
-        // Solid → Liquid is the other direction across the same convention
-        // boundary: the solid's `aux` is an anchor distance and must not be
-        // read as a fill. The melt writes 0, which on a Liquid deliberately
-        // means *full* — ice melts into a full water cell. The vanished
-        // support also owes its neighbours a structural fan-out.
+    fn a_melting_cell_yields_its_own_density_in_liquid_not_a_free_full_cell() {
+        // **Renamed and rewritten, and the old name was the bug.** This
+        // used to be `a_melting_solid_becomes_a_full_liquid_not_a_drained_
+        // one` and asserted `aux == 0`, i.e. *full*, for every melt — which
+        // is what shipped the water-manufacturing arm in `transform`'s aux
+        // table (see `density_scaled_fill`, and open-bugs item 0). Its
+        // original job is kept and still asserted: the source's `aux` is an
+        // anchor distance or a moisture reading, and reading it back as a
+        // fill is a different and equally real bug. What changed is the
+        // *right* answer to write instead — a fill scaled by the two
+        // densities, not a free full cell.
+        //
+        // Both melting kinds are exercised here, at densities chosen so the
+        // three outcomes are distinguishable from each other and from the
+        // anchor distance: a half-density solid (500), a light powder
+        // (300, snow's own figure), and a solid denser than its melt (full).
+        // None of these three is a reciprocal pair -- no liquid here names
+        // any of them in `cools_into` -- so all three go through the
+        // density rule. The reciprocal case is the *other* test below.
         let dir = std::env::temp_dir().join("pixel-physics-melt-test");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             dir.join("a.ron"),
-            "(name: \"melt_solid\", kind: Solid, density: 1.0, colors: [(200, 200, 255)], \
+            "(name: \"melt_solid\", kind: Solid, density: 0.5, colors: [(200, 200, 255)], \
              melting_point: 1.0, melts_into: \"melt_liquid\")",
         )
         .unwrap();
         std::fs::write(dir.join("b.ron"), "(name: \"melt_liquid\", kind: Liquid, density: 1.0, colors: [(0, 0, 200)])").unwrap();
+        std::fs::write(
+            dir.join("c.ron"),
+            "(name: \"melt_powder\", kind: Powder, density: 0.3, colors: [(240, 240, 250)], \
+             melting_point: 1.0, melts_into: \"melt_liquid\")",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("d.ron"),
+            "(name: \"melt_dense\", kind: Solid, density: 2.5, colors: [(90, 90, 110)], \
+             melting_point: 1.0, melts_into: \"melt_liquid\")",
+        )
+        .unwrap();
 
         let mut w = test_world();
         w.materials.reload(&dir).unwrap();
-        let (solid, liquid) = (
+        let (solid, liquid, powder, dense) = (
             w.materials.id_of("melt_solid").unwrap(),
             w.materials.id_of("melt_liquid").unwrap(),
+            w.materials.id_of("melt_powder").unwrap(),
+            w.materials.id_of("melt_dense").unwrap(),
         );
 
         // `aux 37` is a plausible relaxed anchor distance — exactly the
@@ -978,11 +1107,82 @@ mod tests {
         assert!(update_until_changed(&mut w, 30, 30, 3), "a solid above its melting point never melted");
         let melted = w.get(30, 30);
         assert_eq!(melted.material, liquid);
-        assert_eq!(melted.aux(), 0, "a melted solid should be a full liquid (aux 0 = full), never inherit the anchor distance as fill");
+        assert_ne!(melted.aux(), 37, "the anchor distance survived as a fill");
+        assert_eq!(melted.aux(), 500, "half-density ice should melt into a half-full cell, not a free full one");
         assert_eq!(w.phase_changes.melted, 1);
         assert_eq!(w.active_site_count(), 5, "a melt removed a possible support and owes the fan-out");
 
+        // A `Powder`'s aux is a moisture reading (`SOIL_SATURATED`, whose
+        // convention points the *other* way), so it is the same trap in a
+        // second costume — and the arm that actually flooded a hillside.
+        w.set(50, 30, Cell::new(powder, 0).with_aux(800).with_temperature(AMBIENT_TEMPERATURE));
+        assert!(update_until_changed(&mut w, 50, 30, 3), "a powder above its melting point never melted");
+        let thawed = w.get(50, 30);
+        assert_eq!(thawed.material, liquid);
+        assert_eq!(thawed.aux(), 300, "snow-density powder should melt into 30% of a cell of water, not a whole one");
+
+        // The clamp: a phase denser than its own melt cannot yield more
+        // than one cell, and comes back on the 0-means-full convention
+        // every other liquid-creating call site writes.
+        w.set(60, 30, Cell::new(dense, 0).with_temperature(AMBIENT_TEMPERATURE));
+        assert!(update_until_changed(&mut w, 60, 30, 3), "a dense solid above its melting point never melted");
+        assert_eq!(w.get(60, 30).aux(), 0, "a phase denser than its melt should clamp to one full cell (aux 0), not overflow");
+
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_freeze_and_thaw_round_trip_returns_the_cell_it_took() {
+        // The other half of `melt_fill`, and the reason it is not simply
+        // the density ratio. Water freezes into ice and ice melts back into
+        // water: a **reciprocal pair**, which the liquid states by naming
+        // the solid in its own `cools_into`. For that pair the round trip
+        // has to close, because `FREEZE_MIN_FILL` already refused to freeze
+        // anything but a near-full cell — and density-scaling it instead
+        // loses 8% of every full cell, every cycle, which compounds into a
+        // draining pond (see `density_scaled_fill`'s own doc for the
+        // `scene=coldsnap` measurement that caught it).
+        //
+        // Written against the shipped water/ice pair rather than synthetic
+        // materials, deliberately: the claim is about content that names
+        // itself reciprocally, and a hand-written pair would be asserting
+        // the test's own fixture rather than the rule the game runs on.
+        let mut w = test_world();
+        let ice = w.materials.id_of("ice").expect("shipped content should have ice");
+        assert_eq!(
+            w.materials.get(material::WATER).cools_into,
+            Some(ice),
+            "water no longer names ice as what it freezes into; `melt_fill`'s reciprocal case has nothing to key on"
+        );
+
+        // A full cell, held below water's own cooling point until it takes,
+        // then let back up to ambient. **Re-chilled every visit** rather
+        // than set cold once: `diffuse_heat` runs before the phase check,
+        // and a lone cell surrounded by empty air climbs back through zero
+        // in three frames -- so a `PHASE_CHANGE_CHANCE` of 0.4 gets about
+        // three rolls, and this failed outright the first time it was
+        // written that way. Weather holds a column cold for exactly this
+        // reason (`weather::hold_column_cold`); this is the unit-test
+        // version of the same thing. `aux 4` below is a plausible anchor
+        // distance on the ice -- the value that must not survive as a fill.
+        w.set(30, 30, Cell::new(material::WATER, 0));
+        let froze = (0..200).any(|_| {
+            let chilled = w.get(30, 30).with_temperature(-5);
+            w.set(30, 30, chilled);
+            update(&mut w, 30, 30)
+        });
+        assert!(froze, "a full water cell held at -5C never froze");
+        assert_eq!(w.get(30, 30).material, ice);
+        w.set(30, 30, w.get(30, 30).with_aux(4).with_temperature(AMBIENT_TEMPERATURE));
+        assert!(update_until_changed(&mut w, 30, 30, 3), "ice at ambient never melted");
+        let melted = w.get(30, 30);
+        assert_eq!(melted.material, material::WATER);
+        assert_ne!(melted.aux(), 4, "the anchor distance survived as a fill");
+        assert_eq!(
+            super::super::update::liquid_fill(melted),
+            material::LIQUID_FULL,
+            "a full cell that froze came back short; the freeze/thaw loop drains a little on every cycle"
+        );
     }
 
     #[test]

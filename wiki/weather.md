@@ -53,10 +53,11 @@ meltwater over the following seconds — which then behaves like any other
 water, soaking in or running off. Nothing freezes water back into snow;
 only weather makes snow.
 
-A thaw leaves *more* water than the snow looked like it held, and a heavy
-fall melting off can put a shallow flood across a whole hillside for a
-while. That is more than it should be and is a known rough edge, not the
-intended amount.
+A drift is mostly air, and a thaw says so: a deep bank of snow leaves a
+thin film of meltwater, not a pool the size of the bank. A heavy fall
+melting off a slope still runs a shallow sheet of water across it for a
+while, and that is the thaw working rather than a rough edge — snow that
+melted into nothing would be the wrong answer too.
 
 ## Cold snaps freeze standing water
 
@@ -79,8 +80,9 @@ slush, which floats for a while and then melts like everything else.
 And it goes when the cold goes. Ice cannot survive an ordinary day any more
 than snow can, so the moment the front passes the crust is above its
 melting point, and within a few seconds the sheet, the drift on top of it
-and the slush are all water again and the pool is back. Nothing remembers
-that the pond was ever frozen; the cold being gone is the whole of it.
+and the slush are all water again and the pool is back — back to the level
+it was at, not higher. Nothing remembers that the pond was ever frozen; the
+cold being gone is the whole of it.
 
 A frozen pond is a way to cross water, and a temporary one. It is worth
 knowing which way the weather is going before you build on it.
