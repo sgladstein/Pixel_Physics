@@ -95,6 +95,34 @@ const DEPTH_LIGHT_FLOOR: f32 = 0.62;
 /// for a skyline highlight, not a glowing crust.
 const DEPTH_LIGHT_HIGHLIGHT: f32 = 1.12;
 
+/// Fraction of `JITTER_STRENGTH` the per-pixel grain keeps at and below the
+/// bottom of the depth ramp.
+///
+/// The 2026-08 cave measurement's finding, and it is a *texture* fix rather
+/// than a lighting one: in every cave render the loudest thing on screen was
+/// this grain. It is a **proportional** brightness jitter, so dimming deep
+/// rock with `DEPTH_LIGHT_FLOOR` dims the jitter by the same factor and
+/// leaves it exactly as conspicuous relative to the rock it textures — the
+/// depth light could not quiet it and was never going to. At full strength
+/// on unlit deep stone it reads as television static, and it fights the two
+/// things a cave is composed on: darkness preserved, and rock that has grain
+/// and *flow* rather than noise.
+///
+/// A third, which is `GrainMode::Muted`'s amplitude — the one the owner's
+/// live feedback on the animated grain already endorsed as "the right idea,
+/// the strength is not". Not zero: the strata banding and the breakdown
+/// floors want *some* tooth at depth, and a perfectly flat deep massif is
+/// the flat-wallpaper complaint the depth light exists to fix, arriving back
+/// in a different channel.
+///
+/// Rides `light_depth` and `DEPTH_LIGHT_RAMP_ROWS` rather than introducing a
+/// second depth concept, so it is the same pure function of
+/// `(x, y, horizon[x])` and keeps the dirty-rect skip by the same argument.
+/// Surface rock — everything within a viewport-height of the skyline — keeps
+/// the grain unchanged, which is where the Sandspiel trick is actually
+/// buying what it was adopted for.
+const DEEP_GRAIN_FLOOR: f32 = 1.0 / 3.0;
+
 /// Half-width of the window that decides which skyline features the depth
 /// light believes in.
 ///
@@ -1936,6 +1964,18 @@ impl Renderer {
         // keeps the position-keyed grain unconditionally, because for a
         // settled pile that is the correct answer and not a compromise.
         let is_liquid = world.materials.kind(cell.material) == material::MaterialKind::Liquid;
+        // Depth, computed once here and handed to the depth grade below:
+        // both the grain's amplitude and the light read the same frozen
+        // skyline, and asking twice would be two `light_datum` lookups per
+        // pixel per frame on a path that has no dirty-rect skip.
+        let light_depth = match self.terrain_light {
+            TerrainLight::Depth => self.light_depth(x, y),
+            // `F10` restores the pre-review look, and that has to mean the
+            // pre-review *look*, grain included — an A/B that changes the
+            // light and quietly keeps the new texture is not an A/B of
+            // anything.
+            TerrainLight::Off => -1,
+        };
         let (grain, strength) = match (is_liquid, self.grain) {
             (true, GrainMode::Cell) => (rng::jitter_u8(cell.shade), JITTER_STRENGTH),
             (true, GrainMode::Muted) => (rng::jitter(x, y), JITTER_STRENGTH / 3.0),
@@ -1956,6 +1996,15 @@ impl Renderer {
                 (a + (b - a) * t, JITTER_STRENGTH / 3.0)
             }
             _ => (rng::jitter(x, y), JITTER_STRENGTH),
+        };
+        // The grain fades with depth on the same ramp the light uses — see
+        // `DEEP_GRAIN_FLOOR`. Integer permille throughout, as before: this
+        // is still every visible pixel every frame.
+        let strength = if light_depth <= 0 {
+            strength
+        } else {
+            let t = (light_depth.min(DEPTH_LIGHT_RAMP_ROWS) as f32) / DEPTH_LIGHT_RAMP_ROWS as f32;
+            strength * (1.0 - t * (1.0 - DEEP_GRAIN_FLOOR))
         };
         let jitter_permille = ((grain - 0.5) * 2000.0 * strength) as i32;
         for c in &mut rgb {
@@ -2040,7 +2089,7 @@ impl Renderer {
         let rgb = match self.terrain_light {
             TerrainLight::Off => rgb,
             TerrainLight::Depth => {
-                let depth = self.light_depth(x, y);
+                let depth = light_depth;
                 if depth < 0 {
                     rgb
                 } else {

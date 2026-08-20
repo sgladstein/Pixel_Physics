@@ -29,6 +29,78 @@ seed sweep, not another guard clause. Do not widen the two named tests'
 seed lists as a "fix" — they would go red on the standing defect.
 
 
+### 0b. The deep massif reads as television static, and it is a per-cell palette dither (worldgen)
+
+Every cave render at 4x zoom shows the surrounding rock as full-contrast
+salt-and-pepper speckle — louder than any cave feature in the frame, and
+directly against the two things a cave picture is composed on (darkness
+preserved; rock with grain and *flow* rather than noise). Images:
+`Reports/img/cave-anatomy/`.
+
+**Attributed wrong the first time, and the wrong attribution is the
+useful part.** The obvious suspect was `render.rs`'s `JITTER_STRENGTH
+0.12` — a per-pixel proportional brightness jitter applied at full
+strength to deep rock. It was measured by setting the new
+`DEEP_GRAIN_FLOOR` to **zero** (grain entirely off below the depth
+ramp) and re-rendering the same crop. The picture barely moved.
+`examples/pixel_stat` apportions it (canyon s1, deep-rock crop):
+
+| | luma MAD | chroma MAD |
+|---|---|---|
+| shipped | 3.017 | 1.374 |
+| grain floor 1/3 (now shipped) | 2.325 | — |
+| grain **off** at depth | 2.090 | 1.301 |
+
+So the render grain is **31% of the luma speckle and 5% of the chroma
+speckle**. Sixty-nine per cent of it survives with the grain switched
+off. On `rolling` seed 7 the chroma MAD (3.43) is *larger* than the luma
+MAD (2.34) — the speckle there is predominantly a **hue** dither, which
+the grain cannot produce at all (it scales all three channels by one
+factor).
+
+**The mechanism is `passes::palette_family`** (`src/worldgen/passes.rs`):
+it draws `u = noise::unit(seed, Purpose::Palette, x, y)` **per cell** and
+compares it against a family probability. Wherever that probability is
+mid-range — which is most of the world, by design — the result is a
+per-cell Bernoulli dither between two palette families that differ by
+~40 brightness points *and* a large hue shift (neutral grey `128,128,132`
+against warm sandstone `168,146,112`). At play scale that is confetti,
+not a boundary.
+
+**It is doing exactly what it was built to do**, which is why no test
+sees it: the round-1 comment calls this "the dither band" and records
+that the aridity ramps were deliberately *widened* to make it broader,
+because a narrow ramp gave "solid blocks of one family" with the
+families interleaving over only a few columns. The intent — a meandering
+boundary between differently-coloured countries — is right. The
+implementation puts the meander in white noise per cell instead of in
+the field, so what should be a wandering coastline is dithered surf
+everywhere.
+
+**Direction, not yet built**: decide the family from a *continuous*
+field — threshold the existing `PaletteField` fBm (plus the smoothstep
+on `Character`) against a smooth spatial value rather than against a
+fresh per-cell white-noise draw — so the boundary meanders because the
+field does. If an interleave at the boundary is still wanted, an ordered
+or blue-noise dither confined to a narrow band around the threshold
+gives it without spraying the interior. Note `strata_shade`'s separate
+"12% of cells jump a tone" rule is the same shape at smaller amplitude
+(brightness only, inside one family) and should be re-judged in the same
+pass.
+
+**Owned by the worldgen data track** (`passes.rs`), which is why this is
+recorded rather than fixed: round 5 is mid-flight in that file. Do not
+race it. `DEEP_GRAIN_FLOOR` shipped anyway on the render side — a
+measured 23% cut for nothing, skip-safe — but it is **not** the fix and
+must not be reported as one.
+
+**Sanity note for whoever picks this up**: `pixel_stat` reports mean
+absolute deviation from the 3x3 neighbourhood mean, not variance, so a
+smooth large-scale gradient (a strata band, the depth ramp) scores near
+zero and only per-pixel departure counts. Check it against a region you
+know is clean before trusting it about one you don't.
+
+
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a
