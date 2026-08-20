@@ -395,6 +395,25 @@ respect why), and it gates the track. So the sequence is:
    40 on canyon) because continuous inflow keeps the pool levelling
    forever (the O(width²) tail). If the second fires, the fallback is a
    pulsed/intermittent spring — a different design, judged separately.
+2b. **First measurement (2026-08-20, harness landed and run same
+   session)**: `river_cost_scene` in `examples/ascii.rs` — canyon seed 1
+   at 512×320, spring at (255, 120) over a 30-cell drop, capped drain in
+   the basin, 1400-frame steady window, paired arms. **Standing bill:
+   mean +1.54 ms/frame — under the 2.0 ms pre-registered bar.** Awake
+   chunks stabilize at exactly 9 of 40 (bounded — the fed pool is not
+   levelling forever). The water ledger closes within 6.6% (emitted
+   2.0M, drained 1.42M, standing 445k; the residual is evaporation and
+   soil infiltration). Two riders for the field audit: the *control*
+   world already runs at 2.58 ms mean with **zero** awake chunks and 23
+   unsettled field tiles — the day/night sky keeps the field stepping on
+   a generated world regardless, so a river's *marginal* field cost is
+   smaller than the ~7 ms fear (which was measured at larger sizes and
+   still needs the audit before the 2048×640 verdict); and the spring
+   arm shows a 43 ms worst-frame spike (mean is the standing bill; the
+   spike wants attribution — likely the initial cascade or a structural
+   check — before the prototype ships). Verdict so far: **rivers are
+   affordable at harness scale**; the 2048×640 verdict re-runs this
+   scene at the shipped size during the audit.
 3. **The priced fallback if the bill doesn't fit**: the *settled river*
    — a river bed generated with water born at rest (level per pool
    step, exactly as ponds are born), reading as moving via the

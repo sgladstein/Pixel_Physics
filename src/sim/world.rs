@@ -1483,11 +1483,16 @@ impl World {
     /// a disturbance that never disperses and one that disperses slowly are
     /// indistinguishable by pressure and perfectly distinct by this.
     /// See `weather::tests::a_gust_disperses`, which exists because of it.
-    /// Test-only: nothing in the engine branches on the *count*, only on
-    /// `fields_settled()`, and exposing it more widely would invite someone
-    /// to build a per-frame decision on a full scan of the tile map.
-    #[cfg(test)]
-    pub(crate) fn unsettled_field_tiles(&self) -> usize {
+    /// Diagnostic-only: nothing in the engine branches on the *count*, only
+    /// on `fields_settled()`, and nothing may start to — this is a full scan
+    /// of the tile map and a per-frame decision built on it would be the
+    /// exact cost class the field's own sleeping exists to avoid. Public
+    /// (rather than the `#[cfg(test)]` it started as) for one consumer: the
+    /// river-cost harness in `examples/ascii.rs` prints it at coarse
+    /// intervals, because "how many field tiles does a held disturbance
+    /// keep awake" is the number that gates the 2026-08 world review's
+    /// rivers track (`Reports/world-review-2026-08.md` §4).
+    pub fn unsettled_field_tiles(&self) -> usize {
         self.fields.values().filter(|t| !t.settled()).count()
     }
 
