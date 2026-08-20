@@ -1,8 +1,9 @@
 # Worldgen data-track tasks, round 5 — caves that are worth the dig
 
-**STATUS: SPEC ONLY, NOT APPROVED, DO NOT SPAWN.** The owner rules on
-§Decisions first. Everything below is written to be executed cold once
-they have.
+**STATUS: APPROVED 2026-08-20. Tasks 1-6 all in scope.** The owner's
+rulings are folded into §Decisions below and into the tasks themselves;
+where a task's text and a ruling disagree, the ruling wins and the
+disagreement is a finding.
 
 You are the implementation session for the worldgen data track, round 5.
 Read, in order: `CLAUDE.md`; `Reports/cave-beauty-review-2026-08.md`
@@ -352,18 +353,18 @@ direction — it eats the rind. Prefer down-only and say so.
 
 ## Decisions for the owner (do not start until these are ruled)
 
-**D1 — How many caves per world?** Task 1 raises the share of worlds
-holding a cave from ~30% to ~90% at unchanged `vault_density 1.6`. The
-round-3 ruling "density 1.6 kept — one system, rarely two, a fifth of
-worlds none" was made against a counter that counts geode vugs as
-systems and so did not describe the world it was ruling on. Options:
-keep 1.6 and let almost every world have a cave; or drop it to ~0.8 to
-restore the intended rarity now that the presence rate is real.
+**D1 — RULED: keep `vault_density 1.6`.** Task 1 raises the share of
+worlds holding a cave from ~30% to ~90%, and that is the wanted
+outcome: caves become a reliable feature of the world rather than a
+lottery, so digging down usually finds something. This **supersedes**
+round 3's "one system, rarely two, a fifth of worlds none", which was
+ruled against a counter that counts geode vugs as systems and so was
+not describing the world it ruled on. Do not compensate for the rise by
+lowering the density; if some *other* number was calibrated against the
+old presence rate, that is a §7.14 re-derivation and a finding.
 
-**D2 — Is a monumental chamber wanted (task 3), or is
-passage-vs-30-cell-room enough?** Task 3 is the largest new mechanism in
-this round and the only one that is not a repair. It can be cut and the
-round still fixes the three causes.
+**D2 — RULED: build the monumental chamber (task 3).** It is the
+largest new mechanism in the round and it stays in.
 
 **D3 — Cave density vs. pocket density.** The clean way to stop pockets
 from breaching caves is task 1. The *other* way is to keep pockets out
@@ -372,17 +373,18 @@ ore/loot and are sand" complaint from the world review (§2) by giving
 the deep band a different vocabulary from the shallow one. Out of scope
 here unless you want it in.
 
-**D4 — Rock grain (reviewer-side, not this round).** In every cave
-render, the loudest thing on screen is `render.rs`'s
+**D4 — RULED: grade the rock grain down with depth, no selector.** In
+every cave render the loudest thing on screen is `render.rs`'s
 `JITTER_STRENGTH 0.12` — a per-pixel ±12% brightness noise applied at
-full strength to deep rock. It reads as television static and it
+full strength to deep rock, which reads as television static and
 competes directly with criterion 4 (darkness preserved) and criterion 6
-(the rock has grain and flow). Grading it down with depth is the same
-pure function of `(x, y, horizon[x])` the depth light already is, so it
-keeps the dirty-rect skip. This is `src/render.rs`, so it is the
-planning session's change, not the data track's, and it wants a runtime
-selector rather than a chosen value (the repo's standing answer for
-look questions). Say whether you want it and it lands beside this round.
+(the rock has grain and flow). The owner asked for the change made
+rather than offered as an A/B. **`src/render.rs` belongs to the
+planning session and lands in parallel with this round — do not touch
+it**, and do not re-baseline your strips against the pre-change look:
+if a cave strip's rock suddenly reads quieter between two of your
+commits, that is this change arriving from the other branch, not
+something you did.
 
 ---
 
