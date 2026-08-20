@@ -594,3 +594,541 @@ fn the_flat_preset_is_a_usable_structural_test_bed() {
     let clutter = (0..=BOUNDS.0).filter(|&x| surface(x).is_some_and(|y| y < lo)).count();
     assert_eq!(clutter, 0, "{clutter} columns have something standing above the ground line");
 }
+
+#[test]
+fn every_generated_shade_indexes_a_real_palette_entry() {
+    // The guard for the region palette families. `render.rs` indexes with
+    // `shade % palette.len()`, which never panics -- it silently *aliases*,
+    // so a palette shortened by one entry would draw sandstone cells as
+    // damp grey and nothing anywhere would fail. That is the failure this
+    // catches, and it has to be an assertion because no picture shows it:
+    // the world would still look like a world.
+    //
+    // Checked over every preset x seed rather than one, because which
+    // families a world reaches depends on the region draw.
+    let presets = presets();
+    for (name, params) in &presets.presets {
+        for seed in SEEDS {
+            let world = build(params, seed);
+            for material in ["stone", "soil", "sand", "gravel"] {
+                let id = world.materials.id_of(material).expect("compiled-in material");
+                let len = world.materials.get(id).palette.len();
+                let mut worst = 0u8;
+                for y in 0..=BOUNDS.1 {
+                    for x in 0..=BOUNDS.0 {
+                        let c = world.get(x, y);
+                        if c.material == id {
+                            worst = worst.max(c.shade);
+                        }
+                    }
+                }
+                assert!(
+                    (worst as usize) < len,
+                    "{name} seed {seed}: worldgen wrote {material} shade {worst} into a \
+                     {len}-entry palette -- it will alias onto another family"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn cliff_formations_land_at_cliffs_and_are_visibly_present() {
+    // The canary the world review asked for. `brows` wrote 34 cells and
+    // `talus` 148 in a 1.3M-cell world -- passes that fired, reported a
+    // count, and were invisible, because cliff detection asked for six cells
+    // of drop within four columns and a regional escarpment has that
+    // nowhere along it.
+    //
+    // Two claims, and the second is why this is not just a bigger number:
+    // the extra cells have to land **at cliffs**, not smeared over ordinary
+    // hillside. A detector loosened until it fires everywhere would move the
+    // counts just as well and would be strictly worse.
+    //
+    // Paired against the same world with each pass switched off, which is
+    // the only way to attribute a cell to a pass -- the classifier lesson
+    // from `buried_gravel_is_not_the_same_colour_as_scree` below.
+    let presets = presets();
+    for preset in ["rolling", "canyon", "terraced"] {
+        let params = presets.get(preset).expect("preset");
+        let world = build(params, 1);
+        let no_talus = build(&WorldgenParams { talus_max_height: 0.0, ..params.clone() }, 1);
+        let no_brows = build(&WorldgenParams { brow_chance: 0.0, ..params.clone() }, 1);
+
+        // The plan's ground line, taken from the world with neither
+        // formation, so an apron does not count as the ground it rests on.
+        let bare = build(
+            &WorldgenParams { talus_max_height: 0.0, brow_chance: 0.0, ..params.clone() },
+            1,
+        );
+        let ground = |x: i32| {
+            (0..=BOUNDS.1).find(|&y| bare.get(x, y).material != material::EMPTY).unwrap_or(BOUNDS.1)
+        };
+        // Largest height *difference* within 20 columns either side -- the
+        // escarpment scale the detector now works at.
+        //
+        // Absolute, and that is not a detail: measuring only "does the ground
+        // fall away from here" scores zero on exactly the cells this test is
+        // about. A brow cell hangs out over ground that has *already* fallen,
+        // and an apron sits at the foot of a face that *rises* beside it, so
+        // a downhill-only reading called 91 of 216 brow cells and 72 of 164
+        // talus cells misplaced when every one of them was where it belonged.
+        // Third time this shape of mistake has appeared in this track.
+        let relief = |x: i32| {
+            (1..=20)
+                .flat_map(|d| [ground((x - d).max(0)), ground((x + d).min(BOUNDS.0))])
+                .map(|g| (g - ground(x)).abs())
+                .max()
+                .unwrap_or(0)
+        };
+
+        let (mut talus, mut brows) = (0usize, 0usize);
+        let (mut talus_at_cliff, mut brows_at_cliff) = (0usize, 0usize);
+        let mut tallest = (0i32, 0i32);
+        let mut heap: std::collections::BTreeMap<i32, i32> = Default::default();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                let here = world.get(x, y).material;
+                if here == material::EMPTY {
+                    continue;
+                }
+                if no_talus.get(x, y).material != here {
+                    talus += 1;
+                    *heap.entry(x).or_default() += 1;
+                    // An apron is at a cliff if a real drop exists within
+                    // reach of it. `MAX_FALL` is 120, but the apron itself
+                    // sits at the foot, so the face is close by.
+                    // Six, not twenty: six is the pass's own near-scale bar
+                    // (`passes::CLIFF_DROP`), and an apron under a modest
+                    // terrace riser is a legitimate apron. Asking for an
+                    // escarpment scored 72% and would have been a test
+                    // failing for wanting something the code never claimed.
+                    if (0..=40).any(|d| relief((x - d).max(0)) >= 6 || relief((x + d).min(BOUNDS.0)) >= 6) {
+                        talus_at_cliff += 1;
+                    }
+                } else if no_brows.get(x, y).material != here {
+                    brows += 1;
+                    if relief(x) >= 6 {
+                        brows_at_cliff += 1;
+                    }
+                }
+            }
+        }
+        for (x, h) in &heap {
+            if *h > tallest.1 {
+                tallest = (*x, *h);
+            }
+        }
+        println!(
+            "{preset} seed 1: talus {talus} cells ({talus_at_cliff} near a cliff), \
+             brows {brows} ({brows_at_cliff} over a drop); tallest heap {} cells at x {}",
+            tallest.1, tallest.0
+        );
+        // Bars set from the measurement with headroom, not from an
+        // aspiration and not sitting on the measured value. The weakest of
+        // the three at 512x320 seed 1 is terraced, at 47 talus and 102 brow
+        // cells; 30 leaves room for the reshuffle any legitimate change to
+        // the surface causes, while still being far above the 0-to-34 range
+        // that was the state this rescue was written for.
+        assert!(talus > 30, "{preset}: talus wrote only {talus} cells -- the rescue did not hold");
+        assert!(brows > 30, "{preset}: brows wrote only {brows} cells -- the rescue did not hold");
+        // The claim that matters. Ninety per cent rather than all of it:
+        // an apron tapers away from its face by design, and its far toe can
+        // legitimately sit past the window.
+        assert!(
+            talus_at_cliff * 10 >= talus * 9,
+            "{preset}: only {talus_at_cliff} of {talus} talus cells are near any cliff at all -- \
+             the detector is firing on flat ground"
+        );
+        assert!(
+            brows_at_cliff * 10 >= brows * 9,
+            "{preset}: only {brows_at_cliff} of {brows} brow cells hang over a drop"
+        );
+    }
+}
+
+#[test]
+fn buried_gravel_is_not_the_same_colour_as_scree() {
+    // The counter behind the gravel legibility fix, and it needs to be a
+    // counter rather than a strip: a lens drawn in scree grey inside grey
+    // rock is invisible, which looks exactly like the pockets pass not
+    // having run -- and the pass *does* run, at full count. That is the
+    // failure the world review actually found.
+    //
+    // Two claims, and both matter. A talus apron that quietly moved into the
+    // buried family would make every cliff foot stop reading as broken rock,
+    // which is the trade this split exists to avoid.
+    //
+    // **A paired comparison against the same world with `pocket_density: 0`,
+    // which is the only thing that separates the two populations exactly.**
+    // Two cheaper classifiers were tried and both miscounted, for the same
+    // reason: they inferred which pass wrote a cell from where the cell is.
+    // "More than ten cells below the ground line" called 37 soil-contact
+    // cells buried, because a soil blanket is up to 34 cells deep and its
+    // stony base is family 0 by design. "Fully surrounded by rock" called
+    // 78, because a contact cell at the very bottom of a blanket often is.
+    // Turning the pass off and diffing asks the question directly -- pockets
+    // writes only into solid stone and nothing downstream reads a buried
+    // lens, so the two worlds differ in exactly this pass's cells.
+    let presets = presets();
+    let params = presets.get("canyon").expect("canyon preset");
+    let world = build(params, 1);
+    let without = build(&WorldgenParams { pocket_density: 0.0, ..params.clone() }, 1);
+    let gravel = world.materials.id_of("gravel").expect("gravel");
+
+    let (mut lens, mut other) = (0usize, 0usize);
+    let (mut lens_wrong, mut other_wrong) = (0usize, 0usize);
+    for y in 0..=BOUNDS.1 {
+        for x in 0..=BOUNDS.0 {
+            let c = world.get(x, y);
+            if c.material != gravel {
+                continue;
+            }
+            if without.get(x, y).material == gravel {
+                // Present with the pass off too: talus, or the soil profile's
+                // stony contact. Must stay in the scree family.
+                other += 1;
+                if c.shade / 4 != 0 {
+                    other_wrong += 1;
+                }
+            } else {
+                lens += 1;
+                if c.shade / 4 != 1 {
+                    lens_wrong += 1;
+                }
+            }
+        }
+    }
+    println!("canyon seed 1 gravel: {lens} cells in sealed lenses, {other} in scree and soil contact");
+
+    // And the shape, because "lenses now lie along the bedding" is a claim a
+    // colour census cannot support and a contact sheet reads at the wrong
+    // zoom to settle. An unrotated lens is `2b` tall -- 4 to 8 cells -- so a
+    // mean bounding-box height meaningfully above that is the rotation
+    // having fired. Sand lenses count here too: the shape change applies to
+    // both materials, only the palette split is gravel-only.
+    let sand = world.materials.id_of("sand").expect("sand");
+    let mut seen: std::collections::HashSet<(i32, i32)> = Default::default();
+    let mut boxes: Vec<(i32, i32)> = Vec::new();
+    for y in 0..=BOUNDS.1 {
+        for x in 0..=BOUNDS.0 {
+            let m = world.get(x, y).material;
+            if (m != gravel && m != sand) || without.get(x, y).material == m || seen.contains(&(x, y)) {
+                continue;
+            }
+            // Flood fill at 8 neighbours, matching how the ellipse was drawn.
+            let (mut lo_x, mut hi_x, mut lo_y, mut hi_y) = (x, x, y, y);
+            let mut stack = vec![(x, y)];
+            seen.insert((x, y));
+            while let Some((px, py)) = stack.pop() {
+                lo_x = lo_x.min(px);
+                hi_x = hi_x.max(px);
+                lo_y = lo_y.min(py);
+                hi_y = hi_y.max(py);
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let (nx, ny) = (px + dx, py + dy);
+                        if nx < 0 || ny < 0 || nx > BOUNDS.0 || ny > BOUNDS.1 || seen.contains(&(nx, ny)) {
+                            continue;
+                        }
+                        let nm = world.get(nx, ny).material;
+                        if (nm == gravel || nm == sand) && without.get(nx, ny).material != nm {
+                            seen.insert((nx, ny));
+                            stack.push((nx, ny));
+                        }
+                    }
+                }
+            }
+            boxes.push((hi_x - lo_x + 1, hi_y - lo_y + 1));
+        }
+    }
+    let n = boxes.len().max(1) as f32;
+    let mean_w = boxes.iter().map(|b| b.0 as f32).sum::<f32>() / n;
+    let mean_h = boxes.iter().map(|b| b.1 as f32).sum::<f32>() / n;
+    println!(
+        "canyon seed 1: {} sealed lenses, mean bounding box {mean_w:.1} x {mean_h:.1} cells (aspect {:.1}:1)",
+        boxes.len(),
+        mean_w / mean_h.max(1.0)
+    );
+    assert!(lens > 0, "the pockets pass placed no gravel lens at all");
+    assert!(other > 0, "talus and the soil contact placed no gravel at all");
+    assert_eq!(lens_wrong, 0, "{lens_wrong} of {lens} lens cells are in the scree family -- invisible in rock");
+    assert_eq!(other_wrong, 0, "{other_wrong} of {other} scree cells drifted into the buried family");
+}
+
+#[test]
+fn a_varied_world_uses_more_than_one_rock_family() {
+    // "Did it fire at all needs a counter, not a picture" -- and this
+    // mechanism is *exactly* the case that rule was written for, because
+    // both outcomes look like a plausible world. A generator that silently
+    // returned family 0 everywhere would render as the grey massif it
+    // rendered as before the change, and the strips would be read as
+    // "the shift is subtle" rather than "the shift never happened".
+    let presets = presets();
+    let families = |world: &World, id| {
+        let mut seen: std::collections::BTreeSet<u8> = Default::default();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                let c = world.get(x, y);
+                if c.material == id {
+                    seen.insert(c.shade / 4);
+                }
+            }
+        }
+        seen
+    };
+    for preset in ["rolling", "canyon", "arid", "wetland"] {
+        let params = presets.get(preset).expect("preset");
+        let world = build(params, 1);
+        let stone = world.materials.id_of("stone").expect("stone");
+        let seen = families(&world, stone);
+        // Printed as well as asserted: the bar is "more than one", and the
+        // number next to the strip is what says whether that means a token
+        // scattering or a world that genuinely changes country.
+        let mut counts: std::collections::BTreeMap<u8, usize> = Default::default();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                let c = world.get(x, y);
+                if c.material == stone {
+                    *counts.entry(c.shade / 4).or_default() += 1;
+                }
+            }
+        }
+        println!("{preset} seed 1 rock families (0 neutral, 1 wet, 2 dry, 3 cap-rock): {counts:?}");
+        assert!(seen.len() > 1, "{preset} seed 1: every rock cell is in family {seen:?}");
+    }
+    // And the control: `flat` asks for no regional variation, so it must get
+    // none. Without this the test above passes just as well for a generator
+    // that ignores `region_variation`, and the structural test bed would
+    // have quietly changed colour under the destruction workstream.
+    let flat = presets.get("flat").expect("flat preset");
+    let world = build(flat, 1);
+    let stone = world.materials.id_of("stone").expect("stone");
+    assert_eq!(
+        families(&world, stone),
+        [0].into_iter().collect(),
+        "flat asked for no regional variation and got a palette family anyway"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Step-0 probes for the August 2026 world review
+// ---------------------------------------------------------------------------
+//
+// `#[ignore]`d on purpose: these print rather than assert, and they exist to
+// answer three sightings the review left open
+// (`Reports/worldgen-implementation-tasks-2026-08.md` task 1). Kept rather
+// than deleted because the answers are what the Findings section of that file
+// cites, and a finding whose reproduction has been thrown away is a claim
+// nobody can re-check. Run with:
+//
+//   cargo test --test worldgen -- --ignored --nocapture
+//
+// They build at the **shipped** 2048x640, not the 512x320 the suite above
+// uses, because the review's coordinates are shipped-size coordinates and the
+// base relief wave has a period of one world width -- at 512 these columns
+// are a different composition entirely.
+
+/// The size the app ships, which is the size the review's x coordinates mean.
+const REVIEW_BOUNDS: (i32, i32) = (2047, 639);
+
+fn build_review_world(preset: &str, seed: u64) -> World {
+    let presets = presets();
+    let params = presets.get(preset).unwrap_or_else(|| panic!("preset {preset}"));
+    let mut world = World::new(Rect::new(0, 0, REVIEW_BOUNDS.0, REVIEW_BOUNDS.1));
+    worldgen::generate(&mut world, Spec::Generated { params, seed });
+    world
+}
+
+/// Every non-empty cell in a column, top down, as `(y, material, shade, aux)`.
+fn column_dump(world: &World, x: i32, limit: usize) -> Vec<(i32, String, u8, u16)> {
+    let mut out = Vec::new();
+    for y in 0..=REVIEW_BOUNDS.1 {
+        let c = world.get(x, y);
+        if c.material == material::EMPTY {
+            continue;
+        }
+        out.push((y, world.materials.get(c.material).name.clone(), c.shade, c.aux()));
+        if out.len() >= limit {
+            break;
+        }
+    }
+    out
+}
+
+#[test]
+#[ignore = "probe: prints, never asserts (review task 1a)"]
+fn probe_1a_the_blue_slivers() {
+    // The sighting: canyon seed 1 generated **zero** pond cells per the
+    // per-pass counter, and the rendered strip still shows a 1-2 column blue
+    // sliver at world x~920 (and arid seed 1 at x~1215). Three candidate
+    // explanations -- a leaked `Liquid`, moisture shading, or a sprite -- and
+    // only a census of the actual cells separates them.
+    //
+    // A colour test cannot do it, and reaching for one first was a mistake
+    // worth recording: the deep sky renders at (56,104,174) and water's
+    // palette starts at (64,116,208), so "count the water-coloured pixels"
+    // matched the entire sky and returned 2048 columns of nothing. The
+    // material census below is the metric that means what it says.
+    for (preset, centre) in [("canyon", 947i32), ("arid", 1237i32)] {
+        let world = build_review_world(preset, 1);
+        let water = world.materials.id_of("water").expect("water is compiled in");
+
+        // 1. World-wide census. If the pass counter said zero and the world
+        //    holds zero, no writer leaked water and the blue is not water.
+        let mut total_water = 0usize;
+        for y in 0..=REVIEW_BOUNDS.1 {
+            for x in 0..=REVIEW_BOUNDS.0 {
+                if world.get(x, y).material == water {
+                    total_water += 1;
+                }
+            }
+        }
+        println!("\n=== {preset} seed 1 @ {}x{} ===", REVIEW_BOUNDS.0 + 1, REVIEW_BOUNDS.1 + 1);
+        println!("  water cells in the whole world: {total_water}");
+
+        // 2. Where the sky reaches down into the ground. A "sliver" of sky is
+        //    a column whose first solid cell sits well below its neighbours'
+        //    on both sides -- which is the same object task 1b is chasing,
+        //    seen from the render's side rather than the plan's.
+        let first_solid = |x: i32| -> i32 {
+            (0..=REVIEW_BOUNDS.1)
+                .find(|&y| world.get(x, y).material != material::EMPTY)
+                .unwrap_or(REVIEW_BOUNDS.1)
+        };
+        let tops: Vec<i32> = (0..=REVIEW_BOUNDS.0).map(first_solid).collect();
+        // Measured against the *shoulders*, not the immediate neighbours.
+        // The first version of this compared three columns out and reported
+        // zero notches in a world that plainly has them: the canyon slot is
+        // seven columns wide, so x-3 and x+3 both land inside it and the
+        // depth comes out as nothing. A metric written before its subject was
+        // looked at measured the wrong thing, exactly as the method rule
+        // says it will. The shoulder is the highest ground within a short
+        // reach either side, which is what the eye reads as "the ridge this
+        // slot is cut into".
+        const REACH: i32 = 12;
+        let shoulder = |x: i32, dir: i32| -> i32 {
+            (1..=REACH)
+                .map(|d| tops[(x + dir * d).clamp(0, REVIEW_BOUNDS.0) as usize])
+                .fold(REVIEW_BOUNDS.1, i32::min)
+        };
+        let mut notches: Vec<(i32, i32)> = Vec::new();
+        for x in REACH..REVIEW_BOUNDS.0 - REACH {
+            let depth = tops[x as usize] - shoulder(x, -1).max(shoulder(x, 1));
+            if depth >= 5 {
+                notches.push((x, depth));
+            }
+        }
+        // Reported as a distribution rather than against one bar. A single
+        // threshold picked before looking is how the previous version of this
+        // metric reported "zero notches" about a world with a plainly visible
+        // one: the canyon slot is 6 cells deep and the bar was 8.
+        let deep = notches.iter().filter(|(_, d)| *d >= 8).count();
+        println!(
+            "  sky notches within {REACH} columns of both shoulders: {} at >= 5 cells, {deep} at >= 8",
+            notches.len()
+        );
+        notches.sort_by_key(|(_, d)| -d);
+        for (x, d) in notches.iter().take(12) {
+            println!("    x {x:>5}  {d:>4} cells deep");
+        }
+
+        // 3. An ASCII map of the one the review cited, so the *shape* is on
+        //    the record and not just its depth. `.` is air.
+        let (x0, x1) = (centre - 22, centre + 22);
+        let y0 = (x0..=x1).map(|x| tops[x as usize]).min().unwrap_or(0) - 6;
+        let y1 = (x0..=x1).map(|x| tops[x as usize]).max().unwrap_or(0) + 6;
+        println!("  map x {x0}..{x1}, y {y0}..{y1}:");
+        for y in y0.max(0)..=y1.min(REVIEW_BOUNDS.1) {
+            let mut row = String::new();
+            for x in x0..=x1 {
+                let c = world.get(x, y);
+                row.push(if c.material == material::EMPTY {
+                    '.'
+                } else {
+                    let n = world.materials.get(c.material).name.clone();
+                    let ch = n.chars().next().unwrap_or('?');
+                    // Attached rock is the brow pass's signature, and telling
+                    // it from massif rock is the whole question about a
+                    // lintel over a slot.
+                    if c.attached() && ch == 's' { 'S' } else { ch }
+                });
+            }
+            println!("   {y:>4} {row}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "probe: prints, never asserts (review task 1c)"]
+fn probe_1c_the_wetland_white_dashes() {
+    // The review's conclusion, offered for confirmation: the pale dashes
+    // along every pond surface are shoreline **sand** plus `water.ron`'s
+    // `fill_dimming: 0.0`, not the monolayer/whisker artifact (which cannot
+    // fire on a settled pond -- it requires air *below* the water cell, and a
+    // pond's surface has water below it).
+    //
+    // One material census across a waterline settles it. Printed as the top
+    // non-empty cell per column across the rim, so the sand/water alternation
+    // -- if that is what it is -- is visible as a row.
+    let world = build_review_world("rolling", 1);
+    println!("\n=== rolling seed 1, pond rim x 760..980 ===");
+    println!("  fill_dimming on water: {}", world.materials.get(world.materials.id_of("water").unwrap()).fill_dimming);
+    println!("  {:>6} {:>8} {:>10} {:>6} {:>5}", "x", "first_y", "material", "shade", "aux");
+    for x in 760..=980 {
+        let top = column_dump(&world, x, 1);
+        match top.first() {
+            Some((y, name, shade, aux)) => println!("  {x:>6} {y:>8} {name:>10} {shade:>6} {aux:>5}"),
+            None => println!("  {x:>6} {:>8} {:>10}", -1, "EMPTY"),
+        }
+    }
+    // And the tally, because a 220-line listing is a picture and the question
+    // ("what is the pale thing") is quantitative.
+    let mut tally: std::collections::BTreeMap<String, usize> = Default::default();
+    for x in 760..=980 {
+        if let Some((_, name, _, _)) = column_dump(&world, x, 1).first() {
+            *tally.entry(name.clone()).or_default() += 1;
+        }
+    }
+    println!("  top-of-column tally across the rim: {tally:?}");
+
+    // The top of the column is not where the dashes are. Scanning the
+    // rendered strip for pale warm pixels puts them at rows 162..167, and the
+    // pond's own surface is higher than that -- so the census that matters is
+    // a *rectangle* around the bright pixels, not the skyline. Written this
+    // way after the column tally came back "water 212, stone 9, sand 0" for a
+    // strip that visibly has cream dashes in it: the metric was looking at
+    // the wrong row.
+    println!("  cells under the pale dashes (x 810..830, y 158..170):");
+    for y in 158..=170 {
+        let mut row = String::new();
+        for x in 810..=830 {
+            let c = world.get(x, y);
+            // Distinct letters, because sand, soil and stone all start with
+            // `s` and the first version of this map printed all three as the
+            // same character -- a legend that cannot answer the question the
+            // map was drawn for.
+            row.push(match world.materials.get(c.material).name.as_str() {
+                _ if c.material == material::EMPTY => '.',
+                "water" => '~',
+                "sand" => 'A',
+                "soil" => 'O',
+                "stone" => '#',
+                "gravel" => 'v',
+                "moss" => 'm',
+                other => other.chars().next().unwrap_or('?'),
+            });
+        }
+        println!("   {y:>4} {row}");
+    }
+    let mut rect: std::collections::BTreeMap<String, usize> = Default::default();
+    for y in 158..=170 {
+        for x in 760..=980 {
+            let c = world.get(x, y);
+            if c.material != material::EMPTY {
+                *rect.entry(world.materials.get(c.material).name.clone()).or_default() += 1;
+            }
+        }
+    }
+    println!("  material tally in the dash band (x 760..980, y 158..170): {rect:?}");
+}

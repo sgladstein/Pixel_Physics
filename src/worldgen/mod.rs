@@ -91,8 +91,21 @@ const PASSES: &[Pass] = &[
     Pass { name: "stone_massif", margin: 0, run: passes::stone_massif },
     Pass { name: "bedrock_floor", margin: 0, run: passes::bedrock_floor },
     Pass { name: "soil_blanket", margin: 2, run: passes::soil_blanket },
-    Pass { name: "brows", margin: 4, run: passes::brows },
-    Pass { name: "talus", margin: 3, run: passes::talus },
+    // The two formation passes read further than they write, and by a lot.
+    // Both numbers were re-derived when cliff detection gained its
+    // escarpment scale, and one of them was already wrong before that:
+    // `talus` declared 3 while walking up to `MAX_FALL` = 120 columns to
+    // find the foot of a fall. A margin is the contract a per-chunk
+    // generator will plan against, so an understated one is a promise to
+    // produce different cells at a chunk edge -- worth stating honestly even
+    // though it is large. Shrinking them is a job for the coarse map, not
+    // for optimism here.
+    //
+    //   brows: RUN_FAR (20) of detection + MAX_BROW_REACH (20) of writing
+    //   talus: RUN_FAR (20) + MAX_FALL (120) walking to the foot
+    //          + 2 * MAX_TALUS_PEAK (60) of apron
+    Pass { name: "brows", margin: 40, run: passes::brows },
+    Pass { name: "talus", margin: 200, run: passes::talus },
     Pass { name: "pockets", margin: 0, run: passes::pockets },
     // The two water passes read the whole world: where water stands depends
     // on the lowest rim enclosing a hollow, which can be any distance away.

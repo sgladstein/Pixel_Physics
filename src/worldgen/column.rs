@@ -90,6 +90,18 @@ impl<'a> Terrain<'a> {
 /// Aridity past which loose cover is sand rather than soil.
 const SAND_ARIDITY: f32 = 0.62;
 
+/// Wavelength of the riser-roughening noise, in columns.
+///
+/// **Deliberately near the grid**, which is the opposite of every other
+/// wavelength here and is the whole point. A riser is a *single-column* jump
+/// in a heightfield, and a smooth term cannot split one however large its
+/// amplitude: at wavelength 14 the roughening moved a whole bench up or down
+/// by six rows and left canyon seed 7's worst riser at 34 cells, exactly
+/// where it started. Only a term that differs sharply between x and x + 1
+/// can turn one 34-cell jump into a short flight of smaller ones, which is
+/// what a broken face looks like when the surface is a function of x.
+const RISER_WAVELENGTH: f32 = 2.5;
+
 impl Terrain<'_> {
     /// Where the elevation curve is sampled, after domain warping.
     ///
@@ -152,20 +164,70 @@ impl Terrain<'_> {
         // cutoff, and the amplitude is clamped to it whatever the preset asks.
         const FALL: f32 = 0.45;
         let max_slope = p.soil_slope_cutoff * self.sand_tan;
-        let ceiling = max_slope * FALL * wavelength;
-        let amplitude = p.dune_amplitude.min(ceiling);
+        // The preset's own clamped amplitude. Still needed once dunes vary,
+        // because it is the *datum*: see the trough note below.
+        let base_amplitude = p.dune_amplitude.min(max_slope * FALL * wavelength);
         let phase = x as f32 / wavelength + noise::fbm_1d_c(self.seed, Purpose::Dune, x as f32 / 180.0, 2) * 0.6;
+        // The dune this column belongs to. A pure function of x, which is
+        // what lets each dune be given its own shape without any running
+        // total: varying the *period* directly would mean summing dune
+        // widths from the world origin, and the whole module is built on
+        // never needing to know what any other column decided.
+        let index = phase.floor() as i32;
         let saw = phase - phase.floor();
+        let v = p.dune_variation.clamp(0.0, 1.0);
+        // Each dune's own slip-face fraction, and its own height.
+        //
+        // These two between them are what breaks the comb: moving the crest
+        // within its own cell (by varying how much of that cell the fall
+        // occupies) and varying how tall it is turns a repeated tooth into a
+        // dune field.
+        let fall = (FALL * (1.0 + (noise::unit(self.seed, Purpose::DuneShape, index, 1) - 0.5) * 0.7 * v))
+            .clamp(0.22, 0.62);
+        // **Varied *downward* from the repose cap, not outward from the
+        // preset's number** — and this is the whole difference between the
+        // knob working and the knob doing nothing.
+        //
+        // The obvious form is `dune_amplitude * (1 ± v)`, which was written
+        // first and measured as inert: `arid` asks for 18 against a cap of
+        // `max_slope * FALL * wavelength` = 13.2, so three dunes in four
+        // were *already* pinned at the cap and drawing a taller one changed
+        // nothing at all. The clamp was not limiting the variation, it was
+        // absorbing it. Crest-height spread moved 0.273 -> 0.281 across the
+        // entire knob range, which reads exactly like a dead lever and was
+        // not one.
+        //
+        // A dune cannot be taller than repose allows, so the only direction
+        // variety can exist in is shorter — which is also what a real dune
+        // field looks like, since not every dune in one is fully developed.
+        let cap = max_slope * FALL * wavelength;
+        let base = p.dune_amplitude.min(cap);
+        // Re-clamped against this dune's *own* fall, not the preset's. A
+        // shorter fall is a steeper face at the same height, and the failure
+        // that produces is not subtle: the cover pass refuses the slope and
+        // the desert comes out as bare grey spikes with sand in patches.
+        let amplitude = (base * (1.0 - noise::unit(self.seed, Purpose::DuneShape, index, 0) * 0.55 * v))
+            .max(0.0)
+            .min(max_slope * fall * wavelength);
         // A long windward ramp and a shorter lee fall, both eased so the
         // crest is a crest and not a corner.
-        let profile = if saw < 1.0 - FALL {
-            let t = saw / (1.0 - FALL);
+        let profile = if saw < 1.0 - fall {
+            let t = saw / (1.0 - fall);
             t * t * (3.0 - 2.0 * t)
         } else {
-            let t = (saw - (1.0 - FALL)) / FALL;
+            let t = (saw - (1.0 - fall)) / fall;
             1.0 - t * t * (3.0 - 2.0 * t)
         };
-        (profile - 0.5) * amplitude * strength
+        // Measured from the **trough**, not from the dune's own midpoint.
+        //
+        // `(profile - 0.5) * amplitude` was right while every dune shared one
+        // amplitude and is a cliff once they do not: `profile` is 0 at both
+        // ends of a dune's cell, so that form puts the trough at
+        // `-0.5 * amplitude` and two neighbouring dunes of different height
+        // meet at a step of half their difference. Anchoring every trough to
+        // the same datum makes the field continuous, and reduces to exactly
+        // the old expression when `amplitude == base_amplitude`.
+        (profile * amplitude - 0.5 * base_amplitude) * strength
     }
 
     /// Surface elevation in cells, **+up**, before conversion to a row.
@@ -238,9 +300,46 @@ impl Terrain<'_> {
         // and back out.
         let offset = self.strata_offset(x);
         let band_coord = (self.datum() - e) + offset;
-        let snapped = (band_coord / p.terrace_step).round() * p.terrace_step;
+        let bands = band_coord / p.terrace_step;
+        let snapped = bands.round() * p.terrace_step;
         let stepped = self.datum() + offset - snapped;
-        e + (stepped - e) * m
+        let terraced = e + (stepped - e) * m;
+        if p.riser_roughness <= 0.0 {
+            return terraced;
+        }
+        // Roughen the riser, and only the riser.
+        //
+        // A riser is where `bands.round()` changes, so it is where the
+        // residual `bands - bands.round()` crosses a half-band -- and the
+        // *distance* from that crossing is exactly "how far into the bench
+        // are we". Reading the residual rather than differencing neighbouring
+        // columns is what keeps this a pure function of x with no lookahead.
+        //
+        // Written after four terms that all failed to touch it: the surface
+        // detail term is 2.5-3.0 cells against a riser of up to 34, so every
+        // bluff in the world had a dead-plumb one-column face. This is
+        // deliberately scaled by `terrace_step` -- the thing that has to be
+        // broken up is as tall as the snap made it.
+        let residual = (bands - bands.round()).abs();
+        // The window is wide on purpose, and the reason is what makes this
+        // gate work at all without a second elevation evaluation: on a steep
+        // escarpment `bands` sweeps its whole range every few columns, so a
+        // high residual is common there, while on a gentle bench it changes
+        // slowly and sits low for long stretches. The residual therefore
+        // separates "riser" from "bench" by itself. A tight window
+        // (0.30..0.50) was the first try and covered barely a column either
+        // side of each jump -- four cells of ragging against a 34-cell face,
+        // which is invisible, and looked exactly like the term not being
+        // applied at all.
+        let nearness = noise::smoothstep(0.22, 0.46, residual);
+        if nearness <= 0.0 {
+            return terraced;
+        }
+        // Short wavelength on purpose: this is column-scale ragging of a
+        // face, not another landform. Its own noise stream, so a rough riser
+        // does not sit on a detail bump.
+        let rough = noise::fbm_1d_c(self.seed, Purpose::Riser, x as f32 / RISER_WAVELENGTH, 1);
+        terraced + rough * p.riser_roughness * p.terrace_step * m * nearness
     }
 
     /// The low-frequency part of the elevation curve: the base wave plus one
@@ -474,15 +573,36 @@ mod tests {
 
     #[test]
     fn steep_ground_carries_no_soil() {
-        // The at-rest guarantee. Anywhere soil exists, the ground it rests on
-        // must be shallower than its angle of repose.
+        // The at-rest guarantee. Anywhere loose cover exists, the ground it
+        // rests on must be shallower than *that cover's* angle of repose.
+        //
+        // **Against `cover_tan`, not `soil_tan`.** This read soil's angle for
+        // every column, which is the wrong material's number on any column
+        // dry enough to carry sand -- sand stands at 34 degrees against
+        // soil's 33, so the bar was 2% too strict there. It never fired
+        // because nothing had put a sandy column that close to its limit;
+        // riser roughening did, at seed 0 x 77, slope 0.5305 against soil's
+        // 0.5195 and sand's 0.5396. The generator was right and the test was
+        // measuring the wrong angle, which is the failure mode CLAUDE.md
+        // names as a constant that was compensating for a case nobody had
+        // reached yet.
+        //
+        // The empirical half of this guarantee lives in
+        // `tests/worldgen.rs::generated_terrain_is_already_at_rest`, which
+        // steps every preset x 5 seeds for 120 frames and asserts that not
+        // one cell moved. This one is the cheaper statement of *why*.
         let p = WorldgenParams::default();
         for seed in 0..8u64 {
             let t = terrain(seed, &p);
-            let cutoff = p.soil_slope_cutoff * t.soil_tan;
             for x in 0..t.w {
                 if t.plan(x).soil_depth > 0 {
-                    assert!(t.slope(x) < cutoff, "seed {seed} x {x}: soil on a {} slope", t.slope(x));
+                    let cutoff = p.soil_slope_cutoff * t.cover_tan(x);
+                    assert!(
+                        t.slope(x) < cutoff,
+                        "seed {seed} x {x}: {} on a {} slope, past its {cutoff} cutoff",
+                        if t.is_sandy(x) { "sand" } else { "soil" },
+                        t.slope(x)
+                    );
                 }
             }
         }
@@ -513,5 +633,236 @@ mod tests {
             plans.iter().map(|c| c.table_y).max().unwrap() - plans.iter().map(|c| c.table_y).min().unwrap();
         assert!(table_range > 10, "table is essentially flat: {table_range}");
         assert!(table_range < surface_range, "table {table_range} not subdued vs surface {surface_range}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Step-0 probe for the August 2026 world review (task 1b)
+    // -----------------------------------------------------------------------
+
+    /// A terrain at the size the app ships, on a named preset. The review's x
+    /// coordinates are shipped-size coordinates, and the regional layout
+    /// scales with width, so the 512-wide helper above samples a different
+    /// world entirely at the same x.
+    fn shipped(seed: u64, params: &WorldgenParams) -> Terrain<'_> {
+        Terrain::new(seed, params, 2048, 640, 33.0_f32.to_radians().tan(), 34.0_f32.to_radians().tan())
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts (task 5 riser tuning)"]
+    fn probe_5_riser_step_sizes() {
+        // The metric for "risers are dead-plumb 40-cell one-column faces":
+        // the size of the largest single-column step, and how many steps
+        // there are. Breaking a riser means the worst step falls *and* the
+        // count rises -- one tall jump becoming a flight of shorter ones. A
+        // worst that falls while the count also falls would mean the relief
+        // had simply been flattened, which is a different and worse outcome.
+        let (presets, err) = super::super::params::WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        println!("\n=== single-column steps >= 6 rows, by riser_roughness ===");
+        println!("  {:>6} {:>10} {:>5} {:>7} {:>7} {:>9}", "rough", "preset", "seed", "steps", "worst", "mean_step");
+        for r in [0.0f32, 0.2, 0.35, 0.5, 0.7] {
+            for (preset, seed) in [("canyon", 7u64), ("canyon", 13), ("rolling", 1), ("terraced", 2)] {
+                let base = presets.get(preset).expect("preset");
+                let p = WorldgenParams { riser_roughness: r, ..base.clone() };
+                let t = shipped(seed, &p);
+                let surf = |x: i32| (t.datum() - t.elev(x)).round() as i32;
+                let mut steps: Vec<i32> = Vec::new();
+                for x in 1..2048 {
+                    let d = (surf(x) - surf(x - 1)).abs();
+                    if d >= 6 {
+                        steps.push(d);
+                    }
+                }
+                let n = steps.len().max(1) as f32;
+                println!(
+                    "  {r:>6.2} {preset:>10} {seed:>5} {:>7} {:>7} {:>9.1}",
+                    steps.len(),
+                    steps.iter().copied().max().unwrap_or(0),
+                    steps.iter().sum::<i32>() as f32 / n
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts (task 5 dune tuning)"]
+    fn probe_5_dune_comb_statistics() {
+        // "A mechanical sawtooth comb" is a statement about *regularity*, so
+        // the metric is the spread of crest heights and of crest spacings,
+        // not a picture -- at strip zoom a comb and a dune field differ by
+        // an amount the eye cannot put a number on, and this knob has to be
+        // tuned to a number.
+        //
+        // Paired: the same seed and preset with `dune_variation` at 0 and at
+        // the value under test, which is exactly what the A/B param is for.
+        let (presets, err) = super::super::params::WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        let arid = presets.get("arid").expect("arid preset");
+        println!("\n=== arid dune crests, 2048 wide ===");
+        println!("  {:>6} {:>5} {:>7} {:>9} {:>9} {:>9} {:>9}", "var", "seed", "crests", "mean_h", "cv_h", "mean_gap", "cv_gap");
+        for v in [0.0f32, 0.4, 0.7, 0.85, 1.0] {
+            for seed in [1u64, 7] {
+                let p = WorldgenParams { dune_variation: v, ..arid.clone() };
+                let t = shipped(seed, &p);
+                let elev: Vec<f32> = (0..2048).map(|x| t.elev(x)).collect();
+                // A crest is a local maximum with a real drop either side, so
+                // surface roughness is not counted as a dune.
+                //
+                // **Window and prominence sanity-checked against the case
+                // that is known to be fine**: `arid`s wavelength is 58, so a
+                // 2048-wide world must contain roughly 35 crests, and the
+                // first version of this -- a 4-cell window at 3 cells of
+                // prominence -- reported *zero* at every setting. It was
+                // asking for a 3-cell drop within 4 columns on a dune whose
+                // whole flank falls 13 cells over 26, which never happens.
+                // Half a wavelength of reach, and a prominence set from the
+                // amplitude rather than guessed.
+                const REACH: usize = 14;
+                let mut crests: Vec<(i32, f32)> = Vec::new();
+                for x in REACH..2048 - REACH {
+                    let here = elev[x];
+                    let left = (1..=REACH).map(|d| elev[x - d]).fold(f32::MAX, f32::min);
+                    let right = (1..=REACH).map(|d| elev[x + d]).fold(f32::MAX, f32::min);
+                    let peak = (1..=REACH)
+                        .flat_map(|d| [elev[x - d], elev[x + d]])
+                        .fold(f32::MIN, f32::max);
+                    if here >= peak && here - left.max(right) > 2.0 {
+                        crests.push((x as i32, here));
+                    }
+                }
+                // A flat-topped crest matches at several adjacent columns;
+                // keep the first of each run so the count is dunes, not
+                // cells.
+                crests.dedup_by(|a, b| a.0 - b.0 <= 2);
+                // Crest **height above its own troughs**, which is the
+                // quantity `dune_variation` actually varies. The first
+                // version used the drop within the detection window and it
+                // measured almost nothing: half a wavelength here is 29
+                // columns, so a 14-column window never reaches a trough and
+                // what it reported was the underlying hill slope. It moved
+                // by 0.01 across the whole knob range and would have been
+                // read as "the lever is dead" -- which is the sweep-lies
+                // failure in CLAUDE.md, in the metric rather than the knob.
+                let heights: Vec<f32> = crests
+                    .windows(3)
+                    .map(|w| {
+                        let trough = |a: i32, b: i32| {
+                            (a..=b).map(|x| elev[x as usize]).fold(f32::MAX, f32::min)
+                        };
+                        w[1].1 - (trough(w[0].0, w[1].0) + trough(w[1].0, w[2].0)) * 0.5
+                    })
+                    .collect();
+                let n = heights.len().max(1) as f32;
+                let mean_h = heights.iter().sum::<f32>() / n;
+                let var_h = heights.iter().map(|h| (h - mean_h).powi(2)).sum::<f32>() / n;
+                let gaps: Vec<f32> =
+                    crests.windows(2).map(|w| (w[1].0 - w[0].0) as f32).collect();
+                let gn = gaps.len().max(1) as f32;
+                let mean_g = gaps.iter().sum::<f32>() / gn;
+                let var_g = gaps.iter().map(|g| (g - mean_g).powi(2)).sum::<f32>() / gn;
+                println!(
+                    "  {v:>6.2} {seed:>5} {:>7} {mean_h:>9.2} {:>9.3} {mean_g:>9.2} {:>9.3}",
+                    crests.len(),
+                    var_h.sqrt() / mean_h.max(1e-3),
+                    var_g.sqrt() / mean_g.max(1e-3)
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts (review task 1b)"]
+    fn probe_1b_the_keyhole_slots() {
+        // The sighting: 1-2 column vertical slots cut the full height of
+        // cliffs. The review's suspect is `terraced()` -- the snap is
+        // full-strength where the mask saturates, and the mask *edge* can
+        // flip a single column between snapped and unsnapped ground, which
+        // would cut a one-column cliff out of otherwise continuous rock.
+        //
+        // Confirm or refute by printing the elevation chain term by term, so
+        // the column that steps names itself. Everything here is a pure
+        // function of `(seed, params, x)`, which is what makes this a unit
+        // test rather than a world build.
+        let (presets, err) = super::super::params::WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        for (preset, seed, centre) in
+            [("canyon", 7u64, 610i32), ("canyon", 13, 205), ("rolling", 1, 1315), ("rolling", 2, 1490)]
+        {
+            let params = presets.get(preset).expect("preset");
+            let t = shipped(seed, params);
+            println!("\n=== {preset} seed {seed} around x {centre} (2048x640) ===");
+            println!(
+                "  {:>6} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>6}  note",
+                "x", "mask", "m", "base", "hills", "snapdlt", "detail", "elev", "surf"
+            );
+            let p = t.params;
+            let mut prev_surface: Option<i32> = None;
+            for x in (centre - 20)..=(centre + 20) {
+                let ch = t.character(x);
+                let wx = t.warped_x(x);
+                let base = t.base_wave(x);
+                let hills = p.hill_amplitude
+                    * ch.relief
+                    * noise::fbm_1d_c(t.seed, Purpose::Height, wx / p.hill_wavelength, 4);
+                let detail =
+                    p.detail_amplitude * noise::fbm_1d_c(t.seed, Purpose::Detail, x as f32 / p.detail_wavelength, 2);
+                // The mask, recomputed exactly as `terraced` computes it, so
+                // the number printed is the number that decided.
+                let mask = noise::fbm_1d(t.seed, Purpose::Mask, x as f32 / p.mask_wavelength, 2);
+                let m = (p.terrace_strength * ch.resistance).clamp(0.0, 1.0) * noise::smoothstep(0.62, 0.82, mask);
+                let pre = base + hills;
+                let snap_delta = t.terraced(x, pre) - pre;
+                let elev = t.elev(x);
+                let surf = (t.datum() - elev).round() as i32;
+                let jump = prev_surface.map(|s| surf - s).unwrap_or(0);
+                let note = if jump.abs() >= 6 { format!("STEP {jump:+} rows from x-1") } else { String::new() };
+                prev_surface = Some(surf);
+                println!(
+                    "  {x:>6} {mask:>8.3} {m:>8.3} {base:>8.2} {hills:>8.2} {snap_delta:>8.2} {detail:>8.2} {elev:>8.2} {surf:>6}  {note}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts (review task 1b)"]
+    fn probe_1b_how_often_the_surface_steps() {
+        // The other half of 1b, and the half a 41-column listing cannot give:
+        // *how many* single-column steps a world contains, and how many of
+        // them the terrace mask is responsible for. A slot is only a bug
+        // worth a fix if there are enough of them to be the artifact the
+        // review saw; if a world has three, the picture was showing
+        // something else.
+        //
+        // "Attributed to the snap" means: the step survives in the
+        // `terraced`-included chain and vanishes when the snap is switched
+        // off (`terrace_strength: 0.0`), holding everything else equal.
+        let (presets, err) = super::super::params::WorldgenPresets::load();
+        assert!(err.is_none(), "{err:?}");
+        println!("\n=== single-column surface steps >= 6 rows, 2048 wide ===");
+        println!("  {:>10} {:>6} {:>10} {:>12} {:>10}", "preset", "seed", "steps", "snap-caused", "worst");
+        for preset in ["rolling", "terraced", "canyon", "wetland", "arid"] {
+            let params = presets.get(preset).expect("preset");
+            let flat = WorldgenParams { terrace_strength: 0.0, ..params.clone() };
+            for seed in [1u64, 2, 7, 13] {
+                let t = shipped(seed, params);
+                let f = shipped(seed, &flat);
+                let surf = |t: &Terrain<'_>, x: i32| (t.datum() - t.elev(x)).round() as i32;
+                let mut steps = 0;
+                let mut caused = 0;
+                let mut worst = 0;
+                for x in 1..2048 {
+                    let d = surf(&t, x) - surf(&t, x - 1);
+                    if d.abs() >= 6 {
+                        steps += 1;
+                        worst = worst.max(d.abs());
+                        if (surf(&f, x) - surf(&f, x - 1)).abs() < 6 {
+                            caused += 1;
+                        }
+                    }
+                }
+                println!("  {preset:>10} {seed:>6} {steps:>10} {caused:>12} {worst:>10}");
+            }
+        }
     }
 }

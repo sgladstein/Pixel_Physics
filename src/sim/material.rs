@@ -370,6 +370,24 @@ pub struct MaterialDef {
     #[serde(default)]
     pub reinforces_powder: bool,
     pub colors: Vec<[u8; 3]>,
+    /// How many leading entries of `colors` a *random* shade may pick from.
+    /// `0` (the default) means all of them, which is what every material
+    /// that has only one family wants.
+    ///
+    /// Worldgen bakes a region's rock/soil family into `Cell::shade` at
+    /// genesis (`worldgen::passes::palette_family`), so `stone`, `soil` and
+    /// `sand` ship several four-tone families in one `colors` list and the
+    /// *family* is chosen by the generator, never at random. Anything that
+    /// just wants "a tone of this material" -- the brush, ash decaying into
+    /// soil -- has to stay inside the first family, or painting a wall of
+    /// stone comes out as confetti of grey, sandstone and bleached cap-rock.
+    ///
+    /// This is the constant that had to be re-derived when the palettes
+    /// widened: `palette.len()` used to mean both "how many entries" and
+    /// "how many a random pick may use", and widening split those two
+    /// meanings apart.
+    #[serde(default)]
+    pub base_colors: usize,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
     //
@@ -667,7 +685,14 @@ pub struct Material {
     pub reinforces_powder: bool,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
+    ///
+    /// May hold several four-tone *families* -- see [`Self::base_shades`] and
+    /// `MaterialDef::base_colors`. `render.rs` indexes it with
+    /// `shade % palette.len()`, so the family is simply higher entries.
     pub palette: Vec<[u8; 4]>,
+    /// How many leading `palette` entries a random shade may pick from.
+    /// See `MaterialDef::base_colors`; never zero.
+    pub base_shades: usize,
 
     pub flammability: f32,
     pub ignition_temperature: f32,
@@ -910,6 +935,15 @@ impl From<MaterialDef> for Material {
                 .iter()
                 .map(|c| [c[0], c[1], c[2], 255])
                 .collect(),
+            // Clamped to the palette rather than trusted: a `base_colors`
+            // larger than the list would let a random pick run off the end
+            // of the first family and into the next one, which is the exact
+            // failure the field exists to prevent.
+            base_shades: if def.base_colors == 0 {
+                def.colors.len().max(1)
+            } else {
+                def.base_colors.clamp(1, def.colors.len().max(1))
+            },
 
             flammability: def.flammability,
             ignition_temperature: def.ignition_temperature,
@@ -1074,6 +1108,7 @@ impl MaterialRegistry {
             evaporates: false,
             reinforces_powder: false,
             colors: vec![[0, 0, 0]],
+            base_colors: 0,
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
             burn_temperature: f32::INFINITY,
@@ -1109,6 +1144,7 @@ impl MaterialRegistry {
             evaporates: false,
             reinforces_powder: false,
             colors: vec![[20, 20, 24]],
+            base_colors: 0,
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
             burn_temperature: f32::INFINITY,

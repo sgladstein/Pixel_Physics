@@ -21,6 +21,97 @@ use crate::sim::material;
 use crate::sim::world::World;
 use crate::sim::Cell;
 
+/// Tones per palette family. `Cell::shade` is `family * TONES + tone`.
+///
+/// Four because that is what every shipped ramp already had: `strata_shade`
+/// draws four bed tones, `soil_shade` walks a four-step profile, and
+/// `loose_shade` picks one of four. Families are appended to the material
+/// palettes in blocks of this size, so family 0 is byte-for-byte the palette
+/// each file shipped with (`assets/materials/stone.ron` carries the note).
+const TONES: u8 = 4;
+
+/// The reference family: no regional shift. What the brush lays down, and
+/// what every material with a single family has.
+const FAMILY_NEUTRAL: u8 = 0;
+/// Wet country: darker, richer, blue-shifted.
+const FAMILY_WET: u8 = 1;
+/// Dry country: warmer and paler.
+const FAMILY_DRY: u8 = 2;
+/// Resistant beds: pale, low-saturation cap-rock. **Stone only** — soil and
+/// sand ship three families, and resistance is a property of rock.
+const FAMILY_RESISTANT: u8 = 3;
+
+/// Gravel's second family: the buried read, for lenses sealed in the rock.
+///
+/// Not a region family — it is a *context* family, and that distinction is
+/// what let one palette serve two masters instead of trading them off.
+/// Gravel is read against two completely different backgrounds: scree
+/// against sky and rock face, and a lens against solid stone. Its shipped
+/// greys are within a few points of stone's, which is right for scree and
+/// makes a buried lens invisible. Recolouring the whole material to fix the
+/// lens would have made every talus apron read as something other than
+/// broken rock.
+const BURIED_FAMILY: u8 = 1;
+
+/// Which palette family a cell at `(x, y)` takes, from the blended region
+/// `Character` at `x`.
+///
+/// This is the whole of "regions become biomes, step 1", and it costs
+/// nothing per frame: the family is folded into `Cell::shade` once at
+/// genesis and `render.rs` reads that byte, it never recomputes a colour.
+/// Keying a tint to a live field read instead is the precedent that forces
+/// full redraws forever (`Reports/world-review-2026-08.md` §7.21).
+///
+/// **A cumulative selection over one noise draw, not three independent
+/// coin flips.** One draw means the three probabilities partition cleanly —
+/// a cell cannot come out both dry and resistant — and it means the
+/// transition between two regions is a *dither* rather than a ruled line.
+/// That matters more than it sounds: aridity varies smoothly across a
+/// region boundary, so a hard threshold would put a perfectly straight
+/// vertical colour seam through solid rock, which is the single most
+/// artificial thing a layered generator can draw (the soil/stone contact in
+/// `soil_blanket` is dithered for exactly this reason and says so).
+///
+/// The character is read at `x` only. `y` enters solely through the dither
+/// draw, so a family boundary is ragged in both directions rather than
+/// being a column of one colour beside a column of another.
+fn palette_family(ctx: &Ctx, x: i32, y: i32, cap_rock: bool) -> u8 {
+    // A preset that asked for no regional variation gets none, including no
+    // palette shift. `flat` is the structural test bed and its whole point
+    // is that nothing about it wanders; it is also the control render the
+    // destruction workstream compares against, so leaving it byte-identical
+    // is worth more than colouring it.
+    if ctx.terrain.params.region_variation <= 0.0 {
+        return FAMILY_NEUTRAL;
+    }
+    let ch = ctx.terrain.character(x);
+    let u = noise::unit(ctx.terrain.seed, Purpose::Palette, x, y);
+
+    // Resistance first, and only for rock. Thresholds sit above the neutral
+    // 1.0 that `Character::neutral` hands out, so an unremarkable region
+    // stays grey and only a genuinely resistant draw bleaches.
+    let mut floor = 0.0;
+    if cap_rock {
+        let resistant = noise::smoothstep(1.25, 1.80, ch.resistance);
+        if u < resistant {
+            return FAMILY_RESISTANT;
+        }
+        floor = resistant;
+    }
+    // Dry and wet are mutually exclusive by construction -- the two ramps do
+    // not overlap -- so their probabilities can share the remaining room
+    // without either stealing from the other.
+    let dry = noise::smoothstep(0.50, 0.78, ch.aridity);
+    if u < floor + dry * (1.0 - floor) {
+        return FAMILY_DRY;
+    }
+    let wet = 1.0 - noise::smoothstep(0.10, 0.34, ch.aridity);
+    if u < floor + (dry + wet) * (1.0 - floor) {
+        return FAMILY_WET;
+    }
+    FAMILY_NEUTRAL
+}
+
 /// Sedimentary banding, written into the shade byte.
 ///
 /// The whole visual argument for cut rock. Stone's four shades cost nothing
@@ -71,11 +162,16 @@ fn strata_shade(ctx: &Ctx, x: i32, y: i32) -> u8 {
     };
     // A minority of cells jump a tone, so the bands have grain inside them
     // rather than reading as flat ribbons.
-    if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < 0.12 {
-        (base + 1).min(3)
+    let tone = if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < 0.12 {
+        (base + 1).min(TONES - 1)
     } else {
         base
-    }
+    };
+    // The region's family, applied *after* the tone. The band index still
+    // decides which of the four tones a bed takes, so a bed remains
+    // followable from one cliff face to the next -- what the region changes
+    // is which four colours those tones name. Family, not texture.
+    palette_family(ctx, x, y, true) * TONES + tone
 }
 
 /// Shade for a soil cell, darkening toward the surface.
@@ -93,7 +189,7 @@ fn soil_shade(ctx: &Ctx, x: i32, y: i32, depth: i32, total: i32) -> u8 {
     let jitter = noise::unit(ctx.terrain.seed, Purpose::Shade, x, y);
     let f = if total <= 1 { 0.0 } else { depth as f32 / (total - 1) as f32 };
     let f = (f + (jitter - 0.5) * 0.35).clamp(0.0, 1.0);
-    if f < 0.3 {
+    let tone = if f < 0.3 {
         2
     } else if f < 0.6 {
         0
@@ -101,7 +197,12 @@ fn soil_shade(ctx: &Ctx, x: i32, y: i32, depth: i32, total: i32) -> u8 {
         1
     } else {
         3
-    }
+    };
+    // Aridity shifts the whole profile -- dark rich loam in a basin, pale
+    // dusty soil on a dry hillside -- while the 2/0/1/3 walk down the ramp
+    // stays put, so a cut bank still reads as topsoil over subsoil wherever
+    // it is. No cap-rock family: resistance is a property of the rock.
+    palette_family(ctx, x, y, false) * TONES + tone
 }
 
 /// A varied shade for loose material, matching what the brush lays down.
@@ -110,7 +211,18 @@ fn soil_shade(ctx: &Ctx, x: i32, y: i32, depth: i32, total: i32) -> u8 {
 /// off this byte, so material created with a uniform shade renders visibly
 /// flat under it (`examples/filmstrip.rs` documents the same trap for water).
 fn loose_shade(ctx: &Ctx, purpose: Purpose, x: i32, y: i32) -> u8 {
-    ((noise::unit(ctx.terrain.seed, purpose, x, y) * 4.0) as u8).min(3)
+    ((noise::unit(ctx.terrain.seed, purpose, x, y) * TONES as f32) as u8).min(TONES - 1)
+}
+
+/// [`loose_shade`] plus the region's palette family.
+///
+/// Split from `loose_shade` rather than folded into it because the two have
+/// different subjects. Surface cover belongs to the country it is lying on;
+/// a lens sealed inside the massif and the scree at a cliff foot do not, and
+/// gravel has one family anyway. Adding the family here rather than at the
+/// four call sites keeps `loose_shade` meaning exactly what it used to.
+fn cover_shade(ctx: &Ctx, purpose: Purpose, x: i32, y: i32) -> u8 {
+    palette_family(ctx, x, y, false) * TONES + loose_shade(ctx, purpose, x, y)
 }
 
 /// Everything from the soil line down to bedrock.
@@ -201,7 +313,7 @@ pub fn soil_blanket(ctx: &Ctx, world: &mut World) -> usize {
             let (m, shade) = if noise::unit(ctx.terrain.seed, Purpose::Dither, x, y) < stony * 0.85 {
                 (ctx.gravel, loose_shade(ctx, Purpose::Dither, x, y))
             } else if sandy || (is_valley_floor && y < top + 2) {
-                (ctx.sand, loose_shade(ctx, Purpose::Shade, x, y))
+                (ctx.sand, cover_shade(ctx, Purpose::Shade, x, y))
             } else {
                 (ctx.soil, soil_shade(ctx, x, y, depth, bottom - top))
             };
@@ -225,10 +337,43 @@ const MAX_FALL: i32 = 120;
 /// would read as a mistake rather than as an overhang.
 const CLIFF_DROP: i32 = 6;
 
+/// Columns the near scale looks over. A terrace riser is a single-column
+/// jump and a snap-driven face resolves within a handful of columns.
+const RUN_NEAR: i32 = 4;
+
+/// The escarpment scale, and the drop that qualifies at it.
+///
+/// **This is the fix for the brows/talus blindness.** The near scale asks
+/// for six cells within four columns -- a slope of 1.5 -- and a regional
+/// escarpment does not have that anywhere along it: it spends tens of
+/// columns falling a hundred cells, which is a slope near 1. So the biggest
+/// faces in the world, the ones most obviously wanting a lip and an apron,
+/// were the ones the detector was most certain to miss. `brows` wrote 34
+/// cells and `talus` 148 in a 1.3M-cell world.
+///
+/// Not simply a proportional bar at the longer run: `CLIFF_DROP * RUN_FAR /
+/// RUN_NEAR` is 30, i.e. the same slope of 1.5, which would find exactly
+/// nothing extra for exactly the same reason. The far scale exists to catch
+/// a *gentler* face that is nonetheless very tall, so its bar is a slope of
+/// 1.0. A face qualifying at either scale qualifies.
+const RUN_FAR: i32 = 20;
+const CLIFF_DROP_FAR: i32 = 20;
+
+/// Cap on how far a brow reaches out, and on how tall a talus heap starts.
+///
+/// Bounds the work without gating whether it happens -- the landmine that
+/// has been written twice in this engine already (`if too_big { return }`
+/// claims the largest cases deserve the least behaviour). A brow is still
+/// hung on every qualifying face however deep the drop; only its reach
+/// saturates. They also make each pass's column margin a *number* rather
+/// than an unbounded claim, which is what the pass table has to declare.
+const MAX_BROW_REACH: i32 = 20;
+const MAX_TALUS_PEAK: i32 = 30;
+
 /// Cliff edges as `(edge_x, direction, drop)`, where `direction` is +1 when
 /// the ground falls away to the right and -1 when it falls to the left.
 fn cliff_edges(plans: &[ColumnPlan], w: i32) -> Vec<(i32, i32, i32)> {
-    // Measured over a short run, not between neighbours.
+    // Measured over a run, not between neighbours.
     //
     // Adjacent columns were enough when the macro shape was one smooth wave
     // with terrace snaps cut into it: a snap is a single-column jump. Once
@@ -237,20 +382,33 @@ fn cliff_edges(plans: &[ColumnPlan], w: i32) -> Vec<(i32, i32, i32)> {
     // `talus` wrote nothing at all in any world, and scree and overhangs
     // silently left the game. The test that counts per-pass output is what
     // said so; every render still looked like a plausible world.
-    const RUN: i32 = 4;
+    //
+    // Two runs now, for the same reason read one scale further out. See
+    // `RUN_FAR`.
     let mut edges = Vec::new();
     let at = |x: i32| plans[x.clamp(0, w - 1) as usize].surface_y;
     for x in 0..w {
         let here = at(x);
-        // The edge is the last high column, so look ahead a run and take the
-        // fall to the lowest of it.
-        let right = (1..=RUN).map(|d| at(x + d)).max().unwrap_or(here) - here;
-        if right >= CLIFF_DROP && at(x + 1) >= here {
-            edges.push((x, 1, right));
-        }
-        let left = (1..=RUN).map(|d| at(x - d)).max().unwrap_or(here) - here;
-        if left >= CLIFF_DROP && at(x - 1) >= here {
-            edges.push((x, -1, left));
+        for dir in [1, -1] {
+            // The edge is the last high column, so the neighbour on the
+            // falling side must not be higher.
+            if at(x + dir) < here {
+                continue;
+            }
+            // The deepest fall found at either scale. Taking the max rather
+            // than the first match matters: a face that qualifies at both
+            // must be sized by the *escarpment* it is part of, not by the
+            // first four columns of it.
+            let near = (1..=RUN_NEAR).map(|d| at(x + dir * d)).max().unwrap_or(here) - here;
+            let far = (1..=RUN_FAR).map(|d| at(x + dir * d)).max().unwrap_or(here) - here;
+            let drop = if far >= CLIFF_DROP_FAR {
+                far.max(near)
+            } else if near >= CLIFF_DROP {
+                near
+            } else {
+                continue;
+            };
+            edges.push((x, dir, drop));
         }
     }
     edges
@@ -284,8 +442,15 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
         // the drop is deep, though: a lip that outreaches its own face reads
         // as a shelf floating in the air.
         let reach = (3 + (noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir * 7) * 3.0) as i32 + drop / 4)
-            .min(drop - 1);
-        let thick = 2 + (noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir * 13) * 2.0) as i32;
+            .min(drop - 1)
+            .min(MAX_BROW_REACH);
+        // Thickness scales with the face too, which it did not before: a lip
+        // reaching twenty cells out of a two-cell slab reads as a diving
+        // board rather than as rock. Extended rather than replaced -- the
+        // reach term above already half-did this and is left as it was.
+        let thick = 2
+            + (noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir * 13) * 2.0) as i32
+            + (drop / 22).min(3);
         for row in 0..thick {
             let y = top + row;
             // Tapered underside, so the lip is a wedge rather than a slab.
@@ -346,7 +511,14 @@ pub fn talus(ctx: &Ctx, world: &mut World) -> usize {
             continue;
         }
         let fall = ground(foot) - ground(x);
-        let peak = (p.talus_max_height as i32).min(fall / 2);
+        // Apron volume follows the face that shed it. `talus_max_height`
+        // alone is 8 to 18, so every cliff past about thirty cells got the
+        // same heap however tall it was -- a hundred-cell escarpment and a
+        // terrace riser shedding identically, which is most of why scree
+        // never read as a consequence of anything. Still capped, and still
+        // never more than half the fall, so an apron cannot bury its own
+        // cliff.
+        let peak = (p.talus_max_height as i32 + fall / 5).min(fall / 2).min(MAX_TALUS_PEAK);
         if peak <= 0 {
             continue;
         }
@@ -835,12 +1007,37 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
 /// plant that will not be there. Far enough apart to both have a chance, near
 /// enough that a stand still reads as a stand.
 const TREE_SPACING: i32 = 7;
+/// How far a lens is stretched along its bedding plane, at the two ends of
+/// the draw.
+///
+/// A lens whose long axis is 2-4x its old one, at the same thickness. Round
+/// ellipses at a uniform density are what made these read as polka dots
+/// rather than as geology — and worse, as *ore*, which is a promise the game
+/// does not keep. A sedimentary lens is deposited within a bed, so it is
+/// long, thin and lies along the bedding; that shape is the whole difference
+/// between "a lens in the rock" and "a spot".
+const LENS_STRETCH: (f32, f32) = (2.0, 4.0);
+
 /// Sand and gravel lenses sealed inside the rock.
 ///
 /// Loose material the player only finds by digging, and which behaves the
 /// moment it is exposed — cut into one and it pours. Fully enclosed, so it is
 /// trivially at rest until something opens it, which is why this is the one
 /// place generated powder can sit at any shape at all.
+///
+/// **Lenses lie in the bedding.** Each ellipse's long axis is rotated onto
+/// the local strata band — the same `strata_offset` the shade pass bands the
+/// rock with and the surface benches snap to, so a lens sits *in* a visible
+/// bed rather than cutting across it. One noise field doing a third job that
+/// has to agree with the other two.
+///
+/// **Density and size follow the country and the depth.** `Character.
+/// sediment` makes a sedimentary region richer and a resistant one sparse,
+/// and both thin out toward bedrock: loose lenses are a shallow-burial
+/// feature, and a massif that is equally spotty at every depth reads as
+/// wallpaper. Both factors are exactly `1.0` at a neutral character and zero
+/// depth, so a preset with no regional variation generates what it always
+/// did.
 pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
     let mut n = 0;
     let p = ctx.terrain.params;
@@ -849,21 +1046,59 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
     }
     const REGION: i32 = 64;
     let seed = ctx.terrain.seed;
+    let w = ctx.terrain.w;
     for ry in 0..ctx.terrain.h.div_euclid(REGION) + 1 {
-        for rx in 0..ctx.terrain.w.div_euclid(REGION) + 1 {
+        for rx in 0..w.div_euclid(REGION) + 1 {
+            // The region's own character and burial depth, sampled at its
+            // centre column. Per region rather than per candidate because the
+            // *count* has to be decided before a candidate exists, and a
+            // 64-cell region is well inside one region of the world map.
+            let mx = (rx * REGION + REGION / 2).clamp(0, w - 1);
+            let plan = ctx.plans[mx as usize];
+            let ch = ctx.terrain.character(mx);
+            // Sedimentary country is richer, resistant country is sparse.
+            // Written so that `sediment == 1` and `resistance == 1` -- the
+            // neutral character -- comes out at exactly 1.0.
+            let richness = (ch.sediment * (1.6 - 0.6 * ch.resistance)).clamp(0.0, 2.5);
+            // Depth, as a fraction of the massif's own thickness rather than
+            // an absolute row: a canyon massif is five times the depth of a
+            // wetland one and "near bedrock" has to mean the same thing in
+            // both.
+            let my = ry * REGION + REGION / 2;
+            let thickness = (plan.bedrock_top_y - plan.surface_y).max(1) as f32;
+            let t = ((my - plan.surface_y) as f32 / thickness).clamp(0.0, 1.0);
+            // Quadratic, for the same reason `plan`'s soil taper is: a linear
+            // fall thins lenses out as soon as the rock deepens at all, so
+            // the upper massif -- the part a player actually digs -- loses
+            // the feature it is supposed to have most of.
+            let with_depth = 0.15 + 0.85 * (1.0 - t) * (1.0 - t);
+            let density = p.pocket_density * richness * with_depth;
             // A fractional density means "sometimes one": the whole number is
             // guaranteed and the remainder is a per-region coin flip.
-            let whole = p.pocket_density.floor() as i32;
-            let extra = i32::from(noise::unit(seed, Purpose::Pocket, rx, ry) < p.pocket_density.fract());
+            let whole = density.floor() as i32;
+            let extra = i32::from(noise::unit(seed, Purpose::Pocket, rx, ry) < density.fract());
             for k in 0..whole + extra {
                 let cx = rx * REGION + (noise::unit(seed, Purpose::Pocket, rx * 31 + k, ry) * REGION as f32) as i32;
                 let cy = ry * REGION + (noise::unit(seed, Purpose::Pocket, rx, ry * 31 + k) * REGION as f32) as i32;
-                if cx < 0 || cx >= ctx.terrain.w {
+                if cx < 0 || cx >= w {
                     continue;
                 }
-                let a = 4.0 + noise::unit(seed, Purpose::Pocket, cx, cy) * 6.0;
-                let b = 2.0 + noise::unit(seed, Purpose::Pocket, cy, cx) * 2.0;
+                // Size follows the same supply as the count, gently -- 1.0 at
+                // a neutral character, 0.6..1.4 across the range regions
+                // actually draw.
+                let bulk = (0.5 + 0.5 * ch.sediment).clamp(0.5, 1.5);
+                let stretch = LENS_STRETCH.0
+                    + noise::unit(seed, Purpose::Pocket, cx * 7, cy * 5) * (LENS_STRETCH.1 - LENS_STRETCH.0);
+                let a = (4.0 + noise::unit(seed, Purpose::Pocket, cx, cy) * 6.0) * stretch * bulk;
+                let b = (2.0 + noise::unit(seed, Purpose::Pocket, cy, cx) * 2.0) * bulk;
                 let m = if noise::unit(seed, Purpose::Pocket, cx + 1, cy + 1) < 0.5 { ctx.sand } else { ctx.gravel };
+                // The bedding plane through this lens. A band is the locus of
+                // constant `y + strata_offset(x)`, so its gradient is minus
+                // the offset's -- a central difference over the same pure
+                // function `strata_shade` and `terraced` both read.
+                let dip = -(ctx.terrain.strata_offset(cx + 1) - ctx.terrain.strata_offset(cx - 1)) / 2.0;
+                let norm = (1.0 + dip * dip).sqrt();
+                let (cos_t, sin_t) = (1.0 / norm, dip / norm);
 
                 // Collect first, write only if the whole lens plus a one-cell
                 // rind is solid stone.
@@ -877,17 +1112,26 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                 // of them is written, not approximated per cell.
                 let mut lens = Vec::new();
                 let mut sealed = true;
-                'lens: for dy in -(b as i32) - 1..=(b as i32) + 1 {
-                    for dx in -(a as i32) - 1..=(a as i32) + 1 {
+                // The rotated ellipse's bounding box, so the scan still
+                // covers the whole shape once the long axis is no longer
+                // along x. Same +1 margin the rind always had.
+                let ext_x = ((a * cos_t).abs() + (b * sin_t).abs()).ceil() as i32 + 1;
+                let ext_y = ((a * sin_t).abs() + (b * cos_t).abs()).ceil() as i32 + 1;
+                'lens: for dy in -ext_y..=ext_y {
+                    for dx in -ext_x..=ext_x {
                         let (px, py) = (cx + dx, cy + dy);
-                        let d = (dx as f32 / a).powi(2) + (dy as f32 / b).powi(2);
+                        // Into the bed's own frame: `u` along the bedding,
+                        // `v` across it.
+                        let u = dx as f32 * cos_t + dy as f32 * sin_t;
+                        let v = -(dx as f32) * sin_t + dy as f32 * cos_t;
+                        let d = (u / a).powi(2) + (v / b).powi(2);
                         // The rind: one cell beyond the lens must also be
                         // stone, so the lens is never flush with a free face.
-                        let rind = (dx.abs() as f32 / (a + 1.0)).powi(2) + (dy.abs() as f32 / (b + 1.0)).powi(2);
+                        let rind = (u / (a + 1.0)).powi(2) + (v / (b + 1.0)).powi(2);
                         if rind > 1.0 {
                             continue;
                         }
-                        if px < 0 || px >= ctx.terrain.w || py < 0 || py >= ctx.terrain.h {
+                        if px < 0 || px >= w || py < 0 || py >= ctx.terrain.h {
                             sealed = false;
                             break 'lens;
                         }
@@ -904,7 +1148,18 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                     continue;
                 }
                 for (px, py) in lens {
-                    world.set(px, py, Cell::new(m, loose_shade(ctx, Purpose::Pocket, px, py)));
+                    // Buried gravel takes its own palette family, so a lens
+                    // is not grey-on-grey invisible inside grey rock. Scree
+                    // at a cliff foot and the stony base of a soil profile
+                    // keep family 0 -- they are read against sky and soil,
+                    // not against stone, and they are what "gravel" looks
+                    // like when the player paints it. See `assets/gravel.ron`.
+                    let shade = if m == ctx.gravel {
+                        BURIED_FAMILY * TONES + loose_shade(ctx, Purpose::Pocket, px, py)
+                    } else {
+                        loose_shade(ctx, Purpose::Pocket, px, py)
+                    };
+                    world.set(px, py, Cell::new(m, shade));
                     n += 1;
                 }
             }

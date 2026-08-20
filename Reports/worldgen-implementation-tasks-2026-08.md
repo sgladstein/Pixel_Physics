@@ -245,3 +245,655 @@ learned, and end with a summary comment in the final commit message.
 *(Append findings here as tasks produce them — task 1 writes 1a/1b/1c;
 later tasks add entries when a spec did not survive contact with the
 code.)*
+
+Reproductions for everything below are `#[ignore]`d probes, kept rather
+than thrown away so a reader can re-check a claim rather than take it:
+
+```
+cargo test --release --test worldgen -- --ignored --nocapture   # 1a, 1c
+cargo test --release --lib worldgen::column::tests::probe -- --ignored --nocapture   # 1b
+```
+
+They build at the shipped 2048x640, not the suite's 512x320, because the
+review's x coordinates are shipped-size coordinates and the regional layout
+scales with width — at 512 the same x is a different world.
+
+### 1a — The blue slivers are **sky**, not water
+
+**No water anywhere.** A direct material census over every cell of
+`canyon` seed 1 and `arid` seed 1 at 2048x640 finds **zero** water cells in
+either world. The per-pass counter was telling the truth and `ponds` did
+not leak; no other writer put water there either.
+
+**The blue is the sky, seen through a gap in the terrain.** The deep sky
+renders at `(56, 104, 174)` and water's palette starts at `(64, 116, 208)`
+— close enough that a one-to-two-column gap of sky reads as a sliver of
+water at strip zoom. Both cited sightings are gaps, and they are two
+*different* objects:
+
+- **canyon s1, x 950–955**: an open notch in the skyline, 7 cells below the
+  ground either side of it, floored by talus gravel. World-wide there are
+  12 such notches at >= 5 cells deep and none at >= 8.
+- **arid s1, x 1234–1244**: not a notch at all but a **`brows()` overhang**
+  — attached stone at y 104–106 with open air at y 107–110 beneath it and
+  talus at y 111. The blue is sky *under a lip*, which is the pass working
+  as designed and rendering at full sky brightness. `arid` s1 has 48
+  notches at >= 5 cells and 4 at >= 8.
+
+So the two producers probably want different answers and neither is a
+water bug: the skyline notch is 1b's subject below, and full-brightness sky
+under an overhang is the cave/overhang-lighting question (roadmap 3 and 8),
+not worldgen's.
+
+**Two metric traps hit on the way, both worth recording.** The first metric
+I wrote counted "water-coloured pixels" in the rendered strip and returned
+all 2048 columns — it was matching the sky, which is CLAUDE.md's *ask what
+a metric counts when nothing is wrong* on the first attempt. The second
+looked for a column whose first solid cell sits >= 8 rows below the columns
+three either side, and reported **zero notches** in a world that visibly
+has them: the canyon slot is seven columns wide, so both comparison points
+land inside it. The metric that works compares against the **shoulder** —
+the highest ground within 12 columns either side — and reports a
+distribution rather than a bar chosen before anyone had looked.
+
+### 1b — The keyhole is `round()` in the terrace snap. The mask-edge suspect is **refuted**
+
+The review's suspect was the mask edge: `smoothstep(0.62, 0.82, …)`
+flipping a single column between snapped and unsnapped. Printing the
+elevation chain term by term around all four cited slots refutes it. The
+mask strength `m` does not flip anywhere — at canyon seed 7 it moves
+0.753 → 0.784 across the x 609 → 610 step and is a smooth ramp across the
+whole 41-column window.
+
+**What steps is `snap_delta`**, at that same column: −10.95 → +11.86. The
+cause is the rounding in `terraced()`:
+
+```rust
+let snapped = (band_coord / p.terrace_step).round() * p.terrace_step;
+```
+
+`band_coord` drifts smoothly, `round()` does not: when it crosses a half-
+band it jumps by one whole `terrace_step`, so the surface moves by
+**`terrace_step × m` rows in a single column**. Predicted against measured,
+all four sites:
+
+| site | `terrace_step` | `m` | predicted | measured |
+|---|---|---|---|---|
+| canyon s7 x 610 | 34 | 0.784 | 27 | 27 |
+| canyon s7 x 616 | 34 | 0.990 | 34 | 34 |
+| canyon s7 x 622 | 34 | 0.992 | 34 | 33 |
+| rolling s1 x 1313 | 26 | 0.798 | 21 | 21 |
+
+Census of single-column surface steps >= 6 rows over 2048 columns, five
+presets x four seeds: 0–16 per world, worst step 34 rows. Re-running each
+with `terrace_strength: 0.0` and everything else held equal, **almost every
+one of them disappears** — rolling s2 4 of 4 snap-caused, terraced s2 7 of
+7, canyon s7 7 of 8. The one real exception is canyon seed 2 (2 of 16),
+where the regional escarpment is that steep on its own.
+
+**For whoever designs the fix** (the task file assigns it to the reviewing
+session): these steps *are* terrace risers, and a riser is meant to be a
+vertical face. What is wrong is the aspect ratio, not their existence.
+canyon s7 puts three risers of 27, 34 and 33 rows at x 610, 616 and 622 —
+six-column treads between 30-cell faces, which is a ladder rather than a
+staircase. Task 5's `riser_roughness` will change how a riser *reads*; it
+will not change how many there are or how tall they get, so if the count is
+the complaint the lever is `terrace_step` against the local escarpment
+slope, not roughening.
+
+### 1c — Confirmed sand, but it is the pond **bed**, and `fill_dimming` is not why it is pale
+
+The review's reading is confirmed in substance and corrected in two
+details.
+
+**Confirmed**: the pale dashes are sand. On rolling seed 1 the dashes sit
+at rendered rows 162–167, and censusing that band finds a run of sand at
+x 816–824, y 162–163 with soil below it and water above.
+
+**Correction 1 — it is not *shoreline* sand.** The top-of-column census
+across the whole rim (x 760..980) is water 212, stone 9, **sand 0**: there
+is no sand above the waterline anywhere on this pond. The dashes are the
+top row of the pond *bed* where the shelf is shallow, which is why they
+appear as a broken horizontal line exactly at the waterline.
+
+**Correction 2 — `fill_dimming: 0.0` is not the cause.** It is confirmed
+zero in `water.ron`, and that is a real finding on its own (it does disable
+water darkening globally, and the owner question in review §5.0a still
+stands). But it cannot be what makes these dashes pale, because they are
+**sand cells, not water cells** — no liquid dimming applies to them at all.
+What makes them pale is sand's own palette, which tops out at
+`(232, 208, 142)`, plus `render.rs`'s grain jitter carrying the brightest
+entry to the `(255, 229, 150)` measured in the strip.
+
+The whisker/monolayer reading stays refuted, now for a second and
+independent reason: the cells are not liquid.
+
+**One incidental**, noticed in the same census and not chased: `ponds`
+writes water shades 0..3 while `water.ron` ships a **three**-entry palette,
+so `palette[shade % 3]` aliases shade 3 onto entry 0 and that entry draws
+twice as often as the other two. Cosmetic, and a one-line data fix
+(a fourth colour) if anyone wants the three tones evenly weighted.
+
+### 2 — Sweep notes, and one thing the sweep found on its own
+
+`scripts/worldgen_sweep.sh` (+ `scripts/worldgen_sweep_baseline.tsv`), six
+presets x seeds 1..16 = 96 runs at 512x320, ~23 s. `run` prints the table,
+`baseline` rewrites the committed TSV, `compare` re-runs and diffs it.
+
+Verified as the task asked: two back-to-back `run`s produce **byte-identical
+output**; setting every preset's `tree_density` to `0.0` and running
+`compare` flags `life_scatter` in exactly the four presets that had trees
+(canyon −40%, rolling −47%, terraced −52%, wetland −41%) and **nothing
+else**; reverting returns a clean compare (0 counters moved).
+
+**`assets/worldgen.ron` is not an `include_str!` asset.** Landmine §7.2 is
+about `assets/materials/*.ron`, which are compiled in; `WorldgenPresets::
+load()` reads `assets/worldgen.ron` from disk at runtime, so a preset edit
+takes effect on the next *run* rather than the next build. That is why the
+`tree_density` check above worked without rebuilding — and it is worth
+knowing before someone spends a sweep wondering why their preset knob
+appears connected when material knobs in the same session do not.
+
+**What the sweep found while being calibrated: generated worlds do not
+*stay* asleep.** `awake_chunks` is sampled at frame 100, and its floor is
+not zero on any preset — p90/max of 3/6 (arid), 6/8 (rolling, flat), 7/7
+(canyon, terraced), 6/10 (wetland), out of 40 chunks. **`flat` is the case
+that makes this a finding**: dead-level bare rock, no water, no life, no
+pockets, nothing that can move, and it still reads 8 of 40 awake, with
+`active_site_count` climbing 200 → 482 → 512 over frames 20 → 60 → 200 —
+which on a 512-wide world is one site per column.
+
+This is pre-existing on this branch base (nothing in task 1 or 2 changes
+engine behaviour), and the at-rest suite is green because it asks a
+different question: `generated_terrain_stops_sweeping_almost_immediately`
+measures the **first** frame at which `active_chunk_count()` reaches zero
+and stops there. It never asks whether the world stays quiet, so a world
+that goes quiet at frame 30 and re-wakes at frame 60 passes it.
+
+On `flat` the only `ActiveKind`s that can be responsible are
+`StructuralCheck` and `Evaporate`, and `flat` has no water. That points at
+`src/sim/structural.rs`, which this track is explicitly read-only on
+(§ground rules, and landmine §7.18) — so this is filed as a finding, not
+chased. It matters because of landmine §7.20: a permanently-awake chunk
+anywhere defeats `field::step`s early-out at ~7 ms/frame for the whole
+world, and 3–8 of 40 is not "anywhere", it is a fifth of the world.
+
+Consequence for this sweep: the `awake_chunks` row is a **tracked** number,
+not a gate at zero, and `compare` flags it only on a move of at least 3
+chunks *and* 30% — a floor a small integer counter needs, since 6 → 8 is
++33% and is noise at this scale.
+
+### 3 — Region-keyed palettes: the spec held, but **it needed two files outside this track**
+
+The work landed as specified — `Character` in, tones out, no material
+placement changed, zero frame cost. One part of it did not survive contact
+with the code, and it is the part the ground rules say to report rather
+than improvise around, so it is written up here in full.
+
+**What the spec said was in scope**: "if the 4-entry palettes clamp too
+hard to show a family shift, widening a palette in
+`assets/materials/*.ron` is in-scope (data-only)". They do clamp
+completely — with four entries there is no way to express a family shift at
+all, only a reordering of the same four colours — so the palettes were
+widened: stone to four families of four (neutral / cool damp / warm
+sandstone / pale cap-rock), soil and sand to three each.
+
+**Why that could not stay data-only.** `palette.len()` was doing two jobs
+at once, and widening the list split them apart — CLAUDE.md's *when a fix
+changes what a number means, re-deriving the constants that read it is part
+of the fix*. Two live consumers pick a shade **at random** from
+`palette.len()`:
+
+- `src/sim/world.rs`s brush (`paint_stroke`). Its own comment records the
+  scheme: `shade = below(shades) + shades * below(256/shades)`, low bits
+  choosing the palette entry and high bits carrying grain entropy. Against
+  a 16-entry stone palette that draws uniformly across **all four
+  families**, so a painted wall comes out as confetti of grey, sandstone
+  and bleached cap-rock. Building is a core verb; this is not a subtle
+  regression.
+- `src/sim/decay.rs`s ash → soil. Same shape: decayed ash would land in a
+  random soil family, speckling a wet bank with desert-pale soil.
+
+So the change is:
+
+- `src/sim/material.rs` — a new `MaterialDef::base_colors` (defaulting to
+  `0` = "all of them", so every other material is untouched) and a derived
+  `Material::base_shades`.
+- `src/sim/world.rs`, `src/sim/decay.rs` — draw the *entry* from
+  `base_shades` and keep `palette.len()` as the modulus. For every
+  single-family material the two are equal and the arithmetic is
+  byte-identical to what it was; the brush's high-bit grain trick is
+  preserved rather than removed.
+
+None of those three is on the must-not-touch list, but none is on the owned
+list either, so: **flagged for the reviewer, and kept as small as it can
+be.** Three files, one new field, two call sites.
+
+**One consumer deliberately left alone**: `src/app.rs::spawn_burst` (the
+debug particle burst) still picks from `palette.len()`, so a burst of stone
+particles will show mixed families. `app.rs` is contested and forbidden to
+this track, and the cost of leaving it is that a debug-only tool is
+cosmetically off. If the reviewer wants it, it is the same one-word change.
+
+**Nothing else reaches the widened palettes**, checked rather than assumed:
+`plant.rs`s six random-shade sites all read an organism cell's own material
+(wood, leaf, moss, rootwood, seed); `fire.rs`, `rigid.rs`, `structural.rs`
+and `creature.rs` read `burns_into`/`breaks_into`/corpse materials, none of
+which is stone, soil or sand; `liquid.rs` is water.
+
+**The task-2 sweep is clean, and it must be** — this task writes no
+different cells, only different shade bytes, so the census cannot see it at
+all. The images are the evidence, and the counters that say the mechanism
+fired are in `a_varied_world_uses_more_than_one_rock_family`, which prints
+the per-family rock census beside them (rolling s1: 41,892 neutral / 29,469
+wet / 14,098 cap-rock; canyon s1: 58,863 / 9,327 / 54 dry / 15,907; arid
+s1: 9,531 / 84,558 dry / 2,788; wetland s1: 80,183 wet / 1,004 cap-rock).
+`flat` is asserted to stay in family 0 — it asked for no regional variation
+and the structural workstream compares against its renders.
+
+**Two design notes the reviewer may want to overturn:**
+
+1. The family is chosen by a **cumulative selection over one per-cell noise
+   draw**, so a region boundary is a dither rather than a ruled vertical
+   colour seam through solid rock. Checked at 4x zoom: it reads as mottled
+   sandstone grain, and at 1:1 the sedimentary banding is as legible after
+   as before (the bands still come from the band index; only the four
+   colours they name change). But it is per-cell white noise, and a
+   lower-frequency mottle would read more like real facies change if the
+   reviewer thinks the grain is too fine.
+2. `region_variation <= 0.0` opts a preset out of families entirely, which
+   is what keeps `flat` byte-identical.
+
+### 4 — Pockets: the spec held, and the gravel palette did **not** have to serve two masters badly
+
+Lenses are rotated onto the local bedding (`strata_offset`s own gradient,
+so the third consumer of that field agrees with the two that already
+existed), stretched 2-4x along it, and their count and size keyed to
+`Character.sediment` damped by `resistance`, thinning quadratically toward
+bedrock. Both factors are exactly `1.0` at a neutral character and zero
+depth, so a preset with no regional variation generates what it always did.
+The collect-then-verify-seal skeleton and the one-cell rind are untouched;
+only the shape function they evaluate changed, plus the scan bounds, which
+had to become the rotated ellipse's bounding box.
+
+**Paired measurement, canyon seed 1 at 512x320** (same world, same seed,
+pass toggled):
+
+| | lenses | mean bounding box | aspect | cells |
+|---|---|---|---|---|
+| before | 15 | 14.7 x 6.3 | 2.3:1 | 876 |
+| after | 4 | 38.0 x 8.5 | 4.5:1 | 633 |
+
+Fewer, much longer lenses — which is the direction the review asked for
+(the complaint was polka dots), but worth stating plainly rather than
+burying: **this seed loses two thirds of its lens count**. Across the
+16-seed sweep the cell totals go the other way, p90 `pockets` +42% to +70%
+(canyon 1193 → 2005, arid 1507 → 2557, rolling 1075 → 1676, terraced 1075
+→ 1523, wetland 921 → 1084). Outcomes are chaotic in the seed exactly as
+CLAUDE.md says, and seed 1 is not the sweep. Nothing else moved with them.
+
+The 8.5-cell mean height is how the *rotation* is shown to have fired at
+all rather than being a silent no-op: an unrotated lens is `2b` tall, 4-8
+cells. At canyon's dip a half-length of 19 contributes `2 x 19 x 0.09` =
+3.4 cells of extra height, which is what the measurement shows.
+
+**Gravel: the palette did not have to be forced.** The task offered a
+finding proposing a shade-range split as the fallback if one palette could
+not serve both scree and buried lens. It can — because task 3 built the
+families mechanism, so the split is now a four-line data change rather than
+a proposal. `assets/gravel.ron` gains a second family: family 0 is exactly
+what shipped and is what the brush, `talus`'s aprons and the soil profile's
+stony contact all still get; family 1 is warmer and darker and is used only
+by a lens sealed in rock. So scree still reads as broken rock against sky
+and soil, and a lens reads as a conglomerate bed against stone. Recolouring
+the material outright was the alternative and is recorded in the file as
+rejected rather than untried.
+
+Deliberately kept dull: the review found these reading as *ore*, a promise
+the game does not keep, so the buried family is warm and dark rather than
+bright or saturated.
+
+**One test method note, because it cost two wrong versions.** Both cheap
+classifiers for "is this gravel cell a lens or scree" miscounted, and for
+the same reason — they inferred which pass wrote a cell from where the cell
+is. "More than ten cells below the ground line" called 37 soil-contact
+cells buried, because a blanket is up to 34 cells deep and its stony base is
+family 0 by design. "Fully surrounded by rock" called 78, because a contact
+cell at the bottom of a blanket usually is. The version that works is a
+**paired comparison** against the same world built with `pocket_density:
+0.0` — the repo's own preferred shape, and here it is not merely better but
+exact, since `pockets` writes only into solid stone and nothing downstream
+reads a buried lens.
+
+Strips: `target/filmstrips/task4-after-{rolling,canyon}-s{1,7}.png`, against
+`task3-after-*` as the before. Canyon s1 at 1:1 is the clearest: round pale
+blobs become elongated lenses lying in the bedding, and brown gravel lenses
+appear where there was nothing legible at all.
+
+### 5 — Dunes and risers: both knobs work, and **both needed the spec's mechanism to be re-aimed**
+
+Both changes are in `column.rs`, both behind a preset param defaulting to
+the new behaviour with `0.0` reaching the old one exactly, so the owner can
+A/B them by eye. Because `assets/worldgen.ron` is read at runtime, flipping
+either is a file edit and a re-run — no rebuild — which is how every before
+strip below was made.
+
+#### 5a. Dunes — the premise was wrong, and the first implementation was inert
+
+**The review's diagnosis does not survive measurement.** "The phase term
+`x/wavelength + 0.6*fbm` is dominated by the linear term, giving a
+constant-pitch sawtooth comb" — at `dune_variation: 0.0`, i.e. today, crest
+spacing on `arid` already has a coefficient of variation of **0.42 (seed 1)
+and 0.47 (seed 7)**. That is not a constant pitch. The fbm phase term is
+doing its job.
+
+What *is* uniform is crest **height**, and the cause is a constant that was
+compensating for nothing anybody had looked at: `arid` asks for
+`dune_amplitude: 18` against a repose cap of `max_slope * FALL * wavelength`
+= **13.2**. Three dunes in four were already pinned at the cap.
+
+So the obvious implementation of the spec — per-dune amplitude as
+`dune_amplitude * (1 ± v)` — is **inert**, and measurably so: crest-height
+spread moved 0.273 → 0.281 across the entire knob range. It reads exactly
+like a dead lever and is not one; the clamp was not limiting the variation,
+it was *absorbing* it. Varying **downward from the cap** instead is what
+makes the knob work, and it is also the physically honest direction, since
+a dune cannot be taller than repose allows and a real dune field is not all
+fully-developed dunes.
+
+Measured, `arid` at 2048 wide, crest height above its own troughs:
+
+| `dune_variation` | seed | crests | mean height | cv height | mean gap | cv gap |
+|---|---|---|---|---|---|---|
+| 0.00 | 1 | 29 | 12.07 | 0.273 | 62.3 | 0.419 |
+| 0.85 | 1 | 24 | 10.63 | 0.294 | 73.4 | 0.638 |
+| 0.00 | 7 | 28 | 14.10 | 0.292 | 72.4 | 0.465 |
+| 0.85 | 7 | 23 | 13.72 | 0.322 | 89.2 | 0.521 |
+
+Spacing spread is where most of the gain is (+52% on seed 1). Height spread
+moves less than the amplitude distribution suggests it should, and the
+reason is a **censored metric, stated rather than hidden**: as variety
+rises, the shortest dunes fall below the crest detector's prominence bar and
+stop being counted — which is why the crest count falls 29 → 24 alongside.
+The visible effect is in the strips.
+
+Two implementation notes worth keeping: the trough datum had to change from
+`(profile - 0.5) * amplitude` to `profile * amplitude - 0.5 * base`, because
+`profile` is 0 at both ends of a dune's cell and the old form puts the
+trough at `-0.5 * amplitude` — two neighbouring dunes of different height
+would meet at a step of half their difference. And the repose clamp is
+re-evaluated against each dune's **own** fall fraction, not the preset's,
+per the task's instruction; the at-rest suite is green and every arid seed
+loses zero cells.
+
+**The metric needed two rewrites, both the same mistake.** A crest detector
+using a 4-column window at 3 cells of prominence reported **zero crests** in
+a world that must contain about 35 — it was asking for a 3-cell drop within
+4 columns on a dune whose flank falls 13 cells over 26. Then the height
+measure used the drop within the detection window, which on a half-wavelength
+of 29 columns never reaches a trough and was reporting the underlying hill
+slope. Both are the same failure: a metric written before its subject was
+looked at.
+
+#### 5b. Risers — a smooth term cannot break a single-column jump
+
+The spec asks for "a second, larger-amplitude detail term". Implemented at a
+14-column wavelength that is exactly what it sounds like, and it does not
+work, for a reason that is structural rather than a tuning problem: **a
+riser is a single-column jump in a heightfield**, and a term whose
+per-column change is small can only move the whole bench up or down. Built
+that way it shifted elevations by up to 6 rows near risers and left canyon
+seed 7's worst riser at 34 cells, exactly where it started.
+
+The term that works has a wavelength **near the grid** (2.5 columns, one
+octave) — deliberately the opposite of every other wavelength in the file —
+so it differs sharply between `x` and `x + 1` and turns one tall jump into a
+short flight of smaller ones. The gate is the snap residual `|bands -
+round(bands)|`, which separates riser from bench for free and with no second
+elevation evaluation: on a steep escarpment `bands` sweeps its whole range
+every few columns, while on a gentle bench it changes slowly and stays low.
+
+Sweep of single-column steps >= 6 rows over 2048 columns:
+
+| `riser_roughness` | canyon s7 steps / worst / mean | rolling s1 steps / worst / mean |
+|---|---|---|
+| 0.00 | 8 / 34 / 22.1 | 4 / 25 / 18.5 |
+| 0.35 | 12 / 32 / 15.4 | 9 / 22 / 11.8 |
+| 0.50 | 14 / 31 / 14.1 | 22 / 21 / 9.3 |
+| 0.70 | 22 / 30 / 11.6 | 38 / 21 / 9.4 |
+
+Read the **mean and the count together**, which is why the probe prints
+both: the worst step barely falls, because at the steepest escarpment the
+underlying relief supplies most of it, but the mean halves while the count
+triples. That is one tall jump becoming a flight of shorter ones, which is
+the shape asked for. A worst that fell while the count *also* fell would
+mean the relief had simply been flattened — a different and worse outcome.
+
+Defaults tuned by eye at 5x zoom on canyon seed 7: 0.45 rolling/terraced,
+0.5 canyon, 0.4 arid, 0.35 wetland, 0.0 flat.
+
+**Task 1b's keyhole columns, reported not fixed** as instructed: they do
+look different. At `0.5` the plumb faces at canyon s7 x 610/616 become
+stepped, and the brow lips over them break into two levels rather than one
+straight lintel. The count of single-column steps goes *up*, not down —
+this makes each riser shorter, it does not make risers rarer, exactly as
+predicted in finding 1b.
+
+#### Sweep consequences, all nine flags read
+
+`pockets` +42..68% is task 4 (the baseline predates it). The rest are task
+5, and none is a surprise once the mechanisms are stated:
+
+- **`arid` brows −34%, talus −44%.** Dunes are shorter on average now
+  (mean crest height 12.07 → 10.63), so fewer of them clear
+  `CLIFF_DROP = 6` and cliff detection finds fewer edges. A real
+  consequence, recorded rather than tuned away — and task 6 is about
+  exactly these two counters, so it lands on top of this.
+- **`wetland` brows +46%.** The opposite direction, and the same cause
+  read backwards: riser roughening creates more single-column steps, so
+  more of them qualify as cliff edges.
+- **`rolling` soil_moisture −32%,** with max unchanged at 4337. Steeper
+  ground near roughened risers carries less soil, so there is less soil to
+  saturate. Only mid-distribution seeds moved; the worst seed is identical.
+- **`arid` awake_chunks 3 → 6.** Checked against the hard gate rather than
+  assumed: the at-rest suite is green across every preset x 5 seeds, and
+  `cells lost since the cut` is **0 on all of arid seeds 1-8**. Nothing is
+  moving; this is the pre-existing active-site churn recorded in finding 2,
+  which is why that row is tracked rather than gated at zero.
+
+#### One pre-existing test corrected, not weakened
+
+`column.rs::steep_ground_carries_no_soil` failed after the riser change, at
+seed 0 x 77: slope 0.5305 against a cutoff of 0.5195. The generator was
+right and the test was reading the wrong material's angle — it used
+`soil_tan` for every column, and a column dry enough to carry **sand**
+stands at 34 degrees against soil's 33, so the bar was 2% too strict there.
+The generator's own gate has always used `cover_tan(x)`. Nothing had ever
+put a sandy column that close to its own limit before; riser roughening
+did. Fixed by asking about the cover the column actually carries, and the
+message now names it. The empirical half of the guarantee — every preset x
+5 seeds stepped 120 frames with zero cells moving — was green throughout,
+and `cells lost since the cut` is 0 on arid seeds 1-8.
+
+#### Cost
+
+Build, `ascii`, same machine: 2048x640 place 266.3 → 275.9 ms (+3.6%), whole
+build 456.5 → 454.8 ms, paid once at generation. Frame timings unchanged
+(stress 82.3 ms, +field 88.0 ms, render skip 0.001 ms, 0 chunks awake). The
++3.6% is one extra fbm evaluation per column, and only where the snap gate
+opens.
+
+### 6 — Brows/talus rescue: the far scale works, and it needed the pass margins re-derived
+
+`cliff_edges` now measures at two scales and a face qualifying at either
+qualifies, sized by the deeper of the two so a face that is part of an
+escarpment is sized by the escarpment rather than by its first four columns.
+
+**The far scale is not a proportional bar, and that matters.** The task
+suggested "a RUN of ~16-24 with a proportionally larger `CLIFF_DROP`".
+Proportional means the same slope — `6 * 20 / 4` = 30 cells over 20 columns
+is a slope of 1.5, exactly what the near scale already asks for, and it
+would have found *nothing extra for exactly the reason the near scale
+misses escarpments*. A regional escarpment is not steeper than a terrace
+riser, it is **taller and gentler**: tens of columns at a slope near 1. So
+`RUN_FAR = 20` with `CLIFF_DROP_FAR = 20` — a slope of 1.0.
+
+Brow reach and thickness and talus peak all scale with the measured drop
+(reach already half-did, and is extended rather than replaced), capped by
+`MAX_BROW_REACH` and `MAX_TALUS_PEAK` — caps that bound the work without
+gating whether it happens, per the twice-written landmine. Talus still
+routes through the existing two-sweep repose taper, untouched.
+
+**Per-seed, 512x320, task 6 alone** (i.e. on top of tasks 3-5):
+
+| | brows before → after | talus before → after |
+|---|---|---|
+| canyon s3 | 9 → **391** | 20 → **617** |
+| canyon s7 | 459 → 1412 | 221 → 678 |
+| canyon s2 | 620 → 1655 | 415 → 1048 |
+| rolling s2 | 234 → 675 | 111 → 610 |
+| rolling s7 | 193 → 431 | 116 → 390 |
+| wetland s7 | 4 → **97** | 45 → 123 |
+| terraced s2 | 99 → 415 | 10 → 141 |
+| rolling s1 | 172 → 216 | 164 → 164 |
+| arid s1, s7 | unchanged | unchanged |
+
+Sweep p90 over 16 seeds, against the task-2 baseline (which predates tasks
+3-6, so these are the whole track's movement): brows rolling 376 → 1081
+(+188%), canyon 918 → 2749 (+199%), terraced 290 → 746 (+157%), wetland 24
+→ 109 (+354%), arid 58 → 153 (+164%); talus rolling 246 → 840 (+241%),
+canyon 676 → 1621 (+140%), terraced 282 → 719 (+155%), wetland 46 → 141
+(+207%), arid 137 → 182 (+33%).
+
+**Two rows in that table are the ones worth reading, and neither is a
+gain.** `rolling s1` talus and both `arid` seeds come out *bit-identical*.
+That is the shape CLAUDE.md flags as "identical outputs mean the knob was
+never connected" — checked rather than assumed, and here it is the correct
+answer rather than a dead knob: those worlds have no face that clears the
+far scale, so only the near scale fires and nothing about it changed, and
+their talus peaks are all limited by `fall / 2` rather than by
+`talus_max_height`, which is the term that grew. The sweep is what shows the
+knob is live; seed 1 is not the sweep. This is also why the review's headline
+"brows 34, talus 148" needs a footnote: those were seed-1 numbers, and the
+p90 across sixteen seeds was already 376 and 246.
+
+**A finding this cannot fix**: `wetland` seeds 1, 2 and 3 generate **zero**
+cliffs, before and after. Low relief plus `terrace_strength: 0.3` means no
+face anywhere clears even `CLIFF_DROP = 6`, so the formation vocabulary is
+simply absent from most wetland worlds. Lowering the bar would hang lips off
+gentle slopes, which is the failure the constant's own comment warns about.
+If wetland should have scree at all, the lever is its relief or its terrace
+strength, not cliff detection — an owner/reviewer call, not one for this
+track.
+
+**The pass margins had to be re-derived, and one was already wrong.** A
+margin is the contract a per-chunk generator plans against, so an understated
+one is a promise to produce different cells at a chunk edge. `brows` goes
+4 → 40 (`RUN_FAR` of detection + `MAX_BROW_REACH` of writing). `talus` goes
+3 → 200 — and **3 was already wrong before this change**, because the pass
+walks up to `MAX_FALL` = 120 columns looking for the foot of a fall and has
+done since it was written. Both are large and both are honest; shrinking
+them is the coarse map's job, not optimism here. `only_the_water_passes_
+read_the_whole_world` still passes: these are finite, not `GLOBAL`.
+
+**Placement, not just count.** `cliff_formations_land_at_cliffs_and_are_
+visibly_present` is the guard, because a detector loosened until it fires
+everywhere would move the counts just as well and be strictly worse. It
+attributes cells by building the same world with each pass switched off,
+then checks each cell has a real drop within reach: **100% of talus and 100%
+of brow cells, on rolling, canyon and terraced.** Bars set from the
+measurement with headroom (weakest case is terraced at 47 talus and 102 brow
+cells; bar is 30).
+
+Its relief metric needed one correction, the same shape as the two in task
+4 and one in task 5: measuring only "does the ground fall away from here"
+scored 91 of 216 brow cells and 72 of 164 talus cells as misplaced, when
+every one was where it belonged — a brow hangs over ground that has
+*already* fallen and an apron sits at the foot of a face that *rises* beside
+it. Absolute local relief is the right question. Then the drop threshold had
+to come down from 20 to 6, because 6 is the pass's own near-scale bar and an
+apron under a modest riser is a legitimate apron; asking for an escarpment
+was a test failing for wanting something the code never claimed.
+
+**Cost**: 2048x640 place 275.9 → 275.4 ms — the second scale is 40 more
+array reads per column and does not register. Whole build 454.8 → 469.9 ms,
+the difference being the structural pass over more formation cells
+(178.9 → 194.5 ms), paid once at generation. Frame timings unchanged, 0
+chunks awake in every settled `ascii` scene, render skip 0.002 ms.
+
+At-rest green across every preset x 5 seeds — the aprons are much larger and
+still route through the two-sweep repose taper, which is what makes that
+true rather than lucky.
+
+**The sweep baseline was refreshed in the task-6 commit**, deliberately and
+as the last act of the track. Up to that point every `compare` was against
+the pre-task-3 numbers, which is what made the whole track's movement
+visible in one diff (and is why the tables above quote it). Left un-refreshed
+it would show tasks 3-6's movement forever and the next session would learn
+to ignore it, which is exactly how a rubber-stamped baseline happens. The
+before numbers are preserved here and in the commit messages; the file now
+carries the post-track state, so the next change compares against what is
+actually shipped.
+
+---
+
+## Track summary — what changed, and what the next session should know
+
+Six tasks, six commits, all gates green at each one. What the world looks
+like now, against the review's own list of what it cost the picture:
+
+- **Problem 2, "presets don't differentiate at play scale"** — a region's
+  `Character` now picks the rock, soil and sand *palette family* at genesis
+  (task 3), so crossing an escarpment crosses into different country at zero
+  frame cost. Canyon s7 and arid s1 are where it is unmissable.
+- **Problem 4, "arid dunes read as a mechanical sawtooth"** — partly. The
+  premise was measurably wrong (spacing already varied, cv 0.42); the real
+  uniformity was in height and was caused by the preset asking for more
+  amplitude than repose allows. Fixed by varying downward from the cap
+  (task 5).
+- **Problem 5, "the keyhole artifact"** — traced, not fixed, as instructed.
+  It is `round()` in the terrace snap, not the mask edge, and the step is
+  exactly `terrace_step * mask` rows (task 1). Riser roughening (task 5)
+  makes each one shorter and more numerous rather than rarer.
+- **Problem 6, "pale dashes on pond surfaces"** — settled: submerged
+  shoreline sand at the pond bed, not a water artifact, and not caused by
+  `fill_dimming: 0.0` either (task 1).
+- **The blue slivers** — sky through a gap, with zero water cells anywhere
+  in either world (task 1).
+- **"brows 34 / talus 148, too rare to register"** — rescued at region
+  scale, p90 up 140-350% across every preset, 100% of the cells landing at
+  real cliffs (task 6). Pockets stopped reading as polka dots and buried
+  gravel stopped being invisible (task 4).
+
+**Left for the reviewer, in rough order of how much they matter:**
+
+1. **Three files outside this track's owned set were touched** —
+   `src/sim/material.rs`, `src/sim/world.rs`, `src/sim/decay.rs` — because
+   widening a palette split what `palette.len()` meant. Full reasoning in
+   finding 3; `src/app.rs::spawn_burst` was deliberately left alone.
+2. **Generated worlds do not stay asleep** (finding 2): 3-8 of 40 chunks
+   awake at frame 100 on every preset including `flat`, with active sites
+   climbing to one per column. Pre-existing, points at
+   `src/sim/structural.rs`, and it matters for landmine 7.20.
+3. **`talus`'s declared margin was wrong by 40x** before this track and is
+   now 200 (finding 6). Any streaming work inherits that.
+4. **`wetland` seeds 1-3 have no cliffs at all** (finding 6) — a relief/
+   terrace-strength question, not a detection one.
+5. Two design choices in task 3 that are cheap to overturn: per-cell white
+   noise for the palette dither (a lower-frequency mottle would read more
+   like facies change), and `region_variation <= 0` opting a preset out of
+   families entirely.
+
+**Method notes worth carrying forward.** Six metrics were written wrong in
+this track and every one failed the same way — it measured where a thing is
+instead of asking what produced it, or it was written before anyone had
+looked at the subject. A "water-coloured pixel" count matched the entire
+sky; a notch detector comparing 3 columns out found none in a world with a
+7-column notch; a crest detector using a 4-column window found zero crests
+in a world with 35; a crest *height* measured the hill it sat on; two gravel
+classifiers inferred the writing pass from the cell's position; a relief
+metric looked only downhill and called 91 of 216 correctly-placed brow cells
+misplaced. The fix in four of the six was a **paired comparison** — build
+the same world with the mechanism switched off and diff — which is exact
+rather than merely better, and is now the shape every counter in
+`tests/worldgen.rs` uses.

@@ -58,6 +58,22 @@ pub struct WorldgenParams {
     /// How completely terracing replaces the smooth surface where it
     /// applies, 0..1.
     pub terrace_strength: f32,
+    /// How ragged a terrace riser is, as a fraction of `terrace_step`.
+    /// **`0.0` is the pre-review behaviour**, kept reachable so the change
+    /// can be judged by eye rather than argued about.
+    ///
+    /// A riser is a single-column jump of `terrace_step * mask` rows — up to
+    /// 34 on `canyon` — and `detail_amplitude` is 2.5 to 3.0, which is
+    /// nowhere near enough to break a face that tall. So every bluff in the
+    /// world had dead-plumb one-column sides. This adds a second, much
+    /// larger detail term applied **only near a riser**: it fades in as the
+    /// snap residual approaches the half-band where the jump happens, so
+    /// benches stay flat and only the faces get column-scale variation.
+    ///
+    /// Scaled by `terrace_step` rather than being an absolute size, because
+    /// what has to be broken up is the riser, and a riser is that tall by
+    /// definition.
+    pub riser_roughness: f32,
     /// Wavelength of the mask deciding *where* terracing applies. Terracing
     /// everywhere reads as a rendering artifact; terracing in patches reads
     /// as geology.
@@ -123,6 +139,24 @@ pub struct WorldgenParams {
     pub dune_amplitude: f32,
     /// Spacing of those crests.
     pub dune_wavelength: f32,
+    /// How much each individual dune varies from that amplitude and that
+    /// spacing, `0`..`1`. **`0.0` is the pre-review behaviour**, kept
+    /// reachable rather than deleted so the change can be A/B'd by eye
+    /// instead of argued about (the repo's runtime-selector convention).
+    ///
+    /// The phase term was `x / wavelength + 0.6 * fbm`, and the linear part
+    /// dominates it so completely that the whole desert came out as one
+    /// wavelength repeated ~30 times across the world — a mechanical
+    /// sawtooth comb, which the world review put fourth in what it costs the
+    /// picture. This draws each dune's own amplitude and its own slip-face
+    /// fraction from noise keyed on the *dune index*, so crests differ in
+    /// height and sit at different distances apart.
+    ///
+    /// Every dune's slip face is still clamped to what sand can stand on,
+    /// now against its **own** amplitude and its own fall fraction rather
+    /// than the preset's — see `column::Terrain::dunes`, where getting that
+    /// wrong once already produced a desert of bare grey spikes.
+    pub dune_variation: f32,
     /// Extra cells the water table drops in fully arid country, on top of
     /// `table_offset`. This is what stops a desert having ponds in it.
     pub aridity_table_drop: f32,
@@ -165,6 +199,7 @@ impl Default for WorldgenParams {
             warp_wavelength: 130.0,
             terrace_step: 26.0,
             terrace_strength: 0.9,
+            riser_roughness: 0.45,
             mask_wavelength: 150.0,
             soil_depth: 26.0,
             soil_slope_cutoff: 0.8,
@@ -183,6 +218,7 @@ impl Default for WorldgenParams {
             aridity: 0.35,
             dune_amplitude: 14.0,
             dune_wavelength: 46.0,
+            dune_variation: 0.7,
             aridity_table_drop: 90.0,
             region_variation: 0.75,
             moss_density: 0.10,
