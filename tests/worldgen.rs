@@ -298,6 +298,18 @@ fn every_pass_writes_something() {
             assert_eq!(*cells, 0, "vaults placed a chamber at 512x320, where the depth band should be empty");
             continue;
         }
+        // `boulders` legitimately writes nothing here too, for a different
+        // reason from `vaults`'s size gap: it reads `erosion::Deposits`,
+        // which is a guaranteed no-op at `world_age == 0` -- the default
+        // every preset ships with until round-4 task 4 flips per-preset
+        // ages on. Asserted zero here rather than skipped, and fired
+        // separately below with `world_age` forced, for the same reason
+        // `vaults` gets its own assertion: an exclusion that stops being
+        // true should fail loudly, not silently stop checking.
+        if *name == "boulders" {
+            assert_eq!(*cells, 0, "boulders placed a cluster at world_age 0.0, which erosion must no-op at");
+            continue;
+        }
         assert!(*cells > 0, "pass {name} never wrote a cell across {} seeds", SEEDS.len());
     }
     // The other half: at the size the game actually ships, vaults fire.
@@ -311,6 +323,12 @@ fn every_pass_writes_something() {
         }
     }
     assert!(vault_cells > 0, "vaults never wrote a cell across {} seeds at the shipped 2048x640", SEEDS.len());
+
+    // `boulders`'s own "the pass fires somewhere" half lives in
+    // `a_forced_boulder_world_seats_stone_and_arrives_at_rest` rather than
+    // here: unlike vaults (a size axis) it needs a much wider seed sweep to
+    // catch a real success (see that test's comment), which is too slow to
+    // repeat inside every preset this function already covers.
 }
 
 #[test]
@@ -1994,4 +2012,53 @@ fn pond_water_uses_its_four_tones_evenly() {
             "water tone {i} drew {n} of {total} cells, {ratio:.2}x its fair share of 1/{tones}"
         );
     }
+}
+
+#[test]
+fn a_forced_boulder_world_seats_stone_and_arrives_at_rest() {
+    // Round-4 task 3. Boulder sockets fire rarely at the landed erosion
+    // rates -- `boulders`'s own doc comment has the harness-size numbers --
+    // and rejecting most of them is by design, not a bug: a marker sits
+    // right at a steep drop by construction, and `canyon`'s brow_chance
+    // (0.9) means the open air a dome wants to rise into is very often
+    // already a brow's underside, which the collect-verify-write contract
+    // correctly refuses to overwrite. So this sweeps a wide, cheap seed
+    // range rather than forcing `world_age` further (CLAUDE.md: raise
+    // `world_age`, never touch the erosion constants) -- widening the seed
+    // pool finds real successes without changing what the pass is rating.
+    let presets = presets();
+    let base = presets.get("canyon").expect("canyon preset");
+    let params = WorldgenParams { world_age: 1.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+
+    let mut seated_cells = 0usize;
+    let mut checked = 0usize;
+    for seed in 1u64..=150 {
+        let mut world = World::new(Rect::new(0, 0, BOUNDS.0, BOUNDS.1));
+        let report = worldgen::generate_reported(&mut world, Spec::Generated { params: &params, seed });
+        structural::compute_world_distances(&mut world);
+        let cells = report.iter().find(|(name, _)| *name == "boulders").map_or(0, |&(_, n)| n);
+        if cells == 0 {
+            continue;
+        }
+        checked += 1;
+        seated_cells += cells;
+
+        // And it holds still, the same bar every generated-terrain claim in
+        // this file is held to: attached stone cannot move on its own, but
+        // the columns it displaced (talus, soil, sand) can, and a boulder
+        // seated wrong is exactly the kind of thing that would show up here.
+        let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        for _ in 0..120 {
+            step(&mut world);
+        }
+        let after: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        let gone: Vec<_> = before.difference(&after).copied().collect();
+        assert!(
+            gone.is_empty(),
+            "canyon seed {seed}: {} cells left their position in a forced-boulder world",
+            gone.len()
+        );
+    }
+    println!("canyon age 1.0, seeds 1..=150: {checked} worlds seated a boulder, {seated_cells} cells total");
+    assert!(checked > 0, "no seed in 1..=150 seated a boulder -- the pass never fired");
 }

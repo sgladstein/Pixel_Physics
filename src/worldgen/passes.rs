@@ -2222,3 +2222,130 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
     }
     n
 }
+
+/// Rounded attached-stone clusters seated where a hard band shed enough to
+/// leave a boulder socket (`erosion::Deposits::boulder`).
+///
+/// Sockets are markers, not shapes: erosion only records *where* a resistant
+/// surface sheds past the threshold, never what should stand there
+/// (`Reports/worldgen-erosion-design.md`'s "markers are data on the plan" --
+/// the state-the-difference-as-data lesson, `CLAUDE.md`). This pass is the
+/// one place that turns a marker into geometry, cloning `pockets`' collect-
+/// verify-write shape: propose every cell of one boulder and only write any
+/// of them if every one is a safe target.
+///
+/// Runs after `pockets` and before `vaults` (`mod.rs`'s `PASSES`), so at the
+/// point this reads the world only `stone_massif`, `bedrock_floor`,
+/// `soil_blanket`, `brows`, `talus` and `pockets` have written -- water and
+/// vault linings do not exist yet. The write-target check still excludes
+/// them: a check that "cannot fire today" is exactly the kind CLAUDE.md
+/// warns rots invisibly the day something upstream of this pass changes.
+///
+/// **Most markers reject.** A hard band that sheds enough to leave a socket
+/// is, by construction, right at a steep drop, and `brows` hangs a lip at
+/// almost every qualifying edge in `canyon` (`brow_chance` 0.9) -- so the
+/// open air a dome wants to rise into is very often already a brow's
+/// underside. Measured at the 512-column harness, canyon age 1.0: roughly
+/// 16-18 markers per 20 seeds, and only about 1 boulder in 30 seeds actually
+/// seats (`a_forced_boulder_world_seats_stone_and_arrives_at_rest`,
+/// `tests/worldgen.rs`). This is read as the collect-verify-write contract
+/// working as designed -- never overwrite a brow -- rather than a bug in
+/// it; see the round-4 Findings entry in
+/// `Reports/worldgen-implementation-tasks-2026-08.md` for the numbers.
+pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
+    let mut n = 0;
+    let seed = ctx.terrain.seed;
+    let w = ctx.terrain.w;
+    let mut x = 0;
+    while x < w {
+        if !ctx.deposits.boulder[x as usize] {
+            x += 1;
+            continue;
+        }
+        // Merge the whole run of adjacent markers into one boulder, seated
+        // at the run's centre rather than at its first column.
+        let start = x;
+        while x < w && ctx.deposits.boulder[x as usize] {
+            x += 1;
+        }
+        let cx = (start + x - 1) / 2;
+
+        // Shape, from a stream keyed on the run's centre column: 2-5 cells
+        // wide, 2-4 tall, and clamped to never taller than it is wide --
+        // stricter than (and so still honours) the erosion design's
+        // structural non-negotiable #3, "never taller than 3x its base
+        // width", which a boulder toppling over its own footprint the
+        // moment structural distances are computed would violate outright.
+        let width = 2 + (noise::unit(seed, Purpose::Boulder, cx, 0) * 4.0) as i32;
+        let height = (2 + (noise::unit(seed, Purpose::Boulder, cx, 1) * 3.0) as i32).min(width);
+        let a = width as f32 / 2.0;
+        let b = height as f32 / 2.0;
+        let reach = (a.ceil() as i32).max(1);
+
+        // Collect first, write only if every proposed cell is a safe
+        // target: open air or loose cover (soil/sand/gravel) for the dome,
+        // which is displaced rather than skipped -- a boulder resting on
+        // top of an untouched talus apron would look like it was dropped
+        // there, not eroded out of the rock beneath it. The seat row (the
+        // column's own topmost solid cell) additionally accepts bare stone
+        // without writing it: "sits on rock" needs no displacement, only
+        // contact. Anything else -- the permanent massif reached early,
+        // bedrock, water, a vault lining -- rejects the whole boulder,
+        // never just the one cell, matching `pockets`' all-or-nothing seal.
+        let mut cells: Vec<(i32, i32)> = Vec::new();
+        let mut sealed = true;
+        'run: for dx in -reach..=reach {
+            if (dx as f32 / a).abs() > 1.0 {
+                continue;
+            }
+            let lx = cx + dx;
+            if lx < 0 || lx >= w {
+                sealed = false;
+                break;
+            }
+            let extent = (b * (1.0 - (dx as f32 / a).powi(2)).max(0.0).sqrt()).round() as i32;
+            let dome = extent.max(1);
+            let ground_y = ctx.plans[lx as usize].surface_y;
+            for row in 1..=dome {
+                let py = ground_y - row;
+                if py < 0 {
+                    sealed = false;
+                    break 'run;
+                }
+                let mat = world.get(lx, py).material;
+                if mat == material::EMPTY || mat == ctx.soil || mat == ctx.sand || mat == ctx.gravel {
+                    cells.push((lx, py));
+                } else {
+                    sealed = false;
+                    break 'run;
+                }
+            }
+            let seat = world.get(lx, ground_y).material;
+            if seat == ctx.soil || seat == ctx.sand || seat == ctx.gravel {
+                cells.push((lx, ground_y));
+            } else if seat != ctx.stone {
+                sealed = false;
+                break 'run;
+            }
+        }
+        if !sealed {
+            continue;
+        }
+        for (px, py) in cells {
+            // The pale cap-rock family, unconditionally: a boulder is a
+            // hard-band survivor by construction (`erosion.rs`'s
+            // `BOULDER_HARDNESS` gate on which shed counts toward a
+            // socket), so it should read as the resistant stone it came
+            // from rather than take the region's ordinary shade -- the same
+            // reasoning the speleothem stalactites use for themselves.
+            world.set(
+                px,
+                py,
+                Cell::new(ctx.stone, FAMILY_RESISTANT * TONES + loose_shade(ctx, Purpose::Boulder, px, py))
+                    .with_attached(true),
+            );
+            n += 1;
+        }
+    }
+    n
+}

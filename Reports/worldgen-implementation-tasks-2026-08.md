@@ -1566,3 +1566,57 @@ All gates green at each commit: `cargo test`, `cargo clippy --all-targets --
 - **A guard must fail for the right reason.** The water-tone test asserts the
   rendered distribution, not `palette.len()`, so it also catches the inverse
   bug; deliberately broken, it names the 1.49x fold rather than a length.
+
+---
+
+# Round-4 findings
+
+Round 4's queue is `Reports/worldgen-implementation-tasks-round4-2026-08.md`;
+its findings are appended here, as that file instructs.
+
+### R4-1 — Boulders mostly reject, and it is the brow pass doing it, not a bug
+
+Task 3's `boulders` pass (`passes.rs`) clones `pockets`' collect-verify-write
+shape exactly as specified: propose every cell of one boulder's dome, verify
+each is currently open air or loose cover (displaceable) or bare rock (the
+seat, no write needed), and skip the whole boulder if anything else is there
+-- the permanent massif, bedrock, water, a vault lining.
+
+**Measured at the 512-column test harness, canyon, `world_age` 1.0**: 16-18
+boulder markers per 20 seeds (`Deposits::boulder`), essentially none at the
+world edges (that is a separate, harmless edge-outlet effect described
+below). Of those markers, only **about 1 boulder in 30 seeds actually
+seats** -- 5 successes and 28 cells across seeds 1..=150
+(`a_forced_boulder_world_seats_stone_and_arrives_at_rest`,
+`tests/worldgen.rs`). Debug instrumentation (not shipped) confirmed the
+rejection is real, not a bookkeeping slip: the dome's proposed open-air cell
+is already `stone` -- a `brows` lip hanging over the same column.
+
+**Read as the mechanism working as designed, not a bug to fix.** A hard band
+that sheds enough to leave a socket is, by construction, right at a steep
+drop -- the same condition `cliff_edges` uses to hang a brow -- and
+`canyon`'s `brow_chance` is 0.9, so the open air a dome wants to rise into is
+very often already spoken for. The collect-verify-write contract correctly
+refuses to overwrite that brow rather than punching through it, which is the
+behaviour the spec asked for ("never carve into solid massif... else skip
+that boulder"). The alternative -- loosening the dome to tolerate existing
+stone -- would mean boulders sometimes eat brows, which is a worse trade than
+firing rarely. No erosion constant or `HardnessField` shape needed
+retuning to reach this; per the round-4 instructions this is recorded as a
+finding rather than an improvised fix. If the reviewing session wants
+boulders to fire more often, the lever is almost certainly `boulders`'
+own footprint or ordering relative to `brows`, not `BOULDER_SHED_THRESHOLD`
+or `BOULDER_HARDNESS`.
+
+**A separate, harmless edge effect, noted so it is not mistaken for the
+same bug.** At high `world_age` (6.0+, well past any shipped preset)
+boulder markers cluster at the two world edges instead: the hydraulic pass
+treats the edge as a permanent outlet (`nh` is `NEG_INFINITY` there), so an
+edge column never becomes a basin and carves on every hydraulic pass for
+the whole run, digging tens to hundreds of cells deep over enough
+iterations. This is designed behaviour ("the world treats the edge as an
+outlet", `erosion.rs`) operating exactly as documented, just far outside
+the age range (0.7-1.0) task 4 ships. The forced-boulder test avoids it by
+widening the seed sweep at a realistic age instead of raising `world_age`
+further, per this round's "raise `world_age`, never the erosion constants"
+instruction and the CLAUDE.md rule about re-measuring rather than assuming.

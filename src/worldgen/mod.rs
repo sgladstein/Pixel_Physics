@@ -108,6 +108,12 @@ const PASSES: &[Pass] = &[
     Pass { name: "brows", margin: 40, run: passes::brows },
     Pass { name: "talus", margin: 200, run: passes::talus },
     Pass { name: "pockets", margin: 0, run: passes::pockets },
+    // Boulder sockets from erosion's shed markers. Zero margin: a marker at
+    // `x` seats a cluster whose footprint is at most a handful of columns
+    // either side of `x`, well inside a single column's worth of slack, and
+    // the marker itself is plan-space data already computed for the whole
+    // world rather than something this pass has to look sideways for.
+    Pass { name: "boulders", margin: 0, run: passes::boulders },
     // Finite, and derived rather than guessed: a cave system is placed at a
     // column and reaches at most `CAVE_HALF_W` (90) either side of it, plus
     // `VAULT_RIND` (2) of stone that must be checked; the geode vug's
