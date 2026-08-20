@@ -294,5 +294,260 @@ prototype — it is the first follow-up, with the sweep as its opening move.
 
 ---
 
-*Sections 5-7 — verification results against source, pathology diagnoses in
-full, and the implementation handoff — are being finalized.*
+## 5. What adversarial verification changed
+
+Every code-level claim the recommendations rest on was checked against
+source by a reviewer instructed to refute. The architecture survived; three
+load-bearing details did not, and they reshape the spec in §7:
+
+- **Crack rays must start beyond the fractured shell band.**
+  `score_cracks` rays `break` on the first non-Solid cell
+  (`rigid::is_body_material`, rigid.rs:771), and by the blast's last stage
+  the crater is empty *and* `fracture_shell` has removed the annulus out to
+  `radius + BLAST_SHELL_REACH`. `from = radius` dies on its first cell.
+  Correct: call at **trigger time** (rock still intact everywhere, no
+  re-landed debris to eat rays) with `from = radius + BLAST_SHELL_REACH + 1`
+  — rays then start in what will remain standing rock and never interact
+  with the crater at all.
+- **Sector gating must gate `fracture_shell` too, not just `clear_annulus`.**
+  Otherwise a "contained" sector still gets its rim unattached and fractured
+  — rock that never lost a cell loses its 12× attachment bonus anyway, which
+  quietly re-manufactures §1d.
+- **Cracks alone cannot drop the roof — verified arithmetically.** With the
+  real constants (`base = span²/2 = 128`, `attached_span_bonus = 12`,
+  `uncracked_faces` floor ¼), a breach-spanning shell decomposes into
+  independent single-cell-deep row chains (load.rs:1296's own comment), so
+  torque does not grow with shell thickness while capacity grows with
+  thickness². A 40-cell breach's abutment row carries torque ≈ 210 (≈ 820
+  fully cantilevered) against capacity 32·t² even fully cracked and
+  detached: t=5 is marginal, t≥6 holds by 2-10×. **Only the powder
+  surcharge (R4) closes that gap** — a 600-cell plug adds ≈ 3,000 torque.
+  R4 stays the roof-killer; R1+R2 make the roof *verb* work at blast time
+  (the breach opens downward and the muck falls into the cave instead of
+  plugging), R4 makes standing plugs matter afterwards.
+- **`relax_region` is not safe to bolt onto the failure path as-is.** It
+  seeds `is_resting_on_ground` at distance 0 — the eager powder-rooting
+  `structural::tick` was deliberately demoted away from (structural.rs:189)
+  — so running it over a fresh rubble field re-manufactures the
+  load-sink/counterweight dynamic that took two annulled bugs to untangle.
+  It is also unbudgeted. R3b therefore needs the tick's last-resort ground
+  semantics ported into (or parameterized on) `relax_region` first; R3a
+  (fracture pacing) is independent and carries no such caveat.
+- **The chimney's mechanism, confirmed:** one `Overloaded` check's region is
+  the union of supported subtrees over the failing section — including
+  attached bulk (harvested even though it would never be judged itself) —
+  and for `Unsupported`, `detached_piece` runs to `MAX_REGION_CELLS =
+  20,000` without consuming the frame budget in its own loop. Nothing caps
+  what one tick hands to `fracture_failing_region`; `MAX_SUBTREE_CELLS`'s
+  own doc already *promises* staging ("a piece bigger than this simply
+  comes down in stages") that the handoff does not deliver.
+- **The livelock's three engines, confirmed:** a massif-wide reactive
+  re-relaxation at one cell per 5 frames; count-to-infinity pockets that
+  climb forever after a collapse (nothing on the failure path runs the
+  converged pass the paint path runs for exactly this reason,
+  world.rs:2098); and everything that fell being permanently
+  structurally-interesting (unattached ⇒ `is_structurally_interesting`
+  unconditionally true) under `MAX_LOAD_CELLS_PER_FRAME` exhaustion →
+  `Deferred` → requeue every 5 frames. Dispatch order `(next_frame, x, y)`
+  means a frozen structure at low x can starve every check behind it —
+  the code says so itself (structural.rs:295).
+
+## 6. The three pathologies — disposition
+
+| Pathology | Root cause (verified) | Disposition |
+|---|---|---|
+| §1d chimney: 5,700 cells, 189 bodies, one frame, 264 ms | Region = whole-column subtree union through attached bulk; no per-tick fracture cap; no shear/arch relief reaches an 82-cell roof (`MAX_COVER_PROBE = 8`, and `arch_span` clamps the arm, not the mass) | **R3a fixes the spike and stages the fall.** R2 shrinks the wound that provokes it. Whether ~5,700 cells *should* eventually fall is a load-model calibration (flank shear / Terzaghi relief) — **deferred**, behind the seed-sweep obligation, with real block-caving cited as the reason pacing alone may be enough. |
+| §1d livelock: sites 6.3k → 17.9k at f1200, 10-11 chunks awake forever | The three engines in §5 | **R3b fixes engines 1-2** (converged relax after mass failure), once the eager-ground caveat is addressed; R3a shrinks engine 3's population. Gate: pending-sites at f1200 < 500 and falling, awake chunks back to ~1-2. |
+| §1e immortal roof | Blasts score no cracks; powder mass invisible to the load walk (a tree branch is charged for powder piled on it — `structural::supported_load` — stone never got the term); `DETACH_DEPTH = 3` leaves the shell attached and uninteresting; shell rows hold on own mass at t≥6 (§5 arithmetic) | **R1+R2 make the roof-blast verb work at detonation** (breach opens toward the cave, muck falls in, cracks seed delayed failures). **R4 is the standing fix** — powder surcharge mass, behind the seed sweep, with the §7 traps (re-check hole, kern-test interaction, unit conservation) recorded. |
+
+## 7. Implementation handoff — the prototype, written for a cold start
+
+The owner has directed that implementation be done by a cheaper model.
+This section is the complete spec for the first prototype (**R1 + R2 + the
+report line**), plus R3a as a separate follow-on commit. Read
+`CLAUDE.md` in full first; the traps at the end of this section are not
+optional reading — every one is a measured, in-repo failure mode.
+
+### 7a. Scope of the prototype
+
+One behavioural change, stated as the player will see it: **a blast now
+reads its surroundings.** Fully buried in stone it crushes a small pocket
+and drives a visible star of fissures into the rock (cheaper than today —
+nothing thrown inside a sealed cavity); with a free face nearby it bites
+toward the face and throws its muck out through the mouth; sand still
+behaves as today; stone near a face yields less than sand for the same
+charge. Every blast prints what it did.
+
+### 7b. Changes, file by file
+
+**`src/sim/material.rs` + `assets/materials/*.ron`** — add
+`blast_resistance: f32` to `MaterialDef`, `#[serde(default =` 1.0`)]`.
+Set sand 0.35, soil 0.5, gravel 0.4, rubble 0.4, snow 0.2, stone 1.0.
+(Data per `design-philosophy.md` §2a. Remember: `.ron` is
+`include_str!`-compiled — a sweep that edits it must rebuild between
+points.)
+
+**`src/sim/explosion.rs`** —
+1. `Tuning` gains: `crack_rays: u32` (12), `crack_reach: f32` (1.5),
+   `containment_floor: f32` (1.4), `confined_cavity_fraction: f32` (0.35).
+   `#[serde(default)]` already covers old files.
+2. New `probe_confinement(world, cx, cy, radius, tuning) -> [SectorReach; 16]`
+   run **once at trigger** (both constructors — `Blasts::trigger_with` AND
+   the synchronous `trigger_tuned`; `Blast` is built in two places). Sixteen
+   fixed directions, 22.5° apart. March each ray from the epicentre,
+   accumulating `blast_resistance` per cell (EMPTY and gases cost 0 and mark
+   the ray **vented**; stop there). A sector whose resistance-weighted
+   cost-to-air ≤ `containment_floor × radius` is **open**: effective clear
+   radius = `radius`. Otherwise **contained**: effective clear radius =
+   `confined_cavity_fraction × radius`. Store on `Blast` (it is `Copy`; a
+   `[u8; 16]` of effective radii is enough). Directions are fixed constants
+   — no `world.rng` draws (determinism: an extra draw shifts every later
+   roll in the frame), no per-stage recomputation (sector membership must be
+   stable across stages).
+3. `clear_annulus`: per cell, sector index from `(dx, dy)` (integer octant
+   test, no atan2 in the loop — a 16-way branch on `dy/dx` signs and
+   `|dx|` vs `|dy|` vs `2|dx|` comparisons, or a small precomputed method);
+   admit the cell only if `dist2 ≤ sector_reach²`. The vaporize core is
+   inside every sector's reach and is unchanged.
+4. The `fracture_shell` call: skip contained sectors — pass the sector
+   reaches (or a `&Blast`) into `fracture_shell` and apply the same test in
+   its annulus loop. **This is required, not optional** (§5): without it,
+   contained rock is unbraced and fractured without having lost a cell.
+5. `scorch` stays ungated (a buried flash glowing through rock reads
+   correctly and ignites nothing new), as do the one-shot pressure/heat
+   writes.
+6. **The crack halo**: at trigger, immediately after the probe, if any
+   probe ray crossed Solid rock: call
+   `rigid::score_cracks(world, cx, cy, from, length, rays)` with
+   `from = radius + BLAST_SHELL_REACH + 1` (import or re-derive the
+   constant; rays must start beyond the band `fracture_shell` will remove),
+   `length = (radius as f32 * tuning.crack_reach) as i32 + from`,
+   `rays = tuning.crack_rays`. Make `score_cracks` `pub(crate)` — one-word
+   change in `rigid.rs`. Do NOT call it on the last stage: by then the
+   crater is empty and re-landed debris eats rays (§5).
+7. **The report line**: accumulate per-blast counters (cells cleared, cells
+   left standing by containment, open/contained sector counts; have
+   `score_cracks` return the number of cells it scored — trivial signature
+   change, update `strike`/`mine_swept` call sites to ignore it) and print
+   one line when the blast finishes, gated so tests stay quiet (a
+   `pub fn last_blast_report()` the harnesses read, or print from
+   `filmstrip`'s boom hook — filmstrip already prints `boom:` at
+   examples/filmstrip.rs:1388; extend that).
+
+**`examples/filmstrip.rs`** — add a cracked-cell census print alongside the
+existing per-tile counters: count cells with either crack bit set within a
+`3×radius` box of the last `explode=` site. Baseline to beat: **47** on
+`boom_stone explode=256,220` (all from confined crushes).
+
+### 7c. Tests: which guards legitimately change meaning
+
+Run `cargo test --release --lib` and expect these to need attention — fix
+the *contract*, never weaken the guard (`CLAUDE.md`: a guard must be able
+to fail for the replacement artifact):
+
+- `most_of_the_blast_radius_becomes_debris_not_vaporized` and
+  `the_shipped_defaults_still_throw_plenty_of_debris`: both build worlds
+  where the charge is enclosed on all sides by 20+ cells of material. Under
+  the new contract a fully-contained stone blast deliberately clears only
+  the crush core. The sand test keeps passing on resistance alone
+  (40 cells × 0.35 = 14 ≤ 28 = floor × radius ⇒ open). The stone test's
+  *intent* ("the vaporize curve must not creep back") should be preserved
+  by pinning its Tuning: `containment_floor: f32::INFINITY` (every sector
+  open) reproduces the old geometry exactly — same trick the test already
+  uses for `debris_fraction`.
+- `an_explosion_clears_material_within_its_radius` (epicentre) survives:
+  the crush core always clears.
+- Add two new guards: (i) a fully-buried stone blast leaves ≥ N cracked
+  cells and < M cleared cells (the new contract, stated positively);
+  (ii) sand at the same geometry still clears the full disc (the
+  resistance term's other direction).
+
+### 7d. Acceptance — images AND counters, then play
+
+```
+cargo run --release --example filmstrip -- scene=boom_stone explode=256,220,20,180,60 start=61 every=30 count=6 cols=3 crop=176,160,160,120 zoom=3
+cargo run --release --example filmstrip -- scene=boom_stone explode=256,190,20,180,60 start=61 every=30 count=6 cols=3 crop=176,130,160,120 zoom=3
+cargo run --release --example filmstrip -- scene=sandbed   explode=256,160,20,180,60 start=61 every=30 count=6 cols=3 crop=176,100,160,120 zoom=3
+cargo run --release --example filmstrip -- scene=cavern    explode=186,240,20,180,60 start=61 every=30 count=6 cols=3 crop=126,150,260,150 zoom=2
+cargo run --release --example filmstrip -- scene=cavern    explode=256,200,20,180,60 start=61 every=30 count=6 cols=3 crop=126,120,260,180 zoom=2
+cargo run --release --example ascii
+```
+
+Bars (baselines from §1, measured this session on this machine):
+
+| case | counter | baseline | bar |
+|---|---|---|---|
+| buried stone | cracked census | 47 | ≥ 300, and *visible* fissure lines on the sheet |
+| buried stone | net cells lost | 286 | **down** (pocket only) |
+| buried stone | peak bodies | 20 | ~0 (nothing thrown in a sealed cavity) |
+| near-face stone | final void | 141 | up, and muck visibly outside the mouth |
+| sand 40 deep | cells evacuated | 991 | within ~20% of baseline (sand unchanged) |
+| cave roof | cave-volume census | 5,269 → 5,305 | **grows** by ≥ 300 (breach + rockfall into the cave) |
+| cave wall | cave-volume census | 5,269 → 3,598 | ≥ pre-blast volume ("a blast must at least pay for itself") |
+| any | `ascii` settled scenes | 0.000 ms | unchanged; re-baseline same-session first |
+
+Then look again for what was not measured (`CLAUDE.md` method step 4): the
+sheet that matters most is the one nobody wrote a bar for.
+
+### 7e. R3a — the follow-on commit (fracture pacing)
+
+In `structural.rs` (~line 467), before handing `failure.region` to
+`rigid::fracture_failing_region`: if `region.len() > FRACTURE_CELLS_PER_TICK`
+(~1,000, const for now), BFS from `failure.at` within the region for the
+nearest slice of that size, fracture only the slice, and
+`schedule_structural_check_around` the remainder's boundary so it re-fails
+on later ticks. This bounds work per tick, never whether the rest comes
+down — the remainder must be guaranteed a re-visit (the reschedule is that
+guarantee; do not rely on the disturbance window alone, and note
+`within_disturbance` gating at structural.rs:379 can expire before late
+slices fail — test the whole column still falls at `chain_reach` defaults).
+Acceptance: cave-wall scene worst frame < 50 ms (baseline 264, headroom per
+convention); the per-tile `bodies` line showing a *series* of bursts;
+total cells fractured comparable to baseline.
+
+### 7f. Traps (each has already cost this repo real time — do not skip)
+
+1. Two predicates named `is_body_material` exist: `rigid::` (Solid only)
+   and `structural::` (Solid|Plant). Crack rays use rigid's — they stop at
+   Plant, Powder, EMPTY. Do not "fix" either.
+2. No `world.rng` draws in the probe or anywhere position-stable — use
+   fixed directions / `rng::jitter`. An extra draw reorders every later
+   roll in the frame and breaks replay determinism.
+3. `Cell::is_empty()` is managed-aware; the probe's "is this air" test is
+   `cell.material == material::EMPTY` (explosion.rs already has the
+   precedent comment at clear_annulus).
+4. Liquid `aux == 0` means FULL; never write `with_aux(0)` to mean empty.
+5. Gate hot-path material reads through the `MaterialDef` field at the call
+   site that already holds the cell — never `id_of("name")` in a sweep.
+6. Test both drivers (`update::step` and `parallel::step`) — the app runs
+   the parallel one. Do not touch `MAX_REACH`.
+7. `cargo fmt` is all-or-nothing; do not let it ride along. CI gates
+   `cargo clippy --all-targets -- -D warnings`.
+8. Stage explicit paths (`git add src/... examples/...`); never `git add -A`.
+9. Commit messages carry the measurement: number before, number after,
+   what was tried and rejected.
+10. A green suite is not a screen change. The acceptance table in §7d is
+    the definition of done, and the last step is *looking* at the sheets.
+11. Source comments are load-bearing; do not strip them, and record any
+    new dead end in the same voice where you hit it.
+12. R4 (powder surcharge), if attempted later: it changes what `torque`
+    means — every capacity constant and acceptance bar was set against
+    body-only torque, so re-deriving them is part of the fix, and the
+    N-seed sweep gating an order statistic must exist *before* the change
+    lands. Also: powder movement schedules no structural checks on the
+    stone beneath it (the re-check hole), and `bearing_moment`'s kern test
+    is deliberately mass-independent — feeding surcharge into it changes
+    that model's meaning. See §5.
+
+### 7g. What was deliberately not built, so nobody re-derives it
+
+- Explicit spall (worked design exists in the fan-out record if wanted).
+- Field-coupled shockwaves moving CA material (do-not-retry: field forcing
+  broke field sleep, measured 0.0002 → 3.55 ms permanent).
+- Chimney-size calibration (flank shear / Terzaghi mass relief) — behind
+  the seed sweep, after R1-R3 are judged in play.
+- A fuse/thrown-charge verb — owner's call, app-side, independent.
+- `relax_region` on the failure path (R3b) — blocked on porting tick's
+  last-resort ground-rooting semantics into it (§5); the diagnosis and the
+  gate counters are in §6.
+
