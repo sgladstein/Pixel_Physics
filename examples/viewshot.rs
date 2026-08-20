@@ -42,6 +42,7 @@ struct Args {
     rain: String,
     mine: bool,
     vault: bool,
+    reveal: bool,
     light: pixel_physics::render::TerrainLight,
     spring: i32,
     out: String,
@@ -60,6 +61,7 @@ fn main() {
         rain: String::new(),
         mine: false,
         vault: false,
+        reveal: false,
         light: pixel_physics::render::TerrainLight::default(),
         spring: 0,
         out: "target/filmstrips/viewshot.png".to_string(),
@@ -94,6 +96,9 @@ fn main() {
             // position is a noise draw and a hardcoded coordinate would go
             // stale the moment anything upstream of `Purpose::Vault` changes.
             "vault" => a.vault = v != "0",
+            // `reveal=1` turns on the F11 void X-ray, so a strip can show
+            // where every sealed chamber and cavity sits without digging.
+            "reveal" => a.reveal = v != "0",
             // `light=flat` renders the pre-review look, for A/B strips of
             // the terrain depth light (`F10` in the app).
             "light" => {
@@ -259,6 +264,7 @@ fn main() {
 
     let mut renderer = Renderer::new();
     renderer.terrain_light = a.light;
+    renderer.reveal_voids = a.reveal;
     let particles = ParticleSystem::new();
     let (vw, vh) = (WIDTH as usize, HEIGHT as usize);
     let mut sheet = vec![0u8; vw * vh * a.shots * 4];

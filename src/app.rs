@@ -1778,7 +1778,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1806,6 +1806,10 @@ impl App {
             } else {
                 format!(" — light {}", self.renderer.terrain_light.label())
             },
+            // The void reveal (`F11`) is a debug X-ray, so a screenshot with
+            // it on must say so — magenta caves in a shared image with no
+            // label would read as a rendering bug.
+            if self.renderer.reveal_voids { " — VOIDS REVEALED" } else { "" },
             // Same rule as grain: silent until someone is actually
             // comparing, then named, because the whole value of a
             // selector is being able to report which one you liked.

@@ -24,6 +24,11 @@ const VOID: [u8; 4] = [12, 12, 16, 255];
 /// `VOID` and from a night sky.
 const UNDERGROUND: [u8; 4] = [31, 29, 33, 255];
 
+/// What an underground void draws as while the `F11` reveal is on. Magenta,
+/// because nothing generated or placed in this world is magenta — the same
+/// "a colour the scene cannot produce" reasoning as the debug overlays.
+const REVEAL_VOID: [u8; 4] = [232, 62, 214, 255];
+
 /// How many rows it takes to go from open daylight to full `UNDERGROUND`
 /// below a roof.
 ///
@@ -674,6 +679,9 @@ pub struct Renderer {
     /// always full too, for the same reason: an unwritten buffer has nothing
     /// valid to partially build on.
     last_zoom_state: Option<(i32, i32)>,
+    /// The look toggles as of the last draw — forces one full repaint when
+    /// `F10`/`F11` flip. See the `look_changed` note in `draw`.
+    last_look: Option<(TerrainLight, bool)>,
     /// The sky as of this frame, recomputed once per `draw` and read by
     /// every empty pixel. Held rather than passed because `cell_colour` is
     /// the per-pixel hot path and recomputing a cosine there would be paying
@@ -712,6 +720,19 @@ pub struct Renderer {
     cave_ramp: [u8; CAVE_FADE_DEPTH as usize + 1],
     /// `F10` — whether solid terrain is lit by depth below the skyline.
     pub terrain_light: TerrainLight,
+    /// `F11` — reveal every void inside the ground, for testing.
+    ///
+    /// Sealed chambers are invisible by design (dark cave fade against dark
+    /// deep rock, 200+ rows down), which makes "did this world get a vault,
+    /// and where" unanswerable in the app without digging blind. With this
+    /// on, materially-empty cells below the frozen skyline draw as a flat
+    /// bright marker instead of unlit rock, so every enclosed void — vault
+    /// domes, blast cavities, tunnels — reads at any zoom. A debug reveal,
+    /// not a look: full replace with a colour nothing else in the world
+    /// uses, on the same reasoning as the field overlays' fixed ramps
+    /// (a blend into the world's own palette is exactly how the canopy
+    /// overlay once read as blank).
+    pub reveal_voids: bool,
     /// `DEPTH_LIGHT_RAMP_ROWS`'s ramp, precomputed for the same reason as
     /// `cave_ramp` directly above: read per solid pixel, and it only ever
     /// takes `DEPTH_LIGHT_RAMP_ROWS + 1` distinct settings. Fixed-point
@@ -759,6 +780,7 @@ impl Renderer {
             organism_overlay: OrganismOverlay::Off,
             last_organism_overlay: OrganismOverlay::Off,
             last_zoom_state: None,
+            last_look: None,
             sky: Sky::at(0, 0, 1, 0, 1),
             last_sky_key: None,
             daylight: sky::LIGHT_LEVELS,
@@ -778,6 +800,7 @@ impl Renderer {
                 ramp
             },
             terrain_light: TerrainLight::default(),
+            reveal_voids: false,
             depth_light_ramp: {
                 let mut ramp = [256u16; DEPTH_LIGHT_RAMP_ROWS as usize + 1];
                 ramp[0] = (DEPTH_LIGHT_HIGHLIGHT * 256.0).round() as u16;
@@ -1082,8 +1105,19 @@ impl Renderer {
         let sky_key = self.sky.key();
         let sky_changed = self.last_sky_key != Some(sky_key);
         self.last_sky_key = Some(sky_key);
+        // The two whole-look toggles (`F10` depth light, `F11` void reveal)
+        // recolour cells that are already painted and settled, so flipping
+        // either must repaint everything once or the screen shows a patchwork
+        // of both looks until the next full frame. Same device as
+        // `last_organism_overlay` — and it closes a real gap: the depth
+        // light shipped without it and coasted on `sky_changed` firing most
+        // frames, which is a coincidence, not a contract.
+        let look = (self.terrain_light, self.reveal_voids);
+        let look_changed = self.last_look != Some(look);
+        self.last_look = Some(look);
 
         let full = force_full
+            || look_changed
             || scale_changed
             || camera_moved
             || sky_changed
@@ -1723,6 +1757,12 @@ impl Renderer {
             let depth = self.sky_depth(x, y);
             base = if depth < 0 {
                 daylight
+            } else if self.reveal_voids {
+                // `F11`: every enclosed void marked, however deep — see the
+                // field doc. Flat, not depth-faded: the point is that a
+                // vault 280 rows down reads exactly as loudly as a shallow
+                // tunnel.
+                REVEAL_VOID
             } else {
                 // Inside the ground: unlit rock, not daylight. Constant
                 // rather than following the sky, because a cave is dark at

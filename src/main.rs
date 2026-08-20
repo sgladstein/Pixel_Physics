@@ -403,6 +403,7 @@ impl Handler {
             KeyCode::KeyL => self.app.renderer.cycle_organism_overlay(),
             KeyCode::KeyG => self.app.renderer.cycle_grain(),
             KeyCode::F10 => self.app.renderer.cycle_terrain_light(),
+            KeyCode::F11 => self.app.renderer.reveal_voids = !self.app.renderer.reveal_voids,
             // The A/B key. Deliberately reassigned as the question changes --
             // see `App::toggle_experiment`.
             KeyCode::KeyK => self.app.toggle_experiment(),
