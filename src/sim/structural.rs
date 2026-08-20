@@ -941,38 +941,225 @@ pub(crate) fn walk_fissures(
     forks: usize,
     detach: bool,
 ) -> u32 {
-    let mut walkers: Vec<((i32, i32), f32, usize)> = (0..primaries)
-        .map(|i| (start, heading + i as f32 * std::f32::consts::TAU / primaries.max(1) as f32, length))
-        .collect();
-    let mut forks = forks;
-    // Only *pre-existing* damage earns a walker extra reach. Strokes from
-    // one walk cross each other near the origin, so counting cracks this
-    // call just made would have every blast max out its own bonus
-    // immediately and leave nothing for the next one to build on -- the
-    // trap `rigid::score_cracks` records having fallen into first.
-    let mut scored_now: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
-    let mut fissured = 0u32;
-    let mut head = 0;
-    while head < walkers.len() {
-        let (mut pos, mut heading, mut budget) = walkers[head];
-        head += 1;
-        let ceiling = budget + (super::rigid::CRACK_TIP_BONUS * super::rigid::CRACK_TIP_MAX_STEPS) as usize;
-        // The path is carried at sub-cell precision and rounded only to
-        // decide which cell it is in. Stepping to an axis neighbour
-        // instead -- whichever of the four the heading pointed most nearly
-        // at -- was tried and is what produces a staircase: the heading
-        // turns slowly, so its dominant axis stays the same for many
-        // cells, and the crack comes out as long horizontal and vertical
-        // runs meeting at right angles. That is the "criss cross" look,
-        // and no amount of extra wander fixes it, because the quantisation
-        // is doing it rather than the path.
-        let (mut fx, mut fy) = (pos.0 as f32 + 0.5, pos.1 as f32 + 0.5);
-        let mut steps = 0usize;
-        while steps < budget {
+    FissureWalks::new(start, heading, primaries, length, forks, detach).run_to_completion(world)
+}
+
+/// One walker's entire state, so a crack can be **put down mid-stroke and
+/// picked up on a later frame**.
+///
+/// Every field here was a local in the loop that used to run to completion
+/// inside `walk_fissures`. Two of them are the reason this is a struct
+/// rather than a tuple of the obvious three:
+///
+/// - **`fx`/`fy` must persist across a resume.** The path is carried at
+///   sub-cell precision and rounded only to decide which cell it is in (see
+///   `step_walker`'s own comment for what axis-stepping did instead).
+///   Re-deriving `fx, fy` from `pos` on resume -- the obvious way to store
+///   less -- re-centres the walker in its cell every time it is picked up,
+///   which throws away the fractional offset the wander has accumulated and
+///   straightens the crack toward whatever heading it happens to hold. It is
+///   the same quantisation the sub-cell path exists to avoid, just applied
+///   once per frame instead of once per cell.
+/// - **`budget` and `steps` are kept apart rather than collapsed into one
+///   "steps left".** A fork inherits `budget / 2` of its parent's *total*
+///   budget, tip bonuses included, not of the parent's remainder; a single
+///   remaining-count cannot reconstruct that, and getting it wrong changes
+///   every branch length on the crush path -- which has to stay
+///   bit-identical.
+#[derive(Clone, Copy, Debug)]
+struct Walker {
+    pos: (i32, i32),
+    fx: f32,
+    fy: f32,
+    heading: f32,
+    /// Total sub-cell steps this walker may take, including any crack-tip
+    /// bonus it has earned so far.
+    budget: usize,
+    /// How many of `budget` it has already taken.
+    steps: usize,
+    /// The hard cap `budget` may be bonused up to.
+    ceiling: usize,
+    /// Frames still to wait before this walker takes its first step. Zero
+    /// for every crush walker; the blast staggers its rays so the star does
+    /// not leave the crater as one synchronised starburst. Ignored entirely
+    /// by `run_to_completion`, which has no frames to count.
+    delay: u16,
+    /// Set when the walk ends -- budget spent, out of bounds, or out of
+    /// rock. Needed because `is_done` cannot tell "spent" from "stopped at a
+    /// free face" from `steps` alone.
+    done: bool,
+}
+
+/// A star of wandering, forking fissures, in progress.
+///
+/// This is `walk_fissures`' loop turned inside out so its state can live
+/// across frames. It exists because of the owner's verdict on the star the
+/// one-call version drew: *"it looks the same everytime, it looks like a
+/// graphic stamped on the stone and not a realistic fissure. It would be
+/// cool if you could see it grow."* The shape was never the problem by
+/// then -- a thing that appears whole on the bang frame and never moves
+/// again reads as a decal however organic its outline is. So the *timing*
+/// of the writes changed and nothing else did: the pattern for a given site
+/// is still a pure function of position (`rng::jitter`, never `world.rng`),
+/// so a repeat charge still retraces and deepens its own fissures.
+///
+/// # Two drivers over one step function
+///
+/// The repo's own two-drivers shape (`update::step` / `parallel::step`, and
+/// `Blasts` / `trigger_tuned` next door in `explosion.rs`), for the same
+/// reason: a second copy of the walker would drift from this one the first
+/// time either changed.
+///
+/// - [`run_to_completion`](Self::run_to_completion) drains walker `head`
+///   entirely before starting the next -- byte-for-byte the order the
+///   single-call version used, which is what keeps `crush_in_place`
+///   bit-identical.
+/// - [`advance`](Self::advance) is a round-robin: every live walker takes up
+///   to N steps per call and forks join the rota on later passes.
+///
+/// **The two legitimately draw different stars from the same inputs**, and
+/// that is not a bug to be chased: the fork pool is shared, so who spends it
+/// depends on the order walkers are visited in, and round-robin visits them
+/// in a different order than depth-first does. Nothing compares the two --
+/// the crush path only ever calls the first, the blast only ever the
+/// second -- so the property that matters (each is deterministic in the
+/// site) holds for both.
+#[derive(Clone, Debug)]
+pub(crate) struct FissureWalks {
+    walkers: Vec<Walker>,
+    /// `run_to_completion`'s cursor. Unused by `advance`, which sweeps the
+    /// whole queue every call.
+    head: usize,
+    /// The **shared** fork pool. Shared rather than per-walker because that
+    /// is what `crush_in_place` was extracted from: strokes are processed
+    /// out of one queue and take forks from one pool in that order, and
+    /// splitting the pool per stroke draws a different crack.
+    forks: usize,
+    detach: bool,
+    /// Only *pre-existing* damage earns a walker extra reach. Strokes from
+    /// one walk cross each other near the origin, so counting cracks this
+    /// walk just made would have every blast max out its own bonus
+    /// immediately and leave nothing for the next one to build on -- the
+    /// trap `rigid::score_cracks` records having fallen into first. It
+    /// spans the whole star, and therefore the whole *growth*, not one
+    /// frame's worth: reset it per frame and the second frame's walkers
+    /// would be bonused by the first frame's own writes.
+    scored_now: std::collections::HashSet<(i32, i32)>,
+}
+
+impl FissureWalks {
+    /// The crush star: `primaries` strokes leaving one origin at even
+    /// angles, sharing one fork pool. Exactly what `walk_fissures` took.
+    pub(crate) fn new(start: (i32, i32), heading: f32, primaries: usize, length: usize, forks: usize, detach: bool) -> Self {
+        let mut walks = Self::empty(detach);
+        walks.forks = forks;
+        for i in 0..primaries {
+            walks.push_walker(start, heading + i as f32 * std::f32::consts::TAU / primaries.max(1) as f32, length, 0);
+        }
+        walks
+    }
+
+    /// An empty star, for callers that add their rays one at a time --
+    /// the blast's fan, whose spokes each have their own start point,
+    /// length and start delay.
+    pub(crate) fn empty(detach: bool) -> Self {
+        Self { walkers: Vec::new(), head: 0, forks: 0, detach, scored_now: std::collections::HashSet::new() }
+    }
+
+    /// Add one ray, contributing `forks` to the shared pool and waiting
+    /// `delay` calls to `advance` before it starts.
+    pub(crate) fn add_ray(&mut self, start: (i32, i32), heading: f32, length: usize, forks: usize, delay: u16) {
+        self.forks += forks;
+        self.push_walker(start, heading, length, delay);
+    }
+
+    fn push_walker(&mut self, pos: (i32, i32), heading: f32, budget: usize, delay: u16) {
+        self.walkers.push(Walker {
+            pos,
+            fx: pos.0 as f32 + 0.5,
+            fy: pos.1 as f32 + 0.5,
+            heading,
+            budget,
+            steps: 0,
+            ceiling: budget + (super::rigid::CRACK_TIP_BONUS * super::rigid::CRACK_TIP_MAX_STEPS) as usize,
+            delay,
+            done: budget == 0,
+        });
+    }
+
+    /// Every walker has spent its budget or run out of rock.
+    pub(crate) fn is_done(&self) -> bool {
+        self.walkers.iter().all(|w| w.done)
+    }
+
+    /// Draw the whole star now, in one call. Depth-first: walker `head` is
+    /// drained completely, forks included by the time the queue reaches
+    /// them, before the next walker starts.
+    pub(crate) fn run_to_completion(&mut self, world: &mut World) -> u32 {
+        let mut fissured = 0;
+        while self.head < self.walkers.len() {
+            fissured += self.step_walker(world, self.head, usize::MAX);
+            self.head += 1;
+        }
+        fissured
+    }
+
+    /// One round-robin pass: every live walker takes up to `steps_per_walker`
+    /// steps, and returns the fresh crack bits written this call.
+    ///
+    /// Forks thrown during a pass join the queue behind the walkers already
+    /// in it and get their first turn on the *next* call -- a tip that
+    /// splits should not have both halves leap a frame ahead of every other
+    /// tip in the star.
+    ///
+    /// The budget is counted in walker steps, not in cells entered. A step
+    /// is one unit of sub-cell travel and usually but not always crosses
+    /// into a new cell, so a ray advances slightly less than
+    /// `steps_per_walker` cells per frame -- which is the honest thing to
+    /// bound anyway, since a step that stays inside its cell still costs the
+    /// jitter and the trig.
+    pub(crate) fn advance(&mut self, world: &mut World, steps_per_walker: usize) -> u32 {
+        let mut fissured = 0;
+        // Snapshot the length so forks born during this pass wait for the
+        // next one rather than being swept up by the same loop.
+        let live = self.walkers.len();
+        for i in 0..live {
+            if self.walkers[i].done {
+                continue;
+            }
+            if self.walkers[i].delay > 0 {
+                self.walkers[i].delay -= 1;
+                continue;
+            }
+            fissured += self.step_walker(world, i, steps_per_walker);
+        }
+        fissured
+    }
+
+    /// The single walker-step core both drivers run, bounded to `max_steps`
+    /// steps of walker `i`. Everything that decides where a crack goes lives
+    /// here and only here, so the two drivers cannot drift.
+    fn step_walker(&mut self, world: &mut World, i: usize, max_steps: usize) -> u32 {
+        let Walker { mut pos, mut fx, mut fy, mut heading, mut budget, mut steps, ceiling, .. } = self.walkers[i];
+        let mut fissured = 0u32;
+        let mut done = false;
+        let mut taken = 0usize;
+        while steps < budget && taken < max_steps {
             steps += 1;
+            taken += 1;
             let wobble = super::rng::jitter(pos.0, pos.1);
             heading += (wobble - 0.5) * CRACK_WANDER;
             let (dx, dy) = (heading.cos(), heading.sin());
+            // The path is carried at sub-cell precision and rounded only to
+            // decide which cell it is in. Stepping to an axis neighbour
+            // instead -- whichever of the four the heading pointed most
+            // nearly at -- was tried and is what produces a staircase: the
+            // heading turns slowly, so its dominant axis stays the same for
+            // many cells, and the crack comes out as long horizontal and
+            // vertical runs meeting at right angles. That is the "criss
+            // cross" look, and no amount of extra wander fixes it, because
+            // the quantisation is doing it rather than the path. `Walker`'s
+            // own doc records the resume-shaped version of the same trap.
             fx += dx;
             fy += dy;
             let next = (fx.floor() as i32, fy.floor() as i32);
@@ -981,6 +1168,7 @@ pub(crate) fn walk_fissures(
             }
             let step = (next.0 - pos.0, next.1 - pos.1);
             if !world.in_bounds(next.0, next.1) {
+                done = true;
                 break;
             }
             let cell = world.get(next.0, next.1);
@@ -1000,9 +1188,10 @@ pub(crate) fn walk_fissures(
             // massif around it is the thing being modelled, and the massif
             // is by definition not in the region that failed.
             if !is_body_material(world, cell.material) {
+                done = true;
                 break;
             }
-            if detach && cell.cracked() && !scored_now.contains(&next) {
+            if self.detach && cell.cracked() && !self.scored_now.contains(&next) {
                 budget = (budget + super::rigid::CRACK_TIP_BONUS as usize).min(ceiling);
             }
             // Which edge a fissure cuts is the one *perpendicular* to the
@@ -1014,8 +1203,8 @@ pub(crate) fn walk_fissures(
                 world.set(next.0, next.1, scored);
                 fissured += 1;
             }
-            if detach {
-                scored_now.insert(next);
+            if self.detach {
+                self.scored_now.insert(next);
                 // A fissure is where the rock has parted company with the
                 // mass behind the slice, so it stops claiming to be braced
                 // by it. Done for every cell the walk crosses, not only
@@ -1031,13 +1220,22 @@ pub(crate) fn walk_fissures(
             // the result read as a crack with side-cracks rather than as a
             // tangle -- the second is what several straight rays from
             // several origins produced, and it looked like scribble.
-            if forks > 0 && wobble < CRACK_FORK_CHANCE {
-                forks -= 1;
-                walkers.push((pos, heading + CRACK_FORK_ANGLE, budget / 2));
+            if self.forks > 0 && wobble < CRACK_FORK_CHANCE {
+                self.forks -= 1;
+                let (fork_pos, fork_heading, fork_budget) = (pos, heading + CRACK_FORK_ANGLE, budget / 2);
+                self.push_walker(fork_pos, fork_heading, fork_budget, 0);
             }
         }
+        let w = &mut self.walkers[i];
+        w.pos = pos;
+        w.fx = fx;
+        w.fy = fy;
+        w.heading = heading;
+        w.budget = budget;
+        w.steps = steps;
+        w.done = done || steps >= budget;
+        fissured
     }
-    fissured
 }
 
 /// How many primary fissures leave the point that gave way.
@@ -2852,6 +3050,55 @@ mod tests {
         let second = walk_fissures(&mut w, (32, 32), 0.7, 3, 30, 4, true);
         assert!(first > 0, "test setup: the first charge should have scored something");
         assert!(second > 0, "a repeat charge wrote nothing at all -- the crack-tip bonus is not reaching fresh rock");
+    }
+
+    /// **The resume pin.** A walk put down and picked up must draw exactly
+    /// the crack it would have drawn in one go.
+    ///
+    /// This is the one place the incremental driver could be quietly wrong
+    /// and still look plausible on a contact sheet: `Walker` carries the
+    /// path at sub-cell precision (`fx`/`fy`), and the obvious way to store
+    /// less is to re-derive them from `pos` on resume. That re-centres the
+    /// walker in its cell every frame, throwing away the fractional offset
+    /// the wander has built up -- the same quantisation that turned an
+    /// earlier axis-stepping walker into right-angled "criss cross" runs,
+    /// only applied once per frame instead of once per cell. The result is
+    /// a straighter crack, which reads as *fine* unless you have the
+    /// one-shot version beside it.
+    ///
+    /// One ray and no forks on purpose: with a fork pool in play the two
+    /// drivers legitimately differ (see `FissureWalks`' own doc), and that
+    /// difference would mask this one.
+    #[test]
+    fn a_walk_resumed_a_step_at_a_time_draws_the_same_crack_as_one_run() {
+        let cracked_cells = |w: &World| -> Vec<(i32, i32)> {
+            (0..64).flat_map(|y| (0..64).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).cracked()).collect()
+        };
+
+        let mut one_shot = test_world();
+        massif(&mut one_shot);
+        let mut whole = FissureWalks::new((32, 32), 0.7, 1, 40, 0, false);
+        let written_whole = whole.run_to_completion(&mut one_shot);
+
+        let mut piecewise = test_world();
+        massif(&mut piecewise);
+        let mut staged = FissureWalks::new((32, 32), 0.7, 1, 40, 0, false);
+        let mut written_staged = 0;
+        for _ in 0..200 {
+            written_staged += staged.advance(&mut piecewise, 1);
+            if staged.is_done() {
+                break;
+            }
+        }
+
+        assert!(written_whole > 10, "test setup: the walk should have scored a real crack, got {written_whole}");
+        assert!(staged.is_done(), "the staged walk never finished inside its step budget");
+        assert_eq!(written_whole, written_staged, "the staged walk wrote a different number of cells than the one-shot walk");
+        assert_eq!(
+            cracked_cells(&one_shot),
+            cracked_cells(&piecewise),
+            "the staged walk drew a different crack -- sub-cell position is not surviving the resume"
+        );
     }
 
     /// W4's one hard rule. Erosion only: a cell may be dropped from a

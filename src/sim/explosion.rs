@@ -38,6 +38,7 @@ use super::field::FIELD_SCALE;
 use super::material;
 use super::particle::ParticleSystem;
 use super::rng;
+use super::structural;
 use super::world::World;
 
 /// Offset applied to the *x* input of the *y* jitter sample, so a cell's x
@@ -166,6 +167,34 @@ pub struct Tuning {
     /// shot's halo is supposed to reach well past the visible hole, which
     /// is the whole point of R1 (`Reports/explosion-stone-review.md` §4).
     pub crack_reach: f32,
+    /// How many steps each crack ray takes per frame while the star is
+    /// growing — the *speed* the fissures race outward at.
+    ///
+    /// The whole star used to be written in one call on the bang frame and
+    /// never touched again, and the owner's verdict was that it read as
+    /// "a graphic stamped on the stone" rather than a fissure: a thing that
+    /// appears whole and never moves is a decal whatever its outline. At
+    /// `2`, twelve rays with ~10-55-step budgets finish over roughly 25-35
+    /// frames — about half a second of tips visibly extending after the
+    /// flash, which is what the crack *reads* as rather than what any
+    /// physical crack front does (a real one crosses that rock in
+    /// microseconds; legibility wins, per `CLAUDE.md`'s ethos section).
+    ///
+    /// Larger is faster and less visible; `0` would freeze the star
+    /// half-drawn forever, so it is clamped to at least 1 where it is read.
+    /// `crack_growth` huge together with `crack_stagger` 0 restores the old
+    /// instant star exactly.
+    pub crack_growth: u32,
+    /// The longest a crack ray may wait, in frames, before it starts —
+    /// each ray draws its own delay from a position-keyed jitter over
+    /// `0..crack_stagger`.
+    ///
+    /// Without it every ray leaves the crater on the same frame and the
+    /// star grows as one synchronised starburst, which is the stamp
+    /// complaint again one derivative up. At `8.0` a few rays leap out with
+    /// the flash and the rest join in a ragged wave. `0.0` starts them all
+    /// together.
+    pub crack_stagger: f32,
     /// How much resistance-weighted cost a confinement ray may spend before
     /// its sector counts as "contained" rather than "open", as a multiple
     /// of the blast's own `radius`. See `probe_confinement`. Set past 1.0
@@ -216,6 +245,8 @@ impl Default for Tuning {
             pierce_divisor: 12.0,
             crack_rays: 12,
             crack_reach: 1.5,
+            crack_growth: 2,
+            crack_stagger: 8.0,
             containment_floor: 1.4,
             confined_cavity_fraction: 0.35,
         }
@@ -530,8 +561,14 @@ pub struct BlastReport {
     /// geometry but were left standing because their sector is contained —
     /// the quantity that used to be zero for every blast, always.
     pub cells_held_by_containment: u32,
-    /// Cells `score_cracks` scored with a fresh fissure — the radial halo,
-    /// R1's whole point.
+    /// Cells the crack walkers scored with a fresh fissure — the radial
+    /// halo, R1's whole point.
+    ///
+    /// **Accumulates while the star grows**, rather than being final on the
+    /// bang frame the way it was when the whole halo was written in one
+    /// call. Read it once the blast has finished (`Blasts::is_empty`), which
+    /// is what `filmstrip`'s report line already waits for; sampled mid-blast
+    /// it is a progress reading, not a total.
     pub cells_fissured: u32,
 }
 
@@ -553,7 +590,11 @@ impl std::fmt::Display for BlastReport {
 
 /// One explosion in progress: a cavity front expanding outward from
 /// `(cx, cy)`, one stage per frame.
-#[derive(Clone, Copy, Debug)]
+/// Not `Copy` any more: `fissures` below owns a queue of walkers and a set
+/// of scored cells, and a blast that could be duplicated by an accidental
+/// move would duplicate a crack star in mid-growth with it. `Clone` stays
+/// (`Blasts` derives it).
+#[derive(Clone, Debug)]
 pub struct Blast {
     cx: i32,
     cy: i32,
@@ -568,10 +609,20 @@ pub struct Blast {
     /// and read by every later stage's `clear_annulus`/`fracture_shell`
     /// call, so a cell's sector membership and reach never change mid-blast.
     sector_reach: [u8; CONFINEMENT_SECTORS],
-    /// Running totals for `Blasts::last_blast_report`. `open_sectors`,
-    /// `contained_sectors` and `cells_fissured` are set once at
-    /// construction; `cells_cleared`/`cells_held_by_containment` accumulate
-    /// as `clear_annulus` runs on each stage.
+    /// The crack star, still growing. `None` when the confinement probe
+    /// never crossed rock (an airburst, or a charge entirely inside loose
+    /// powder) — there is nothing to crack and the walks are not paid for.
+    ///
+    /// Built at construction and stepped a little on every frame, which is
+    /// the whole of this mechanic: the geometry is exactly what the
+    /// one-call version drew, only the *timing* of the writes changed. See
+    /// `structural::FissureWalks`.
+    fissures: Option<structural::FissureWalks>,
+    /// Running totals for `Blasts::last_blast_report`. `open_sectors` and
+    /// `contained_sectors` are set once at construction;
+    /// `cells_cleared`/`cells_held_by_containment` accumulate as
+    /// `clear_annulus` runs on each stage, and `cells_fissured` accumulates
+    /// as the crack star grows — which now outlives the last stage.
     report: BlastReport,
 }
 
@@ -726,27 +777,47 @@ impl Blast {
         //   "a distribution, not a uniform" reason;
         // - **the organic walker**, which wanders and forks, so no two rays
         //   are congruent even where their slots and lengths agree.
-        let cells_fissured = if struck_solid {
+        //
+        // **The rays are built here and walked over the following frames**,
+        // which is the one thing that changed after the owner watched the
+        // star arrive fully formed: "it looks the same everytime, it looks
+        // like a graphic stamped on the stone and not a realistic fissure.
+        // It would be cool if you could see it grow." Every heading, length
+        // and jitter key below is exactly what the one-call version used --
+        // the pattern for a site is still a property of the rock, so a
+        // repeat charge still retraces and deepens its own fissures -- and
+        // only the *timing* of the writes moved. `Blast::advance` steps the
+        // walks; the blast stays alive until they finish.
+        let fissures = if struck_solid {
             let from = (radius + BLAST_SHELL_REACH + 1) as f32;
             let base = radius as f32 * tuning.crack_reach;
-            let mut total = 0;
+            let mut walks = structural::FissureWalks::empty(true);
             for i in 0..tuning.crack_rays {
                 let slot = rng::jitter(cx + i as i32 * 7919, cy);
                 let theta = (i as f32 + slot) * std::f32::consts::TAU / tuning.crack_rays as f32;
                 let j = rng::jitter(cx + i as i32 * 104_729, cy + i as i32);
                 let length = (base * (CRACK_LENGTH_FLOOR + CRACK_LENGTH_SPREAD * j * j)) as usize;
                 let start = (cx + (theta.cos() * from).round() as i32, cy + (theta.sin() * from).round() as i32);
-                // The fork pool spread across the fan rather than pooled,
-                // so it is not all spent by the first two rays: every
-                // third ray may throw one branch, ~`crack_rays / 3` in
-                // total, and *where* it throws it is still the walker's own
-                // position-keyed chance.
+                // One fork contributed by every third ray, ~`crack_rays / 3`
+                // in total, and *where* any of them gets thrown is still the
+                // walker's own position-keyed chance. The pool is shared
+                // across the fan now rather than handed out one ray at a
+                // time, because a resumable star is one queue: which ray
+                // spends a fork depends on the round-robin order, and that
+                // is the acknowledged difference between the two drivers
+                // (`FissureWalks`' doc). It stays a *budget* either way, so
+                // the fan cannot run away with branches.
                 let forks = usize::from(i % 3 == 0);
-                total += super::structural::walk_fissures(world, start, theta, 1, length.max(1), forks, true);
+                // Position-keyed start delay -- no `world.rng` draw, so a
+                // replayed input sequence cannot diverge here and the same
+                // site staggers the same way every time. Keyed on `i * 31`
+                // so neighbouring rays do not draw neighbouring delays.
+                let delay = (rng::jitter(cx + i as i32 * 31, cy) * tuning.crack_stagger).max(0.0) as u16;
+                walks.add_ray(start, theta, length.max(1), forks, delay);
             }
-            total
+            Some(walks)
         } else {
-            0
+            None
         };
 
         Self {
@@ -756,13 +827,47 @@ impl Blast {
             strength,
             stage: 0,
             sector_reach,
-            report: BlastReport { open_sectors, contained_sectors, cells_cleared: 0, cells_held_by_containment: 0, cells_fissured },
+            fissures,
+            report: BlastReport { open_sectors, contained_sectors, cells_cleared: 0, cells_held_by_containment: 0, cells_fissured: 0 },
         }
     }
 
-    /// Run one stage. Returns whether the blast is still going.
+    /// Run one frame of the blast: one cavity stage while any are left, then
+    /// one pass of crack growth. Returns whether the blast is still going.
+    ///
+    /// **A blast now outlives its own cavity.** The stages finish in
+    /// `duration` frames (10 by default) and the fissures keep racing
+    /// outward for another twenty or forty, so "still going" is the OR of
+    /// the two rather than the stage count alone. The stage work is guarded
+    /// on `stage < stages` for exactly that reason: without the guard the
+    /// extra frames would keep expanding the annulus past `radius` and eat
+    /// the world one ring per frame of crack growth. The synchronous
+    /// `trigger_tuned` (`while blast.advance {}`) therefore still leaves the
+    /// world in a final state with nothing left to step -- it just spins a
+    /// few dozen more times.
     fn advance(&mut self, world: &mut World, particles: &mut ParticleSystem, tuning: &Tuning) -> bool {
         let stages = tuning.stages();
+        if self.stage < stages {
+            self.advance_cavity(world, particles, tuning, stages);
+        }
+        // After the stage work, so a ray's first cells are scored into rock
+        // this frame's annulus has already finished with rather than into
+        // rock it is about to clear.
+        let growing = if let Some(walks) = self.fissures.as_mut() {
+            // Clamped to at least one step: `crack_growth: 0` would freeze
+            // the star half-drawn and keep the blast alive forever, which is
+            // a tuning value that hangs the game rather than one that turns
+            // a feature off.
+            self.report.cells_fissured += walks.advance(world, tuning.crack_growth.max(1) as usize);
+            !walks.is_done()
+        } else {
+            false
+        };
+        self.stage < stages || growing
+    }
+
+    /// One stage of the cavity front — everything `advance` used to be.
+    fn advance_cavity(&mut self, world: &mut World, particles: &mut ParticleSystem, tuning: &Tuning, stages: u16) {
         let radius = self.radius as f32;
         // The cavity front, before and after this stage. Squared radii
         // throughout, so the per-cell test stays a comparison of integers
@@ -800,7 +905,6 @@ impl Blast {
         }
 
         self.stage += 1;
-        !last
     }
 
     /// Clear the annulus between two fronts, converting material to debris.
@@ -1571,6 +1675,80 @@ mod tests {
             "a fully-contained stone blast cleared {cleared} of {} disc cells -- containment did not shrink the cavity",
             disc_cells.len()
         );
+    }
+
+    /// The crack star **grows**, and the staged driver is the one that
+    /// shows it.
+    ///
+    /// The owner's complaint was not about the star's shape -- it was that
+    /// the whole thing arrived on the bang frame and never moved again,
+    /// which reads as a decal stamped on the stone. So the property under
+    /// test is a *trajectory*, not an end state: cracked cells at frame 2
+    /// strictly under cracked cells at frame 30, and the growth finished by
+    /// frame 60. An end-state assertion cannot fail for the artifact this
+    /// exists to catch, because the end state is exactly what it always was
+    /// (`a_fully_buried_stone_blast_crushes_a_pocket_and_scores_a_crack_star`
+    /// above is that half, and it still passes through the synchronous
+    /// driver).
+    ///
+    /// **Deliberately not asserting the two drivers agree cell for cell.**
+    /// They do not, and are not meant to: the fork pool is shared and
+    /// round-robin spends it in a different order than depth-first
+    /// (`structural::FissureWalks`' doc). What has to hold of both is that
+    /// each draws a real star, so they are banded rather than compared.
+    #[test]
+    fn a_staged_blast_grows_its_crack_star_over_frames() {
+        let cracked = |w: &World, cx: i32, cy: i32, radius: i32| -> usize {
+            let box_r = radius * 3;
+            ((cy - box_r)..=(cy + box_r))
+                .flat_map(|y| ((cx - box_r)..=(cx + box_r)).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).cracked())
+                .count()
+        };
+        let buried_stone = || {
+            let mut w = test_world();
+            for y in 10..118 {
+                for x in 10..118 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            w
+        };
+        let (cx, cy, radius) = (64, 64, 20);
+
+        let mut w = buried_stone();
+        let mut particles = ParticleSystem::new();
+        let mut blasts = Blasts::new();
+        blasts.trigger_with(&mut w, &mut particles, cx, cy, radius, 180.0);
+        let mut at_2 = 0;
+        let mut at_30 = 0;
+        let mut done_by = None;
+        for frame in 1..=60 {
+            blasts.step(&mut w, &mut particles);
+            match frame {
+                2 => at_2 = cracked(&w, cx, cy, radius),
+                30 => at_30 = cracked(&w, cx, cy, radius),
+                _ => {}
+            }
+            if done_by.is_none() && blasts.is_empty() {
+                done_by = Some(frame);
+            }
+        }
+        let staged = cracked(&w, cx, cy, radius);
+
+        // The growth itself. This is the assertion the old one-call star
+        // could not have passed -- it was already finished at frame 0.
+        assert!(at_2 < at_30, "the crack star did not grow: {at_2} cracked cells at frame 2, {at_30} at frame 30");
+        assert!(done_by.is_some(), "the blast was still growing cracks at frame 60 -- the star has to finish inside about half a second");
+        assert!(staged >= 100, "the staged driver's finished star is only {staged} cracked cells");
+
+        // And the synchronous driver, which the tests and every headless
+        // caller use, still draws a comparable star in one call.
+        let mut w2 = buried_stone();
+        let mut particles2 = ParticleSystem::new();
+        trigger(&mut w2, &mut particles2, cx, cy, radius, 180.0);
+        let synchronous = cracked(&w2, cx, cy, radius);
+        assert!(synchronous >= 100, "the synchronous driver's star is only {synchronous} cracked cells");
     }
 
     /// R2's material term, the other direction from the test above (§7c(ii)):

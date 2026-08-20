@@ -662,6 +662,44 @@ bedrock), which near a bedrock floor could sever an anchor edge — none of
 the captures reaches bedrock; left unfixed rather than silently narrowed
 (§7f trap 1), recorded here for whoever first blasts the world floor.
 
+## 10. Fissures that grow — the stamp complaint
+
+Owner, off §9's sheets: the star is "a little better but it looks the same
+everytime, it looks like a graphic stamped on the stone and not a realistic
+fissure. It would be cool if you could see it grow." Diagnosis: the whole
+star was written in one call on the bang frame and never changed — a thing
+that appears whole and never moves is a decal whatever its outline.
+
+Fix: the walker became resumable (`structural::FissureWalks`, two drivers
+over one step core — the sequential one keeps the crush path bit-identical,
+PNG-hash verified again; the round-robin one grows a little each frame).
+The blast builds its rays at trigger with the identical jitter keys (the
+pattern for a site is still a property of the rock — a repeat charge still
+retraces and deepens) and walks them `crack_growth` (2) steps per frame,
+each ray starting after a position-keyed delay up to `crack_stagger` (8)
+frames. The blast stays alive until the star finishes (~25-35 frames —
+half a second of tips visibly racing outward after the flash). Cavity work
+is guarded on `stage < stages`; without that guard the growth frames kept
+expanding the annulus and ate the world one ring per frame — caught in
+implementation, pinned by the sync-driver tests.
+
+Measured: per-tile cracked census over the growth sheet went from
+`353 ×8` (the stamp) to **0 → 39 → 148 → 249 → 309 → 339 → 345 → 345**;
+final pattern same family (345 vs 353 — the shared fork pool's licensed
+delta); every §9 outcome bar holds (cave wall 5,366, roof +144, sandbed
+identical, strike control hash-identical, `ascii` settled 0.000 ms,
+615 tests, clippy clean). The sub-cell-resume trap (re-deriving fx/fy
+straightens every crack) and the growth contract each have a
+mutation-verified test.
+
+Recorded, pre-existing (verified against the unmodified tree same
+session): `scripts/acceptance.sh`'s `ligament` (72.6 ms vs 60 ms budget)
+and `roomcut` (1 overload vs bar 5) fail before and after this change; and
+a repeat charge at the *exact* same coordinates fissures nothing because
+its own open crater vents the confinement probe (`struck_solid` false) —
+the accumulation story holds for charges near, not in, the old crater.
+Both belong to whoever picks up R3a/R4.
+
 ### What is still open, in order
 
 1. **R3a** (fracture pacing) — small, specced in §7e, still wanted.
