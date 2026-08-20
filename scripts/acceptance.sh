@@ -155,13 +155,23 @@ run caveshallow scene=worldcrack preset=flat seed=7 dig=4 tunnel=35 depth=6 star
 #    no path to an anchor and was dismantled the frame after it appeared --
 #    3,969 freezes in one storm and never ten cells of ice standing.
 #
-#    `max_failures=0` covers freeze-over, the deepest part of the drift on
-#    the ice, and the thaw. It is a real bar rather than a formality: at
-#    ice.ron's `max_unsupported_span` of 16 the same run measures 17
-#    overloads (2,210 cells) and 118 unsupported (289), and at 32 it
-#    measures 6 (924). The scene is deterministic -- weather is a pure
-#    function of `(seed, frame)` and the scene pins both -- so this is not
-#    a sampled case the way the `worldcrack` seeds are.
+#    `max_failures=0` covers freeze-over and the deepest part of the drift
+#    on the ice -- **not the thaw**, which an earlier draft of this comment
+#    claimed. The storm lifts at frame 700 and this run ends at 720; the
+#    sheet's own thaw breakup lands just past that window (measured on the
+#    merged branch: 4 overloads, 845 cells, between frames 720 and 900,
+#    deterministic). That breakup is the mechanic -- a thinning sheet under
+#    a snow load gives way, the debris is snow that floats and melts, and
+#    the end state is clean open water -- so it is deliberately outside
+#    this bar rather than silently inside it. If a bar over the thaw is
+#    ever wanted, set it from paired runs of the full arc (count=6 reaches
+#    frame 1260), not from the single measurement quoted here.
+#    The bar is real rather than a formality: at ice.ron's
+#    `max_unsupported_span` of 16 the same run measures 17 overloads
+#    (2,210 cells) and 118 unsupported (289), and at 32 it measures 6
+#    (924). The scene is deterministic -- weather is a pure function of
+#    `(seed, frame)` and the scene pins both -- so this is not a sampled
+#    case the way the `worldcrack` seeds are.
 #
 #    `repeat=3` rather than 2, and that is a measurement not a habit: this
 #    is the busiest scene in the file -- a storm keeps the whole surface of
