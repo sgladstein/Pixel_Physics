@@ -296,6 +296,19 @@ pub struct FieldTile {
     /// what closes the loop `Reports/plant-substrate-v2-design.md` §4d
     /// describes — infiltrate, hold, drink, deplete, *and be noticed*.
     moisture_source: Box<[f32]>,
+    /// Light emitted by the cells of each block — `Material::glow`, maxed
+    /// over the block in the same scan `blocked`/`moisture_source` already
+    /// run (`rebuild_blocked`). Recomputed per solve like both of those,
+    /// never inherited: a sleeping tile keeps its last solve, and digging
+    /// out the crystal re-solves the tile and the glow with it. Seeded
+    /// into the light channel *before* diffusion, so a glowing lining gets
+    /// a soft halo for free and then converges — a static floor, exactly
+    /// so the tile can sleep lit (the owner's local-light decision,
+    /// 2026-08; the whole design is in `Material::glow`'s doc).
+    glow: Box<[f32]>,
+    /// Whether any block of this tile glows — the renderer's cheap gate
+    /// for "is it worth sampling the field under this pixel".
+    pub has_glow: bool,
     /// A lower bound on moisture that evaporation may not take a cell below.
     ///
     /// The saturated ground beneath the water table. Worldgen writes it once
@@ -346,6 +359,8 @@ impl FieldTile {
             transmission: vec![u8::MAX; FIELD_TILE_AREA].into_boxed_slice(),
             moisture_source: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
             moisture_floor: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
+            glow: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
+            has_glow: false,
             // A tile nobody has solved yet has not converged, by definition.
             settled: false,
             sky_lit: false,
@@ -428,6 +443,18 @@ impl FieldTile {
     }
 
     #[inline]
+    fn glow_local(&self, lx: i32, ly: i32) -> f32 {
+        self.glow[Self::local_index(lx, ly)]
+    }
+
+    #[inline]
+    fn set_glow_local(&mut self, lx: i32, ly: i32, glow: f32) {
+        self.glow[Self::local_index(lx, ly)] = glow;
+        if glow > 0.0 {
+            self.has_glow = true;
+        }
+    }
+
     fn set_moisture_source_local(&mut self, lx: i32, ly: i32, source: f32) {
         self.moisture_source[Self::local_index(lx, ly)] = source;
     }
@@ -537,6 +564,33 @@ pub(crate) fn is_moisture_source(
     let (fx, fy) = field_coord_of(world_x, world_y);
     let (tile_coord, lx, ly) = tile_and_local(fx, fy);
     tiles.get(&tile_coord).is_some_and(|tile| tile.moisture_source_local(lx, ly) > 0.0)
+}
+
+/// Whether the field block covering this position holds a glowing material
+/// (`Material::glow`, gathered by `rebuild_blocked` into `FieldTile::glow`).
+///
+/// Exists for exactly the reason `is_moisture_source` does: `blocked` goes
+/// true for a whole 8x8 block the moment one cell in it is `Solid`, and a
+/// glowing lining is by definition solid, so the generic wall rule in
+/// `step_diffusion` read a lit lining's block as "contributes my own value"
+/// and the seed `rebuild_blocked` writes was exactly as unshareable as the
+/// wet rock basin's moisture once was — a lit block over a pitch-dark
+/// cavity, no halo at all. Found by the paired-cavity test, not by eye.
+/// Out of bounds is `false`: the void does not glow.
+pub(crate) fn is_glow_source(
+    tiles: &HashMap<ChunkCoord, FieldTile>,
+    bounds: Option<Rect>,
+    world_x: i32,
+    world_y: i32,
+) -> bool {
+    if let Some(b) = bounds {
+        if !b.contains(world_x, world_y) {
+            return false;
+        }
+    }
+    let (fx, fy) = field_coord_of(world_x, world_y);
+    let (tile_coord, lx, ly) = tile_and_local(fx, fy);
+    tiles.get(&tile_coord).is_some_and(|tile| tile.glow_local(lx, ly) > 0.0)
 }
 
 pub(crate) fn is_blocked(tiles: &HashMap<ChunkCoord, FieldTile>, bounds: Option<Rect>, world_x: i32, world_y: i32) -> bool {
@@ -1315,6 +1369,13 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
         // pointer is invariant across every field cell in this chunk, but
         // was previously looked up fresh on every single one of them.
         let tile = next.get_mut(&coord).expect("next was pre-populated with every coord in coords");
+        // `has_glow` is a max over the scan below, so it has to start false
+        // each solve or it can only ever latch on: `set_glow_local` raises
+        // it and nothing else lowers it, and a tile cloned from its last
+        // solve arrives with the old answer. Without this reset, mining out
+        // the last of a lining would leave the renderer sampling the field
+        // under that tile forever.
+        tile.has_glow = false;
         let (ox, oy) = coord.origin();
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
@@ -1359,6 +1420,10 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                 // that holding forever.
                 // Strongest moisture source anywhere in this block.
                 let mut moisture_level = 0.0f32;
+                // Brightest glowing cell in this block (`Material::glow`) —
+                // the local-light floor, gathered in the scan that is
+                // already happening rather than a pass of its own.
+                let mut glow_level = 0.0f32;
                 // How many opaque cells deep each CA *column* of this block
                 // is, counted in the scan that is already happening -- see
                 // `FieldTile::transmission` for why depth per column, and
@@ -1426,6 +1491,7 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                                 moisture_level = moisture_level.max(held);
                             }
                         }
+                        glow_level = glow_level.max(world.materials.get(cell.material).glow);
                     }
                 }
                 tile.set_blocked_local(lx, ly, blocked);
@@ -1437,6 +1503,20 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                     column_depth.iter().map(|&d| COLUMN_TRANSMISSION[d as usize]).sum::<f32>() / FIELD_SCALE as f32;
                 tile.set_transmission_local(lx, ly, transmission);
                 tile.set_moisture_source_local(lx, ly, moisture_level);
+                tile.set_glow_local(lx, ly, glow_level);
+                // Seed the light channel here, before diffusion runs, so a
+                // glowing block gets its halo bled into the neighbouring
+                // blocks by the same pass that softens every other light
+                // edge — no glow-specific spreading code. Max, never
+                // assignment: sunlight through a shaft may already be
+                // brighter than the crystal.
+                if glow_level > 0.0 {
+                    let mut cell = tile.get_local(lx, ly);
+                    if cell.light < glow_level {
+                        cell.light = glow_level;
+                        tile.set_local(lx, ly, cell);
+                    }
+                }
             }
         }
     }
@@ -1620,10 +1700,35 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
                 // average toward "no change" rather than toward the wall's
                 // contents — the same fallback idea `sample_bilinear` uses
                 // for advection, applied here to diffusion's neighbour read.
+                //
+                // One exception, folded into this closure rather than run as
+                // a second neighbour pass (this is the diffusion hot path —
+                // a separate light-only closure re-paying `is_blocked` and
+                // `sample` for all four neighbours was written first and
+                // cost double the lookups): **light reads through a blocked
+                // neighbour that glows.** The moisture-source exception
+                // below, replayed on the light channel. A glowing lining is
+                // `Solid`, so its whole 8x8 block is `blocked`, and the
+                // strict wall rule made the seed `rebuild_blocked` writes
+                // there unshareable: the lining's own block sat at 1.8 while
+                // the cavity air one block away read 0.0000004 — lit crystal
+                // over pitch dark, no halo. (The paired-cavity test caught
+                // it; nothing on screen had been looked at yet.) Every
+                // non-glowing wall keeps the strict rule, so the sealed-room
+                // optical guard is untouched: this admits light *from a
+                // light source*, not through stone — and the extra
+                // `is_glow_source` lookup is paid only for neighbours that
+                // are blocked in the first place.
                 let neighbour = |dx: i32, dy: i32| {
                     let (nx, ny) = (wx + dx, wy + dy);
                     if is_blocked(old, bounds, nx, ny) {
-                        here
+                        if is_glow_source(old, bounds, nx, ny) {
+                            let mut wall = here;
+                            wall.light = sample(old, bounds, nx, ny).light;
+                            wall
+                        } else {
+                            here
+                        }
                     } else {
                         sample(old, bounds, nx, ny)
                     }
@@ -1662,9 +1767,11 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
                 // any case: wet ground is humid, which is exactly what the
                 // graded damp-soil source already models for `Powder` (soil
                 // is not `Solid`, so it never hit this in the first place).
-                // Heat and light keep the strict wall rule — a stone wall
-                // really is opaque and insulating, and the sealed-room
-                // guards depend on it.
+                // Heat keeps the strict wall rule — a stone wall really is
+                // insulating, and the sealed-room guard depends on it.
+                // Light kept it too until `Material::glow` landed; it now
+                // carries the same shape of exception (see `neighbour`
+                // above) for blocked blocks that are themselves the light.
                 let moisture_neighbour = |dx: i32, dy: i32| -> f32 {
                     let (nx, ny) = (wx + dx, wy + dy);
                     if is_blocked(old, bounds, nx, ny) && !is_moisture_source(old, bounds, nx, ny) {
@@ -2798,5 +2905,115 @@ mod light_depth_probe {
         for y in (0..320).step_by(16) {
             println!("{y:5}  {:.4}", w.field_at(256, y).light);
         }
+    }
+}
+
+#[cfg(test)]
+mod glow_tests {
+    use super::*;
+    use crate::sim::cell::Cell;
+    use crate::sim::chunk::{ChunkCoord, Rect};
+    use crate::sim::material;
+    use crate::sim::world::World;
+
+    /// A deep sealed cavity with a crystal floor: the paired-comparison
+    /// scene for `Material::glow`. Everything about the two cavities is
+    /// identical except the lining, so every light difference between them
+    /// is the glow — the same cancellation argument as the rooted-bank
+    /// tests.
+    fn glow_world() -> (World, crate::sim::material::MaterialId) {
+        let mut w = World::new(Rect::new(0, 0, 255, 255));
+        let crystal = w.materials.id_of("crystal").expect("crystal ships in the registry");
+        // Stone from y=100 down: 100+ rows of occluder, so no daylight
+        // reaches either cavity and the only light down there is the glow.
+        for y in 100..256 {
+            for x in 0..256 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // Two cavities in chunk row y=2..3, one per chunk column, far
+        // enough apart (96 cells, three tiles) that the halo from one
+        // cannot reach the other.
+        for (x0, lined) in [(96, true), (192, false)] {
+            for y in 180..200 {
+                for x in x0..x0 + 24 {
+                    w.set(x, y, Cell::EMPTY);
+                }
+            }
+            if lined {
+                for y in 200..203 {
+                    for x in x0 + 4..x0 + 20 {
+                        w.set(x, y, Cell::new(crystal, 0));
+                    }
+                }
+            }
+        }
+        (w, crystal)
+    }
+
+    #[test]
+    fn a_glowing_lining_lights_its_cavity_and_the_tile_still_sleeps() {
+        let (mut w, _) = glow_world();
+        for _ in 0..300 {
+            step(&mut w);
+        }
+
+        // The lining's own block holds at least a substantial fraction of
+        // crystal's 1.8 seed — diffusion averages the seeded block against
+        // its dimmer neighbours after seeding, so the converged value sits
+        // below the raw floor, and the bound is set with headroom under a
+        // measured ~1.5, not on it.
+        let at_lining = w.field_at(104, 201).light;
+        assert!(at_lining > 0.9, "the lining's own block should be lit: {at_lining}");
+        // The halo: cavity air a block above the lining, against the same
+        // spot in the unlined cavity. This is the difference the renderer
+        // draws.
+        let lit_air = w.field_at(104, 195).light;
+        let dark_air = w.field_at(200, 195).light;
+        assert!(
+            lit_air > dark_air + 0.05,
+            "the halo should light the lined cavity's air above the unlined one's: lit {lit_air}, dark {dark_air}"
+        );
+
+        // `has_glow` marks exactly the tiles holding crystal, and the lit
+        // tile still reaches its fixed point — a glow is a static floor,
+        // not a permanent workload. (The whole design rests on this: a
+        // light that kept its tile awake would fail the "and then it
+        // stops" rule.)
+        let lined_tile = w.fields_ref().get(&ChunkCoord::new(1, 3)).expect("tile exists");
+        assert!(lined_tile.has_glow, "the tile holding the lining should be marked");
+        assert!(lined_tile.settled(), "a glow-lit tile must still converge and sleep");
+        let far_tile = w.fields_ref().get(&ChunkCoord::new(3, 3)).expect("tile exists");
+        assert!(!far_tile.has_glow, "a tile with no glowing cell must not be marked");
+    }
+
+    #[test]
+    fn mining_out_the_lining_puts_the_dark_back() {
+        let (mut w, crystal) = glow_world();
+        for _ in 0..300 {
+            step(&mut w);
+        }
+        assert!(w.field_at(104, 201).light > 0.9, "precondition: the lining lit up");
+
+        // Dig out every crystal cell (to empty, as mining would).
+        for y in 200..203 {
+            for x in 100..120 {
+                if w.get(x, y).material == crystal {
+                    w.set(x, y, Cell::EMPTY);
+                }
+            }
+        }
+        for _ in 0..300 {
+            step(&mut w);
+        }
+
+        // The seed is gone, so decay wins: the cavity goes back to dark and
+        // the tile drops its mark — `has_glow` must reset per solve, not
+        // latch (the renderer samples the field under marked tiles forever
+        // otherwise).
+        let after = w.field_at(104, 201).light;
+        assert!(after < 0.1, "light should decay away once the lining is gone: {after}");
+        let tile = w.fields_ref().get(&ChunkCoord::new(1, 3)).expect("tile exists");
+        assert!(!tile.has_glow, "has_glow must clear on the solve after the crystal goes");
     }
 }

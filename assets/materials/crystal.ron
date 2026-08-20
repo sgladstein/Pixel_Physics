@@ -6,16 +6,21 @@
 // band -- a "luminous" crystal drawn in the same range as the rock it sits in
 // would read as a slightly odd bed, not as a find.
 //
-// **No glow flag, deliberately.** Emissive lighting is render-side and
-// belongs to the reviewing session (`Reports/worldgen-implementation-tasks-
-// round2-2026-08.md`: "crystal *glow* is the reviewing session's, your vaults
-// ship with a bright palette only"). This file must stay a data change; if a
-// later render pass wants to key a light on this material it can, and nothing
-// here has to move.
+// **Glows** — the game's first local light source, decided by the owner for
+// exactly this material and this moment (2026-08: "discovered chambers
+// justify building the game's first true local light source"). The round-2
+// note that deferred emission to the reviewing session is fulfilled, not
+// contradicted: the reviewing session built the mechanism (`Material::glow`
+// feeding the field's light channel via `field::rebuild_blocked`, the
+// renderer reading it back underground) and this line is that hookup.
+// 1.8 against `field::MAX_LIGHT` 4.0: a breached chamber reads as softly
+// self-lit and its halo bleeds a block or two into the dark — a find, not
+// a floodlight, and well under noon so nothing outdoors ever competes.
 (
     name: "crystal",
     display: "Crystal",
     kind: Solid,
+    glow: 1.8,
     // Denser than stone: quartz is about 2.65 against granite's ~2.6, and the
     // number matters only for whatever mass-based rule reads it later.
     density: 2.65,

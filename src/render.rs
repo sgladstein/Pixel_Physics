@@ -50,6 +50,23 @@ const REVEAL_VOID: [u8; 4] = [232, 62, 214, 255];
 /// what sank the stateful version of the skyline itself.
 const CAVE_FADE_DEPTH: i32 = 24;
 
+/// What glow-lit cave air blends toward — a pale warm off-white, deliberately
+/// *not* the crystal's own cold blue. The lining stays the coldest, brightest
+/// thing in the chamber and the air around it reads as illuminated by it
+/// rather than as more crystal; tinting the air the material's colour was the
+/// obvious first pick and made the whole vug read as one solid mass.
+const GLOW_AIR_TINT: [u8; 3] = [226, 222, 208];
+
+/// How much a full-strength glow (`field::MAX_LIGHT` on the light channel)
+/// lifts a solid cell's lit colour: `1.0 + l * GLOW_SOLID_LIFT`. At crystal's
+/// 1.8 the wall of a vug gets about ×1.4 — visibly warmed, well short of
+/// blown out — and the falloff of the diffused halo does the shaping. The
+/// same channel read that `sky` uses for daylight would double-count the sun,
+/// so this multiplies *after* `apply_light` and the depth grade instead: glow
+/// is the one light that must win against depth, since a sealed chamber is
+/// exactly where the depth ramp sits at its floor.
+const GLOW_SOLID_LIFT: f32 = 0.9;
+
 /// Rows over which solid terrain fades from full surface light to
 /// `DEPTH_LIGHT_FLOOR`. The 2026-08 world review's single most consistent
 /// graphics finding: deep rock drew at identical brightness to surface rock,
@@ -682,6 +699,15 @@ pub struct Renderer {
     /// The look toggles as of the last draw — forces one full repaint when
     /// `F10`/`F11` flip. See the `look_changed` note in `draw`.
     last_look: Option<(TerrainLight, bool, GrainMode)>,
+    /// Field tiles with any glowing material in them **plus their eight
+    /// neighbours** (the diffused halo crosses tile seams; gating on the
+    /// glow tile alone clipped it square at every chunk boundary), rebuilt
+    /// per draw from `FieldTile::has_glow`. The per-pixel gate that keeps
+    /// local light free for the 99% of the world that has none: a pixel
+    /// only samples the field's light channel when its chunk is in this
+    /// set, so a glow-free world pays one `is_empty()` test per pixel and
+    /// nothing else.
+    glow_tiles: std::collections::HashSet<ChunkCoord>,
     /// The sky as of this frame, recomputed once per `draw` and read by
     /// every empty pixel. Held rather than passed because `cell_colour` is
     /// the per-pixel hot path and recomputing a cosine there would be paying
@@ -781,6 +807,7 @@ impl Renderer {
             last_organism_overlay: OrganismOverlay::Off,
             last_zoom_state: None,
             last_look: None,
+            glow_tiles: std::collections::HashSet::new(),
             sky: Sky::at(0, 0, 1, 0, 1),
             last_sky_key: None,
             daylight: sky::LIGHT_LEVELS,
@@ -1121,8 +1148,36 @@ impl Renderer {
         let look_changed = self.last_look != Some(look);
         self.last_look = Some(look);
 
+        // Which field tiles hold a glowing material this frame, plus their
+        // neighbours — the diffused halo crosses tile seams, and gating on
+        // the glow tile alone clipped the halo square at every chunk
+        // boundary. Rebuilt per draw from `has_glow`, which
+        // `field::rebuild_blocked` maintains for free inside the scan it
+        // already does; for the overwhelmingly common world with no glow
+        // anywhere this loop finds nothing and `cell_colour` pays a single
+        // `is_empty()` per pixel.
+        //
+        // `glow_unsettled` is the halo's version of `sky_changed`: while the
+        // light channel is still converging around a new (or newly mined-out)
+        // glow source, the halo brightens cells in chunks the CA never
+        // touched, so no dirty rect will ever repaint them. Once the tile
+        // settles the halo is static and the skip gets its work back.
+        self.glow_tiles.clear();
+        let mut glow_unsettled = false;
+        for (&coord, tile) in world.fields_ref() {
+            if tile.has_glow {
+                glow_unsettled |= !tile.settled();
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        self.glow_tiles.insert(ChunkCoord::new(coord.x + dx, coord.y + dy));
+                    }
+                }
+            }
+        }
+
         let full = force_full
             || look_changed
+            || glow_unsettled
             || scale_changed
             || camera_moved
             || sky_changed
@@ -1690,6 +1745,25 @@ impl Renderer {
         y - floor
     }
 
+    /// Local (glow) light at a world position, `0.0..=1.0` of
+    /// `field::MAX_LIGHT` — and `0.0` after a single set-emptiness check for
+    /// the overwhelming majority of pixels no glow tile covers, which is what
+    /// keeps this affordable inside the per-pixel colour path. The bilinear
+    /// field read happens only inside `glow_tiles` (a glowing tile and its
+    /// ring of neighbours), and those exist only in worlds that generated a
+    /// geode.
+    ///
+    /// The light channel also carries daylight and fire, but `glow_tiles`
+    /// gates this read to the deep tiles around a glowing material, where the
+    /// standing level is the seeded glow floor plus its diffused halo — the
+    /// quantity this exists to draw.
+    fn glow_at(&self, world: &World, x: i32, y: i32) -> f32 {
+        if self.glow_tiles.is_empty() || !self.glow_tiles.contains(&ChunkCoord::containing(x, y)) {
+            return 0.0;
+        }
+        (world.field_at_bilinear(x as f32, y as f32).light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0)
+    }
+
     fn cell_colour(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
         if !world.in_bounds(x, y) {
             return VOID;
@@ -1781,12 +1855,25 @@ impl Renderer {
                 // opening.
                 let t = self.cave_ramp[depth.clamp(1, CAVE_FADE_DEPTH) as usize] as u16;
                 let mix = |a: u8, b: u8| ((a as u16 * (255 - t) + b as u16 * t) / 255) as u8;
-                [
+                let mut air = [
                     mix(daylight[0], UNDERGROUND[0]),
                     mix(daylight[1], UNDERGROUND[1]),
                     mix(daylight[2], UNDERGROUND[2]),
                     255,
-                ]
+                ];
+                // Glow-lit cave air: the void near a glowing lining blends
+                // toward `GLOW_AIR_TINT` by the local light level, so a
+                // breached chamber holds a soft pool of warm light instead
+                // of the flat dark every other cavity gets. On top of the
+                // cave fade, not instead of it — the fade is the darkness
+                // this light is seen against.
+                let glow = self.glow_at(world, x, y);
+                if glow > 0.0 {
+                    for (c, tint) in air.iter_mut().zip(GLOW_AIR_TINT) {
+                        *c = (*c as f32 + (tint as f32 - *c as f32) * glow).round() as u8;
+                    }
+                }
+                air
             };
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
@@ -1965,6 +2052,24 @@ impl Renderer {
                     ]
                 }
             }
+        };
+        // Local light, after the sky and the depth grade deliberately: glow
+        // is the one light that must win against depth, because a sealed
+        // chamber sits exactly where the depth ramp is at its floor. A
+        // multiplicative lift keeps the material's own hue — the wall of a
+        // vug is brighter stone, not tinted crystal — and the diffused halo
+        // in the field does the spatial falloff, so a wall two blocks from
+        // the lining catches less than the cell it hangs over.
+        let glow = self.glow_at(world, x, y);
+        let rgb = if glow > 0.0 {
+            let f = 1.0 + glow * GLOW_SOLID_LIFT;
+            [
+                (rgb[0] as f32 * f).min(255.0).round() as u8,
+                (rgb[1] as f32 * f).min(255.0).round() as u8,
+                (rgb[2] as f32 * f).min(255.0).round() as u8,
+            ]
+        } else {
+            rgb
         };
         let tinted = self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255]);
         // Applied *after* the field overlay, deliberately: the two can be on
@@ -2749,6 +2854,84 @@ mod tests {
         // Row 0, column 100 — past the right edge of the 64-wide world.
         let outside = 100 * 4;
         assert_eq!(&frame[outside..outside + 4], &VOID);
+    }
+
+    #[test]
+    fn glow_lights_the_cave_air_around_a_crystal_lining() {
+        // The paired-cavity scene from `field::glow_tests`, read back
+        // through the renderer: two identical sealed cavities deep under
+        // stone, one floored with crystal. Every pixel difference between
+        // matching positions is the glow — the cave fade, the sky and the
+        // depth grade all cancel.
+        let mut world = World::new(Rect::new(0, 0, 255, 255));
+        let crystal = world.materials.id_of("crystal").expect("crystal ships in the registry");
+        for y in 100..256 {
+            for x in 0..256 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for (x0, lined) in [(96, true), (192, false)] {
+            for y in 180..200 {
+                for x in x0..x0 + 24 {
+                    world.set(x, y, Cell::EMPTY);
+                }
+            }
+            if lined {
+                for y in 200..203 {
+                    for x in x0 + 4..x0 + 20 {
+                        world.set(x, y, Cell::new(crystal, 0));
+                    }
+                }
+            }
+        }
+        for _ in 0..300 {
+            crate::sim::field::step(&mut world);
+        }
+
+        let mut renderer = Renderer::new();
+        let particles = ParticleSystem::new();
+        let (w, h) = (256u32, 256u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+
+        let px = |x: usize, y: usize| -> [u8; 4] {
+            let i = (y * w as usize + x) * 4;
+            frame[i..i + 4].try_into().unwrap()
+        };
+        let brightness = |c: [u8; 4]| c[0] as u32 + c[1] as u32 + c[2] as u32;
+
+        // Cave air a block above the lining, against the same spot in the
+        // unlined cavity. Both are deep enough for the full cave fade, so
+        // without the glow they render identically.
+        let lit_air = brightness(px(104, 195));
+        let dark_air = brightness(px(200, 195));
+        assert!(
+            lit_air > dark_air,
+            "cave air over the lining should draw brighter than the unlined cavity's: lit {lit_air}, dark {dark_air}"
+        );
+
+        // The stone under the lining catches the lift too, against the same
+        // stone under the dark cavity — glow lands on the walls, not only
+        // the air. Summed over a patch rather than one pixel: every cell
+        // carries its own ±12% position-keyed grain (`JITTER_STRENGTH`),
+        // which is zero-mean over a patch, while the glow lift is
+        // systematic. One pixel against one pixel would be a deterministic
+        // coin flip between grain draws.
+        let patch = |x0: usize| -> u32 {
+            let mut total = 0;
+            for y in 204..207 {
+                for x in x0..x0 + 16 {
+                    total += brightness(px(x, y));
+                }
+            }
+            total
+        };
+        let lit_wall = patch(100);
+        let dark_wall = patch(196);
+        assert!(
+            lit_wall > dark_wall,
+            "stone under the lining should draw brighter than stone under the dark cavity: lit {lit_wall}, dark {dark_wall}"
+        );
     }
 
     #[test]

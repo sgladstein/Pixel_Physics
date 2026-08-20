@@ -109,11 +109,14 @@ pocket, in the quiet rock a couple of hundred rows down. Most worlds have
 one at most, some none, and nothing on the surface marks where. Dig deep
 enough in the right place and the wall breaks into a room: a lumpy grotto
 with a level gravel floor, or a geode — a hollow ringed with pale crystal,
-the one bright thing in the deep massif. At that depth the ground water
-has usually found the floor first, so a discovered chamber often holds a
-still pool under its dome, dark until you bring the roof down or learn to
-see in the dark. They are rare on purpose: finding one is meant to be an
-event.
+the one bright thing in the deep massif. **Crystal glows.** A geode casts
+its own soft light — the game's only local light source so far — so the
+chamber's air holds a pale warm pool of it, the rock around the lining
+catches the spill, and the whole find stays gently lit at any hour, day
+or night, even before you break in. Mine the lining out and the dark
+comes back. At that depth the ground water has usually found the floor
+first, so a discovered chamber often holds a still pool under its dome.
+They are rare on purpose: finding one is meant to be an event.
 
 **Bedrock** lines the bottom of the world. It is the thing everything else is
 ultimately anchored to.

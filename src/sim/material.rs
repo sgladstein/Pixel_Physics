@@ -345,6 +345,20 @@ pub struct MaterialDef {
     /// first. Flagged rather than done.
     #[serde(default)]
     pub water_capacity: u16,
+    /// Light this material emits into the field's light channel, in the
+    /// channel's own units (`field::MAX_LIGHT` is 4.0, noon under open
+    /// sky). `0.0` — the default, and every material but crystal today —
+    /// emits nothing.
+    ///
+    /// **The game's first local light source**, decided by the owner for
+    /// the sealed-chamber discovery moment (2026-08: "discovered chambers
+    /// justify building the game's first true local light source").
+    /// Emission is a *static floor* recomputed in `field::rebuild_blocked`'s
+    /// existing per-block scan, so a glowing block converges and sleeps
+    /// like any other authored floor — a torch later is this same field on
+    /// another material, no new mechanism.
+    #[serde(default)]
+    pub glow: f32,
     /// Whether standing cells of this `Liquid` dry up into the air above
     /// them — `evaporation.rs`.
     ///
@@ -679,6 +693,9 @@ pub struct Material {
     pub penetration_resistance: f32,
     /// See `MaterialDef::water_capacity`.
     pub water_capacity: u16,
+    /// See `MaterialDef::glow` — light emitted into the field, 0 for all
+    /// but the glowing materials.
+    pub glow: f32,
     /// See `MaterialDef::evaporates`.
     pub evaporates: bool,
     /// See `MaterialDef::reinforces_powder`.
@@ -928,6 +945,7 @@ impl From<MaterialDef> for Material {
             fill_dimming: def.fill_dimming,
             penetration_resistance: def.penetration_resistance,
             water_capacity: def.water_capacity,
+            glow: def.glow,
             evaporates: def.evaporates,
             reinforces_powder: def.reinforces_powder,
             palette: def
@@ -1117,6 +1135,7 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            glow: 0.0,
             evaporates: false,
             reinforces_powder: false,
             colors: vec![[0, 0, 0]],
@@ -1153,6 +1172,7 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            glow: 0.0,
             evaporates: false,
             reinforces_powder: false,
             colors: vec![[20, 20, 24]],
