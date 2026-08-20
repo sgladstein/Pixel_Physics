@@ -37,7 +37,12 @@
     // cells are partial, but they are all at the surface, and their fill
     // ranges widely enough to draw anywhere from ~54% to 100% brightness.
     // Live-tunable with `O`.
-    fill_dimming: 0.0,
+    //
+    // Restored from 0.0 (2026-08): the zero sat here through the whole world
+    // review, was flagged as an open owner question, and the owner's answer
+    // was "no idea" -- leftover sweep state, not a choice. Back to the value
+    // this comment has always named.
+    fill_dimming: 0.65,
     // Standing water dries up into the air above it -- see evaporation.rs
     // for why a puddle goes and a lake does not without anything measuring
     // the size of either. Opt-in per material: lava and oil keep their

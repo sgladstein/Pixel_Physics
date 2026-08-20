@@ -681,7 +681,7 @@ pub struct Renderer {
     last_zoom_state: Option<(i32, i32)>,
     /// The look toggles as of the last draw — forces one full repaint when
     /// `F10`/`F11` flip. See the `look_changed` note in `draw`.
-    last_look: Option<(TerrainLight, bool)>,
+    last_look: Option<(TerrainLight, bool, GrainMode)>,
     /// The sky as of this frame, recomputed once per `draw` and read by
     /// every empty pixel. Held rather than passed because `cell_colour` is
     /// the per-pixel hot path and recomputing a cosine there would be paying
@@ -1112,7 +1112,12 @@ impl Renderer {
         // `last_organism_overlay` — and it closes a real gap: the depth
         // light shipped without it and coasted on `sky_changed` firing most
         // frames, which is a coincidence, not a contract.
-        let look = (self.terrain_light, self.reveal_voids);
+        // Grain is in the tuple for the same reason: switching between two
+        // *static* grain modes recolours settled water that nothing will
+        // repaint, so `G` over a still pond looked like a dead key — the
+        // owner reported exactly that. (The animated modes force full
+        // frames on their own; the static-to-static switches were the gap.)
+        let look = (self.terrain_light, self.reveal_voids, self.grain);
         let look_changed = self.last_look != Some(look);
         self.last_look = Some(look);
 
