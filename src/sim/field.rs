@@ -1482,12 +1482,26 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         // world cells regardless, so one moving creature
                         // blocking a whole field tile would be a coarser,
                         // wronger approximation than just letting it pass.
-                        let kind = world.materials.kind(cell.material);
-                        if matches!(kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant) {
+                        // One registry fetch per cell, shared by every read
+                        // below. This scan is the busiest standing cost in
+                        // the field — it runs over every CA cell of every
+                        // awake tile every solve — and the glow read was
+                        // first landed as its own `materials.get(..)` per
+                        // cell on top of the `kind` lookup and the
+                        // conditional capacity one. Paired ascii runs showed
+                        // the price: the river scene's spring-OFF mean rose
+                        // from {12.770, 12.765} to {13.42..13.86} ms at
+                        // 2048x640, with *zero* awake chunks — 78 unsettled
+                        // field tiles re-solving was enough. Three fetches
+                        // folded to one is cheaper than what the glow read
+                        // was added to, not just cheaper than its first
+                        // version.
+                        let mat = world.materials.get(cell.material);
+                        if matches!(mat.kind, super::material::MaterialKind::Solid | super::material::MaterialKind::Plant) {
                             blocked = true;
                             column_depth[dx as usize] += 1;
                         }
-                        if kind == super::material::MaterialKind::Liquid {
+                        if mat.kind == super::material::MaterialKind::Liquid {
                             moisture_level = 1.0;
                         } else {
                             // Damp soil is a weaker source than standing
@@ -1495,13 +1509,12 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                             // actually holds. `water_capacity == 0` (sand,
                             // gravel, anything that does not opt in) gives
                             // 0 and costs a single compare.
-                            let capacity = world.materials.get(cell.material).water_capacity;
-                            if capacity > 0 {
-                                let held = super::update::soil_moisture(cell) as f32 / capacity as f32;
+                            if mat.water_capacity > 0 {
+                                let held = super::update::soil_moisture(cell) as f32 / mat.water_capacity as f32;
                                 moisture_level = moisture_level.max(held);
                             }
                         }
-                        glow_level = glow_level.max(world.materials.get(cell.material).glow);
+                        glow_level = glow_level.max(mat.glow);
                     }
                 }
                 tile.set_blocked_local(lx, ly, blocked);
