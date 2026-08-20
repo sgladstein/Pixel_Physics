@@ -337,10 +337,43 @@ const MAX_FALL: i32 = 120;
 /// would read as a mistake rather than as an overhang.
 const CLIFF_DROP: i32 = 6;
 
+/// Columns the near scale looks over. A terrace riser is a single-column
+/// jump and a snap-driven face resolves within a handful of columns.
+const RUN_NEAR: i32 = 4;
+
+/// The escarpment scale, and the drop that qualifies at it.
+///
+/// **This is the fix for the brows/talus blindness.** The near scale asks
+/// for six cells within four columns -- a slope of 1.5 -- and a regional
+/// escarpment does not have that anywhere along it: it spends tens of
+/// columns falling a hundred cells, which is a slope near 1. So the biggest
+/// faces in the world, the ones most obviously wanting a lip and an apron,
+/// were the ones the detector was most certain to miss. `brows` wrote 34
+/// cells and `talus` 148 in a 1.3M-cell world.
+///
+/// Not simply a proportional bar at the longer run: `CLIFF_DROP * RUN_FAR /
+/// RUN_NEAR` is 30, i.e. the same slope of 1.5, which would find exactly
+/// nothing extra for exactly the same reason. The far scale exists to catch
+/// a *gentler* face that is nonetheless very tall, so its bar is a slope of
+/// 1.0. A face qualifying at either scale qualifies.
+const RUN_FAR: i32 = 20;
+const CLIFF_DROP_FAR: i32 = 20;
+
+/// Cap on how far a brow reaches out, and on how tall a talus heap starts.
+///
+/// Bounds the work without gating whether it happens -- the landmine that
+/// has been written twice in this engine already (`if too_big { return }`
+/// claims the largest cases deserve the least behaviour). A brow is still
+/// hung on every qualifying face however deep the drop; only its reach
+/// saturates. They also make each pass's column margin a *number* rather
+/// than an unbounded claim, which is what the pass table has to declare.
+const MAX_BROW_REACH: i32 = 20;
+const MAX_TALUS_PEAK: i32 = 30;
+
 /// Cliff edges as `(edge_x, direction, drop)`, where `direction` is +1 when
 /// the ground falls away to the right and -1 when it falls to the left.
 fn cliff_edges(plans: &[ColumnPlan], w: i32) -> Vec<(i32, i32, i32)> {
-    // Measured over a short run, not between neighbours.
+    // Measured over a run, not between neighbours.
     //
     // Adjacent columns were enough when the macro shape was one smooth wave
     // with terrace snaps cut into it: a snap is a single-column jump. Once
@@ -349,20 +382,33 @@ fn cliff_edges(plans: &[ColumnPlan], w: i32) -> Vec<(i32, i32, i32)> {
     // `talus` wrote nothing at all in any world, and scree and overhangs
     // silently left the game. The test that counts per-pass output is what
     // said so; every render still looked like a plausible world.
-    const RUN: i32 = 4;
+    //
+    // Two runs now, for the same reason read one scale further out. See
+    // `RUN_FAR`.
     let mut edges = Vec::new();
     let at = |x: i32| plans[x.clamp(0, w - 1) as usize].surface_y;
     for x in 0..w {
         let here = at(x);
-        // The edge is the last high column, so look ahead a run and take the
-        // fall to the lowest of it.
-        let right = (1..=RUN).map(|d| at(x + d)).max().unwrap_or(here) - here;
-        if right >= CLIFF_DROP && at(x + 1) >= here {
-            edges.push((x, 1, right));
-        }
-        let left = (1..=RUN).map(|d| at(x - d)).max().unwrap_or(here) - here;
-        if left >= CLIFF_DROP && at(x - 1) >= here {
-            edges.push((x, -1, left));
+        for dir in [1, -1] {
+            // The edge is the last high column, so the neighbour on the
+            // falling side must not be higher.
+            if at(x + dir) < here {
+                continue;
+            }
+            // The deepest fall found at either scale. Taking the max rather
+            // than the first match matters: a face that qualifies at both
+            // must be sized by the *escarpment* it is part of, not by the
+            // first four columns of it.
+            let near = (1..=RUN_NEAR).map(|d| at(x + dir * d)).max().unwrap_or(here) - here;
+            let far = (1..=RUN_FAR).map(|d| at(x + dir * d)).max().unwrap_or(here) - here;
+            let drop = if far >= CLIFF_DROP_FAR {
+                far.max(near)
+            } else if near >= CLIFF_DROP {
+                near
+            } else {
+                continue;
+            };
+            edges.push((x, dir, drop));
         }
     }
     edges
@@ -396,8 +442,15 @@ pub fn brows(ctx: &Ctx, world: &mut World) -> usize {
         // the drop is deep, though: a lip that outreaches its own face reads
         // as a shelf floating in the air.
         let reach = (3 + (noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir * 7) * 3.0) as i32 + drop / 4)
-            .min(drop - 1);
-        let thick = 2 + (noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir * 13) * 2.0) as i32;
+            .min(drop - 1)
+            .min(MAX_BROW_REACH);
+        // Thickness scales with the face too, which it did not before: a lip
+        // reaching twenty cells out of a two-cell slab reads as a diving
+        // board rather than as rock. Extended rather than replaced -- the
+        // reach term above already half-did this and is left as it was.
+        let thick = 2
+            + (noise::unit(ctx.terrain.seed, Purpose::Pocket, x, dir * 13) * 2.0) as i32
+            + (drop / 22).min(3);
         for row in 0..thick {
             let y = top + row;
             // Tapered underside, so the lip is a wedge rather than a slab.
@@ -458,7 +511,14 @@ pub fn talus(ctx: &Ctx, world: &mut World) -> usize {
             continue;
         }
         let fall = ground(foot) - ground(x);
-        let peak = (p.talus_max_height as i32).min(fall / 2);
+        // Apron volume follows the face that shed it. `talus_max_height`
+        // alone is 8 to 18, so every cliff past about thirty cells got the
+        // same heap however tall it was -- a hundred-cell escarpment and a
+        // terrace riser shedding identically, which is most of why scree
+        // never read as a consequence of anything. Still capped, and still
+        // never more than half the fall, so an apron cannot bury its own
+        // cliff.
+        let peak = (p.talus_max_height as i32 + fall / 5).min(fall / 2).min(MAX_TALUS_PEAK);
         if peak <= 0 {
             continue;
         }

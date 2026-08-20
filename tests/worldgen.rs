@@ -633,6 +633,121 @@ fn every_generated_shade_indexes_a_real_palette_entry() {
 }
 
 #[test]
+fn cliff_formations_land_at_cliffs_and_are_visibly_present() {
+    // The canary the world review asked for. `brows` wrote 34 cells and
+    // `talus` 148 in a 1.3M-cell world -- passes that fired, reported a
+    // count, and were invisible, because cliff detection asked for six cells
+    // of drop within four columns and a regional escarpment has that
+    // nowhere along it.
+    //
+    // Two claims, and the second is why this is not just a bigger number:
+    // the extra cells have to land **at cliffs**, not smeared over ordinary
+    // hillside. A detector loosened until it fires everywhere would move the
+    // counts just as well and would be strictly worse.
+    //
+    // Paired against the same world with each pass switched off, which is
+    // the only way to attribute a cell to a pass -- the classifier lesson
+    // from `buried_gravel_is_not_the_same_colour_as_scree` below.
+    let presets = presets();
+    for preset in ["rolling", "canyon", "terraced"] {
+        let params = presets.get(preset).expect("preset");
+        let world = build(params, 1);
+        let no_talus = build(&WorldgenParams { talus_max_height: 0.0, ..params.clone() }, 1);
+        let no_brows = build(&WorldgenParams { brow_chance: 0.0, ..params.clone() }, 1);
+
+        // The plan's ground line, taken from the world with neither
+        // formation, so an apron does not count as the ground it rests on.
+        let bare = build(
+            &WorldgenParams { talus_max_height: 0.0, brow_chance: 0.0, ..params.clone() },
+            1,
+        );
+        let ground = |x: i32| {
+            (0..=BOUNDS.1).find(|&y| bare.get(x, y).material != material::EMPTY).unwrap_or(BOUNDS.1)
+        };
+        // Largest height *difference* within 20 columns either side -- the
+        // escarpment scale the detector now works at.
+        //
+        // Absolute, and that is not a detail: measuring only "does the ground
+        // fall away from here" scores zero on exactly the cells this test is
+        // about. A brow cell hangs out over ground that has *already* fallen,
+        // and an apron sits at the foot of a face that *rises* beside it, so
+        // a downhill-only reading called 91 of 216 brow cells and 72 of 164
+        // talus cells misplaced when every one of them was where it belonged.
+        // Third time this shape of mistake has appeared in this track.
+        let relief = |x: i32| {
+            (1..=20)
+                .flat_map(|d| [ground((x - d).max(0)), ground((x + d).min(BOUNDS.0))])
+                .map(|g| (g - ground(x)).abs())
+                .max()
+                .unwrap_or(0)
+        };
+
+        let (mut talus, mut brows) = (0usize, 0usize);
+        let (mut talus_at_cliff, mut brows_at_cliff) = (0usize, 0usize);
+        let mut tallest = (0i32, 0i32);
+        let mut heap: std::collections::BTreeMap<i32, i32> = Default::default();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                let here = world.get(x, y).material;
+                if here == material::EMPTY {
+                    continue;
+                }
+                if no_talus.get(x, y).material != here {
+                    talus += 1;
+                    *heap.entry(x).or_default() += 1;
+                    // An apron is at a cliff if a real drop exists within
+                    // reach of it. `MAX_FALL` is 120, but the apron itself
+                    // sits at the foot, so the face is close by.
+                    // Six, not twenty: six is the pass's own near-scale bar
+                    // (`passes::CLIFF_DROP`), and an apron under a modest
+                    // terrace riser is a legitimate apron. Asking for an
+                    // escarpment scored 72% and would have been a test
+                    // failing for wanting something the code never claimed.
+                    if (0..=40).any(|d| relief((x - d).max(0)) >= 6 || relief((x + d).min(BOUNDS.0)) >= 6) {
+                        talus_at_cliff += 1;
+                    }
+                } else if no_brows.get(x, y).material != here {
+                    brows += 1;
+                    if relief(x) >= 6 {
+                        brows_at_cliff += 1;
+                    }
+                }
+            }
+        }
+        for (x, h) in &heap {
+            if *h > tallest.1 {
+                tallest = (*x, *h);
+            }
+        }
+        println!(
+            "{preset} seed 1: talus {talus} cells ({talus_at_cliff} near a cliff), \
+             brows {brows} ({brows_at_cliff} over a drop); tallest heap {} cells at x {}",
+            tallest.1, tallest.0
+        );
+        // Bars set from the measurement with headroom, not from an
+        // aspiration and not sitting on the measured value. The weakest of
+        // the three at 512x320 seed 1 is terraced, at 47 talus and 102 brow
+        // cells; 30 leaves room for the reshuffle any legitimate change to
+        // the surface causes, while still being far above the 0-to-34 range
+        // that was the state this rescue was written for.
+        assert!(talus > 30, "{preset}: talus wrote only {talus} cells -- the rescue did not hold");
+        assert!(brows > 30, "{preset}: brows wrote only {brows} cells -- the rescue did not hold");
+        // The claim that matters. Ninety per cent rather than all of it:
+        // an apron tapers away from its face by design, and its far toe can
+        // legitimately sit past the window.
+        assert!(
+            talus_at_cliff * 10 >= talus * 9,
+            "{preset}: only {talus_at_cliff} of {talus} talus cells are near any cliff at all -- \
+             the detector is firing on flat ground"
+        );
+        assert!(
+            brows_at_cliff * 10 >= brows * 9,
+            "{preset}: only {brows_at_cliff} of {brows} brow cells hang over a drop"
+        );
+    }
+}
+
+#[test]
 fn buried_gravel_is_not_the_same_colour_as_scree() {
     // The counter behind the gravel legibility fix, and it needs to be a
     // counter rather than a strip: a lens drawn in scree grey inside grey

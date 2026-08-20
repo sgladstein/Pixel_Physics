@@ -722,3 +722,115 @@ build 456.5 → 454.8 ms, paid once at generation. Frame timings unchanged
 (stress 82.3 ms, +field 88.0 ms, render skip 0.001 ms, 0 chunks awake). The
 +3.6% is one extra fbm evaluation per column, and only where the snap gate
 opens.
+
+### 6 — Brows/talus rescue: the far scale works, and it needed the pass margins re-derived
+
+`cliff_edges` now measures at two scales and a face qualifying at either
+qualifies, sized by the deeper of the two so a face that is part of an
+escarpment is sized by the escarpment rather than by its first four columns.
+
+**The far scale is not a proportional bar, and that matters.** The task
+suggested "a RUN of ~16-24 with a proportionally larger `CLIFF_DROP`".
+Proportional means the same slope — `6 * 20 / 4` = 30 cells over 20 columns
+is a slope of 1.5, exactly what the near scale already asks for, and it
+would have found *nothing extra for exactly the reason the near scale
+misses escarpments*. A regional escarpment is not steeper than a terrace
+riser, it is **taller and gentler**: tens of columns at a slope near 1. So
+`RUN_FAR = 20` with `CLIFF_DROP_FAR = 20` — a slope of 1.0.
+
+Brow reach and thickness and talus peak all scale with the measured drop
+(reach already half-did, and is extended rather than replaced), capped by
+`MAX_BROW_REACH` and `MAX_TALUS_PEAK` — caps that bound the work without
+gating whether it happens, per the twice-written landmine. Talus still
+routes through the existing two-sweep repose taper, untouched.
+
+**Per-seed, 512x320, task 6 alone** (i.e. on top of tasks 3-5):
+
+| | brows before → after | talus before → after |
+|---|---|---|
+| canyon s3 | 9 → **391** | 20 → **617** |
+| canyon s7 | 459 → 1412 | 221 → 678 |
+| canyon s2 | 620 → 1655 | 415 → 1048 |
+| rolling s2 | 234 → 675 | 111 → 610 |
+| rolling s7 | 193 → 431 | 116 → 390 |
+| wetland s7 | 4 → **97** | 45 → 123 |
+| terraced s2 | 99 → 415 | 10 → 141 |
+| rolling s1 | 172 → 216 | 164 → 164 |
+| arid s1, s7 | unchanged | unchanged |
+
+Sweep p90 over 16 seeds, against the task-2 baseline (which predates tasks
+3-6, so these are the whole track's movement): brows rolling 376 → 1081
+(+188%), canyon 918 → 2749 (+199%), terraced 290 → 746 (+157%), wetland 24
+→ 109 (+354%), arid 58 → 153 (+164%); talus rolling 246 → 840 (+241%),
+canyon 676 → 1621 (+140%), terraced 282 → 719 (+155%), wetland 46 → 141
+(+207%), arid 137 → 182 (+33%).
+
+**Two rows in that table are the ones worth reading, and neither is a
+gain.** `rolling s1` talus and both `arid` seeds come out *bit-identical*.
+That is the shape CLAUDE.md flags as "identical outputs mean the knob was
+never connected" — checked rather than assumed, and here it is the correct
+answer rather than a dead knob: those worlds have no face that clears the
+far scale, so only the near scale fires and nothing about it changed, and
+their talus peaks are all limited by `fall / 2` rather than by
+`talus_max_height`, which is the term that grew. The sweep is what shows the
+knob is live; seed 1 is not the sweep. This is also why the review's headline
+"brows 34, talus 148" needs a footnote: those were seed-1 numbers, and the
+p90 across sixteen seeds was already 376 and 246.
+
+**A finding this cannot fix**: `wetland` seeds 1, 2 and 3 generate **zero**
+cliffs, before and after. Low relief plus `terrace_strength: 0.3` means no
+face anywhere clears even `CLIFF_DROP = 6`, so the formation vocabulary is
+simply absent from most wetland worlds. Lowering the bar would hang lips off
+gentle slopes, which is the failure the constant's own comment warns about.
+If wetland should have scree at all, the lever is its relief or its terrace
+strength, not cliff detection — an owner/reviewer call, not one for this
+track.
+
+**The pass margins had to be re-derived, and one was already wrong.** A
+margin is the contract a per-chunk generator plans against, so an understated
+one is a promise to produce different cells at a chunk edge. `brows` goes
+4 → 40 (`RUN_FAR` of detection + `MAX_BROW_REACH` of writing). `talus` goes
+3 → 200 — and **3 was already wrong before this change**, because the pass
+walks up to `MAX_FALL` = 120 columns looking for the foot of a fall and has
+done since it was written. Both are large and both are honest; shrinking
+them is the coarse map's job, not optimism here. `only_the_water_passes_
+read_the_whole_world` still passes: these are finite, not `GLOBAL`.
+
+**Placement, not just count.** `cliff_formations_land_at_cliffs_and_are_
+visibly_present` is the guard, because a detector loosened until it fires
+everywhere would move the counts just as well and be strictly worse. It
+attributes cells by building the same world with each pass switched off,
+then checks each cell has a real drop within reach: **100% of talus and 100%
+of brow cells, on rolling, canyon and terraced.** Bars set from the
+measurement with headroom (weakest case is terraced at 47 talus and 102 brow
+cells; bar is 30).
+
+Its relief metric needed one correction, the same shape as the two in task
+4 and one in task 5: measuring only "does the ground fall away from here"
+scored 91 of 216 brow cells and 72 of 164 talus cells as misplaced, when
+every one was where it belonged — a brow hangs over ground that has
+*already* fallen and an apron sits at the foot of a face that *rises* beside
+it. Absolute local relief is the right question. Then the drop threshold had
+to come down from 20 to 6, because 6 is the pass's own near-scale bar and an
+apron under a modest riser is a legitimate apron; asking for an escarpment
+was a test failing for wanting something the code never claimed.
+
+**Cost**: 2048x640 place 275.9 → 275.4 ms — the second scale is 40 more
+array reads per column and does not register. Whole build 454.8 → 469.9 ms,
+the difference being the structural pass over more formation cells
+(178.9 → 194.5 ms), paid once at generation. Frame timings unchanged, 0
+chunks awake in every settled `ascii` scene, render skip 0.002 ms.
+
+At-rest green across every preset x 5 seeds — the aprons are much larger and
+still route through the two-sweep repose taper, which is what makes that
+true rather than lucky.
+
+**The sweep baseline was refreshed in the task-6 commit**, deliberately and
+as the last act of the track. Up to that point every `compare` was against
+the pre-task-3 numbers, which is what made the whole track's movement
+visible in one diff (and is why the tables above quote it). Left un-refreshed
+it would show tasks 3-6's movement forever and the next session would learn
+to ignore it, which is exactly how a rubber-stamped baseline happens. The
+before numbers are preserved here and in the commit messages; the file now
+carries the post-track state, so the next change compares against what is
+actually shipped.
