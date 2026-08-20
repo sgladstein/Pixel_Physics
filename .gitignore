@@ -1,2 +1,7 @@
 /target
 **/*.rs.bk
+# Per-session git worktrees (see CLAUDE.md, "Working alongside another
+# session"). Live working state belonging to whichever session made them --
+# never commit one: sweeping another session's in-progress tree into a
+# commit is the exact `git add -A` disaster the gotchas list records.
+/.claude/worktrees/
