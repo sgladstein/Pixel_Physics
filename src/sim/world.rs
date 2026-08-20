@@ -321,6 +321,10 @@ pub struct World {
     /// reason `fields` is: the signal outlives whoever deposited it, which
     /// is the entire point of stigmergy.
     pub pheromones: Pheromones,
+    /// The "did it fire" counters for the field solve — see [`FieldStats`],
+    /// which explains why the obvious alternative (counting unsettled tiles)
+    /// cannot answer the question they exist for.
+    pub field_stats: field::FieldStats,
     /// The "did it fire" counters for creature behaviour — `FailureCounts`
     /// in shape and in purpose.
     ///
@@ -658,6 +662,7 @@ impl World {
             body_index: HashMap::new(),
             species: SpeciesRegistry::builtin(),
             pheromones: Pheromones::new(bounds),
+            field_stats: field::FieldStats::default(),
             creature_stats: CreatureStats::default(),
             energy_ledger: EnergyLedger::default(),
             organisms: Vec::new(),
@@ -1615,6 +1620,21 @@ impl World {
     /// to build a per-frame decision on a full scan of the tile map.
     #[cfg(test)]
     pub(crate) fn unsettled_field_tiles(&self) -> usize {
+        self.fields.values().filter(|t| !t.settled()).count()
+    }
+
+    /// The same count, for the headless harnesses (`examples/ascii.rs`), which
+    /// live in another crate and so cannot see the `#[cfg(test)]` form above.
+    ///
+    /// The warning on that one applies here with knobs on: this is a full scan
+    /// of the tile map and **nothing in the engine may branch on it**. It
+    /// exists because "did the field actually stay asleep for a whole day"
+    /// cannot be answered by a timing (a scan that costs 0.02 ms and one that
+    /// costs 0.00 ms are the same number through a `Duration` at this scale)
+    /// and must not be answered by a picture — `CLAUDE.md`: "did it fire at
+    /// all" needs a counter.
+    #[doc(hidden)]
+    pub fn awake_field_tiles(&self) -> usize {
         self.fields.values().filter(|t| !t.settled()).count()
     }
 

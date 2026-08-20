@@ -543,6 +543,12 @@ const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
 /// one-cell-wide line.
 const SCALAR_RAMP_PHERO_A: [f32; 3] = [255.0, 80.0, 220.0];
 const SCALAR_RAMP_PHERO_B: [f32; 3] = [80.0, 240.0, 255.0];
+/// The two halves of the signed temperature ramp — warmer than ambient and
+/// cooler than ambient. Two hues rather than one ramp through black, so the
+/// *sign* is readable at a glance on a contact sheet: a world that has gone
+/// blue overnight and one that has gone dark are different pictures.
+const SCALAR_RAMP_WARM: [f32; 3] = [255.0, 140.0, 40.0];
+const SCALAR_RAMP_COOL: [f32; 3] = [90.0, 150.0, 255.0];
 
 const SCALAR_RAMP_FLOOR: f32 = 0.18;
 
@@ -2188,6 +2194,34 @@ impl Renderer {
             }
             return out;
         }
+        // **Temperature joined them, for the reason above and one more.**
+        // As a blend it was unreadable twice over: the sky's day/night
+        // forcing is single degrees on a range sized for a fire's hundreds,
+        // so it moved a colour byte by a hair — and what it moved it against
+        // was the cell's own colour, which the renderer is *already* tinting
+        // with the time of day. A warm ground at noon and a warm-lit ground
+        // at sunset came out looking the same, which is the one comparison
+        // the channel exists to make. Contact sheets of a full day over
+        // generated terrain were built and read before and after this
+        // change; before, the surface band's own temperature was not
+        // legible at all.
+        //
+        // Signed, because this channel now has a below-ambient half that a
+        // clamp at zero would erase: blue for cooler than ambient, orange
+        // for warmer. Logarithmic in the distance from ambient, because the
+        // two things worth seeing are three orders of magnitude apart — a
+        // 6-degree night still reaches a third of the ramp, a 900-degree
+        // fire still saturates it.
+        if matches!(self.field_overlay, FieldOverlay::Temperature) {
+            let delta = world.field_at(x, y).temperature - AMBIENT_TEMPERATURE as f32;
+            let t = (delta.abs().ln_1p() / TEMPERATURE_OVERLAY_MAX.ln_1p()).clamp(0.0, 1.0);
+            let ramp = scalar_ramp(t, if delta >= 0.0 { SCALAR_RAMP_WARM } else { SCALAR_RAMP_COOL });
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
         let (ramp, magnitude) = match self.field_overlay {
             FieldOverlay::Off => return base,
             FieldOverlay::Pressure => {
@@ -2201,11 +2235,8 @@ impl Renderer {
                 let colour = if t >= 0.0 { [255.0, 60.0, 60.0] } else { [60.0, 90.0, 255.0] };
                 (colour, t.abs())
             }
-            FieldOverlay::Temperature => {
-                let f = world.field_at(x, y);
-                let t = ((f.temperature - AMBIENT_TEMPERATURE as f32) / TEMPERATURE_OVERLAY_MAX).clamp(0.0, 1.0);
-                ([255.0, 140.0, 40.0], t)
-            }
+            // Temperature is handled by the full-replace branch above.
+            FieldOverlay::Temperature => return base,
             FieldOverlay::Light => {
                 let f = world.field_at(x, y);
                 let t = (f.light / LIGHT_OVERLAY_MAX).clamp(0.0, 1.0);
@@ -2744,10 +2775,41 @@ mod tests {
         // "overlay is off"). Adding them to this list would be asserting
         // that the fix for the canopy-density blank sheet had not been
         // applied.
-        for overlay in [FieldOverlay::Pressure, FieldOverlay::Temperature, FieldOverlay::Light, FieldOverlay::Moisture] {
+        //
+        // **`Temperature` left this list when the sky started writing that
+        // channel**, for the same reason and not as a concession: it is
+        // full-replace now, its ambient reading draws at the ramp floor, and
+        // an overlay that renders "20C" and "26C" as the same pixel cannot
+        // show a day/night cycle at all. `the_temperature_overlay_tells_warm
+        // _from_cool` below is the guard that replaced this one for it.
+        for overlay in [FieldOverlay::Pressure, FieldOverlay::Light, FieldOverlay::Moisture] {
             renderer.field_overlay = overlay;
             assert_eq!(renderer.cell_colour(&world, 50, 50), off, "{overlay:?} tinted an unaffected cell far from any real disturbance");
         }
+    }
+
+    #[test]
+    fn the_temperature_overlay_tells_warm_from_cool() {
+        // The day/night sky forcing is a few degrees on a channel whose
+        // other user is a fire. Under the old linear-on-900 blend a whole
+        // warm afternoon and a whole cold night rendered as the same pixel
+        // as ambient -- so this asserts the three cases are three colours,
+        // which is the property that makes `filmstrip channel=temperature`
+        // able to show a day at all.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for x in [10, 30, 50] {
+            world.set(x, 10, Cell::new(material::STONE, 0));
+        }
+        world.add_heat(30, 10, 2, 6.0); // a warm afternoon, not a fire
+        world.add_heat(50, 10, 2, -6.0); // and a cold night
+        let mut renderer = Renderer::new();
+        renderer.field_overlay = FieldOverlay::Temperature;
+        let ambient = renderer.cell_colour(&world, 10, 10);
+        let warm = renderer.cell_colour(&world, 30, 10);
+        let cool = renderer.cell_colour(&world, 50, 10);
+        assert_ne!(warm, ambient, "a 6-degree warm reading rendered identically to ambient");
+        assert_ne!(cool, ambient, "a 6-degree cool reading rendered identically to ambient");
+        assert!(warm[0] > cool[0] && cool[2] > warm[2], "warm and cool must not be the same hue: warm {warm:?}, cool {cool:?}");
     }
 
     #[test]

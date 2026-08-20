@@ -253,6 +253,7 @@ fn main() {
     // asked for, not just a passing unit test.
     field_sleep_scene();
     field_scaling_scene();
+    field_day_scene();
 
     // Stage 2 of the creature milestone: the stigmergy substrate, rendered
     // and measured before anything reads it.
@@ -510,6 +511,67 @@ fn field_sleep_scene() {
         "worst frame while the impulse was active: {:.4} ms; worst frame once settled: {:.4} ms",
         worst_active.as_secs_f64() * 1000.0,
         worst_settled.as_secs_f64() * 1000.0,
+    );
+}
+
+/// **What one whole day/night cycle costs a settled world**, in awake field
+/// tiles and in frame time.
+///
+/// `field_sleep_scene` above measures a world nothing is driving. This one
+/// measures the world the sky *is* driving: 3600 frames is exactly
+/// `DAY_NIGHT_PERIOD_FRAMES`, so this is one sunrise, one noon, one sunset and
+/// one midnight over ground that has otherwise stopped moving.
+///
+/// The number to watch is `awake tile-frames`. A picture cannot answer this
+/// and neither can a timing at this scale — `CLAUDE.md`: "did it fire at all"
+/// needs a counter. The specific hazard it is aimed at is a sky channel that
+/// forces the temperature of the surface and then lets it diffuse downward:
+/// field temperature has no decay term (unlike light's `LIGHT_DECAY`), so an
+/// over-strong or under-attenuated forcing propagates a thermal wave into
+/// buried tiles that were asleep and keeps waking them, all night, forever.
+/// Buried tiles are what the ground below is here to provide — the
+/// reassurance that "sky-lit tiles never sleep anyway" does not cover them.
+fn field_day_scene() {
+    println!("\n=== field: one full day/night cycle over settled ground ===");
+    let mut world = World::new(Rect::new(0, 0, 511, 319));
+    // 160 rows of stone under 160 rows of sky: half the tiles are buried, and
+    // buried is the state the measurement is about.
+    for y in 160..320 {
+        for x in 0..512 {
+            world.set(x, y, Cell::new(material::STONE, 0));
+        }
+    }
+    world.end_step();
+    // Settle first: the count below must be the *standing* state, not the
+    // transient of a world that has just been painted.
+    for _ in 0..200 {
+        world.step_fields();
+    }
+
+    let day = 3600;
+    let mut awake_tile_frames: u64 = 0;
+    let mut worst = std::time::Duration::ZERO;
+    let before = world.field_stats;
+    let started = std::time::Instant::now();
+    for _ in 0..day {
+        world.begin_step(); // the sky is a function of `world.frame`, so a day only passes if the frame counter does
+        let t = std::time::Instant::now();
+        world.step_fields();
+        worst = worst.max(t.elapsed());
+        awake_tile_frames += world.awake_field_tiles() as u64;
+        world.end_step();
+    }
+    let total = started.elapsed();
+    // Both counters, because they answer different questions and the first
+    // one alone reads zero for two opposite reasons -- see `FieldStats`.
+    // `solved` is tiles the solver actually ran passes over; `awake` is tiles
+    // left unconverged afterwards, which is what the *next* frame inherits.
+    println!(
+        "over {day} frames: {} solves over {} passes, {awake_tile_frames} awake tile-frames left behind, worst frame {:.4} ms, total {:.1} ms",
+        world.field_stats.tiles_solved - before.tiles_solved,
+        world.field_stats.passes - before.passes,
+        worst.as_secs_f64() * 1000.0,
+        total.as_secs_f64() * 1000.0,
     );
 }
 

@@ -68,6 +68,28 @@ falling smoothly rather than switching between two fixed states — a
 gradual dawn, a bright midday peak, a gradual dusk, and then a dim night
 that never goes fully black before the cycle begins again.
 
+**The air warms and cools with it.** Days are warmer than nights, rising to
+their warmest around midday and falling to their coldest in the middle of
+the night, with the change spread smoothly across the hours in between
+rather than arriving as a switch at dusk. It is weather, not an event: a
+mild difference you would notice on a thermometer, not one that freezes a
+pond or sets anything alight.
+
+It is a surface effect, and it fades as you go down. Open air feels the
+whole swing; the ground takes a weaker version of it at its surface; and a
+little way underground there is no day and night at all — deep rock sits at
+the same temperature at midnight as at noon, which is what makes a cave feel
+like a different place from the hillside above it.
+
+For now this is something to look at rather than something that acts on the
+world. Everything that decides anything from a temperature — what melts,
+what catches fire, when a worm flees the heat, how fast damp ground dries —
+deliberately ignores the time of day and reads the same value at every hour,
+so nothing behaves differently at night than it does at noon. Making the
+warm afternoons and cold nights actually *do* something is the next step,
+and it is a deliberate one rather than a side effect of the air having a
+temperature at all.
+
 Destruction isn't always permanent, either. Ash left behind by something
 that actually burned doesn't stay ash forever — over time it slowly
 weathers into soil, faster in damp conditions and much more slowly in dry
