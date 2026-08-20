@@ -456,6 +456,51 @@ fn build(args: &Args) -> World {
                 w.step_pheromones();
             }
         }
+        // A scatter of separate grains falling into an open pool: the
+        // splash.
+        //
+        // **`scene=blob` cannot show this and that is geometry, not
+        // tuning.** A splash site is where a denser cell displaces near-full
+        // liquid *with air directly above it* (`update::try_move`), and
+        // under a 68-wide solid blob the cell above the displaced water is
+        // always the next sand cell down. The handful of sites a blob does
+        // produce are its own trailing edge, thrown into the middle of a
+        // blob that fills the frame -- 37 droplets over the whole entry,
+        // every one of them invisible behind the sand.
+        //
+        // Separate grains are the case the mechanic is for and the case a
+        // player makes: each one arrives at open water on its own, and the
+        // droplets it throws fly against open air. **One cell in twenty,
+        // over a hundred rows**, and both numbers were turned down from a
+        // first cut at one in five over sixty: at that density the falling
+        // grains are a curtain, arrivals overlap, and a droplet is one blue
+        // pixel in a snowstorm of yellow ones. The scene has to leave the
+        // air *empty* between arrivals or it cannot show what it is for.
+        "splash" => {
+            stone_floor(&mut w);
+            for y in 0..floor_y {
+                w.set(120, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(392, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in 121..392 {
+                for y in 200..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            let mut grains = 0;
+            for x in 160..355 {
+                for y in 20..120 {
+                    // A hash rather than an rng draw, so the scatter is a
+                    // pure function of position and two runs of this scene
+                    // are the same scene (`PLAN.md`: determinism).
+                    if rng::jitter(x, y) < 0.05 {
+                        w.set(x, y, Cell::new(material::SAND, (rng::jitter(y, x) * 255.0) as u8));
+                        grains += 1;
+                    }
+                }
+            }
+            println!("splash: {grains} loose grains over an open pool 271 wide");
+        }
         // A dense blob dropped into a walled pool: the displacement striping.
         "blob" => {
             stone_floor(&mut w);
@@ -1769,6 +1814,13 @@ fn advance(
     }
     world.step_active_sites();
     blasts.step(world, particles);
+    // `App::update`'s slot exactly: splashes are debited from the pool and
+    // thrown here, between the blast stage and the particle step. Without
+    // this line the sweep reports splash sites every frame and nothing ever
+    // takes one, so `scene=blob` would show none -- and it is the only
+    // place the water actually leaves the pool, so a harness that omits it
+    // loses nothing rather than quietly draining.
+    pixel_physics::sim::particle::throw_splashes(world, particles);
     particles.step(world);
     world.step_fields();
 }
@@ -2341,6 +2393,13 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             "    phase changes: boiled {}, condensed {}, froze {}, melted {}, reacted {}",
             p.boiled, p.condensed, p.froze, p.melted, p.reacted
         );
+        // Same reasoning one line up, for splashes: a droplet in flight is
+        // one pixel and lands within a few frames, so `particles` on the
+        // tile line above is very often 0 even on a frame that threw a
+        // dozen. Cumulative, so it answers "has this ever fired".
+        if world.splashes_thrown > 0 {
+            println!("    splash droplets thrown: {}", world.splashes_thrown);
+        }
         // A census to read against the event counts above -- `CLAUDE.md`'s
         // "a failure count is not a damage count" bites here too: `froze`
         // going flat can mean "all the lava finished" or "the remaining

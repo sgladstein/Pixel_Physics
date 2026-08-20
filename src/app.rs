@@ -948,6 +948,13 @@ impl App {
         // frame for it -- which is the whole reason staging helps debris
         // escape at all (`sim::explosion::Tuning::duration`).
         self.blasts.step(&mut self.world, &mut self.particles);
+        // Splashes between the two, for the same reason blasts come before
+        // particles: the sweep reported these sites against this frame's
+        // state, so they should be taken and thrown before the step that
+        // moves everything, not left a frame stale. See
+        // `particle::throw_splashes` -- this is the only place a splash
+        // droplet's water is actually debited from the pool.
+        crate::sim::particle::throw_splashes(&mut self.world, &mut self.particles);
         self.particles.step(&mut self.world);
         self.world.step_fields();
         // Beside the field step, and for the same reason: a coarse
