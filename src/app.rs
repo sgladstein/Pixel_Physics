@@ -1785,7 +1785,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1811,6 +1811,11 @@ impl App {
                 String::new()
             } else {
                 format!(" — bubbles {}", self.renderer.bubbles.label())
+            },
+            if self.renderer.gas == render::GasMode::Opaque {
+                String::new()
+            } else {
+                format!(" — gas {}", self.renderer.gas.label())
             },
             // Same rule as grain: silent until someone is actually
             // comparing, then named, because the whole value of a

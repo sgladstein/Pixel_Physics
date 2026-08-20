@@ -306,6 +306,68 @@ impl BubbleMode {
     }
 }
 
+/// How a `Gas` cell is drawn against what is behind it, cycled by `;`.
+///
+/// Gas has always drawn opaque, which is the one thing a cloud is not, and
+/// it costs more than it looks: `scene=boil`'s steam fills its chamber by
+/// frame 300 and from then on the sheet shows a speckled wall with the pool
+/// somewhere behind it. That is not only a look complaint -- it is why the
+/// bubble work above had to build `scene=simmer` to be judged at all.
+///
+/// A selector rather than a decision, on `GrainMode`'s precedent, and
+/// `Opaque` is the default so nothing changes for anyone who does not press
+/// the key.
+///
+/// **It does not cost the dirty-rect render skip.** The blend reads
+/// `background_at`, which is a `Vec` index and an array index and no
+/// `World::get` at all, and it runs only for `Gas` cells -- a population
+/// that is empty on a settled world and small even during a blast.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum GasMode {
+    /// Today's behaviour: a gas cell's own colour, lit, and nothing else.
+    #[default]
+    Opaque,
+    /// Blended toward what is behind it by `GAS_ALPHA`, so a cloud thins
+    /// what it covers rather than replacing it. Applied *after* the light,
+    /// deliberately: the background is already lit, and blending before
+    /// would light it twice.
+    Translucent,
+    /// `Translucent`, but the alpha follows the cell's own `aux` fill --
+    /// which for steam is the water it carries (`fire::transform`'s table),
+    /// so a plume that has thinned out draws thinner. The other reading of
+    /// "translucent", and the one that is a *readout* as well as a look.
+    ByFill,
+}
+
+impl GasMode {
+    fn next(self) -> Self {
+        match self {
+            GasMode::Opaque => GasMode::Translucent,
+            GasMode::Translucent => GasMode::ByFill,
+            GasMode::ByFill => GasMode::Opaque,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GasMode::Opaque => "OPAQUE (current)",
+            GasMode::Translucent => "TRANSLUCENT",
+            GasMode::ByFill => "BY-FILL",
+        }
+    }
+}
+
+/// How much of its own colour a `GasMode::Translucent` cell keeps. Well
+/// above half: a cloud you can see straight through is fog, not steam, and
+/// the point is to thin what is behind rather than to reveal it.
+const GAS_ALPHA: f32 = 0.62;
+
+/// The floor `GasMode::ByFill` will not thin past, so a nearly-drained
+/// steam cell is still visibly *there*. Without it the thin edge of every
+/// plume disappears entirely and the cloud reads as having a hard rim,
+/// which is the opposite of the point.
+const GAS_ALPHA_MIN: f32 = 0.25;
+
 /// Which M13 field channel `Renderer::field_overlay` tints the screen by,
 /// cycled by `V` — parallel to `F1`'s existing chunk overlay, for seeing
 /// the coarse field grid instead of chunk activity.
@@ -591,6 +653,9 @@ pub struct Renderer {
     /// cycled by `H`, and free on a settled world for the reason that enum
     /// documents.
     pub bubbles: BubbleMode,
+    /// How a `Gas` cell is drawn against what is behind it -- see
+    /// `GasMode`. `Opaque` by default, cycled by `;`.
+    pub gas: GasMode,
     /// Frame counter, advanced by `draw`, read only by `GrainMode::Animated`.
     frame: u64,
     /// Screen rectangles the chunk bodies occupied on the previous `draw`.
@@ -742,6 +807,7 @@ impl Renderer {
         Self {
             grain: GrainMode::default(),
             bubbles: BubbleMode::default(),
+            gas: GasMode::default(),
             frame: 0,
             last_body_rects: Vec::new(),
             last_player_rect: None,
@@ -794,6 +860,11 @@ impl Renderer {
     /// judgement about motion, and a contact sheet can only get it so far.
     pub fn cycle_bubbles(&mut self) {
         self.bubbles = self.bubbles.next();
+    }
+
+    /// `;` -- step through the gas looks. Same reasoning as `cycle_grain`.
+    pub fn cycle_gas(&mut self) {
+        self.gas = self.gas.next();
     }
 
     pub fn cycle_field_overlay(&mut self) {
@@ -1560,6 +1631,50 @@ impl Renderer {
     /// `-1` rather than a computed value for a column outside the cached
     /// range or one that has never held anything: both mean open sky, and
     /// `y - i32::MAX` would wrap.
+    /// What this position would look like with nothing in it — sky above
+    /// the skyline, unlit rock below it.
+    ///
+    /// Two callers: the empty-cell path, which is what it was extracted
+    /// from, and `GasMode::Translucent`, which needs to know what is
+    /// *behind* a gas cell in order to see through it. Cheap enough for the
+    /// second one: a `Vec` index (`sky_depth`), an array index into
+    /// `cave_ramp` and three mixes, with no `World::get` anywhere -- which
+    /// is what the fake-AO experiment could not say for itself.
+    fn background_at(&self, x: i32, y: i32) -> [u8; 4] {
+        // Sky, not a flat background. Empty space inside the world is
+        // *air*, and drawing it black made every world read as a cutaway
+        // diagram rather than a place -- the strongest remaining tell,
+        // once the ground itself started looking like ground.
+        //
+        // Empty space is also where the day/night cycle was invisible.
+        // The oscillator has driven the light channel since M16, so
+        // plants and moss have always known what time it is while the
+        // screen did not; this is that same cosine, read rather than
+        // reinvented (`sky::Sky::at`).
+        let daylight = self.sky.colour_at(x, y);
+        let depth = self.sky_depth(x, y);
+        if depth < 0 {
+            return daylight;
+        }
+        // Inside the ground: unlit rock, not daylight. Constant rather than
+        // following the sky, because a cave is dark at noon as well -- and
+        // deliberately distinct from the `VOID` outside the world, which is
+        // a different kind of nothing.
+        //
+        // Faded in over `CAVE_FADE_DEPTH` rather than switched at the
+        // boundary. Light reaches in through an opening and falls off;
+        // cutting instead put a black rectangle behind every roof and made
+        // a cave mouth a cutout rather than an opening.
+        let t = self.cave_ramp[depth.clamp(1, CAVE_FADE_DEPTH) as usize] as u16;
+        let mix = |a: u8, b: u8| ((a as u16 * (255 - t) + b as u16 * t) / 255) as u8;
+        [
+            mix(daylight[0], UNDERGROUND[0]),
+            mix(daylight[1], UNDERGROUND[1]),
+            mix(daylight[2], UNDERGROUND[2]),
+            255,
+        ]
+    }
+
     fn sky_depth(&self, x: i32, y: i32) -> i32 {
         let i = x - self.horizon_origin;
         if i < 0 || i as usize >= self.horizon.len() {
@@ -1640,30 +1755,7 @@ impl Renderer {
             // Deliberately *inside* the bounds check above, so the void
             // outside the world keeps its own colour and stays
             // distinguishable from a dark night sky.
-            let daylight = self.sky.colour_at(x, y);
-            let depth = self.sky_depth(x, y);
-            base = if depth < 0 {
-                daylight
-            } else {
-                // Inside the ground: unlit rock, not daylight. Constant
-                // rather than following the sky, because a cave is dark at
-                // noon as well -- and deliberately distinct from the `VOID`
-                // outside the world, which is a different kind of nothing.
-                //
-                // Faded in over `CAVE_FADE_DEPTH` rather than switched at
-                // the boundary. Light reaches in through an opening and
-                // falls off; cutting instead put a black rectangle behind
-                // every roof and made a cave mouth a cutout rather than an
-                // opening.
-                let t = self.cave_ramp[depth.clamp(1, CAVE_FADE_DEPTH) as usize] as u16;
-                let mix = |a: u8, b: u8| ((a as u16 * (255 - t) + b as u16 * t) / 255) as u8;
-                [
-                    mix(daylight[0], UNDERGROUND[0]),
-                    mix(daylight[1], UNDERGROUND[1]),
-                    mix(daylight[2], UNDERGROUND[2]),
-                    255,
-                ]
-            };
+            base = self.background_at(x, y);
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
             // temperature very much propagate through vacuum) rather than
@@ -1815,7 +1907,26 @@ impl Renderer {
         // the top of the range and the darkening barely touches it. The one
         // thing that emits is the one thing that stays bright, which is the
         // behaviour a special case would have had to fake.
-        let rgb = sky::apply_light(rgb, self.daylight, self.sky.ambient());
+        let mut rgb = sky::apply_light(rgb, self.daylight, self.sky.ambient());
+
+        // Translucency, after the light and not before it: `background_at`
+        // returns an already-lit colour, so blending first would light the
+        // background twice and a cloud would read as a bright patch rather
+        // than as something you can see through. See `GasMode`.
+        if self.gas != GasMode::Opaque && world.materials.kind(cell.material) == material::MaterialKind::Gas {
+            let alpha = match self.gas {
+                GasMode::ByFill => {
+                    let fill = crate::sim::update::liquid_fill(cell) as f32 / material::LIQUID_FULL as f32;
+                    GAS_ALPHA_MIN + (GAS_ALPHA - GAS_ALPHA_MIN) * fill.clamp(0.0, 1.0)
+                }
+                _ => GAS_ALPHA,
+            };
+            let behind = self.background_at(x, y);
+            for (c, b) in rgb.iter_mut().zip(behind) {
+                *c = (*c as f32 * alpha + b as f32 * (1.0 - alpha)).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+        let rgb = rgb;
         let tinted = self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255]);
         // Applied *after* the field overlay, deliberately: the two can be on
         // at once (light and canopy density together is the pairing that
@@ -2796,6 +2907,45 @@ mod tests {
             pixels_differing(&first, &later) > 0,
             "the bubble pattern is identical {BUBBLE_RISE_PERIOD} frames later; nothing is rising"
         );
+    }
+
+    #[test]
+    fn translucent_gas_lets_the_background_through_and_opaque_does_not() {
+        // A band of smoke against open sky, drawn three ways. The claim is
+        // ordered rather than absolute: every mode has to move the pixel
+        // *toward* what is behind it more than the last, and `Opaque` has
+        // to move it not at all -- which is what makes the default
+        // genuinely today's behaviour rather than nearly it.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        let smoke = world.materials.id_of("smoke").expect("smoke.ron should be embedded");
+        for y in 20..30 {
+            for x in 0..64 {
+                world.set(x, y, Cell::new(smoke, 0).with_aux(400));
+            }
+        }
+        let draw = |mode: GasMode| {
+            let mut renderer = Renderer::new();
+            renderer.gas = mode;
+            let particles = ParticleSystem::new();
+            let mut frame = vec![0u8; 64 * 64 * 4];
+            renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (64, 64), true);
+            frame
+        };
+        // The sky itself, at a row nothing was drawn into, is what a fully
+        // transparent gas cell would converge to.
+        let opaque = draw(GasMode::Opaque);
+        let sky_idx = (10 * 64 + 32) * 4;
+        let sky = [opaque[sky_idx], opaque[sky_idx + 1], opaque[sky_idx + 2]];
+        let gas_idx = (25 * 64 + 32) * 4;
+        let distance = |f: &[u8]| {
+            (0..3).map(|c| (f[gas_idx + c] as i32 - sky[c] as i32).abs()).sum::<i32>()
+        };
+        let (o, t, b) = (distance(&opaque), distance(&draw(GasMode::Translucent)), distance(&draw(GasMode::ByFill)));
+        println!("distance from the sky behind it: opaque {o}, translucent {t}, by-fill {b}");
+        assert!(o > 0, "the test cell already matches the sky, so this asserts nothing");
+        assert!(t < o, "translucent gas did not move toward what is behind it ({t} against {o})");
+        // aux 400 is a thinned cell, so by-fill has to be thinner still.
+        assert!(b < t, "by-fill did not thin a 40%-full cell past the flat alpha ({b} against {t})");
     }
 
     #[test]

@@ -42,7 +42,7 @@
 
 use std::collections::HashSet;
 
-use pixel_physics::render::{BubbleMode, FieldOverlay, GrainMode, OrganismOverlay, Renderer};
+use pixel_physics::render::{BubbleMode, FieldOverlay, GasMode, GrainMode, OrganismOverlay, Renderer};
 mod common;
 
 use pixel_physics::sim::cell::Cell;
@@ -1376,6 +1376,9 @@ struct Args {
     /// boiling liquid with. `off` is the default and today's behaviour;
     /// the point of the argument is `scene=boil` side by side.
     bubbles: BubbleMode,
+    /// `gas=` -- which of `render.rs`'s `GasMode` looks to draw gas with.
+    /// `opaque` is the default and today's behaviour.
+    gas: GasMode,
     /// `channel=` -- render the sheet through one of `render.rs`'s debug
     /// overlays instead of ordinary material colour. The whole reason the
     /// plant work needs this harness: resource, canopy density and (later)
@@ -1576,6 +1579,7 @@ fn parse() -> Args {
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
         grain: GrainMode::Position,
         bubbles: BubbleMode::Off,
+        gas: GasMode::Opaque,
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
         gif: false,
@@ -1631,6 +1635,14 @@ fn parse() -> Args {
                     "animated" => GrainMode::Animated,
                     "motion" => GrainMode::Motion,
                     other => panic!("unknown grain {other:?}"),
+                }
+            }
+            "gas" => {
+                a.gas = match v {
+                    "opaque" => GasMode::Opaque,
+                    "translucent" => GasMode::Translucent,
+                    "byfill" => GasMode::ByFill,
+                    other => panic!("unknown gas {other:?}"),
                 }
             }
             "bubbles" => {
@@ -2205,6 +2217,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
     renderer.bubbles = args.bubbles;
+    renderer.gas = args.gas;
     renderer.organism_overlay = args.organism_overlay;
     renderer.field_overlay = args.field_overlay;
     let mut particles = ParticleSystem::new();

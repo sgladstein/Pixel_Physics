@@ -408,6 +408,10 @@ impl Handler {
             // named on the status line the moment it is not `Off`, which is
             // how anyone finds out what they just pressed.
             KeyCode::Comma => self.app.renderer.cycle_bubbles(),
+            // `;` for the gas looks, next to `,` and for the same reason:
+            // the letters are gone, and both are look selectors that name
+            // themselves on the status line once they are not at default.
+            KeyCode::Semicolon => self.app.renderer.cycle_gas(),
             // The A/B key. Deliberately reassigned as the question changes --
             // see `App::toggle_experiment`.
             KeyCode::KeyK => self.app.toggle_experiment(),
