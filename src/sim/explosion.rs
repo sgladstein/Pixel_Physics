@@ -313,6 +313,74 @@ pub(crate) fn sector_of(dx: i32, dy: i32) -> usize {
     (octant * 2 + usize::from(far_half)) % CONFINEMENT_SECTORS
 }
 
+/// Blur the probe's per-sector reach around the ring, twice.
+///
+/// The probe answers a *binary* question per direction -- did this ray
+/// reach open air -- so the stored array is effectively two-valued
+/// (`radius`, or `resistance x radius`), and nothing interpolated between
+/// neighbouring sectors. A charge half under a face therefore cleared its
+/// full radius in one 22.5-degree wedge and a third of it in the wedge
+/// immediately beside it, with the step falling exactly on the sector line:
+/// a hard pie cut, which is the second half of the owner's "geometrically
+/// perfect" verdict. Two passes of `(a + 2b + c) / 4` turn that cliff into
+/// a ramp across about three sectors, which is roughly a 70-degree
+/// transition -- wide enough that the eye reads a crater lip rather than a
+/// wedge, narrow enough that a fully contained charge (every sector equal)
+/// is left bit-identical, since the kernel is normalised.
+///
+/// `u16` arithmetic with a `+2` before the divide, so the rounding is
+/// to-nearest rather than always-down; two passes of always-down erosion
+/// would visibly shrink an evenly contained crater for no reason.
+///
+/// # The blur may only raise a sector, never lower it
+///
+/// Measured, not assumed. A plain blur shaves the *peak* off any open run
+/// narrower than about five sectors: a wall shot with three open sectors
+/// came out at 19 against a radius of 20, so **no** sector passed the
+/// `reach >= radius` test any more and the blast reported itself 16/16
+/// contained. That is not a softer edge, it is a different blast --
+/// `fracture_shell` gates on the same comparison, so the cave-wall case
+/// lost its 703-cell overburden failure and both of its thrown bodies, and
+/// the crater it left was *larger* while throwing nothing at all.
+///
+/// Clamping each pass against the probe's own reading keeps the venting
+/// directions exactly as open as the probe found them and spreads the ramp
+/// into the contained side only, which is the shape that was wanted: 7, 8,
+/// 12, 20 across four sectors instead of 7, 20 across a line. The cost is
+/// that a near-contained sector beside an open one clears a little further
+/// than the probe said -- which is the correct direction for rock beside a
+/// free face, and is the ramp itself.
+fn smooth_sectors(reach: [u8; CONFINEMENT_SECTORS]) -> [u8; CONFINEMENT_SECTORS] {
+    let mut out = reach;
+    for _ in 0..2 {
+        let src = out;
+        for i in 0..CONFINEMENT_SECTORS {
+            let prev = src[(i + CONFINEMENT_SECTORS - 1) % CONFINEMENT_SECTORS] as u16;
+            let next = src[(i + 1) % CONFINEMENT_SECTORS] as u16;
+            out[i] = (((prev + 2 * src[i] as u16 + next + 2) / 4) as u8).max(reach[i]);
+        }
+    }
+    out
+}
+
+/// How far this blast reaches in the direction of `(dx, dy)`, with the
+/// sector's own reach roughed up per cell.
+///
+/// The one place the crater's edge shape is decided, called from both
+/// `Blast::clear_annulus` (which compares it against the cell's distance)
+/// and `rigid::fracture_shell` (which compares it against the blast radius,
+/// asking whether this cell's wedge is contained at all). Sharing the
+/// function rather than the constant is deliberate: the two used to make
+/// that decision in two different shapes -- a distance test and a binary
+/// sector skip -- and a rim that clears in one and holds in the other is
+/// exactly the self-refilling bruise R2 was built to remove.
+///
+/// Position-keyed (`rng::jitter`), never `world.rng`: the shape of a hole
+/// is a property of the rock it is cut in, and determinism is required.
+pub(crate) fn ragged_sector_limit(reach: &[u8; CONFINEMENT_SECTORS], dx: i32, dy: i32, x: i32, y: i32) -> f32 {
+    reach[sector_of(dx, dy)] as f32 * (1.0 - (rng::jitter(x, y) - 0.5) * CRATER_RAGGEDNESS)
+}
+
 /// Hard cap on how far one confinement ray may march, independent of
 /// resistance — without it a material with `blast_resistance` of exactly
 /// `0.0` (a data mistake, not a shipped value; every material ships above
@@ -607,31 +675,76 @@ impl Blast {
     /// logic in the synchronous path would drift from this one the first
     /// time either changed.
     fn new(world: &mut World, cx: i32, cy: i32, radius: i32, strength: f32, tuning: &Tuning) -> Self {
-        let (sector_reach, struck_solid) = probe_confinement(world, cx, cy, radius, tuning);
+        let (probed, struck_solid) = probe_confinement(world, cx, cy, radius, tuning);
+        // Smoothed before anything reads it, so the contained-to-open
+        // transition is a ramp over a few sectors rather than a cliff on a
+        // 22.5-degree line. See `smooth_sectors`. The open/contained
+        // *report* is counted off the smoothed array too, because the
+        // smoothed array is what `clear_annulus` and `fracture_shell`
+        // actually obey -- a report counted off the raw probe would
+        // describe a blast that never happened.
+        let sector_reach = smooth_sectors(probed);
         let open_sectors = sector_reach.iter().filter(|&&r| r as i32 >= radius).count() as u32;
         let contained_sectors = CONFINEMENT_SECTORS as u32 - open_sectors;
 
         // R1: the radial fracture halo, scored now rather than on any later
-        // stage. `score_cracks`'s rays `break` on the first non-`Solid`
-        // cell (`rigid::is_body_material`), and by the blast's last stage
-        // the crater is empty *and* `fracture_shell` has already removed
-        // the annulus out to `radius + BLAST_SHELL_REACH` -- a ray starting
-        // at `from = radius` would die on its very first cell there, or
-        // inside re-landed debris that eats it the same way. Calling here,
-        // before anything is cleared, means the rays start in what will
-        // remain standing rock once the crater finishes expanding, so
-        // `from` has to clear the band the shell fracture is about to take:
+        // stage. A fissure walk `break`s on the first non-body cell, and by
+        // the blast's last stage the crater is empty *and* `fracture_shell`
+        // has already removed the annulus out to
+        // `radius + BLAST_SHELL_REACH` -- a walk starting at `from = radius`
+        // would die on its very first cell there, or inside re-landed
+        // debris that eats it the same way. Starting here, before anything
+        // is cleared, means the walks begin in what will remain standing
+        // rock once the crater finishes expanding, so `from` has to clear
+        // the band the shell fracture is about to take:
         // `radius + BLAST_SHELL_REACH + 1` (`Reports/
         // explosion-stone-review.md` §5's adversarial-verification finding
         // -- the one place the first draft of this spec was wrong).
         //
         // Gated on having actually crossed rock: an airburst, or a blast
         // entirely inside loose powder, has no rock to crack and should not
-        // pay for the ray scan.
+        // pay for the walks.
+        //
+        // **Not `rigid::score_cracks`, which is what this used to call.**
+        // That draws a fan of exact straight rays at one shared length,
+        // rigidly rotated by a single site-keyed jitter -- which at five
+        // short rays reads as fissures and at twelve long ones reads as an
+        // asterisk. Worse, an even ray count makes opposite rays exact
+        // point reflections of each other, so the owner's verdict off the
+        // first contact sheet was "perfectly uniform and mirrored"
+        // (`Reports/explosion-stone-review.md` §8b). `score_cracks` stays
+        // exactly as it is for `strike`/`mine_swept`, whose short odd-ray
+        // fans never showed the artifact; the blast simply stopped calling
+        // it. Three things break the symmetry here, and all three are
+        // needed:
+        //
+        // - **per-ray jitter inside its own fan slot**, not one rotation of
+        //   the whole fan, so the spacing is uneven as well as unaligned;
+        // - **heavy-tailed per-ray length** -- `j` squared biases short, so
+        //   most spokes are stubs and the occasional one runs a long way,
+        //   the same distribution `fragment_rungs` uses for the same
+        //   "a distribution, not a uniform" reason;
+        // - **the organic walker**, which wanders and forks, so no two rays
+        //   are congruent even where their slots and lengths agree.
         let cells_fissured = if struck_solid {
-            let from = radius + BLAST_SHELL_REACH + 1;
-            let length = (radius as f32 * tuning.crack_reach) as i32 + from;
-            super::rigid::score_cracks(world, cx, cy, from, length, tuning.crack_rays)
+            let from = (radius + BLAST_SHELL_REACH + 1) as f32;
+            let base = radius as f32 * tuning.crack_reach;
+            let mut total = 0;
+            for i in 0..tuning.crack_rays {
+                let slot = rng::jitter(cx + i as i32 * 7919, cy);
+                let theta = (i as f32 + slot) * std::f32::consts::TAU / tuning.crack_rays as f32;
+                let j = rng::jitter(cx + i as i32 * 104_729, cy + i as i32);
+                let length = (base * (CRACK_LENGTH_FLOOR + CRACK_LENGTH_SPREAD * j * j)) as usize;
+                let start = (cx + (theta.cos() * from).round() as i32, cy + (theta.sin() * from).round() as i32);
+                // The fork pool spread across the fan rather than pooled,
+                // so it is not all spent by the first two rays: every
+                // third ray may throw one branch, ~`crack_rays / 3` in
+                // total, and *where* it throws it is still the walker's own
+                // position-keyed chance.
+                let forks = usize::from(i % 3 == 0);
+                total += super::structural::walk_fissures(world, start, theta, 1, length.max(1), forks, true);
+            }
+            total
         } else {
             0
         };
@@ -738,7 +851,14 @@ impl Blast {
                 // after the material/SMOKE skips above so the counter below
                 // reports cells that would genuinely have cleared, not
                 // candidates that were already air.
-                let sector_limit = self.sector_reach[sector_of(dx, dy)] as f32;
+                //
+                // Roughed up per cell (`ragged_sector_limit`): the reach
+                // itself is a smooth ramp round the ring now, and this is
+                // what stops the *arc* it describes from being a drawn
+                // circle. Without it a contained blast's edge is a clean
+                // conic section, which is `Reports/design-philosophy.md`
+                // §0a's named "reads as fake on sight" failure.
+                let sector_limit = ragged_sector_limit(&self.sector_reach, dx, dy, x, y);
                 if dist2 > sector_limit * sector_limit {
                     self.report.cells_held_by_containment += 1;
                     continue;
@@ -980,6 +1100,27 @@ const SCORCH_FALLOFF: f32 = 0.75;
 /// annulus of uniform colour, which read as a stamped decal; this is what
 /// breaks the circle up.
 const SCORCH_RAGGEDNESS: f32 = 0.45;
+/// The crater's equivalent of `SCORCH_RAGGEDNESS`, and it exists because
+/// the crater had none: the scorch ring was already broken up while the
+/// hole it surrounds was a clean arc-of-a-circle cut, sector by sector.
+/// Read as a fraction of a sector's own effective reach and applied **both
+/// ways** about it (`jitter - 0.5`), so the edge bites into the rock in
+/// some places and leaves teeth standing in others -- a one-way version
+/// only ever shrinks the crater, which reads as a smaller clean circle
+/// rather than a ragged one.
+///
+/// Used identically by `Blast::clear_annulus` and by `rigid::fracture_shell`
+/// through `ragged_sector_limit`, so the hole and the shell that gets
+/// thrown off its rim agree about where the rim is.
+const CRATER_RAGGEDNESS: f32 = 0.35;
+/// The shortest and the extra span a blast fissure may run, as fractions of
+/// `radius * crack_reach`. The jitter driving the spread is **squared**, so
+/// the distribution is heavy-tailed the way `fragment_rungs` is: most
+/// spokes are stubs around the crater and the occasional one runs right out
+/// into the massif. A single shared length is what made the first version
+/// read as an asterisk.
+const CRACK_LENGTH_FLOOR: f32 = 0.35;
+const CRACK_LENGTH_SPREAD: f32 = 1.45;
 /// How far ahead of the expanding cavity front the hot shell sits, in cells.
 const SCORCH_SHELL_THICKNESS: f32 = 3.0;
 /// Fractional spread applied to each ignited cell's burn duration, so a
@@ -1785,5 +1926,84 @@ mod tests {
 
         let nothing: usize = particles.iter().filter(|p| p.material == material::EMPTY).count();
         assert_eq!(nothing, 0, "{nothing} debris particles were spawned with no material at all");
+    }
+
+    /// The uniform case is the one that must come through untouched: a
+    /// fully buried charge reads the same reach in all sixteen directions,
+    /// and a blur that shaved it would quietly shrink every crush pocket in
+    /// the game for no reason at all.
+    #[test]
+    fn smoothing_leaves_an_evenly_confined_probe_exactly_as_it_found_it() {
+        let flat = [7u8; CONFINEMENT_SECTORS];
+        assert_eq!(smooth_sectors(flat), flat);
+    }
+
+    /// The regression that made this a `max` rather than a plain blur, kept
+    /// as its own reproduction.
+    ///
+    /// A wall shot vents in three of sixteen directions. A plain
+    /// `(a + 2b + c) / 4` shaves the peak of a run that narrow -- measured
+    /// 19 against a radius of 20 -- so **no** sector passed `reach >=
+    /// radius` any more and the blast reported itself 16/16 contained.
+    /// `Blast::new` counts its open sectors off this array and
+    /// `rigid::fracture_shell` gates on the same comparison, so the cave
+    /// wall lost its 703-cell overburden failure and both thrown bodies
+    /// while leaving a *larger* hole. The ramp must only ever be added on
+    /// the contained side.
+    #[test]
+    fn smoothing_never_lowers_a_sector_below_what_the_probe_read() {
+        let radius = 20u8;
+        let contained = 7u8;
+        let mut probed = [contained; CONFINEMENT_SECTORS];
+        for slot in probed.iter_mut().skip(5).take(3) {
+            *slot = radius;
+        }
+        let smoothed = smooth_sectors(probed);
+        for i in 0..CONFINEMENT_SECTORS {
+            assert!(smoothed[i] >= probed[i], "sector {i} was lowered: {} -> {}", probed[i], smoothed[i]);
+        }
+        let open = smoothed.iter().filter(|&&r| r >= radius).count();
+        assert_eq!(open, 3, "three vented directions must still read as open, not be blurred away");
+    }
+
+    /// The point of the blur, stated as a property rather than as three
+    /// magic numbers: between a contained direction and an open one there
+    /// has to be something in between, or the crater's edge is a cliff on a
+    /// 22.5-degree line and reads as a pie cut.
+    #[test]
+    fn smoothing_ramps_the_contained_side_instead_of_stepping() {
+        let (radius, contained) = (20u8, 7u8);
+        let mut probed = [contained; CONFINEMENT_SECTORS];
+        for slot in probed.iter_mut().skip(5).take(3) {
+            *slot = radius;
+        }
+        let smoothed = smooth_sectors(probed);
+        // Sectors 4 and 8 flank the open run; 3 and 9 are one further out.
+        assert!(smoothed[4] > contained && smoothed[4] < radius, "sector 4 should be part-way up the ramp, got {}", smoothed[4]);
+        assert!(smoothed[3] > contained, "the ramp should still be climbing two sectors out, got {}", smoothed[3]);
+        assert!(smoothed[3] < smoothed[4], "the ramp should fall off with distance from the open run");
+        assert!(smoothed[8] > contained && smoothed[8] < radius, "the ramp must be symmetric, got {}", smoothed[8]);
+    }
+
+    /// Bounds on the crater's per-cell raggedness, and the fact that it is
+    /// a *property of the position*: an identical charge fired twice in the
+    /// same place must cut the same hole, because determinism is required
+    /// and because `rng::jitter` is the whole reason no `world.rng` draw
+    /// happens here.
+    #[test]
+    fn the_ragged_crater_edge_bites_both_ways_and_is_position_stable() {
+        let reach = [20u8; CONFINEMENT_SECTORS];
+        let (mut over, mut under) = (false, false);
+        for y in 0..40 {
+            for x in 0..40 {
+                let limit = ragged_sector_limit(&reach, x - 20, y - 20, x, y);
+                assert_eq!(limit, ragged_sector_limit(&reach, x - 20, y - 20, x, y), "the same cell must give the same limit twice");
+                let band = (20.0 * (1.0 - CRATER_RAGGEDNESS / 2.0) - 0.001)..=(20.0 * (1.0 + CRATER_RAGGEDNESS / 2.0) + 0.001);
+                assert!(band.contains(&limit), "limit {limit} left the +/- CRATER_RAGGEDNESS/2 band around the sector reach");
+                over |= limit > 20.0;
+                under |= limit < 20.0;
+            }
+        }
+        assert!(over && under, "the edge must both bite past the sector reach and leave teeth short of it");
     }
 }

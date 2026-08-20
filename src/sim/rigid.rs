@@ -173,12 +173,17 @@ const CRACK_RAYS: u32 = 5;
 /// Extra reach a ray gains from running into existing damage. Stress
 /// concentrates at a crack tip, so repeated blows in one place drive a
 /// fissure deeper instead of scribbling a new one each time.
-const CRACK_TIP_BONUS: i32 = 2;
+///
+/// Shared with `structural::walk_fissures`, which needs the identical rule
+/// for the identical reason and only on its blast path -- its wander is
+/// position-keyed, so a repeat charge retraces its own fissures exactly and
+/// would otherwise write nothing at all the second time.
+pub(crate) const CRACK_TIP_BONUS: i32 = 2;
 
 /// How many times a single ray may claim `CRACK_TIP_BONUS`. Bounds the walk
 /// so working one spot forever cannot drive a fissure across the whole
 /// world, while still leaving several blows' worth of room to grow.
-const CRACK_TIP_MAX_STEPS: i32 = 6;
+pub(crate) const CRACK_TIP_MAX_STEPS: i32 = 6;
 
 /// How much a blow of this radius shifts the fragment-size ladder. A tap
 /// chips; a heavy swing calves slabs. Capped at 2 (a 128-cell ceiling)
@@ -597,7 +602,7 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
         // again.
         let rungs = world.materials.get(world.get(seed.0, seed.1).material).fragment_rungs;
         let target = (1usize << (1 + world.rng.below(rungs) as usize + size_bias as usize)).min(MAX_BODY_CELLS);
-        let fragment = take_fragment(&mut left, seed, target);
+        let fragment = take_fragment(world, &mut left, seed, target);
         if fragment.len() >= MIN_BODY_CELLS {
             promote(world, &fragment, impulse);
         } else {
@@ -609,7 +614,24 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
 }
 
 /// Flood up to `target` connected cells out of `left`, removing them.
-fn take_fragment(left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize) -> Vec<(i32, i32)> {
+///
+/// **A fissure is a fragmentation seam.** The flood refuses to cross a
+/// cracked edge, so a collapsing region comes apart along the cracks that
+/// are already in it rather than along BFS ring boundaries. Before this,
+/// cracks severed *support* (`load.rs` asks `edge_is_cracked` everywhere)
+/// and were then completely ignored when the thing they had undermined
+/// actually broke: the flood ran straight across them and the only random
+/// thing about a fragment was its size, never its shape. Whole collapses
+/// therefore came down as L1 rings -- "perfect columns or sharp
+/// triangles", the owner's second complaint off the prototype sheets.
+///
+/// Costs one bit test per admitted cell, at event time only.
+///
+/// A fragment cut small by dense cracking falls through to
+/// `shatter_to_rubble` at the call site, which is the graded outcome and
+/// not a fallback: heavily fissured rock *should* come away as grit while
+/// lightly fissured rock comes away as slabs.
+fn take_fragment(world: &World, left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize) -> Vec<(i32, i32)> {
     // Breadth-first, not depth-first. A DFS flood snakes: it follows one
     // arm to its end before coming back, so fragments came out as long
     // stringy runs — "thin individual pixel lines" rather than chunks. BFS
@@ -625,9 +647,23 @@ fn take_fragment(left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize
         }
         for (dx, dy) in NEIGHBOURS_4 {
             let next = (x + dx, y + dy);
-            if left.remove(&next) {
-                stack.push_back(next);
+            if !left.contains(&next) {
+                continue;
             }
+            // Tested *before* the claim, never after: `left.remove` is how
+            // a cell is claimed for this fragment, so removing it and then
+            // declining it would delete material from the region entirely
+            // -- neither in a fragment nor in the pool for the next seed,
+            // which is precisely what the conservation assertions exist to
+            // catch. `edge_is_cracked` owns each edge from one side (see
+            // its doc), so the step direction is handed to it as-is and it
+            // asks the neighbour about its own bit when stepping left or
+            // up.
+            if super::structural::edge_is_cracked(world, x, y, dx, dy) {
+                continue;
+            }
+            left.remove(&next);
+            stack.push_back(next);
         }
     }
     // Anything still stacked was claimed out of `left` but never reached
@@ -1133,10 +1169,14 @@ pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: 
                 continue;
             }
             // A contained sector's shell stays put -- see this function's
-            // own doc. Sector membership uses the same `sector_of` bucketing
+            // own doc. Asked through the same `ragged_sector_limit`
             // `clear_annulus` used to decide what actually cleared, so the
-            // two never disagree about which 22.5-degree wedge a cell is in.
-            if (confinement.sector_reach[super::explosion::sector_of(dx, dy)] as i32) < confinement.radius {
+            // two never disagree about where this blast's edge is: the
+            // reach is the smoothed one, and the per-cell raggedness is the
+            // same draw, so the thrown shell's boundary is the crater's own
+            // boundary rather than a clean 22.5-degree pie cut laid over a
+            // ragged hole.
+            if super::explosion::ragged_sector_limit(&confinement.sector_reach, dx, dy, x, y) < confinement.radius as f32 {
                 continue;
             }
             let cell = world.get(x, y);
@@ -2317,5 +2357,121 @@ mod tests {
         for ring in &rings {
             assert_eq!(signed_area(ring).abs(), 1);
         }
+    }
+
+    /// W3: a fissure is a fragmentation seam, not decoration.
+    ///
+    /// A cracked edge already severs *support* everywhere in `load.rs`, and
+    /// was then ignored by the thing that actually breaks the rock -- the
+    /// flood ran straight across it, so the only random property of a
+    /// fragment was its size and every collapse came apart along BFS rings.
+    #[test]
+    fn a_fragment_does_not_flood_across_a_fissure() {
+        let mut w = test_world();
+        let region = loose_slab(&mut w, 20, 20, 8, 6); // 48 cells
+        // A clean vertical cut down the middle: every cell in column 23 has
+        // its right edge scored, so nothing may pass from x<=23 to x>=24
+        // (and, through `edge_is_cracked`'s mirror rule, nothing may come
+        // back the other way either).
+        for y in 20..26 {
+            let cell = w.get(23, y);
+            w.set(23, y, cell.with_crack_right(true));
+        }
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let fragment = take_fragment(&w, &mut left, (20, 20), 48);
+
+        assert!(!fragment.is_empty(), "test setup: the flood should still take the seeded half");
+        assert!(
+            fragment.iter().all(|&(x, _)| x <= 23),
+            "the flood crossed a scored edge: {:?}",
+            fragment.iter().find(|&&(x, _)| x > 23)
+        );
+        assert_eq!(fragment.len() + left.len(), 48, "material was lost between the fragment and the remaining pool");
+    }
+
+    /// The same rule read from the other side, which is the half that is
+    /// easy to get wrong: `crack_right`/`crack_down` are *directional* edge
+    /// bits owned by one of the two cells, so stepping left or up has to
+    /// ask the neighbour about its own bit. A version that only tested the
+    /// `+x`/`+y` steps passes the test above and leaks in both the others.
+    #[test]
+    fn a_fissure_blocks_the_flood_from_either_side() {
+        let mut w = test_world();
+        let region = loose_slab(&mut w, 20, 20, 8, 6);
+        for y in 20..26 {
+            let cell = w.get(23, y);
+            w.set(23, y, cell.with_crack_right(true));
+        }
+        // Seeded on the *far* side this time, so every crossing attempt is
+        // a `-x` step asking cell 23 about its own right edge.
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let fragment = take_fragment(&w, &mut left, (27, 20), 48);
+        assert!(
+            fragment.iter().all(|&(x, _)| x >= 24),
+            "the flood crossed a scored edge travelling left: {:?}",
+            fragment.iter().find(|&&(x, _)| x < 24)
+        );
+
+        // And the horizontal edge, both ways, for the `crack_down` half.
+        let mut w = test_world();
+        let region = loose_slab(&mut w, 20, 20, 8, 6);
+        for x in 20..28 {
+            let cell = w.get(x, 22);
+            w.set(x, 22, cell.with_crack_down(true));
+        }
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let down = take_fragment(&w, &mut left, (20, 20), 48);
+        assert!(down.iter().all(|&(_, y)| y <= 22), "the flood crossed a scored edge travelling down");
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let up = take_fragment(&w, &mut left, (20, 25), 48);
+        assert!(up.iter().all(|&(_, y)| y >= 23), "the flood crossed a scored edge travelling up");
+    }
+
+    /// W2 seen from `fracture_shell`: the per-cell test that decides
+    /// whether this cell's direction is contained went from a binary sector
+    /// skip to the same jittered limit `clear_annulus` uses, so the crater
+    /// and the shell thrown off its rim agree about where the rim is. What
+    /// must not move is the *decision* at either extreme -- a contained
+    /// blast still throws nothing, an open one still throws.
+    #[test]
+    fn a_ragged_rim_still_holds_a_fully_contained_shell_and_throws_an_open_one() {
+        let radius = 20;
+        let build = |w: &mut World| {
+            for y in 0..64 {
+                for x in 0..64 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+        };
+
+        let mut contained = test_world();
+        build(&mut contained);
+        fracture_shell(
+            &mut contained,
+            (32, 32),
+            radius,
+            radius + 3,
+            50.0,
+            1,
+            super::super::explosion::Confinement { sector_reach: [7; super::super::explosion::CONFINEMENT_SECTORS], radius },
+        );
+        assert!(contained.chunk_bodies.is_empty(), "a fully contained blast must still throw nothing off its rim");
+        assert_eq!(count_material(&contained, material::STONE), 64 * 64, "a contained blast must not convert rim material");
+
+        let mut open = test_world();
+        build(&mut open);
+        fracture_shell(
+            &mut open,
+            (32, 32),
+            radius,
+            radius + 3,
+            50.0,
+            1,
+            super::super::explosion::Confinement {
+                sector_reach: [radius as u8; super::super::explosion::CONFINEMENT_SECTORS],
+                radius,
+            },
+        );
+        assert!(!open.chunk_bodies.is_empty(), "an open blast must still throw its rim as pieces");
     }
 }

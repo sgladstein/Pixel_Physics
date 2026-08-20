@@ -456,6 +456,12 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             }
             return Vec::new();
         }
+        // Rock does not part company along a drawn line, so the region's
+        // rock-facing boundary is chewed up before anything is taken off
+        // it. See `erode_failing_boundary` -- this is where the straight
+        // 40-cell section cut, the razor-flat bottom of a failing column
+        // and the wedge hypotenuse all stop being straight.
+        let region = erode_failing_boundary(world, region);
         // M8: a failure big enough to read as a *chunk* leaves as coherent
         // falling pieces rather than dissolving into loose grains one cell
         // at a time. Falls back to the per-cell conversion when the region
@@ -834,29 +840,6 @@ const BURIAL_PROBE_CAP: u32 = 24;
 /// neighbours, which is the positive feedback `Reports/next-session-
 /// handoff.md` §1b traces every cascade to.
 fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) -> u32 {
-    // A fissure *wanders and forks*; it does not travel in a straight
-    // line. Each walker carries a heading, turns a little at every cell,
-    // and occasionally throws a fork off to one side -- so what comes out
-    // is one crack spreading through the rock and splitting, rather than
-    // spokes on a wheel.
-    //
-    // Every one of those decisions is `rng::jitter` on the cell the walker
-    // is standing on: a hash of position, never a draw from `world.rng`.
-    // That keeps the dig and the collapse out of the replay draw order
-    // entirely, and it makes the shape a property of the rock -- work the
-    // same stone twice and the crack runs where it ran before, deeper,
-    // instead of a second scribble appearing beside the first.
-    //
-    // Everything descends from **one** origin, the cell that actually gave
-    // way. That is the fix for the owner's verdict on the version before
-    // this one -- "it doesn't really look like a spreading crack from a
-    // boulder, it just looks like criss cross irregular lines" -- which
-    // scattered origins through the piece and drew straight spokes from
-    // each. Independent strokes crossing each other read as scribble; a
-    // trunk with branches reads as a crack. So there is a single seed
-    // point, a few primaries leaving it like the arms of a windscreen
-    // star, and every other stroke is a fork off one of those.
-    //
     // Both the length and the number of forks scale with the piece,
     // because a fist-sized failure and a 900-cell one should not come
     // apart to the same amount of damage -- the all-or-nothing outcome is
@@ -869,15 +852,111 @@ fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) -> u
         .unwrap_or(0) as usize;
     let length = extent.clamp(CRACK_MIN_LENGTH, CRACK_MAX_LENGTH);
     let seed = super::rng::jitter(at.0, at.1) * std::f32::consts::TAU;
-    let mut walkers: Vec<((i32, i32), f32, usize)> = (0..CRACK_PRIMARIES)
-        .map(|i| (at, seed + i as f32 * std::f32::consts::TAU / CRACK_PRIMARIES as f32, length))
+    let forks = CRACK_FORKS_BASE + region.len() / CRACK_CELLS_PER_FORK;
+    // `detach: false` -- a confined crush must not unbrace the rock or
+    // reschedule it. Both are right for a *blow* and wrong here:
+    // unbracing confined rock tells the load model the inside of a
+    // mountain has come free, and rescheduling is what turns a crush into
+    // a treadmill. See `walk_fissures`' own doc for the full split.
+    let fissured = walk_fissures(world, at, seed, CRACK_PRIMARIES, length, forks, false);
+    // Counted here rather than inside the walker, so `FailureCounts`
+    // keeps meaning exactly what it did: cells a *confined failure*
+    // cracked where they stood. A blast's fissures are the blast report's
+    // business (`BlastReport::cells_fissured`) and must not land in the
+    // structural-failure census.
+    world.structural_failures.crushed_cells += fissured;
+    fissured
+}
+
+/// Walk one star of wandering, forking fissures out of `start`, and return
+/// how many fresh crack bits were written.
+///
+/// # Why a walker and not a fan of rays
+///
+/// A fissure *wanders and forks*; it does not travel in a straight line.
+/// Each walker carries a heading, turns a little at every cell, and
+/// occasionally throws a fork off to one side -- so what comes out is one
+/// crack spreading through the rock and splitting, rather than spokes on a
+/// wheel. `rigid::score_cracks` draws the wheel, and at a blast's scale
+/// (12 rays, 30 cells each) the owner read it off the contact sheet
+/// immediately: "perfectly uniform and mirrored", an asterisk rather than
+/// a fracture star (`Reports/explosion-stone-review.md` §8b).
+///
+/// Every one of those decisions is `rng::jitter` on the cell the walker is
+/// standing on: a hash of position, never a draw from `world.rng`. That
+/// keeps the dig, the collapse and the blast out of the replay draw order
+/// entirely, and it makes the shape a property of the rock -- work the
+/// same stone twice and the crack runs where it ran before, deeper,
+/// instead of a second scribble appearing beside the first.
+///
+/// Everything descends from **one** origin. That is the fix for the
+/// owner's verdict on the version before this one -- "it doesn't really
+/// look like a spreading crack from a boulder, it just looks like criss
+/// cross irregular lines" -- which scattered origins through the piece and
+/// drew straight spokes from each. Independent strokes crossing each other
+/// read as scribble; a trunk with branches reads as a crack. So there is a
+/// single seed point, `primaries` strokes leaving it like the arms of a
+/// windscreen star, and every other stroke is a fork off one of those.
+///
+/// # The two callers, and the one flag that separates them
+///
+/// `crush_in_place` passes `detach: false`; the blast in `explosion.rs`
+/// passes `true`. `detach` turns on the two things
+/// `rigid::score_cracks` does per scored cell and this deliberately does
+/// not do for a crush:
+///
+/// - `detach_around_crack` + `schedule_structural_check_around`, which is
+///   how a blast's *reach* gets into the structural model at all -- the
+///   crater is 20 cells and the fissures run 50, and without the halo the
+///   load model never hears about them.
+/// - the **crack-tip bonus**: crossing rock that was already cracked
+///   before this walk buys extra budget, so a second charge in the same
+///   place drives the existing fissures deeper instead of retracing them
+///   and writing nothing. Position-keyed wander makes a repeat blast
+///   retrace its own paths exactly, so without this the second charge is
+///   visually a no-op.
+///
+/// Both are wrong for a confined crush, and the second is wrong in an
+/// expensive way: a crush is *meant* to be idempotent on rock it has
+/// already cracked (there is no spare `Cell` flag to record "crushed"), and
+/// `tick`'s "a crush that wrote nothing has nothing to propagate" guard is
+/// what stopped a crushed pocket re-failing 1,120 times every 400 frames.
+/// Give the crush a tip bonus and every re-crush finds fresh budget in its
+/// own old damage, which is that treadmill again.
+///
+/// # Why the primaries share one fork pool
+///
+/// `primaries` is a count rather than one call per stroke because the fork
+/// budget is *shared*: the strokes are processed breadth-first out of one
+/// queue and take forks from one pool in that order. Calling this once per
+/// primary with the pool split three ways draws a different crack, so the
+/// count stays a parameter and `crush_in_place` stays bit-identical to the
+/// version this was extracted from.
+pub(crate) fn walk_fissures(
+    world: &mut World,
+    start: (i32, i32),
+    heading: f32,
+    primaries: usize,
+    length: usize,
+    forks: usize,
+    detach: bool,
+) -> u32 {
+    let mut walkers: Vec<((i32, i32), f32, usize)> = (0..primaries)
+        .map(|i| (start, heading + i as f32 * std::f32::consts::TAU / primaries.max(1) as f32, length))
         .collect();
-    let mut forks = CRACK_FORKS_BASE + region.len() / CRACK_CELLS_PER_FORK;
+    let mut forks = forks;
+    // Only *pre-existing* damage earns a walker extra reach. Strokes from
+    // one walk cross each other near the origin, so counting cracks this
+    // call just made would have every blast max out its own bonus
+    // immediately and leave nothing for the next one to build on -- the
+    // trap `rigid::score_cracks` records having fallen into first.
+    let mut scored_now: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
     let mut fissured = 0u32;
     let mut head = 0;
     while head < walkers.len() {
-        let (mut pos, mut heading, budget) = walkers[head];
+        let (mut pos, mut heading, mut budget) = walkers[head];
         head += 1;
+        let ceiling = budget + (super::rigid::CRACK_TIP_BONUS * super::rigid::CRACK_TIP_MAX_STEPS) as usize;
         // The path is carried at sub-cell precision and rounded only to
         // decide which cell it is in. Stepping to an axis neighbour
         // instead -- whichever of the four the heading pointed most nearly
@@ -888,7 +967,9 @@ fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) -> u
         // and no amount of extra wander fixes it, because the quantisation
         // is doing it rather than the path.
         let (mut fx, mut fy) = (pos.0 as f32 + 0.5, pos.1 as f32 + 0.5);
-        for _ in 0..budget {
+        let mut steps = 0usize;
+        while steps < budget {
+            steps += 1;
             let wobble = super::rng::jitter(pos.0, pos.1);
             heading += (wobble - 0.5) * CRACK_WANDER;
             let (dx, dy) = (heading.cos(), heading.sin());
@@ -921,6 +1002,9 @@ fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) -> u
             if !is_body_material(world, cell.material) {
                 break;
             }
+            if detach && cell.cracked() && !scored_now.contains(&next) {
+                budget = (budget + super::rigid::CRACK_TIP_BONUS as usize).min(ceiling);
+            }
             // Which edge a fissure cuts is the one *perpendicular* to the
             // way it travels -- get this backwards and the crack runs
             // across itself, slicing the rock into rings rather than
@@ -928,8 +1012,18 @@ fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) -> u
             let scored = if step.0.abs() >= step.1.abs() { cell.with_crack_down(true) } else { cell.with_crack_right(true) };
             if scored != cell {
                 world.set(next.0, next.1, scored);
-                world.structural_failures.crushed_cells += 1;
                 fissured += 1;
+            }
+            if detach {
+                scored_now.insert(next);
+                // A fissure is where the rock has parted company with the
+                // mass behind the slice, so it stops claiming to be braced
+                // by it. Done for every cell the walk crosses, not only
+                // the ones whose bit changed: a repeat charge has to
+                // re-loosen a rim that is already scored, or the second
+                // shot throws nothing.
+                detach_around_crack(world, next.0, next.1);
+                world.schedule_structural_check_around(next.0, next.1);
             }
             pos = next;
             // Forking, not crossing. A branch leaves at a wide angle and
@@ -983,6 +1077,100 @@ const CRACK_FORKS_BASE: usize = 4;
 const CRACK_CELLS_PER_FORK: usize = 80;
 const CRACK_FORK_CHANCE: f32 = 0.10;
 const CRACK_FORK_ANGLE: f32 = 0.8;
+
+/// Chew the rock-facing boundary off a failing region before anything is
+/// broken off it, so what comes away has a torn edge rather than a drawn
+/// one.
+///
+/// # What this is fixing
+///
+/// Nothing upstream of here puts any noise into a region's outline, and
+/// three separate mechanisms in `load.rs` actively make it *straight*:
+/// `section_cells` is an axis-aligned run hard-cut at `MAX_SECTION`, the
+/// supported-subtree walk breaks ties on a fixed neighbour order (which in
+/// a homogeneous distance field is a 45-degree staircase), and a detached
+/// piece is just the world geometry it was cut from. So a collapse came
+/// down as a perfect column, or as a triangle with a razor hypotenuse, and
+/// the owner's verdict off the prototype sheets was exactly that.
+///
+/// # Erosion only, and why that direction is not arbitrary
+///
+/// A cell is only ever *dropped* from the region, never added. Adding
+/// would take down rock the load model never judged -- which is how a
+/// small failure becomes a large one and how the dig cascade
+/// (`Reports/next-session-handoff.md` §1b) is built. Dropping is safe in
+/// the one direction that matters: a dropped cell stays exactly where it
+/// is, still standing, still attached to whatever it was attached to, and
+/// still gets rescheduled by the wavefront and by
+/// `schedule_solid_neighbours` below. If it is genuinely unable to stand
+/// it fails again a tick later and comes down then, which is the
+/// progressive, ragged crumble the ethos asks for and the staged behaviour
+/// `MAX_SUBTREE_CELLS`' own doc already promises.
+///
+/// Only cells with a **body-material neighbour outside the region** are
+/// candidates: that is the boundary where the piece is tearing away from
+/// rock that is staying, and it is the only boundary that reads as a torn
+/// edge. A cell on the region's *free* boundary (open air beside it) is
+/// already whatever shape the world gave it and holding it back would just
+/// leave a floating skin behind.
+///
+/// # The size floor
+///
+/// Below `MIN_ERODIBLE_REGION` the region is left completely alone. A
+/// three-cell failure eroded by 45% is a one-cell failure, and a failure
+/// small enough to erode to nothing never comes down at all -- which turns
+/// a graded outcome into an immunity, the exact shape of bug four earlier
+/// support models were rejected for. It is also unnecessary: at that size
+/// there is no straight line long enough to read as drawn.
+///
+/// Region connectivity may split, and that is fine -- `rigid::fracture`'s
+/// partitioner already handles a disjoint set, and the leftovers become
+/// separate later failures.
+fn erode_failing_boundary(world: &World, region: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
+    if region.len() < MIN_ERODIBLE_REGION {
+        return region;
+    }
+    let members: std::collections::HashSet<(i32, i32)> = region.iter().copied().collect();
+    let kept: Vec<(i32, i32)> = region
+        .iter()
+        .copied()
+        .filter(|&(x, y)| {
+            // Position-keyed, like every other shape decision in this
+            // file: no `world.rng` draw, so a replayed input sequence
+            // cannot diverge here.
+            if super::rng::jitter(x, y) >= BOUNDARY_EROSION {
+                return true;
+            }
+            !NEIGHBOURS_4.iter().any(|&(dx, dy)| {
+                let (nx, ny) = (x + dx, y + dy);
+                !members.contains(&(nx, ny)) && is_body_material(world, world.get(nx, ny).material)
+            })
+        })
+        .collect();
+    // A region eroded to nothing is a failure that silently did not
+    // happen. Cannot occur at `MIN_ERODIBLE_REGION` cells unless every one
+    // of them is on the rock-facing boundary *and* every one draws under
+    // the threshold, but "cannot occur" is how immunities get shipped.
+    if kept.is_empty() {
+        return region;
+    }
+    kept
+}
+
+/// Odds that a cell on a failing region's rock-facing boundary is left
+/// standing this tick instead of coming away with the piece.
+///
+/// Around a half: high enough that no straight run of any length survives
+/// intact, low enough that the piece still reads as the piece that failed
+/// rather than as lace. What is dropped is not lost -- it re-fails on a
+/// later tick if it genuinely cannot stand.
+const BOUNDARY_EROSION: f32 = 0.45;
+
+/// Smallest failing region worth roughening. See `erode_failing_boundary`
+/// -- below this a region is small enough that erosion is a coin-flip on
+/// whether it comes down at all, and there is no straight edge in it long
+/// enough to look drawn anyway.
+const MIN_ERODIBLE_REGION: usize = 12;
 
 fn break_free(world: &mut World, x: i32, y: i32) {
     // Resolved per cell rather than passed in by the caller, because a
@@ -2592,4 +2780,145 @@ mod tests {
         );
     }
 
+    /// A slab of attached stone with room for a walk to run through it.
+    fn massif(w: &mut World) {
+        for y in 0..64 {
+            for x in 0..64 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+    }
+
+    /// W1's crush half: `detach: false` must leave attachment and the
+    /// scheduler alone. Unbracing confined rock tells the load model the
+    /// inside of a mountain has come free, and rescheduling is what turns a
+    /// crush into a treadmill -- both recorded as measured dead ends in
+    /// `crush_in_place`'s own doc, and both are one flag away now.
+    #[test]
+    fn a_crush_walk_neither_unbraces_the_rock_nor_reschedules_it() {
+        let mut w = test_world();
+        massif(&mut w);
+        let scheduled_before = w.active_site_count();
+        let written = walk_fissures(&mut w, (32, 32), 0.7, 3, 30, 4, false);
+
+        assert!(written > 0, "test setup: the walk should have scored something");
+        assert_eq!(w.active_site_count(), scheduled_before, "a confined crush must schedule no structural checks");
+        let unattached = (0..64).map(|x| (0..64).filter(|&y| !w.get(x, y).attached()).count()).sum::<usize>();
+        assert_eq!(unattached, 0, "a confined crush must not unbrace anything: {unattached} cells lost attachment");
+    }
+
+    /// The other half of the same flag, and the reason it exists: a blast's
+    /// reach only gets into the structural model through the halo.
+    #[test]
+    fn a_blast_walk_unbraces_and_reschedules_what_it_scores() {
+        let mut w = test_world();
+        massif(&mut w);
+        let scheduled_before = w.active_site_count();
+        let written = walk_fissures(&mut w, (32, 32), 0.7, 3, 30, 4, true);
+
+        assert!(written > 0, "test setup: the walk should have scored something");
+        assert!(w.active_site_count() > scheduled_before, "a blast's fissures must schedule the checks that feed the load model");
+        let unattached = (0..64).map(|x| (0..64).filter(|&y| !w.get(x, y).attached()).count()).sum::<usize>();
+        assert!(unattached > 0, "a blast's fissures must unbrace the rock either side of them");
+    }
+
+    /// Idempotence on re-crush, which has no flag to record it and never
+    /// needed one: a crack is a bit, the wander is keyed on position, so a
+    /// second confined failure over the same rock retraces the same paths
+    /// and manufactures nothing. `tick`'s "a crush that wrote nothing has
+    /// nothing to propagate" guard is what stopped a crushed pocket
+    /// re-failing 1,120 times every 400 frames, and it reads exactly this
+    /// number.
+    #[test]
+    fn crushing_the_same_rock_twice_writes_nothing_the_second_time() {
+        let mut w = test_world();
+        massif(&mut w);
+        let first = walk_fissures(&mut w, (32, 32), 0.7, 3, 30, 4, false);
+        let second = walk_fissures(&mut w, (32, 32), 0.7, 3, 30, 4, false);
+        assert!(first > 0, "test setup: the first crush should have scored something");
+        assert_eq!(second, 0, "a re-crush wrote {second} fresh cells; confined damage must not accumulate");
+    }
+
+    /// And the inverse for a blast, which is why the crack-tip bonus had to
+    /// be ported: position-keyed wander means a repeat charge in the same
+    /// spot retraces its own fissures *exactly*, so without extra budget
+    /// bought at a pre-existing crack tip the second shot would be a
+    /// visual no-op.
+    #[test]
+    fn a_second_charge_in_the_same_place_drives_its_fissures_deeper() {
+        let mut w = test_world();
+        massif(&mut w);
+        let first = walk_fissures(&mut w, (32, 32), 0.7, 3, 30, 4, true);
+        let second = walk_fissures(&mut w, (32, 32), 0.7, 3, 30, 4, true);
+        assert!(first > 0, "test setup: the first charge should have scored something");
+        assert!(second > 0, "a repeat charge wrote nothing at all -- the crack-tip bonus is not reaching fresh rock");
+    }
+
+    /// W4's one hard rule. Erosion only: a cell may be dropped from a
+    /// failing region, never added to it. Adding takes down rock the load
+    /// model never judged, which is how a small failure becomes a large one
+    /// and how the dig cascade is built.
+    #[test]
+    fn eroding_a_failing_boundary_only_ever_drops_cells() {
+        let mut w = test_world();
+        massif(&mut w);
+        let region: Vec<(i32, i32)> = (20..30).flat_map(|y| (20..32).map(move |x| (x, y))).collect();
+        let members: std::collections::HashSet<(i32, i32)> = region.iter().copied().collect();
+        let eroded = erode_failing_boundary(&w, region.clone());
+
+        assert!(eroded.len() <= region.len(), "erosion grew the region from {} to {}", region.len(), eroded.len());
+        for cell in &eroded {
+            assert!(members.contains(cell), "erosion invented a cell at {cell:?} that was never judged failing");
+        }
+        assert!(eroded.len() < region.len(), "a region buried in rock should have lost some of its boundary");
+    }
+
+    /// The interior is not a boundary. A cell with four neighbours inside
+    /// the region has nothing to tear away from, so it must survive
+    /// whatever its jitter says -- otherwise erosion is a uniform thinning
+    /// and the piece comes down as lace.
+    #[test]
+    fn erosion_leaves_the_inside_of_a_failing_region_alone() {
+        let mut w = test_world();
+        massif(&mut w);
+        let region: Vec<(i32, i32)> = (20..30).flat_map(|y| (20..32).map(move |x| (x, y))).collect();
+        let kept: std::collections::HashSet<(i32, i32)> = erode_failing_boundary(&w, region).into_iter().collect();
+        for y in 21..29 {
+            for x in 21..31 {
+                assert!(kept.contains(&(x, y)), "interior cell ({x}, {y}) was eroded");
+            }
+        }
+    }
+
+    /// The size floor, which is the difference between a graded outcome and
+    /// an immunity: a failure eroded to nothing never comes down at all.
+    #[test]
+    fn a_small_failing_region_is_left_whole() {
+        let mut w = test_world();
+        massif(&mut w);
+        let region: Vec<(i32, i32)> = (0..MIN_ERODIBLE_REGION as i32 - 1).map(|i| (20 + i, 20)).collect();
+        assert_eq!(
+            erode_failing_boundary(&w, region.clone()),
+            region,
+            "a region under the floor must come down whole, not be thinned into never falling"
+        );
+    }
+
+    /// A piece with open air all round it is already whatever shape the
+    /// world gave it. Only the boundary where it is tearing away from rock
+    /// that is *staying* reads as a torn edge, so a free-standing region
+    /// must come through untouched.
+    #[test]
+    fn erosion_only_bites_where_the_region_meets_standing_rock() {
+        let mut w = test_world();
+        let region: Vec<(i32, i32)> = (20..30).flat_map(|y| (20..32).map(move |x| (x, y))).collect();
+        for &(x, y) in &region {
+            w.set(x, y, Cell::new(material::STONE, 0));
+        }
+        assert_eq!(
+            erode_failing_boundary(&w, region.clone()),
+            region,
+            "a region surrounded by air has no rock-facing boundary and must not be eroded"
+        );
+    }
 }

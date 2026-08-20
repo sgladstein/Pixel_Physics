@@ -608,6 +608,60 @@ was tuned for 5 short rays. More wander/fork and per-ray length variance at
 blast scale is a looks-only follow-up; per the runtime-selector convention,
 a keybound A/B against the current look would settle it in minutes.
 
+## 9. The believability pass — §8b's polish, done properly
+
+The owner's verdict on §8's sheets, verbatim intent: the radial blast lines
+were perfectly uniform and mirrored, and collapses fell as perfect columns
+or sharp triangles. A geometry audit found the four mechanical causes, and
+this pass (implemented by the cheaper model from a full spec, adversarially
+reviewed) replaced the shapes without changing what fails:
+
+- **The blast's fissures now use the crush walker, not straight rays.**
+  `structural::walk_fissures` is `crush_in_place`'s wandering, forking,
+  position-keyed walker extracted with a `detach` flag: `false` keeps the
+  crush path *bit-identical* (verified by PNG hash on `scene=strike`), and
+  `true` gives the blast what `score_cracks` gave it — detach + scheduling
+  per cell, and the crack-tip bonus so a repeat charge deepens its own
+  fissures (gated on `detach` deliberately: a tip bonus on the crush path
+  would re-fund the re-crush treadmill `tick`'s wrote-nothing guard exists
+  to stop). Per-ray heading jitter inside the fan slot and squared-jitter
+  heavy-tailed lengths kill the uniformity and the mirroring.
+- **The crater edge is ragged and the sector cliff is gone.**
+  `CRATER_RAGGEDNESS` (0.35) is the crater's own `SCORCH_RAGGEDNESS`, and
+  the sector-reach array is smoothed — with the smoothed value clamped to
+  `max(smoothed, probed)`, because the plain kernel shaved a 3-sector open
+  run to 19-of-20 reach and silently flipped the wall shot to 16/16
+  contained (kept as a reproduction test). `fracture_shell` asks the same
+  ragged limit, so the thrown shell and the crater agree about the edge.
+- **Fissures are now fragmentation seams.** `take_fragment` refuses to
+  flood across a cracked edge (tested before the claim, so region material
+  is conserved), so pieces separate along the cracks instead of along BFS
+  ring boundaries.
+- **Failing regions get a torn edge.** `erode_failing_boundary` drops
+  rock-facing boundary cells at 45% (position-keyed, erosion-only, floored
+  at 12 cells); dropped cells stay standing and re-fail on later ticks —
+  the staged crumble `MAX_SUBTREE_CELLS`'s doc always promised.
+
+Measured (same session, baselines re-run on the spot): buried-stone
+fissures 340 → 353 and the star reads as fracture — unequal, wandering,
+forked, unmirrored; cave-wall keeps its outcome (cave grows, 5,358 vs bar
+≥ 5,269) with a ragged breach; cave-roof breach *improved* (+153 cave cells
+vs +26) with rockfall visibly entering the cave; `capped`, `snap`, and the
+`strike` crush control are bit-identical to baseline; `ligament` still
+snaps at the neck, now in two staged bites with a ragged stub;
+`ascii` settled 0.000 ms; 609 tests green; clippy clean.
+
+**Deltas to watch in play** (stated, not hidden): `worked`'s shelf now
+comes down completely as a graded shower where it used to leave a razor-cut
+remnant (judged better under §0a, but it is the pass's largest behavioural
+change); the cave-wall overburden failure is somewhat smaller (493 vs 751
+cells — erosion working as intended). One flagged pre-existing edge the
+blast path now shares with the crush path: the walker can score crack bits
+against bedrock edges (`structural::is_body_material` does not exclude
+bedrock), which near a bedrock floor could sever an anchor edge — none of
+the captures reaches bedrock; left unfixed rather than silently narrowed
+(§7f trap 1), recorded here for whoever first blasts the world floor.
+
 ### What is still open, in order
 
 1. **R3a** (fracture pacing) — small, specced in §7e, still wanted.
@@ -617,5 +671,9 @@ a keybound A/B against the current look would settle it in minutes.
    ground-rooting port (§5).
 4. Live-panel wiring for the four new `Tuning` fields (`tunables.rs` —
    deliberately left out of the prototype's scope).
-5. §8b's ray-shape polish; crack-tint contrast (R5).
+5. Crack-tint contrast (R5) — the halo is the mining loop's progress bar
+   and still draws faint at play zoom. (§8b's ray-shape polish is done —
+   this section.)
+6. The bedrock-edge flag above, if blasting near the world floor ever
+   shows it.
 
