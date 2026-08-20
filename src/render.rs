@@ -434,32 +434,64 @@ const GNOME_BEARD: [u8; 4] = [226, 226, 226, 255];
 const GNOME_TUNIC: [u8; 4] = [74, 138, 70, 255];
 const GNOME_BELT: [u8; 4] = [82, 54, 34, 255];
 const GNOME_BOOT: [u8; 4] = [108, 76, 46, 255];
-const GNOME_SPRITE: [[Option<[u8; 4]>; 7]; 14] = {
-    // Local aliases, so the table below stays a picture you can read.
-    const H: Option<[u8; 4]> = Some(GNOME_HAT);
-    const F: Option<[u8; 4]> = Some(GNOME_FACE);
-    const W: Option<[u8; 4]> = Some(GNOME_BEARD);
-    const T: Option<[u8; 4]> = Some(GNOME_TUNIC);
-    const L: Option<[u8; 4]> = Some(GNOME_BELT);
-    const B: Option<[u8; 4]> = Some(GNOME_BOOT);
-    const X: Option<[u8; 4]> = None;
-    [
-        [X, X, X, H, X, X, X],
-        [X, X, H, H, H, X, X],
-        [X, H, H, H, H, H, X],
-        [H, H, H, H, H, H, H],
-        [X, X, F, F, F, X, X],
-        [X, F, F, F, F, F, X],
-        [X, F, W, W, W, F, X],
-        [X, X, W, W, W, X, X],
-        [T, T, T, T, T, T, T],
-        [T, T, T, T, T, T, T],
-        [X, T, T, L, T, T, X],
-        [X, T, T, T, T, T, X],
-        [X, B, B, X, B, B, X],
-        [B, B, B, X, B, B, B],
-    ]
-};
+/// Local aliases, so the tables below stay pictures you can read.
+const H: Option<[u8; 4]> = Some(GNOME_HAT);
+const F: Option<[u8; 4]> = Some(GNOME_FACE);
+const W: Option<[u8; 4]> = Some(GNOME_BEARD);
+const T: Option<[u8; 4]> = Some(GNOME_TUNIC);
+const L: Option<[u8; 4]> = Some(GNOME_BELT);
+const B: Option<[u8; 4]> = Some(GNOME_BOOT);
+const X: Option<[u8; 4]> = None;
+
+/// Drawn facing **right**; `draw_player` mirrors the columns when he is
+/// facing left.
+///
+/// **Deliberately asymmetric, and that is the change** — the previous
+/// table was a perfect mirror of itself, so flipping it would have been a
+/// no-op and "he faces the way he is going" would have shipped as a field
+/// nobody could see. The tells are a hand out in front (row 9) and the
+/// weight forward on the leading boot (row 13): two pixels, which is all
+/// there is room for at this size and enough to read at 1x.
+const GNOME_SPRITE: [[Option<[u8; 4]>; 7]; 14] = [
+    [X, X, X, H, X, X, X],
+    [X, X, H, H, H, X, X],
+    [X, H, H, H, H, H, X],
+    [H, H, H, H, H, H, H],
+    [X, X, F, F, F, X, X],
+    [X, F, F, F, F, F, X],
+    [X, F, W, W, W, F, X],
+    [X, X, W, W, W, X, X],
+    [T, T, T, T, T, T, T],
+    [T, T, T, T, T, T, F],
+    [X, T, T, L, T, T, X],
+    [X, T, T, T, T, T, X],
+    [X, B, B, X, B, B, X],
+    [X, B, B, X, B, B, B],
+];
+
+/// The same figure mid-swing: the arm comes up and reaches out ahead of
+/// him, and he leans into it.
+///
+/// A destructive act that looks identical to standing still is one the
+/// player cannot tell fired (`design-philosophy.md` §0a — every event owes
+/// feedback). One frame is enough at 60 Hz to read a dig or a shake as a
+/// blow rather than as a cursor effect.
+const GNOME_SWING: [[Option<[u8; 4]>; 7]; 14] = [
+    [X, X, X, H, X, X, X],
+    [X, X, H, H, H, X, X],
+    [X, H, H, H, H, H, X],
+    [H, H, H, H, H, H, H],
+    [X, X, F, F, F, X, F],
+    [X, F, F, F, F, F, F],
+    [X, F, W, W, W, F, X],
+    [X, X, W, W, W, X, X],
+    [T, T, T, T, T, T, X],
+    [T, T, T, T, T, T, X],
+    [X, T, T, L, T, T, X],
+    [X, T, T, T, T, T, X],
+    [X, B, B, X, B, B, X],
+    [B, B, B, X, B, B, X],
+];
 
 pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
@@ -475,12 +507,25 @@ pub struct Renderer {
     /// smear without falling back to redrawing the whole screen -- which is
     /// what this did before, for the entire duration of every collapse.
     last_body_rects: Vec<Rect>,
-    /// Screen rect the gnome occupied on the previous `draw` — the same
-    /// smear-repaint reasoning as `last_body_rects`. Kept separately, and
-    /// compared before unioning: a gnome standing still contributes
-    /// *nothing* to the dirty region, which is what keeps a settled
-    /// world's zero-cost frames zero-cost with a character idle in them.
-    last_player_rect: Option<Rect>,
+    /// Screen rect the gnome occupied on the previous `draw`, **and how he
+    /// was posed in it** — the same smear-repaint reasoning as
+    /// `last_body_rects`. Kept separately, and compared before unioning: a
+    /// gnome standing still contributes *nothing* to the dirty region,
+    /// which is what keeps a settled world's zero-cost frames zero-cost
+    /// with a character idle in them.
+    ///
+    /// The rect alone is not enough, and the gap is a real artifact:
+    /// turning on the spot, or starting a swing, changes every pixel of him
+    /// while his rectangle stays put — so a rect-keyed comparison skips the
+    /// repaint and leaves the previous pose on screen until something else
+    /// happens to dirty it.
+    ///
+    /// The rect alone is not enough and the difference is a real artifact:
+    /// turning on the spot, or starting a swing, changes every pixel of him
+    /// while his rectangle stays put — so a rect-keyed comparison skips the
+    /// repaint and leaves the previous pose on screen until something else
+    /// happens to dirty it.
+    last_player_pose: Option<(Rect, bool, bool)>,
     /// World coordinate displayed at the top-left pixel. Moved by
     /// [`Renderer::follow`] once there is a player to follow.
     pub camera_x: i32,
@@ -617,7 +662,7 @@ impl Renderer {
             grain: GrainMode::default(),
             frame: 0,
             last_body_rects: Vec::new(),
-            last_player_rect: None,
+            last_player_pose: None,
             camera_x: 0,
             camera_y: 0,
             last_camera: None,
@@ -953,9 +998,10 @@ impl Renderer {
         // frames (particles in flight, say) with the player moving would
         // leave the dirty path comparing against a rect from before the
         // run — and the sprite's last full-frame position would smear.
-        let player_rect = world.player.as_ref().and_then(|p| {
+        let player_pose = world.player.as_ref().and_then(|p| {
             let (x0, y0, x1, y1) = p.bounds();
             self.world_rect_to_screen_rect(Rect::new(x0, y0, x1, y1), width, height)
+                .map(|r| (r, p.facing_left, p.action > 0))
         });
 
         let recomputed = if full {
@@ -966,7 +1012,7 @@ impl Renderer {
                 let colour = self.cell_colour(world, wx, wy);
                 pixel.copy_from_slice(&colour);
             }
-            self.last_player_rect = player_rect;
+            self.last_player_pose = player_pose;
             (width as usize) * (height as usize)
         } else {
             let mut dirty: Option<Rect> = None;
@@ -991,14 +1037,14 @@ impl Renderer {
             // rect actually changed. An idle character repaints on top of
             // identical pixels for free; a moving one owes both where it
             // is and the smear where it was.
-            if player_rect != self.last_player_rect {
-                for r in player_rect.iter().chain(self.last_player_rect.iter()) {
+            if player_pose != self.last_player_pose {
+                for (r, _, _) in player_pose.iter().chain(self.last_player_pose.iter()) {
                     dirty = Some(match dirty {
                         Some(d) => d.union(*r),
                         None => *r,
                     });
                 }
-                self.last_player_rect = player_rect;
+                self.last_player_pose = player_pose;
             }
             // The moon, where it is now and where it was. A disc crossing
             // the sky is a moving sprite as far as the dirty region is
@@ -1314,10 +1360,14 @@ impl Renderer {
         let Some(player) = &world.player else { return };
         let (ox, oy) = player.rect_origin();
         let block = self.zoom.max(1);
-        for (dy, row) in GNOME_SPRITE.iter().enumerate() {
+        let table = if player.action > 0 { &GNOME_SWING } else { &GNOME_SPRITE };
+        for (dy, row) in table.iter().enumerate() {
             for (dx, colour) in row.iter().enumerate() {
                 let Some(colour) = colour else { continue };
-                let Some((sx, sy)) = self.world_to_screen(ox + dx as i32, oy + dy as i32) else {
+                // Mirrored on the *sprite* column, so the world rectangle
+                // he occupies is unchanged whichever way he faces.
+                let column = if player.facing_left { row.len() - 1 - dx } else { dx };
+                let Some((sx, sy)) = self.world_to_screen(ox + column as i32, oy + dy as i32) else {
                     continue;
                 };
                 for by in 0..block {
@@ -2863,6 +2913,44 @@ mod tests {
     }
 
     // --- §11: dirty-rect render skip -----------------------------------
+
+    #[test]
+    fn turning_on_the_spot_repaints_him() {
+        // The dirty-rect trap the pose key exists for. He does not move, so
+        // his screen rectangle is identical frame to frame -- but every
+        // pixel of him is mirrored, and a rect-keyed comparison would skip
+        // the repaint and leave him facing the old way until something else
+        // happened to dirty that region.
+        use crate::sim::player::Player;
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        world.end_step();
+        let mut player = Player::at(32, 32);
+        player.facing_left = false;
+        world.player = Some(player);
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (uw * uh * 4) as usize];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), true);
+        let facing_right = frame.clone();
+
+        // Nothing in the world changes but the direction he faces.
+        world.player.as_mut().unwrap().facing_left = true;
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), false);
+
+        assert_ne!(frame, facing_right, "he turned round and nothing on screen changed");
+
+        // And the incremental result must match a full redraw exactly.
+        let mut fresh = Renderer::new();
+        let mut reference = vec![0u8; (uw * uh * 4) as usize];
+        fresh.draw(&world, &particles, &HashSet::new(), &mut reference, (uw, uh), true);
+        assert_eq!(frame, reference, "the skipped repaint left a stale pose behind");
+    }
 
     #[test]
     fn dirty_rect_skip_is_pixel_identical_to_a_full_redraw() {

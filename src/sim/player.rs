@@ -74,6 +74,13 @@ const PLATFORM_STICK: i32 = 6;
 /// every jump near a tree into a grab at boot height.
 const GRIP_ROWS: i32 = PLAYER_HEIGHT / 2;
 
+/// How long the swing pose stays up after a blow.
+///
+/// Half the default `dig_cooldown`, so held digging alternates swing and
+/// stance rather than sticking in one or flickering between them — the
+/// rhythm of blows the cooldown already produces, made visible.
+const SWING_FRAMES: u8 = 4;
+
 /// Everything about how the character *feels*, live-tunable under the
 /// panel's PLAYER group and persisted to `assets/player.ron`. The same
 /// shape as `explosion::Tuning` and for the same reason: these numbers
@@ -510,6 +517,23 @@ pub struct Player {
     /// up and down it. Public for the same reason `swimming` is — it is a
     /// different control scheme, and no harness can infer it from position.
     pub climbing: bool,
+    /// Which way the sprite is drawn.
+    ///
+    /// Sim state, not renderer state, and that is not incidental: the
+    /// renderer must be a pure function of the world for
+    /// `dirty_rect_skip_is_pixel_identical_to_a_full_redraw` to hold, and
+    /// a stateful skyline was built here once and reverted for keeping its
+    /// state on the `Renderer` side of that line.
+    ///
+    /// Set from **input**, never from `vx`. A gnome riding a drifting
+    /// chunk body has `body.vx` added to his position every tick, so a
+    /// velocity-keyed sprite would turn to face the way the slab is
+    /// sliding while he stands still on it.
+    pub facing_left: bool,
+    /// Ticks of swing pose left. Sim state for the same reason `facing_left`
+    /// is, and a countdown rather than a flag so one blow reads as a blow
+    /// at 60 Hz instead of a single-frame flicker.
+    pub action: u8,
     /// Ticks until the next swimming stroke may fire.
     stroke_cooldown: u8,
     /// Where the last bite landed, so the next one can be *swept* from it
@@ -535,6 +559,8 @@ impl Player {
             was_swimming: false,
             wading: false,
             climbing: false,
+            facing_left: false,
+            action: 0,
             stroke_cooldown: 0,
             last_bite: None,
         }
@@ -749,6 +775,15 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     }
     p.dig_cooldown = p.dig_cooldown.saturating_sub(1);
     p.stroke_cooldown = p.stroke_cooldown.saturating_sub(1);
+    p.action = p.action.saturating_sub(1);
+    // Held direction, and nothing else. Unchanged when neither or both are
+    // held, so he keeps facing where he was last told to go rather than
+    // snapping forward the moment you let go.
+    match (input.left, input.right) {
+        (true, false) => p.facing_left = true,
+        (false, true) => p.facing_left = false,
+        _ => {}
+    }
 
     // Which medium he is in, decided before anything reads it.
     //
@@ -1178,6 +1213,7 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
     let mut p = world.player.take()?;
     let bite = if p.dig_cooldown == 0 {
         p.dig_cooldown = tuning.dig_cooldown;
+        p.action = SWING_FRAMES;
         // Buried, the bite auto-aims *above his head* rather than at his
         // own centre, and the difference is the whole escape. Centred on
         // himself, the disc reaches as far below his feet as above his
