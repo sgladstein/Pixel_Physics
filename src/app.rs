@@ -1024,6 +1024,10 @@ impl App {
     fn draw_hud(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
         const WHITE: [u8; 4] = [255, 255, 255, 255];
         const YELLOW: [u8; 4] = [255, 240, 120, 255];
+        /// The shake ring. Green rather than a second yellow, because the
+        /// point is that two verbs live on one button and you can tell
+        /// which you are about to use before you press it.
+        const GREEN: [u8; 4] = [130, 240, 140, 255];
 
         // Brush label -- always on, bottom-left, the data `status()` above
         // already computes just shown persistently instead of only in the
@@ -1103,11 +1107,22 @@ impl App {
             // `player::bite_point`, the same function `dig` aims with, so
             // the marker cannot drift from the cut. Sized to
             // `dig_radius`, so the ring also says how big a bite is.
+            // Two verbs on one button, so the ring has to say which. A cut
+            // is a yellow disc the size of the bite; a shake is a green
+            // ring at the plant, sized to nothing in particular because
+            // what it shakes is the plant, not a radius.
+            let mut shaking = false;
             let dig_marker = match (self.tool, &self.world.player) {
                 (Tool::Dig, Some(p)) => {
                     let aim = self.renderer.screen_to_world(sx, sy);
-                    let at = player::bite_point(&self.world, p, aim, &self.player_tuning);
-                    self.renderer.world_to_screen(at.0, at.1).map(|s| (s, self.player_tuning.dig_radius as i32))
+                    let (at, radius) = match player::shake_target(&self.world, p, aim, &self.player_tuning) {
+                        Some(at) => {
+                            shaking = true;
+                            (at, 3)
+                        }
+                        None => (player::bite_point(&self.world, p, aim, &self.player_tuning), self.player_tuning.dig_radius as i32),
+                    };
+                    self.renderer.world_to_screen(at.0, at.1).map(|s| (s, radius))
                 }
                 _ => None,
             };
@@ -1121,7 +1136,11 @@ impl App {
             } else {
                 (radius / self.renderer.zoom_out_stride.max(1)).max(1)
             };
-            let ring = if dig_marker.is_some() { YELLOW } else { WHITE };
+            let ring = match (dig_marker.is_some(), shaking) {
+                (_, true) => GREEN,
+                (true, false) => YELLOW,
+                (false, false) => WHITE,
+            };
             render::draw_circle_outline(frame, WIDTH, HEIGHT, cx, cy, screen_radius, ring);
 
             if self.show_hover_inspector {
@@ -1462,7 +1481,7 @@ impl App {
     /// silently — the line describing the gnome's dig outlived the
     /// mechanism it described by two commits, still telling players to
     /// click *near him* long after proximity meant anything.
-    fn help_lines() -> [&'static str; 27] {
+    fn help_lines() -> [&'static str; 28] {
         [
             "LEFT CLICK PAINT    RIGHT CLICK ERASE",
             "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
@@ -1472,6 +1491,7 @@ impl App {
             "  SUMMONING ARMS HIS DIG: LMB CUTS AT THE YELLOW RING, RMB ERASES",
             "  IN WATER: W STROKE UP    S SWIM DOWN",
             "  IN A TREE: W CLIMB UP    S CLIMB DOWN    WALK OUT TO LET GO",
+            "  LMB ON A TREE (GREEN RING) SHAKES IT INSTEAD OF CUTTING",
             "  F3 JUMP FEEL  F4 WATER FEEL  F2 SPOIL (CYCLE, SAY WHICH IS BEST)",
             "  F10 TREES IN FRONT OF HIM / BEHIND HIM (CYCLE)",
             "C STRIKE ROCK    H DIG (PRECISE CUT)",
@@ -1602,7 +1622,26 @@ impl App {
         // reason that function's own comment gives: one gate on the
         // operation, three call sites.
         if !erase && self.tool == Tool::Dig && self.world.player.is_some() {
-            player::dig(&mut self.world, to, &self.player_tuning);
+            // One button, and what it does is decided by what he is
+            // pointing at: rock is cut, a living plant is shaken. Same
+            // reasoning as the tool gate itself -- adding a second key for
+            // the second verb, on a keyboard with nothing left on it,
+            // would make the verb invisible in exactly the way proximity
+            // gating did. The ring says which one you will get before you
+            // click.
+            let shake_at = self
+                .world
+                .player
+                .as_ref()
+                .and_then(|p| player::shake_target(&self.world, p, to, &self.player_tuning));
+            match shake_at {
+                Some(at) => {
+                    player::shake(&mut self.world, at, &self.player_tuning);
+                }
+                None => {
+                    player::dig(&mut self.world, to, &self.player_tuning);
+                }
+            }
             return;
         }
         let m = if erase {

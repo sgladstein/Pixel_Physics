@@ -386,6 +386,15 @@ fn build(args: &Args) -> World {
             world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
             return world;
         }
+        // Walk to a tree and shake it. Read the counters: a tree that shed
+        // nothing and a shake that never fired are the same picture, and
+        // `shake_shed` is graded by shade, so a healthy stand is *supposed*
+        // to drop very little.
+        "shake" => {
+            let mut world = common::PlantScene::default().build();
+            world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
+            return world;
+        }
         // The sandbox's *real* starting terrain, built by the same
         // `app::build_terrain` the running game calls -- not a replica, so
         // what this renders is what a player actually sees. Exists to answer
@@ -988,7 +997,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, wood, climb"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, wood, climb, shake"
         ),
     }
     w
@@ -1501,6 +1510,12 @@ struct Gnome {
     grabbed: bool,
     grabbed_at: f32,
     highest: f32,
+    shakes: usize,
+    dislodged_by_shaking: usize,
+    shed: usize,
+    seeds: usize,
+    shaken_cells: usize,
+    shaken_shoot: u32,
     /// Loose cells shoved clear of a bore, summed over every bite.
     displaced: usize,
     dusted: usize,
@@ -1529,6 +1544,8 @@ enum Script {
     Wood,
     /// `scene=climb`: walk until something is in reach, then go up it.
     Climb,
+    /// `scene=shake`: walk until a tree is in reach, then keep shaking it.
+    Shake,
 }
 
 /// How long `Script::Wood` waits before setting off.
@@ -1552,6 +1569,7 @@ impl Gnome {
             "ride" => Script::Ride,
             "wood" => Script::Wood,
             "climb" => Script::Climb,
+            "shake" => Script::Shake,
             _ => Script::Course,
         };
         Self {
@@ -1562,6 +1580,12 @@ impl Gnome {
             grabbed: false,
             grabbed_at: 0.0,
             highest: 0.0,
+            shakes: 0,
+            dislodged_by_shaking: 0,
+            shed: 0,
+            seeds: 0,
+            shaken_cells: 0,
+            shaken_shoot: 0,
             displaced: 0,
             dusted: 0,
             went_under: None,
@@ -1620,6 +1644,13 @@ impl Gnome {
             // real and meant nothing, which is the exact trap `CLAUDE.md`
             // opens by warning about; the picture is what caught it.
             Script::Climb if self.grabbed => PlayerInput { jump_held: true, ..Default::default() },
+            // Same walk-first delay `Script::Climb` needed, and for the
+            // same reason: the first thing in reach of the spawn point is a
+            // creeping twig, not a tree.
+            Script::Shake => PlayerInput {
+                right: step_no >= WOOD_WALK_FROM && (step_no < WOOD_WALK_FROM + CLIMB_WALK_TICKS || !self.grabbed),
+                ..Default::default()
+            },
             Script::Climb => PlayerInput {
                 right: step_no >= WOOD_WALK_FROM,
                 // Reaching only starts once he is clear of the twig — walk
@@ -1630,6 +1661,24 @@ impl Gnome {
         };
         if self.script == Script::Wood && step_no == WOOD_WALK_FROM {
             self.start_x = world.player.as_ref().map(|p| p.x);
+        }
+        if self.script == Script::Shake && step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS {
+            let target = world
+                .player
+                .as_ref()
+                .and_then(|p| player::shake_target(world, p, (WIDTH, 190), &tuning));
+            if let Some(at) = target {
+                self.grabbed = true;
+                let shaken = world.get(at.0, at.1).organism_id();
+                self.shaken_shoot = world.organism(shaken).map(|o| o.shoot_cells).unwrap_or(0);
+                if let Some(s) = player::shake(world, at, &tuning) {
+                    self.shaken_cells = s.cells;
+                    self.shakes += 1;
+                    self.dislodged_by_shaking += s.dislodged;
+                    self.shed += s.shed;
+                    self.seeds += s.seeds;
+                }
+            }
         }
         if self.script == Script::Climb {
             if let Some(p) = world.player.as_ref() {
@@ -1645,6 +1694,9 @@ impl Gnome {
         // anywhere at all while buried, since a buried bite auto-aims.
         let digging = match self.script {
             Script::Course | Script::Swim | Script::Ride | Script::Wood | Script::Climb => false,
+            // Handled below rather than through the dig path: the same
+            // left button, a different verb.
+            Script::Shake => false,
             Script::Tunnel => true,
             Script::Bury => step_no > 90,
         };
@@ -1723,6 +1775,17 @@ impl Gnome {
             })
             .count();
         s.push_str(&format!(", {covered}/{} cells behind foliage", (px1 - px0 + 1) * (py1 - py0 + 1)));
+        if self.script == Script::Shake {
+            // What is being shaken, as well as what came of it. A shake
+            // that reaches only the trunk it was grabbed by and one that
+            // reaches the crown look identical on a contact sheet, and the
+            // first version of the cap made exactly that mistake.
+            s.push_str(&format!(", shaking {} of a {}-shoot plant", self.shaken_cells, self.shaken_shoot));
+            s.push_str(&format!(
+                ", {} shakes: {} knocked loose, {} leaves down, {} sown",
+                self.shakes, self.dislodged_by_shaking, self.shed, self.seeds
+            ));
+        }
         if self.script == Script::Climb {
             match self.grabbed {
                 true => s.push_str(&format!(", climbed {:.0} cells (gripped at y={:.0})", self.grabbed_at - self.highest, self.grabbed_at)),

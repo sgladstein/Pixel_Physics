@@ -3107,6 +3107,32 @@ mod tests {
     }
 
     #[test]
+    fn an_idle_gnome_costs_a_settled_world_nothing() {
+        // The other half of the pose key. It was widened from a rect to
+        // (rect, facing, swinging) so that turning repaints — and the thing
+        // that must not break in the process is the reason it is compared
+        // at all: a character standing still in a settled world adds
+        // nothing to the dirty region, which is what keeps zero-cost frames
+        // zero-cost with him in them.
+        use crate::sim::player::Player;
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        world.end_step();
+        world.player = Some(Player::at(32, 32));
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (uw * uh * 4) as usize];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), true);
+        let recomputed = renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), false);
+        assert_eq!(recomputed, 0, "an idle gnome should recompute no pixels at all");
+    }
+
+    #[test]
     fn turning_on_the_spot_repaints_him() {
         // The dirty-rect trap the pose key exists for. He does not move, so
         // his screen rectangle is identical frame to frame -- but every

@@ -156,6 +156,20 @@ pub struct Tuning {
     /// Ticks between strokes. Long enough that swimming reads as a series
     /// of pulls rather than a thruster.
     pub stroke_cooldown: u8,
+    /// How far he can reach to shake a plant.
+    ///
+    /// Shorter than `dig_reach`, deliberately, and the ordering is the rule
+    /// that picks the verb: a tree at arm's length outranks the rock behind
+    /// it, and a tree across the clearing does not steal a mining click.
+    pub shake_reach: u8,
+    /// Chance a leaf comes down when a shake reaches it, **at total
+    /// darkness** — weighted by the cube of how shaded the leaf is, so a
+    /// healthy sunlit crown barely sheds and a dying shaded one rains
+    /// litter. Abscission's own graded pressure, borrowed rather than
+    /// reinvented. 0 stays off.
+    pub shake_shed: f32,
+    /// Chance one shake sows a seed.
+    pub shake_seed: f32,
     /// Tallest lip, in cells, that he can catch at the top of a jump and
     /// pull himself up over.
     ///
@@ -231,6 +245,9 @@ impl Default for Tuning {
             swim_damp: 0.84,
             stroke_impulse: 1.3,
             stroke_cooldown: 7,
+            shake_reach: 20,
+            shake_shed: 0.08,
+            shake_seed: 0.12,
             mantle_reach: 4,
             climb_speed: 0.9,
             surface_hop: 0.75,
@@ -1298,6 +1315,253 @@ pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> 
 /// across the map starts a fresh one.
 const SWEEP_REACH: i32 = 2;
 
+/// What one shake did. Reported for the reason `Bite` is: a tree that shed
+/// nothing and a shake that never fired look identical, and only a count
+/// separates them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shake {
+    pub at: (i32, i32),
+    /// How much of the plant moved. Grabbing the trunk shakes the whole
+    /// thing; grabbing a twig shakes the twig.
+    pub cells: usize,
+    /// Loose material knocked off the branches — snow, sand, his own spoil.
+    pub dislodged: usize,
+    /// Leaves that came down.
+    pub shed: usize,
+    /// Seed sown.
+    pub seeds: usize,
+}
+
+/// Where a shake aimed at `aim` would land, or `None` if he is not pointing
+/// at anything alive within reach.
+///
+/// **This is what decides which verb the left button is**, and it is the
+/// same shape `Tool::Dig` already settled on (`app.rs`): the tool never
+/// changes, the thing you are pointing at does. A reach may bound *where*
+/// something happens and must never decide *whether* it happens, so
+/// pointing at rock still digs — there is no dead click.
+///
+/// `shake_reach` is shorter than `dig_reach`, and that ordering is the
+/// whole rule: a tree at arm's length outranks the cliff behind it, and a
+/// tree across the clearing does not steal a mining click.
+pub fn shake_target(world: &World, p: &Player, aim: (i32, i32), tuning: &Tuning) -> Option<(i32, i32)> {
+    if p.buried {
+        return None; // buried digs upward, whatever is out there
+    }
+    let at = face_toward(world, p.center(), aim, tuning.shake_reach as i32);
+    let cell = world.get(at.0, at.1);
+    (cell.organism_id() != 0 && world.materials.get(cell.material).climbable).then_some(at)
+}
+
+/// How much of a plant one shake reaches through — a backstop against a
+/// pathological organism, not a design knob.
+///
+/// **Bounds work, never whether a shake happens**, and the first value
+/// broke that rule in the way `CLAUDE.md` warns a size cap always can. At
+/// 250 cells, grabbing the base of a 2,609-cell tree filled the flood with
+/// trunk before it reached a single leaf: measured on `scene=shake` as 43
+/// shakes that shed nothing and sowed nothing, off a plant that had plenty
+/// of both. Shaking a tree has to shake *the tree*.
+///
+/// Generous now, because the cost is not what it looks like: this is one
+/// flood every `dig_cooldown` frames, so a whole-tree walk is ~21,000 grid
+/// reads spread over eight frames against the CA sweep's 163,840 cells
+/// *per* frame.
+const SHAKE_CELLS: usize = 3000;
+
+const SHAKE_IMPULSE_RADIUS: i32 = 4;
+const SHAKE_IMPULSE_STRENGTH: f32 = 6.0;
+
+/// Grab a plant and shake it — the tree-interaction verb.
+///
+/// Three effects, and what they have in common is more important than any
+/// of them: **not one of them removes load-bearing tissue, and not one of
+/// them schedules a structural check.** That is the entire safety
+/// argument. `plant.rs`'s `shed_stranded_leaves` records the measurement —
+/// a single check fired mid-crown reads every branch past the support
+/// search's hop limit as unsupported and converts it to deadwood, and cost
+/// 772 cells against 20,213 at the same setting. Growth deliberately
+/// schedules none, abscission deliberately schedules none, and neither
+/// does this.
+///
+/// - **Loose material comes off the branches.** Snow, sand, his own spoil:
+///   whatever was resting on the plant is nudged clear and the CA takes it
+///   from there. Nothing is deleted and no plant cell moves.
+/// - **Leaves that were already doomed come down**, at
+///   `Tuning::shake_shed` weighted by the cube of darkness — abscission's
+///   own graded pressure, borrowed rather than reinvented, so shaking a
+///   healthy sunlit tree drops almost nothing and shaking a shaded dying
+///   one rains litter. The light goes through `noon_equivalent_light`, or
+///   a shake at midnight would be a defoliation event.
+///
+///   Shed leaves become their `breaks_into` — a `Powder` — rather than
+///   being emptied the way abscission empties them. That single difference
+///   is why they are *seen* to fall: they drop, pile at their angle of
+///   repose, and leave litter on the ground, which is a thing this world
+///   has never had.
+/// - **Seed is sown**, at `Tuning::shake_seed`. Stated honestly: a tree
+///   does not make seed cells today, so this is the gnome sowing from a
+///   tree he shook rather than a reproduction model. It uses the same
+///   `plant_tree` the `T` key does, and it is the loop `README.md` lists
+///   as missing ("plants don't reseed").
+pub fn shake(world: &mut World, at: (i32, i32), tuning: &Tuning) -> Option<Shake> {
+    let mut p = world.player.take()?;
+    if p.dig_cooldown != 0 {
+        world.player = Some(p);
+        return None;
+    }
+    p.dig_cooldown = tuning.dig_cooldown;
+    p.action = SWING_FRAMES;
+    world.player = Some(p);
+
+    let organism_id = world.get(at.0, at.1).organism_id();
+    if organism_id == 0 {
+        return None;
+    }
+    let component = shaken_component(world, at, organism_id);
+    world.add_pressure_impulse(at.0, at.1, SHAKE_IMPULSE_RADIUS, SHAKE_IMPULSE_STRENGTH);
+
+    // Two passes rather than one, so what a cell sheds cannot depend on
+    // whether the cell before it dropped its load.
+    let mut dislodged = 0;
+    for &(cx, cy) in &component {
+        let above = world.get(cx, cy - 1);
+        if above.organism_id() != 0 || world.materials.kind(above.material) != MaterialKind::Powder {
+            continue;
+        }
+        // Only tissue that is out in the open sheds what is on it.
+        //
+        // Without this a shake churns the ground: roots are part of the
+        // plant and the soil bed sits directly on top of them, so every
+        // root cell read as a branch with a load of loose material on it.
+        // Measured on `scene=shake` as 1,235 cells "knocked loose" in 43
+        // shakes, nearly all of it soil being stirred around a root system.
+        // A branch in the air has somewhere for the grain to fall from; a
+        // root threaded through packed soil does not, and asking that
+        // locally costs four reads.
+        let in_the_open = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+            .into_iter()
+            .any(|(dx, dy)| world.get(cx + dx, cy + dy).material == super::material::EMPTY);
+        if !in_the_open {
+            continue;
+        }
+        // Sideways and down, never up: a shake spills what is sitting on a
+        // branch, it does not throw it.
+        let Some(to) = [(-1, 1), (1, 1), (0, 1), (-1, 0), (1, 0)]
+            .into_iter()
+            .map(|(dx, dy)| (cx + dx, cy - 1 + dy))
+            .find(|&(nx, ny)| world.in_bounds(nx, ny) && world.is_empty(nx, ny))
+        else {
+            continue;
+        };
+        move_cell(world, (cx, cy - 1), to);
+        dislodged += 1;
+    }
+
+    let mut shed = 0;
+    for &(cx, cy) in &component {
+        let cell = world.get(cx, cy);
+        if super::organism::cell_type(cell.aux()) != Some(super::organism::CellType::Leaf) {
+            continue;
+        }
+        let light = super::plant::ambient_light_above(world, cx, cy);
+        let darkness = (1.0 - light / super::field::MAX_LIGHT).clamp(0.0, 1.0);
+        let chance = tuning.shake_shed * darkness * darkness * darkness;
+        let Some(into) = world.materials.get(cell.material).breaks_into else {
+            continue;
+        };
+        let shades = world.materials.get(into).palette.len().max(1) as u32;
+        if !world.rng.chance(chance) {
+            continue;
+        }
+        let shade = world.rng.below(shades) as u8;
+        world.set(cx, cy, super::cell::Cell::new(into, shade));
+        // Reclaim any spray this stranded. **Not** a structural check — see
+        // this function's own doc, and `plant::shed_stranded_leaves`.
+        super::plant::shed_stranded_leaves(world, cx, cy, organism_id);
+        shed += 1;
+    }
+
+    // Only a grown tree carries seed, and that gate is doing more than
+    // flavour: without it, a seed he shakes loose germinates into a sapling
+    // that can immediately be shaken for more seed, and holding the button
+    // in a wood turns the ground into a thicket. Measured on `scene=shake`
+    // before the gate: 199 shakes sowed 10 seeds and grew a bush around
+    // him. A seedling has nothing to give.
+    let bearing = world.organism(organism_id).is_some_and(|o| o.shoot_cells >= SEED_BEARING_CELLS);
+    let seeds = usize::from(bearing && world.rng.chance(tuning.shake_seed) && sow_from_crown(world, &component));
+    Some(Shake { at, cells: component.len(), dislodged, shed, seeds })
+}
+
+/// The part of the plant one shake reaches, from where it was grabbed.
+///
+/// **Eight neighbours, not four.** `Grow` places organism cells at all
+/// eight, so a four-neighbour walk reads a grown tree as disconnected
+/// fragments — `CLAUDE.md`'s "a traversal must use the same neighbourhood
+/// the writer used". Sorted row-major before anything mutates, because
+/// `HashSet` iteration order is per-process and was a live determinism bug
+/// in `plant.rs` (5877 / 5872 / 5881 cells across three runs of one
+/// binary).
+fn shaken_component(world: &World, from: (i32, i32), organism_id: u16) -> Vec<(i32, i32)> {
+    let mut seen = std::collections::HashSet::from([from]);
+    let mut queue = std::collections::VecDeque::from([from]);
+    let mut out = Vec::new();
+    while let Some((x, y)) = queue.pop_front() {
+        out.push((x, y));
+        if out.len() >= SHAKE_CELLS {
+            break;
+        }
+        // Eight, matching what `Grow` writes — see this function's doc.
+        for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+            let next = (x + dx, y + dy);
+            if seen.contains(&next) {
+                continue;
+            }
+            let cell = world.get(next.0, next.1);
+            if cell.organism_id() != organism_id || !world.materials.get(cell.material).climbable {
+                continue;
+            }
+            seen.insert(next);
+            queue.push_back(next);
+        }
+    }
+    out.sort_unstable_by_key(|&(x, y)| (y, x));
+    out
+}
+
+/// Drop a seed out of the top of the shaken plant, and report whether one
+/// went in. It is a `Powder`, so it falls from there on its own.
+///
+/// **From the crown, not from where he grabbed.** Sowing below the shaken
+/// point sounds obvious and never fires: he shakes a trunk at chest height,
+/// and every cell under that is the ground the tree is standing in. Seed
+/// comes off the top of a tree whichever part of it you shake.
+fn sow_from_crown(world: &mut World, component: &[(i32, i32)]) -> bool {
+    // Row-major sorted, so the first entry is the topmost row.
+    let Some(&top) = component.first() else {
+        return false;
+    };
+    let Some((x, y)) = (1..=SOW_SEARCH)
+        .map(|d| (top.0, top.1 + d))
+        .find(|&(x, y)| world.in_bounds(x, y) && world.is_empty(x, y))
+    else {
+        return false;
+    };
+    // The same species the `T` key plants. There is only one tree species
+    // today, and no way to ask an organism for its species *name* — worth
+    // revisiting the day a second one exists, since shaking an oak should
+    // not sow a pine.
+    world.plant_tree_species(x, y, "tree")
+}
+
+/// How far under the shaken point to look for somewhere to drop seed.
+const SOW_SEARCH: i32 = 24;
+
+/// How much above-ground tissue a plant needs before shaking it yields
+/// seed. Well past a seedling and well under a grown tree, so the gate
+/// separates the two rather than gating on age, which nothing tracks.
+const SEED_BEARING_CELLS: u32 = 300;
+
 /// Where a bite aimed at `aim` would land, without digging anything.
 ///
 /// Public, and shared with `dig` rather than reimplemented, because the
@@ -2244,6 +2508,121 @@ mod tests {
         }
         let p = world.player.as_ref().unwrap();
         assert_eq!(p.y.round() as i32 + PLAYER_HEIGHT, 88, "he should have fallen to the floor beside the ledge");
+    }
+
+    /// A stone floor with a leafy tree on it, and a gnome beside it.
+    fn world_with_leafy_tree() -> World {
+        let mut world = world_with_floor();
+        let wood = world.materials.id_of("wood").expect("wood is compiled in");
+        let leaf = world.materials.id_of("leaf").expect("leaf is compiled in");
+        let species = world.species.id_of("tree").expect("tree is compiled in");
+        let organism = world.push_organism(species);
+        let stem = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
+        let foliage = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::Leaf);
+        // Small enough that one shake reaches all of it — about 230 cells
+        // against `SHAKE_CELLS`. These tests are about what a shake *does*,
+        // not about where the work cap bites, and a tree big enough to
+        // truncate the component would make every count depend on which
+        // half of it the flood happened to cover.
+        for y in 70..88 {
+            for x in 70..74 {
+                world.set(x, y, Cell::new(wood, 0).with_organism_id(organism).with_aux(stem));
+            }
+        }
+        for y in 62..77 {
+            for x in 66..78 {
+                if world.get(x, y).organism_id() == 0 {
+                    world.set(x, y, Cell::new(leaf, 0).with_organism_id(organism).with_aux(foliage));
+                }
+            }
+        }
+        world.player = Some(Player::at(64, 80));
+        world
+    }
+
+    #[test]
+    fn shaking_a_tree_schedules_no_structural_check() {
+        // **The tripwire, and the reason it is written first.** The organism
+        // support search is hop-bounded, so any structural check fired
+        // mid-crown reads every branch past the limit as unsupported and
+        // converts it to deadwood -- measured at 772 cells against 20,213
+        // from one scheduled check (`plant.rs`'s `shed_stranded_leaves`).
+        // A shake reaches deep into a crown by design, so it is exactly the
+        // shape of disturbance that landmine is waiting for.
+        use crate::sim::scheduler::ActiveKind;
+        let mut world = world_with_leafy_tree();
+        let before = world.active_sites_for_test().iter().filter(|s| s.kind == ActiveKind::StructuralCheck).count();
+        let target = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &Tuning::default()).expect("aimed at the tree");
+        shake(&mut world, target, &Tuning::default()).expect("a shake should fire");
+        let after = world.active_sites_for_test().iter().filter(|s| s.kind == ActiveKind::StructuralCheck).count();
+        assert_eq!(before, after, "a shake must schedule no structural check");
+    }
+
+    #[test]
+    fn a_shake_never_removes_a_wood_cell() {
+        // Nothing load-bearing moves, which is the other half of the same
+        // safety argument: if no stem cell goes, nothing can be discovered
+        // unsupported.
+        let mut world = world_with_leafy_tree();
+        let wood = world.materials.id_of("wood").expect("wood is compiled in");
+        let count = |w: &World| (60..88).flat_map(|y| (60..84).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == wood).count();
+        let before = count(&world);
+        let tuning = Tuning { shake_shed: 1.0, ..Default::default() };
+        for _ in 0..40 {
+            let Some(target) = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &tuning) else {
+                break;
+            };
+            shake(&mut world, target, &tuning);
+            world.player.as_mut().unwrap().dig_cooldown = 0;
+        }
+        assert_eq!(before, count(&world), "a shake took wood out of the tree");
+    }
+
+    #[test]
+    fn shaking_a_tree_drops_what_is_resting_on_its_branches() {
+        let mut world = world_with_leafy_tree();
+        let sand = material::SAND;
+        // A drift settled across the top of the crown.
+        for x in 66..78 {
+            world.set(x, 61, Cell::new(sand, 0));
+        }
+        let tuning = Tuning::default();
+        let target = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &tuning).expect("aimed at the tree");
+        let shake_result = shake(&mut world, target, &tuning).expect("a shake should fire");
+        assert!(shake_result.dislodged > 0, "nothing came off the branches: {shake_result:?}");
+    }
+
+    #[test]
+    fn a_shaded_tree_sheds_more_than_a_sunlit_one() {
+        // **Paired**, and it is the mechanism that is being tested rather
+        // than the rate: the shed borrows abscission's cube-of-darkness
+        // pressure, so a healthy lit crown should barely lose anything and
+        // a dark one should rain litter.
+        fn shed_with(light: f32) -> usize {
+            let mut world = world_with_leafy_tree();
+            // `noon_equivalent_light` clamps to `MAX_LIGHT`, so flooding
+            // the crown reads as full sun whatever phase of the day the
+            // oscillator is at — which is the point of going through it.
+            world.add_light(72, 70, 24, light);
+            let tuning = Tuning { shake_shed: 1.0, ..Default::default() };
+            let target = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &tuning).expect("aimed at the tree");
+            shake(&mut world, target, &tuning).expect("a shake should fire").shed
+        }
+        let dark = shed_with(0.0);
+        let lit = shed_with(100.0);
+        assert!(dark > lit * 4, "a shaded crown should shed far more than a lit one: dark {dark}, lit {lit}");
+    }
+
+    #[test]
+    fn pointing_at_rock_still_digs_and_pointing_at_a_tree_shakes() {
+        // One button, two verbs, and no dead click: `Tool::Dig`'s recorded
+        // lesson is that a reach may bound where a verb lands and must
+        // never decide whether it happens.
+        let world = world_with_leafy_tree();
+        let p = world.player.as_ref().unwrap();
+        let tuning = Tuning::default();
+        assert!(shake_target(&world, p, (127, 87), &tuning).is_some(), "pointing at the trunk should shake");
+        assert!(shake_target(&world, p, (64, 92), &tuning).is_none(), "pointing at the floor should dig");
     }
 
     #[test]
