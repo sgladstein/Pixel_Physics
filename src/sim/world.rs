@@ -244,6 +244,20 @@ pub struct World {
     /// `pop_due_active_site` before the tick runs, so a site that
     /// reschedules itself is a fresh request rather than a dropped one.
     pending_evaporation: std::collections::HashSet<(i32, i32)>,
+    /// The same dedup index again, for `ActiveKind::Dissipate`, and
+    /// load-bearing for the same reason as `pending_evaporation` directly
+    /// above rather than merely for cost: the CA sweep asks for a
+    /// dissipation site on **every frame** a gas cell fails to move, so
+    /// without this the number of rolls a trapped cell gets each second
+    /// would be proportional to how long its chunk happened to stay awake
+    /// after it settled — smoke in a busy crater would fade faster than the
+    /// same smoke in a quiet one, which is a size/activity dependence
+    /// nothing about the mechanic wants.
+    ///
+    /// A third set rather than one keyed on kind, matching the choice made
+    /// for `pending_evaporation`: the existing paths' behaviour stays
+    /// untouched.
+    pending_dissipation: std::collections::HashSet<(i32, i32)>,
     /// The topmost row of *ground* in each column, indexed from
     /// `bounds.min_x`, recorded once and never revised. `i32::MAX` for a
     /// column that held no ground at all; empty until `freeze_sky_surface`
@@ -619,6 +633,7 @@ impl World {
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             pending_evaporation: std::collections::HashSet::new(),
+            pending_dissipation: std::collections::HashSet::new(),
             sky_surface: Vec::new(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
@@ -842,6 +857,11 @@ impl World {
         {
             return;
         }
+        // See `pending_dissipation`'s own doc — load-bearing for the rate,
+        // exactly as the evaporation one above is.
+        if matches!(site.kind, scheduler::ActiveKind::Dissipate) && !self.pending_dissipation.insert((site.x, site.y)) {
+            return;
+        }
         self.active_sites.push(Reverse(site));
     }
 
@@ -937,6 +957,9 @@ impl World {
         }
         if let scheduler::ActiveKind::Evaporate { .. } = site.kind {
             self.pending_evaporation.remove(&(site.x, site.y));
+        }
+        if let scheduler::ActiveKind::Dissipate = site.kind {
+            self.pending_dissipation.remove(&(site.x, site.y));
         }
         Some(site)
     }

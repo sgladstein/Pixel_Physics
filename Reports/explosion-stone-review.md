@@ -931,7 +931,20 @@ pieces that used to sit still, that is the line to read first.
    mystery. Standing lesson kept: a sweep baseline is only valid against
    the exact commit it was taken on — re-baseline in-session, which is
    what §13's gate did.
-8. Smoke never dissipates (found in the §11 exploration; no removal rule
-   exists anywhere in the sim, so blast smoke pools under ceilings
-   forever). Small, contained fix; not yet scheduled.
+8. ~~Smoke never dissipates~~ — done. `MaterialDef::dissipation` (a
+   per-tick chance, `0.0` = never, so every other gas keeps today's
+   behaviour *and* today's random stream); `smoke.ron` sets `0.004`, a
+   ~173-frame half-life. Not as contained as it looked, and the reason is
+   worth keeping: **rolling it on the CA sweep alone does not reach the
+   case the bug is about.** A stone box packed with 336 smoke cells lost
+   25 and kept the other 311 for 2,500 frames, because its chunks settle
+   about nineteen frames after the smoke does; the buried crater kept
+   three of its five. That is `evaporation.rs`'s lesson arriving one
+   material-kind over, so it took the same answer — a gas cell that could
+   not move schedules an `ActiveKind::Dissipate` site (deduped by
+   position, load-bearing for the *rate*, not just for cost) and the
+   sweep forgets about it. Cleared: pocket 1,687 frames serial / 1,565
+   parallel, crater 430. A *second*, higher rate for trapped gas was
+   considered and not taken — the scheduler already gives trapped smoke
+   its own path, and one number is the whole knob.
 

@@ -168,6 +168,18 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
             out.push(Tunable::integer(phys, &category, "min_transfer", m.min_transfer as f32, 0.0, 400.0, 4.0));
             out.push(Tunable::integer(phys, &category, "flow_rate", m.flow_rate as f32, 0.0, 1000.0, 25.0));
         }
+        // Gases only, and the same reasoning the liquid-only block above
+        // carries: a dissipation chance means nothing to a powder or a
+        // solid. Here specifically because "how long should smoke hang
+        // around" is a look judgement and not a derivable number -- the
+        // arithmetic on `MaterialDef::dissipation` narrows the range to
+        // about 2-4 seconds of half-life and cannot pick inside it, which
+        // is exactly the case `CLAUDE.md` says to answer with a live knob
+        // rather than an argument. Fine step: the whole usable range is
+        // under a hundredth.
+        if m.kind == MaterialKind::Gas {
+            out.push(Tunable::float(phys, &category, "dissipation", m.dissipation, 0.0, 0.05, 0.001));
+        }
         out.push(Tunable::float(phys, &category, "heat_conductivity", m.heat_conductivity, 0.0, 1.0, 0.05));
         for (field, value) in [
             ("ignition_temperature", m.ignition_temperature),

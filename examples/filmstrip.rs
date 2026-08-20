@@ -2104,6 +2104,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // has stopped eating and one that is still going look identical in
         // a single total. See `Args::max_lost`.
         println!("    roofed void (cave volume): {} cells, was {} at the cut", roofed_void(&world), cave_before);
+        println!("    gas cells standing in the world: {}", smoke_census(&world));
         let (solid, powder) = census(&world);
         println!(
             "    cells lost since the cut: {} (rock {:+}, rubble {:+})",
@@ -2272,6 +2273,32 @@ fn heat_census(world: &World, cx: i32, cy: i32, radius: i32) -> (i16, u32) {
         }
     }
     (hottest, lit)
+}
+
+/// Every `Gas` cell standing in the world right now.
+///
+/// A *standing* count, not a count of dissipation events, and that is the
+/// point: what the owner sees is a grey cap that is still there, and
+/// `CLAUDE.md`'s own rule is that a complaint about something visible and
+/// persistent is answered by the standing state rather than the event rate
+/// (the film hunt learned that the expensive way). It is also the "did it
+/// fire at all" counter for `Material::dissipation` — smoke thinning and
+/// smoke drifting off the top of the crop look identical on a contact
+/// sheet, and only a number distinguishes them.
+///
+/// Whole world rather than boxed around the blast, because smoke *leaves*:
+/// a box would show the plume clearing when it had only walked out of the
+/// box, which is exactly the wrong reading.
+fn smoke_census(world: &World) -> u32 {
+    let mut n = 0u32;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if world.materials.kind(world.get(x, y).material) == MaterialKind::Gas {
+                n += 1;
+            }
+        }
+    }
+    n
 }
 
 fn cracked_census(world: &World, cx: i32, cy: i32, radius: i32) -> u32 {

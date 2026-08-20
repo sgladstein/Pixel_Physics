@@ -1768,6 +1768,64 @@ mod tests {
         assert!(smoke > 0, "the blast left no smoke at all");
     }
 
+    /// ...and then that smoke has to go away again.
+    ///
+    /// The other half of the test directly above, and the pair only means
+    /// anything together: one says the blast lays smoke down, this says the
+    /// crater does not keep it. Until `Material::dissipation` landed there
+    /// was **no removal rule for gas anywhere in the simulation**
+    /// (`Reports/explosion-stone-review.md` §11, open item 8), so a charge
+    /// fired inside rock left a grey cap in its own pocket for the rest of
+    /// the session — and the guard above passed the whole time, because
+    /// "smoke exists" is exactly what a permanent cap satisfies best.
+    ///
+    /// Enclosed on purpose: the crater here is a void inside a solid block,
+    /// which is the geometry the complaint came from and the only one where
+    /// the smoke cannot simply rise out of frame. Budget measured, with
+    /// headroom — the charge here is fully confined, so it lays only 5 smoke
+    /// cells into the pocket it crushes, and the last of them goes at frame
+    /// 430. 2,500 is nearly 6x that, and deliberately loose: what this is
+    /// guarding against is *permanence*, and the difference between 430 and
+    /// 2,500 frames is not a difference anyone can see.
+    #[test]
+    fn blast_smoke_does_not_stay_in_the_crater() {
+        let mut w = test_world();
+        for y in 20..60 {
+            for x in 20..60 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        let mut particles = ParticleSystem::new();
+        trigger(&mut w, &mut particles, 40, 40, 12, 180.0);
+
+        let smoke = |w: &World| {
+            (0..128)
+                .flat_map(|y| (0..128).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material == material::SMOKE)
+                .count()
+        };
+        let laid = smoke(&w);
+        assert!(laid > 0, "the blast left no smoke to clear");
+
+        let mut cleared_at = None;
+        for frame in 1..=2_500 {
+            crate::sim::update::step(&mut w);
+            // The scheduler half matters here specifically: a confined
+            // charge's smoke is sealed into its own pocket, so the sweep
+            // stops visiting it within a couple of dozen frames.
+            w.step_active_sites();
+            if smoke(&w) == 0 {
+                cleared_at = Some(frame);
+                break;
+            }
+        }
+        assert!(
+            cleared_at.is_some(),
+            "{} of the blast's {laid} smoke cells were still in the crater after 2,500 frames",
+            smoke(&w)
+        );
+    }
+
     /// A blast with smoke disabled must leave a genuinely empty crater —
     /// the guard that `backfill_smoke` is gated on its own tuning rather
     /// than unconditional, so anyone who turns it off gets the old

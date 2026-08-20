@@ -28,6 +28,7 @@ use super::decay;
 use super::evaporation;
 use super::plant;
 use super::structural;
+use super::update;
 use super::world::World;
 
 /// What kind of growth an active site represents, and enough state to act
@@ -127,6 +128,27 @@ pub enum ActiveKind {
     /// but too humid to evaporate is not stale, because that is a value
     /// that changes with the weather rather than a structure that does not.
     Evaporate { stale_ticks: u8 },
+    /// A `Gas` cell that could not move, due for a dissipation roll —
+    /// `update.rs`'s `dissipation_tick`.
+    ///
+    /// Here for precisely the reason `Evaporate` is, one kind along: the CA
+    /// sweep can roll a gas cell's `Material::dissipation` for free while
+    /// the cell is moving, and a cell that has *stopped* moving is the one
+    /// the mechanic exists for and the one the sweep stops visiting. That is
+    /// not a hypothesis — the sweep-only version was built first and
+    /// measured: a stone box packed with 336 smoke cells lost 25 of them and
+    /// then kept the other 311 for all 2,500 frames it was watched, because its
+    /// chunks settled about nineteen frames after the smoke did. A buried
+    /// blast's crater, the case this was built for, kept three of its five.
+    ///
+    /// No `stale_ticks` twin to `Evaporate`'s, deliberately. A sealed gas
+    /// cell is not in a state that might later become interesting again —
+    /// the roll it is waiting for is unconditional, so the site always has
+    /// work to do and always terminates on its own: it retires the moment
+    /// the roll succeeds, and dissipation is the one outcome nothing can
+    /// stop. The unbounded-cost failure `stale_ticks` exists to prevent
+    /// cannot arise here.
+    Dissipate,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -242,6 +264,7 @@ pub fn step(world: &mut World) {
             ActiveKind::Creature { .. } => creature::tick(world, &site),
             ActiveKind::Decay => decay::tick(world, &site),
             ActiveKind::Evaporate { .. } => evaporation::tick(world, &site),
+            ActiveKind::Dissipate => update::dissipation_tick(world, &site),
         };
         // Routed through the one canonical insertion point -- `world.
         // active_sites` is live for the whole loop now, so there's no

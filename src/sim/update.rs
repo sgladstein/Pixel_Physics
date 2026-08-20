@@ -46,6 +46,7 @@
 use super::chunk::{Rect, MAX_REACH};
 use super::fire;
 use super::material::{self, MaterialKind, HORIZONTAL_TRANSFER_REACH};
+use super::scheduler::{ActiveKind, ActiveSite};
 use super::surface::CellSurface;
 use super::world::World;
 use crate::sim::cell::Cell;
@@ -1037,6 +1038,47 @@ const LIQUID_SETTLE_DROP: i32 = 2;
 /// `WIND_BIAS_THRESHOLD`), and even in strong wind the gas still rises
 /// first — wind steers a plume, it does not stop it from being buoyant.
 fn update_gas<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) -> bool {
+    // Dissipation: the only rule anywhere in the engine that removes a gas
+    // cell. Before this, nothing did — smoke rose, spread, found a ceiling
+    // and stayed there for the rest of the session, which
+    // `Reports/explosion-stone-review.md` §11 found while looking at
+    // something else and parked as open item 8. A buried blast's crater kept
+    // a permanent grey cap.
+    //
+    // Rolled *before* the movement attempts, deliberately, and that gets
+    // every gas cell exactly one roll per frame: a cell that moves lands in
+    // a row the bottom-to-top sweep has not reached yet, is flagged `moved`,
+    // and `update_cell` skips it there — so rolling after a move would give
+    // rising smoke no roll at all on the frames it is actually rising, and a
+    // plume would only ever thin once it had stopped.
+    //
+    // **The roll is skipped entirely at 0.0** rather than left to
+    // `Rng::chance`'s own `p <= 0.0` early-out, which costs the same either
+    // way at runtime but means a gas that does not dissipate draws exactly
+    // the numbers it drew before this landed. Smoke's own stream does shift,
+    // because a draw was inserted ahead of `wind_biased_order`'s: a
+    // deterministic *behaviour change* (same build, same seed, same result),
+    // not a break in determinism.
+    //
+    // **One rate, not two, and that was a decision rather than an
+    // omission.** The obvious refinement is a higher rate for gas that
+    // could not move, so a ceiling pool clears faster than a plume thins,
+    // and it is cheap to write — the blocked case is already a branch at
+    // the bottom of this function. It is not taken, for two reasons that
+    // point the same way. Trapped gas already has its own path
+    // (`ActiveKind::Dissipate`, scheduled from that same branch), so the
+    // second constant would be tuning one path against the other rather
+    // than adding a behaviour. And it argues the wrong way physically: real
+    // smoke sealed into a pocket lingers *longer* than smoke free to mix,
+    // not shorter. What the complaint was actually about was permanence,
+    // and permanence is gone at one rate — the sealed-crater guard's last
+    // smoke cell goes at frame 430, about seven seconds, against never.
+    let dissipation = surface.materials().get(surface.get(x, y).material).dissipation;
+    if dissipation > 0.0 && surface.rng().chance(dissipation) {
+        surface.set(x, y, Cell::EMPTY);
+        return true;
+    }
+
     let (first, second, lean) = wind_biased_order(surface, x, y);
     // Strong wind takes the downwind diagonal *before* rising straight up.
     //
@@ -1062,8 +1104,84 @@ fn update_gas<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: bool) 
     // Capped for the same reason as `SURFACE_SEARCH`: a rule must not read
     // further than the sweep region is widened.
     let dispersion = (surface.materials().get(surface.get(x, y).material).dispersion as i32).min(MAX_REACH);
-    flow_sideways(surface, x, y, first, dispersion, 1, rightward)
-        || flow_sideways(surface, x, y, second, dispersion, 1, rightward)
+    let moved = flow_sideways(surface, x, y, first, dispersion, 1, rightward)
+        || flow_sideways(surface, x, y, second, dispersion, 1, rightward);
+
+    // Nowhere to go. Hand this cell to the active-site scheduler, because
+    // the roll above is about to stop happening: a chunk whose gas has
+    // stopped moving settles within a couple of dozen frames and is not
+    // swept again. See `scheduler::ActiveKind::Dissipate` for the
+    // measurement, and `evaporation.rs`'s module doc for the identical
+    // lesson learned one material-kind over. The sweep's whole part is this
+    // one line — schedule and forget.
+    if !moved && dissipation > 0.0 {
+        schedule_dissipation(surface, x, y);
+    }
+    moved
+}
+
+/// How often a *trapped* gas cell is rolled once the sweep has stopped
+/// visiting it. One second.
+///
+/// It is a sampling interval, not a second rate: `dissipation_tick` rolls
+/// the compounded probability of the material's own per-tick chance over
+/// this many ticks, so lengthening or shortening it changes how granular the
+/// clearing looks and not how fast it happens. Kept a Rust constant rather
+/// than graduating to `.ron` on `design-philosophy.md` §2a's own test — a
+/// non-programmer tuning "how fast does smoke go" reaches for
+/// `dissipation`, and reaching for this one instead would get them nothing.
+const DISSIPATION_CHECK_INTERVAL: u64 = 60;
+
+fn schedule_dissipation<S: CellSurface>(surface: &mut S, x: i32, y: i32) {
+    surface.schedule_active_site(ActiveSite {
+        x,
+        y,
+        kind: ActiveKind::Dissipate,
+        next_frame: surface.frame() + DISSIPATION_CHECK_INTERVAL,
+    });
+}
+
+/// Dispatch a due `ActiveKind::Dissipate` site. `scheduler::step` never
+/// routes any other `ActiveKind` here.
+///
+/// **Why the probability is compounded rather than reused.** The sweep rolls
+/// `dissipation` once per tick; this runs once per
+/// `DISSIPATION_CHECK_INTERVAL` ticks, so rolling the same number here would
+/// make trapped smoke sixty times longer-lived than drifting smoke — the
+/// exact backwards-of-intended result `evaporation.rs`'s reverted first
+/// version produced when a lake outlasted a puddle. `1 - (1 - p)^n` is the
+/// chance of *at least one* success in the n ticks the site stood in for, so
+/// a cell that sits still and one that keeps moving have the same half-life
+/// however the world happens to schedule them.
+///
+/// Deliberately does **not** ask whether the cell could move again by now.
+/// It looks like a free retirement — if it can rise, the sweep owns it — and
+/// it is the kind of gate that turns a mechanic off: a cell whose escape
+/// opened while its chunk was asleep would be handed back to a sweep that is
+/// not running. Rolling it anyway costs one draw a second and cannot strand
+/// anything. The overlap the other way (a cell that has a pending site
+/// *and* is being swept) is real and bounded: it doubles the rate for at
+/// most the ~19 frames a chunk stays awake after its gas settles, against a
+/// number picked by eye in the first place.
+pub fn dissipation_tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
+    let (x, y) = (site.x, site.y);
+    let material = world.materials.get(world.get(x, y).material);
+    // Structurally finished: the gas moved on, burned, or was dug out, and
+    // something else is here now. Nothing to reschedule — if gas comes back,
+    // the sweep is awake for it and schedules afresh.
+    if material.kind != MaterialKind::Gas || material.dissipation <= 0.0 {
+        return Vec::new();
+    }
+
+    let per_check = 1.0 - (1.0 - material.dissipation).powi(DISSIPATION_CHECK_INTERVAL as i32);
+    if world.rng.chance(per_check) {
+        world.set(x, y, Cell::EMPTY);
+        // Nothing rescheduled here even though the neighbours are now free
+        // to move: this write dirties the chunk, which wakes it, which is
+        // the sweep picking them up again on its own.
+        return Vec::new();
+    }
+    vec![ActiveSite { x, y, kind: ActiveKind::Dissipate, next_frame: world.frame + DISSIPATION_CHECK_INTERVAL }]
 }
 
 /// A prevailing breeze, added to whatever the field reports.
@@ -1530,6 +1648,7 @@ mod tests {
     }
 
     use super::*;
+    use crate::sim::parallel;
 
     fn world_with_floor() -> World {
         let mut w = World::new(Rect::new(0, 0, 127, 127));
@@ -2127,15 +2246,47 @@ mod tests {
         assert!(sand_y > 120, "sand did not sink through water: y = {sand_y}");
     }
 
+    /// The highest the smoke ever got, at any point in the run.
+    ///
+    /// Sampled every frame rather than read off the end state, and that is
+    /// not fussiness: smoke is *mortal* now (`Material::dissipation`), so a
+    /// single cell inspected after a fixed number of frames is a coin toss
+    /// on the half-life rather than a statement about buoyancy. Both
+    /// rise tests below used to do exactly that, and `smoke_rises` failed
+    /// on the frame dissipation landed — the cell had reached y = 0 and
+    /// then dissipated, which is the rule working, reported as the rule
+    /// under test being broken. A peak cannot be answered by the removal
+    /// rule at all, which is what makes it the right quantity here
+    /// (`CLAUDE.md`: assert the property, not an instant fitted to one
+    /// trajectory).
+    fn highest_smoke_reached(w: &mut World, frames: usize) -> i32 {
+        let mut peak = 128;
+        for _ in 0..frames {
+            step(w);
+            if let Some(y) = (0..128).find(|&y| (0..128).any(|x| w.get(x, y).material == material::SMOKE)) {
+                peak = peak.min(y);
+            }
+        }
+        peak
+    }
+
+    /// A blob rather than the single cell this used to place, for the same
+    /// reason `highest_smoke_reached` samples every frame: one mortal cell
+    /// asked to survive a hundred frames of climbing is a coin toss on the
+    /// half-life. Measured — the lone cell dissipated at y = 71, two thirds
+    /// of the way up, and reported "smoke did not rise". Twenty-five cells
+    /// make the topmost survivor a near-certainty without changing what
+    /// buoyancy has to do.
     #[test]
     fn smoke_rises() {
         let mut w = world_with_floor();
-        w.set(64, 120, Cell::new(material::SMOKE, 0));
-        run(&mut w, 200);
-        let smoke_y = (0..128)
-            .find(|&y| (0..128).any(|x| w.get(x, y).material == material::SMOKE))
-            .expect("smoke vanished");
-        assert!(smoke_y < 20, "smoke did not rise: y = {smoke_y}");
+        for y in 116..121 {
+            for x in 62..67 {
+                w.set(x, y, Cell::new(material::SMOKE, 0));
+            }
+        }
+        let peak = highest_smoke_reached(&mut w, 200);
+        assert!(peak < 20, "smoke did not rise: the highest it ever got was y = {peak}");
     }
 
     /// A rising plume must lean downwind, not go straight up.
@@ -2216,12 +2367,158 @@ mod tests {
                 w.set(x, y, Cell::new(material::WATER, 0));
             }
         }
-        w.set(64, 126, Cell::new(material::SMOKE, 0));
-        run(&mut w, 400);
-        let smoke_y = (0..128)
-            .find(|&y| (0..128).any(|x| w.get(x, y).material == material::SMOKE))
-            .expect("smoke vanished");
-        assert!(smoke_y < 60, "smoke did not rise through water: y = {smoke_y}");
+        // A blob, for the reason `smoke_rises` above records.
+        for y in 124..127 {
+            for x in 63..66 {
+                w.set(x, y, Cell::new(material::SMOKE, 0));
+            }
+        }
+        let peak = highest_smoke_reached(&mut w, 400);
+        assert!(peak < 60, "smoke did not rise through water: the highest it ever got was y = {peak}");
+    }
+
+    /// A stone shell around a pocket packed with smoke, with no route out.
+    ///
+    /// The point of sealing it: a plume in open air thins whether or not
+    /// `Material::dissipation` works at all, because it rises off the top of
+    /// the world and leaves. Only a closed box makes disappearance mean
+    /// removal.
+    fn sealed_pocket_of_smoke() -> World {
+        let mut w = world_with_floor();
+        for y in 60..80 {
+            for x in 40..70 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for y in 63..77 {
+            for x in 43..67 {
+                w.set(x, y, Cell::new(material::SMOKE, 0));
+            }
+        }
+        w
+    }
+
+    /// Frames a sealed pocket is allowed to take, set from measurement with
+    /// headroom: the 336-cell pocket below empties at frame 1,687 under the
+    /// serial driver and 1,565 under the parallel one, so this leaves a
+    /// little over 2x.
+    ///
+    /// A ceiling on how long the *last* cell may linger, which is not the
+    /// quantity the mechanic is judged on -- what matters on screen is the
+    /// bulk going in the first few seconds (measured separately, by
+    /// `smoke_clears_at_the_rate_the_material_asks_for`). The last straggler
+    /// is simply the only thing a test can state without arbitrating a look.
+    const BUDGET: usize = 3_500;
+
+    fn smoke_count(w: &World) -> usize {
+        (0..128)
+            .flat_map(|y| (0..128).map(move |x| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == material::SMOKE)
+            .count()
+    }
+
+    /// Smoke sealed in a pocket has to go away — and this is the case that
+    /// says whether the rule is *reachable*, not merely correct.
+    ///
+    /// **It caught the first version of this mechanic doing nothing.**
+    /// Dissipation started life as a roll on the CA sweep and nothing else,
+    /// which is correct code that the sweep stops running: a chunk whose gas
+    /// has settled sleeps, and gas that has settled is the whole complaint.
+    /// This pocket lost 25 of its 336 cells and kept the other 311 for 2,500
+    /// frames. `CLAUDE.md`'s "a test can pass because the code under it is
+    /// dead", pointed at the gate rather than at the rule — an open plume
+    /// clears either way, because it rises off the top of the world.
+    ///
+    /// So it runs a **full frame**, sweep then active sites, in `App::
+    /// update`'s own order. A test that called only the CA driver would be
+    /// exercising the half that provably does not reach this case.
+    fn a_sealed_pocket_of_smoke_clears(sweep: fn(&mut World)) {
+        let mut w = sealed_pocket_of_smoke();
+        let before = smoke_count(&w);
+        assert_eq!(before, 336, "the scene is not the one this test thinks it is");
+
+        let mut cleared_at = None;
+        for frame in 1..=BUDGET {
+            sweep(&mut w);
+            w.step_active_sites();
+            if smoke_count(&w) == 0 {
+                cleared_at = Some(frame);
+                break;
+            }
+        }
+        assert!(
+            cleared_at.is_some(),
+            "{} of {before} smoke cells were still sealed in the pocket after {BUDGET} frames",
+            smoke_count(&w)
+        );
+
+        // The stone is not allowed to have gone anywhere either -- a "fix"
+        // that ate the shell would clear the pocket just as thoroughly.
+        // `CLAUDE.md`: a guard must be able to fail for the replacement
+        // artifact, not only the original one.
+        assert_eq!(w.get(41, 61).material, material::STONE, "the shell went missing");
+    }
+
+    #[test]
+    fn a_sealed_pocket_of_smoke_clears_serial() {
+        a_sealed_pocket_of_smoke_clears(step);
+    }
+
+    /// The app runs the parallel driver, and dissipation draws from the rng
+    /// -- which `ChunkView` splits per chunk. Both drivers, deliberately.
+    #[test]
+    fn a_sealed_pocket_of_smoke_clears_parallel() {
+        a_sealed_pocket_of_smoke_clears(parallel::step);
+    }
+
+    /// The material's number has to set the *rate*, and the rate has to be
+    /// the one `MaterialDef::dissipation`'s own arithmetic claims.
+    ///
+    /// Written because the obvious failure mode of a probabilistic removal
+    /// rule is that it reads the field once and then behaves like a switch,
+    /// which a test asserting only "the smoke went" cannot tell from
+    /// working code. It also pins the doc table, which is the thing anyone
+    /// tuning smoke will actually read.
+    ///
+    /// **A standing count at a fixed frame, not the frame the last cell
+    /// goes.** That was the first version and it flaked: the time for the
+    /// last of 336 cells is an extreme order statistic — a Gumbel with
+    /// roughly ±320 frames of spread at this rate — so it measured 2.53x
+    /// for a halving that is exactly 2x by construction. How many are
+    /// *left* at a fixed frame is a binomial over all 336 and is tight.
+    #[test]
+    fn smoke_clears_at_the_rate_the_material_asks_for() {
+        const AT: usize = 600;
+        let remaining = |rate: f32| {
+            let mut w = sealed_pocket_of_smoke();
+            w.materials.get_mut(material::SMOKE).dissipation = rate;
+            for _ in 0..AT {
+                step(&mut w);
+                w.step_active_sites();
+            }
+            smoke_count(&w)
+        };
+        let (slow, fast) = (remaining(0.004), remaining(0.008));
+
+        // 336 * (1 - 0.004)^600 = 30.3 cells left, and the band is a little
+        // over 2x either side of it rather than snug against the sample:
+        // what is being pinned is that the half-life is the documented one,
+        // not that this particular run landed where it landed.
+        assert!(
+            (12..=70).contains(&slow),
+            "at 0.004 the pocket had {slow} of 336 cells left after {AT} frames; the arithmetic in \
+             `MaterialDef::dissipation` says ~30, so the rate the engine runs is not the rate the \
+             material asked for"
+        );
+        // 336 * (1 - 0.008)^600 = 2.7. Stated as a comparison rather than a
+        // second absolute band because that is the half that fails if
+        // `dissipation` is ever read once and cached: a switch gives these
+        // two the same answer.
+        assert!(
+            fast * 3 < slow,
+            "doubling the rate left {fast} cells against {slow} — the two settings are not behaving \
+             like two different rates"
+        );
     }
 
     #[test]

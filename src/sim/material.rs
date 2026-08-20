@@ -359,6 +359,40 @@ pub struct MaterialDef {
     /// elsewhere.
     #[serde(default)]
     pub evaporates: bool,
+    /// Chance per tick that one cell of this `Gas` simply stops existing —
+    /// `update.rs`'s `update_gas`. The gas equivalent of `evaporates`, and
+    /// the only removal rule gas has ever had: until this landed **nothing
+    /// anywhere in the simulation deleted a gas cell**, so a blast's smoke
+    /// rose, spread, and then sat under whatever ceiling it found forever
+    /// (`Reports/explosion-stone-review.md` §11, open item 8 — a buried
+    /// crater kept a grey cap for the rest of the session).
+    ///
+    /// **The arithmetic, because a per-tick chance is not a readable
+    /// number.** A cell survives a tick with probability `1 - p`, so its
+    /// half-life is `n = ln(0.5) / ln(1 - p)` ticks, which at 60 ticks a
+    /// second is `n / 60` seconds. For the small values that matter here
+    /// `n ≈ 0.693 / p`:
+    ///
+    /// | `p` | half-life | 90% gone |
+    /// |---|---|---|
+    /// | 0.002 | 346 frames (5.8 s) | 19.2 s |
+    /// | 0.004 | 173 frames (2.9 s) | 9.6 s |
+    /// | 0.008 | 86 frames (1.4 s) | 4.8 s |
+    ///
+    /// The table is what the value was *picked from*, not what picked it —
+    /// the arithmetic only narrows the range, and which end of it looks
+    /// right is a judgement made against a rendered sheet (`CLAUDE.md`,
+    /// "look before you measure"). See `smoke.ron` for the number that
+    /// survived that.
+    ///
+    /// **Defaults to 0.0, meaning never**, so any other gas added later
+    /// keeps exactly today's immortal behaviour until it says otherwise —
+    /// and, because `update_gas` skips the roll entirely at 0.0, keeps
+    /// today's random stream as well, bit for bit.
+    ///
+    /// Meaningless on any kind but `Gas`; nothing dispatches it elsewhere.
+    #[serde(default)]
+    pub dissipation: f32,
     /// Whether this material reinforces a `Powder` it is embedded in, so
     /// that grain no longer falls — the Wu-Waldron apparent-cohesion effect
     /// roots have on soil (`update.rs`'s `root_reinforced`).
@@ -697,6 +731,8 @@ pub struct Material {
     pub water_capacity: u16,
     /// See `MaterialDef::evaporates`.
     pub evaporates: bool,
+    /// See `MaterialDef::dissipation`.
+    pub dissipation: f32,
     /// See `MaterialDef::reinforces_powder`.
     pub reinforces_powder: bool,
     /// Per-cell colour variation. A cell picks one entry when it is created and
@@ -940,6 +976,11 @@ impl From<MaterialDef> for Material {
             penetration_resistance: def.penetration_resistance,
             water_capacity: def.water_capacity,
             evaporates: def.evaporates,
+            // Clamped rather than trusted: a negative value would be a
+            // silent "never" (`Rng::chance` returns false at or below 0),
+            // and anything above 1 is a gas that vanishes on the frame it
+            // is created, which reads as the material not existing at all.
+            dissipation: def.dissipation.clamp(0.0, 1.0),
             reinforces_powder: def.reinforces_powder,
             palette: def
                 .colors
@@ -1116,6 +1157,7 @@ impl MaterialRegistry {
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
             evaporates: false,
+            dissipation: 0.0,
             reinforces_powder: false,
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
@@ -1152,6 +1194,7 @@ impl MaterialRegistry {
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
             evaporates: false,
+            dissipation: 0.0,
             reinforces_powder: false,
             colors: vec![[20, 20, 24]],
             flammability: 0.0,

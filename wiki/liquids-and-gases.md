@@ -18,7 +18,17 @@ flatter and flatter over time rather than holding any kind of slope.
 **Smoke** is the one gas in the world. Unlike a liquid or a powder, it
 rises rather than falls, drifting upward through open space and pooling
 against a ceiling once it hits one, spreading out as it goes rather than
-staying in a tight column. It can be placed like any other material — but
-nothing in the simulation currently produces it on its own; an explosion's
-crater, for instance, is left clean and empty once the dust settles rather
-than smoke-filled.
+staying in a tight column.
+
+It also **doesn't last**. A cloud thins out as it goes — visibly, over the
+first few seconds, with only stragglers left after ten or so — rather than
+persisting. A plume dwindles as it climbs instead of climbing forever, and
+a pocket caught under a roof with nowhere left to rise to fades away where
+it sits rather than becoming a permanent grey lid on the room. Sealed in
+completely, with no way out at all, it still goes; it just has to fade
+rather than drift.
+
+Smoke can be placed like any other material — but nothing in the
+simulation currently produces it on its own; an explosion's crater, for
+instance, is left clean and empty once the dust settles rather than
+smoke-filled.
