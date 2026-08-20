@@ -199,7 +199,7 @@ pub struct World {
     /// implements. Plain `Vec`s in insertion order, the `chunk_bodies`
     /// determinism reasoning; registered via `add_spring`/`add_drain`
     /// (worldgen's placement pass later, harnesses and `viewshot` today).
-    pub springs: Vec<(i32, i32)>,
+    pub springs: Vec<crate::sim::spring::Spring>,
     pub drains: Vec<(i32, i32)>,
     /// Spring/drain flow accounting — the counter that gets printed next
     /// to every waterfall image.
@@ -2165,15 +2165,21 @@ impl World {
         self.chunks.len()
     }
 
-    /// Register a spring outlet. Refuses past `spring::MAX_SPRINGS` — the
-    /// budget is enforced here, at registration, loudly, rather than by
-    /// silently skipping springs at step time (a cap bounds work; it must
-    /// not quietly gate whether a registered thing happens).
-    pub fn add_spring(&mut self, x: i32, y: i32) -> bool {
-        if self.springs.len() >= crate::sim::spring::MAX_SPRINGS {
+    /// Register a spring weeping across `span` columns. Refuses past the
+    /// flow budget (`spring::MAX_TOTAL_SPAN`, summed over every spring) or
+    /// a single span past `spring::MAX_SPAN` — the budget is enforced
+    /// here, at registration, loudly, rather than by silently skipping
+    /// springs at step time (a cap bounds work; it must not quietly gate
+    /// whether a registered thing happens).
+    pub fn add_spring(&mut self, x: i32, y: i32, span: i32) -> bool {
+        if span < 1 || span > crate::sim::spring::MAX_SPAN {
             return false;
         }
-        self.springs.push((x, y));
+        let flowing: i32 = self.springs.iter().map(|s| s.span).sum();
+        if flowing + span > crate::sim::spring::MAX_TOTAL_SPAN {
+            return false;
+        }
+        self.springs.push(crate::sim::spring::Spring { x, y, span });
         true
     }
 

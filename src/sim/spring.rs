@@ -74,12 +74,31 @@ const DRAIN_FILL: u16 = material::LIQUID_FULL;
 /// only a genuinely risen pool (or a deliberate dam) chokes it.
 const THROTTLE_FILL: u16 = (material::LIQUID_FULL as u32 * 9 / 10) as u16;
 
-/// Springs a world will actually run. A budget, stated where it is
-/// enforced: the review priced rivers at one or two springs per world, and
-/// the cap bounds the standing bill rather than gating whether any one
-/// spring runs — springs past the cap are refused at registration, loudly,
-/// not silently skipped at step time.
-pub const MAX_SPRINGS: usize = 4;
+/// Total flow a world will actually run, summed over every spring's span —
+/// a budget on *water*, not on how many places it comes from. One narrow
+/// seep and one six-column cascade cost the same bill as three two-column
+/// falls, so the budget counts columns of emission. Stated where it is
+/// enforced: registration refuses past it, loudly, rather than silently
+/// skipping springs at step time. Sixteen columns is ~11 storms of water
+/// per frame — set from the measured headroom (the one-column prototype
+/// stood at +0.97 ms against the 2.0 ms bar; the paired timing in
+/// `viewshot spring=` is the instrument for re-checking as spans grow).
+pub const MAX_TOTAL_SPAN: i32 = 16;
+
+/// Widest single spring. A face weeping over six columns reads as a real
+/// cascade; past that it reads as the ocean falling in, and the budget is
+/// better spent on a second fall somewhere else.
+pub const MAX_SPAN: i32 = 6;
+
+/// One spring: an outlet at `(x, y)` weeping across `span` columns —
+/// emission fills the air cells at `(x .. x + span, y)`. A `span` of 1 is
+/// a seep; 4–6 is a waterfall.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Spring {
+    pub x: i32,
+    pub y: i32,
+    pub span: i32,
+}
 
 /// One frame of spring and drain work. Runs at the top of both drivers,
 /// beside `weather::step` — serial, outside the checkerboard, so the
@@ -98,26 +117,32 @@ pub fn step(world: &mut World) {
         // Indexed loop rather than an iterator: emission writes to the
         // world, and the borrow of `world.springs` must end first.
         for i in 0..world.springs.len() {
-            let (x, y) = world.springs[i];
-            if !world.in_bounds(x, y) {
-                continue;
-            }
-            let outlet = world.get(x, y);
-            // Raw material check, not `is_empty()` — same reasoning as the
-            // renderer: the question is "is there material here".
-            if outlet.material == material::EMPTY {
-                world.set(x, y, Cell::new(material::WATER, (world.frame % 4) as u8));
-                world.spring_ledger.emitted += EMIT_FILL as u64;
-                continue;
-            }
-            // The throttle. A liquid outlet below the bar is the fall
-            // still passing through — count it throttled only when
-            // genuinely drowned or walled.
-            let drowned = world.materials.kind(outlet.material) == material::MaterialKind::Liquid
-                && update::liquid_fill(outlet) >= THROTTLE_FILL;
-            let walled = world.materials.kind(outlet.material) != material::MaterialKind::Liquid;
-            if drowned || walled {
-                world.spring_ledger.throttled += 1;
+            let Spring { x, y, span } = world.springs[i];
+            // Each column of the span is its own outlet with its own
+            // throttle: damming half a wide fall chokes that half and the
+            // rest keeps pouring — graded, like everything else.
+            for dx in 0..span {
+                let (x, y) = (x + dx, y);
+                if !world.in_bounds(x, y) {
+                    continue;
+                }
+                let outlet = world.get(x, y);
+                // Raw material check, not `is_empty()` — same reasoning as
+                // the renderer: the question is "is there material here".
+                if outlet.material == material::EMPTY {
+                    world.set(x, y, Cell::new(material::WATER, (world.frame % 4) as u8));
+                    world.spring_ledger.emitted += EMIT_FILL as u64;
+                    continue;
+                }
+                // The throttle. A liquid outlet below the bar is the fall
+                // still passing through — count it throttled only when
+                // genuinely drowned or walled.
+                let drowned = world.materials.kind(outlet.material) == material::MaterialKind::Liquid
+                    && update::liquid_fill(outlet) >= THROTTLE_FILL;
+                let walled = world.materials.kind(outlet.material) != material::MaterialKind::Liquid;
+                if drowned || walled {
+                    world.spring_ledger.throttled += 1;
+                }
             }
         }
     }
@@ -195,7 +220,7 @@ mod tests {
     #[test]
     fn a_spring_emits_at_the_documented_rate_and_the_ledger_matches_the_census() {
         let mut w = world_with_floor();
-        assert!(w.add_spring(64, 60));
+        assert!(w.add_spring(64, 60, 1));
         // Through the real driver: `spring::step` runs inside it, beside
         // weather, so this asserts the wiring too, not just the function.
         for _ in 0..40 {
@@ -212,7 +237,7 @@ mod tests {
     #[test]
     fn a_walled_spring_stops() {
         let mut w = world_with_floor();
-        assert!(w.add_spring(64, 60));
+        assert!(w.add_spring(64, 60, 1));
         w.set(64, 60, Cell::new(material::STONE, 0));
         for _ in 0..20 {
             step(&mut w);
@@ -227,7 +252,7 @@ mod tests {
     #[test]
     fn a_drowned_spring_stops() {
         let mut w = world_with_floor();
-        assert!(w.add_spring(64, 60));
+        assert!(w.add_spring(64, 60, 1));
         // A full water cell sitting on the outlet.
         w.set(64, 60, Cell::new(material::WATER, 0));
         step(&mut w);
@@ -274,11 +299,13 @@ mod tests {
     #[test]
     fn springs_past_the_budget_are_refused_at_registration() {
         let mut w = world_with_floor();
-        for i in 0..MAX_SPRINGS {
-            assert!(w.add_spring(10 + i as i32, 60));
-        }
-        assert!(!w.add_spring(90, 60), "the budget is {MAX_SPRINGS}");
-        assert_eq!(w.springs.len(), MAX_SPRINGS);
+        assert!(!w.add_spring(10, 60, MAX_SPAN + 1), "a single span past {MAX_SPAN} is refused");
+        assert!(!w.add_spring(10, 60, 0), "a zero span is refused");
+        assert!(w.add_spring(10, 60, MAX_SPAN));
+        assert!(w.add_spring(40, 60, MAX_SPAN));
+        assert!(w.add_spring(70, 60, MAX_TOTAL_SPAN - 2 * MAX_SPAN));
+        assert!(!w.add_spring(90, 60, 1), "the flow budget is {MAX_TOTAL_SPAN} columns, summed");
+        assert_eq!(w.springs.iter().map(|s| s.span).sum::<i32>(), MAX_TOTAL_SPAN);
     }
 
     /// Same seed, same springs, same world — the mechanism is
@@ -288,7 +315,7 @@ mod tests {
     fn two_runs_with_a_spring_are_identical() {
         let run = || {
             let mut w = world_with_floor();
-            w.add_spring(64, 60);
+            w.add_spring(64, 60, 1);
             w.add_drain(20, 99);
             for _ in 0..120 {
                 crate::sim::parallel::step(&mut w);

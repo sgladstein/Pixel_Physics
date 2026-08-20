@@ -42,7 +42,7 @@ struct Args {
     rain: String,
     mine: bool,
     light: pixel_physics::render::TerrainLight,
-    spring: bool,
+    spring: i32,
     out: String,
 }
 
@@ -59,7 +59,7 @@ fn main() {
         rain: String::new(),
         mine: false,
         light: pixel_physics::render::TerrainLight::default(),
-        spring: false,
+        spring: 0,
         out: "target/filmstrips/viewshot.png".to_string(),
     };
     for arg in std::env::args().skip(1) {
@@ -90,12 +90,13 @@ fn main() {
                     other => panic!("unknown light {other:?} (depth|flat)"),
                 }
             }
-            // `spring=1` installs one spring at the tallest cliff rim and a
-            // drain at the lowest basin — the shipped mechanics from
-            // `sim/spring.rs`, placed by the same scan worldgen's placement
-            // pass will refine later. The ledger prints beside the image so
-            // "did it fire" is a number, not a reading of pixels.
-            "spring" => a.spring = v != "0",
+            // `spring=N` installs one N-column spring at the tallest cliff
+            // rim and matching drains at the lowest basin — the shipped
+            // mechanics from `sim/spring.rs`, placed by the same scan
+            // worldgen's placement pass will refine later. `spring=1` is a
+            // seep, `spring=4` a waterfall. The ledger prints beside the
+            // image so "did it fire" is a number, not a reading of pixels.
+            "spring" => a.spring = v.parse().expect("spring=N columns"),
             "out" => a.out = v.to_string(),
             _ => panic!("unknown argument {arg:?}"),
         }
@@ -160,7 +161,7 @@ fn main() {
         );
     }
 
-    if a.spring {
+    if a.spring > 0 {
         // The tallest single-sided drop in the world, measured over a
         // 12-column window on the raw surface — where an aquifer would
         // daylight. Worldgen's placement pass replaces this scan with the
@@ -191,19 +192,34 @@ fn main() {
             }
         }
         let (rim, dir, drop) = best;
-        let outlet = ((rim + dir).clamp(0, WORLD_WIDTH as i32 - 1), heights[rim as usize]);
-        assert!(world.add_spring(outlet.0, outlet.1));
-        // The drain sits at the world's lowest floor — the basin the fall
-        // ultimately feeds.
+        let span = a.spring.min(pixel_physics::sim::spring::MAX_SPAN);
+        // The span hangs off the rim on the falling side, so the whole
+        // sheet drops down the face rather than half of it landing on the
+        // bench behind the edge.
+        let x0 = if dir > 0 { rim + 1 } else { rim - span };
+        let outlet = (x0.clamp(0, WORLD_WIDTH as i32 - span), heights[rim as usize]);
+        assert!(world.add_spring(outlet.0, outlet.1, span));
+        // Drains match the flow, one per emission column, across the
+        // world's lowest floor — the basin the fall ultimately feeds.
         let low = (0..WORLD_WIDTH as i32).max_by_key(|&x| heights[x as usize]).unwrap_or(0);
-        world.add_drain(low, heights[low as usize] - 1);
-        println!("spring at ({}, {}) over a {drop}-cell drop; drain at ({low}, {})", outlet.0, outlet.1, heights[low as usize] - 1);
+        for d in 0..span {
+            let dx = (low + d - span / 2).clamp(0, WORLD_WIDTH as i32 - 1);
+            world.add_drain(dx, heights[dx as usize] - 1);
+        }
+        println!("spring span {span} at ({}, {}) over a {drop}-cell drop; {span} drains around x={low}", outlet.0, outlet.1);
     }
 
     // Let it settle before looking. Generated terrain is meant to be at rest
     // by construction, so anything still moving here is worth seeing in the
     // image rather than hidden by rendering frame zero.
-    for _ in 0..a.settle {
+    // Timed over the tail of the settle — the steady state, where costs
+    // hide (D8's lesson). Two runs, `spring=N` against `spring=0`, give the
+    // standing bill of a fall as a paired same-session comparison.
+    let timed_tail = 300.min(a.settle);
+    let mut tail_worst = 0.0f64;
+    let mut tail_sum = 0.0f64;
+    for i in 0..a.settle {
+        let t = std::time::Instant::now();
         pixel_physics::sim::parallel::step(&mut world);
         world.step_active_sites();
         // The field too, which this loop used to leave out. Harmless while
@@ -214,6 +230,18 @@ fn main() {
         // every lake in the world and the picture would be of a bug in the
         // harness. Matches `App::update`'s own phase order.
         world.step_fields();
+        if i + timed_tail >= a.settle {
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            tail_worst = tail_worst.max(ms);
+            tail_sum += ms;
+        }
+    }
+    if timed_tail > 0 {
+        println!(
+            "settle tail ({timed_tail} frames): mean {:.3} ms, worst {:.3} ms",
+            tail_sum / timed_tail as f64,
+            tail_worst
+        );
     }
 
     let mut renderer = Renderer::new();
@@ -311,7 +339,7 @@ fn main() {
     }
     image::save_buffer(&a.out, &sheet, sw, sh, image::ColorType::Rgba8).expect("writing the sheet");
     println!("contact sheet ({sw}x{sh}, {} viewport shots): {}", a.shots, a.out);
-    if a.spring {
+    if a.spring > 0 {
         // The counter next to the picture. A fall on screen with emitted=0
         // would be pond water wandering into frame, not the spring working.
         let l = world.spring_ledger;
