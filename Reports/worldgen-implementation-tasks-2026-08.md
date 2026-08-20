@@ -837,6 +837,156 @@ actually shipped.
 
 ---
 
+# Round-2 findings
+
+Round 2's queue is `Reports/worldgen-implementation-tasks-round2-2026-08.md`;
+its findings are appended here, as that file instructs, so one file holds the
+whole track's record.
+
+Reproductions, all `#[ignore]`d probes kept rather than thrown away:
+
+```
+cargo test --release --lib worldgen::column::tests::probe_r2t1 -- --ignored --nocapture
+```
+
+### R2-1 — Slope attenuation works on the escarpment risers, and **cannot reach `rolling`'s two tallest**
+
+The mechanism landed exactly as specified. `terraced()` now scales its mask
+by `terrace_yield(x)`, which is `1 - smoothstep(terrace_slope_lo,
+terrace_slope_hi, slope)` over a +-8 column central difference of the
+**pre-terrace** elevation (`base_wave + hills`, factored out as
+`pre_terrace_elev` — `slope()` differences `elev()` and `elev()` calls
+`terraced()`, so a terrace rule asking `slope()` would recurse forever).
+Shipped window `0.6..2.0` on every preset.
+
+**Against the pre-registered bar — no single-column surface step > 18 rows on
+`probe_1b_how_often_the_surface_steps` — 18 of 20 worlds pass and two do
+not.** Both misses are `rolling`, and both are unchanged by the mechanism
+rather than merely under-tuned by it:
+
+| world | worst before | worst after | count before -> after |
+|---|---|---|---|
+| canyon s7 | **31** | **15** | 14 -> 10 |
+| terraced s2 | 20 | 12 | 6 -> 5 |
+| terraced s13 | 18 | 17 | 7 -> 4 |
+| terraced s7 | 16 | 9 | 8 -> 7 |
+| canyon s13 | 16 | 9 | 4 -> 1 |
+| rolling s7 | 18 | 15 | 4 -> 2 |
+| **rolling s1** | **21** | **21** | 21 -> 21 |
+| **rolling s2** | **25** | **25** | 15 -> 13 |
+
+canyon s2 is the escarpment exemption finding 1b already carved out; its
+worst is 8 either way, so it never needed one.
+
+**Why the two misses are structural, not a tuning gap.** The design premise
+is that a tall riser stacks on top of ground the relief has already made
+steep. That premise is *measured true* for the population it was written
+for and *measured false* for these two. Pre-terrace regional slope at each
+world's worst step, beside the world's own median slope:
+
+| world | worst step | slope at it | world p50 slope |
+|---|---|---|---|
+| canyon s7 | 31 | **5.03** | 0.140 |
+| terraced s2 | 20 | 1.44 | 0.135 |
+| rolling s1 | 21 | **0.204** | 0.156 |
+| rolling s2 | 25 | **0.272** | 0.140 |
+
+`rolling` s1 and s2 put their tallest risers on ground at essentially the
+world median slope — the gentle country the spec explicitly instructs the
+snap to keep at full strength ("benches keep their full snap on gentle
+ground"). The bar and the mechanism are asking for opposite things there.
+
+The sweep of the attenuation window says the same thing from the other side,
+and says what forcing it would cost. Worst step / count of steps >= 6:
+
+| window | rolling s1 | rolling s2 | rolling s7 | rolling s13 | terraced s1 | canyon s13 |
+|---|---|---|---|---|---|---|
+| off | 21/21 | 25/15 | 18/4 | 8/3 | 18/4 | 16/4 |
+| 0.6-2.0 *(shipped)* | 21/21 | 25/13 | 15/2 | 8/3 | 18/4 | 9/1 |
+| 0.25-0.9 | 21/21 | 25/10 | **0/0** | 8/2 | 18/3 | **0/0** |
+| 0.10-0.40 | 14/13 | 13/2 | **0/0** | **0/0** | **0/0** | **0/0** |
+
+The only settings that reach `rolling` s1 and s2 are the ones that delete
+terracing outright from five of the twenty worlds. **Read the count beside
+the worst**, which is why the probe prints both: a worst that falls while
+the count falls to zero is not a tamed riser, it is a flattened world — the
+same trap round 1's finding 5b called out for `riser_roughness`.
+
+**The lever that does reach them, measured rather than proposed.** Finding
+1b named `terrace_step` as the alternative, and on `rolling` it works. With
+the shipped `0.6..2.0` window and `terrace_step` reduced from 26:
+
+| terrace_step | s1 | s2 | s7 | s13 |
+|---|---|---|---|---|
+| 26 *(shipped)* | 21/21 | 25/13 | 15/2 | 8/3 |
+| 22 | 18/8 | 24/12 | 12/2 | 15/5 |
+| **18** | **16/4** | **18/5** | **8/2** | **8/1** |
+| 15 | 18/8 | 17/5 | 8/3 | 12/2 |
+
+`terrace_step: 18` clears the bar on all four `rolling` seeds with no count
+zeroed. **It is not shipped**, and deliberately: `terrace_step` is the
+height of every bench on the preset, so cutting it 30% re-spaces `rolling`'s
+entire benched vocabulary — a landform decision of the kind the ground rules
+reserve to the reviewing session, not a tuning of the mechanism this task
+specified. The numbers are here so the call can be made without re-deriving
+them. It is a one-line `assets/worldgen.ron` edit, runtime-loaded, no
+rebuild.
+
+**One framing correction, cheap and worth having.** The round-1 name for
+these is "keyhole slots", and a slot implies a notch that drops and comes
+straight back. Measured, they do not: of the three worst steps in each of
+twelve worlds, all but four are one-way drops that stay down (recovery
+within four columns < 0.6). They are bluff faces, which is what finding 1b
+concluded from the elevation chain and what this confirms from the surface.
+The first version of that recovery metric reported "SLOT" for every step in
+every world, because it included `k = 0` and so compared each step against
+itself — the repo's *ask what a metric counts when nothing is wrong* trap,
+hit again, caught by the answer being unanimous.
+
+**Gates.** `cargo test` green (the one failure on the way was real and
+correct: `the_default_preset_matches_the_compiled_in_fallback` caught
+`WorldgenParams::default()` drifting from `rolling` the moment the field was
+added, so the default carries `0.6/2.0` too). Clippy clean. At-rest suite
+green. Sweep `compare`: **0 counters moved past +/-30%**, the largest move
+being `terraced` talus p90 719 -> 707 (-1.7%) — this changes surface
+geometry slightly, so the formation passes see slightly different faces.
+`flat` is untouched by construction: `terrace_strength: 0.0` returns before
+`terrace_yield` is ever called.
+
+**Cost: below this machine's noise floor, and the noise floor is the number
+worth recording.** One extra `pre_terrace_elev` pair per column, only where
+the mask gate is already open. `ascii`'s 2048x640 place time, both directions
+re-measured back to back in this session rather than against a remembered
+number:
+
+```
+attenuation off : 215.4  211.9  217.6  235.3      mean 220.0   (also one 170.2, see below)
+attenuation on  : 218.2  219.2  222.2  217.2      mean 219.2
+```
+
+The means differ by 0.4%, which is nothing, and the *spread within a single
+setting* is 212-235 ms — larger than any effect being looked for. An early
+sample of the off case returned 170.2 ms on the same binary and the same
+settings, a 28% swing, which is what a shared container does to a wall-clock
+measurement. So the honest statement is not "+0.4%" but **"the added work
+does not register against a +-10% run-to-run spread"**, and anyone re-testing
+this should expect to need many runs to see an effect this small at all.
+Recorded this way deliberately: quoting 219.2 against a single 170.2 baseline
+would have manufactured a 29% "regression" out of container noise, which is
+exactly the trap CLAUDE.md's *re-measure the baseline in the same session*
+rule exists for — and re-measuring is what caught it here.
+
+Frame timings unchanged: `ascii` reports 0/40 chunks awake in every settled
+scene and a 0.002 ms render skip.
+
+**Images**: `target/filmstrips/task1-{before,after}-canyon-s{7,13}.png`. The
+mesa constraint holds — all four of canyon s7's buttes keep their
+silhouettes and their caps. What changes is the second butte's left face,
+which is a single dark full-height slot in the before strip and a stepped
+flight in the after.
+
+---
+
 ## Track summary — what changed, and what the next session should know
 
 Six tasks, six commits, all gates green at each one. What the world looks

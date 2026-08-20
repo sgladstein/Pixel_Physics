@@ -78,6 +78,26 @@ pub struct WorldgenParams {
     /// everywhere reads as a rendering artifact; terracing in patches reads
     /// as geology.
     pub mask_wavelength: f32,
+    /// Regional slope at which the terrace snap starts to yield, and the
+    /// slope by which it has yielded completely.
+    ///
+    /// **Where the ground is already steep, terracing must give way.** A
+    /// riser is a single-column jump of `terrace_step * mask` rows whatever
+    /// the ground under it is doing, so on an escarpment the snap stacks its
+    /// own face on top of a face the relief already supplies: `canyon` seed 7
+    /// put three risers of 27, 34 and 33 rows six columns apart, which is a
+    /// ladder rather than a staircase. Attenuating by the *pre-terrace*
+    /// regional slope leaves benches on gentle ground at full strength — a
+    /// bluff standing out of quiet country is the landform this is for — and
+    /// stops the snap contributing anything where the relief is already
+    /// doing the work.
+    ///
+    /// Measured on the pre-terrace elevation over a +-8 column central
+    /// difference, so it reads the escarpment and not the detail term.
+    /// `terrace_slope_hi <= terrace_slope_lo` disables the attenuation and
+    /// restores the pre-round-2 surface exactly.
+    pub terrace_slope_lo: f32,
+    pub terrace_slope_hi: f32,
 
     // ---- layers ----
     /// Nominal soil blanket thickness on flat ground.
@@ -201,6 +221,8 @@ impl Default for WorldgenParams {
             terrace_strength: 0.9,
             riser_roughness: 0.45,
             mask_wavelength: 150.0,
+            terrace_slope_lo: 0.6,
+            terrace_slope_hi: 2.0,
             soil_depth: 26.0,
             soil_slope_cutoff: 0.8,
             bedrock_band: 4.0,
