@@ -17,6 +17,13 @@ easily but burns nearly as hot for noticeably longer once it does; a
 corpse is the most reluctant to catch, and burns cool and briefly by
 comparison.
 
-Stone, sand, gravel, ash, soil, water, and smoke are all completely
-unaffected by fire — they never catch, never melt, and never transform
-from heat alone. Ash itself won't reburn.
+Stone, sand, gravel, ash, soil, and smoke are all completely unaffected
+by fire — they never catch, never melt, and never transform from heat
+alone. Ash itself won't reburn.
+
+Water is the exception, as of the water-cycle work: heat it enough and it
+boils. A pool with a burning slick floating on it churns at the surface
+and gives off steam, cell by cell rather than all at once, so a boil
+builds into a rolling plume instead of flashing over. The steam is the
+same water in another shape — see [Liquids & Gases](liquids-and-gases.md)
+for where it goes and how it comes back.

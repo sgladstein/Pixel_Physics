@@ -55,6 +55,82 @@ use super::surface::CellSurface;
 /// warmed cell dirty forever.
 const THERMAL_SETTLE_EPSILON: f32 = 1.0;
 
+/// Chance per visit that a cell already past its boiling or freezing
+/// threshold actually transitions. A deterministic threshold flips a whole
+/// pool edge in one frame — the all-or-nothing outcome `CLAUDE.md`'s ethos
+/// section names as the most reliable source of "this feels fake" — while a
+/// per-cell roll makes a boiling surface stipple and a freezing front creep.
+/// Costs nothing on the fast path: the roll happens only for cells already
+/// past a threshold, which must_stay_dirty revisits every frame anyway, so
+/// the mean delay is ~2.5 frames, not a throttle. Melting and condensing
+/// are deliberately *not* gated (they fire at chance 1): thaw urgency is
+/// carried by the temperature gradient itself, and a condensing steam cell
+/// held at its threshold would hang at the ceiling reading as stuck. A feel
+/// number, not a derived one — sweep it (rebuilding between points) if a
+/// front reads wrong.
+const PHASE_CHANGE_CHANCE: f32 = 0.4;
+
+/// A `Liquid` cell must hold at least this much fill (of
+/// `material::LIQUID_FULL` = 1000) to freeze solid. The partial fringe a
+/// resting body wears at its surface stays chilled water instead of
+/// snapping into full-volume solid cells — freezing a fill-100 cell into
+/// ice that later melts back to a *full* water cell would manufacture
+/// volume from nowhere, since a Solid's `aux` is an anchor distance and
+/// cannot carry the fill through. The ~1% of a resting body's cells that
+/// are partial (see water.ron's `fill_dimming` note) is the accepted loss
+/// of coverage.
+const FREEZE_MIN_FILL: u16 = 900;
+
+/// Cumulative "did it fire at all" counters for temperature-triggered
+/// transitions, in the style of `world::FailureCounts` and for the same
+/// reason: a steam plume and a puff of brush-painted smoke are
+/// indistinguishable in a contact sheet, so whether the mechanism produced
+/// what is on screen is a count, not a picture. Read by
+/// `examples/filmstrip.rs` beside the image.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PhaseCounts {
+    pub boiled: u32,
+    pub condensed: u32,
+    pub froze: u32,
+    pub melted: u32,
+    /// Pairwise reactions fired (`try_react`). Water quenching lava is the
+    /// intended first shipped reaction; the counter is generic over
+    /// whichever reaction fired.
+    pub reacted: u32,
+}
+
+impl PhaseCounts {
+    pub fn record(&mut self, event: PhaseEvent) {
+        match event {
+            PhaseEvent::Boiled => self.boiled += 1,
+            PhaseEvent::Condensed => self.condensed += 1,
+            PhaseEvent::Froze => self.froze += 1,
+            PhaseEvent::Melted => self.melted += 1,
+            PhaseEvent::Reacted => self.reacted += 1,
+        }
+    }
+
+    /// Fold a parallel worker's private tally into the world's — the same
+    /// queue-and-replay shape every other `ChunkView` side effect uses.
+    pub fn merge(&mut self, other: PhaseCounts) {
+        self.boiled += other.boiled;
+        self.condensed += other.condensed;
+        self.froze += other.froze;
+        self.melted += other.melted;
+        self.reacted += other.reacted;
+    }
+}
+
+/// One temperature-triggered transition, for `CellSurface::count_phase_event`.
+#[derive(Clone, Copy, Debug)]
+pub enum PhaseEvent {
+    Boiled,
+    Condensed,
+    Froze,
+    Melted,
+    Reacted,
+}
+
 /// Reference scale for normalizing a `field_moisture_at` reading into a 0..1
 /// "how saturated" fraction — matches `field.rs`'s own private `MAX_
 /// MOISTURE`, which isn't reachable from here, the same documented-
@@ -117,12 +193,32 @@ pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
         && !material.ignition_temperature.is_finite()
         && !material.melting_point.is_finite()
         && !material.boiling_point.is_finite()
+        && !material.cooling_point.is_finite()
+        && !material.intrinsic_temperature.is_finite()
         && material.reactions.is_empty();
     if is_thermally_inert {
         return false;
     }
+    // Extracted while `material`'s borrow is live, same as everything below.
+    let intrinsic_temperature = material.intrinsic_temperature;
 
-    diffuse_heat(surface, x, y, &mut cell);
+    if intrinsic_temperature.is_finite() {
+        // The material *is* this temperature (lava) — pin it rather than
+        // diffusing, which would only be overwritten. Neighbours still cool
+        // it in the only way that matters: by conducting heat away from the
+        // pinned boundary through their own `diffuse_heat`. The pinned cell
+        // is permanently off-ambient, so `must_stay_dirty` below keeps its
+        // chunk awake for as long as it exists — by design, and acceptable
+        // only because such content is rare and self-limiting (lava
+        // quenches to stone). The field pushes mirror `tick_burn`'s: a
+        // small, bounded set of cells telling the coarse field it is hot
+        // and bright, not a per-swept-cell coupling.
+        cell.set_temperature(intrinsic_temperature.round() as i16);
+        surface.add_heat(x, y, 1, 2.0);
+        surface.add_light(x, y, 1, 1.0);
+    } else {
+        diffuse_heat(surface, x, y, &mut cell);
+    }
 
     if cell.is_burning() {
         tick_burn(surface, x, y, &mut cell);
@@ -130,7 +226,7 @@ pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
         try_ignite(surface, x, y, &mut cell);
     }
 
-    try_phase_change(surface, &mut cell);
+    try_phase_change(surface, x, y, &mut cell);
     try_react(surface, x, y, &mut cell);
 
     let temp_off_ambient = (cell.temperature() as f32 - AMBIENT_TEMPERATURE as f32).abs();
@@ -391,31 +487,69 @@ fn ignite<S: CellSurface>(surface: &mut S, cell: &mut Cell) {
     }
 }
 
-/// Temperature-triggered melting/boiling. Checked after combustion, so a
-/// material whose burn temperature exceeds its own melting point (wood
+/// Temperature-triggered melting/boiling/cooling. Checked after combustion,
+/// so a material whose burn temperature exceeds its own melting point (wood
 /// charring hot enough to... whatever a content author wants, this engine
 /// does not stop them) plausibly transitions the same frame it needed to.
 /// Melting is checked before boiling; a material passing through both
 /// thresholds in one large temperature jump melts first, consistent with the
-/// physical order these actually occur in.
-fn try_phase_change<S: CellSurface>(surface: &mut S, cell: &mut Cell) {
+/// physical order these actually occur in. The downward (`cooling_point`)
+/// check comes last and only when neither upward threshold held — for a gas
+/// it is condensation (steam → water), for a liquid it is freezing (water →
+/// ice), one generic pair because a material has at most one phase below it.
+fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
     let material = surface.materials().get(cell.material);
     let temp = cell.temperature() as f32;
     let melting_point = material.melting_point;
     let melts_into = material.melts_into;
     let boiling_point = material.boiling_point;
     let boils_into = material.boils_into;
+    let cooling_point = material.cooling_point;
+    let cools_into = material.cools_into;
+    let from_kind = material.kind;
     // `material`'s borrow ends here, before `transform` needs `&mut surface`.
 
     if temp >= melting_point {
         if let Some(into) = melts_into {
-            transform(surface, cell, into);
+            transform(surface, x, y, cell, into);
+            surface.count_phase_event(PhaseEvent::Melted);
         }
         return;
     }
     if temp >= boiling_point {
+        // Gated per visit so a heated pool surface stipples into steam over
+        // a few frames instead of flipping edge-to-edge in one — see
+        // `PHASE_CHANGE_CHANCE`. A cell that fails the roll is off-ambient
+        // and therefore revisited next frame by `must_stay_dirty`.
         if let Some(into) = boils_into {
-            transform(surface, cell, into);
+            if surface.rng().chance(PHASE_CHANGE_CHANCE) {
+                transform(surface, x, y, cell, into);
+                surface.count_phase_event(PhaseEvent::Boiled);
+            }
+        }
+        return;
+    }
+    if temp <= cooling_point {
+        if let Some(into) = cools_into {
+            if from_kind == MaterialKind::Liquid {
+                // Freezing. Partial cells stay chilled water — see
+                // `FREEZE_MIN_FILL` — and the front creeps via the same
+                // per-visit roll boiling uses.
+                if super::update::liquid_fill(*cell) < FREEZE_MIN_FILL {
+                    return;
+                }
+                if surface.rng().chance(PHASE_CHANGE_CHANCE) {
+                    transform(surface, x, y, cell, into);
+                    surface.count_phase_event(PhaseEvent::Froze);
+                }
+            } else {
+                // Condensation (and any other downward transition), ungated:
+                // a steam cell held at its threshold reads as stuck to the
+                // ceiling, and the cell's own cooling curve already spreads
+                // the timing.
+                transform(surface, x, y, cell, into);
+                surface.count_phase_event(PhaseEvent::Condensed);
+            }
         }
     }
 }
@@ -423,25 +557,61 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, cell: &mut Cell) {
 /// Draws a fresh shade from `surface.rng()` rather than defaulting to 0, so a
 /// field of stone melting into lava shows the same per-cell grain any other
 /// bulk material does — see `World::paint_circle` for the same pattern.
-fn transform<S: CellSurface>(surface: &mut S, cell: &mut Cell, into: MaterialId) {
+///
+/// # The `aux` translation table
+///
+/// `aux` means a different thing per kind — fill on a `Liquid` (0 = full),
+/// anchor distance on a `Solid`/`Plant`, moisture on a `Powder` (0 = dry) —
+/// so what survives a transform is decided per `(from, to)` kind pair, not
+/// copied blindly and not silently zeroed:
+///
+/// - **Liquid → Liquid**: raw copy. A partially-drained cell must not
+///   inflate to a full one (0 means full) — see the fill-preservation test.
+/// - **Liquid → Gas and Gas → Liquid**: raw copy. A gas's `aux` is
+///   otherwise unused, so steam carries its source water's fill on the same
+///   0-means-full convention and gives it back on condensing — per-cell
+///   exact conservation through the boil→condense loop. (steam.ron's header
+///   documents the convention on the content side.)
+/// - **everything else**: 0, "no meaning to carry". For a freeze
+///   (Liquid → Solid) that is the same transient state a brush-painted
+///   stone cell has — distance-0 "claims anchored" until the scheduled
+///   structural check below corrects it; the fill that cannot ride along is
+///   what `FREEZE_MIN_FILL` bounds to a near-full cell. For a melt
+///   (Solid → Liquid) 0 deliberately reads as a *full* cell — never carry
+///   an anchor distance across as a fill amount.
+///
+/// A transform that adds or removes a structural (`Solid`/`Plant`) cell
+/// schedules the same 5-position StructuralCheck fan-out a burnout does
+/// (`tick_burn`) — a melt just removed a neighbour's possible support, a
+/// freeze placed a solid whose anchor distance needs computing. Deduped in
+/// `World::schedule_active_site` like every other check.
+fn transform<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell, into: MaterialId) {
+    let from_kind = surface.materials().kind(cell.material);
+    let to_kind = surface.materials().kind(into);
     let shades = surface.materials().get(into).palette.len().max(1) as u32;
     let shade = surface.rng().below(shades) as u8;
     let temp = cell.temperature();
-    // A `Liquid`-kind cell's `aux` is a fill amount on the `LIQUID_FULL`
-    // scale, and `aux == 0` means "full" by convention (`material::
-    // LIQUID_FULL`'s own doc), not "empty" -- `Cell::new` below defaults
-    // `aux` to 0, which is only silently correct here because no shipped
-    // material's `melts_into`/`boils_into`/reaction target is `Liquid` from
-    // a `Liquid` source today. Carry the raw `aux` value across explicitly
-    // for the day one does, rather than risk a partially-drained cell
-    // (fill=100, say) silently transforming into a full one (implicit
-    // fill=1000) and manufacturing volume from nowhere.
-    let liquid_fill_to_preserve =
-        (surface.materials().kind(cell.material) == MaterialKind::Liquid && surface.materials().kind(into) == MaterialKind::Liquid)
-            .then(|| cell.aux());
+    let aux = match (from_kind, to_kind) {
+        (MaterialKind::Liquid, MaterialKind::Liquid)
+        | (MaterialKind::Liquid, MaterialKind::Gas)
+        | (MaterialKind::Gas, MaterialKind::Liquid) => cell.aux(),
+        _ => 0,
+    };
     *cell = Cell::new(into, shade).with_temperature(temp);
-    if let Some(fill) = liquid_fill_to_preserve {
-        cell.set_aux(fill);
+    cell.set_aux(aux);
+
+    let was_structural = matches!(from_kind, MaterialKind::Solid | MaterialKind::Plant);
+    let now_structural = matches!(to_kind, MaterialKind::Solid | MaterialKind::Plant);
+    if was_structural != now_structural {
+        let frame = surface.frame();
+        for (dx, dy) in [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)] {
+            surface.schedule_active_site(ActiveSite {
+                x: x + dx,
+                y: y + dy,
+                kind: ActiveKind::StructuralCheck,
+                next_frame: frame,
+            });
+        }
     }
 }
 
@@ -481,14 +651,25 @@ fn try_react<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
                 continue;
             }
 
-            transform(surface, cell, reaction.becomes);
-
+            // Both products take the *hotter* side's temperature — the
+            // interface heats what it makes. Deliberate, not an oversight:
+            // quench steam born at the water's ~20°C would sit below its
+            // own condensation point and flash straight back to water on
+            // its next visit; born at the lava's temperature it rises and
+            // condenses on a ceiling later, which is the visible plume the
+            // reaction owes. Both sides also go through `transform`, not a
+            // bare `Cell::new` — the neighbour write used to bypass it,
+            // which would have dropped a quenched water cell's fill and
+            // reset its steam to `aux 0` (= full), manufacturing volume.
             let mut other = surface.get(nx, ny);
-            let other_shades = surface.materials().get(reaction.other_becomes).palette.len().max(1) as u32;
-            let other_shade = surface.rng().below(other_shades) as u8;
-            let other_temp = other.temperature();
-            other = Cell::new(reaction.other_becomes, other_shade).with_temperature(other_temp);
+            let pair_temp = cell.temperature().max(other.temperature());
+            cell.set_temperature(pair_temp);
+            other.set_temperature(pair_temp);
+
+            transform(surface, x, y, cell, reaction.becomes);
+            transform(surface, nx, ny, &mut other, reaction.other_becomes);
             surface.set(nx, ny, other);
+            surface.count_phase_event(PhaseEvent::Reacted);
 
             return;
         }
@@ -653,6 +834,293 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Loop `update` on one cell until its material changes or `limit`
+    /// visits pass — the boil/freeze branches are chance-gated per visit
+    /// (`PHASE_CHANGE_CHANCE`), so a single call proves nothing either way.
+    fn update_until_changed(w: &mut World, x: i32, y: i32, limit: u32) -> bool {
+        for _ in 0..limit {
+            if update(w, x, y) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn boiling_water_carries_its_fill_into_steam_and_back() {
+        // The whole point of steam's `aux` convention: a partial water cell
+        // boils into steam carrying the same fill (0 means full on both
+        // kinds), and condensing gives exactly that fill back — per-cell
+        // conservation through the loop, asserted on shipped content.
+        let mut w = test_world();
+        let steam = w.materials.id_of("steam").expect("steam.ron should be embedded");
+
+        w.set(30, 30, Cell::new(material::WATER, 0).with_aux(650).with_temperature(150));
+        assert!(update_until_changed(&mut w, 30, 30, 100), "water at 150C never boiled");
+        let boiled = w.get(30, 30);
+        assert_eq!(boiled.material, steam, "water above its boiling point should become steam");
+        assert_eq!(boiled.aux(), 650, "steam should carry the source water's fill");
+        assert_eq!(w.phase_changes.boiled, 1);
+
+        // Cool the same cell below steam's condensation point and it gives
+        // the fill back. Set directly rather than waiting out diffusion —
+        // the cooling curve is diffuse_heat's own tested property.
+        w.set(30, 30, boiled.with_temperature(30));
+        assert!(update_until_changed(&mut w, 30, 30, 3), "steam at 30C never condensed");
+        let condensed = w.get(30, 30);
+        assert_eq!(condensed.material, material::WATER, "cooled steam should condense back to water");
+        assert_eq!(condensed.aux(), 650, "condensed water should hold exactly the fill the steam carried");
+        assert_eq!(w.phase_changes.condensed, 1);
+    }
+
+    #[test]
+    fn a_freezing_liquid_writes_anchor_distance_zero_and_schedules_checks() {
+        // Liquid → Solid crosses `aux` conventions: fill on the way in,
+        // anchor distance on the way out. The distance must be written as 0
+        // (the same "claims anchored" transient a brush-painted stone cell
+        // has) and the 5-position StructuralCheck fan-out must be scheduled
+        // to correct it — not a raw fill copied across as a distance.
+        let dir = std::env::temp_dir().join("pixel-physics-freeze-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("a.ron"),
+            "(name: \"freeze_liquid\", kind: Liquid, density: 1.0, colors: [(0, 0, 200)], \
+             cooling_point: 0.0, cools_into: \"freeze_solid\")",
+        )
+        .unwrap();
+        std::fs::write(dir.join("b.ron"), "(name: \"freeze_solid\", kind: Solid, density: 1.0, colors: [(200, 200, 255)])").unwrap();
+
+        let mut w = test_world();
+        w.materials.reload(&dir).unwrap();
+        let (liquid, solid) = (
+            w.materials.id_of("freeze_liquid").unwrap(),
+            w.materials.id_of("freeze_solid").unwrap(),
+        );
+
+        // Full cell (aux 0 = full), chilled below the threshold.
+        w.set(30, 30, Cell::new(liquid, 0).with_temperature(-5));
+        assert!(update_until_changed(&mut w, 30, 30, 100), "a full liquid at -5C never froze");
+        let frozen = w.get(30, 30);
+        assert_eq!(frozen.material, solid);
+        assert_eq!(frozen.aux(), 0, "a fresh solid claims anchor distance 0 until its scheduled check runs");
+        assert_eq!(w.phase_changes.froze, 1);
+        assert_eq!(
+            w.active_site_count(),
+            5,
+            "a freeze should schedule the same 5-position StructuralCheck fan-out a burnout does"
+        );
+
+        // A partial cell must never freeze — a Solid's aux cannot carry the
+        // fill, so melting it back would manufacture volume. It stays
+        // chilled liquid however long it is visited.
+        w.set(40, 30, Cell::new(liquid, 0).with_aux(300).with_temperature(-5));
+        assert!(
+            !update_until_changed(&mut w, 40, 30, 200),
+            "a fill-300 liquid froze; FREEZE_MIN_FILL should hold the partial fringe as liquid"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_melting_solid_becomes_a_full_liquid_not_a_drained_one() {
+        // Solid → Liquid is the other direction across the same convention
+        // boundary: the solid's `aux` is an anchor distance and must not be
+        // read as a fill. The melt writes 0, which on a Liquid deliberately
+        // means *full* — ice melts into a full water cell. The vanished
+        // support also owes its neighbours a structural fan-out.
+        let dir = std::env::temp_dir().join("pixel-physics-melt-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("a.ron"),
+            "(name: \"melt_solid\", kind: Solid, density: 1.0, colors: [(200, 200, 255)], \
+             melting_point: 1.0, melts_into: \"melt_liquid\")",
+        )
+        .unwrap();
+        std::fs::write(dir.join("b.ron"), "(name: \"melt_liquid\", kind: Liquid, density: 1.0, colors: [(0, 0, 200)])").unwrap();
+
+        let mut w = test_world();
+        w.materials.reload(&dir).unwrap();
+        let (solid, liquid) = (
+            w.materials.id_of("melt_solid").unwrap(),
+            w.materials.id_of("melt_liquid").unwrap(),
+        );
+
+        // `aux 37` is a plausible relaxed anchor distance — exactly the
+        // value that must not survive as a fill.
+        w.set(30, 30, Cell::new(solid, 0).with_aux(37).with_temperature(AMBIENT_TEMPERATURE));
+        assert!(update_until_changed(&mut w, 30, 30, 3), "a solid above its melting point never melted");
+        let melted = w.get(30, 30);
+        assert_eq!(melted.material, liquid);
+        assert_eq!(melted.aux(), 0, "a melted solid should be a full liquid (aux 0 = full), never inherit the anchor distance as fill");
+        assert_eq!(w.phase_changes.melted, 1);
+        assert_eq!(w.active_site_count(), 5, "a melt removed a possible support and owes the fan-out");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_reaction_born_cell_takes_the_hotter_sides_temperature_and_keeps_fill() {
+        // The two `try_react` fixes that landed with the cooling branch,
+        // asserted together: the neighbour's write goes through `transform`
+        // (so a Liquid product keeps the neighbour's fill instead of being
+        // rebuilt full), and both products take the *hotter* side's
+        // temperature (so quench steam is born hot enough to rise instead
+        // of flashing straight back to water).
+        let dir = std::env::temp_dir().join("pixel-physics-react-temp-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("a.ron"),
+            "(name: \"hot_a\", kind: Solid, density: 2.0, colors: [(200, 50, 0)], \
+             reactions: [(with: \"wet_b\", produces: (\"cool_c\", \"wet_d\"), chance: 1.0)])",
+        )
+        .unwrap();
+        std::fs::write(dir.join("b.ron"), "(name: \"wet_b\", kind: Liquid, density: 1.0, colors: [(0, 0, 200)])").unwrap();
+        std::fs::write(dir.join("c.ron"), "(name: \"cool_c\", kind: Solid, density: 2.0, colors: [(100, 100, 100)])").unwrap();
+        std::fs::write(dir.join("d.ron"), "(name: \"wet_d\", kind: Liquid, density: 1.0, colors: [(0, 200, 200)])").unwrap();
+
+        let mut w = test_world();
+        w.materials.reload(&dir).unwrap();
+        let (a, c, d) = (
+            w.materials.id_of("hot_a").unwrap(),
+            w.materials.id_of("cool_c").unwrap(),
+            w.materials.id_of("wet_d").unwrap(),
+        );
+        let b = w.materials.id_of("wet_b").unwrap();
+
+        w.set(30, 30, Cell::new(a, 0).with_temperature(900));
+        w.set(31, 30, Cell::new(b, 0).with_aux(400).with_temperature(AMBIENT_TEMPERATURE));
+        update(&mut w, 30, 30);
+
+        let product = w.get(30, 30);
+        let other = w.get(31, 30);
+        assert_eq!(product.material, c);
+        assert_eq!(other.material, d);
+        assert_eq!(product.temperature(), 900, "the self product should keep the hot side's temperature");
+        assert_eq!(other.temperature(), 900, "the neighbour product should take the hot side's temperature, not stay at ambient");
+        assert_eq!(other.aux(), 400, "a Liquid → Liquid neighbour product should keep its fill, not be rebuilt full");
+        assert_eq!(w.phase_changes.reacted, 1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn water_boils_over_burning_oil_and_the_steam_condenses_under_both_drivers() {
+        // The core loop on shipped content, no debug brush anywhere: a
+        // burning oil slick floating on a pool (the heat verb the engine
+        // already has) boils the surface, the steam rises to the sealed
+        // world top, cools, and condenses back. Both drivers, per CLAUDE.md
+        // -- behaviour only the player sees is behaviour only the parallel
+        // driver produces.
+        for parallel_driver in [false, true] {
+            let mut w = test_world();
+            // A walled basin so the pool holds still under the slick.
+            for y in 40..=50 {
+                w.set(20, y, Cell::new(material::STONE, 0));
+                w.set(44, y, Cell::new(material::STONE, 0));
+            }
+            for x in 20..=44 {
+                w.set(x, 50, Cell::new(material::STONE, 0));
+            }
+            for x in 21..44 {
+                for y in 44..50 {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+            let burn = w.materials.get(material::OIL).burn_duration;
+            for x in 28..36 {
+                let mut slick = Cell::new(material::OIL, 0);
+                slick.ignite(burn);
+                w.set(x, 43, slick);
+            }
+
+            for _ in 0..800 {
+                if parallel_driver {
+                    crate::sim::parallel::step(&mut w);
+                } else {
+                    super::super::update::step(&mut w);
+                }
+            }
+            let p = w.phase_changes;
+            assert!(
+                p.boiled > 0,
+                "no water boiled over a 900C slick in 800 frames (parallel: {parallel_driver})"
+            );
+            assert!(
+                p.condensed > 0,
+                "steam never condensed ({} boiled) in 800 frames (parallel: {parallel_driver})",
+                p.boiled
+            );
+        }
+    }
+
+    #[test]
+    fn a_sealed_steam_pocket_still_condenses_and_settles() {
+        // Condensation must not depend on the steam being able to move: a
+        // pocket sealed in stone is exactly the cell the sweep would never
+        // revisit if cooling didn't keep it dirty (`must_stay_dirty`), which
+        // is the reverted-evaporation-sweep lesson applied to gas. The cell
+        // cools through its own conductivity, condenses crossing the
+        // threshold, and the water then settles to ambient so the chunk can
+        // finally sleep.
+        let mut w = test_world();
+        let steam = w.materials.id_of("steam").unwrap();
+        for x in 29..=31 {
+            for y in 29..=31 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w.set(30, 30, Cell::new(steam, 0).with_temperature(200));
+
+        let mut condensed_at = None;
+        for frame in 0..600 {
+            crate::sim::parallel::step(&mut w);
+            if condensed_at.is_none() && w.get(30, 30).material == material::WATER {
+                condensed_at = Some(frame);
+            }
+            if condensed_at.is_some() && w.active_chunk_count() == 0 {
+                return; // condensed, cooled off, and the world went to sleep
+            }
+        }
+        match condensed_at {
+            None => panic!("a sealed 200C steam pocket never condensed in 600 frames"),
+            Some(f) => panic!("condensed at frame {f} but the chunk never slept afterwards"),
+        }
+    }
+
+    /// The Phase 0 probe for the latent snow bug, kept as the bar the ice
+    /// milestone's snow fix must meet (`Reports`' revert-keeps-the-knowledge
+    /// convention, applied forward): snow.ron has no `heat_conductivity`, so
+    /// a cell the storm chilled below its 2°C melting point can never warm
+    /// back up — `diffuse_heat` early-exits at conductivity ≤ 0 — and
+    /// `must_stay_dirty` keeps its chunk awake forever while it waits. The
+    /// wiki's "drifts thaw when the front passes" is therefore only true of
+    /// cells the storm never chilled below 2°C. Un-ignore when snow gains
+    /// real conductivity (the ice milestone), and expect it to pass in well
+    /// under the frame budget here.
+    #[test]
+    #[ignore = "fails today: snow has no heat_conductivity, so a chilled flake can neither warm nor melt — the ice milestone fixes snow.ron and un-ignores this"]
+    fn a_snow_drift_chilled_by_a_storm_thaws_after_it_passes() {
+        let mut w = test_world();
+        let snow = w.materials.id_of("snow").unwrap();
+        // The coldest a storm writes: 20 - 26 * 1.0 (weather.rs's SNOW_CHILL
+        // at full intensity). On the world's own floor row, where a flake
+        // can neither fall nor roll — a first draft put it on a one-cell
+        // stone pillar and it rolled off, which read as "thawed" while
+        // being nothing of the kind (a scene that contradicts the code
+        // looks like a bug in the code).
+        w.set(30, 63, Cell::new(snow, 0).with_temperature(-6));
+
+        for _ in 0..2000 {
+            crate::sim::parallel::step(&mut w);
+            if w.get(30, 63).material != snow {
+                assert_eq!(w.phase_changes.melted, 1, "the flake left (30,63) without melting — scene broken again?");
+                return;
+            }
+        }
+        panic!("a chilled flake never thawed in 2000 frames after the storm passed");
     }
 
     #[test]

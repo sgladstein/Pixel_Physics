@@ -1,0 +1,43 @@
+// Steam is water's gas phase, and the missing return leg of the water
+// cycle: boiled off by heat (water.ron's boiling_point), it rises, cools
+// through its own conductivity, and condenses back into water at
+// cooling_point — so nothing accumulates against a ceiling forever, and
+// boiled water comes back instead of only ever leaving the world.
+//
+// **`aux` on a steam cell carries the source water's fill**, on the same
+// convention a Liquid uses (0 means full — see material.rs). fire.rs's
+// `transform` copies it across in both directions, which is what makes the
+// boil → condense loop conserve water per cell exactly. A gas's aux is
+// otherwise unused; nothing else reads or writes it.
+//
+// Born at the boiling water's own temperature (≥ 100°C), which is what
+// keeps the loop alive with no scheduler: a hot cell re-dirties its own
+// chunk every frame (fire.rs's must_stay_dirty), so steam can never be
+// stranded on a sleeping ceiling — it keeps being visited and keeps
+// cooling until condensation fires. cooling_point 45 sits comfortably
+// above the thermal settle band (ambient 20 ± 1), so the cooling curve
+// always reaches it, sealed pockets included.
+(
+    name: "steam",
+    display: "Steam",
+    kind: Gas,
+    // Half of smoke's 0.1, so steam rises through smoke over a fire
+    // rather than mixing into one grey mass.
+    density: 0.05,
+    // A little tighter than smoke's 3: steam reads as a plume, not a haze.
+    dispersion: 2,
+    // Real conductivity, per README's rule: any target of boils_into
+    // inherits its source's heat and needs somewhere to put it, or the
+    // chunk it lands in never sleeps. 0.12 cools a fresh 100–200°C cell to
+    // the 45° condensation threshold in roughly 10–20 visited frames —
+    // fast enough that ceilings bead up while the pool still boils, slow
+    // enough that the plume is visible on the way there.
+    heat_conductivity: 0.12,
+    cooling_point: 45.0,
+    cools_into: "water",
+    colors: [
+        (222, 228, 236),
+        (206, 214, 226),
+        (234, 238, 244),
+    ],
+)

@@ -305,6 +305,7 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
         for (x, y, was, now) in outcome.organism_moves {
             world.reindex_organism_cell(x, y, was, now);
         }
+        world.phase_changes.merge(outcome.phase_counts);
         pending_demotions.extend(outcome.demotions);
         pending_absorptions.extend(outcome.absorptions);
     }
@@ -378,6 +379,8 @@ struct ChunkOutcome {
     /// Caught by independent review, not by the suite. See
     /// `World::reindex_organism_cell`.
     organism_moves: Vec<(i32, i32, u16, u16)>,
+    /// See `ChunkView::phase_counts`'s own doc.
+    phase_counts: crate::sim::fire::PhaseCounts,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -443,6 +446,10 @@ struct ChunkView<'w> {
     absorptions: Vec<(i32, i32, u32)>,
     /// See `ChunkOutcome::organism_moves`'s own doc.
     organism_moves: Vec<(i32, i32, u16, u16)>,
+    /// This worker's private `fire::PhaseCounts` tally, merged into
+    /// `World::phase_changes` by `run_pass` — only `World` owns the
+    /// cumulative counters, same reasoning as `pending_active_sites`.
+    phase_counts: crate::sim::fire::PhaseCounts,
 }
 
 impl<'w> ChunkView<'w> {
@@ -461,6 +468,7 @@ impl<'w> ChunkView<'w> {
             demotions: Vec::new(),
             absorptions: Vec::new(),
             organism_moves: Vec::new(),
+            phase_counts: crate::sim::fire::PhaseCounts::default(),
         }
     }
 
@@ -483,6 +491,7 @@ impl<'w> ChunkView<'w> {
             demotions: self.demotions,
             absorptions: self.absorptions,
             organism_moves: self.organism_moves,
+            phase_counts: self.phase_counts,
         }
     }
 
@@ -688,6 +697,12 @@ impl CellSurface for ChunkView<'_> {
 
     fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32) {
         self.absorptions.push((x, y, fill));
+    }
+
+    fn count_phase_event(&mut self, event: crate::sim::fire::PhaseEvent) {
+        // Tallied privately and merged by `run_pass` — only `World` owns
+        // `phase_changes`, the same reasoning as `pending_active_sites`.
+        self.phase_counts.record(event);
     }
 }
 

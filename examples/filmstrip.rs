@@ -119,6 +119,45 @@ fn build(args: &Args) -> World {
                 }
             }
         }
+        // The water cycle's core loop (the M14 follow-up): a walled stone
+        // chamber holding a pool with a burning oil slick floating on it,
+        // under a stone ceiling low enough that the steam has somewhere to
+        // condense and drip back into the pool. Deliberately needs no new
+        // verb: oil floats on water and burns, which is a heat source the
+        // engine already ships. Read the phase-change counters printed
+        // under each tile alongside the image -- a plume the boiling
+        // actually produced and a puff of painted smoke are the same grey
+        // pixels at this zoom.
+        "boil" => {
+            stone_floor(&mut w);
+            let (left, right, ceiling_y, rim_y) = (180, 330, 196, 260);
+            // Walls and ceiling are terrain (attached), or the chamber
+            // would erode structurally and the run would measure that
+            // instead of the phase loop.
+            for y in ceiling_y..floor_y {
+                w.set(left, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(right, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in left..=right {
+                for y in ceiling_y..(ceiling_y + 6) {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for x in (left + 1)..right {
+                for y in rim_y..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            // A burning slick floating on the surface (oil density 0.8 <
+            // water 1.0), pre-ignited -- the same state a player makes by
+            // pouring oil on a pool and lighting it.
+            let burn = w.materials.get(material::OIL).burn_duration;
+            for x in (left + 20)..(right - 20) {
+                let mut slick = Cell::new(material::OIL, (rng::jitter(x, rim_y - 1) * 255.0) as u8);
+                slick.ignite(burn);
+                w.set(x, rim_y - 1, slick);
+            }
+        }
         // Falling and spreading, rather than resting on the floor already:
         // the state the horizontal seam tearing shows up in.
         "fall" => {
@@ -1970,6 +2009,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         println!(
             "    failures: overloaded {} ({} cells), unsupported {} ({} cells)",
             f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
+        );
+        // The phase-change "did it fire at all" counters, cumulative --
+        // same reasoning as the failure counts above: whether the plume on
+        // screen is boiled steam or painted smoke is a question the image
+        // cannot answer.
+        let p = world.phase_changes;
+        println!(
+            "    phase changes: boiled {}, condensed {}, froze {}, melted {}, reacted {}",
+            p.boiled, p.condensed, p.froze, p.melted, p.reacted
         );
         println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
         // How much of the damage happened to rock with nowhere to go --

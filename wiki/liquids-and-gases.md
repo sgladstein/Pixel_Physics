@@ -15,10 +15,21 @@ flatter and flatter over time rather than holding any kind of slope.
   easily from a nearby flame (see [Fire & Heat](fire-and-heat.md)), and
   burns hot for a few real seconds before leaving ash behind.
 
-**Smoke** is the one gas in the world. Unlike a liquid or a powder, it
-rises rather than falls, drifting upward through open space and pooling
-against a ceiling once it hits one, spreading out as it goes rather than
-staying in a tight column. It can be placed like any other material — but
-nothing in the simulation currently produces it on its own; an explosion's
-crater, for instance, is left clean and empty once the dust settles rather
-than smoke-filled.
+There are two gases, and both rise rather than fall, drifting upward
+through open space and pooling against a ceiling once they hit one,
+spreading out as they go rather than staying in a tight column.
+
+**Smoke** can be placed like any other material — but nothing in the
+simulation currently produces it on its own; an explosion's crater, for
+instance, is left clean and empty once the dust settles rather than
+smoke-filled.
+
+**Steam** is boiled-off water (see [Fire & Heat](fire-and-heat.md)), pale
+and a little lighter than smoke, so it rises through it. Unlike smoke it
+does not last: steam is born hot, cools as it drifts, and once cool enough
+it turns back into water wherever it happens to be — beading up under a
+ceiling and dripping back down, or condensing in mid-air into droplets
+that fall. Boiled water is moved, not destroyed: what leaves a heated pool
+as steam comes back as exactly that much water, so a sealed chamber over a
+boiling pool rains its own water back instead of filling up with gas
+forever.

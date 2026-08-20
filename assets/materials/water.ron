@@ -43,6 +43,21 @@
     // the size of either. Opt-in per material: lava and oil keep their
     // volume, and the flag is read at the sweep's own dispatch site.
     evaporates: true,
+    // The thermal opt-in (the water-cycle milestone). This is the single
+    // most expensive line in the file: any finite threshold takes every
+    // water cell in the world off fire.rs's thermally-inert fast path, so
+    // every *visited* water cell now pays four neighbour temperature reads
+    // (the regression README.md's heat_conductivity note records was
+    // measured and reverted when conductivity was handed out by default).
+    // Re-measured deliberately on examples/ascii.rs's half-water stress
+    // scene before shipping -- see the commit that added these lines for
+    // the numbers. The conductivity itself is what lets a burning slick or
+    // lava actually heat the pool (ignition's is_burning shortcut has no
+    // boiling analogue), and what lets meltwater and condensate settle
+    // back to ambient so their chunks can sleep.
+    heat_conductivity: 0.08,
+    boiling_point: 100.0,
+    boils_into: "steam",
     colors: [
         (64, 116, 208),
         (58, 108, 198),

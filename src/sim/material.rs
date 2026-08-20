@@ -423,6 +423,33 @@ pub struct MaterialDef {
     pub boiling_point: f32,
     #[serde(default)]
     pub boils_into: String,
+    /// The downward counterpart of `melting_point`/`boiling_point`: the
+    /// temperature at or *below* which this material transitions down a
+    /// phase. One generic pair rather than separate freeze/condense fields,
+    /// because a material has at most one phase below it — for a gas this
+    /// reads as its condensation point (steam → water), for a liquid as its
+    /// freezing point (water → ice). Defaults to `NEG_INFINITY`, not
+    /// `INFINITY` — the sentinel has to sit on the *unreachable-cold* side
+    /// for a `<=` threshold, where `default_never`'s `INFINITY` would make
+    /// every unset material "condense" on its first visit.
+    #[serde(default = "default_never_cold")]
+    pub cooling_point: f32,
+    /// What this material becomes at or below `cooling_point`, or empty for
+    /// "does not transition" — same `String`-not-`Option` convention as
+    /// `melts_into` above, for the same RON-friction reason.
+    #[serde(default)]
+    pub cools_into: String,
+    /// A temperature this material *pins itself to* every visit, after
+    /// diffusion — the "lava is hot because it is lava" field `fire.rs`'s
+    /// M14 notes deferred. A cell of such a material never cools by
+    /// diffusion (its neighbours do the cooling instead, by conducting heat
+    /// away from the pinned boundary), so it keeps its own chunk awake for
+    /// as long as it exists — acceptable for rare, self-limiting content
+    /// like lava (which quenches to stone on contact with water), ruinous
+    /// for anything bulk. Defaults to unset (`INFINITY`, read via
+    /// `is_finite`), which costs nothing.
+    #[serde(default = "default_never")]
+    pub intrinsic_temperature: f32,
     /// What this material becomes when its burn timer (`burn_duration`)
     /// finishes, or empty to simply extinguish and revert to being itself,
     /// unchanged. Deliberately a separate field from `melts_into` rather than
@@ -593,6 +620,15 @@ fn default_never() -> f32 {
     f32::INFINITY
 }
 
+/// `default_never`'s mirror for *downward* thresholds (`cooling_point`),
+/// which fire on `temp <= threshold` — the unreachable sentinel for those
+/// sits at negative infinity. Using `default_never` here would invert the
+/// meaning entirely: every material would sit "below" +INFINITY and
+/// transition on its first visit.
+fn default_never_cold() -> f32 {
+    f32::NEG_INFINITY
+}
+
 /// Zero: no diffusion at all unless a material opts in. This is not
 /// physically motivated — a moderate default like 0.15 was tried first, so
 /// every material conducted heat plausibly without having to think about it.
@@ -676,6 +712,12 @@ pub struct Material {
     pub heat_conductivity: f32,
     pub melting_point: f32,
     pub boiling_point: f32,
+    /// See `MaterialDef::cooling_point`. Unset is `NEG_INFINITY`, not
+    /// `INFINITY` — this is a downward (`<=`) threshold.
+    pub cooling_point: f32,
+    /// See `MaterialDef::intrinsic_temperature`. Unset is `INFINITY`,
+    /// read via `is_finite`.
+    pub intrinsic_temperature: f32,
     pub max_unsupported_span: u16,
     /// See `MaterialDef::attached_span_bonus`. Always >= 1.
     pub attached_span_bonus: u16,
@@ -695,6 +737,7 @@ pub struct Material {
     // the full set to check against.
     melts_into_name: String,
     boils_into_name: String,
+    cools_into_name: String,
     burns_into_name: String,
     breaks_into_name: String,
     reactions_raw: Vec<ReactionDef>,
@@ -706,6 +749,7 @@ pub struct Material {
     /// registry load the way a malformed `.ron` file does.
     pub melts_into: Option<MaterialId>,
     pub boils_into: Option<MaterialId>,
+    pub cools_into: Option<MaterialId>,
     pub burns_into: Option<MaterialId>,
     pub breaks_into: Option<MaterialId>,
     pub reactions: Vec<Reaction>,
@@ -918,6 +962,8 @@ impl From<MaterialDef> for Material {
             heat_conductivity: def.heat_conductivity,
             melting_point: def.melting_point,
             boiling_point: def.boiling_point,
+            cooling_point: def.cooling_point,
+            intrinsic_temperature: def.intrinsic_temperature,
             max_unsupported_span: def.max_unsupported_span,
             // Floored at 1: 0 would silently make attached rock *weaker*
             // than loose material, which is never what a content author
@@ -947,12 +993,14 @@ impl From<MaterialDef> for Material {
             support_cost_above: def.support_cost_above.max(1),
             melts_into_name: def.melts_into,
             boils_into_name: def.boils_into,
+            cools_into_name: def.cools_into,
             burns_into_name: def.burns_into,
             breaks_into_name: def.breaks_into,
             reactions_raw: def.reactions,
             // Left unresolved until `resolve_references` runs.
             melts_into: None,
             boils_into: None,
+            cools_into: None,
             burns_into: None,
             breaks_into: None,
             reactions: Vec::new(),
@@ -1021,6 +1069,10 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/ant.ron"),
     include_str!("../../assets/materials/nest.ron"),
     include_str!("../../assets/materials/beetle.ron"),
+    // Appended, never inserted -- see the comments above. The water-cycle
+    // milestone's gas phase; ice joins it here (at the end, same rule)
+    // when the freezing half ships.
+    include_str!("../../assets/materials/steam.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -1083,6 +1135,9 @@ impl MaterialRegistry {
             melts_into: String::new(),
             boiling_point: f32::INFINITY,
             boils_into: String::new(),
+            cooling_point: f32::NEG_INFINITY,
+            cools_into: String::new(),
+            intrinsic_temperature: f32::INFINITY,
             burns_into: String::new(),
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
@@ -1118,6 +1173,9 @@ impl MaterialRegistry {
             melts_into: String::new(),
             boiling_point: f32::INFINITY,
             boils_into: String::new(),
+            cooling_point: f32::NEG_INFINITY,
+            cools_into: String::new(),
+            intrinsic_temperature: f32::INFINITY,
             burns_into: String::new(),
             reactions: Vec::new(),
             // Bedrock is the anchor itself — it must never be the thing
@@ -1221,6 +1279,7 @@ impl MaterialRegistry {
         for material in &mut self.materials {
             material.melts_into = resolve_if_set(&material.melts_into_name);
             material.boils_into = resolve_if_set(&material.boils_into_name);
+            material.cools_into = resolve_if_set(&material.cools_into_name);
             material.burns_into = resolve_if_set(&material.burns_into_name);
             material.breaks_into = resolve_if_set(&material.breaks_into_name);
             material.reactions = material

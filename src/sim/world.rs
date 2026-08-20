@@ -404,6 +404,12 @@ pub struct World {
     /// modes -- one of which is "this was overloaded" and the other "this
     /// was never held". Read by `examples/filmstrip.rs` beside the image.
     pub structural_failures: FailureCounts,
+    /// Cumulative temperature-triggered transition counts (boiled,
+    /// condensed, froze, melted, reacted). Same "did it fire at all"
+    /// instrumentation as `structural_failures`, for the same reason: a
+    /// steam plume and painted smoke are indistinguishable in a contact
+    /// sheet. Read by `examples/filmstrip.rs` beside the image.
+    pub phase_changes: crate::sim::fire::PhaseCounts,
     /// Whether rock with nowhere to go cracks in place instead of
     /// displacing. See `structural::crush_in_place`; `true` is the shipped
     /// behaviour.
@@ -617,6 +623,7 @@ impl World {
             disturbances: std::collections::VecDeque::new(),
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
+            phase_changes: crate::sim::fire::PhaseCounts::default(),
             seed: DEFAULT_WORLD_SEED,
         };
         world.ensure_chunks_for(bounds);
@@ -2333,6 +2340,11 @@ impl CellSurface for World {
     #[inline]
     fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32) {
         World::absorb_liquid(self, x, y, fill)
+    }
+
+    #[inline]
+    fn count_phase_event(&mut self, event: crate::sim::fire::PhaseEvent) {
+        self.phase_changes.record(event);
     }
 }
 

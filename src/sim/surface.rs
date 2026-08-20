@@ -21,6 +21,7 @@
 //! surface both paths present to the rules.
 
 use super::cell::Cell;
+use super::fire::PhaseEvent;
 use super::material::{MaterialKind, MaterialRegistry};
 use super::rng::Rng;
 use super::scheduler::ActiveSite;
@@ -117,6 +118,15 @@ pub trait CellSurface {
     /// newly-scheduled active site's `next_frame` (architecture §5f, ash
     /// decay). See `World::frame`.
     fn frame(&self) -> u64;
+
+    /// Record one temperature-triggered transition for the "did it fire at
+    /// all" counters (`fire::PhaseCounts`, the `FailureCounts` pattern) —
+    /// a steam plume and painted smoke are indistinguishable in a contact
+    /// sheet, so whether the mechanism produced what is on screen has to be
+    /// a count. `World` bumps `World::phase_changes` directly; `ChunkView`
+    /// tallies privately and `run_pass` merges, the same queue-and-replay
+    /// shape as `schedule_active_site`.
+    fn count_phase_event(&mut self, event: PhaseEvent);
 
     /// Schedule a new M16 active site (`decay.rs`'s ash → soil check is the
     /// first caller reached from inside a generic CA rule, but the seam is
