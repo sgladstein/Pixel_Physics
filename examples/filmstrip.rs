@@ -1137,6 +1137,15 @@ struct Args {
     /// material came away in. Peak concurrent bodies is the quantity that
     /// actually says "it threw pieces".
     min_bodies: Option<usize>,
+    /// `min_travelled=N` -- exit non-zero unless the scripted gnome covered
+    /// at least N cells after setting off.
+    ///
+    /// The gnome path had no gated case at all before this, which is how a
+    /// character who could be walled in by a *tree* went unnoticed. Distance
+    /// is the right quantity for the same reason `min_overloaded` is the
+    /// right one for a collapse: "he is standing near a trunk" and "he is
+    /// standing *in* one" are the same picture.
+    min_travelled: Option<i32>,
     /// `loadmap=1` -- also report the single most-stressed cell in the
     /// world per tile. `CLAUDE.md`: sanity-check a new metric against a
     /// case you know is fine before trusting it about one you don't, and
@@ -1259,6 +1268,7 @@ fn parse() -> Args {
         max_failures: None,
         max_frame_ms: None,
         min_bodies: None,
+        min_travelled: None,
         max_lost: None,
         dump: None,
         depth: None,
@@ -1353,6 +1363,7 @@ fn parse() -> Args {
             "chain_reach" => a.chain_reach = Some(v.parse().expect("chain_reach")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
+            "min_travelled" => a.min_travelled = Some(v.parse().expect("min_travelled")),
             "loadmap" => a.loadmap = v != "false",
             "load" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("load")).collect();
@@ -1726,6 +1737,14 @@ impl Gnome {
         }
     }
 
+    /// How far he has come since setting off, or 0 if he never did.
+    fn travelled(&self, world: &World) -> i32 {
+        match (self.start_x, world.player.as_ref()) {
+            (Some(from), Some(p)) => (p.x - from) as i32,
+            _ => 0,
+        }
+    }
+
     /// The line printed beside each tile. Empty for scenes with no gnome,
     /// so the sheets that predate M9 read exactly as they did.
     fn report(&self, world: &World) -> Option<String> {
@@ -1900,7 +1919,7 @@ fn report_loads(world: &World, args: &Args) {
 /// that is supposed to stand must show that nothing fired
 /// (`max_failures`), which is only meaningful once the same binary has
 /// demonstrated it can fire at all on the collapsing scenes.
-fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usize, cells_before: (i64, i64), cave_before: i64) -> bool {
+fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, peak_bodies: usize, cells_before: (i64, i64), cave_before: i64) -> bool {
     let f = world.structural_failures;
     let mut ok = true;
     if let Some(pct) = args.min_cave {
@@ -1930,6 +1949,13 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
             ok = false;
         }
     }
+    if let Some(min) = args.min_travelled {
+        let went = gnome.travelled(world);
+        if went < min {
+            println!("  FAIL: expected the gnome to cover at least {min} cells, he covered {went}");
+            ok = false;
+        }
+    }
     if let Some(min) = args.min_overloaded {
         if f.overloaded < min {
             println!("  FAIL: expected at least {min} overload failures, got {}", f.overloaded);
@@ -1943,7 +1969,7 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
             ok = false;
         }
     }
-    if ok && (args.min_overloaded.is_some() || args.max_failures.is_some() || args.max_frame_ms.is_some() || args.min_bodies.is_some()) {
+    if ok && (args.min_overloaded.is_some() || args.max_failures.is_some() || args.max_frame_ms.is_some() || args.min_bodies.is_some() || args.min_travelled.is_some()) {
         println!("  OK: scene={} met its expectations", args.scene);
     }
     ok
@@ -1960,14 +1986,14 @@ fn main() {
     for _ in 1..args.repeat {
         samples.push(run_once(&args, false).0);
     }
-    let (last_ms, world, peak_bodies, cells_before, cave_before) = run_once(&args, true);
+    let (last_ms, world, gnome, peak_bodies, cells_before, cave_before) = run_once(&args, true);
     samples.push(last_ms);
     let best = samples.iter().cloned().fold(f64::INFINITY, f64::min);
     if args.repeat > 1 {
         let worst = samples.iter().cloned().fold(0.0, f64::max);
         println!("worst frame over {} runs: {best:.2} ms (spread {best:.2}-{worst:.2})", args.repeat);
     }
-    if !check_expectations(&world, &args, best, peak_bodies, cells_before, cave_before) {
+    if !check_expectations(&world, &args, &gnome, best, peak_bodies, cells_before, cave_before) {
         std::process::exit(1);
     }
 }
@@ -1976,7 +2002,7 @@ fn main() {
 /// peak concurrent body count and how much material the world held *before*
 /// the first step. `render` is false for the extra timing samples, which do
 /// not need an image and should not pay for one.
-fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
+fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64), i64) {
     let mut world = build(args);
     // Censused before the first step and after the last, because a failure
     // count cannot answer "how much did this eat" -- see `Args::max_lost`.
@@ -2068,7 +2094,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // apply to it.
         // The gif branch is for watching motion, not measuring: no
         // per-frame timing and no body sampling, so it reports neither.
-        return (0.0, world, 0, cells_before, cave_before);
+        return (0.0, world, gnome, 0, cells_before, cave_before);
     }
 
     let mut captured = 0usize;
@@ -2215,7 +2241,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             .expect("writing the contact sheet");
         println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
     }
-    (worst_ms, world, peak_bodies, cells_before, cave_before)
+    (worst_ms, world, gnome, peak_bodies, cells_before, cave_before)
 }
 
 /// How much rock and rubble the world is holding: `Solid` and `Powder`
