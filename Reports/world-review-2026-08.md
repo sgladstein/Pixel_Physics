@@ -745,3 +745,36 @@ ones verbatim.
 22. **A draw rule that reads neighbour cells goes stale by one pixel at
     touched/untouched chunk borders** — widen the touched-chunk screen
     rects by one cell or ship a new stale-pixel artifact class.
+
+## Where things stand — overnight autonomous block, 2026-08-20
+
+Everything below landed on `claude/game-world-gen-planning-h12713` with
+gates green; strips referenced are under `target/filmstrips/`.
+
+- **Local light shipped** (owner's greenlight, §6 Q2): crystal glows via
+  `Material::glow` → field light channel → renderer. A breached geode or
+  cave now holds pale warm pools of light around its crystal, halos
+  spill onto rock and water, and the dark comes back if the crystal is
+  mined out. Two field bugs were caught by paired-cavity tests before
+  any render. Costs nothing measurable in glow-free worlds (paired ascii
+  runs; one real cost found and removed in `rebuild_blocked`).
+- **Cave systems merged** (round 3, four commits reviewed line-by-line):
+  Worley chamber-and-passage anatomy on the bedding, speleothems with a
+  crystal minority, breakdown floors verified against the slide rule,
+  per-system dry/pools/flooded waterline. The plain oval is gone. The
+  merged look — glowing formations scattered through dark galleries
+  (`merged_cave_glow_s1.png`) — is the "found a cool secret" picture.
+  Rulings: density 1.6 kept (one system, rarely two, a fifth of worlds
+  none), vaults-detail counter line kept, viewshot finder kept.
+- **Erosion core shipped dark** (`erosion.rs`, behind `world_age`,
+  default 0 everywhere = bit-exact no-op): thermal shed + hillslope
+  creep + hydraulic carve on the plan, hardness per strata band. At age
+  1, canyon s7's mesas weather into stepped, skirted formations and
+  rolling s1's 1-column keyhole chimneys (§1's finding 1b) are erased
+  outright. ~40 ms per build at age 1. `erosion3_*` strips are the A/Bs.
+- **Round 4 spawned** (task file committed): talus as gravel, boulders
+  at the sockets, per-preset ages on + sweep re-baseline, counters.
+  Springs placement deliberately held for the flow-budget ruling here.
+
+Open for the owner: play the caves (dig to one — `0`/F11 reveals them
+for testing), judge the aged strips, and the standing §6 questions.
