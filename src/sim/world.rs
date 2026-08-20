@@ -1513,8 +1513,12 @@ impl World {
         &self.fields
     }
 
-    pub(crate) fn replace_fields(&mut self, new_fields: HashMap<ChunkCoord, FieldTile>) {
-        self.fields = new_fields;
+    /// Overwrite just the given tiles, leaving every other tile in place —
+    /// `field::step`'s subset merge: solved tiles land, sleeping tiles are
+    /// never cloned or touched. See the `next`-building comment in
+    /// `field::step` for the design and the revert it supersedes.
+    pub(crate) fn merge_fields(&mut self, solved: HashMap<ChunkCoord, FieldTile>) {
+        self.fields.extend(solved);
     }
 
 
@@ -2172,7 +2176,7 @@ impl World {
     /// springs at step time (a cap bounds work; it must not quietly gate
     /// whether a registered thing happens).
     pub fn add_spring(&mut self, x: i32, y: i32, span: i32) -> bool {
-        if span < 1 || span > crate::sim::spring::MAX_SPAN {
+        if !(1..=crate::sim::spring::MAX_SPAN).contains(&span) {
             return false;
         }
         let flowing: i32 = self.springs.iter().map(|s| s.span).sum();

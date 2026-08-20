@@ -775,25 +775,35 @@ pub fn step(world: &mut World) {
     // below can read it through `sample`/`is_blocked` while writing into
     // `next` — no aliasing, because nothing is shared.
     //
-    // `next` holds every tile: solved ones fresh, sleeping ones carried
-    // forward. That costs a clone per sleeping tile, and a `FieldTile` owns
-    // five boxed slices, so a 640-chunk world pays a few thousand allocations
-    // a frame for tiles nothing touched.
+    // **`next` holds only the solved subset**, and the end of this function
+    // merges it into the live map rather than replacing the map wholesale.
+    // It used to hold every tile — sleeping ones carried forward by clone —
+    // and a `FieldTile` owns five boxed slices, so a 640-chunk world paid a
+    // few thousand allocations a frame for tiles nothing touched: ~6 µs a
+    // tile, the world-area-proportional half of the idle bill the 2026-08
+    // world review's field-step audit decomposed, and the half that grows
+    // with M10's world sizes.
     //
-    // **Merging solved tiles into the live map instead was tried and reverted.**
-    // It removed those allocations and made things dramatically *worse* — one
-    // four-cell impulse went back to 47 ms at 2048x1280, from 5.2 — because
-    // merging forces `apply_sky` to run after the merge, on the live map, and
-    // therefore after convergence is judged. Its light write then lands in
-    // `old` but never in `next`, so every tile it touches reads as "changed"
-    // forever, nothing ever converges, and the whole world stays awake. The
-    // pass order is load-bearing: whatever writes a channel has to write it
-    // *before* the comparison that decides whether the tile is done.
-    //
-    // Removing the clone therefore needs `apply_sky` to write into the solved
-    // subset while walking the full column for attenuation — worth doing, but
-    // it is a second mechanism, not a reordering.
-    let mut next: HashMap<ChunkCoord, FieldTile> = HashMap::with_capacity(coords.len());
+    // **Merging without the rest of this design was tried and reverted** — it
+    // moved `apply_sky` after the merge, onto the live map, and therefore
+    // after convergence was judged; its light write then landed in `old` but
+    // never in `next`, so every lit tile read as "changed" forever, nothing
+    // converged, and one four-cell impulse went from 5.2 ms back to 47 ms at
+    // 2048x1280. The pass order is load-bearing: whatever writes a channel
+    // has to write it *before* the comparison that decides the tile is done.
+    // What makes the subset safe now is the second mechanism that revert
+    // note asked for: `apply_sky_to` still walks every column of the world
+    // top to bottom, but *reads attenuation through the old map* for tiles
+    // outside the subset and writes only into tiles inside it. That loses
+    // nothing, because a tile whose light is actually changing cannot be
+    // outside the subset: `sky_drifted` puts every lit tile whose amplitude
+    // is stale into `awake`, so a lit tile sleeping at a plateau already
+    // holds exactly the value this amplitude would write (a max-write no-op),
+    // and a dark tile gets nothing either way. The other subset readers —
+    // `step_velocity`/`step_advection`'s ring snapshots — fall back to the
+    // old map for ring tiles the subset lacks, which is the same state the
+    // clone used to hand them.
+    let mut next: HashMap<ChunkCoord, FieldTile> = HashMap::with_capacity(awake.len());
     for &coord in &coords {
         if awake.contains(&coord) {
             let mut tile = FieldTile::new();
@@ -806,18 +816,18 @@ pub fn step(world: &mut World) {
             // Solved against the sky as it is now.
             tile.sky_amplitude = amplitude;
             next.insert(coord, tile);
-        } else if let Some(previous) = world.fields_ref().get(&coord) {
-            next.insert(coord, previous.clone());
-        } else {
-            next.insert(coord, FieldTile::new());
         }
+        // A chunk with no field tile at all cannot be sleeping: `awake`
+        // includes every coord whose tile is `None`, so the subset always
+        // covers it and the old wholesale build's `FieldTile::new()`
+        // fallback arm is subsumed rather than lost.
     }
 
     rebuild_blocked(world, &solve, &mut next);
     step_pressure(world, &solve, &mut next);
     step_velocity(world, &solve, &read_coords, &mut next);
     step_diffusion(world, &solve, &mut next);
-    step_advection(&solve, &read_coords, bounds, &mut next);
+    step_advection(&solve, &read_coords, bounds, world.fields_ref(), &mut next);
     // **Always every column, never subsetted.** Light propagates down a
     // column, so a sleeping tile between the sky and an awake one still
     // attenuates — but the deeper reason is that this pass is what *drives*
@@ -836,7 +846,7 @@ pub fn step(world: &mut World) {
     // The consequence is honest and worth stating: sky-lit tiles never sleep,
     // because the sun really is always moving. What sleeps is everything the
     // light does not reach, which on a large world is most of it.
-    let _lit = apply_sky_to(amplitude, &coords, &mut next);
+    let _lit = apply_sky_to(amplitude, &coords, world.fields_ref(), &mut next);
     apply_moisture_sources(&solve, &mut next);
 
     // Convergence is per tile. A tile outside the awake set was settled *and*
@@ -845,8 +855,10 @@ pub fn step(world: &mut World) {
     // fresh scan of the world.
     mark_converged(world.fields_ref(), &solve, &mut next);
 
+    // Solved tiles merge into the live map; sleeping tiles stay where they
+    // are, untouched and unallocated — the point of the subset.
     let all_settled = solve.iter().all(|c| next.get(c).is_some_and(|t| t.settled()));
-    world.replace_fields(next);
+    world.merge_fields(next);
     world.set_fields_settled(all_settled);
 }
 
@@ -1133,6 +1145,7 @@ const COLUMN_TRANSMISSION: [f32; FIELD_SCALE as usize + 1] =
 fn apply_sky_to(
     amplitude: f32,
     coords: &[ChunkCoord],
+    old: &HashMap<ChunkCoord, FieldTile>,
     next: &mut HashMap<ChunkCoord, FieldTile>,
 ) -> HashSet<ChunkCoord> {
     let mut lit: HashSet<ChunkCoord> = HashSet::new();
@@ -1154,7 +1167,25 @@ fn apply_sky_to(
             for cy in min_cy..=max_cy {
                 let coord = ChunkCoord::new(cx, cy);
                 let Some(tile) = next.get_mut(&coord) else {
-                    continue; // no chunk here: open sky, carry on unchanged
+                    // Not in the solved subset. A *sleeping* tile still
+                    // stands in the light's way — treating it as open sky
+                    // would pour daylight through a sleeping mountain onto
+                    // whatever awake tile sits beneath it — so the walk
+                    // attenuates through the old map, read-only. No write
+                    // is lost: a lit tile whose value would change is in
+                    // the subset by `sky_drifted`'s construction, so a
+                    // sleeping tile either already holds this amplitude's
+                    // value (max-write no-op) or is dark (nothing to
+                    // write). No tile at all is genuinely open sky.
+                    if let Some(sleeping) = old.get(&coord) {
+                        for ly in 0..FIELD_TILE_SIZE {
+                            if carried <= 0.0 {
+                                break;
+                            }
+                            carried *= sleeping.transmission_local(lx, ly);
+                        }
+                    }
+                    continue;
                 };
                 for ly in 0..FIELD_TILE_SIZE {
                     if carried <= 0.0 {
@@ -1479,9 +1510,13 @@ fn step_velocity(
     // answers a tile the snapshot lacks with `AMBIENT` rather than with the
     // truth, so a snapshot narrowed to `coords` would read sleeping
     // neighbours as ambient air. Silent, and wrong in the direction that
-    // looks plausible.
-    let new_pressure: HashMap<ChunkCoord, FieldTile> =
-        read.iter().filter_map(|&c| next.get(&c).map(|t| (c, t.clone()))).collect();
+    // looks plausible. The outer ring can sleep outside the subset `next`
+    // now holds, so it falls back to the old map — the same state the
+    // full-map clone used to carry forward for it.
+    let new_pressure: HashMap<ChunkCoord, FieldTile> = read
+        .iter()
+        .filter_map(|&c| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone())))
+        .collect();
 
     for &coord in coords {
         let (ox, oy) = coord.origin();
@@ -1677,14 +1712,19 @@ fn step_advection(
     coords: &[ChunkCoord],
     read: &[ChunkCoord],
     bounds: Option<Rect>,
+    old: &HashMap<ChunkCoord, FieldTile>,
     next: &mut HashMap<ChunkCoord, FieldTile>,
 ) {
     // Snapshot `next` as it stands after pressure/velocity/diffusion, so the
     // sampling below reads a fixed pre-advection state rather than a mix of
     // advected and not-yet-advected cells depending on iteration order.
-    // Over `read` rather than `coords` — see `step_velocity` for why.
-    let pre_advection: HashMap<ChunkCoord, FieldTile> =
-        read.iter().filter_map(|&c| next.get(&c).map(|t| (c, t.clone()))).collect();
+    // Over `read` rather than `coords` — see `step_velocity` for why, and
+    // for why the ring falls back to the old map now that `next` holds only
+    // the solved subset.
+    let pre_advection: HashMap<ChunkCoord, FieldTile> = read
+        .iter()
+        .filter_map(|&c| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone())))
+        .collect();
 
     for &coord in coords {
         let (ox, oy) = coord.origin();
