@@ -462,6 +462,41 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // 40-cell section cut, the razor-flat bottom of a failing column
         // and the wedge hypotenuse all stop being straight.
         let region = erode_failing_boundary(world, region);
+        // R3a: **bound the work, never the breakage.** One failure's
+        // region can be the union of whole-column subtrees, or a detached
+        // piece out to `load::MAX_REGION_CELLS` (20,000), and nothing
+        // between there and here caps what a single tick hands to
+        // `fracture`. Take the nearest slice now and leave the rest
+        // standing for a tick; see `slice_failing_region` for why the
+        // erosion above runs first and why this is not the size cap the
+        // do-not-retry list forbids.
+        let Sliced { slice: region, remainder } = slice_failing_region(region, failure.at);
+        // The remainder's re-visit is *guaranteed*, and it does not go back
+        // through the load model to get it. That was tried first -- reschedule
+        // the remainder's face and let it re-fail -- and it is recorded here
+        // as a dead end because it fails in two separate ways at once:
+        //
+        // - **It stalls.** Re-judging costs a full support walk per face
+        //   cell, and `load::MAX_LOAD_CELLS_PER_FRAME` was already exhausted
+        //   by the collapse's own fan-out: measured `budget 0` on every frame
+        //   from the fifth onward, sites climbing past 3,000, and the
+        //   miniature ligament still **1,132 cells short after 1,200
+        //   frames** in dribbles of a dozen cells. A one-tick collapse had
+        //   become a twenty-second one.
+        // - **It re-asks a question already answered.** The whole region was
+        //   judged and licensed as one failure. Making the half that waits
+        //   re-argue its case means it can lose -- to `within_disturbance`
+        //   at any `chain_reach` but SPREAD, to the 12x attached-bulk bonus
+        //   the remainder still carries, to an exhausted budget -- and every
+        //   one of those is rock left hanging in open air.
+        //
+        // So the remainder is *work in progress*, not a fresh question:
+        // `World::staged_fractures` holds it and `advance_staged_fractures`
+        // takes the next slice off it a few frames later. Pacing then bounds
+        // work per frame and nothing else, which is the whole point.
+        if !remainder.is_empty() {
+            world.staged_fractures.push_back(StagedFracture { region: remainder, at: failure.at, next_frame: world.frame + STRUCTURAL_TICK_INTERVAL });
+        }
         // M8: a failure big enough to read as a *chunk* leaves as coherent
         // falling pieces rather than dissolving into loose grains one cell
         // at a time. Falls back to the per-cell conversion when the region
@@ -1557,6 +1592,217 @@ const BOUNDARY_EROSION: f32 = 0.45;
 /// enough to look drawn anyway.
 const MIN_ERODIBLE_REGION: usize = 12;
 
+/// Cells one tick will hand to `rigid::fracture_failing_region`.
+///
+/// **Internal pacing, not a designer dial.** Nothing about the *outcome*
+/// is chosen here -- the whole region still comes down, and a player
+/// cannot see this number except as the collapse arriving over several
+/// beats instead of one. It is deliberately a `const` rather than a
+/// `Tuning` field for that reason: a knob invites tuning the look, and the
+/// look is `fracture`'s business.
+///
+/// # Why there has to be one at all
+///
+/// Nothing upstream bounds what a single failure hands over.
+/// `load::failing_region` returns the union of whole-column supported
+/// subtrees for an `Overloaded` failure, and for `Unsupported` it runs
+/// `detached_piece` out to `MAX_REGION_CELLS = 20,000` with no per-frame
+/// budget of its own. `scene=ligament` measured a **4,420-cell region
+/// fractured in one tick**, promoting 142 chunk bodies in a single call;
+/// `Reports/explosion-stone-review.md` §1d measured 189 bodies and a
+/// deterministic 264 ms frame from the same shape.
+/// `Reports/fracture-mechanics-design.md` §3.4 asked for a per-frame cap
+/// on fractures and never got one. This is it.
+///
+/// # Why this is not the forbidden size cap
+///
+/// `CLAUDE.md`: *"a size cap must bound work, never gate whether something
+/// happens"* -- fracture once declined any region over its body-size cap
+/// and fell through to per-cell dust, so the bigger the collapse the more
+/// certain it dissolved. This bounds **cells per tick** and nothing else.
+/// The remainder goes straight onto `World::staged_fractures`, which is
+/// drained unconditionally, so it comes down behind the slice whatever
+/// else happens; the staging is exactly what `load::MAX_SUBTREE_CELLS`'
+/// own doc already promises ("a piece bigger than this simply comes down
+/// in stages").
+///
+/// 1,000 because that is roughly where the measured cost of one
+/// `fracture` call stops being invisible, and because the ligament's
+/// 4,420 cells then read as four or five bites rather than one -- graded
+/// beats binary, and a collapse that resolves over a second reads better
+/// than one that resolves instantly.
+const FRACTURE_CELLS_PER_TICK: usize = 1_000;
+
+/// Split a failing region into the part that comes apart **this** tick and
+/// the part that comes down behind it.
+///
+/// The slice is grown breadth-first from the cell that actually gave way,
+/// so the collapse starts at the break and eats outward -- the neck first,
+/// then the span hanging off it -- rather than at whichever end of the
+/// region a flood happened to be seeded from.
+///
+/// # Order: erosion first, then slice
+///
+/// Deliberate, and the opposite order is wrong in a way that is easy to
+/// miss. `erode_failing_boundary` roughens the region's *rock-facing*
+/// boundary -- the seam where the piece tears away from rock that is
+/// staying. Slicing first would hand erosion a slice whose boundary is
+/// mostly the internal cut, so erosion would chew the cut instead of the
+/// tear, and the cells it dropped would be cells that are coming down
+/// anyway one tick later: the raggedness would land on an edge nobody ever
+/// sees and not on the one that reads. Eroding the whole region once also
+/// means every later stage inherits an already-torn rock-facing boundary,
+/// which is the only boundary a stage has that the player can see -- the
+/// cut itself is buried inside a mass that is entirely on its way down.
+///
+/// # The cut is jittered, for the same reason the tear is
+///
+/// A plain BFS ring boundary in homogeneous rock is an L1 diamond -- the
+/// "perfect column or sharp triangle" the owner rejected off the prototype
+/// sheets, re-manufactured by a brand new mechanism. The frontier is
+/// therefore ordered on `distance + jitter(x, y)` rather than on distance
+/// alone, which wobbles the cut by a couple of cells at no cost worth
+/// measuring. Position-keyed like every other shape decision in this file:
+/// no `world.rng` draw, so a replayed input sequence cannot diverge here.
+///
+/// `remainder` is empty whenever the region already fits in one tick,
+/// which is the overwhelmingly common case and costs one length
+/// comparison.
+fn slice_failing_region(region: Vec<(i32, i32)>, broke_at: (i32, i32)) -> Sliced {
+    if region.len() <= FRACTURE_CELLS_PER_TICK {
+        return Sliced { slice: region, remainder: Vec::new() };
+    }
+    // `broke_at` is the ancestor the chain walk found over its limit, and
+    // it is *not* guaranteed to be in the region -- an `Overloaded`
+    // failure's region is the subtree it was holding up, and erosion above
+    // may have dropped it in any case. Seed from the region cell nearest
+    // it instead, which degrades gracefully to "the same cell" whenever it
+    // is present.
+    let mut left: std::collections::HashSet<(i32, i32)> = region.iter().copied().collect();
+    let seed = *region
+        .iter()
+        .min_by_key(|&&(x, y)| ((x - broke_at.0).unsigned_abs() + (y - broke_at.1).unsigned_abs(), x, y))
+        .expect("a region over the pacing cap is not empty");
+    // Ordered by `(key, x, y)` so the pop order is a total order on
+    // position and nothing here depends on hash iteration order --
+    // determinism is required (`PLAN.md`), and a `HashSet` drain would
+    // quietly break it.
+    let mut frontier = std::collections::BinaryHeap::new();
+    let key = |d: u32, x: i32, y: i32| d * JITTER_STEPS + (super::rng::jitter(x, y) * JITTER_STEPS as f32) as u32;
+    left.remove(&seed);
+    frontier.push(std::cmp::Reverse((key(0, seed.0, seed.1), seed.0, seed.1, 0u32)));
+    let mut slice = Vec::with_capacity(FRACTURE_CELLS_PER_TICK);
+    while let Some(std::cmp::Reverse((_, x, y, depth))) = frontier.pop() {
+        slice.push((x, y));
+        if slice.len() >= FRACTURE_CELLS_PER_TICK {
+            break;
+        }
+        for (dx, dy) in NEIGHBOURS_4 {
+            let next = (x + dx, y + dy);
+            if left.remove(&next) {
+                frontier.push(std::cmp::Reverse((key(depth + 1, next.0, next.1), next.0, next.1, depth + 1)));
+            }
+        }
+    }
+    // Anything still on the frontier was claimed out of `left` but never
+    // popped, so it has to go back or it is silently deleted -- neither in
+    // the slice nor in the remainder, which is material vanishing out of a
+    // region the load model judged. The same trap `rigid::take_fragment`
+    // documents at its own tail, and it is just as easy to walk into here.
+    let mut remainder: Vec<(i32, i32)> = frontier.into_iter().map(|std::cmp::Reverse((_, x, y, _))| (x, y)).collect();
+    remainder.extend(left.iter().copied());
+    // Sorted for the same reason the heap carries coordinates: the
+    // leftovers come off a `HashSet`, and their order reaches
+    // `fracture`'s seed choice on the next slice.
+    remainder.sort_unstable();
+    Sliced { slice, remainder }
+}
+
+/// What one tick takes off a failing region, and what it leaves standing.
+/// See `slice_failing_region`.
+struct Sliced {
+    /// Handed to `rigid::fracture_failing_region` now.
+    slice: Vec<(i32, i32)>,
+    /// Everything else, which comes down behind it — see `StagedFracture`.
+    remainder: Vec<(i32, i32)>,
+}
+
+/// A failure the engine has already judged, part-way through coming down.
+///
+/// Not a queue of *questions* — a queue of **work**. Everything in `region`
+/// has been through the load model once, inside one failure, and the only
+/// reason it is still standing is `FRACTURE_CELLS_PER_TICK`. It is
+/// deliberately not re-judged on the way back out: see the note at the call
+/// site in `tick` for the two ways that stalled and stranded it.
+pub struct StagedFracture {
+    /// Everything still to come down, most recently sliced first.
+    pub region: Vec<(i32, i32)>,
+    /// Where the piece originally gave way — the impulse origin, and the
+    /// point each further slice is grown from, so the collapse keeps eating
+    /// outward from the break instead of restarting somewhere else.
+    pub at: (i32, i32),
+    /// Frame the next slice is due.
+    pub next_frame: u64,
+}
+
+/// Take the next slice off the oldest staged fracture, if one is due.
+///
+/// Called once per frame from `scheduler::step`, and costs one `is_empty`
+/// test in every frame where nothing is mid-collapse — which is nearly all
+/// of them.
+///
+/// **Deliberately outside the site scheduler.** A staged slice is not a
+/// question about a cell, so it has no business competing for
+/// `MAX_SITES_PER_FRAME` or for `load::MAX_LOAD_CELLS_PER_FRAME` with the
+/// checks that *are* questions — and it must not be starved by them, which
+/// is exactly what happened when this was driven by rescheduled structural
+/// checks (measured: `budget 0` from frame five onward and a collapse still
+/// unfinished 1,200 frames later).
+///
+/// One slice per call and per `STRUCTURAL_TICK_INTERVAL` frames: fast
+/// enough that a 4,400-cell overhang is down in well under a second, slow
+/// enough that the stages read as stages. A collapse that arrives in one
+/// frame reads as a glitch; the same collapse over half a second reads as
+/// consequence (`Reports/explosion-stone-review.md` §3).
+pub fn advance_staged_fractures(world: &mut World) {
+    if world.staged_fractures.front().is_none_or(|s| world.frame < s.next_frame) {
+        return;
+    }
+    let staged = world.staged_fractures.pop_front().expect("checked non-empty above");
+    // What is left of it, which is not necessarily what was put here: a
+    // neighbouring failure, a landing body or a later blast can have taken
+    // some of these cells in the frames since. Anything that is no longer
+    // body material is simply not there to break -- and note the filter is
+    // on the *material now*, not on what was there when the failure was
+    // judged, so a cell whose rock left and whose hole a landing chunk then
+    // filled breaks as the new rock. That is the right answer for a
+    // coordinate that was going to be air, and there is no cheap way to
+    // tell the two apart: `Cell` carries no identity.
+    let region: Vec<(i32, i32)> = staged.region.into_iter().filter(|&(x, y)| is_body_material(world, world.get(x, y).material)).collect();
+    if region.is_empty() {
+        return;
+    }
+    // The support forest this was derived from is about to change again --
+    // same reason `tick` clears it before breaking anything.
+    world.load_cache.clear();
+    world.structural_failures.record_staged(region.len().min(FRACTURE_CELLS_PER_TICK));
+    let Sliced { slice, remainder } = slice_failing_region(region, staged.at);
+    if !super::rigid::fracture_failing_region(world, &slice, staged.at) {
+        for &(fx, fy) in &slice {
+            break_free(world, fx, fy);
+        }
+    }
+    if !remainder.is_empty() {
+        world.staged_fractures.push_front(StagedFracture { region: remainder, at: staged.at, next_frame: world.frame + STRUCTURAL_TICK_INTERVAL });
+    }
+}
+
+/// How finely `slice_failing_region` interleaves jitter with BFS depth.
+/// One ring of depth is worth this many key steps, so a jitter draw can
+/// move a cell by at most one ring either way -- enough to break the
+/// diamond, not enough to let the slice grow holes.
+const JITTER_STEPS: u32 = 16;
+
 fn break_free(world: &mut World, x: i32, y: i32) {
     // Resolved per cell rather than passed in by the caller, because a
     // failing region is no longer one cell and need not be one material --
@@ -2169,6 +2415,7 @@ impl World {
             self.frame.saturating_sub(frame) <= self.chain_window && (x - dx).abs().max((y - dy).abs()) <= self.chain_reach
         })
     }
+
 }
 
 /// How many recent disturbances are remembered. A player cannot disturb
@@ -3450,6 +3697,211 @@ mod tests {
             erode_failing_boundary(&w, region.clone()),
             region,
             "a region surrounded by air has no rock-facing boundary and must not be eroded"
+        );
+    }
+
+    // --- R3a: fracture pacing -------------------------------------------
+
+    /// `examples/filmstrip.rs`'s `ligament` scene, in miniature and in the
+    /// suite: a big attached overhang hung off a cliff by a deliberately
+    /// thin neck, with one structural check at the neck and nothing struck
+    /// or erased. Returns the overhang's cells.
+    ///
+    /// Built to the scene's proportions rather than as a free-floating
+    /// blob, and the difference is not cosmetic. A thick block of stone with
+    /// air all round it **does not fail at all** -- its own section carries
+    /// it, which is documented, intended behaviour (`snap`'s scene note says
+    /// so in as many words), so a 44x44 slab hung in mid-air produced zero
+    /// bites over 1,200 frames and measured nothing about pacing. What
+    /// actually produces a four-figure failing region is a *cantilever*: the
+    /// neck is over capacity, and the region is everything it was holding
+    /// up.
+    fn ligament(w: &mut World) -> Vec<(i32, i32)> {
+        let mut fill = |x0: i32, x1: i32, y0: i32, y1: i32| {
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+        };
+        fill(0, 40, 20, 150); // the cliff
+        fill(40, 50, 60, 64); // the neck: 4 deep, 10 long
+        fill(50, 160, 40, 80); // the overhang: 40 deep, 110 long
+        let overhang: Vec<(i32, i32)> = (40..80).flat_map(|y| (50..160).map(move |x| (x, y))).collect();
+        assert!(overhang.len() > FRACTURE_CELLS_PER_TICK, "test setup: the overhang must be over the pacing cap, is {}", overhang.len());
+        overhang
+    }
+
+    /// How much of the massif is still standing inside the overhang's
+    /// footprint — stone that is still flagged `attached`.
+    ///
+    /// **A plain stone census is the wrong metric here, and it took a
+    /// measurement to see it.** Debris that comes down lands, and a landed
+    /// `ChunkBody` writes its cells back as stone: 218 stone cells sat
+    /// inside the footprint at the end of the *unpaced* control run, of
+    /// which exactly one was attached — and that one was the neck stub,
+    /// outside the footprint proper. "Stone is still there" therefore
+    /// cannot tell rock that never fell from rubble that fell and piled up
+    /// again, which is the only distinction this test is about. `attached`
+    /// can: `break_free`, `promote` and `rigid`'s landing path all
+    /// deliberately drop it (see `FLAG_ATTACHED`), so anything that still
+    /// has it is rock that has never come away.
+    fn intact_rock_left(w: &World, cells: &[(i32, i32)]) -> usize {
+        cells.iter().filter(|&&(x, y)| w.get(x, y).material == material::STONE && w.get(x, y).attached()).count()
+    }
+
+    /// Run the world the way `an_unsupported_foreground_blob_does_not_hang_in_mid_air`
+    /// does — scheduler, bodies and the CA sweep together — recording the
+    /// frames on which standing stone actually went away.
+    fn collapse_stages(w: &mut World, cells: &[(i32, i32)], frames: usize) -> Vec<(usize, usize)> {
+        let mut stages = Vec::new();
+        let mut last = intact_rock_left(w, cells);
+        for frame in 0..frames {
+            w.begin_step();
+            scheduler::step(w);
+            w.end_step();
+            crate::sim::rigid::step_chunk_bodies(w);
+            update::step(w);
+            let now = intact_rock_left(w, cells);
+            if now < last {
+                stages.push((frame, last - now));
+            }
+            last = now;
+        }
+        stages
+    }
+
+    /// **The contract R3a exists to keep: pacing bounds the work, never the
+    /// breakage.**
+    ///
+    /// Two halves, and each one alone is passable by cheating. "It comes
+    /// down in stages" is satisfied by a collapse that stalls half way, and
+    /// "it all comes down" is satisfied by doing the whole thing in one
+    /// tick — which is the 4,420-cell, 142-body frame this change exists to
+    /// stop. So both are asserted here, on the same run.
+    #[test]
+    fn an_oversized_detached_slab_comes_down_over_several_ticks() {
+        let mut w = World::new(Rect::new(0, 0, 255, 159));
+        let slab = ligament(&mut w);
+        compute_world_distances(&mut w);
+        w.schedule_structural_check_around(45, 62);
+
+        let stages = collapse_stages(&mut w, &slab, 1_200);
+
+        assert!(
+            stages.len() >= 2,
+            "the slab came down in {} bite(s) -- pacing did not fire, so a region {} cells big went to `fracture` in one call: {stages:?}",
+            stages.len(),
+            slab.len()
+        );
+        // A *frame*, not a tick: the scheduler runs many structural checks
+        // per frame, so a frame may legitimately hold one paced slice plus
+        // several small failures around it. Measured 1,009 here against
+        // 4,420 in a single frame before the change, so the bar is set at
+        // twice the cap -- headroom over the measurement, per convention,
+        // and nowhere near enough to let the whole overhang through.
+        let biggest = stages.iter().map(|&(_, n)| n).max().unwrap_or(0);
+        assert!(
+            biggest <= FRACTURE_CELLS_PER_TICK * 2,
+            "one frame took {biggest} cells off the slab against a per-tick cap of {FRACTURE_CELLS_PER_TICK} -- the cap is not bounding the work: {stages:?}"
+        );
+        assert_eq!(
+            intact_rock_left(&w, &slab),
+            0,
+            "{} cells of the overhang are still standing after 1,200 frames -- the remainder was stranded, which turns pacing into the immunity `CLAUDE.md` forbids ({stages:?})",
+            intact_rock_left(&w, &slab)
+        );
+    }
+
+    /// The trap the handoff called out by name: the remainder's re-visit
+    /// must not rest on `within_disturbance`.
+    ///
+    /// At the shipped `chain_reach` (`SPREAD`, `i32::MAX`) that gate is a
+    /// constant `true`, so the test above cannot see this at all — it would
+    /// pass against a version that asks the load model for permission again
+    /// and only survives because permission is free. Here the reach is
+    /// `TIGHT` and the one disturbance sits at the neck, far outside the box
+    /// around the far end of the overhang. The staged queue is not supposed
+    /// to care: everything on it was licensed once, as one failure, and
+    /// `advance_staged_fractures` never asks a second time.
+    #[test]
+    fn a_paced_remainder_falls_even_when_the_disturbance_cannot_reach_it() {
+        let mut w = World::new(Rect::new(0, 0, 255, 159));
+        let slab = ligament(&mut w);
+        compute_world_distances(&mut w);
+        w.chain_reach = CHAIN_MODES.iter().find(|m| m.name == "TIGHT").expect("a TIGHT chain mode").reach;
+        w.record_disturbance(45, 62);
+        w.schedule_structural_check_around(45, 62);
+        // The reach really cannot see the far end, or this is the previous
+        // test wearing a different hat.
+        assert!(!w.within_disturbance(159, 79), "test setup: TIGHT must not reach the far corner of the overhang");
+
+        let stages = collapse_stages(&mut w, &slab, 1_200);
+
+        assert!(stages.len() >= 2, "the slab came down in one bite, so this run never exercised the paced path: {stages:?}");
+        assert_eq!(
+            intact_rock_left(&w, &slab),
+            0,
+            "{} cells still standing: the paced remainder never came down, so something between the failure and `advance_staged_fractures` is still asking the load model for permission",
+            intact_rock_left(&w, &slab)
+        );
+    }
+
+    /// The slice is grown from the break, and it is one connected piece —
+    /// not a scatter of whatever a `HashSet` iterated first. A slice that
+    /// is not contiguous with the failure reads as rock evaporating at
+    /// random rather than as a collapse eating outward from where it gave
+    /// way.
+    #[test]
+    fn a_paced_slice_is_one_piece_grown_from_the_break() {
+        let region: Vec<(i32, i32)> = (0..60).flat_map(|y| (0..60).map(move |x| (x, y))).collect();
+        let Sliced { slice, remainder } = slice_failing_region(region.clone(), (0, 0));
+
+        assert_eq!(slice.len(), FRACTURE_CELLS_PER_TICK, "the slice should be exactly one tick's worth");
+        assert_eq!(slice.len() + remainder.len(), region.len(), "material went missing between the slice and the remainder");
+        let taken: std::collections::HashSet<(i32, i32)> = slice.iter().copied().collect();
+        // Connected, checked by flooding it back out from the seed.
+        let mut seen = std::collections::HashSet::from([(0, 0)]);
+        let mut stack = vec![(0, 0)];
+        while let Some((x, y)) = stack.pop() {
+            for (dx, dy) in NEIGHBOURS_4 {
+                let next = (x + dx, y + dy);
+                if taken.contains(&next) && seen.insert(next) {
+                    stack.push(next);
+                }
+            }
+        }
+        assert_eq!(seen.len(), slice.len(), "the slice is in {} disconnected parts", slice.len() - seen.len() + 1);
+        // And the far corner is nowhere near it.
+        assert!(!taken.contains(&(59, 59)), "the slice reached the far corner of a 3,600-cell region -- it is not growing from the break");
+        // Nothing is in both halves, which is the other way material can go
+        // missing here -- a cell fractured now and queued for later would be
+        // promoted twice.
+        assert!(!remainder.iter().any(|c| taken.contains(c)), "a cell is in both the slice and the remainder");
+    }
+
+    /// The jittered frontier, stated as the property it exists for: a plain
+    /// breadth-first slice of homogeneous rock is an L1 diamond, which is
+    /// the "perfect column or sharp triangle" the owner rejected off the
+    /// prototype sheets. Measured on the cut's own profile — how far out
+    /// along each row the slice reaches — a diamond gives a step of exactly
+    /// one cell per row and nothing else.
+    #[test]
+    fn a_paced_cut_is_not_a_drawn_diamond() {
+        let region: Vec<(i32, i32)> = (0..60).flat_map(|y| (0..60).map(move |x| (x, y))).collect();
+        let Sliced { slice, .. } = slice_failing_region(region, (30, 30));
+        let mut reach: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+        for &(x, y) in &slice {
+            let e = reach.entry(y).or_insert(i32::MIN);
+            *e = (*e).max(x);
+        }
+        let mut rows: Vec<i32> = reach.keys().copied().collect();
+        rows.sort_unstable();
+        let steps: Vec<i32> = rows.windows(2).filter(|p| p[1] == p[0] + 1).map(|p| reach[&p[1]] - reach[&p[0]]).collect();
+        assert!(steps.len() > 20, "test setup: the slice should span plenty of rows, spans {}", steps.len());
+        assert!(
+            steps.iter().any(|&s| s.abs() > 1),
+            "every row of the cut steps by exactly one cell -- that is a drawn diamond, which is what the frontier jitter exists to break"
         );
     }
 }

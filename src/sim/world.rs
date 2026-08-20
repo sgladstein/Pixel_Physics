@@ -458,6 +458,12 @@ pub struct World {
     /// the most recent handful matter, since older ones fall outside
     /// `chain_window` anyway.
     pub disturbances: std::collections::VecDeque<(i32, i32, u64)>,
+    /// Failures already judged and part-way through coming down, one slice
+    /// per `structural::STRUCTURAL_TICK_INTERVAL` frames. See
+    /// `structural::StagedFracture` and `advance_staged_fractures`; empty
+    /// in every frame where nothing is mid-collapse, which is nearly all of
+    /// them.
+    pub staged_fractures: std::collections::VecDeque<crate::sim::structural::StagedFracture>,
 
     /// Per-frame caches for the load walks (`load::Cache`).
     /// Cleared by `scheduler::step` each frame and again by
@@ -554,6 +560,18 @@ pub struct FailureCounts {
     /// from cracks too fine to see at that zoom. An image cannot say
     /// whether the thing you built is what produced it.
     pub crushed_cells: u32,
+    /// Slices `structural::advance_staged_fractures` took off a failure
+    /// that was too big to fracture in one tick, and the cells they took.
+    ///
+    /// The "did it fire at all" counter for R3a, and it is exactly the
+    /// question a contact sheet cannot answer: a collapse that arrives in
+    /// one frame and one that arrives in five bites look identical in a
+    /// grid of stills, and the difference between them is the whole
+    /// change. `overloaded`/`unsupported` above cannot say it either --
+    /// they count the *failure*, which is recorded once, whole, before any
+    /// of this.
+    pub staged_slices: u32,
+    pub staged_cells: u32,
 }
 
 impl FailureCounts {
@@ -565,6 +583,11 @@ impl FailureCounts {
         self.confined += 1;
         self.confined_cells += cells as u32;
         self.deepest_confined = self.deepest_confined.max(depth);
+    }
+
+    pub fn record_staged(&mut self, cells: usize) {
+        self.staged_slices += 1;
+        self.staged_cells += cells as u32;
     }
 
     pub fn record(&mut self, mode: crate::sim::load::FailureMode, cells: usize) {
@@ -615,6 +638,7 @@ impl World {
             chain_reach: i32::MAX,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
+            staged_fractures: std::collections::VecDeque::new(),
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
             seed: DEFAULT_WORLD_SEED,

@@ -128,6 +128,13 @@ const MAX_REGION_CELLS: usize = 20_000;
 /// collapse is what `Reports/fracture-mechanics-design.md` §3.4 asks for
 /// anyway — "a collapse that resolves over a second reads better than one
 /// that resolves instantly".
+///
+/// That promise went undelivered for a long time, and the gap was not
+/// here: truncating the *walk* still handed the whole region to
+/// `rigid::fracture` in one tick, so a 4,420-cell overhang promoted 142
+/// bodies in a single call. `structural::FRACTURE_CELLS_PER_TICK` is what
+/// actually stages it now; this doc's wording is the contract that one
+/// keeps.
 const MAX_SUBTREE_CELLS: usize = 8192;
 
 /// Cells every load walk in one frame may visit between them, across all

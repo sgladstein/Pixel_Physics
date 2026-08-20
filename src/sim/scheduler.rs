@@ -250,6 +250,13 @@ pub fn step(world: &mut World) {
             world.schedule_active_site(produced_site);
         }
     }
+    // A collapse too big to fracture in one tick comes down over several,
+    // and this is what advances it. Outside the site loop above on purpose:
+    // it is *work already decided*, not a question about a cell, so it
+    // neither competes for `MAX_SITES_PER_FRAME` nor gets starved by the
+    // load budget those sites drain — which is what happened when it was
+    // driven by rescheduled checks. See `structural::advance_staged_fractures`.
+    structural::advance_staged_fractures(world);
 }
 
 /// Starting point, not empirically pinned down to the frame budget yet —

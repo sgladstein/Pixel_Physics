@@ -3,7 +3,9 @@
 *Current as of: this build. Where something breaks — at the neck, across
 a section, sharing load between supports — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
-building. Digging into open ground no longer spreads: a hole is a hole,
+building, and a very large collapse now arrives in stages that spread out
+from the break rather than in one frame. Digging into open ground no
+longer spreads: a hole is a hole,
 and the rock around it stops where the damage stops. What is still in flux
 is **how big a room you can build**: a wide, thin-walled one can still
 fail to hold its own roof up the moment you finish it, and the exact width
@@ -51,9 +53,17 @@ something separates it.
 When something does give way, a whole section breaks free at once rather
 than peeling off one thin sliver at a time, and it reads as chunks rather
 than a spray of grit. Different kinds of rock also come apart into
-differently sized pieces. A large disconnected mass doesn't necessarily
-come down all in one frame either — a big enough collapse plays out in
-stages rather than vanishing instantly.
+differently sized pieces.
+
+A really big collapse does not arrive all at once. It starts where the
+rock actually gave way — the neck, the undercut, wherever you were
+working — and eats outward from there over the next half second, in
+several bites rather than one. A hundred-cell overhang therefore reads as
+something *coming down*, with the near end going first and the far end
+following it, instead of the whole span blinking out of existence in a
+single frame. Once it has started it always finishes: nothing stops
+half way and leaves rock hanging in the air, and no setting anywhere
+makes the rest of it safe.
 
 **What you build is sound until something happens to it.** Placed stone is
 braced the same way the world's own rock is — the way a real cliff face is

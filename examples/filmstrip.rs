@@ -2018,6 +2018,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
         );
         println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
+        // R3a's "did it fire at all" counter. A failure too big for one
+        // tick comes down over several, and the `bodies` line above shows
+        // that as a *series* of bursts -- but a series of bursts is also
+        // what several independent failures look like, and a contact sheet
+        // cannot tell them apart at all. The count says which it was.
+        println!("    of those, paced across ticks: {} slice(s), {} cells", f.staged_slices, f.staged_cells);
         // How much of the damage happened to rock with nowhere to go --
         // the mid-mountain collapse the owner reports as looking fake.
         // A picture cannot answer this: a collapse at a cliff edge and one

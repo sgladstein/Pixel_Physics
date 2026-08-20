@@ -745,9 +745,40 @@ clippy clean. Acceptance 14/16 with the same two pre-existing failures.
 Net cells lost in the buried case unchanged at 112 — calving relocates
 rim rock into the pocket, it does not eat more world.
 
+## 12. R3a — big collapses arrive in stages
+
+Built per §7e, with one deliberate design change forced by measurement:
+the specced "fracture a slice, reschedule the remainder and let it
+re-fail" was built first and failed two ways — it *stalls* (the load
+budget starves the re-judgment: a miniature ligament was still 1,132 of
+4,420 cells short after 1,200 frames) and it can *lose* (the remainder
+escapes via the disturbance window at any setting but SPREAD, or via the
+12× attached-bulk bonus it still carries) — each of which is rock hanging
+in air. Recorded as a dead end in the source. What shipped instead is a
+**work queue, not a fresh question**: `World::staged_fractures` holds the
+remainder and `structural::advance_staged_fractures` (called from
+`scheduler::step`, outside the site/load budgets) takes a jittered
+BFS slice of `FRACTURE_CELLS_PER_TICK = 1,000` cells every 5 frames,
+re-filtering each slice against current world contents so a later blast
+or landing body cannot be double-fractured. The cut frontier is ordered
+on `distance + jitter` because a plain BFS ring is an L1 diamond — the
+§9 complaint re-manufactured by a new mechanism.
+
+Measured: `ligament`'s 4,420-cell overhang now comes down in 5 bites over
+~25 frames (bodies per tile 34→67→90→106→90→72→70→68→65 against a single
+142-body burst), worst frame **72.3 → 30.5 ms**, and the pre-existing
+`ligament` acceptance failure recorded in §10 is now a PASS (suite
+15/16 — only `roomcut` remains, pre-existing). `worked`/`capped`/`snap`/
+both cavern scenes byte-identical (the cavern scenes never reach the cap —
+containment already shrank their failures; stated, not hidden). New
+counters `staged_slices`/`staged_cells` print in filmstrip. 629 tests,
+clippy clean. Known residuals, stated: confined crushes are not paced (a
+20,000-cell confined crush is still one tick); the transient slice
+boundary reads as a wobbly diagonal for the 5 frames each stage lives.
+
 ### What is still open, in order
 
-1. **R3a** (fracture pacing) — small, specced in §7e, still wanted.
+1. ~~R3a~~ — done, §12.
 2. **R4** (powder surcharge) — the roof-drop completion, behind the seed
    sweep (§7f trap 12).
 3. **R3b** (converged relax after mass failure) — behind the
