@@ -6,6 +6,13 @@ Where a powder falls and piles, a liquid falls and then spreads sideways
 until it finds a level surface — the same way real water does, settling
 flatter and flatter over time rather than holding any kind of slope.
 
+**Moving water runs white.** Water in motion — falling, pouring, spreading,
+splashing — draws pale and foamy, and goes back to its deep still colour
+the moment it comes to rest. So a fall reads as a bright ribbon into a
+dark pool, a draining basin churns pale at the outlet, and you can tell at
+a glance which part of a body of water is doing something and which part
+is simply sitting there.
+
 - **Water** settles quickly and cleanly into a flat pool, and left in the
   open it slowly dries up — see [Weather](weather.md) for why a puddle goes
   and a lake stays.
