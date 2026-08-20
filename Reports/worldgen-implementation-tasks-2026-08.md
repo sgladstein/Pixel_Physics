@@ -373,3 +373,52 @@ writes water shades 0..3 while `water.ron` ships a **three**-entry palette,
 so `palette[shade % 3]` aliases shade 3 onto entry 0 and that entry draws
 twice as often as the other two. Cosmetic, and a one-line data fix
 (a fourth colour) if anyone wants the three tones evenly weighted.
+
+### 2 — Sweep notes, and one thing the sweep found on its own
+
+`scripts/worldgen_sweep.sh` (+ `scripts/worldgen_sweep_baseline.tsv`), six
+presets x seeds 1..16 = 96 runs at 512x320, ~23 s. `run` prints the table,
+`baseline` rewrites the committed TSV, `compare` re-runs and diffs it.
+
+Verified as the task asked: two back-to-back `run`s produce **byte-identical
+output**; setting every preset's `tree_density` to `0.0` and running
+`compare` flags `life_scatter` in exactly the four presets that had trees
+(canyon −40%, rolling −47%, terraced −52%, wetland −41%) and **nothing
+else**; reverting returns a clean compare (0 counters moved).
+
+**`assets/worldgen.ron` is not an `include_str!` asset.** Landmine §7.2 is
+about `assets/materials/*.ron`, which are compiled in; `WorldgenPresets::
+load()` reads `assets/worldgen.ron` from disk at runtime, so a preset edit
+takes effect on the next *run* rather than the next build. That is why the
+`tree_density` check above worked without rebuilding — and it is worth
+knowing before someone spends a sweep wondering why their preset knob
+appears connected when material knobs in the same session do not.
+
+**What the sweep found while being calibrated: generated worlds do not
+*stay* asleep.** `awake_chunks` is sampled at frame 100, and its floor is
+not zero on any preset — p90/max of 3/6 (arid), 6/8 (rolling, flat), 7/7
+(canyon, terraced), 6/10 (wetland), out of 40 chunks. **`flat` is the case
+that makes this a finding**: dead-level bare rock, no water, no life, no
+pockets, nothing that can move, and it still reads 8 of 40 awake, with
+`active_site_count` climbing 200 → 482 → 512 over frames 20 → 60 → 200 —
+which on a 512-wide world is one site per column.
+
+This is pre-existing on this branch base (nothing in task 1 or 2 changes
+engine behaviour), and the at-rest suite is green because it asks a
+different question: `generated_terrain_stops_sweeping_almost_immediately`
+measures the **first** frame at which `active_chunk_count()` reaches zero
+and stops there. It never asks whether the world stays quiet, so a world
+that goes quiet at frame 30 and re-wakes at frame 60 passes it.
+
+On `flat` the only `ActiveKind`s that can be responsible are
+`StructuralCheck` and `Evaporate`, and `flat` has no water. That points at
+`src/sim/structural.rs`, which this track is explicitly read-only on
+(§ground rules, and landmine §7.18) — so this is filed as a finding, not
+chased. It matters because of landmine §7.20: a permanently-awake chunk
+anywhere defeats `field::step`s early-out at ~7 ms/frame for the whole
+world, and 3–8 of 40 is not "anywhere", it is a fifth of the world.
+
+Consequence for this sweep: the `awake_chunks` row is a **tracked** number,
+not a gate at zero, and `compare` flags it only on a move of at least 3
+chunks *and* 30% — a floor a small integer counter needs, since 6 → 8 is
++33% and is noise at this scale.
