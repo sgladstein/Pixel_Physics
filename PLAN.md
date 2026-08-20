@@ -367,32 +367,56 @@ ledger and nothing credits it back, so an all-soil world's rain thins to
 about half strength over ~45,000 frames and settles there — see
 `weather::STORM_RESERVE`'s doc for the trajectory.
 
-**Non-goal, stated so it is a decision rather than an omission: there is no
-day/night temperature oscillation yet**, although the field carries a temperature
-channel and the light channel has oscillated since M16. Three reasons, and the
-first is measured:
+**And the loop now runs on the day.** `filmstrip scene=watercycle` is the
+closing demonstration: the same pond and shore in a window spanning two clear
+days, a storm, and a clear day after it, sampled every quarter-day. The bank
+climbs about 4.4 cell-equivalents across each warm quarter and about 1.18
+across each cool one, goes negative through the front, and `water_equivalents
++ bank` reads **3940.0 on all twenty tiles**.
 
-- `render.rs`'s heat glow early-exits on `cell.temperature() != AMBIENT_TEMPERATURE`
-  — an *exact equality* against a single ambient constant, which is true for nearly
-  every cell nearly always. An oscillating ambient makes that test false everywhere
-  at once, and the branch behind it was measured to **nearly triple `cell_colour`'s
-  cost** across a full 512x320 stress scene when it ran unconditionally. The whole
-  screen would draw warm-tinted and pay for it.
-- Every consumer that compares against a temperature would have to divide the
-  oscillator back out, the way `field::noon_equivalent_light` already does for
-  light (`CLAUDE.md`: a channel that oscillates by design must be divided out of
-  decisions). That is `evaporation.rs`'s rate, `creature.rs`'s comfort band, and
-  every `melting_point`/`boiling_point`/`cooling_point` compare in `fire.rs` —
-  a threshold sampled at an arbitrary phase of a designed oscillator is a
-  different threshold every hour.
-- Field tiles sleep when they converge (`fields_settled`). A temperature that
-  never stops moving is a temperature that never converges, so no tile ever
-  sleeps again.
+~~**Non-goal: there is no day/night temperature oscillation yet.**~~
+**Retired — it exists, and it is field-only.** The sky writes a ±6C
+oscillation into the field's temperature channel
+(`field::apply_sky_temperature_to`), attenuated with depth by the same
+per-column transmission that attenuates light, so open air feels the whole
+swing and deep rock feels none of it. The three reasons this was a non-goal
+were the work it actually is, and each was done rather than dodged:
 
-None of these is a reason it cannot be done; they are the work it actually is.
-The cheap first step, when it comes, is `noon_equivalent_temperature` alongside
-the light one — the oscillator is a pure function of the frame, so dividing it
-out costs no storage.
+- **The renderer.** `render.rs`'s heat glow early-exits on `cell.temperature()
+  != AMBIENT_TEMPERATURE`, an exact equality that an oscillating *cell*
+  temperature would make false for every cell at once — measured to nearly
+  triple `cell_colour`. Answered by construction: the pass writes
+  `FieldCell::temperature` and **no `Cell::temperature`, anywhere**, so every
+  melting, boiling, cooling and ignition compare in `fire.rs` is untouched
+  without any arithmetic being careful.
+- **Dividing the oscillator out of decisions.** `noon_equivalent_temperature`
+  does it, *subtractively* — temperature is an interval scale with a signed,
+  sign-changing forcing, so light's divide-and-rescale does not transfer.
+  Every decision consumer goes through it: `field.rs`'s moisture decay,
+  `creature.rs`'s worm thresholds and thermotaxis.
+- **Field sleep.** Answered by quantising the offset to a staircase coarser
+  than the settle epsilon (`SKY_TEMPERATURE_QUANTUM`), so the offset is a
+  value that genuinely changes at a frame the gate can recognise and holds
+  still in between. Cost, measured over a full day on settled ground with 160
+  rows of stone: 925 field passes against 825 with the sky's temperature off,
+  +27 ms over 3,600 frames, and **37.2 tiles solved per pass against 39.97** —
+  the solver does not touch more of the world per pass with it on.
+
+**One thing reads it diurnally, deliberately, and exactly one**: standing
+water dries faster when the air over it is warm (`evaporation::warmth`, off
+the raw reading rather than the noon-equivalent, because here the oscillation
+*is* the effect). Measured 2.47:1 noon against midnight on a shaded basin and
+3.7:1 on an open shore, mean-neutral over whole days so `FILL_PER_CHECK` and
+`HUMID_STOP` both keep their meaning — checked, and neither moved. Judged on
+`filmstrip scene=watercycle`. Guarded from both sides:
+`days_evaporate_more_than_nights` says it is there, and
+`humidity_does_not_go_diurnal` says the day has not leaked into the humidity
+channel that `dryness` reads, which would multiply the cycle into the rate
+twice.
+
+Everything else still reads the noon-equivalent. Making a *second* consumer
+diurnal is a per-consumer decision with its constants re-derived against the
+new meaning, not a switch to flip.
 
 ---
 

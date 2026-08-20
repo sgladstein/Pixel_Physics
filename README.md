@@ -335,6 +335,23 @@ water is exactly the state the sweep stops visiting. Built on the sweep
 first, it dried a lake faster than a puddle (7% against 1.7%) because a lake
 stays awake settling for longer. The sweep now only *schedules*.
 
+**The loop closes, and it runs on the day.** Evaporation used to delete
+water and credit nothing while precipitation created it out of nothing; both
+halves now go through one `f64` on `World` in cell-equivalents
+(`World::atmospheric_bank`), so a storm can only spend what evaporation put
+there and `render.rs` thins the *drawn* rain by the same supply factor. On
+top of that, `evaporation::warmth` reads the sky's day/night temperature
+**raw** — the one place in the engine that does not divide a designed
+oscillator back out, because here the oscillation is the effect: a puddle
+loses 2.47x as much across a noon-centred window as across a midnight-centred
+one under a lid, 3.7x under open sky. The factor is *linear* in the offset,
+so its day-mean is exactly 1.0 and the drying timescale is unchanged over
+whole days — re-measured at -0.1% over four days, with `FILL_PER_CHECK` and
+`HUMID_STOP` both checked and neither moved. `filmstrip scene=watercycle`
+runs two clear days, a storm and a clear day after it: the bank climbs
+through each afternoon, sits nearly still through each night, drains through
+the front, and standing water plus bank reads 3940.0 on all twenty tiles.
+
 One fix in the field was a prerequisite: `step_diffusion`'s wall rule
 discarded the moisture source in any block that also held solid, so water in
 a rock basin humidified nothing at all -- 2.310 in the air above a body whose
