@@ -1327,6 +1327,17 @@ struct Args {
     /// `check_expectations`.
     min_overloaded: Option<u32>,
     max_failures: Option<u32>,
+    /// `max_unconfined=N` -- like `max_failures`, but **confined crushes
+    /// don't count**: the bound is on unsupported failures plus overloads
+    /// whose region had a free face. For a scene asserting "nothing comes
+    /// apart" over material that can legitimately crack in place --
+    /// `scene=coldsnap`'s pond, which a hard front freezes solid to the
+    /// basin floor now that stone conducts, whose confined interior then
+    /// crush-fissures and thaws back to clean water -- `max_failures=0`
+    /// gates the wrong mechanism: a fissure is not a collapse. Dismantling
+    /// (the thing such a scene is actually about) still lands in this
+    /// count, because a dismantled region by definition has a free face.
+    max_unconfined: Option<u32>,
     /// `max_frame_ms=N` -- exit non-zero if the **minimum** worst-frame
     /// across `repeat` runs exceeds N.
     ///
@@ -1469,6 +1480,7 @@ fn parse() -> Args {
         loadmap: false,
         repeat: 1,
         min_overloaded: None,
+        max_unconfined: None,
         max_failures: None,
         max_frame_ms: None,
         min_bodies: None,
@@ -1546,6 +1558,7 @@ fn parse() -> Args {
             "span" => a.span = v.parse().expect("span"),
             "pond" => a.pond = v.parse().expect("pond"),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
+            "max_unconfined" => a.max_unconfined = Some(v.parse().expect("max_unconfined")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
             "max_lost" => a.max_lost = Some(v.parse().expect("max_lost")),
             "depth" => a.depth = Some(v.parse().expect("depth")),
@@ -2005,7 +2018,29 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
             ok = false;
         }
     }
-    if ok && (args.min_overloaded.is_some() || args.max_failures.is_some() || args.max_frame_ms.is_some() || args.min_bodies.is_some()) {
+    if let Some(max) = args.max_unconfined {
+        // `confined` counts failures of *either* mode whose region had no
+        // free face (`structural.rs` records the confined-unsupported
+        // "pocket wedged in its own hole" case too), so it subtracts from
+        // the combined total, not from `overloaded` alone. Saturating
+        // because the invariant confined <= total is structural.rs's, not
+        // this harness's, to enforce.
+        let unconfined = (f.overloaded + f.unsupported).saturating_sub(f.confined);
+        if unconfined > max {
+            println!(
+                "  FAIL: expected at most {max} unconfined structural failures, got {unconfined} ({} overloaded of which {} confined, {} unsupported)",
+                f.overloaded, f.confined, f.unsupported
+            );
+            ok = false;
+        }
+    }
+    if ok
+        && (args.min_overloaded.is_some()
+            || args.max_failures.is_some()
+            || args.max_unconfined.is_some()
+            || args.max_frame_ms.is_some()
+            || args.min_bodies.is_some())
+    {
         println!("  OK: scene={} met its expectations", args.scene);
     }
     ok
