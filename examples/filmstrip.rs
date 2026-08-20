@@ -963,8 +963,37 @@ fn build(args: &Args) -> World {
                 w.paint_capsule((80, y), (80, y), 0, material::EMPTY, 1.0);
             }
         }
+        // A natural cave: a void inside *attached* rock, the situation every
+        // mining blast actually happens in. `boom_stone` answers "what does a
+        // blast do to a solid mass"; this answers the two questions that mass
+        // cannot ask -- what happens at a cave *wall* (one free face beside
+        // the charge) and under a cave *roof* (free face below, gravity
+        // pointing into it). Place the charge with the ordinary `explode=`
+        // arg: (186,240) is inside the left wall, (256,200) is inside the
+        // roof. The printed "roofed void (cave volume)" line is the number to
+        // read -- a blast that widens the cave grows it, one that caves the
+        // roof in shrinks it.
+        "cavern" => {
+            stone_floor(&mut w);
+            for x in 106..406 {
+                for y in 130..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // The cave: an ellipse, 120 wide by 56 tall, roof 82 cells thick.
+            let (cx, cy, a, b) = (256i32, 240i32, 60f32, 28f32);
+            for x in (cx - 60)..=(cx + 60) {
+                for y in (cy - 28)..=(cy + 28) {
+                    let (dx, dy) = ((x - cx) as f32 / a, (y - cy) as f32 / b);
+                    if dx * dx + dy * dy <= 1.0 {
+                        w.set(x, y, Cell::EMPTY);
+                    }
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+        }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, cavern"
         ),
     }
     w
