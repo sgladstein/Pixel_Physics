@@ -1778,7 +1778,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1796,6 +1796,15 @@ impl App {
                 String::new()
             } else {
                 format!(" — grain {}", self.renderer.grain.label())
+            },
+            // Same rule again for the terrain depth light (`F10`), with the
+            // roles flipped: the depth grade is the default, so the label
+            // appears when someone has switched *back* to the flat look and
+            // needs the screenshot to say so.
+            if self.renderer.terrain_light == render::TerrainLight::default() {
+                String::new()
+            } else {
+                format!(" — light {}", self.renderer.terrain_light.label())
             },
             // Same rule as grain: silent until someone is actually
             // comparing, then named, because the whole value of a

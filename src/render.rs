@@ -44,6 +44,35 @@ const UNDERGROUND: [u8; 4] = [31, 29, 33, 255];
 /// what `dirty_rect_skip_is_pixel_identical_to_a_full_redraw` requires and
 /// what sank the stateful version of the skyline itself.
 const CAVE_FADE_DEPTH: i32 = 24;
+
+/// Rows over which solid terrain fades from full surface light to
+/// `DEPTH_LIGHT_FLOOR`. The 2026-08 world review's single most consistent
+/// graphics finding: deep rock drew at identical brightness to surface rock,
+/// so the lower half of every strip read as flat wallpaper — a finished sky
+/// over an unlit cutaway. This is the cutaway's vertical light axis.
+///
+/// Same contract as `CAVE_FADE_DEPTH` above, and it must stay that way: a
+/// pure function of `(x, y, horizon[x])` where the horizon is frozen at
+/// genesis, so it cannot disagree between a renderer that has history and a
+/// fresh one, and it cannot defeat the dirty-rect skip (nothing here varies
+/// frame to frame). Sixty-four rows is set by eye against the review strips:
+/// one viewport-height of descent reads as "getting deep" without the
+/// surface band itself visibly shading.
+const DEPTH_LIGHT_RAMP_ROWS: i32 = 64;
+
+/// Brightness of solid terrain at and below the bottom of the depth ramp.
+/// Never black — the strata banding is the one landscape feature the review
+/// called a genuine win, and it must stay legible at full depth. Composes
+/// with `sky::apply_light`'s `UNLIT_FLOOR` (0.42) rather than replacing it,
+/// which is also what softens the review's night-silhouette inversion: deep
+/// rock at night now sits at ~0.26 of palette instead of 0.42.
+const DEPTH_LIGHT_FLOOR: f32 = 0.62;
+
+/// Brightness lift for the single row sitting exactly on the frozen skyline
+/// — the "top surface catches the light" cue. One row only: the review asked
+/// for a skyline highlight, not a glowing crust.
+const DEPTH_LIGHT_HIGHLIGHT: f32 = 1.12;
+
 const CHUNK_BORDER_ACTIVE: [u8; 4] = [80, 200, 120, 255];
 const CHUNK_BORDER_SETTLED: [u8; 4] = [60, 60, 70, 255];
 
@@ -139,6 +168,46 @@ impl GrainMode {
             GrainMode::Motion => "MOTION",
             GrainMode::AnimatedMuted => "ANIMATED-MUTED",
             GrainMode::AnimatedSmooth => "ANIMATED-SMOOTH",
+        }
+    }
+}
+
+/// Whether solid terrain is lit by its depth below the frozen skyline.
+///
+/// A live selector for the same reason `GrainMode` is one: "does this look
+/// right" is only answerable in the running app, and the depth grade changes
+/// every screenshot of every world, so the owner judges it as an A/B against
+/// the exact strips the world review praised (the night strip especially —
+/// the ramp softens the terrain-brighter-than-sky inversion, and whether
+/// that improves or diminishes the most-praised frame in the review is an
+/// eyes-only question). `Depth` is the default because the review's graphics
+/// lens ranked the missing vertical light axis as the single largest
+/// whole-picture defect; `Off` is one `F10` away and is the pre-review look.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum TerrainLight {
+    /// Solid cells dim from full surface brightness at the skyline to
+    /// `DEPTH_LIGHT_FLOOR` over `DEPTH_LIGHT_RAMP_ROWS`, with a one-row
+    /// highlight on the skyline itself. A pure function of
+    /// `(x, y, horizon[x])` — keeps the dirty-rect skip.
+    #[default]
+    Depth,
+    /// The pre-review look: depth changes nothing about a solid cell's
+    /// light.
+    Off,
+}
+
+impl TerrainLight {
+    fn next(self) -> Self {
+        match self {
+            TerrainLight::Depth => TerrainLight::Off,
+            TerrainLight::Off => TerrainLight::Depth,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TerrainLight::Depth => "DEPTH (current)",
+            TerrainLight::Off => "FLAT",
         }
     }
 }
@@ -595,6 +664,14 @@ pub struct Renderer {
     /// Built from the formula in `Renderer::new` rather than written out, so
     /// the constant above stays the only place the shape is stated.
     cave_ramp: [u8; CAVE_FADE_DEPTH as usize + 1],
+    /// `F10` — whether solid terrain is lit by depth below the skyline.
+    pub terrain_light: TerrainLight,
+    /// `DEPTH_LIGHT_RAMP_ROWS`'s ramp, precomputed for the same reason as
+    /// `cave_ramp` directly above: read per solid pixel, and it only ever
+    /// takes `DEPTH_LIGHT_RAMP_ROWS + 1` distinct settings. Fixed-point
+    /// brightness factor, 256 = 1.0; entry 0 is the skyline highlight and
+    /// exceeds 256 on purpose.
+    depth_light_ramp: [u16; DEPTH_LIGHT_RAMP_ROWS as usize + 1],
     /// Where the moon was painted last frame, so its old pixels get cleaned
     /// up. Same device as `last_body_rects`.
     last_moon_rect: Option<Rect>,
@@ -646,10 +723,37 @@ impl Renderer {
                 }
                 ramp
             },
+            terrain_light: TerrainLight::default(),
+            depth_light_ramp: {
+                let mut ramp = [256u16; DEPTH_LIGHT_RAMP_ROWS as usize + 1];
+                ramp[0] = (DEPTH_LIGHT_HIGHLIGHT * 256.0).round() as u16;
+                for (i, slot) in ramp.iter_mut().enumerate().skip(1) {
+                    // Smoothstepped, unlike `cave_ramp`'s square root, and
+                    // for the opposite reason: the cave fade wants most of
+                    // its drop in the first rows (a roof blocks the most),
+                    // while sunlight soaking into a hillside should leave
+                    // the surface *band* bright and ease into the dark —
+                    // a fast first-row drop here read as the whole surface
+                    // being one bright crust on a dark slab. Smoothstep is
+                    // flat at both ends: no knee at the surface, no knee
+                    // where the ramp meets the floor.
+                    let t = i as f32 / DEPTH_LIGHT_RAMP_ROWS as f32;
+                    let s = (1.0 - t) * (1.0 - t) * (3.0 - 2.0 * (1.0 - t));
+                    *slot = ((DEPTH_LIGHT_FLOOR + (1.0 - DEPTH_LIGHT_FLOOR) * s) * 256.0).round() as u16;
+                }
+                ramp
+            },
             last_moon_rect: None,
             horizon: Vec::new(),
             horizon_origin: 0,
         }
+    }
+
+    /// `F10` — toggle the terrain depth light, so the review's largest
+    /// graphics change can be judged as an A/B in the running app against
+    /// the pre-review look. Same convention as `cycle_grain` below.
+    pub fn cycle_terrain_light(&mut self) {
+        self.terrain_light = self.terrain_light.next();
     }
 
     /// `G` — step through the liquid grain modes. This exists so the
@@ -1671,6 +1775,32 @@ impl Renderer {
         // thing that emits is the one thing that stays bright, which is the
         // behaviour a special case would have had to fake.
         let rgb = sky::apply_light(rgb, self.daylight, self.sky.ambient());
+        // Depth grade after the sky light, so the two compose: deep rock at
+        // night is `UNLIT_FLOOR x DEPTH_LIGHT_FLOOR` of its palette, which
+        // is what pulls the night cross-section back under the night sky's
+        // brightness. Solid-only in effect, not by a kind test: everything
+        // *above* the frozen skyline (trees, standing water in a hollow, a
+        // placed block, the sky itself) has negative depth and is untouched,
+        // and what sits below it is the ground this exists to shade. Water
+        // and air inside the ground already have their own treatments (fill
+        // dimming, the cave fade) and take the same grade on top, which is
+        // deliberate — a flooded cave is deep first and wet second.
+        let rgb = match self.terrain_light {
+            TerrainLight::Off => rgb,
+            TerrainLight::Depth => {
+                let depth = self.sky_depth(x, y);
+                if depth < 0 {
+                    rgb
+                } else {
+                    let f = self.depth_light_ramp[depth.min(DEPTH_LIGHT_RAMP_ROWS) as usize] as u32;
+                    [
+                        ((rgb[0] as u32 * f) / 256).min(255) as u8,
+                        ((rgb[1] as u32 * f) / 256).min(255) as u8,
+                        ((rgb[2] as u32 * f) / 256).min(255) as u8,
+                    ]
+                }
+            }
+        };
         let tinted = self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255]);
         // Applied *after* the field overlay, deliberately: the two can be on
         // at once (light and canopy density together is the pairing that
@@ -2161,6 +2291,72 @@ mod tests {
         assert!(!r.under_sky(64, 110), "rock under the lake bed is underground");
     }
 
+    /// The terrain depth light (2026-08 world review): rock dims with depth
+    /// below the frozen skyline, the skyline row is lifted, and anything
+    /// sitting *above* the skyline — here a pond — is untouched by the mode,
+    /// so the grade cannot leak into water, trees, or the sky. The weakest
+    /// assertion that fails if the mechanism is deleted entirely; the look
+    /// itself is judged from `viewshot light=depth|flat` strips and `F10`.
+    #[test]
+    fn terrain_depth_light_dims_rock_with_depth_and_spares_whats_above_the_skyline() {
+        // Same shape as `sky::tests::brightness`, which is not visible from
+        // here.
+        fn brightness(c: [u8; 4]) -> u32 {
+            c[0] as u32 + c[1] as u32 + c[2] as u32
+        }
+        let mut world = World::new(Rect::new(0, 0, 127, 255));
+        for x in 0..128 {
+            for y in 64..256 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // A pond standing on the ground: water is not ground, so the frozen
+        // skyline is the rock at y=64 and the water above it has negative
+        // depth.
+        for x in 40..90 {
+            for y in 58..64 {
+                world.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        world.begin_step();
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+
+        r.terrain_light = TerrainLight::Depth;
+        let surface = brightness(r.cell_colour(&world, 10, 64));
+        let shallow = brightness(r.cell_colour(&world, 10, 65));
+        let deep = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS));
+        let water_depth = r.cell_colour(&world, 64, 60);
+
+        r.terrain_light = TerrainLight::Off;
+        let shallow_flat = brightness(r.cell_colour(&world, 10, 65));
+        let deep_flat = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS));
+        let surface_flat = brightness(r.cell_colour(&world, 10, 64));
+        let water_flat = r.cell_colour(&world, 64, 60);
+
+        assert!(
+            deep < shallow,
+            "rock {DEPTH_LIGHT_RAMP_ROWS} rows down ({deep}) must draw dimmer than rock one row down ({shallow})"
+        );
+        assert!(deep < deep_flat, "the grade must actually dim deep rock ({deep} vs flat {deep_flat})");
+        assert!(
+            surface > surface_flat,
+            "the skyline row is lifted ({surface} vs flat {surface_flat}), not merely spared"
+        );
+        // The jitter grain is position-keyed and identical across modes, so
+        // exact equality is the right assertion, not a tolerance.
+        assert_eq!(water_depth, water_flat, "water above the skyline must not take the grade");
+        assert!(
+            (shallow as i32 - shallow_flat as i32).abs() <= 2,
+            "one row below the skyline is inside the smoothstep's flat start and must be visually untouched ({shallow} vs {shallow_flat})"
+        );
+        assert!(
+            deep > brightness(UNDERGROUND),
+            "deep rock stays legible — dimmer is not dark ({deep} vs underground {})",
+            brightness(UNDERGROUND)
+        );
+    }
+
     /// Reported from play: "the effect where light is blocked below plants
     /// or really anything is way too intense", with a picture of a tree.
     ///
@@ -2329,6 +2525,10 @@ mod tests {
         let mut world = World::new(Rect::new(0, 0, 63, 63));
         world.set(30, 30, Cell::new(material::SAND, 0));
         let mut renderer = Renderer::new();
+        // A lone cell is its own column's skyline, so the terrain depth
+        // light would lift it; this test is about palette + grain, so the
+        // selector is pinned flat.
+        renderer.terrain_light = TerrainLight::Off;
         let particles = ParticleSystem::new();
 
         // A 128-wide framebuffer over a 64-wide world: the right half is void.
@@ -2623,6 +2823,10 @@ mod tests {
         let temperature = AMBIENT_TEMPERATURE + HEAT_GLOW_RANGE as i16; // heat_ratio == 1.0 exactly
         world.set(10, 0, Cell::new(material::STONE, 0).with_temperature(temperature));
         let mut renderer = Renderer::new();
+        // The lone hot cell is its column's skyline, so the terrain depth
+        // light would lift it and break the hand-reconstructed prediction;
+        // this test is about the fire tint, so the selector is pinned flat.
+        renderer.terrain_light = TerrainLight::Off;
         let particles = ParticleSystem::new();
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];

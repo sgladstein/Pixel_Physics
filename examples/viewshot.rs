@@ -41,6 +41,7 @@ struct Args {
     settle: usize,
     rain: String,
     mine: bool,
+    light: pixel_physics::render::TerrainLight,
     out: String,
 }
 
@@ -56,6 +57,7 @@ fn main() {
         settle: 60,
         rain: String::new(),
         mine: false,
+        light: pixel_physics::render::TerrainLight::default(),
         out: "target/filmstrips/viewshot.png".to_string(),
     };
     for arg in std::env::args().skip(1) {
@@ -77,6 +79,15 @@ fn main() {
             // the failure was reported for a *narrow* one and a fix that only
             // worked for narrow ones would be worth knowing about.
             "mine" => a.mine = v != "0",
+            // `light=flat` renders the pre-review look, for A/B strips of
+            // the terrain depth light (`F10` in the app).
+            "light" => {
+                a.light = match v {
+                    "depth" => pixel_physics::render::TerrainLight::Depth,
+                    "flat" | "off" => pixel_physics::render::TerrainLight::Off,
+                    other => panic!("unknown light {other:?} (depth|flat)"),
+                }
+            }
             "out" => a.out = v.to_string(),
             _ => panic!("unknown argument {arg:?}"),
         }
@@ -158,6 +169,7 @@ fn main() {
     }
 
     let mut renderer = Renderer::new();
+    renderer.terrain_light = a.light;
     let particles = ParticleSystem::new();
     let (vw, vh) = (WIDTH as usize, HEIGHT as usize);
     let mut sheet = vec![0u8; vw * vh * a.shots * 4];

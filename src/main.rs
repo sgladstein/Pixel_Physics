@@ -402,6 +402,7 @@ impl Handler {
             // what caught the collision, not a runtime symptom.
             KeyCode::KeyL => self.app.renderer.cycle_organism_overlay(),
             KeyCode::KeyG => self.app.renderer.cycle_grain(),
+            KeyCode::F10 => self.app.renderer.cycle_terrain_light(),
             // The A/B key. Deliberately reassigned as the question changes --
             // see `App::toggle_experiment`.
             KeyCode::KeyK => self.app.toggle_experiment(),
