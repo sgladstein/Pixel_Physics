@@ -736,16 +736,34 @@ const CAVE_GRID_H: i32 = 2 * CAVE_HALF_H + 1;
 
 /// Size of one Worley lattice cell, in *sheared* cave-space cells.
 ///
-/// Together with [`CAVE_SQUASH`] this sets how many chambers a system holds:
-/// the envelope spans `(2 * CAVE_HALF_W / CAVE_CELL)` lattice cells across
-/// and `(2 * CAVE_HALF_H * CAVE_SQUASH / CAVE_CELL)` down -- about 3.5 x 2.7
-/// = 9 cells at these values, the middle of the 6-12 the spec asks for.
-const CAVE_CELL: f32 = 52.0;
+/// Together with [`CAVE_SQUASH`] this sets how many lattice cells the
+/// envelope holds: `(2 * CAVE_HALF_W / CAVE_CELL)` across and
+/// `(2 * CAVE_HALF_H * CAVE_SQUASH / CAVE_CELL)` down. Round 3 shipped 52,
+/// which gives ~3.5 x 2.7 = 9 -- and round 5 measured what that actually
+/// means: the whole envelope is one open lens with the ceiling guard's
+/// stone teeth in it read as pillars, median open column 30 in a 69-tall
+/// box (`Reports/cave-beauty-review-2026-08.md`'s measured addendum). At 9
+/// lattice cells there is no anatomy to have. 22.0 gives ~8.2 x 3.8 = 31
+/// cells -- `cave_probe field=` at this value measures open column med 4,
+/// p95 11-12, max 20-28 over three field seeds, against the old field's
+/// med 30 (see the round-5 task file's table); the built world has to be
+/// re-measured because the ceiling guard and gravel floors are downstream
+/// of the raw field and can reshape it.
+const CAVE_CELL: f32 = 22.0;
 
 /// Vertical compression applied before the field is sampled, so everything
 /// the threshold carves -- chambers and passages both -- comes out wider
 /// than tall, lying along the bedding rather than cutting across it.
-const CAVE_SQUASH: f32 = 2.0;
+///
+/// Round 3 shipped 2.0; round 5 drops it to 1.2, landed together with
+/// [`CAVE_CELL`] and [`CAVE_THRESHOLD`] because the three only mean
+/// anything as a set (`Reports/worldgen-implementation-tasks-round5-2026-08.md`
+/// task 2). This is the anisotropy of the *lattice*, not of the bedding
+/// dip -- that is `strata_offset`'s shear, applied separately below, and
+/// unaffected by this constant; a strip has to confirm by eye that systems
+/// still lie along the visible dip after the drop, and if they stop, that
+/// is a finding, not a reason to put the squash back.
+const CAVE_SQUASH: f32 = 1.2;
 
 /// Cells over which the threshold fades to nothing at the envelope edge,
 /// per axis. Without the fade, a passage crossing the boundary is sawn off
@@ -772,7 +790,13 @@ const CAVE_EDGE_FADE_Y: f32 = 7.0;
 /// keep below then throws away. One threshold on one field is also exactly
 /// what the research names (`Reports/worldgen-design.md` §7). See the
 /// round-3 finding.
-const CAVE_THRESHOLD: f32 = 0.34;
+///
+/// Round 3 shipped 0.34, which at the round-3 [`CAVE_CELL`] opened ~53% of
+/// a 9-lattice-cell envelope -- one flooded room, not a network. Round 5
+/// drops it to 0.09 alongside the smaller lattice cell above; the two
+/// changes are not independent; see [`CAVE_CELL`] for the measured field
+/// numbers this pair produces.
+const CAVE_THRESHOLD: f32 = 0.09;
 
 /// Longest horizontal run of void with stone directly above it that a
 /// system may keep, in cells -- the roof-span bound the round-2 arithmetic
@@ -1501,10 +1525,25 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     // open air, and eleven cells avalanched off it on frame one. That is the
     // talus lesson re-learnt in a cave: enumerating every way geometry can
     // undercut a heap misses one. So the planned shape is checked cell by
-    // cell against the slide rule powder actually obeys -- a gravel cell
-    // with open flank *and* open diagonal below it moves -- and any column
-    // that fails is lowered until nothing can. A property of the check, not
-    // of the case analysis.
+    // cell against the slide rule powder actually obeys, and any column that
+    // fails is lowered until nothing can. A property of the check, not of
+    // the case analysis.
+    //
+    // **Round-5 correction: the slide rule has no flank requirement.**
+    // `update_powder`'s diagonal step (`src/sim/update.rs`) tries
+    // `try_move(x, y, x +/- 1, y + 1)` straight off, and `try_move` only
+    // ever inspects the *target* cell -- it never reads `(x +/- 1, y)` at
+    // all. This check used to require that same-row flank open too, which
+    // is a stricter condition than the engine actually enforces, and task
+    // 2's narrower lattice was the first geometry to produce the gap: a
+    // gravel pair walled solid on both flanks, sitting over solid floor,
+    // but with the flank's *own* diagonal-down neighbour open one row
+    // further over -- `wetland` seed 1 lost exactly the two cells at
+    // (326,219)-(326,220) into (327,221) on frame one, reproduced with
+    // `probe_temp_t2_regression` before this fix and gone after it. Checking
+    // the flank was true of every shape round 3's wide, flat lenses could
+    // produce, so the gap was invisible until task 2 made narrow vertical
+    // shafts routine; it was never true of the rule the sand itself obeys.
     loop {
         let mut changed = false;
         for i in 0..floor.len() {
@@ -1514,12 +1553,10 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             }
             let dx = i as i32 - CAVE_HALF_W;
             let mut new_h = h;
-            // Shallowest gravel cell with an exposed flank, scanning down.
+            // Shallowest gravel cell with an open diagonal-down neighbour,
+            // scanning down -- the flank itself need not be open too.
             for y in (b - h + 1)..=b {
-                let exposed = [-1, 1].iter().any(|&s| {
-                    !planned_solid(&void, &floor, dx + s, y)
-                        && !planned_solid(&void, &floor, dx + s, y + 1)
-                });
+                let exposed = [-1, 1].iter().any(|&s| !planned_solid(&void, &floor, dx + s, y + 1));
                 if exposed {
                     // Drop this cell and everything stacked on it.
                     new_h = b - y;

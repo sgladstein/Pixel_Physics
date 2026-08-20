@@ -416,3 +416,72 @@ you know is fine before trusting it about a case you don't.
 *(Write here when a spec above does not survive contact with the code.
 One entry per surprise, with the numbers. Rounds 1–4 have eleven and
 every one is load-bearing.)*
+
+### R5-1 — Task 2's landed constants clear every bar but the contrast p10, and the built world matches the raw field
+
+`cave_probe field=1 t=0.09 t3=0 cell=22 squash=1.2` at three field seeds
+(1, 2, 3) measures contrast p95/median of 3.0x, 2.8x, 2.4x — already
+below 3.0 two times out of three at the *field* level, before anything
+downstream touches it. The built world (16 seeds x 5 caved presets,
+`cave_probe` with the task-1 fix and task 2's constants both landed)
+agrees with the field almost exactly: median open column 5 everywhere,
+tallest ≥ 25 everywhere (bar met, with headroom), median contrast 2.80x
+(wetland) to 3.00x (arid/canyon/rolling/terraced) — but **p10 of
+per-system contrast is 2.2x–2.6x across all five presets, below the
+task's own ≥ 3.0 bar**:
+
+| preset | p10 contrast (x100) |
+|---|---|
+| arid | 240 |
+| canyon | 240 |
+| rolling | 220 |
+| terraced | 260 |
+| wetland | 220 |
+
+Per the "watch for" note, the built world and the raw field agree (both
+sit at 2.4–3.0x depending on seed), which rules out the ceiling guard or
+gravel floors reshaping the field downstream — the field itself, sampled
+over more than three seeds, simply dips below 3.0x often enough to pull
+the 16-seed p10 under the bar. The bar was set from a 3-field-seed
+sample; at 16 seeds the true spread is wider than that sample showed.
+Median open column (3–8 target) and tallest column (≥25 target) both
+clear their bars with headroom, so the constants are not wrong, and nothing
+here calls for retuning them again mid-round (`CAVE_CELL`/`CAVE_THRESHOLD`/
+`CAVE_SQUASH` land as specified) — task 3's monumental chamber is the
+next lever, and it is expected to raise per-system contrast further
+because it adds one large opening to *every* system with room for one,
+which should lift the whole distribution rather than only the top of it.
+Recorded here in case task 3 does not close the gap: if the p10 bar is
+still short after task 3 lands, that is a second finding, not a reason
+to have skipped this one.
+
+### R5-2 — The floor verifier's slide rule was missing the sim's actual diagonal-move precondition, and task 2's tighter lattice was the first geometry to expose it
+
+Landing task 2's constants broke `a_forced_vault_world_is_sealed_and_arrives_at_rest`
+(`wetland` seed 1: 2 cells moved) — the first at-rest failure either task
+1 or task 2 produced. Reproduced with a temporary probe
+(`probe_temp_t2_regression`, written and removed in the same session):
+two gravel cells at (326,219)-(326,220), walled solid on *both* flanks
+and resting on solid stone below, moved to (327,221) on frame one.
+
+The floor verifier added in round 3 (R3-3) states its rule as "a gravel
+cell with open flank *and* open diagonal below it moves" and checks
+exactly that conjunction. `src/sim/update.rs::update_powder`'s actual
+diagonal step is `try_move(x, y, x +/- 1, y + 1)`, and `try_move` (same
+file) only ever inspects the *target* cell — it has no read of `(x +/-
+1, y)`, the flank, at all. The stated rule was stricter than the engine
+by one clause, so it silently passed any column where a flank was solid
+but that flank's *own* diagonal-down neighbour was open one column over
+— a case round 3's wide, flat lenses never produced (a wide room's
+floor has no narrow one-cell-wide verticals to expose it), and task 2's
+smaller `CAVE_CELL`/`CAVE_SQUASH` made routine.
+
+Fixed in `worldgen/passes.rs`'s floor-verifier fixpoint by dropping the
+flank half of the check — `exposed` is now just "either diagonal-down
+neighbour is open," matching `try_move`'s actual precondition exactly.
+This is a bug fix to code the round-3 task already owns and states as
+its own contract, not new scope: the verifier's whole point is to check
+the plan against "the slide rule powder actually obeys," and it was
+checking a rule that was not that one. Confirmed fixed: the reproduction
+no longer moves, and the full `cargo test --release` suite (615+31+2+8
+tests) passes with both task 1 and task 2 landed.
