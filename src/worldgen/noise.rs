@@ -77,6 +77,14 @@ pub enum Purpose {
     /// correlation the purpose tag exists to prevent
     /// (`Reports/prior-art-worldgen-slicing.md` §6.3).
     Palette = 15,
+    /// Per-dune amplitude and slip-face fraction, keyed on the dune index.
+    ///
+    /// Separate from `Dune`, which places the crests: keying both on the
+    /// same stream would tie a dune's height to where it happens to sit,
+    /// which is the correlation the tag exists to prevent.
+    DuneShape = 16,
+    /// Column-scale roughening applied to terrace risers.
+    Riser = 17,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

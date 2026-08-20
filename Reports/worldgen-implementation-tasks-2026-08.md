@@ -569,3 +569,156 @@ Strips: `target/filmstrips/task4-after-{rolling,canyon}-s{1,7}.png`, against
 `task3-after-*` as the before. Canyon s1 at 1:1 is the clearest: round pale
 blobs become elongated lenses lying in the bedding, and brown gravel lenses
 appear where there was nothing legible at all.
+
+### 5 — Dunes and risers: both knobs work, and **both needed the spec's mechanism to be re-aimed**
+
+Both changes are in `column.rs`, both behind a preset param defaulting to
+the new behaviour with `0.0` reaching the old one exactly, so the owner can
+A/B them by eye. Because `assets/worldgen.ron` is read at runtime, flipping
+either is a file edit and a re-run — no rebuild — which is how every before
+strip below was made.
+
+#### 5a. Dunes — the premise was wrong, and the first implementation was inert
+
+**The review's diagnosis does not survive measurement.** "The phase term
+`x/wavelength + 0.6*fbm` is dominated by the linear term, giving a
+constant-pitch sawtooth comb" — at `dune_variation: 0.0`, i.e. today, crest
+spacing on `arid` already has a coefficient of variation of **0.42 (seed 1)
+and 0.47 (seed 7)**. That is not a constant pitch. The fbm phase term is
+doing its job.
+
+What *is* uniform is crest **height**, and the cause is a constant that was
+compensating for nothing anybody had looked at: `arid` asks for
+`dune_amplitude: 18` against a repose cap of `max_slope * FALL * wavelength`
+= **13.2**. Three dunes in four were already pinned at the cap.
+
+So the obvious implementation of the spec — per-dune amplitude as
+`dune_amplitude * (1 ± v)` — is **inert**, and measurably so: crest-height
+spread moved 0.273 → 0.281 across the entire knob range. It reads exactly
+like a dead lever and is not one; the clamp was not limiting the variation,
+it was *absorbing* it. Varying **downward from the cap** instead is what
+makes the knob work, and it is also the physically honest direction, since
+a dune cannot be taller than repose allows and a real dune field is not all
+fully-developed dunes.
+
+Measured, `arid` at 2048 wide, crest height above its own troughs:
+
+| `dune_variation` | seed | crests | mean height | cv height | mean gap | cv gap |
+|---|---|---|---|---|---|---|
+| 0.00 | 1 | 29 | 12.07 | 0.273 | 62.3 | 0.419 |
+| 0.85 | 1 | 24 | 10.63 | 0.294 | 73.4 | 0.638 |
+| 0.00 | 7 | 28 | 14.10 | 0.292 | 72.4 | 0.465 |
+| 0.85 | 7 | 23 | 13.72 | 0.322 | 89.2 | 0.521 |
+
+Spacing spread is where most of the gain is (+52% on seed 1). Height spread
+moves less than the amplitude distribution suggests it should, and the
+reason is a **censored metric, stated rather than hidden**: as variety
+rises, the shortest dunes fall below the crest detector's prominence bar and
+stop being counted — which is why the crest count falls 29 → 24 alongside.
+The visible effect is in the strips.
+
+Two implementation notes worth keeping: the trough datum had to change from
+`(profile - 0.5) * amplitude` to `profile * amplitude - 0.5 * base`, because
+`profile` is 0 at both ends of a dune's cell and the old form puts the
+trough at `-0.5 * amplitude` — two neighbouring dunes of different height
+would meet at a step of half their difference. And the repose clamp is
+re-evaluated against each dune's **own** fall fraction, not the preset's,
+per the task's instruction; the at-rest suite is green and every arid seed
+loses zero cells.
+
+**The metric needed two rewrites, both the same mistake.** A crest detector
+using a 4-column window at 3 cells of prominence reported **zero crests** in
+a world that must contain about 35 — it was asking for a 3-cell drop within
+4 columns on a dune whose flank falls 13 cells over 26. Then the height
+measure used the drop within the detection window, which on a half-wavelength
+of 29 columns never reaches a trough and was reporting the underlying hill
+slope. Both are the same failure: a metric written before its subject was
+looked at.
+
+#### 5b. Risers — a smooth term cannot break a single-column jump
+
+The spec asks for "a second, larger-amplitude detail term". Implemented at a
+14-column wavelength that is exactly what it sounds like, and it does not
+work, for a reason that is structural rather than a tuning problem: **a
+riser is a single-column jump in a heightfield**, and a term whose
+per-column change is small can only move the whole bench up or down. Built
+that way it shifted elevations by up to 6 rows near risers and left canyon
+seed 7's worst riser at 34 cells, exactly where it started.
+
+The term that works has a wavelength **near the grid** (2.5 columns, one
+octave) — deliberately the opposite of every other wavelength in the file —
+so it differs sharply between `x` and `x + 1` and turns one tall jump into a
+short flight of smaller ones. The gate is the snap residual `|bands -
+round(bands)|`, which separates riser from bench for free and with no second
+elevation evaluation: on a steep escarpment `bands` sweeps its whole range
+every few columns, while on a gentle bench it changes slowly and stays low.
+
+Sweep of single-column steps >= 6 rows over 2048 columns:
+
+| `riser_roughness` | canyon s7 steps / worst / mean | rolling s1 steps / worst / mean |
+|---|---|---|
+| 0.00 | 8 / 34 / 22.1 | 4 / 25 / 18.5 |
+| 0.35 | 12 / 32 / 15.4 | 9 / 22 / 11.8 |
+| 0.50 | 14 / 31 / 14.1 | 22 / 21 / 9.3 |
+| 0.70 | 22 / 30 / 11.6 | 38 / 21 / 9.4 |
+
+Read the **mean and the count together**, which is why the probe prints
+both: the worst step barely falls, because at the steepest escarpment the
+underlying relief supplies most of it, but the mean halves while the count
+triples. That is one tall jump becoming a flight of shorter ones, which is
+the shape asked for. A worst that fell while the count *also* fell would
+mean the relief had simply been flattened — a different and worse outcome.
+
+Defaults tuned by eye at 5x zoom on canyon seed 7: 0.45 rolling/terraced,
+0.5 canyon, 0.4 arid, 0.35 wetland, 0.0 flat.
+
+**Task 1b's keyhole columns, reported not fixed** as instructed: they do
+look different. At `0.5` the plumb faces at canyon s7 x 610/616 become
+stepped, and the brow lips over them break into two levels rather than one
+straight lintel. The count of single-column steps goes *up*, not down —
+this makes each riser shorter, it does not make risers rarer, exactly as
+predicted in finding 1b.
+
+#### Sweep consequences, all nine flags read
+
+`pockets` +42..68% is task 4 (the baseline predates it). The rest are task
+5, and none is a surprise once the mechanisms are stated:
+
+- **`arid` brows −34%, talus −44%.** Dunes are shorter on average now
+  (mean crest height 12.07 → 10.63), so fewer of them clear
+  `CLIFF_DROP = 6` and cliff detection finds fewer edges. A real
+  consequence, recorded rather than tuned away — and task 6 is about
+  exactly these two counters, so it lands on top of this.
+- **`wetland` brows +46%.** The opposite direction, and the same cause
+  read backwards: riser roughening creates more single-column steps, so
+  more of them qualify as cliff edges.
+- **`rolling` soil_moisture −32%,** with max unchanged at 4337. Steeper
+  ground near roughened risers carries less soil, so there is less soil to
+  saturate. Only mid-distribution seeds moved; the worst seed is identical.
+- **`arid` awake_chunks 3 → 6.** Checked against the hard gate rather than
+  assumed: the at-rest suite is green across every preset x 5 seeds, and
+  `cells lost since the cut` is **0 on all of arid seeds 1-8**. Nothing is
+  moving; this is the pre-existing active-site churn recorded in finding 2,
+  which is why that row is tracked rather than gated at zero.
+
+#### One pre-existing test corrected, not weakened
+
+`column.rs::steep_ground_carries_no_soil` failed after the riser change, at
+seed 0 x 77: slope 0.5305 against a cutoff of 0.5195. The generator was
+right and the test was reading the wrong material's angle — it used
+`soil_tan` for every column, and a column dry enough to carry **sand**
+stands at 34 degrees against soil's 33, so the bar was 2% too strict there.
+The generator's own gate has always used `cover_tan(x)`. Nothing had ever
+put a sandy column that close to its own limit before; riser roughening
+did. Fixed by asking about the cover the column actually carries, and the
+message now names it. The empirical half of the guarantee — every preset x
+5 seeds stepped 120 frames with zero cells moving — was green throughout,
+and `cells lost since the cut` is 0 on arid seeds 1-8.
+
+#### Cost
+
+Build, `ascii`, same machine: 2048x640 place 266.3 → 275.9 ms (+3.6%), whole
+build 456.5 → 454.8 ms, paid once at generation. Frame timings unchanged
+(stress 82.3 ms, +field 88.0 ms, render skip 0.001 ms, 0 chunks awake). The
++3.6% is one extra fbm evaluation per column, and only where the snap gate
+opens.
