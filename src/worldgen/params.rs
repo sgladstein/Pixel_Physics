@@ -188,6 +188,29 @@ pub struct WorldgenParams {
     /// character — see `region.rs` for why this is the difference between
     /// "different numbers" and "a different world".
     pub region_variation: f32,
+
+    // ---- vaults ----
+    /// Expected number of sealed chambers per world. Zero disables the pass
+    /// entirely and leaves the world byte-identical.
+    ///
+    /// Fractional on purpose, and read as "roughly this many": the whole
+    /// number is guaranteed and the remainder is one coin flip, the same
+    /// shape `pockets` uses for its per-region count. The default is set so
+    /// that about half of worlds carry one chamber, which is what makes
+    /// finding one an event rather than a feature of the terrain.
+    pub vault_density: f32,
+    /// How far below the local genesis surface a chamber must sit, in rows.
+    ///
+    /// Concealment comes free from the viewport rather than from any render
+    /// work: a chamber this far down is simply never on screen until someone
+    /// digs to it. **Note this interacts with world height** -- at the
+    /// 512x320 test size the band between this depth and the bedrock margin
+    /// is empty, so no vault can be placed at all. See the round-2 finding;
+    /// it is the reason the vault tests build at the shipped size or lower
+    /// this number explicitly.
+    pub vault_min_depth: i32,
+    /// How far above the bedrock band a chamber must stop, in rows.
+    pub vault_bedrock_margin: i32,
     /// How far the slow 2-D field is allowed to displace a palette-family
     /// probability, in absolute probability.
     ///
@@ -254,6 +277,9 @@ impl Default for WorldgenParams {
             aridity_table_drop: 90.0,
             region_variation: 0.75,
             palette_field: 0.30,
+            vault_density: 0.6,
+            vault_min_depth: 200,
+            vault_bedrock_margin: 16,
             moss_density: 0.10,
             tree_density: 0.26,
             life_cluster_wavelength: 70.0,

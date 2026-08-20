@@ -94,6 +94,14 @@ pub enum Purpose {
     /// dither hardest exactly along its own centre line and reintroduce an
     /// edge.
     PaletteField = 18,
+    /// Sealed vault placement: where a chamber sits, how big it is, and which
+    /// shape it takes.
+    ///
+    /// Its own stream rather than sharing `Pocket`, which decides lens
+    /// placement over the same rock: sharing would tie a vault's position to
+    /// whether a lens happened to be drawn nearby, which is exactly the
+    /// correlation the purpose tag exists to prevent.
+    Vault = 19,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

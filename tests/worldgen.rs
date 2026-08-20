@@ -286,8 +286,31 @@ fn every_pass_writes_something() {
         }
     }
     for (name, cells) in &totals {
+        // `vaults` is the one pass that legitimately writes nothing here, and
+        // the reason is the world *size* rather than the pass: a chamber must
+        // sit `vault_min_depth` (200) rows below the surface and stop
+        // `vault_bedrock_margin` (16) above bedrock, and at 512x320 -- surface
+        // around y 100-200, bedrock around y 300 -- that band is empty. The
+        // shipped world is 2048x640, where it fits. Asserting it separately
+        // below rather than excusing it keeps the guard's teeth: if the pass
+        // stops firing at the shipped size too, something still fails.
+        if *name == "vaults" {
+            assert_eq!(*cells, 0, "vaults placed a chamber at 512x320, where the depth band should be empty");
+            continue;
+        }
         assert!(*cells > 0, "pass {name} never wrote a cell across {} seeds", SEEDS.len());
     }
+    // The other half: at the size the game actually ships, vaults fire.
+    let mut vault_cells = 0;
+    for seed in SEEDS {
+        let mut world = World::new(Rect::new(0, 0, REVIEW_BOUNDS.0, REVIEW_BOUNDS.1));
+        for (name, cells) in worldgen::generate_reported(&mut world, Spec::Generated { params, seed }) {
+            if name == "vaults" {
+                vault_cells += cells;
+            }
+        }
+    }
+    assert!(vault_cells > 0, "vaults never wrote a cell across {} seeds at the shipped 2048x640", SEEDS.len());
 }
 
 #[test]
@@ -1238,5 +1261,346 @@ fn probe_r2t2_how_columnar_is_a_family_boundary() {
                 dv / dh.max(1e-6)
             );
         }
+    }
+}
+
+#[test]
+#[ignore = "probe: prints, never asserts (round-2 task 3)"]
+fn probe_r2t3_do_vaults_place_at_all() {
+    // "Did it fire at all needs a counter, not a picture" -- and a vault is
+    // the extreme case of that rule, because the whole feature is *invisible*
+    // by design. A render can never show one until someone digs to it, so a
+    // pass that silently placed nothing would look exactly like a pass that
+    // worked. Print the count, the depth band it had to fit in, and the
+    // rejection reason when it fails.
+    let presets = presets();
+    println!("\n=== vault placement at the shipped 2048x640 ===");
+    println!("  {:>10} {:>5} {:>8} {:>10} {:>10} {:>9}", "preset", "seed", "cells", "crystal", "gravel", "water");
+    for preset in ["rolling", "terraced", "canyon", "wetland", "arid"] {
+        let params = presets.get(preset).expect("preset");
+        for seed in 1u64..=8 {
+            let mut world = World::new(Rect::new(0, 0, REVIEW_BOUNDS.0, REVIEW_BOUNDS.1));
+            let counts = worldgen::generate_reported(&mut world, Spec::Generated { params, seed });
+            let cells = counts.iter().find(|(n, _)| *n == "vaults").map(|(_, c)| *c).unwrap_or(0);
+            let id = |n: &str| world.materials.id_of(n).expect(n);
+            let (crystal, gravel, water) = (id("crystal"), id("gravel"), id("water"));
+            // Census only well below the surface, so surface gravel and pond
+            // water cannot be mistaken for a chamber's contents.
+            let deep = REVIEW_BOUNDS.1 / 2;
+            let (mut nc, mut ng, mut nw) = (0, 0, 0);
+            for y in deep..=REVIEW_BOUNDS.1 {
+                for x in 0..=REVIEW_BOUNDS.0 {
+                    let m = world.get(x, y).material;
+                    if m == crystal {
+                        nc += 1;
+                    } else if m == gravel {
+                        ng += 1;
+                    } else if m == water {
+                        nw += 1;
+                    }
+                }
+            }
+            println!("  {preset:>10} {seed:>5} {cells:>8} {nc:>10} {ng:>10} {nw:>9}");
+        }
+    }
+}
+
+/// A preset that is guaranteed to place chambers at the 512x320 test size.
+///
+/// **`vault_min_depth` has to come down for this, and that is a fact about
+/// the world size rather than a convenience.** At 512x320 the surface sits
+/// around y 100-200 and bedrock around y 300, so the shipped 200-row depth
+/// band and the 16-row bedrock margin do not both fit: the band is empty and
+/// no chamber can be placed at all. The shipped size is 2048x640, where it
+/// fits comfortably. See the round-2 finding -- this is also why the sweep's
+/// `vaults` row reads zero.
+fn vault_test_params(base: &WorldgenParams) -> WorldgenParams {
+    WorldgenParams {
+        vault_density: 4.0,
+        vault_min_depth: 40,
+        tree_density: 0.0,
+        moss_density: 0.0,
+        ..base.clone()
+    }
+}
+
+#[test]
+fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
+    // Three claims about the vault pass in one world, because they share an
+    // expensive build: it fires, every cell it wrote was solid stone before
+    // it wrote there (the seal contract), and the result holds still.
+    //
+    // The instrument is a **paired build** against the same world with
+    // `vault_density: 0.0` -- the repo's preferred shape, and here it is
+    // exact rather than merely better: the vault pass writes nothing unless
+    // it writes a whole chamber, and nothing downstream of it reads a vault,
+    // so every difference between the two worlds is a vault cell and no
+    // difference is anything else. Inferring which cells are vault cells from
+    // *where they are* is the mistake that miscounted twice in round 1's
+    // task 4.
+    let presets = presets();
+    let mut checked = 0;
+    for preset in ["rolling", "canyon", "wetland"] {
+        let base = presets.get(preset).expect("preset");
+        let with = vault_test_params(base);
+        let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+        for seed in SEEDS {
+            let world = build(&with, seed);
+            let control = build(&without, seed);
+            let stone = world.materials.id_of("stone").expect("stone");
+
+            let mut vault_cells = Vec::new();
+            for y in 0..=BOUNDS.1 {
+                for x in 0..=BOUNDS.0 {
+                    if world.get(x, y).material != control.get(x, y).material
+                        || world.get(x, y).shade != control.get(x, y).shade
+                    {
+                        vault_cells.push((x, y));
+                    }
+                }
+            }
+            if vault_cells.is_empty() {
+                continue;
+            }
+            checked += 1;
+
+            // The seal, stated as the contract states it: every cell of the
+            // envelope was stone. Checked on the *control* world, which is
+            // what "before the pass ran" means.
+            for &(x, y) in &vault_cells {
+                assert_eq!(
+                    control.get(x, y).material,
+                    stone,
+                    "{preset} seed {seed}: vault wrote ({x}, {y}), which was not stone before"
+                );
+            }
+            // And no vault cell touches anything that was not stone -- which
+            // is the half that actually keeps the chamber sealed. A chamber
+            // whose own cells were all stone can still be flush against a
+            // pre-existing void one cell beyond its edge.
+            let changed: std::collections::HashSet<(i32, i32)> = vault_cells.iter().copied().collect();
+            for &(x, y) in &vault_cells {
+                for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0), (-1, -1), (1, -1), (-1, 1), (1, 1)] {
+                    let (nx, ny) = (x + dx, y + dy);
+                    if changed.contains(&(nx, ny)) {
+                        continue;
+                    }
+                    assert_eq!(
+                        control.get(nx, ny).material,
+                        stone,
+                        "{preset} seed {seed}: vault cell ({x}, {y}) is flush against ({nx}, {ny}), which was not stone"
+                    );
+                }
+            }
+
+            // And it holds still. The floor is loose gravel over a void's
+            // curved bottom, and the chamber may hold standing water, so this
+            // is the claim most likely to break if the floor stops being
+            // filled flat.
+            let mut world = world;
+            let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+            for _ in 0..120 {
+                step(&mut world);
+            }
+            let after: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+            let gone: Vec<_> = before.difference(&after).copied().collect();
+            assert!(
+                gone.is_empty(),
+                "{preset} seed {seed}: {} cells left their position in a forced-vault world; first {:?}",
+                gone.len(),
+                gone.iter().take(6).collect::<Vec<_>>()
+            );
+        }
+    }
+    // The counter beside the claim: a suite where no world grew a chamber
+    // would pass every assertion above by never running one.
+    assert!(checked >= 8, "only {checked} forced-vault worlds actually placed a chamber");
+}
+
+#[test]
+fn vault_water_cannot_wet_the_massif_around_it() {
+    // Stated as a test because the task asks for it stated: water sealed in a
+    // chamber is moisture-inert. The reason is structural rather than lucky
+    // -- `soil_moisture` only ever *writes* to cells with a non-zero
+    // `water_capacity`, and soil is the only material that has one, so a
+    // chamber 40+ rows into solid rock has nothing within reach it could wet
+    // even though its water does seed the distance transform.
+    let presets = presets();
+    let base = presets.get("wetland").expect("preset");
+    let with = vault_test_params(base);
+    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+    for seed in SEEDS {
+        let world = build(&with, seed);
+        let control = build(&without, seed);
+        let soil = world.materials.id_of("soil").expect("soil");
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                let c = world.get(x, y);
+                if c.material == soil {
+                    assert_eq!(
+                        c.aux(),
+                        control.get(x, y).aux(),
+                        "seed {seed}: soil at ({x}, {y}) changed saturation because a vault was placed"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn a_world_with_no_vaults_is_byte_identical() {
+    // The opt-out has to be exact, not approximate: `flat` ships
+    // `vault_density: 0.0` because the destruction workstream compares
+    // against its renders, and "almost the same world" would be a silent
+    // change under someone else's baseline.
+    let presets = presets();
+    for preset in ["rolling", "canyon", "flat"] {
+        let base = presets.get(preset).expect("preset");
+        let off = WorldgenParams { vault_density: 0.0, ..base.clone() };
+        for seed in SEEDS {
+            // Deliberately built at the size where the shipped depth band is
+            // empty anyway, so this also pins that fact: at 512x320 the two
+            // must agree even at the shipped density.
+            let shipped = build(base, seed);
+            let disabled = build(&off, seed);
+            assert_eq!(
+                world_hash(&shipped),
+                world_hash(&disabled),
+                "{preset} seed {seed}: vault_density changed a 512x320 world, where the depth band is empty"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "probe: prints, never asserts (round-2 task 3)"]
+fn probe_r2t3_dump_a_chamber() {
+    // ASCII cross-sections, one per shape. This is the instrument a render
+    // cannot replace for this feature: a chamber is 40-60 cells across in a
+    // 2048-wide world, so at 1:1 it is a smudge, and what has to be checked
+    // is *structure* -- where the waterline sits, whether the gravel floor is
+    // flat, whether the lining is a ring rather than a blob.
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = vault_test_params(base);
+    for (label, want_crystal) in [("geode vug (crystal-lined)", true), ("grotto (no lining)", false)] {
+        let mut shown = false;
+        for seed in 1u64..=12 {
+            if shown {
+                break;
+            }
+            let world = build(&with, seed);
+            let id = |n: &str| world.materials.id_of(n).expect(n);
+            let (stone, gravel, water, crystal) = (id("stone"), id("gravel"), id("water"), id("crystal"));
+            let glyph = |x: i32, y: i32| {
+                let c = world.get(x, y);
+                if c.material == material::EMPTY {
+                    '.'
+                } else if c.material == stone {
+                    '#'
+                } else if c.material == gravel {
+                    'g'
+                } else if c.material == water {
+                    '~'
+                } else if c.material == crystal {
+                    'X'
+                } else {
+                    '?'
+                }
+            };
+            // A chamber is found as a run of air deep in the rock -- the one
+            // thing `pockets` can never produce, since a lens is solid. Its
+            // shape is then read off whether any crystal is within reach.
+            for y in 220..=(BOUNDS.1 - 40) {
+                if shown {
+                    break;
+                }
+                for x in 40..=(BOUNDS.0 - 40) {
+                    if world.get(x, y).material != material::EMPTY {
+                        continue;
+                    }
+                    let has_crystal = (-34..=34).any(|dy| {
+                        (-40..=40).any(|dx| world.get(x + dx, y + dy).material == crystal)
+                    });
+                    if has_crystal != want_crystal {
+                        continue;
+                    }
+                    println!("\n=== {label}: seed {seed}, air at ({x}, {y}) ===");
+                    for row in (y - 8).max(0)..=(y + 34).min(BOUNDS.1) {
+                        let line: String =
+                            ((x - 40).max(0)..=(x + 40).min(BOUNDS.0)).map(|c| glyph(c, row)).collect();
+                        println!("  {row:>4} {line}");
+                    }
+                    shown = true;
+                    break;
+                }
+            }
+        }
+        if !shown {
+            println!("\n=== {label}: none found in seeds 1..12 ===");
+        }
+    }
+}
+
+#[test]
+#[ignore = "probe: prints, never asserts (round-2 task 3)"]
+fn probe_r2t3_what_moves_in_a_vault() {
+    // Reproduce before fixing: step one frame at a time and name the first
+    // cell that changes, with its neighbourhood. A 120-frame at-rest failure
+    // says only that the world moved.
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = vault_test_params(base);
+    let mut world = build(&with, 1);
+    let id = |n: &str| world.materials.id_of(n).expect(n);
+    let (stone, gravel, water, crystal) = (id("stone"), id("gravel"), id("water"), id("crystal"));
+    let name = move |m: material::MaterialId| {
+        if m == material::EMPTY {
+            "empty"
+        } else if m == stone {
+            "stone"
+        } else if m == gravel {
+            "gravel"
+        } else if m == water {
+            "water"
+        } else if m == crystal {
+            "crystal"
+        } else {
+            "other"
+        }
+    };
+    let cells = |w: &World| {
+        let mut v = Vec::new();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                let c = w.get(x, y);
+                v.push((c.material, c.aux()));
+            }
+        }
+        v
+    };
+    let mut prev = cells(&world);
+    for frame in 0..12 {
+        step(&mut world);
+        let now = cells(&world);
+        let mut changes = Vec::new();
+        for (i, (a, b)) in prev.iter().zip(now.iter()).enumerate() {
+            if a != b {
+                let (x, y) = ((i as i32) % (BOUNDS.0 + 1), (i as i32) / (BOUNDS.0 + 1));
+                changes.push((x, y, a.0, a.1, b.0, b.1));
+            }
+        }
+        // Only the deep ones: the surface has ponds and weather doing
+        // legitimate work, and this probe is about the chamber.
+        changes.retain(|&(_, y, ..)| y > 200);
+        println!("frame {frame}: {} deep cells changed", changes.len());
+        for &(x, y, am, aa, bm, ba) in changes.iter().take(6) {
+            println!("    ({x},{y}) {} aux {aa} -> {} aux {ba}", name(am), name(bm));
+        }
+        if !changes.is_empty() {
+            break;
+        }
+        prev = now;
     }
 }

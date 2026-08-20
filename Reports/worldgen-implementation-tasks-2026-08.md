@@ -1090,6 +1090,163 @@ Reproduction:
 cargo test --release --test worldgen probe_r2t2 -- --ignored --nocapture
 ```
 
+### R2-3 — Vaults: the pass works, and three things about it did not survive contact with the code
+
+A `vaults` pass (margin **32**, finite and derived: `MAX_VAULT_EXTENT` 30 +
+`VAULT_RIND` 2 + the shape test's 1 cell of scan margin, rounded up),
+`crystal.ron` and `shard.ron` appended to `EMBEDDED`, `Purpose::Vault` = 19,
+and three preset params (`vault_density`, `vault_min_depth`,
+`vault_bedrock_margin`). The collect-then-verify-seal skeleton is `pockets`'
+own, kept whole.
+
+**It fires.** At the shipped 2048x640, chambers place in 5 of 8 seeds on
+every preset; `rolling` seed 4 writes 267 cells, seed 7 213, seed 1 161. The
+cross-sections are in `probe_r2t3_dump_a_chamber` and are the acceptance
+artifact for shape: a vug comes out as a crystal ring around an air dome
+over a pool over a flat gravel floor, a grotto as a lumpy multi-lobe cavern
+with the same interior.
+
+#### 1. The size cap was capping the wrong thing, and it broke the seal
+
+First version capped the *scan box* at `MAX_VAULT_EXTENT`. A lobe reaching
+past the cap then had its far end never visited -- so those cells were
+neither written **nor seal-checked**. The chamber came out with a flat
+sawn-off face and the guarantee that the whole envelope is stone quietly
+stopped covering all of it. The cap now applies to the lobe radii, so the
+shape is always inside the box and the scan always covers the whole
+envelope. This is CLAUDE.md's twice-written landmine arriving in a third
+costume: *a size cap must bound work, never gate whether something happens*
+-- here it was silently deforming the thing it bounded.
+
+#### 2. "Floor filled flat" read literally is not a floor
+
+`floor_y` is the lowest row the hollow reaches, and filling *that row* is
+what the phrase says. It leaves the chamber's curved bottom as bare stone
+with a two-cell strip of gravel at the very bottom of the bowl. The floor is
+now every hollow cell from a chosen row downward, which makes the gravel's
+top surface a horizontal line **by construction** -- and that is structural,
+not cosmetic: gravel following the curve is loose powder on a slope at every
+cell and runs on frame one.
+
+#### 3. The water level is set by the chamber's *shape*, not by the table alone
+
+The spec's rule -- standing water when the floor sits below the local water
+table -- is implemented, and at `vault_min_depth: 200` it is **unconditional**:
+the table is always hundreds of rows above the depth band, so every chamber
+in every world qualifies. Filling to the table therefore means filling to the
+ceiling, and that does not hold still.
+
+Measured rather than reasoned about. `rolling` seed 1 lost **exactly one
+cell**, at (70, 257): the single hollow cell on row 257 of a chamber whose
+next row down is fourteen wide. A one-cell column of water standing on a wide
+body is a head difference, and the liquid solver drains it, which is correct
+behaviour by the solver and a bad chamber by me.
+
+Two fixes were tried and the first is recorded as wrong rather than untried:
+
+| rule | result |
+|---|---|
+| surface row must be >= 3 cells wide | `rolling` s1 fixed, `rolling` s4 lost 6 cells |
+| surface row must be >= 5 cells wide | `rolling` s4 still lost 6 cells off a 6-wide row |
+| **surface is the chamber's widest row** | **green, every preset x 5 seeds** |
+
+The quantity was never absolute width. A chamber is an ellipse (or a union of
+them), so filling to any row *above the equator* makes a **flask** -- a narrow
+neck standing on a wide body -- and the neck drains. Filling to the equator
+makes a **bowl**, where every row below the surface is narrower than it, which
+is the shape a pond has and the shape that holds.
+
+The side effect is the better picture, which is worth saying plainly because
+it was not the goal: the upper half of a flooded chamber is now a pocket of
+trapped air under the roof rather than solid water. That is what a sealed
+flooded void actually contains, and it is a far better thing to break into.
+
+#### The depth band does not exist at the sweep's world size
+
+`vault_min_depth: 200` plus `vault_bedrock_margin: 16` needs about 250 rows of
+massif. The shipped world is 2048x640 and has it; **the sweep, `filmstrip` and
+the whole `tests/worldgen.rs` suite run at 512x320, where the surface sits
+around y 100-200 and bedrock around y 300, so the band is empty and no chamber
+can ever be placed.** Consequences, all handled rather than left implicit:
+
+- The sweep's new `vaults` row is `0 0` for all six presets, and will stay
+  that way. **The sweep cannot guard this pass at its current size** -- which
+  is exactly the brows/talus blindness the sweep exists to prevent, arriving
+  from the other direction. Recorded here because a future reader seeing a
+  row of zeros should know it is by construction and not a regression.
+- `every_pass_writes_something` would have failed, and correctly. Rather than
+  excusing `vaults` from the guard, it now asserts **zero at 512x320 and
+  non-zero at 2048x640** -- so the guard still has teeth, and it documents the
+  size constraint where someone will hit it.
+- The at-rest and seal tests build with `vault_min_depth: 40`, which is stated
+  in `vault_test_params` as a fact about the world size rather than a
+  convenience.
+
+**For the reviewer**: if the sweep should guard this pass, the lever is either
+sweeping worldgen at the shipped size (96 runs of a 4x larger world) or
+expressing the depth as a *fraction of the massif's thickness* the way
+`pockets` already does -- its own comment says why ("a canyon massif is five
+times the depth of a wetland one and 'near bedrock' has to mean the same thing
+in both"), and that argument applies here word for word. Not done unilaterally
+because it changes what the shipped `200` means.
+
+#### Gates and the seal contract
+
+`a_forced_vault_world_is_sealed_and_arrives_at_rest` is a **paired build**
+against the same world with `vault_density: 0.0` -- exact here, because the
+pass writes nothing unless it writes a whole chamber and nothing downstream
+reads a vault, so every difference is a vault cell and no difference is
+anything else. Inferring vault cells from *where they are* is the mistake
+that miscounted twice in round 1's task 4. It asserts every written cell was
+stone beforehand, every 8-neighbour of a written cell was stone or is itself
+part of the chamber, and zero cells move in 120 frames -- across three presets
+x five seeds, with a counter (>= 8 worlds must actually have placed one) so
+the test cannot pass by never running.
+
+`vault_water_cannot_wet_the_massif_around_it` states the moisture-inert claim
+as the task asks. The reason is structural, not lucky: `soil_moisture` writes
+only to cells with non-zero `water_capacity`, and **soil is the only material
+in the registry that has one**, so a chamber sealed in rock has nothing in
+reach it could wet even though its water does seed the distance transform.
+
+`a_world_with_no_vaults_is_byte_identical` pins the opt-out by world hash.
+`flat` ships `vault_density: 0.0` for the same reason it opts out of palette
+families -- the destruction workstream compares against its renders.
+
+Sweep re-baselined, as the task instructs, to add the `vaults` row. That
+refresh also absorbs tasks 1 and 2's sub-threshold movement; those numbers are
+preserved in the two commit messages and in findings R2-1 and R2-2.
+
+#### One file outside the owned set
+
+`examples/viewshot.rs` gained a `vault=1` mode: it locates a chamber, aims the
+camera at it, and sinks a shaft from the surface into it on the second shot.
+Flagged rather than slipped in, the way round 1's finding 3 flagged
+`material.rs`/`world.rs`/`decay.rs`. It was necessary: the task asks for a
+mined strip showing a breach, and **every other rendering path in the repo is
+incapable of showing a vault** -- `filmstrip` builds at 512x320 where no
+chamber exists, and `viewshot`'s camera aims at the skyline, which is 200+
+rows above the subject. The change is additive and default-preserving; no
+existing invocation renders differently.
+
+**On reading the strips**: at 1:1 a chamber is 40-60 cells across in a
+512-wide viewport, so it renders as a small dark hole with a pale rim -- the
+`task3-vault-*` strips show it *in context* and show the shaft reaching it,
+but they are not where the structure can be judged. The ASCII cross-sections
+are, which is why the probe prints them: a render at the zoom a contact sheet
+is read at cannot distinguish a lined vug from an unlined grotto, and those
+are the two shapes this task delivers.
+
+Images: `target/filmstrips/task3-vault-{rolling-s4,canyon-s7}.png` -- three
+shots each, the third with a shaft sunk from the surface into the chamber.
+
+Reproductions:
+
+```
+cargo test --release --test worldgen probe_r2t3 -- --ignored --nocapture
+cargo run --release --example viewshot -- seed=4 preset=rolling vault=1 shots=3
+```
+
 ---
 
 ## Track summary — what changed, and what the next session should know

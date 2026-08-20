@@ -646,6 +646,277 @@ pub fn talus(ctx: &Ctx, world: &mut World) -> usize {
 /// settled and one the player watches slosh for a minute: a flat, full pool
 /// is already at equilibrium, so no levelling transfer fires and the chunks
 /// sleep on the first sweep.
+/// The largest half-extent a chamber may reach, in cells, on either axis.
+///
+/// A cap that bounds *work*, never whether the pass runs -- the landmine
+/// CLAUDE.md records twice, from `rigid::fracture` declining to break any
+/// region larger than its body-size cap and so dissolving the biggest
+/// collapses into dust. A chamber too large for this is drawn smaller; a
+/// massif too thin for the depth band simply has no chamber, and the counter
+/// says so.
+const MAX_VAULT_EXTENT: i32 = 30;
+
+/// How thick the solid stone rind around a chamber must be, in cells.
+///
+/// Two rather than `pockets`' one, and the difference is the whole at-rest
+/// argument. A lens is solid powder: a one-cell rind is enough to guarantee
+/// nothing is flush with a free face. A chamber is *hollow*, so its roof is
+/// an unsupported span and its floor is loose material over a void -- a
+/// single stray cell of air on the far side of a one-cell rind would put a
+/// hole through into whatever is next door and let the floor run out of it.
+const VAULT_RIND: i32 = 2;
+
+/// Sealed chambers, buried far below the surface: the found-a-secret moment.
+///
+/// **Genesis-only and zero standing cost.** Nothing here runs per frame; a
+/// chamber is a handful of cells written once, and concealment comes free
+/// from the viewport rather than from any render work -- at 200 rows below
+/// the surface a chamber is simply never on screen until someone digs to it.
+///
+/// Grown from [`pockets`]'s collect-then-verify-seal skeleton, which round 1
+/// already generalised to rotated shapes. The contract is that one, kept
+/// exactly: **every cell of the envelope -- chamber, lining and a rind of
+/// solid rock around the whole of it -- is checked to be stone before a
+/// single cell is written.** Approximating that per cell is what leaves
+/// loose material outcropping on a free face, and here it would be worse
+/// than for a lens, because a chamber that clips an existing void spills its
+/// floor into that void on frame one and the world is no longer at rest.
+///
+/// Two shapes, because one shape repeated is a feature of the generator
+/// rather than a discovery:
+///
+///   * a **grotto** -- the union of two to four overlapping ellipses, so the
+///     outline is lumpy and asymmetric rather than an obvious oval -- with a
+///     flat gravel floor, and standing water if its floor is below the local
+///     water table.
+///   * a **geode vug** -- a single ellipse with a one to two cell crystal
+///     lining grown inward from its wall, which is the one bright thing in
+///     the deep massif.
+pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
+    let p = ctx.terrain.params;
+    if p.vault_density <= 0.0 {
+        return 0;
+    }
+    let seed = ctx.terrain.seed;
+    let (w, h) = (ctx.terrain.w, ctx.terrain.h);
+    // The count for the whole world, not per region: a vault is meant to be
+    // rare enough that finding one is an event, and `pockets`' per-region
+    // draw would put one in every 64-cell block.
+    let whole = p.vault_density.floor() as i32;
+    let extra = i32::from(noise::unit(seed, Purpose::Vault, -1, -1) < p.vault_density.fract());
+    let mut written = 0;
+    for k in 0..whole + extra {
+        // Position from its own draw. Rejected rather than nudged when the
+        // massif there is too thin -- moving a rejected chamber to wherever
+        // it would fit is how a "rare secret" ends up in the same kind of
+        // place in every world.
+        let cx = (noise::unit(seed, Purpose::Vault, k, 0) * w as f32) as i32;
+        if cx < 0 || cx >= w {
+            continue;
+        }
+        let plan = ctx.plans[cx as usize];
+        let top = plan.surface_y + p.vault_min_depth;
+        let bottom = plan.bedrock_top_y - p.vault_bedrock_margin;
+        // The band is empty in a shallow world. That is the intended
+        // outcome, not a failure to handle: such a world has no vault, and
+        // the pass counter reports zero rather than the pass quietly
+        // relaxing its own depth rule to produce one.
+        if bottom - top < 2 * MAX_VAULT_EXTENT {
+            continue;
+        }
+        let span = (bottom - top) as f32;
+        let cy = top + (noise::unit(seed, Purpose::Vault, k, 1) * span) as i32;
+
+        // Which shape. A coin flip per chamber, on its own coordinate so the
+        // choice is not correlated with where it landed.
+        let vug = noise::unit(seed, Purpose::Vault, k, 2) < 0.5;
+
+        // Collect the chamber's cells as a shape function evaluated over a
+        // bounding box, exactly as `pockets` does. `lobes` is the grotto's
+        // union of ellipses; a vug is the degenerate case of one lobe, which
+        // keeps a single code path rather than two that can disagree.
+        let lobe_count = if vug { 1 } else { 2 + (noise::unit(seed, Purpose::Vault, k, 3) * 3.0) as i32 };
+        let mut lobes: Vec<(f32, f32, f32, f32)> = Vec::new();
+        for l in 0..lobe_count {
+            // Radii first, then an offset bounded by them, so lobes always
+            // overlap the first one and the union stays connected. A grotto
+            // in two disconnected halves would be two chambers, one of which
+            // has no way in.
+            let a = 8.0 + noise::unit(seed, Purpose::Vault, k * 17 + l, 4) * 12.0;
+            let b = 6.0 + noise::unit(seed, Purpose::Vault, k * 17 + l, 5) * 6.0;
+            let (ox, oy) = if l == 0 {
+                (0.0, 0.0)
+            } else {
+                (
+                    (noise::unit(seed, Purpose::Vault, k * 17 + l, 6) - 0.5) * 1.6 * a,
+                    (noise::unit(seed, Purpose::Vault, k * 17 + l, 7) - 0.5) * 1.6 * b,
+                )
+            };
+            // **The cap is applied to the lobe, not to the scan box**, and
+            // the difference is a correctness bug rather than a preference.
+            // Capping the scan instead was the first version: a lobe reaching
+            // past the cap had its far end simply never visited, so those
+            // cells were neither written *nor seal-checked* -- the chamber
+            // came out with a flat sawn-off face, and the guarantee that the
+            // whole envelope is stone quietly stopped covering all of it.
+            // Shrinking the lobe keeps the shape whole and the check total,
+            // which is the landmine CLAUDE.md states twice: a size cap must
+            // bound work, never gate whether something happens.
+            let limit = (MAX_VAULT_EXTENT - VAULT_RIND - 1) as f32;
+            let a = a.min(limit - ox.abs()).max(2.0);
+            let b = b.min(limit - oy.abs()).max(2.0);
+            lobes.push((ox, oy, a, b));
+        }
+        let inside = |dx: f32, dy: f32, grow: f32| {
+            lobes.iter().any(|&(ox, oy, a, b)| {
+                ((dx - ox) / (a + grow)).powi(2) + ((dy - oy) / (b + grow)).powi(2) <= 1.0
+            })
+        };
+        // The true bounding box of the union plus the rind. Not capped here
+        // -- the lobes are already inside the cap by construction above, so
+        // this scan is guaranteed to cover the whole envelope, which is what
+        // makes the seal check total.
+        let ext = lobes
+            .iter()
+            .map(|&(ox, oy, a, b)| ((ox.abs() + a).ceil() as i32).max((oy.abs() + b).ceil() as i32))
+            .max()
+            .unwrap_or(0)
+            + VAULT_RIND
+            + 1;
+
+        // Collect first, write only if the whole envelope is solid stone.
+        let mut hollow: Vec<(i32, i32)> = Vec::new();
+        let mut lining: Vec<(i32, i32)> = Vec::new();
+        let mut sealed = true;
+        'envelope: for dy in -ext..=ext {
+            for dx in -ext..=ext {
+                let (px, py) = (cx + dx, cy + dy);
+                let (fx, fy) = (dx as f32, dy as f32);
+                // Outside even the rind: not part of this chamber at all.
+                if !inside(fx, fy, VAULT_RIND as f32) {
+                    continue;
+                }
+                if px < 0 || px >= w || py < 0 || py >= h {
+                    sealed = false;
+                    break 'envelope;
+                }
+                if world.get(px, py).material != ctx.stone {
+                    sealed = false;
+                    break 'envelope;
+                }
+                if inside(fx, fy, 0.0) {
+                    // A vug's lining is the outermost ring of the chamber:
+                    // inside the wall, but not inside a shape shrunk by the
+                    // lining thickness. Grown *inward* rather than outward so
+                    // the rind check above still covers it.
+                    let thickness = 1.0 + noise::unit(seed, Purpose::Vault, px, py);
+                    if vug && !inside(fx, fy, -thickness) {
+                        lining.push((px, py));
+                    } else {
+                        hollow.push((px, py));
+                    }
+                }
+            }
+        }
+        if !sealed || hollow.is_empty() {
+            continue;
+        }
+
+        // **The floor is filled flat, and "flat" is doing structural work
+        // rather than aesthetic work.** A floor that followed the chamber's
+        // curve would be loose gravel lying on a bowl -- a slope at every
+        // cell, most of them past repose -- and it would run on frame one,
+        // which is the whole at-rest guarantee gone. Filling every hollow
+        // cell from a chosen row downward makes the gravel's top surface a
+        // horizontal line by construction, and everything under it is packed
+        // solid against stone. Nothing needs clamping afterwards because
+        // nothing is ever placed on a slope.
+        //
+        // The first version wrote gravel only at the single lowest row, which
+        // is what "the lowest row, filled flat" literally says and is not a
+        // floor at all: the chamber's curved bottom stayed bare stone and the
+        // gravel was a two-cell strip at the very bottom of the bowl.
+        let floor_y = hollow.iter().map(|&(_, y)| y).max().unwrap_or(cy);
+        let ceiling_y = hollow.iter().map(|&(_, y)| y).min().unwrap_or(cy);
+        let thickness = 2 + (noise::unit(seed, Purpose::Vault, k, 8) * 3.0) as i32;
+        // Never fill the chamber solid: leave at least two rows of head-room,
+        // or a small grotto becomes a lump of buried gravel with no void in
+        // it and there is nothing to find.
+        let floor_top = (floor_y - thickness + 1).max(ceiling_y + 2);
+
+        // Standing water when the chamber floor sits below the local water
+        // table, written exactly as `ponds` writes it: level, and full --
+        // `Cell::new` leaves `aux == 0`, which on a `Liquid` means **full**,
+        // the opposite of the `Powder` convention (CLAUDE.md's two-conventions
+        // gotcha; writing a literal 0 fill here would be correct by accident
+        // rather than on purpose, so it is stated).
+        //
+        // The surface is the table clipped into the chamber. At the shipped
+        // `vault_min_depth` the table is always far above the chamber, so the
+        // clip binds and the chamber floods to its ceiling -- see the round-2
+        // finding, which measures how often that is and why it is flagged
+        // rather than tuned away here.
+        let table = ctx.plans[cx as usize].table_y;
+        let flooded = floor_top > table;
+        // **The water surface has to be a row wide enough to be a surface**,
+        // and this is an at-rest requirement rather than a cosmetic one.
+        //
+        // A chamber's topmost hollow row is often one or two cells -- the
+        // apex of an ellipse, narrowed further by a vug's lining -- and
+        // filling it puts a one-cell column of water standing above the body
+        // it sits on. That is a head difference, and the liquid solver does
+        // exactly what it should with one: the cell drains into the wider
+        // water beneath it and comes out empty. Measured, not reasoned about:
+        // `rolling` seed 1 lost precisely one cell at (70, 257), the single
+        // hollow cell on row 257 of a chamber whose next row down is fourteen
+        // wide.
+        //
+        // So the surface walks down to the first row that is at least
+        // `MIN_SURFACE_WIDTH` wide, and whatever is above it stays air -- a
+        // pocket of trapped gas under the roof, which is both what a sealed
+        // flooded void actually contains and a better thing to break into
+        // than a solid block of water.
+        // The rule that works is not a width bar but a *shape* one: the
+        // surface must be the chamber's **widest** row, so that no row above
+        // the waterline is narrower than the water under it. A chamber is an
+        // ellipse, or a union of them, so filling to any row above the
+        // equator makes a flask -- a narrow neck standing on a wide body --
+        // and the solver drains the neck. Filling to the equator makes a
+        // bowl, where every row below the surface is narrower than it, which
+        // is the shape a pond has and the shape that holds.
+        //
+        // A bar of "at least N cells wide" was tried first and is recorded
+        // here as wrong rather than untried: at N = 5 `rolling` seed 4 still
+        // lost six cells off a six-wide row standing over a much wider one.
+        // The quantity that matters was never the absolute width.
+        let mut widths: std::collections::BTreeMap<i32, i32> = Default::default();
+        for &(_, y) in &hollow {
+            *widths.entry(y).or_default() += 1;
+        }
+        let equator = widths.iter().max_by_key(|&(_, &n)| n).map(|(&y, _)| y).unwrap_or(ceiling_y);
+        let water_surface = table.max(equator);
+
+        for &(px, py) in &lining {
+            world.set(px, py, Cell::new(ctx.crystal, loose_shade(ctx, Purpose::Vault, px, py)));
+            written += 1;
+        }
+        for &(px, py) in &hollow {
+            let cell = if py >= floor_top {
+                // Buried gravel's family, for the same reason a sealed lens
+                // takes it: this is read against solid stone and nothing else.
+                Cell::new(ctx.gravel, BURIED_FAMILY * TONES + loose_shade(ctx, Purpose::Vault, px, py))
+            } else if flooded && py >= water_surface {
+                Cell::new(ctx.water, loose_shade(ctx, Purpose::Shade, px, py))
+            } else {
+                Cell::EMPTY
+            };
+            world.set(px, py, cell);
+            written += 1;
+        }
+    }
+    written
+}
+
 pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {
     let mut n = 0;
     let w = ctx.terrain.w as usize;

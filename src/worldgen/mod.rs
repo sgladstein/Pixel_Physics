@@ -107,6 +107,13 @@ const PASSES: &[Pass] = &[
     Pass { name: "brows", margin: 40, run: passes::brows },
     Pass { name: "talus", margin: 200, run: passes::talus },
     Pass { name: "pockets", margin: 0, run: passes::pockets },
+    // Finite, and derived rather than guessed: a chamber is placed at a
+    // column and reaches at most `MAX_VAULT_EXTENT` (22) either side of it,
+    // plus `VAULT_RIND` (2) of stone that must be checked, plus the one cell
+    // of scan margin the shape test uses. 25 rounded up to 32 for headroom,
+    // which is the honest number rather than the tight one -- an understated
+    // margin is a promise to produce different cells at a chunk edge.
+    Pass { name: "vaults", margin: 32, run: passes::vaults },
     // The two water passes read the whole world: where water stands depends
     // on the lowest rim enclosing a hollow, which can be any distance away.
     // They are the first honest `GLOBAL` entries in this table and the debt
@@ -130,6 +137,10 @@ pub struct Ctx<'a> {
     pub sand: MaterialId,
     pub gravel: MaterialId,
     pub water: MaterialId,
+    /// The vault pass's lining. `shard` is not held here: nothing at genesis
+    /// writes it, it exists as crystal's `breaks_into` for when a player
+    /// mines one out.
+    pub crystal: MaterialId,
     /// Tangent of gravel's angle of repose, for the scree pass.
     pub gravel_tan: f32,
 }
@@ -145,6 +156,7 @@ impl<'a> Ctx<'a> {
         };
         let (stone, soil, sand, gravel, water) =
             (id("stone"), id("soil"), id("sand"), id("gravel"), id("water"));
+        let crystal = id("crystal");
         // Read soil's angle of repose from the material data rather than
         // assuming it: the generator's whole at-rest guarantee is that it
         // never places soil steeper than this, and an edit to `soil.ron` that
@@ -155,7 +167,7 @@ impl<'a> Ctx<'a> {
         let terrain =
             Terrain::new(seed, params, bounds.max_x + 1, bounds.max_y + 1, soil_tan, sand_tan);
         let plans = terrain.plan_all();
-        Self { terrain, plans, stone, soil, sand, gravel, water, gravel_tan }
+        Self { terrain, plans, stone, soil, sand, gravel, water, crystal, gravel_tan }
     }
 }
 
