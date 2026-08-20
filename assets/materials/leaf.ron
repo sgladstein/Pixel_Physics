@@ -17,6 +17,11 @@
     // the kind four support models already failed at. It is also what makes
     // a crown catch a fall (`Tuning::canopy_drag`) instead of stopping one.
     climbable: true,
+    // A crown catches you. Per tick at full immersion, so a clip through
+    // the top of one barely registers and a drop through the middle of one
+    // arrests him -- see `MaterialDef::fall_drag`. Wood deliberately has
+    // none: branches slow a fall, a bare trunk does not.
+    fall_drag: 0.15,
     // Foliage is not wood. Well under `wood`'s 0.9.
     density: 0.25,
     colors: [

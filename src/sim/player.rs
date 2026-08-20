@@ -798,6 +798,29 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // root at boot height and stuck him at knee level. Reaching for it is
     // also simply what climbing is.
     let grip = (0..GRIP_ROWS).any(|dy| (0..PLAYER_WIDTH).any(|dx| footing(world, &bodies, xi + dx, yi + dy) == Footing::Climb));
+    // How much foliage he is falling through, graded by how much of him is
+    // in it — the same shape as the wade above, and for the reason recorded
+    // there: a flag reads as a debuff, a depth reads as a canopy.
+    //
+    // Summed over rows rather than maxed, so clipping the top of a crown
+    // barely registers and going through the middle of one arrests him.
+    // Read off the material (`fall_drag`), not off `Footing::Climb`, so a
+    // bare trunk catches nothing while the leaves on it do.
+    let foliage: f32 = (0..PLAYER_HEIGHT)
+        .map(|dy| {
+            (0..PLAYER_WIDTH)
+                .map(|dx| {
+                    let c = world.get(xi + dx, yi + dy);
+                    if c.organism_id() == 0 {
+                        return 0.0;
+                    }
+                    world.materials.get(c.material).fall_drag
+                })
+                .fold(0.0f32, f32::max)
+        })
+        .sum::<f32>()
+        / PLAYER_HEIGHT as f32;
+
     // **Reaching for it is what starts it, and that is the whole of "no new
     // key".** `W` or `S` against a handhold climbs; everything else about
     // those keys is unchanged. Once gripped he stays gripped until the
@@ -943,6 +966,12 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         p.jump_buffer = if input.jump_held { tuning.jump_buffer_frames } else { 0 };
     } else {
         p.vy = (p.vy + tuning.gravity).min(tuning.fall_clamp);
+        // A crown breaks a fall. Downward only: applied to a rise it would
+        // read as the tree grabbing at him, and applied sideways it would
+        // read as glue.
+        if p.vy > 0.0 && foliage > 0.0 {
+            p.vy *= 1.0 - foliage.clamp(0.0, 1.0);
+        }
     }
 
     // --- the sweep: substepped at <= 1 cell, X (with step-up) then Y ---
@@ -2016,6 +2045,53 @@ mod tests {
         let p = world.player.as_ref().unwrap();
         assert!(!p.climbing, "he walked out of the tissue and should have let go");
         assert_eq!(p.y.round() as i32 + PLAYER_HEIGHT, 88, "and should be back on the floor");
+    }
+
+    #[test]
+    fn a_canopy_breaks_a_fall_without_stopping_it() {
+        // **Paired**, per `CLAUDE.md`: the same drop with and without the
+        // foliage, so the comparison cancels everything the rule is not
+        // about. A single run against a remembered arrival speed would be a
+        // sample from a distribution.
+        fn drop_through(leaves: bool) -> f32 {
+            let mut world = world_with_floor();
+            if leaves {
+                let leaf = world.materials.id_of("leaf").expect("leaf is compiled in");
+                let species = world.species.id_of("tree").expect("tree is compiled in");
+                let organism = world.push_organism(species);
+                let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::Leaf);
+                for y in 40..70 {
+                    for x in 50..80 {
+                        world.set(x, y, Cell::new(leaf, 0).with_organism_id(organism).with_aux(aux));
+                    }
+                }
+            }
+            world.player = Some(Player::at(64, 10));
+            // **Arrival speed, not peak speed.** The first version took the
+            // maximum `vy` over the whole fall and measured 2.80 against
+            // 2.25 -- almost all of which was the thirty cells of open air
+            // *above* the crown, where nothing is meant to be different.
+            // What a canopy changes is how hard he lands.
+            let mut impact = 0.0;
+            for _ in 0..400 {
+                let before = world.player.as_ref().unwrap().vy;
+                tick(&mut world, PlayerInput::default());
+                let p = world.player.as_ref().unwrap();
+                if p.grounded {
+                    impact = before;
+                    break;
+                }
+            }
+            let p = world.player.as_ref().unwrap();
+            assert_eq!(p.y.round() as i32 + PLAYER_HEIGHT, 88, "he must still reach the floor, leaves={leaves}");
+            impact
+        }
+        let bare = drop_through(false);
+        let through_leaves = drop_through(true);
+        assert!(
+            through_leaves < bare * 0.6,
+            "a crown should take real speed off a fall: bare landing at {bare:.2} cells/tick, through leaves {through_leaves:.2}"
+        );
     }
 
     #[test]

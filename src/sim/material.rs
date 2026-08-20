@@ -394,6 +394,23 @@ pub struct MaterialDef {
     /// up.
     #[serde(default)]
     pub climbable: bool,
+    /// How much of a falling character's downward speed this material takes
+    /// off per tick, at full immersion. 0 (the default) catches nothing.
+    ///
+    /// Foliage, not wood: dropping into a crown should be *caught* by it,
+    /// and sliding past a bare trunk should not be. On the material rather
+    /// than as one number in `player::Tuning` for the ordinary reason
+    /// (`design-philosophy.md` §2a) — a bush, a hay bale or a snowdrift
+    /// each want their own value, and none of them wants a code change to
+    /// say so. Hot-reloadable with `F5` like every other material number.
+    ///
+    /// Graded by *how much of him* is in it rather than applied as a flag:
+    /// clipping the top of a crown barely registers, going through the
+    /// middle of one arrests him. The same shape as the wade, and for the
+    /// same reason recorded there — a binary version reads as a debuff,
+    /// not as a depth.
+    #[serde(default)]
+    pub fall_drag: f32,
     pub colors: Vec<[u8; 3]>,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
@@ -692,6 +709,8 @@ pub struct Material {
     pub reinforces_powder: bool,
     /// See `MaterialDef::climbable`.
     pub climbable: bool,
+    /// See `MaterialDef::fall_drag`.
+    pub fall_drag: f32,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
     pub palette: Vec<[u8; 4]>,
@@ -933,6 +952,7 @@ impl From<MaterialDef> for Material {
             evaporates: def.evaporates,
             reinforces_powder: def.reinforces_powder,
             climbable: def.climbable,
+            fall_drag: def.fall_drag,
             palette: def
                 .colors
                 .iter()
@@ -1102,6 +1122,7 @@ impl MaterialRegistry {
             evaporates: false,
             reinforces_powder: false,
             climbable: false,
+            fall_drag: 0.0,
             colors: vec![[0, 0, 0]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
@@ -1138,6 +1159,7 @@ impl MaterialRegistry {
             evaporates: false,
             reinforces_powder: false,
             climbable: false,
+            fall_drag: 0.0,
             colors: vec![[20, 20, 24]],
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
