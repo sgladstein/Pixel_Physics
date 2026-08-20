@@ -65,6 +65,15 @@ const BURIED_THROW: i32 = 16;
 /// from under a passenger it should be carrying.
 const PLATFORM_STICK: i32 = 6;
 
+/// How much of him can reach a handhold: the top half, head down to about
+/// the waist.
+///
+/// See the grip test in `step` for why it is not the whole rectangle. The
+/// short version is that roots are climbable, he wades four rows into soft
+/// ground, and a wood is full of roots — so "any overlap" would have turned
+/// every jump near a tree into a grab at boot height.
+const GRIP_ROWS: i32 = PLAYER_HEIGHT / 2;
+
 /// Everything about how the character *feels*, live-tunable under the
 /// panel's PLAYER group and persisted to `assets/player.ron`. The same
 /// shape as `explosion::Tuning` and for the same reason: these numbers
@@ -140,6 +149,13 @@ pub struct Tuning {
     /// Ticks between strokes. Long enough that swimming reads as a series
     /// of pulls rather than a thruster.
     pub stroke_cooldown: u8,
+    /// How fast he goes up, down and along a tree, in cells per tick.
+    ///
+    /// Set directly rather than accelerated toward, and slower than
+    /// `run_max`: a climb that matched a run would read as running up a
+    /// wall. One number for both axes, because a ladder has no reason to
+    /// be faster sideways than upward.
+    pub climb_speed: f32,
     /// What fraction of a standing jump the *exit* jump is — the one that
     /// fires on the tick his head clears the water.
     ///
@@ -200,6 +216,7 @@ impl Default for Tuning {
             swim_damp: 0.84,
             stroke_impulse: 1.3,
             stroke_cooldown: 7,
+            climb_speed: 0.9,
             surface_hop: 0.75,
             dig_yield: 0.35,
         }
@@ -480,6 +497,10 @@ pub struct Player {
     was_swimming: bool,
     /// Loose powder overlaps him: slowed, and sunk into it.
     pub wading: bool,
+    /// Gripping living plant tissue: gravity is off and `W`/`S` drive him
+    /// up and down it. Public for the same reason `swimming` is — it is a
+    /// different control scheme, and no harness can infer it from position.
+    pub climbing: bool,
     /// Ticks until the next swimming stroke may fire.
     stroke_cooldown: u8,
     /// Where the last bite landed, so the next one can be *swept* from it
@@ -504,6 +525,7 @@ impl Player {
             swimming: false,
             was_swimming: false,
             wading: false,
+            climbing: false,
             stroke_cooldown: 0,
             last_bite: None,
         }
@@ -707,6 +729,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         // gnome is freed.
         p.vx = 0.0;
         p.vy = 0.0;
+        p.climbing = false;
         p.coyote = p.coyote.saturating_sub(1);
         p.jump_buffer = p.jump_buffer.saturating_sub(1);
         p.dig_cooldown = p.dig_cooldown.saturating_sub(1);
@@ -762,6 +785,39 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         1.0
     };
 
+    // On a tree. Living tissue is the trade for living tissue being
+    // passable: it stops being something you bump into and becomes
+    // something you go up.
+    //
+    // **Grabbed with the hands, not stood in.** Only the top half of him
+    // counts, and that is not decoration -- it is what keeps a root system
+    // from eating the jump key. Roots are `climbable` too (they had to be,
+    // or one threading through a bank would still be a wall), he wades four
+    // rows into soft ground, and a wood is full of roots. Counting any
+    // overlap would mean holding `W` to jump anywhere near a tree grabbed a
+    // root at boot height and stuck him at knee level. Reaching for it is
+    // also simply what climbing is.
+    let grip = (0..GRIP_ROWS).any(|dy| (0..PLAYER_WIDTH).any(|dx| footing(world, &bodies, xi + dx, yi + dy) == Footing::Climb));
+    // **Reaching for it is what starts it, and that is the whole of "no new
+    // key".** `W` or `S` against a handhold climbs; everything else about
+    // those keys is unchanged. Once gripped he stays gripped until the
+    // tissue runs out, so letting go of the keys hangs rather than drops.
+    //
+    // Two rejected alternatives, both tried here and both wrong:
+    //
+    // - **Engage on contact alone.** A gnome falling *past* a tree with no
+    //   input caught himself on it, which is not a climb, it is flypaper.
+    //   `a_branch_is_never_a_floor` measured him arriving at row 48 instead
+    //   of the floor at 88.
+    // - **Require `!grounded`, so that feet-on-ground always jumps.** It
+    //   reads well and cannot be entered: `jump_pressed` is an edge, so
+    //   walking up to a trunk with `W` held offers no second press to hop
+    //   with, and he simply stood at the base of a tree he was inside.
+    //   The root problem it was guarding against is already handled by
+    //   `GRIP_ROWS` -- roots sit at boot height and a handhold is chest and
+    //   above -- so it was a second lock on a door that was already shut.
+    p.climbing = grip && !p.swimming && (p.climbing || input.jump_held || input.down);
+
     // --- intent to velocity ---
     let accel = if p.grounded { tuning.run_accel } else { tuning.run_accel * tuning.air_control };
     match (input.left, input.right) {
@@ -777,6 +833,26 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     }
     let top_speed = tuning.run_max * wade_drag;
     p.vx = p.vx.clamp(-top_speed, top_speed);
+
+    // A climb is a different control scheme, so it sets velocity outright
+    // rather than accelerating toward it. Momentum on a ladder reads as
+    // running, and the first thing that tells a player they are on one is
+    // that the controls answer instantly and stop instantly.
+    if p.climbing {
+        p.vx = match (input.left, input.right) {
+            (true, false) => -tuning.climb_speed,
+            (false, true) => tuning.climb_speed,
+            _ => 0.0,
+        };
+        // Grip. No input holds him where he is, which is what separates a
+        // climb from sliding down a pole -- and it is the owner's call:
+        // the whole tree is a hold and none of it is a floor.
+        p.vy = match (input.jump_held, input.down) {
+            (true, false) => -tuning.climb_speed,
+            (false, true) => tuning.climb_speed,
+            _ => 0.0,
+        };
+    }
 
     if input.jump_pressed {
         p.jump_buffer = tuning.jump_buffer_frames;
@@ -801,7 +877,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         // tunnel work.
         p.coyote = tuning.coyote_frames;
     }
-    if p.jump_buffer > 0 && p.coyote > 0 && !p.swimming {
+    if p.jump_buffer > 0 && p.coyote > 0 && !p.swimming && !p.climbing {
         // Scaled down on the tick he leaves the water. A full standing
         // jump out of a pond reads as being fired from it; what the bank
         // needs is a pull up over the lip, which is what `surface_hop`
@@ -814,12 +890,25 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     }
     // Variable height: releasing the key on the way up halves the rise,
     // once, on the release edge.
-    if p.jump_was_held && !input.jump_held && p.vy < 0.0 && !p.swimming {
+    if p.jump_was_held && !input.jump_held && p.vy < 0.0 && !p.swimming && !p.climbing {
         p.vy *= 0.5;
     }
     p.jump_was_held = input.jump_held;
 
-    if p.swimming {
+    if p.climbing {
+        // No gravity, and the coyote and buffer both kept alive -- the
+        // same trick swimming uses a few lines up, for the same reason and
+        // with the same payoff. Climbing off the top of a trunk with `W`
+        // still held drops `climbing` on the tick the tissue runs out,
+        // with a jump already armed and the coyote still warm, so he
+        // *launches* off the crown instead of stepping off it into a fall.
+        // Walking out sideways along a branch does the same thing.
+        //
+        // One rule, two features: this is the identical buffer-arming that
+        // gets him out of a pond, at a second call site.
+        p.coyote = tuning.coyote_frames;
+        p.jump_buffer = if input.jump_held { tuning.jump_buffer_frames } else { 0 };
+    } else if p.swimming {
         // Strokes, not thrust: `W` pulls up and `S` pulls down, each on
         // the same cooldown, so holding a key gives a rhythm of pulls
         // with a drift between them rather than a smooth ascent. Buoyancy
@@ -1781,27 +1870,13 @@ mod tests {
     }
 
     #[test]
-    fn a_branch_is_never_a_floor() {
-        // Pure ladder: the whole tree is a hold and none of it is ground.
-        // A gnome dropped onto a crown must arrive at the actual floor.
-        let mut world = world_with_tree(60, 12, 40);
-        world.player = Some(Player::at(64, 20));
-        for _ in 0..400 {
-            tick(&mut world, PlayerInput::default());
-        }
-        let p = world.player.as_ref().unwrap();
-        let feet = p.y.round() as i32 + PLAYER_HEIGHT;
-        assert_eq!(feet, 88, "he should have fallen through the tree to the stone floor, feet ended at {feet}");
-    }
-
-    #[test]
     fn a_tree_growing_over_him_cannot_entomb_him() {
         // Found by measurement, not predicted: on `filmstrip scene=wood`
         // the gnome was reported BURIED from frame 4708 to the end of the
         // run, having travelled 0 cells. He had not walked into a trunk at
         // all -- a crown grew over the spot he was standing on, and
-        // `depenetrate` read plant tissue as an invasion with no clear push
-        // in any direction, so a tree buried him where he stood.
+        // `depenetrate` read living tissue as an invasion with no clear
+        // push in any direction, so a tree buried him where he stood.
         let mut world = world_with_floor();
         world.player = Some(Player::at(64, 80));
         tick(&mut world, PlayerInput::default());
@@ -1810,7 +1885,7 @@ mod tests {
         let species = world.species.id_of("tree").expect("tree is compiled in");
         let organism = world.push_organism(species);
         let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
-        // Grown right through him, and well past his depenetration reach on
+        // Grown right through him and well past his depenetration reach on
         // every side, so there is nowhere to be shoved to.
         for y in (y0 - 8)..(y0 + PLAYER_HEIGHT + 8) {
             for x in (x0 - 8)..(x0 + PLAYER_WIDTH + 8) {
@@ -1823,6 +1898,124 @@ mod tests {
         let p = world.player.as_ref().unwrap();
         assert!(!p.buried, "a tree is not a burial");
         assert!(p.x > x0 as f32 + 4.0, "he should have walked out of it, moved {:.1}", p.x - x0 as f32);
+    }
+
+    /// Walk right until he has hold of the trunk, then stop steering.
+    ///
+    /// Holding `right` *while* climbing shimmies him sideways at
+    /// `climb_speed` and out of a five-cell trunk in about seven ticks --
+    /// which is correct (that is how you leave a tree) and is not what
+    /// these tests are about.
+    fn grab_the_trunk(world: &mut World) {
+        let mut input = PlayerInput { right: true, jump_held: true, jump_pressed: true, ..Default::default() };
+        for _ in 0..60 {
+            tick(world, input);
+            input.jump_pressed = false;
+            if world.player.as_ref().unwrap().climbing {
+                return;
+            }
+        }
+        panic!("never got hold of the trunk");
+    }
+
+    #[test]
+    fn holding_up_against_a_trunk_climbs_it() {
+        let mut world = world_with_tree(64, 5, 20);
+        world.player = Some(Player::at(60, 80));
+        grab_the_trunk(&mut world);
+        let start = world.player.as_ref().unwrap().y;
+        for _ in 0..40 {
+            tick(&mut world, PlayerInput { jump_held: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.climbing, "he should still be on the trunk, at y={:.1}", p.y);
+        assert!(start - p.y > 30.0, "expected a real climb, rose {:.1} cells in 40 ticks", start - p.y);
+    }
+
+    #[test]
+    fn letting_go_of_everything_leaves_him_gripped() {
+        // Grip, not a pole slide. The difference between a climb and a
+        // fireman's pole, and the owner's call: the whole tree is a hold.
+        let mut world = world_with_tree(64, 5, 20);
+        world.player = Some(Player::at(60, 80));
+        grab_the_trunk(&mut world);
+        for _ in 0..20 {
+            tick(&mut world, PlayerInput { jump_held: true, ..Default::default() });
+        }
+        let held = world.player.as_ref().unwrap().y;
+        for _ in 0..120 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.climbing, "no input should hold him, not drop him");
+        assert!((p.y - held).abs() < 1.0, "he should hang where he was left: {held:.1} -> {:.1}", p.y);
+    }
+
+    #[test]
+    fn a_falling_gnome_does_not_catch_himself_on_a_tree_he_is_not_holding() {
+        // Why the grip needs an intent rather than mere contact. Engaging
+        // on overlap alone made a tree flypaper: a gnome falling *past* one
+        // stopped dead in the canopy, measured arriving at row 48 against
+        // the floor at 88. It is also the pure-ladder guard -- no part of a
+        // tree is ever a floor.
+        let mut world = world_with_tree(60, 12, 40);
+        world.player = Some(Player::at(64, 20));
+        for _ in 0..400 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(!p.climbing, "he grabbed a tree nobody told him to grab");
+        assert_eq!(p.y.round() as i32 + PLAYER_HEIGHT, 88, "he should have fallen through to the floor");
+    }
+
+    #[test]
+    fn standing_on_the_ground_the_jump_key_still_jumps() {
+        // The guard that stops a root system eating the jump key. Rootwood
+        // is climbable -- it had to be, or a root through a bank would
+        // still be a wall -- he wades four rows into soft ground, and a
+        // wood is full of roots. `GRIP_ROWS` is what keeps a handhold at
+        // chest height and above, so roots round the boots are not one.
+        let mut world = world_with_floor();
+        let rootwood = world.materials.id_of("rootwood").expect("rootwood is compiled in");
+        let species = world.species.id_of("tree").expect("tree is compiled in");
+        let organism = world.push_organism(species);
+        let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::RootTip);
+        for y in 84..88 {
+            for x in 50..80 {
+                world.set(x, y, Cell::new(rootwood, 0).with_organism_id(organism).with_aux(aux));
+            }
+        }
+        world.player = Some(Player::at(64, 80));
+        for _ in 0..30 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let before = world.player.as_ref().unwrap().y;
+        let mut apex = before;
+        let mut input = PlayerInput { jump_held: true, jump_pressed: true, ..Default::default() };
+        for _ in 0..40 {
+            tick(&mut world, input);
+            input.jump_pressed = false;
+            apex = apex.min(world.player.as_ref().unwrap().y);
+        }
+        assert!(apex < before - 10.0, "a jump over roots must be a jump, not a grab: {before:.1} -> apex {apex:.1}");
+    }
+
+    #[test]
+    fn walking_out_of_a_tree_drops_him() {
+        let mut world = world_with_tree(64, 5, 20);
+        world.player = Some(Player::at(60, 80));
+        grab_the_trunk(&mut world);
+        for _ in 0..30 {
+            tick(&mut world, PlayerInput { jump_held: true, ..Default::default() });
+        }
+        // Sideways, with nothing held on the vertical axis: he shimmies out
+        // of the tissue and gravity takes over again.
+        for _ in 0..300 {
+            tick(&mut world, PlayerInput { right: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(!p.climbing, "he walked out of the tissue and should have let go");
+        assert_eq!(p.y.round() as i32 + PLAYER_HEIGHT, 88, "and should be back on the floor");
     }
 
     #[test]

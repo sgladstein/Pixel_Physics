@@ -376,6 +376,16 @@ fn build(args: &Args) -> World {
             world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
             return world;
         }
+        // The same grown stand, but he walks until he has hold of a tree
+        // and then goes up it. Read the **climbed** counter beside the
+        // tile, not the picture: a gnome at the top of a tree and a gnome
+        // shoved up there by the depenetration pass are the same few pixels
+        // at this zoom, and only a number separates them.
+        "climb" => {
+            let mut world = common::PlantScene::default().build();
+            world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
+            return world;
+        }
         // The sandbox's *real* starting terrain, built by the same
         // `app::build_terrain` the running game calls -- not a replica, so
         // what this renders is what a player actually sees. Exists to answer
@@ -978,7 +988,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, wood"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, wood, climb"
         ),
     }
     w
@@ -1470,6 +1480,12 @@ struct Gnome {
     /// Where he was standing when he set off, so the sheet can report how
     /// far he actually got. See `Script::Wood`.
     start_x: Option<f32>,
+    /// Whether `Script::Climb` has hold of something yet, and the height it
+    /// had when it grabbed. The rise from there is the number the sheet is
+    /// read for — see `Script::Climb`.
+    grabbed: bool,
+    grabbed_at: f32,
+    highest: f32,
     /// Loose cells shoved clear of a bore, summed over every bite.
     displaced: usize,
     dusted: usize,
@@ -1496,6 +1512,8 @@ enum Script {
     /// `scene=wood`: stand still while the stand grows, then walk the
     /// length of it.
     Wood,
+    /// `scene=climb`: walk until something is in reach, then go up it.
+    Climb,
 }
 
 /// How long `Script::Wood` waits before setting off.
@@ -1505,6 +1523,11 @@ enum Script {
 /// nothing, so he holds still until there is a wood to walk into.
 const WOOD_WALK_FROM: usize = 6000;
 
+/// How long `Script::Climb` walks before it starts reaching for a hold —
+/// far enough to be standing in a tree rather than beside a stray twig.
+/// See the arm in `act` for the run that made this necessary.
+const CLIMB_WALK_TICKS: usize = 60;
+
 impl Gnome {
     fn for_scene(scene: &str, dig_yield: f32) -> Self {
         let script = match scene {
@@ -1513,6 +1536,7 @@ impl Gnome {
             "swim" => Script::Swim,
             "ride" => Script::Ride,
             "wood" => Script::Wood,
+            "climb" => Script::Climb,
             _ => Script::Course,
         };
         Self {
@@ -1520,6 +1544,9 @@ impl Gnome {
             tuning: pixel_physics::sim::player::Tuning { dig_yield, ..Default::default() },
             bites: 0,
             start_x: None,
+            grabbed: false,
+            grabbed_at: 0.0,
+            highest: 0.0,
             displaced: 0,
             dusted: 0,
             went_under: None,
@@ -1563,14 +1590,46 @@ impl Gnome {
             },
             Script::Ride => PlayerInput::default(),
             Script::Wood => PlayerInput { right: step_no >= WOOD_WALK_FROM, ..Default::default() },
+            // Walk until he has a handhold, then hold `W` and nothing
+            // else. Holding a direction *while* climbing shimmies him
+            // sideways out of the trunk, which is how you leave a tree and
+            // is not what this scene is showing.
+            //
+            // **Walk a fixed distance first, then climb.** The first
+            // version reached for the first handhold it met, which was a
+            // creeping twig at ground level twelve cells from where he
+            // spawned. He gripped it, rose, left it, launched, fell back
+            // in, gripped again -- and the counter reported "climbed 30
+            // cells" off a stack of grab-and-launch cycles at knee height,
+            // with the trees still a hundred cells away. The number was
+            // real and meant nothing, which is the exact trap `CLAUDE.md`
+            // opens by warning about; the picture is what caught it.
+            Script::Climb if self.grabbed => PlayerInput { jump_held: true, ..Default::default() },
+            Script::Climb => PlayerInput {
+                right: step_no >= WOOD_WALK_FROM,
+                // Reaching only starts once he is clear of the twig — walk
+                // first, then walk *and* reach until something takes.
+                jump_held: step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS,
+                ..Default::default()
+            },
         };
         if self.script == Script::Wood && step_no == WOOD_WALK_FROM {
             self.start_x = world.player.as_ref().map(|p| p.x);
         }
+        if self.script == Script::Climb {
+            if let Some(p) = world.player.as_ref() {
+                if p.climbing && !self.grabbed {
+                    self.grabbed = true;
+                    self.grabbed_at = p.y;
+                    self.highest = p.y;
+                }
+                self.highest = self.highest.min(p.y);
+            }
+        }
         // Aim: straight ahead at his own height for the tunnel, and
         // anywhere at all while buried, since a buried bite auto-aims.
         let digging = match self.script {
-            Script::Course | Script::Swim | Script::Ride | Script::Wood => false,
+            Script::Course | Script::Swim | Script::Ride | Script::Wood | Script::Climb => false,
             Script::Tunnel => true,
             Script::Bury => step_no > 90,
         };
@@ -1633,6 +1692,12 @@ impl Gnome {
         s.push_str(&format!(", world holds {held} cells"));
         if let Some(from) = self.start_x {
             s.push_str(&format!(", travelled {:.0} cells", p.x - from));
+        }
+        if self.script == Script::Climb {
+            match self.grabbed {
+                true => s.push_str(&format!(", climbed {:.0} cells (gripped at y={:.0})", self.grabbed_at - self.highest, self.grabbed_at)),
+                false => s.push_str(", NEVER GRIPPED"),
+            }
         }
         if let Some(under) = self.went_under {
             s.push_str(&format!(", went under at {under}"));
