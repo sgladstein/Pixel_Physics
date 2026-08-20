@@ -1339,6 +1339,29 @@ system is rejected wholesale. The contract the round-3 task marks
 must-not-change -- whole envelope + rind verified before any write --
 is exactly what this is.
 
+### R3-2 — A decoration written in the wall's own shade is invisible to every paired-build guard
+
+Stone speleothems were first written with `strata_shade(px, py)` — "grown
+out of the wall" read literally. That makes the written cell **byte-identical
+to the cell the control world already has at the same coordinate**, so the
+paired-build diff every round-3 guard is built on cannot see stone
+formations at all: the never-bridge test silently checked only the crystal
+minority, and a bridging stone column would have passed. The same trick that
+makes paired comparison exact — nothing downstream reads a vault, so every
+difference is a vault cell — cuts the other way: **a write that reproduces
+the control's bytes is not a difference, however real the mechanism that
+wrote it.** The fix is also the better picture: flowstone is deposited
+calcite, paler than the rock it grew from, so formations now take the pale
+cap-rock family with their own tone stream — legible as *formations* against
+any wall, and visible to the diff in every cell.
+
+Two smaller notes from the same task: the debug suite caught a
+`clamp(1, 0)` panic (a secondary column with a two-row slot has no room for
+a taper; the release worldgen suite never built the world that hit it —
+`cargo test` and the release suite are different instruments, run both), and
+the vug lining at per-cell thickness 1-3 costs +35% lining cells (118 → 159
+on the probe vug), which is the ragged rim the task wanted.
+
 ---
 
 ## Track summary — what changed, and what the next session should know

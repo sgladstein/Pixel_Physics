@@ -729,6 +729,17 @@ const MIN_SYSTEM_CELLS: usize = 80;
 /// vug stays as the rare jewel variant; the cave is the main event.
 const VUG_CHANCE: f32 = 0.25;
 
+/// Speleothem placement, all tuned against the ASCII probe:
+/// per-candidate-column chance at full ceiling height (the smoothstep over
+/// the open span makes tall chambers -- drip height -- much denser than low
+/// passages), minimum columns between formations (a few per chamber, not a
+/// forest), the crystal minority, and how often a formation is a paired
+/// stalactite-over-stalagmite almost meeting -- the postcard shot.
+const SPELEO_DENSITY: f32 = 0.30;
+const SPELEO_SPACING: i32 = 4;
+const SPELEO_CRYSTAL: f32 = 0.15;
+const SPELEO_PAIR: f32 = 0.25;
+
 /// Sealed cave systems and geode vugs, buried far below the surface: the
 /// found-a-secret moment.
 ///
@@ -874,8 +885,11 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
                     // A vug's lining is the outermost ring of the chamber:
                     // inside the wall, but not inside a shape shrunk by the
                     // lining thickness. Grown *inward* rather than outward so
-                    // the rind check above still covers it.
-                    let thickness = 1.0 + noise::unit(seed, Purpose::Vault, px, py);
+                    // the rind check above still covers it. Thickness one to
+                    // three cells, per cell -- at the round-2 one-to-two the
+                    // rim read as a perfect ring, which is a generator's
+                    // shape, not a geode's.
+                    let thickness = 1.0 + 2.0 * noise::unit(seed, Purpose::Vault, px, py);
                     if vug && !inside(fx, fy, -thickness) {
                         lining.push((px, py));
                     } else {
@@ -1282,6 +1296,125 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize 
         }
     }
 
+    // ---- speleothems: the wonder, grown after the void is cut ----
+    // Stalactites from ceilings, stalagmites from floors, 1-2 cells wide and
+    // tapering (the secondary column is shorter, so the root is the wide
+    // end), a crystal minority, and the occasional pair almost meeting.
+    // Placed on the bottommost run per column -- the galleries the floors
+    // are in -- *after* the floor verifier, because adding attached solid
+    // can only ever add support, never take it away, so the verified gravel
+    // stays verified. A stalagmite is written from the *stone* under the run
+    // upward through any gravel over it: "structurally trivial, rooted in
+    // the massif" means rooted on rock, not standing on loose fill.
+    //
+    // A formation must never bridge floor to ceiling -- a column splits the
+    // passage the player walks -- so every placement leaves at least two
+    // open rows in its column, except a pair, which closes to a drawn gap
+    // of one or two on purpose.
+    let mut speleo = vec![0u8; (CAVE_GRID_W * CAVE_GRID_H) as usize]; // 0 none, 1 stone, 2 crystal
+    let mut speleo_cells = 0usize;
+    {
+        let mut last: Option<i32> = None;
+        for i in 0..floor.len() {
+            let Some((t, b, h)) = floor[i] else { continue };
+            let dx = i as i32 - CAVE_HALF_W;
+            let fs = b - h; // lowest open row: the floor surface
+            let span = fs - t + 1;
+            if span < 5 {
+                continue;
+            }
+            if last.is_some_and(|l| dx - l < SPELEO_SPACING) {
+                continue;
+            }
+            let px = cx + dx;
+            // Denser where the ceiling is high: drip height.
+            let chance = SPELEO_DENSITY * noise::smoothstep(6.0, 26.0, span as f32);
+            if noise::unit(seed, Purpose::Speleothem, px, 0) >= chance {
+                continue;
+            }
+            let kind = noise::unit(seed, Purpose::Speleothem, px, 1);
+            let crystal = noise::unit(seed, Purpose::Speleothem, px, 2) < SPELEO_CRYSTAL;
+            let pair = kind < SPELEO_PAIR && span >= 7;
+            let stalactite = pair || kind < SPELEO_PAIR + 0.45;
+            let mut lt = if stalactite {
+                (2 + (noise::unit(seed, Purpose::Speleothem, px, 3) * 6.0) as i32).min(span - 2)
+            } else {
+                0
+            };
+            let mut lg = if pair || !stalactite {
+                (2 + (noise::unit(seed, Purpose::Speleothem, px, 4) * 6.0) as i32).min(span - 2)
+            } else {
+                0
+            };
+            if pair {
+                // Almost meeting: shrink the longer half until the drawn
+                // one-or-two-cell gap fits.
+                let gap = 1 + (noise::unit(seed, Purpose::Speleothem, px, 5) * 2.0) as i32;
+                while lt + lg + gap > span {
+                    if lt >= lg {
+                        lt -= 1;
+                    } else {
+                        lg -= 1;
+                    }
+                }
+            }
+            if lt < 2 {
+                lt = 0;
+            }
+            if lg < 2 {
+                lg = 0;
+            }
+            if lt == 0 && lg == 0 {
+                continue;
+            }
+            let mat = if crystal { 2u8 } else { 1u8 };
+            let mut put = |gx: i32, gy: i32| {
+                if gx.abs() <= CAVE_HALF_W && gy.abs() <= CAVE_HALF_H && void[cave_idx(gx, gy)] {
+                    speleo[cave_idx(gx, gy)] = mat;
+                }
+            };
+            for y in t..t + lt {
+                put(dx, y);
+            }
+            for y in (fs - lg + 1)..=b {
+                put(dx, y);
+            }
+            // A minority go two cells wide, the secondary column shorter --
+            // the taper that makes the root the wide end. Only where the
+            // neighbouring column's run lines up, and always leaving that
+            // column its own two open rows.
+            if noise::unit(seed, Purpose::Speleothem, px, 6) < 0.4 {
+                let side = if noise::unit(seed, Purpose::Speleothem, px, 7) < 0.5 { 1 } else { -1 };
+                let j = i as i32 + side;
+                if j >= 0 && (j as usize) < floor.len() {
+                    // `span2 >= 3` before clamping to it: a two-row slot has
+                    // no room for a secondary at all, and `clamp(1, 0)`
+                    // panics -- found by the debug suite on a world the
+                    // release sweep never built.
+                    if let Some((t2, b2, h2)) = floor[j as usize] {
+                        let fs2 = b2 - h2;
+                        let span2 = fs2 - t2 + 1;
+                        if span2 >= 3 {
+                            if lt > 0 && (t2 - t).abs() <= 1 {
+                                let lt2 = (lt * 3 / 5).clamp(1, span2 - 2);
+                                for y in t2..t2 + lt2 {
+                                    put(dx + side, y);
+                                }
+                            }
+                            if lg > 0 && (fs2 - fs).abs() <= 1 {
+                                let lg2 = (lg * 3 / 5).clamp(1, span2 - 2);
+                                for y in (fs2 - lg2 + 1)..=b2 {
+                                    put(dx + side, y);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            last = Some(dx);
+        }
+    }
+
     let mut written = 0;
     for dy in -CAVE_HALF_H..=CAVE_HALF_H {
         for dx in -CAVE_HALF_W..=CAVE_HALF_W {
@@ -1289,9 +1422,26 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize 
                 continue;
             }
             let (px, py) = (cx + dx, cy + dy);
+            let formation = speleo[cave_idx(dx, dy)];
             let gravel =
                 matches!(floor[(dx + CAVE_HALF_W) as usize], Some((_, b, h)) if h > 0 && dy > b - h);
-            let cell = if gravel {
+            let cell = if formation == 2 {
+                // The crystal minority: the same material as a vug lining,
+                // attached like the rock it grows from.
+                Cell::new(ctx.crystal, loose_shade(ctx, Purpose::Vault, px, py)).with_attached(true)
+            } else if formation == 1 {
+                // Flowstone: stone, but *pale* stone -- the cap-rock family
+                // with its own per-cell tone rather than the wall's banding.
+                // Deposited calcite is paler than the rock it grew from, and
+                // two things ride on the shade being different from
+                // `strata_shade(px, py)`: a formation reads as a formation
+                // instead of a striped stump of wall, and the paired-build
+                // diff every round-3 guard relies on can *see* it -- written
+                // with the wall's own shade it is byte-identical to the
+                // control world and vanishes from every test.
+                Cell::new(ctx.stone, FAMILY_RESISTANT * TONES + loose_shade(ctx, Purpose::Speleothem, px, py))
+                    .with_attached(true)
+            } else if gravel {
                 // Buried gravel's family, same as a lens and the vug floor:
                 // read against solid stone and nothing else.
                 Cell::new(ctx.gravel, BURIED_FAMILY * TONES + loose_shade(ctx, Purpose::Vault, px, py))
@@ -1300,8 +1450,12 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize 
             };
             world.set(px, py, cell);
             written += 1;
+            if formation != 0 {
+                speleo_cells += 1;
+            }
         }
     }
+    let _ = speleo_cells;
     written
 }
 

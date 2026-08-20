@@ -1673,6 +1673,86 @@ fn a_forced_cave_world_keeps_every_roof_span_bounded() {
     assert!(runs_walked >= 50, "only {runs_walked} ceiling runs walked -- the census is too thin to trust");
 }
 
+/// Round-3 guard: a speleothem may narrow a passage, never close it.
+///
+/// A column of rock from floor to ceiling splits the passage the player
+/// walks, so the pass promises every column it decorates keeps at least one
+/// open cell (a pair closes to a one-or-two-cell gap on purpose, which
+/// still satisfies this). Attribution is the paired build again: in a cave
+/// system's diff, the only *solid* carved cells are speleothems -- the
+/// ceiling guard's teeth are never written, so they never enter the diff --
+/// and vugs are excluded by component size, because a vug's crystal ring
+/// legitimately fills its rim columns.
+#[test]
+fn speleothems_never_bridge_a_passage() {
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = vault_test_params(base);
+    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+    let mut speleo_cells = 0usize;
+    let mut columns_checked = 0usize;
+    for seed in SEEDS {
+        let world = build(&with, seed);
+        let control = build(&without, seed);
+        let mut carved: std::collections::HashSet<(i32, i32)> = Default::default();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                if world.get(x, y).material != control.get(x, y).material
+                    || world.get(x, y).shade != control.get(x, y).shade
+                {
+                    carved.insert((x, y));
+                }
+            }
+        }
+        // Components, 8-connected, so a system is one group and a vug
+        // elsewhere in the world is another.
+        let mut remaining = carved.clone();
+        while let Some(&start) = remaining.iter().min() {
+            let mut comp = Vec::new();
+            let mut stack = vec![start];
+            remaining.remove(&start);
+            while let Some((x, y)) = stack.pop() {
+                comp.push((x, y));
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let n = (x + dx, y + dy);
+                        if remaining.remove(&n) {
+                            stack.push(n);
+                        }
+                    }
+                }
+            }
+            // Vugs are a few hundred cells; systems are thousands.
+            if comp.len() < 1000 {
+                continue;
+            }
+            let mut by_col: std::collections::BTreeMap<i32, Vec<(i32, bool)>> = Default::default();
+            for &(x, y) in &comp {
+                let solid = world.materials.kind(world.get(x, y).material)
+                    == material::MaterialKind::Solid;
+                by_col.entry(x).or_default().push((y, solid));
+            }
+            for (x, cells) in by_col {
+                let solids = cells.iter().filter(|&&(_, s)| s).count();
+                if solids == 0 {
+                    continue;
+                }
+                speleo_cells += solids;
+                columns_checked += 1;
+                assert!(
+                    cells.iter().any(|&(_, s)| !s),
+                    "seed {seed}: column x = {x} of a cave system is solid floor-to-ceiling -- a speleothem bridged it"
+                );
+            }
+        }
+    }
+    // The counters beside the claim.
+    assert!(
+        speleo_cells >= 40 && columns_checked >= 10,
+        "only {speleo_cells} speleothem cells in {columns_checked} columns -- the decoration pass barely fired"
+    );
+}
+
 #[test]
 #[ignore = "probe: prints, never asserts (round-3 task 1)"]
 fn probe_r3_dump_a_cave_system() {
