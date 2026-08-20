@@ -402,6 +402,12 @@ impl Handler {
             // what caught the collision, not a runtime symptom.
             KeyCode::KeyL => self.app.renderer.cycle_organism_overlay(),
             KeyCode::KeyG => self.app.renderer.cycle_grain(),
+            // `,` for the boiling looks, and not a letter because there is
+            // not one left -- see `Y`'s own comment above. Next to `.`
+            // (single-step) rather than anywhere meaningful; the mode is
+            // named on the status line the moment it is not `Off`, which is
+            // how anyone finds out what they just pressed.
+            KeyCode::Comma => self.app.renderer.cycle_bubbles(),
             // The A/B key. Deliberately reassigned as the question changes --
             // see `App::toggle_experiment`.
             KeyCode::KeyK => self.app.toggle_experiment(),

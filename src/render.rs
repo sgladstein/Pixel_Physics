@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use crate::sim::cell::AMBIENT_TEMPERATURE;
+use crate::sim::cell::{Cell, AMBIENT_TEMPERATURE};
 use crate::sim::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
 use crate::sim::material;
 use crate::sim::organism;
@@ -183,6 +183,128 @@ const FLAME_FLICKER_PERIOD: u64 = 4;
 /// `heat_ratio` alone would produce — enough to visibly flicker, not enough
 /// to make a hot cell ever read as merely warm.
 const FLAME_FLICKER_STRENGTH: f32 = 0.3;
+
+/// How hot a `Liquid` cell has to be before `BubbleMode` draws vapour in it.
+///
+/// **Well below boiling, and that is the whole design, arrived at by
+/// getting it wrong first.** This was 80°C — near-boiling — on the obvious
+/// reading that a bubble is drawn where the water is boiling. Measured on
+/// `scene=simmer` (a pan over a hot hearth), a heated pool holds *72 to
+/// 210* cells over 80°C and every one of them is the single row lying on
+/// the hearth, under a bright fire tint. Diffed against the same sheet with
+/// the effect off: **every changed pixel was in world rows 307-308**, the
+/// bottom two of a fourteen-deep pan. There is no column of boiling water
+/// for anything to rise through, and there never will be — a cell that hot
+/// converts to steam within a few visits.
+///
+/// A rising bubble is not *in* boiling water; it is in **warm** water above
+/// a boiling floor. `CLAUDE.md`'s "which cell does this rule evaluate?", in
+/// its rendering costume. The same pan holds 995-1,117 cells over 40°C and
+/// 354-676 over 60, spread up the whole column, which is a plume.
+///
+/// 40 rather than lower because ambient is 20 and a puddle beside a
+/// campfire should not fizz. `examples/filmstrip.rs` prints the standing
+/// count of liquid cells over this next to the image, because "the pool is
+/// not bubbling" and "there is nothing warm enough in the pool to bubble"
+/// are the same picture.
+pub const BUBBLE_MIN_TEMPERATURE: f32 = 40.0;
+
+/// The temperature at which the effect is at full strength. Water's own
+/// boiling point — above it a cell is converting to steam anyway, so there
+/// is nothing to gain from drawing more vapour inside it.
+const BUBBLE_FULL_TEMPERATURE: f32 = 100.0;
+
+/// Frames a bubble pattern takes to climb one cell. Small: bubbles rise
+/// visibly faster than anything else in this engine moves, and the whole
+/// point of keying on the frame is that they read as *rising* rather than
+/// as a hot-water texture.
+const BUBBLE_RISE_PERIOD: u64 = 2;
+
+/// Fraction of candidate sites holding a bubble at full strength, before
+/// the per-cell temperature ramp scales it down. Sparse: a pool where
+/// every other pixel is a bubble is foam, not boiling water. Set so a
+/// uniformly near-boiling pool lights ~15% of its pixels, which
+/// `every_bubble_mode_actually_draws_bubbles_in_boiling_water` bounds.
+const BUBBLE_DENSITY: f32 = 0.16;
+
+/// How far a bubble's crown pixel blends toward `BUBBLE_TINT`, and how much
+/// less its lower half gets. The split is what makes a two-pixel bubble
+/// read as *domed* rather than as a square — a bright top over a dimmer
+/// bottom is the cheapest possible specular highlight.
+const BUBBLE_LIFT: f32 = 0.72;
+const BUBBLE_UNDERSIDE: f32 = 0.30;
+
+/// The share of a bubble's brightness that does *not* scale with how hot
+/// its cell is. **Density carries the temperature signal; brightness only
+/// helps a little.** Scaling both was tried and it is the wrong shape: a
+/// bubble halfway up a warm column then draws at half strength and reads as
+/// grain, so exactly the population the threshold was lowered to reach
+/// arrives invisible. A bubble either is there or is not.
+const BUBBLE_FLOOR: f32 = 0.5;
+
+/// What a bubble blends toward: near-white with a cool cast, so vapour
+/// inside water reads as the same substance as the steam above it rather
+/// than as a bright blue liquid pixel.
+const BUBBLE_TINT: [f32; 3] = [225.0, 238.0, 248.0];
+
+/// How boiling liquid is drawn, cycled by `H`.
+///
+/// **A selector rather than a decision, on `GrainMode`'s precedent**: this
+/// is a "does it look right" question, five grain modes behind one key
+/// settled the last one of those in minutes, and no amount of argument or
+/// still images had. `Off` is the default so nothing changes for anyone who
+/// does not press the key, and the active mode is named on screen.
+///
+/// **None of these costs the dirty-rect render skip**, which is the usual
+/// price of an animated effect (`GrainMode::Animated` pays ~10 ms/frame on
+/// a settled world for exactly that reason). They ride inside the heat-glow
+/// branch, which already admits only cells that are burning or off ambient
+/// — and a cell that is off ambient is one `fire::update` is still writing
+/// every frame to keep its own chunk dirty, so its chunk is in `touched`
+/// already. A settled world has no such cells and pays nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum BubbleMode {
+    /// Today's behaviour: hot water is tinted by the heat glow and nothing
+    /// else. Boiling reads as the steam above the surface.
+    #[default]
+    Off,
+    /// Sparse domed highlights on a two-cell grid, scrolling upward. The
+    /// bubble is the unit, not the pixel — a one-pixel speckle at this
+    /// density reads as grain, which is the failure mode this variant is
+    /// shaped against.
+    Rising,
+    /// `Rising`, but the pattern is stretched vertically so a bubble is a
+    /// short column rather than a blob, and it climbs faster. The other
+    /// reading of "bubbles": a stream leaving a nucleation site, rather
+    /// than a scatter of separate pockets.
+    Columns,
+    /// Bubbles only where the liquid has something to escape *into* — the
+    /// pattern is the same as `Rising`, gated on the cell being within a
+    /// couple of rows of the top of its own body. Boiling that stays at the
+    /// surface, for the reading that a bubble deep in a pool should not be
+    /// visible through the water above it.
+    Surface,
+}
+
+impl BubbleMode {
+    fn next(self) -> Self {
+        match self {
+            BubbleMode::Off => BubbleMode::Rising,
+            BubbleMode::Rising => BubbleMode::Columns,
+            BubbleMode::Columns => BubbleMode::Surface,
+            BubbleMode::Surface => BubbleMode::Off,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            BubbleMode::Off => "OFF (current)",
+            BubbleMode::Rising => "RISING",
+            BubbleMode::Columns => "COLUMNS",
+            BubbleMode::Surface => "SURFACE",
+        }
+    }
+}
 
 /// Which M13 field channel `Renderer::field_overlay` tints the screen by,
 /// cycled by `V` — parallel to `F1`'s existing chunk overlay, for seeing
@@ -465,6 +587,10 @@ pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
     /// Prototype switch — see the enum's own doc.
     pub grain: GrainMode,
+    /// How boiling liquid is drawn — see `BubbleMode`. `Off` by default,
+    /// cycled by `H`, and free on a settled world for the reason that enum
+    /// documents.
+    pub bubbles: BubbleMode,
     /// Frame counter, advanced by `draw`, read only by `GrainMode::Animated`.
     frame: u64,
     /// Screen rectangles the chunk bodies occupied on the previous `draw`.
@@ -615,6 +741,7 @@ impl Renderer {
     pub fn new() -> Self {
         Self {
             grain: GrainMode::default(),
+            bubbles: BubbleMode::default(),
             frame: 0,
             last_body_rects: Vec::new(),
             last_player_rect: None,
@@ -659,6 +786,14 @@ impl Renderer {
     /// iterated on rather than settled once.
     pub fn cycle_grain(&mut self) {
         self.grain = self.grain.next();
+    }
+
+    /// `H` — step through the boiling looks. Same reasoning as
+    /// `cycle_grain`, and the same reason it stays rather than being
+    /// collapsed once one is picked: whether a pool reads as boiling is a
+    /// judgement about motion, and a contact sheet can only get it so far.
+    pub fn cycle_bubbles(&mut self) {
+        self.bubbles = self.bubbles.next();
     }
 
     pub fn cycle_field_overlay(&mut self) {
@@ -1646,6 +1781,16 @@ impl Renderer {
                     *c = (*c as f32 + (fire - *c as f32) * t).round() as u8;
                 }
             }
+
+            // Bubbles, inside the same branch and after the tint, so a
+            // pocket of vapour draws over the warm cast rather than under
+            // it. Deliberately here and not in a branch of its own: this
+            // one already costs a temperature read and already admits only
+            // cells that are off ambient, which is the guard the whole
+            // effect would otherwise need for itself. See `BubbleMode`.
+            if self.bubbles != BubbleMode::Off && is_liquid {
+                self.apply_bubbles(world, x, y, cell, &mut rgb);
+            }
         }
 
         // Fake AO (darkening a cell by how enclosed it is) was tried here
@@ -1792,6 +1937,65 @@ impl Renderer {
             *c = (*c as f32 + (r - *c as f32) * blend).round().clamp(0.0, 255.0) as u8;
         }
         out
+    }
+
+    /// Draws vapour inside a boiling `Liquid` cell — see `BubbleMode`.
+    ///
+    /// **A pure function of `(x, y, frame)` and the cell's own temperature,
+    /// with no stored state and no writes back into the sim**, the same
+    /// shape the animated `GrainMode` variants use. That is not tidiness:
+    /// bubbles as free particles were considered and are structurally
+    /// impossible here, because `particle::advance_and_check_landing` lands
+    /// a particle the instant its next substep is occupied — and every
+    /// substep inside a pool is occupied, so a bubble particle would
+    /// convert back into a cell on its first frame without ever rising.
+    ///
+    /// The pattern scrolls by indexing at `y + rise`: the element drawn at
+    /// `y` this frame is the one that was at `y + 1` a moment ago, so the
+    /// whole field appears to climb, and it costs one integer add.
+    ///
+    /// Sited on a **two-cell grid**, not per pixel, because the first thing
+    /// that goes wrong with this effect is that it reads as texture rather
+    /// than as bubbles — a one-pixel speckle at any density is grain, which
+    /// this renderer already has a whole enum of. The block's upper half is
+    /// its crown and blends further toward `BUBBLE_TINT` than its lower
+    /// half, which is the cheapest thing that reads as domed.
+    fn apply_bubbles(&self, world: &World, x: i32, y: i32, cell: Cell, rgb: &mut [u8; 3]) {
+        let boil = ((cell.temperature() as f32 - BUBBLE_MIN_TEMPERATURE)
+            / (BUBBLE_FULL_TEMPERATURE - BUBBLE_MIN_TEMPERATURE))
+            .clamp(0.0, 1.0);
+        if boil <= 0.0 {
+            return;
+        }
+        let rise = (self.frame / BUBBLE_RISE_PERIOD) as i32;
+        // `Columns` stretches the site vertically and climbs at twice the
+        // rate, so a site reads as a stream leaving one spot on the bottom
+        // rather than as a free-floating pocket.
+        let (block_w, block_h, scroll) = match self.bubbles {
+            BubbleMode::Columns => (2, 4, rise * 2),
+            _ => (2, 2, rise),
+        };
+        if self.bubbles == BubbleMode::Surface {
+            // Only within two rows of the top of this body. Two extra
+            // `World::get`s, and they are affordable *here* specifically
+            // because this runs on the handful of cells that are both
+            // liquid and near boiling — the fake-AO experiment that cost
+            // ~10 ms did four of them on every pixel of a full screen.
+            let same = |ny: i32| world.get(x, ny).material == cell.material;
+            if same(y - 1) && same(y - 2) {
+                return;
+            }
+        }
+        let sy = y + scroll;
+        let site = rng::jitter(x.div_euclid(block_w), sy.div_euclid(block_h));
+        if site >= BUBBLE_DENSITY * boil {
+            return;
+        }
+        let crown = sy.rem_euclid(block_h) < block_h / 2;
+        let lift = if crown { BUBBLE_LIFT } else { BUBBLE_UNDERSIDE } * (BUBBLE_FLOOR + (1.0 - BUBBLE_FLOOR) * boil);
+        for (c, tint) in rgb.iter_mut().zip(BUBBLE_TINT) {
+            *c = (*c as f32 + (tint - *c as f32) * lift).round().clamp(0.0, 255.0) as u8;
+        }
     }
 
     /// Blends `base` toward a colour ramp keyed on the currently-selected
@@ -2514,6 +2718,84 @@ mod tests {
         let sand = world.materials.get(material::SAND).palette[1];
         let idx = (20 * w as usize + 10) * 4;
         assert_eq!(&frame[idx..idx + 4], &sand, "particle did not draw at its rounded position");
+    }
+
+    /// A pool of water at `temp`, filling the world, drawn once.
+    fn boiling_pool_frame(mode: BubbleMode, temp: i16) -> Vec<u8> {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for y in 0..64 {
+            for x in 0..64 {
+                world.set(x, y, Cell::new(material::WATER, 0).with_temperature(temp));
+            }
+        }
+        let mut renderer = Renderer::new();
+        renderer.bubbles = mode;
+        let particles = ParticleSystem::new();
+        let mut frame = vec![0u8; 64 * 64 * 4];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (64, 64), true);
+        frame
+    }
+
+    /// How many pixels of `a` differ from `b`.
+    fn pixels_differing(a: &[u8], b: &[u8]) -> usize {
+        a.chunks(4).zip(b.chunks(4)).filter(|(p, q)| p != q).count()
+    }
+
+    #[test]
+    fn every_bubble_mode_actually_draws_bubbles_in_boiling_water() {
+        // **A counter, not a picture.** The first version of this effect
+        // was judged from a `scene=boil` contact sheet and read as "no
+        // change" -- which at that zoom is indistinguishable from the
+        // bubbles being drawn *and* lost in the steam cloud over the pool.
+        // Only a count separates the two, and the count is what says the
+        // mechanism ran at all (`CLAUDE.md`).
+        let off = boiling_pool_frame(BubbleMode::Off, 95);
+        for mode in [BubbleMode::Rising, BubbleMode::Columns, BubbleMode::Surface] {
+            let on = boiling_pool_frame(mode, 95);
+            let drawn = pixels_differing(&off, &on);
+            println!("{}: {drawn} of 4096 pixels bubbled", mode.label());
+            assert!(drawn > 0, "{} drew nothing in a pool at 95C", mode.label());
+            // Sparse, and that is the other half of the claim: a mode that
+            // lit a third of the pool would be foam, not boiling water.
+            assert!(drawn < 4096 / 3, "{} bubbled {drawn} of 4096 pixels, which is foam rather than boiling", mode.label());
+        }
+    }
+
+    #[test]
+    fn bubbles_are_silent_below_their_threshold_and_climb_with_the_frame() {
+        // The two ways this effect could be wrong without being invisible:
+        // drawing in water nobody heated, and drawing a *static* pattern
+        // that reads as a texture rather than as anything rising.
+        let cold = boiling_pool_frame(BubbleMode::Rising, AMBIENT_TEMPERATURE);
+        let cold_off = boiling_pool_frame(BubbleMode::Off, AMBIENT_TEMPERATURE);
+        assert_eq!(
+            pixels_differing(&cold, &cold_off),
+            0,
+            "water at ambient bubbled; the effect is not gated on temperature"
+        );
+
+        // Same world, successive frames: the pattern must move. Drawn from
+        // one renderer so its own frame counter advances, which is the only
+        // thing that changes between the two.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for y in 0..64 {
+            for x in 0..64 {
+                world.set(x, y, Cell::new(material::WATER, 0).with_temperature(95));
+            }
+        }
+        let mut renderer = Renderer::new();
+        renderer.bubbles = BubbleMode::Rising;
+        let particles = ParticleSystem::new();
+        let mut first = vec![0u8; 64 * 64 * 4];
+        let mut later = vec![0u8; 64 * 64 * 4];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut first, (64, 64), true);
+        for _ in 0..BUBBLE_RISE_PERIOD {
+            renderer.draw(&world, &particles, &HashSet::new(), &mut later, (64, 64), true);
+        }
+        assert!(
+            pixels_differing(&first, &later) > 0,
+            "the bubble pattern is identical {BUBBLE_RISE_PERIOD} frames later; nothing is rising"
+        );
     }
 
     #[test]
