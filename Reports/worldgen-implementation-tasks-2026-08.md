@@ -1292,6 +1292,55 @@ nothing else moved.
 
 ---
 
+# Round-3 findings
+
+Round 3's queue is `Reports/worldgen-implementation-tasks-round3-2026-08.md`;
+its findings are appended here, as that file instructs.
+
+### R3-1a — The two-sub-threshold sketch does not survive the geometry; the shipped rule is the research's own single threshold
+
+The task sketches `t_chamber` carving discs around Worley cell *centres* and
+`t_passage` carving the boundary web, with the caveat "measure and look
+rather than trusting this sketch". Derived before building, because the
+failure is geometric rather than a tuning matter: a disc of radius
+`t_chamber` around a feature point and the strip `F2 - F1 < t_passage`
+around the cell boundary **never touch**. For two feature points a unit
+apart, the strip reaches inward only to `(1 - t_passage) / 2` from either
+point -- at the sketch's own scales (`t_chamber` ~ 0.3, `t_passage` ~ 0.12)
+that leaves ~0.14 of solid stone between every chamber and every passage, so
+each chamber is a sealed satellite that the mandatory component-keep then
+deletes, and the "system" collapses to whichever single blob contains the
+seed. Closing the gap needs `t_passage >= 1 - 2 * t_chamber`, at which point
+the union carves most of the envelope and there is no anatomy left.
+
+What ships is the rule the research itself states
+(`Reports/worldgen-design.md` §7, quoted at the top of the round-3 task
+file): **one threshold on `F2 - F1`**. The passages are the Voronoi edge
+network; the chambers are the junction bulges where three edges meet, which
+open out because the low-`F2 - F1` bands of three boundaries overlap there.
+One field, one threshold, and the linked anatomy is a property of the
+geometry rather than of two constants that have to be kept in agreement.
+
+### R3-1b — "Bounding box + rind, all stone" is read as the r2 skeleton's dilated envelope, not a literal box
+
+The task's seal line says "bounding box of the kept component + 2-cell
+rind, all stone". Read literally that is a *stronger* check than round 2
+shipped -- the r2 skeleton never checked a box; it checked the **shape
+grown by the rind** (`inside(fx, fy, VAULT_RIND)`), which is what
+"envelope" has meant in this pass since `pockets`. For a ~180x70 system
+the literal box covers ~13,000 cells and overlaps roughly three of
+`pockets`' 64-cell regions, so a sand lens tens of cells from the nearest
+void -- sealed in its own right, incapable of touching the cave -- would
+reject the whole system, and the pass would fire noticeably less often for
+no at-rest gain. The seal shipped is the raster equivalent of the r2
+check: every cell within a 2-cell Chebyshev dilation of the kept component
+must be solid stone, verified in full before a single write, else the
+system is rejected wholesale. The contract the round-3 task marks
+must-not-change -- whole envelope + rind verified before any write --
+is exactly what this is.
+
+---
+
 ## Track summary — what changed, and what the next session should know
 
 Six tasks, six commits, all gates green at each one. What the world looks

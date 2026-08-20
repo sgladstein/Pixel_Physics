@@ -1605,6 +1605,176 @@ fn probe_r2t3_what_moves_in_a_vault() {
     }
 }
 
+/// Round-3 guard: the ceiling-span bound, walked over every roof run of a
+/// forced-generation world.
+///
+/// The pass promises no horizontal run of carved void with rock directly
+/// above it is longer than 36 cells -- the roof span the round-2 arithmetic
+/// cleared for chambers -- and enforces it by dropping stone teeth from any
+/// longer run (`passes::carve_cave_void`). The instrument is the same paired
+/// build the seal test uses, so attribution is exact: an *open* cell is a
+/// carved cell that is not solid afterwards (air, water, floor gravel), and
+/// a ceiling run is a maximal horizontal run of open cells each with
+/// unbroken material directly above. The 36 is restated here as a literal
+/// because the pass's constant is private, and this test must fail if that
+/// copy ever drifts upward.
+#[test]
+fn a_forced_cave_world_keeps_every_roof_span_bounded() {
+    const MAX_CEILING_SPAN: i32 = 36;
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = vault_test_params(base);
+    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+    let mut systems = 0usize;
+    let mut runs_walked = 0usize;
+    for seed in SEEDS {
+        let world = build(&with, seed);
+        let control = build(&without, seed);
+        let mut carved = std::collections::HashSet::new();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                if world.get(x, y).material != control.get(x, y).material
+                    || world.get(x, y).shade != control.get(x, y).shade
+                {
+                    carved.insert((x, y));
+                }
+            }
+        }
+        if carved.is_empty() {
+            continue;
+        }
+        systems += 1;
+        let open = |x: i32, y: i32| {
+            carved.contains(&(x, y))
+                && world.materials.kind(world.get(x, y).material) != material::MaterialKind::Solid
+        };
+        for y in 0..=BOUNDS.1 {
+            let mut run = 0;
+            for x in 0..=BOUNDS.0 + 1 {
+                let ceiling = x <= BOUNDS.0 && open(x, y) && !open(x, y - 1);
+                if ceiling {
+                    run += 1;
+                } else {
+                    if run > 0 {
+                        runs_walked += 1;
+                    }
+                    assert!(
+                        run <= MAX_CEILING_SPAN,
+                        "seed {seed}: a {run}-cell roof span ends at ({x}, {y}) -- the ceiling guard let it through"
+                    );
+                    run = 0;
+                }
+            }
+        }
+    }
+    // The counters beside the claim: a sweep where no system placed, or one
+    // whose systems had no ceilings to walk, would pass vacuously.
+    assert!(systems >= 3, "only {systems} forced worlds placed a system");
+    assert!(runs_walked >= 50, "only {runs_walked} ceiling runs walked -- the census is too thin to trust");
+}
+
+#[test]
+#[ignore = "probe: prints, never asserts (round-3 task 1)"]
+fn probe_r3_dump_a_cave_system() {
+    // The instrument for tuning CAVE_CELL / CAVE_THRESHOLD / CAVE_SQUASH by
+    // eye: ASCII cross-sections of whole systems at the forced size, with
+    // the census printed beside them ("did it fire" is a counter, and what a
+    // system's anatomy is -- chambers, passages, floors -- is only legible
+    // at cell scale).
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = vault_test_params(base);
+    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+    for seed in SEEDS {
+        let world = build(&with, seed);
+        let control = build(&without, seed);
+        let mut carved: Vec<(i32, i32)> = Vec::new();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                if world.get(x, y).material != control.get(x, y).material
+                    || world.get(x, y).shade != control.get(x, y).shade
+                {
+                    carved.push((x, y));
+                }
+            }
+        }
+        if carved.is_empty() {
+            println!("\n=== seed {seed}: no system placed ===");
+            continue;
+        }
+        let id = |n: &str| world.materials.id_of(n).expect(n);
+        let (gravel, water, crystal) = (id("gravel"), id("water"), id("crystal"));
+        let stone = id("stone");
+        // Census: air/gravel/water/solid split, and vertical-run heights to
+        // separate chambers (tall) from passages (low).
+        let carved_set: std::collections::HashSet<(i32, i32)> = carved.iter().copied().collect();
+        let (mut air, mut grav, mut wat, mut solid) = (0, 0, 0, 0);
+        for &(x, y) in &carved {
+            let m = world.get(x, y).material;
+            if m == material::EMPTY {
+                air += 1;
+            } else if m == gravel {
+                grav += 1;
+            } else if m == water {
+                wat += 1;
+            } else {
+                solid += 1;
+            }
+        }
+        let (x0, x1) = (
+            carved.iter().map(|&(x, _)| x).min().unwrap(),
+            carved.iter().map(|&(x, _)| x).max().unwrap(),
+        );
+        let (y0, y1) = (
+            carved.iter().map(|&(_, y)| y).min().unwrap(),
+            carved.iter().map(|&(_, y)| y).max().unwrap(),
+        );
+        // Tallest open run per column, for the chamber/passage read.
+        let mut tallest = 0;
+        for x in x0..=x1 {
+            let mut h = 0;
+            for y in y0..=y1 + 1 {
+                if carved_set.contains(&(x, y)) && world.get(x, y).material == material::EMPTY {
+                    h += 1;
+                    tallest = tallest.max(h);
+                } else {
+                    h = 0;
+                }
+            }
+        }
+        println!(
+            "\n=== seed {seed}: {} carved cells in {}x{} at ({x0}..{x1}, {y0}..{y1}); air {air} gravel {grav} water {wat} solid {solid}; tallest open run {tallest} ===",
+            carved.len(),
+            x1 - x0 + 1,
+            y1 - y0 + 1
+        );
+        for y in (y0 - 2).max(0)..=(y1 + 2).min(BOUNDS.1) {
+            let line: String = ((x0 - 2).max(0)..=(x1 + 2).min(BOUNDS.0))
+                .map(|x| {
+                    let c = world.get(x, y);
+                    if c.material == material::EMPTY {
+                        '.'
+                    } else if c.material == gravel {
+                        // Case says who wrote it: 'G' is the vault pass's own
+                        // floor fill (a carved cell), 'g' was already there
+                        // (a pocket lens, a soil-contact dither).
+                        if carved_set.contains(&(x, y)) { 'G' } else { 'g' }
+                    } else if c.material == water {
+                        '~'
+                    } else if c.material == crystal {
+                        'X'
+                    } else if c.material == stone {
+                        if carved_set.contains(&(x, y)) { 'T' } else { '#' }
+                    } else {
+                        '?'
+                    }
+                })
+                .collect();
+            println!("  {y:>4} {line}");
+        }
+    }
+}
+
 #[test]
 fn pond_water_uses_its_four_tones_evenly() {
     // `ponds` draws shades 0..3 (`loose_shade` against `TONES = 4`) and

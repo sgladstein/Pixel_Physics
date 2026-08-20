@@ -666,16 +666,80 @@ const MAX_VAULT_EXTENT: i32 = 30;
 /// hole through into whatever is next door and let the floor run out of it.
 const VAULT_RIND: i32 = 2;
 
-/// Sealed chambers, buried far below the surface: the found-a-secret moment.
+/// Half-extents of a cave system's envelope, in cells. ~180x70, per the
+/// round-3 spec; constants tuned by eye against the ASCII probe.
+const CAVE_HALF_W: i32 = 90;
+const CAVE_HALF_H: i32 = 35;
+/// Envelope-local grid dimensions for the collect phase.
+const CAVE_GRID_W: i32 = 2 * CAVE_HALF_W + 1;
+const CAVE_GRID_H: i32 = 2 * CAVE_HALF_H + 1;
+
+/// Size of one Worley lattice cell, in *sheared* cave-space cells.
+///
+/// Together with [`CAVE_SQUASH`] this sets how many chambers a system holds:
+/// the envelope spans `(2 * CAVE_HALF_W / CAVE_CELL)` lattice cells across
+/// and `(2 * CAVE_HALF_H * CAVE_SQUASH / CAVE_CELL)` down -- about 3.5 x 2.7
+/// = 9 cells at these values, the middle of the 6-12 the spec asks for.
+const CAVE_CELL: f32 = 52.0;
+
+/// Vertical compression applied before the field is sampled, so everything
+/// the threshold carves -- chambers and passages both -- comes out wider
+/// than tall, lying along the bedding rather than cutting across it.
+const CAVE_SQUASH: f32 = 2.0;
+
+/// Cells over which the threshold fades to nothing at the envelope edge,
+/// per axis. Without the fade, a passage crossing the boundary is sawn off
+/// into a dead-plumb face the full height of the envelope -- the round-2
+/// scan-cap lesson arriving at envelope scale, seen in the first ASCII dump
+/// as a 70-row straight wall at the bbox edge. Fading the threshold pinches
+/// every void shut before it reaches the wall, so the system ends in
+/// naturally narrowing passages instead of a cut. The vertical fade is half
+/// the horizontal one for the same reason [`CAVE_SQUASH`] is 2: a fade that
+/// reads as the same *shape* on both axes has to match the anisotropy.
+const CAVE_EDGE_FADE_X: f32 = 14.0;
+const CAVE_EDGE_FADE_Y: f32 = 7.0;
+
+/// The one threshold: a cell is void where `F2 - F1 < CAVE_THRESHOLD`.
+///
+/// `F2 - F1` is zero along Worley-cell boundaries and grows toward centres,
+/// so a low threshold carves the boundary network -- passages -- and the
+/// junctions where boundaries meet open into wider bulges -- chambers. The
+/// spec sketched a second sub-threshold (`t_chamber`, carving discs around
+/// the *centres*), and that sketch does not survive the geometry: a disc
+/// around a feature point never touches the boundary web (at radius 0.3 of
+/// a unit lattice the gap to the `F2 - F1 < 0.12` strip is ~0.14 of solid
+/// stone), so every chamber it adds is a sealed satellite the component
+/// keep below then throws away. One threshold on one field is also exactly
+/// what the research names (`Reports/worldgen-design.md` §7). See the
+/// round-3 finding.
+const CAVE_THRESHOLD: f32 = 0.34;
+
+/// Longest horizontal run of void with stone directly above it that a
+/// system may keep, in cells -- the roof-span bound the round-2 arithmetic
+/// cleared for chambers. Runs longer than this get a stone tooth dropped
+/// from their middle ([`carve_cave_void`]) until every span complies.
+const MAX_CEILING_SPAN: i32 = 36;
+
+/// A kept component smaller than this is not a system: a sliver of passage
+/// with no chamber is a dig reward of nothing. Rejected wholesale, same as
+/// a failed seal.
+const MIN_SYSTEM_CELLS: usize = 80;
+
+/// Chance a placement draw is a geode vug rather than a cave system. The
+/// vug stays as the rare jewel variant; the cave is the main event.
+const VUG_CHANCE: f32 = 0.25;
+
+/// Sealed cave systems and geode vugs, buried far below the surface: the
+/// found-a-secret moment.
 ///
 /// **Genesis-only and zero standing cost.** Nothing here runs per frame; a
-/// chamber is a handful of cells written once, and concealment comes free
-/// from the viewport rather than from any render work -- at 200 rows below
-/// the surface a chamber is simply never on screen until someone digs to it.
+/// system is written once, and concealment comes free from the viewport
+/// rather than from any render work -- at 200 rows below the surface it is
+/// simply never on screen until someone digs to it.
 ///
 /// Grown from [`pockets`]'s collect-then-verify-seal skeleton, which round 1
 /// already generalised to rotated shapes. The contract is that one, kept
-/// exactly: **every cell of the envelope -- chamber, lining and a rind of
+/// exactly: **every cell of the envelope -- void, lining and a rind of
 /// solid rock around the whole of it -- is checked to be stone before a
 /// single cell is written.** Approximating that per cell is what leaves
 /// loose material outcropping on a free face, and here it would be worse
@@ -685,13 +749,14 @@ const VAULT_RIND: i32 = 2;
 /// Two shapes, because one shape repeated is a feature of the generator
 /// rather than a discovery:
 ///
-///   * a **grotto** -- the union of two to four overlapping ellipses, so the
-///     outline is lumpy and asymmetric rather than an obvious oval -- with a
-///     flat gravel floor, and standing water if its floor is below the local
-///     water table.
-///   * a **geode vug** -- a single ellipse with a one to two cell crystal
-///     lining grown inward from its wall, which is the one bright thing in
-///     the deep massif.
+///   * a **cave system** -- a Worley `F2 - F1` field thresholded inside a
+///     bounded envelope and sheared along the local bedding, so what comes
+///     out is chambers linked by passages that follow the visible strata:
+///     the anatomy real caves have, from one field and one threshold. See
+///     [`carve_cave_void`].
+///   * a **geode vug** -- a single ellipse with a crystal lining grown
+///     inward from its wall, which is the one bright thing in the deep
+///     massif.
 pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
     let p = ctx.terrain.params;
     if p.vault_density <= 0.0 {
@@ -717,56 +782,57 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
         let plan = ctx.plans[cx as usize];
         let top = plan.surface_y + p.vault_min_depth;
         let bottom = plan.bedrock_top_y - p.vault_bedrock_margin;
-        // The band is empty in a shallow world. That is the intended
-        // outcome, not a failure to handle: such a world has no vault, and
-        // the pass counter reports zero rather than the pass quietly
-        // relaxing its own depth rule to produce one.
+
+        // Which shape. A draw per system, on its own coordinate so the
+        // choice is not correlated with where it landed.
+        let vug = noise::unit(seed, Purpose::Vault, k, 2) < VUG_CHANCE;
+
+        if !vug {
+            // The envelope must sit entirely inside the depth band and, with
+            // its rind, inside the world. Rejected rather than nudged when it
+            // cannot -- moving a rejected system to wherever it fits is how a
+            // "rare secret" ends up in the same kind of place in every world.
+            // The band being too shallow is the intended outcome in a small
+            // world, not a failure to handle: such a world has no system and
+            // the pass counter reports zero rather than the pass quietly
+            // relaxing its own depth rule to produce one.
+            let lo = top + CAVE_HALF_H + VAULT_RIND;
+            let hi = bottom - CAVE_HALF_H - VAULT_RIND;
+            if hi < lo || cx - CAVE_HALF_W - VAULT_RIND < 0 || cx + CAVE_HALF_W + VAULT_RIND >= w {
+                continue;
+            }
+            let cy = lo + (noise::unit(seed, Purpose::Vault, k, 1) * (hi - lo + 1) as f32) as i32;
+            written += cave_system(ctx, world, k, cx, cy);
+            continue;
+        }
+
+        // The band is empty in a shallow world -- same rule as the system's,
+        // at the vug's own smaller size.
         if bottom - top < 2 * MAX_VAULT_EXTENT {
             continue;
         }
         let span = (bottom - top) as f32;
         let cy = top + (noise::unit(seed, Purpose::Vault, k, 1) * span) as i32;
 
-        // Which shape. A coin flip per chamber, on its own coordinate so the
-        // choice is not correlated with where it landed.
-        let vug = noise::unit(seed, Purpose::Vault, k, 2) < 0.5;
-
-        // Collect the chamber's cells as a shape function evaluated over a
-        // bounding box, exactly as `pockets` does. `lobes` is the grotto's
-        // union of ellipses; a vug is the degenerate case of one lobe, which
-        // keeps a single code path rather than two that can disagree.
-        let lobe_count = if vug { 1 } else { 2 + (noise::unit(seed, Purpose::Vault, k, 3) * 3.0) as i32 };
-        let mut lobes: Vec<(f32, f32, f32, f32)> = Vec::new();
-        for l in 0..lobe_count {
-            // Radii first, then an offset bounded by them, so lobes always
-            // overlap the first one and the union stays connected. A grotto
-            // in two disconnected halves would be two chambers, one of which
-            // has no way in.
-            let a = 8.0 + noise::unit(seed, Purpose::Vault, k * 17 + l, 4) * 12.0;
-            let b = 6.0 + noise::unit(seed, Purpose::Vault, k * 17 + l, 5) * 6.0;
-            let (ox, oy) = if l == 0 {
-                (0.0, 0.0)
-            } else {
-                (
-                    (noise::unit(seed, Purpose::Vault, k * 17 + l, 6) - 0.5) * 1.6 * a,
-                    (noise::unit(seed, Purpose::Vault, k * 17 + l, 7) - 0.5) * 1.6 * b,
-                )
-            };
-            // **The cap is applied to the lobe, not to the scan box**, and
-            // the difference is a correctness bug rather than a preference.
-            // Capping the scan instead was the first version: a lobe reaching
-            // past the cap had its far end simply never visited, so those
-            // cells were neither written *nor seal-checked* -- the chamber
-            // came out with a flat sawn-off face, and the guarantee that the
-            // whole envelope is stone quietly stopped covering all of it.
-            // Shrinking the lobe keeps the shape whole and the check total,
-            // which is the landmine CLAUDE.md states twice: a size cap must
-            // bound work, never gate whether something happens.
-            let limit = (MAX_VAULT_EXTENT - VAULT_RIND - 1) as f32;
-            let a = a.min(limit - ox.abs()).max(2.0);
-            let b = b.min(limit - oy.abs()).max(2.0);
-            lobes.push((ox, oy, a, b));
-        }
+        // The vug is a single ellipse. (The multi-lobe grotto this code once
+        // unioned into lumpy caverns is superseded by the cave system above;
+        // the one-entry lobe list survives because the shape test and the cap
+        // below are written against it and verified in that form.)
+        let a = 8.0 + noise::unit(seed, Purpose::Vault, k * 17, 4) * 12.0;
+        let b = 6.0 + noise::unit(seed, Purpose::Vault, k * 17, 5) * 6.0;
+        // **The cap is applied to the lobe, not to the scan box**, and
+        // the difference is a correctness bug rather than a preference.
+        // Capping the scan instead was the first version: a lobe reaching
+        // past the cap had its far end simply never visited, so those
+        // cells were neither written *nor seal-checked* -- the chamber
+        // came out with a flat sawn-off face, and the guarantee that the
+        // whole envelope is stone quietly stopped covering all of it.
+        // Shrinking the lobe keeps the shape whole and the check total,
+        // which is the landmine CLAUDE.md states twice: a size cap must
+        // bound work, never gate whether something happens.
+        let limit = (MAX_VAULT_EXTENT - VAULT_RIND - 1) as f32;
+        let lobes: Vec<(f32, f32, f32, f32)> =
+            vec![(0.0, 0.0, a.min(limit).max(2.0), b.min(limit).max(2.0))];
         let inside = |dx: f32, dy: f32, grow: f32| {
             lobes.iter().any(|&(ox, oy, a, b)| {
                 ((dx - ox) / (a + grow)).powi(2) + ((dy - oy) / (b + grow)).powi(2) <= 1.0
@@ -907,6 +973,328 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
                 Cell::new(ctx.gravel, BURIED_FAMILY * TONES + loose_shade(ctx, Purpose::Vault, px, py))
             } else if flooded && py >= water_surface {
                 Cell::new(ctx.water, loose_shade(ctx, Purpose::Shade, px, py))
+            } else {
+                Cell::EMPTY
+            };
+            world.set(px, py, cell);
+            written += 1;
+        }
+    }
+    written
+}
+
+/// Envelope-local index into a cave grid. `(0, 0)` is the placement draw.
+fn cave_idx(dx: i32, dy: i32) -> usize {
+    ((dy + CAVE_HALF_H) * CAVE_GRID_W + dx + CAVE_HALF_W) as usize
+}
+
+/// Whether the cave plan leaves something solid at `(dx, dy)`: undisturbed
+/// rock (anything outside the kept void, including outside the envelope),
+/// or planned floor gravel. What the floor verifier leans on.
+fn planned_solid(void: &[bool], floor: &[Option<(i32, i32, i32)>], dx: i32, dy: i32) -> bool {
+    if dx.abs() > CAVE_HALF_W || dy.abs() > CAVE_HALF_H {
+        return true;
+    }
+    if !void[cave_idx(dx, dy)] {
+        return true;
+    }
+    matches!(floor[(dx + CAVE_HALF_W) as usize], Some((_, b, h)) if h > 0 && dy > b - h)
+}
+
+/// Keep only the connected component containing the seed point -- the void
+/// cell nearest the envelope centre, ties broken in raster order -- over a
+/// 4-neighbour flood. A disconnected satellite chamber is a second system
+/// nobody can reach from the first, so it goes back to being stone.
+fn keep_seed_component(void: &mut [bool]) {
+    let mut seed = None;
+    let mut best = i64::MAX;
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+            if void[cave_idx(dx, dy)] {
+                let d = (dx as i64).pow(2) + (dy as i64).pow(2);
+                if d < best {
+                    best = d;
+                    seed = Some((dx, dy));
+                }
+            }
+        }
+    }
+    let Some(seed) = seed else { return };
+    let mut kept = vec![false; void.len()];
+    kept[cave_idx(seed.0, seed.1)] = true;
+    let mut stack = vec![seed];
+    while let Some((x, y)) = stack.pop() {
+        for (nx, ny) in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] {
+            if nx.abs() <= CAVE_HALF_W
+                && ny.abs() <= CAVE_HALF_H
+                && void[cave_idx(nx, ny)]
+                && !kept[cave_idx(nx, ny)]
+            {
+                kept[cave_idx(nx, ny)] = true;
+                stack.push((nx, ny));
+            }
+        }
+    }
+    void.copy_from_slice(&kept);
+}
+
+/// The first ceiling run longer than [`MAX_CEILING_SPAN`], as
+/// `(row, start, len)`, topmost-leftmost first so the guard is
+/// deterministic. A ceiling run is a maximal horizontal run of void cells
+/// each with non-void directly above -- which, once the seal has passed, is
+/// stone: the unsupported roof span the guard bounds.
+fn first_long_ceiling_run(void: &[bool]) -> Option<(i32, i32, i32)> {
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        let mut run = 0;
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W + 1 {
+            let ceiling = dx <= CAVE_HALF_W
+                && void[cave_idx(dx, dy)]
+                && (dy == -CAVE_HALF_H || !void[cave_idx(dx, dy - 1)]);
+            if ceiling {
+                run += 1;
+            } else {
+                if run > MAX_CEILING_SPAN {
+                    return Some((dy, dx - run, run));
+                }
+                run = 0;
+            }
+        }
+    }
+    None
+}
+
+/// Collect a cave system's void as a boolean grid over the envelope.
+///
+/// Worley `F2 - F1` under [`CAVE_THRESHOLD`], evaluated in a frame sheared
+/// onto the local bedding and squashed by [`CAVE_SQUASH`]; then only the
+/// seed component is kept; then the ceiling-span guard drops a stone tooth
+/// into any roof run longer than [`MAX_CEILING_SPAN`] until every span
+/// complies. Returns `None` when what survives is too small to be a system.
+fn carve_cave_void(ctx: &Ctx, k: i32, cx: i32) -> Option<Vec<bool>> {
+    // A per-system field seed derived from the placement stream: two systems
+    // in one world must not share a Worley lattice, or a pair placed near
+    // each other would carve correlated shapes.
+    let sys = noise::hash(ctx.terrain.seed, Purpose::Vault, k, 97);
+    let mut void = vec![false; (CAVE_GRID_W * CAVE_GRID_H) as usize];
+    // Bedding shear: the field's vertical coordinate is measured against the
+    // local strata surface -- the same `y + strata_offset(x)` locus the shade
+    // pass bands the rock with, the benches snap to and the lenses lie in --
+    // so the system elongates along the visible dip, tilt and fold included,
+    // and a cave reads as geology rather than as noise. Fourth consumer of
+    // that one pure function; it has to agree with the other three.
+    let base_off = ctx.terrain.strata_offset(cx);
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+            let v = (dy as f32 + ctx.terrain.strata_offset(cx + dx) - base_off) * CAVE_SQUASH;
+            let (f1, f2) =
+                noise::worley_f2_f1(sys, Purpose::Cave, dx as f32 / CAVE_CELL, v / CAVE_CELL);
+            // Threshold fades to zero at the envelope edge -- see
+            // `CAVE_EDGE_FADE_X` for the sawn-off face it removes.
+            let fade = ((CAVE_HALF_W - dx.abs()) as f32 / CAVE_EDGE_FADE_X)
+                .min((CAVE_HALF_H - dy.abs()) as f32 / CAVE_EDGE_FADE_Y)
+                .clamp(0.0, 1.0);
+            if f2 - f1 < CAVE_THRESHOLD * fade {
+                void[cave_idx(dx, dy)] = true;
+            }
+        }
+    }
+
+    // Component keep and ceiling guard alternate to a fixpoint: a dropped
+    // tooth can sever a low wide slit and orphan the far side, and an
+    // orphaned region turning back to stone can expose a new, lower ceiling
+    // run. Each tooth removes at least one void cell, so this terminates.
+    loop {
+        keep_seed_component(&mut void);
+        let Some((y, x0, len)) = first_long_ceiling_run(&void) else { break };
+        // A stone tooth hung from the run's middle: three rows deep,
+        // tapering 5-3-1 wide, so the splitter reads as rock coming down
+        // from the roof rather than as a one-cell film. It splits the span
+        // into two runs of at most half the original.
+        let mx = x0 + len / 2;
+        for j in 0..3 {
+            let half = 2 - j;
+            for x in mx - half..=mx + half {
+                if x.abs() <= CAVE_HALF_W && (y + j).abs() <= CAVE_HALF_H {
+                    void[cave_idx(x, y + j)] = false;
+                }
+            }
+        }
+    }
+
+    let count = void.iter().filter(|&&v| v).count();
+    (count >= MIN_SYSTEM_CELLS).then_some(void)
+}
+
+/// One cave system: carve the void, verify the seal, write the cells.
+///
+/// Returns cells written; zero is a wholesale rejection -- the
+/// collect-then-verify contract, kept from `pockets` through the round-2
+/// vaults: nothing is written unless the entire envelope passed.
+fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> usize {
+    let Some(void) = carve_cave_void(ctx, k, cx) else { return 0 };
+
+    // The seal: every cell within the rind of the kept component -- a
+    // 2-cell Chebyshev dilation, diagonals included -- must be solid stone,
+    // or the whole system is rejected before a single write. The dilation is
+    // this shape's equivalent of the ellipse path's `inside(.., VAULT_RIND)`:
+    // the *envelope grown by the rind*, not the bounding box. The spec
+    // sketched "bounding box + rind, all stone", and that reading rejects a
+    // system for a sand lens tens of cells from the nearest void -- see the
+    // round-3 finding; the r2 skeleton this grew from never checked a box
+    // either, it checked the dilated shape.
+    for dy in -(CAVE_HALF_H + VAULT_RIND)..=(CAVE_HALF_H + VAULT_RIND) {
+        for dx in -(CAVE_HALF_W + VAULT_RIND)..=(CAVE_HALF_W + VAULT_RIND) {
+            let in_grid = dx.abs() <= CAVE_HALF_W && dy.abs() <= CAVE_HALF_H;
+            // The void cells themselves first: they are the envelope's
+            // interior and must be stone like everything else -- a lens cell
+            // *inside* the would-be void is just as much a breach as one in
+            // the rind.
+            if in_grid && void[cave_idx(dx, dy)] {
+                if world.get(cx + dx, cy + dy).material != ctx.stone {
+                    return 0;
+                }
+                continue;
+            }
+            let near_void = (-VAULT_RIND..=VAULT_RIND).any(|ry| {
+                (-VAULT_RIND..=VAULT_RIND).any(|rx| {
+                    let (nx, ny) = (dx + rx, dy + ry);
+                    nx.abs() <= CAVE_HALF_W
+                        && ny.abs() <= CAVE_HALF_H
+                        && void[cave_idx(nx, ny)]
+                })
+            });
+            if near_void && world.get(cx + dx, cy + dy).material != ctx.stone {
+                return 0;
+            }
+        }
+    }
+
+    // ---- gravel floors: flat fill per cavity, at rest by construction ----
+    // Per column, the bottommost vertical run of void carries the floor.
+    // (A chamber stacked directly above another keeps a bare stone bowl --
+    // rare under the squash, and it costs a floor, not the seal.) The fill
+    // is proposed as a constant depth per cavity, capped to leave two rows
+    // of headroom, then its top surface is repose-clamped by the same
+    // two-sweep taper `talus` uses -- so whatever the floor under it steps,
+    // what gets written is a surface that cannot avalanche, a property of
+    // the sweep rather than of any case analysis.
+    let mut floor: Vec<Option<(i32, i32, i32)>> = vec![None; CAVE_GRID_W as usize];
+    for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+        let mut bot = None;
+        let mut top = 0;
+        for dy in (-CAVE_HALF_H..=CAVE_HALF_H).rev() {
+            if void[cave_idx(dx, dy)] {
+                if bot.is_none() {
+                    bot = Some(dy);
+                }
+                top = dy;
+            } else if bot.is_some() {
+                break;
+            }
+        }
+        if let Some(b) = bot {
+            floor[(dx + CAVE_HALF_W) as usize] = Some((top, b, 0));
+        }
+    }
+    let seed = ctx.terrain.seed;
+    let step = (ctx.terrain.params.soil_slope_cutoff * ctx.gravel_tan).max(0.05);
+    let mut col = 0usize;
+    while col < floor.len() {
+        if floor[col].is_none() {
+            col += 1;
+            continue;
+        }
+        let start = col;
+        // A cavity: consecutive columns whose bottom runs overlap in y.
+        // Where they do not, solid rock separates the two floors and the
+        // clamp must not couple them.
+        while col + 1 < floor.len() {
+            let (Some(a), Some(b)) = (floor[col], floor[col + 1]) else { break };
+            if a.0 > b.1 || b.0 > a.1 {
+                break;
+            }
+            col += 1;
+        }
+        let end = col;
+        col += 1;
+        // One nominal depth per cavity, drawn on its first column.
+        let base = 2 + (noise::unit(seed, Purpose::CaveFloor, cx + start as i32, k) * 3.0) as i32;
+        // Elevation (+up) of the proposed gravel top, then the two sweeps.
+        let mut e: Vec<f32> = (start..=end)
+            .map(|i| {
+                let (t, b, _) = floor[i].expect("cavity columns all have a floor run");
+                (base.min((b - t - 1).max(0))) as f32 - b as f32
+            })
+            .collect();
+        for i in 1..e.len() {
+            e[i] = e[i].min(e[i - 1] + step);
+        }
+        for i in (0..e.len().saturating_sub(1)).rev() {
+            e[i] = e[i].min(e[i + 1] + step);
+        }
+        for (i, ei) in e.iter().enumerate() {
+            let (t, b, _) = floor[start + i].expect("cavity columns all have a floor run");
+            let h = ((*ei + b as f32).floor() as i32).clamp(0, (b - t - 1).max(0));
+            floor[start + i] = Some((t, b, h));
+        }
+    }
+
+    // **The sweep proposes; this verifies.** The two-sweep taper knows only
+    // its own segment, and a cavity floor can end one column before a drop
+    // it cannot see: measured on `rolling` seed 1, a mid-height ledge's
+    // bottom runs were split from the deep chamber's by a one-cell stone
+    // shelf, so the segment ended with h = 3 at a lip over fifteen rows of
+    // open air, and eleven cells avalanched off it on frame one. That is the
+    // talus lesson re-learnt in a cave: enumerating every way geometry can
+    // undercut a heap misses one. So the planned shape is checked cell by
+    // cell against the slide rule powder actually obeys -- a gravel cell
+    // with open flank *and* open diagonal below it moves -- and any column
+    // that fails is lowered until nothing can. A property of the check, not
+    // of the case analysis.
+    loop {
+        let mut changed = false;
+        for i in 0..floor.len() {
+            let Some((t, b, h)) = floor[i] else { continue };
+            if h == 0 {
+                continue;
+            }
+            let dx = i as i32 - CAVE_HALF_W;
+            let mut new_h = h;
+            // Shallowest gravel cell with an exposed flank, scanning down.
+            for y in (b - h + 1)..=b {
+                let exposed = [-1, 1].iter().any(|&s| {
+                    !planned_solid(&void, &floor, dx + s, y)
+                        && !planned_solid(&void, &floor, dx + s, y + 1)
+                });
+                if exposed {
+                    // Drop this cell and everything stacked on it.
+                    new_h = b - y;
+                    break;
+                }
+            }
+            if new_h < h {
+                floor[i] = Some((t, b, new_h));
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    let mut written = 0;
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+            if !void[cave_idx(dx, dy)] {
+                continue;
+            }
+            let (px, py) = (cx + dx, cy + dy);
+            let gravel =
+                matches!(floor[(dx + CAVE_HALF_W) as usize], Some((_, b, h)) if h > 0 && dy > b - h);
+            let cell = if gravel {
+                // Buried gravel's family, same as a lens and the vug floor:
+                // read against solid stone and nothing else.
+                Cell::new(ctx.gravel, BURIED_FAMILY * TONES + loose_shade(ctx, Purpose::Vault, px, py))
             } else {
                 Cell::EMPTY
             };

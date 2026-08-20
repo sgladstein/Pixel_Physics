@@ -193,11 +193,18 @@ pub struct WorldgenParams {
     /// Expected number of sealed chambers per world. Zero disables the pass
     /// entirely and leaves the world byte-identical.
     ///
-    /// Fractional on purpose, and read as "roughly this many": the whole
-    /// number is guaranteed and the remainder is one coin flip, the same
-    /// shape `pockets` uses for its per-region count. The default is set so
-    /// that about half of worlds carry one chamber, which is what makes
-    /// finding one an event rather than a feature of the terrain.
+    /// Fractional on purpose, and read as "roughly this many *draws*": the
+    /// whole number is guaranteed and the remainder is one coin flip, the
+    /// same shape `pockets` uses for its per-region count. A draw is not a
+    /// system -- the depth band, the envelope fit and the seal all reject --
+    /// and the default prices that in: at 1.6 (two draws at most, so a
+    /// system stays a 0-2-per-world event) 32 of 40 preset x seed worlds
+    /// carry a system and exactly one carries two, measured at the shipped
+    /// size. The round-2 value of 0.6 left systems in barely a third of
+    /// worlds once the round-3 envelope grew the rejection surface; the
+    /// measured curve is chaotic in the seed (1.5 placed 20 of 40, 1.6
+    /// placed 32), so re-tune against the placement probe, not by
+    /// arithmetic on the fraction.
     pub vault_density: f32,
     /// How far below the local genesis surface a chamber must sit, in rows.
     ///
@@ -277,7 +284,7 @@ impl Default for WorldgenParams {
             aridity_table_drop: 90.0,
             region_variation: 0.75,
             palette_field: 0.30,
-            vault_density: 0.6,
+            vault_density: 1.6,
             vault_min_depth: 200,
             vault_bedrock_margin: 16,
             moss_density: 0.10,
