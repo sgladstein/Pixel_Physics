@@ -1362,6 +1362,80 @@ a taper; the release worldgen suite never built the world that hit it —
 the vug lining at per-cell thickness 1-3 costs +35% lining cells (118 → 159
 on the probe vug), which is the ragged rim the task wanted.
 
+### R3-3 — "Chamber" defined by cavity is degenerate; every consumer now shares one height-based definition
+
+The floors group columns into *cavities* by bottom-run overlap, and that
+grouping chains through every connecting passage — so "one cavity" is
+almost always the entire system. Two different consumers were built on it
+and both read nonsense: the census reported **`passages 0`** for systems
+that are visibly rooms-and-corridors, and the waterline took "the lowest
+chamber floor" from the bottom of a three-column crevice no player would
+call a room — measured as a **seven-cell puddle** in the corner of
+`rolling` seed 1 where a pond was meant. Two consumers failing on the same
+quantity is the repo's own signal that the quantity is wrong, not the
+consumers: a **chamber** is now a run of at least six columns whose open
+void stands at least twelve cells tall, its floor the deepest finished
+gravel surface under it, and the chamber count, the passage census and the
+waterline statistics all read that one definition. Two smaller waterline
+rules that came out of the same measurement: the line references the
+*finished* floor (the gravel surface, not the rock under the fill), and it
+always submerges its target floor by at least one row, because a
+single-chamber system has `lowest == median` and a line drawn exactly at a
+floor is a zero-depth pond every time.
+
+The floor fill itself needed the round-1 talus treatment: the two-sweep
+repose taper knows only its own segment, and a ledge's segment can end one
+column before a fifteen-row drop hidden behind a one-cell stone shelf —
+eleven cells avalanched off exactly that lip on `rolling` seed 1. The
+planned shape is now verified cell-by-cell against the slide rule powder
+obeys (open flank + open diagonal below = moves) and lowered to fixpoint;
+the sweep proposes, the verifier disposes.
+
+### R3-4 — Task-4 decisions: the row stays `vaults`, the report is a print, and the sweep still cannot see the pass
+
+- **The pass-table row keeps the name `vaults`.** Renaming to `caves` would
+  make the sweep baseline show `vaults ZEROED` + `caves NEW COUNTER`
+  forever, break the r2 dual-size guard's row lookup, and re-key the
+  committed baseline for a row whose value is `0 0` at sweep size anyway.
+  Cosmetic gain, real churn; the detail line says "cave systems" where it
+  matters.
+- **The sub-counters are a printed line, not a table column.**
+  `  vaults detail: systems N chambers N passages N speleothems N water N`
+  prints beside the pass table whenever a system placed. A `println!` in
+  library code is new for this codebase and was chosen over the
+  alternatives deliberately: plumbing a census struct through `World` means
+  touching `src/sim/world.rs` again (outside the owned set; the
+  spring-ledger precedent exists but is not this track's to extend), and a
+  static is a global. The format deliberately cannot match the sweep
+  parser's `name N cells` rows. If the reviewing session hates the print,
+  the struct is already there (`passes::VaultReport`) — rerouting it is
+  mechanical.
+- **The sweep is *still* blind to this pass and was not re-baselined.** The
+  round-2 finding stands unchanged: at the sweep's 512x320 the depth band
+  is empty, the `vaults` row is `0 0` by construction, and every round-3
+  `compare` came back "0 counters moved" — there is nothing to re-baseline.
+  The dual-size guard (`every_pass_writes_something`: exactly zero at
+  512x320, non-zero across the seed set at 2048x640) plus the forced-
+  generation tests (seal, at-rest, ceiling walk, bridge walk, determinism
+  hash at 512x320 with `vault_test_params`) are the teeth the sweep cannot
+  provide.
+- **Rarity re-measured and re-priced.** The r3 envelope (180x70 + fit +
+  dilated seal) cut acceptance sharply: shipped `vault_density: 0.6` placed
+  systems in ~2.5 of 8 seeds per preset (r2 measured 5 of 8). Shipped is
+  now **1.6** — still at most two draws, so the 0-2-per-world contract
+  holds — measuring 32 of 40 preset x seed worlds with a system and exactly
+  one world with two. The acceptance curve is chaotic in the seed (1.5
+  measured 20 of 40; 1.3 also 20 of 40), so the param doc says tune against
+  the placement probe, not by arithmetic on the fraction. `arid` is the
+  outlier at 4-5 of 8: its dune-built surface sits lower, so the 200-row
+  band clears the 74-row envelope less often — a preset-relief fact, not a
+  pass bug.
+- **`examples/viewshot.rs` was touched again**, flagged as round 2 flagged
+  it: the `vault=1` finder now targets the tallest column of deep enclosed
+  air (the largest chamber) instead of the first crystal-or-gravel cell,
+  which at cave scale was as likely to aim the camera at a pocket lens as
+  at the system. Additive; no other invocation changes.
+
 ---
 
 ## Track summary — what changed, and what the next session should know

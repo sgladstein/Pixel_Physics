@@ -1673,6 +1673,34 @@ fn a_forced_cave_world_keeps_every_roof_span_bounded() {
     assert!(runs_walked >= 50, "only {runs_walked} ceiling runs walked -- the census is too thin to trust");
 }
 
+/// Round-3 guard: a world with a real cave system in it is reproducible.
+///
+/// The suite's existing determinism tests build at sizes where the vault
+/// pass never fires, so none of them exercises the carve, the floor
+/// verifier's fixpoint, the waterline or the speleothem draws -- the r2
+/// lesson that a guard that cannot see the feature has no teeth. This one
+/// hashes a forced-generation world (which the placement counter proves
+/// contains systems) twice, same build, same seed.
+#[test]
+fn a_forced_cave_world_is_deterministic() {
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = vault_test_params(base);
+    let mut placed = 0;
+    for seed in [1u64, 4] {
+        let mut a = World::new(Rect::new(0, 0, BOUNDS.0, BOUNDS.1));
+        let counts = worldgen::generate_reported(&mut a, Spec::Generated { params: &with, seed });
+        placed += counts.iter().find(|(n, _)| *n == "vaults").map(|(_, c)| *c).unwrap_or(0);
+        // `generate_reported` skips the structural pass `build` runs, and the
+        // hash covers aux, so run it here or the comparison measures that
+        // difference instead of generation.
+        structural::compute_world_distances(&mut a);
+        let b = build(&with, seed);
+        assert_eq!(world_hash(&a), world_hash(&b), "seed {seed}: two builds of a forced-cave world differ");
+    }
+    assert!(placed > 0, "vacuous: neither forced world placed a system");
+}
+
 /// Round-3 guard: a speleothem may narrow a passage, never close it.
 ///
 /// A column of rock from floor to ceiling splits the passage the player
