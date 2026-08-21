@@ -1812,7 +1812,7 @@ impl App {
             } else {
                 format!(" — bubbles {}", self.renderer.bubbles.label())
             },
-            if self.renderer.gas == render::GasMode::Opaque {
+            if self.renderer.gas == render::GasMode::default() {
                 String::new()
             } else {
                 format!(" — gas {}", self.renderer.gas.label())

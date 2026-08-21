@@ -1,7 +1,7 @@
 # Liquids & Gases
 
 *Current as of: this build (steam joins the weather; rock sinks in water;
-a boulder entering a pool throws a crown).*
+a boulder entering a pool throws a crown; smoke and steam are see-through).*
 
 Where a powder falls and piles, a liquid falls and then spreads sideways
 until it finds a level surface — the same way real water does, settling
@@ -60,6 +60,12 @@ smoke-filled.
 it rises through it. Unlike smoke it
 does not last: steam is born hot, cools as it drifts, and once cool enough
 it turns back into water.
+
+Both gases are **see-through**, and how much depends on how much of them
+there is: a thick plume hides what is behind it, a thinning one lets it
+back through, and a nearly-spent wisp is barely there at all. That means a
+cloud is also a readout — how solid it looks is how much water it is still
+carrying.
 
 **Where that water goes depends on whether the steam is indoors.** Under a
 roof — a cave, a sealed chamber, anything with ground above it — steam

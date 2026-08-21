@@ -242,6 +242,48 @@ const BUBBLE_UNDERSIDE: f32 = 0.30;
 /// arrives invisible. A bubble either is there or is not.
 const BUBBLE_FLOOR: f32 = 0.5;
 
+/// How far below a surface cell `BubbleMode::Surface` looks for the heat
+/// that made the bubble.
+///
+/// Deep enough to see the bottom of an ordinary pan, shallow enough that a
+/// lake's surface is not reporting on water twenty rows down that has
+/// nothing to do with it.
+const SURFACE_BUBBLE_DEPTH: i32 = 8;
+
+/// The hottest liquid of the same kind within `SURFACE_BUBBLE_DEPTH` below
+/// `(x, y)`, as a boil fraction.
+///
+/// # Why `Surface` needed this to mean anything at all
+///
+/// The mode gated on a cell being both **near the top of its body** and
+/// **over `BUBBLE_MIN_TEMPERATURE`**, and heat arrives from underneath —
+/// so on any bottom-heated pool those two sets are in different places and
+/// the mode diffed to **zero pixels** against `Off`. The owner saw exactly
+/// that and said so: *"All images look mostly identical. But also if we are
+/// testing bubbles in water the boiling needs to happen at the bottom of
+/// the pond/lake instead of the top."* Both halves of that were right, and
+/// the second explains the first.
+///
+/// A bubble is not made where it pops. Asking about the water *below* is
+/// what makes the mode's own description true — vapour drawn where the
+/// liquid has something to escape into, with the boil that produced it
+/// setting how much.
+///
+/// **This costs the surface row and nothing else.** The near-top test runs
+/// first and bails everything under it, so the scan is paid by O(width)
+/// cells rather than by the pool.
+fn boil_below(world: &World, x: i32, y: i32, cell: Cell, heat_to_boil: impl Fn(i16) -> f32) -> f32 {
+    let mut best = 0.0f32;
+    for dy in 1..=SURFACE_BUBBLE_DEPTH {
+        let below = world.get(x, y + dy);
+        if below.material != cell.material {
+            break; // out of this body: past the floor, or into something else
+        }
+        best = best.max(heat_to_boil(below.temperature()));
+    }
+    best
+}
+
 /// What a bubble blends toward: near-white with a cool cast, so vapour
 /// inside water reads as the same substance as the steam above it rather
 /// than as a bright blue liquid pixel.
@@ -283,6 +325,10 @@ pub enum BubbleMode {
     /// couple of rows of the top of its own body. Boiling that stays at the
     /// surface, for the reading that a bubble deep in a pool should not be
     /// visible through the water above it.
+    ///
+    /// The heat that decides how much comes from the water **below** the
+    /// cell, not from the cell itself — see `boil_below`, and note that
+    /// without it this mode drew nothing at all on any bottom-heated pool.
     Surface,
 }
 
@@ -314,9 +360,18 @@ impl BubbleMode {
 /// somewhere behind it. That is not only a look complaint -- it is why the
 /// bubble work above had to build `scene=simmer` to be judged at all.
 ///
-/// A selector rather than a decision, on `GrainMode`'s precedent, and
-/// `Opaque` is the default so nothing changes for anyone who does not press
-/// the key.
+/// A selector rather than a decision, on `GrainMode`'s precedent -- and
+/// **the selector has been run and `ByFill` won**, so it is the default
+/// now. The owner, judging a blind card of the three: *"A and C are almost
+/// indistinguishable (at least in static images), but look better than
+/// option B"* -- A and C being `Translucent` and `ByFill`, B `Opaque`. Of
+/// the two that tied by eye, `ByFill` is the one that is also a readout:
+/// its alpha follows the cell's own fill, so a thinning plume draws
+/// thinner and a full one does not.
+///
+/// `Opaque` is kept on the cycle rather than deleted. It is what every
+/// screenshot before this build shows, and a look decision with no way back
+/// to the thing it replaced cannot be re-argued.
 ///
 /// **It does not cost the dirty-rect render skip.** The blend reads
 /// `background_at`, which is a `Vec` index and an array index and no
@@ -324,8 +379,8 @@ impl BubbleMode {
 /// that is empty on a settled world and small even during a blast.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum GasMode {
-    /// Today's behaviour: a gas cell's own colour, lit, and nothing else.
-    #[default]
+    /// The behaviour up to this build: a gas cell's own colour, lit, and
+    /// nothing else.
     Opaque,
     /// Blended toward what is behind it by `GAS_ALPHA`, so a cloud thins
     /// what it covers rather than replacing it. Applied *after* the light,
@@ -336,6 +391,10 @@ pub enum GasMode {
     /// which for steam is the water it carries (`fire::transform`'s table),
     /// so a plume that has thinned out draws thinner. The other reading of
     /// "translucent", and the one that is a *readout* as well as a look.
+    ///
+    /// The default, chosen by the owner from a blind card -- see the enum's
+    /// own doc.
+    #[default]
     ByFill,
 }
 
@@ -350,9 +409,9 @@ impl GasMode {
 
     pub fn label(self) -> &'static str {
         match self {
-            GasMode::Opaque => "OPAQUE (current)",
+            GasMode::Opaque => "OPAQUE (the old look)",
             GasMode::Translucent => "TRANSLUCENT",
-            GasMode::ByFill => "BY-FILL",
+            GasMode::ByFill => "BY-FILL (current)",
         }
     }
 }
@@ -660,7 +719,7 @@ pub struct Renderer {
     /// documents.
     pub bubbles: BubbleMode,
     /// How a `Gas` cell is drawn against what is behind it -- see
-    /// `GasMode`. `Opaque` by default, cycled by `;`.
+    /// `GasMode`. `ByFill` by default, cycled by `;`.
     pub gas: GasMode,
     /// Frame counter, advanced by `draw`, read only by `GrainMode::Animated`.
     frame: u64,
@@ -2106,9 +2165,21 @@ impl Renderer {
     /// its crown and blends further toward `BUBBLE_TINT` than its lower
     /// half, which is the cheapest thing that reads as domed.
     fn apply_bubbles(&self, world: &World, x: i32, y: i32, cell: Cell, rgb: &mut [u8; 3]) {
-        let boil = ((cell.temperature() as f32 - BUBBLE_MIN_TEMPERATURE)
-            / (BUBBLE_FULL_TEMPERATURE - BUBBLE_MIN_TEMPERATURE))
-            .clamp(0.0, 1.0);
+        let heat_to_boil =
+            |t: i16| ((t as f32 - BUBBLE_MIN_TEMPERATURE) / (BUBBLE_FULL_TEMPERATURE - BUBBLE_MIN_TEMPERATURE)).clamp(0.0, 1.0);
+        let mut boil = heat_to_boil(cell.temperature());
+        if self.bubbles == BubbleMode::Surface {
+            // The near-top test first, and *before* the temperature gate,
+            // which is the whole of the fix -- see the block below. Two
+            // `World::get`s, paid only by liquid that is already off
+            // ambient (the caller's own guard), and everything below the
+            // second row of its body stops here.
+            let same = |ny: i32| world.get(x, ny).material == cell.material;
+            if same(y - 1) && same(y - 2) {
+                return;
+            }
+            boil = boil.max(boil_below(world, x, y, cell, heat_to_boil));
+        }
         if boil <= 0.0 {
             return;
         }
@@ -2120,17 +2191,6 @@ impl Renderer {
             BubbleMode::Columns => (2, 4, rise * 2),
             _ => (2, 2, rise),
         };
-        if self.bubbles == BubbleMode::Surface {
-            // Only within two rows of the top of this body. Two extra
-            // `World::get`s, and they are affordable *here* specifically
-            // because this runs on the handful of cells that are both
-            // liquid and near boiling — the fake-AO experiment that cost
-            // ~10 ms did four of them on every pixel of a full screen.
-            let same = |ny: i32| world.get(x, ny).material == cell.material;
-            if same(y - 1) && same(y - 2) {
-                return;
-            }
-        }
         let sy = y + scroll;
         let site = rng::jitter(x.div_euclid(block_w), sy.div_euclid(block_h));
         if site >= BUBBLE_DENSITY * boil {
@@ -2962,6 +3022,88 @@ mod tests {
         }
     }
 
+    /// A pan whose floor is boiling and whose surface is merely warm —
+    /// which is what a heated pool actually looks like, and what
+    /// `boiling_pool_frame`'s uniform 95C world is not.
+    fn simmering_pan_frame(mode: BubbleMode) -> Vec<u8> {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        // Ten rows deep -- a pan, like `scene=simmer`'s. A first version
+        // was forty deep and drew nothing *correctly*: the floor was
+        // thirty-two rows under the surface and `SURFACE_BUBBLE_DEPTH` is
+        // eight, so there was no heat within reach to read. A fixture that
+        // cannot contain the situation looks exactly like a broken
+        // mechanism (`CLAUDE.md`).
+        for y in 50..60 {
+            for x in 0..64 {
+                // 30C at the surface: off ambient, so the renderer's heat
+                // branch admits it, and under `BUBBLE_MIN_TEMPERATURE`, so
+                // its own heat can never light a bubble.
+                let temp = if y >= 56 { 95 } else { 30 };
+                world.set(x, y, Cell::new(material::WATER, 0).with_temperature(temp));
+            }
+        }
+        let mut renderer = Renderer::new();
+        renderer.bubbles = mode;
+        let particles = ParticleSystem::new();
+        let mut frame = vec![0u8; 64 * 64 * 4];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (64, 64), true);
+        frame
+    }
+
+    /// **`Surface` reads the heat below it, not its own.**
+    ///
+    /// The mode needed a cell that was both near the top of its body and
+    /// over `BUBBLE_MIN_TEMPERATURE`, and heat arrives from underneath — so
+    /// on any bottom-heated pool those two sets are in different places and
+    /// the mode drew essentially nothing. Measured on `filmstrip
+    /// scene=simmer`, four tiles at zoom 5: **25 of 97,460 pixels** differed
+    /// from `Off` before, and 1,650 after — with `Rising` at 3,250 and
+    /// `Columns` at 1,350 on the same sheet, so it is a distinct look and
+    /// not a copy of one of them.
+    ///
+    /// The owner saw exactly this and named the cause in the same breath:
+    /// *"All images look mostly identical. But also if we are testing
+    /// bubbles in water the boiling needs to happen at the bottom of the
+    /// pond/lake instead of the top."*
+    ///
+    /// The paired negative keeps it honest: the same pan with a **cold**
+    /// floor must still draw nothing, or the fix is just "bubble whenever
+    /// the water is wet".
+    #[test]
+    fn surface_bubbles_read_the_heat_below_them_rather_than_their_own() {
+        let off = simmering_pan_frame(BubbleMode::Off);
+        let on = simmering_pan_frame(BubbleMode::Surface);
+        let drawn = pixels_differing(&off, &on);
+        // Two rows of a 64-wide pan qualify as "near the surface", so 128
+        // candidate cells at `BUBBLE_DENSITY`: measured 16, against 0 with
+        // the downward read removed.
+        assert!(
+            drawn >= 8,
+            "Surface drew {drawn} pixels over a boiling floor -- a bubble is made below where it pops, \
+             and this mode has to ask about the water underneath or it is dead on every real pool"
+        );
+
+        // Nothing under the surface is warm enough: nothing may be drawn.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for y in 50..60 {
+            for x in 0..64 {
+                world.set(x, y, Cell::new(material::WATER, 0).with_temperature(30));
+            }
+        }
+        let draw_it = |mode| {
+            let mut renderer = Renderer::new();
+            renderer.bubbles = mode;
+            let mut frame = vec![0u8; 64 * 64 * 4];
+            renderer.draw(&world, &ParticleSystem::new(), &HashSet::new(), &mut frame, (64, 64), true);
+            frame
+        };
+        assert_eq!(
+            pixels_differing(&draw_it(BubbleMode::Off), &draw_it(BubbleMode::Surface)),
+            0,
+            "a pan with nothing hot in it bubbled; the downward scan is not reading temperature"
+        );
+    }
+
     #[test]
     fn bubbles_are_silent_below_their_threshold_and_climb_with_the_frame() {
         // The two ways this effect could be wrong without being invisible:
@@ -3004,8 +3146,9 @@ mod tests {
         // A band of smoke against open sky, drawn three ways. The claim is
         // ordered rather than absolute: every mode has to move the pixel
         // *toward* what is behind it more than the last, and `Opaque` has
-        // to move it not at all -- which is what makes the default
-        // genuinely today's behaviour rather than nearly it.
+        // to move it not at all -- which is what keeps the way back to the
+        // old look genuinely the old look rather than nearly it, now that
+        // `ByFill` is the default.
         let mut world = World::new(Rect::new(0, 0, 63, 63));
         let smoke = world.materials.id_of("smoke").expect("smoke.ron should be embedded");
         for y in 20..30 {

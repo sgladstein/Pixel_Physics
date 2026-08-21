@@ -1969,7 +1969,7 @@ fn parse() -> Args {
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
         grain: GrainMode::Position,
         bubbles: BubbleMode::Off,
-        gas: GasMode::Opaque,
+        gas: GasMode::default(),
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
         gif: false,
@@ -2937,6 +2937,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     // hides exactly that. Per tile, because it localizes the spike to a
     // phase of the scene instead of just proving one happened.
     let mut worst_ms = 0.0f64;
+    let mut worst_draw_ms = 0.0f64;
     let mut worst_frame = 0usize;
     // Sampled every frame, not just at capture: a body's whole life can
     // fall between two tiles, and "bodies 0" in every tile of a scene that
@@ -2976,7 +2977,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.
         let touched: HashSet<_> = world.take_touched_chunks();
+        // **Timed separately from the sim, because `worst frame` above is
+        // `advance` only.** A render-side look option -- `GrainMode`,
+        // `BubbleMode`, `GasMode` -- costs nothing that number can see, and
+        // `CLAUDE.md` asks what a visual change costs. Drawn with every
+        // chunk forced dirty, so this is the full-screen worst case rather
+        // than whatever the dirty-rect skip happened to leave.
+        let drew = std::time::Instant::now();
         renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
+        worst_draw_ms = worst_draw_ms.max(drew.elapsed().as_secs_f64() * 1000.0);
 
         let (gx, gy) = (captured as i32 % args.cols as i32, captured as i32 / args.cols as i32);
         let (ox, oy) = (gx * (tile_w + gap), gy * (tile_h + gap));
@@ -3404,6 +3413,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // frame rather than per tile, because a body's whole life can fall
         // between two captures.
         println!("peak chunk bodies in flight at once: {peak_bodies}");
+        println!("worst full-screen draw: {worst_draw_ms:.2} ms");
         image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
             .expect("writing the contact sheet");
         println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
