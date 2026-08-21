@@ -1,0 +1,43 @@
+{
+  "id": "20260821T110543548Z-086f63",
+  "created": "2026-08-21T11:05:43Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/game-world-gen-planning-h12713",
+    "commit": "77fce19",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Deep rock: the colour static",
+  "question": "Does the rock now read as two kinds of stone meeting, rather than as noise? And is the boundary at the right scale — would you want it looser or tighter?",
+  "context_md": "The other half of the deep-rock complaint. Same crop of solid rock, same\nseed, nothing else changed.\n\nYou saw this alongside the light blocks and I fixed those first because\nyou named them by name. This is the rest of it.\n\nThe rock is meant to change country as you walk — patches of neutral grey\nagainst warm sandstone, with a wandering boundary. That intent was right.\nThe implementation put the wander in **white noise, one coin flip per\ncell**, so instead of a coastline you got the two colours sprayed through\neach other everywhere. And because the two families differ in *hue* as\nwell as brightness, it was a colour dither, which is why an earlier\nattempt at this — turning the render's grain down — did nothing you could\nsee. Measured on this crop: luma speckle down 61%, colour speckle down\n82%.\n\nThe boundary scale is now a knob and I picked it by eye from three: 14\ncells reads as camouflage blotches, 96 as a bare sweeping curve, 40 as a\ncoastline with bays and peninsulas. It ships at 40. Say if you want it\nlooser or tighter.\n\nTwo things worth knowing:\n\n- Every world's colouring changes with this. It is a shift, not a wipe —\n  all four rock families are still present in every preset, in similar\n  proportions.\n- There is still fine speckle inside each country. That is a separate,\n  much smaller rule (\"12% of cells jump a tone\", brightness only, no hue),\n  and to my eye it now reads as rock texture rather than noise. I left it\n  rather than change two things at once. If it still looks like static to\n  you, it is a one-line follow-up.\n",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before (per-cell dither)",
+      "files": [
+        "20260821T110543548Z-086f63/000-E_before.png"
+      ],
+      "caption": "",
+      "meta": {}
+    },
+    {
+      "label": "after (field boundary)",
+      "files": [
+        "20260821T110543548Z-086f63/001-E_final.png"
+      ],
+      "caption": "",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
