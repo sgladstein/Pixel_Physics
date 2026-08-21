@@ -168,7 +168,11 @@ fn palette_family(ctx: &Ctx, x: i32, y: i32, cap_rock: bool) -> u8 {
 /// shaft and (later) cave wall into readable geology instead of flat grey.
 /// The legacy terrain used `x % 4`, which produces vertical pinstripes: the
 /// one arrangement that reads as a rendering bug rather than as rock.
-fn strata_shade(ctx: &Ctx, x: i32, y: i32) -> u8 {
+///
+/// `pub(crate)` so `residual.rs` can paint a tor or stack with the same
+/// banding the massif around it carries, rather than inventing a second
+/// shading rule that would disagree with it at the seam.
+pub(crate) fn strata_shade(ctx: &Ctx, x: i32, y: i32) -> u8 {
     let p = ctx.terrain.params;
     let thickness = p.strata_thickness.max(1.0);
     // The same displacement the surface benches are snapped to, so a terrace

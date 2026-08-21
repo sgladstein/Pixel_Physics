@@ -331,6 +331,12 @@
             vault_density: 0.0,
             vault_min_depth: 200,
             vault_bedrock_margin: 16,
+            // Same reasoning as `vault_density`: `region_variation` being 0
+            // does *not* zero `Character::formation` on its own -- the
+            // single global region it falls back to is `neutral()`, whose
+            // `formation` is `1.0`, not `0.0` -- so this has to be spelled
+            // out explicitly or the "dead-level bare rock" bed grows tors.
+            residual_density: 0.0,
             // Dead-level bare rock stays dead-level: erosion is a plan-space
             // history the structural test bed must not have, or its control
             // renders drift out from under the destruction workstream. Every

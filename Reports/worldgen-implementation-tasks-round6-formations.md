@@ -237,3 +237,137 @@ protect. **B2 has to construct residual geometry directly** — a
 purpose-built pass that decides where a residual stands and writes it,
 using `HardnessField` for shape, rather than a rule that hopes one
 survives the relaxation. This is what B2 below does.
+
+### B2 — a per-column ground row is the site centre's, not the column's own
+
+First implementation of `residual.rs` hoisted `ground_y` (and the elevation
+`ground_e` derived from it) once from the site's *centre* column and reused
+it for every column across the whole footprint. On sloped ground — which a
+footprint up to ~150 columns wide will cross often in `canyon` — this seats
+every column relative to a row that is not its own local surface: on the
+downhill side the residual's base floats clear of the real hillside, on the
+uphill side it buries into it. The collect-verify-write seal usually still
+rejects the worst mismatches (a wrong seat cell reads as empty or as
+existing massif and the whole site aborts), but not always, and
+`a_forced_residual_world_arrives_at_rest` caught the remainder directly:
+6-10 cells adrift after 120 frames, on the very first seed tried. Fixed by
+reading `ctx.plans[lx].surface_y` per column inside the paint loop (the same
+convention `passes::boulders` already uses), keeping the centre-column
+elevation only for the shape/height decision, which is legitimately about
+the site as a whole rather than any one column. **Which object a rule
+evaluates** — this time "whose ground row" rather than "whose span" —
+is the same question `CLAUDE.md`'s method section keeps asking, over a new
+mechanism this time instead of an old one.
+
+### B2 — the 3x aspect rule, measured against undermining: one in five ends up floating, and that is not this pass's bug
+
+`a_residual_survives_its_base_being_dug_out` digs a residual's base out with
+the real mining primitive (`World::paint_capsule`, the same call the
+player's own dig makes) and measures the outcome rather than asserting one,
+because whether the result *should* be a collapse is `load.rs`'s claim, not
+`residual.rs`'s, and `Reports/load-model-handoff.md` §1 states plainly that
+load/torque failure is **not started** — what exists today evaluates
+failure per cell against its own span, the exact defect that document
+exists to replace.
+
+Measured over 18 canyon seeds (`residual_density` forced to 3.0 so enough
+seeds seat one to dig under), each dug and settled for 480 frames (the
+ordinary 120-frame at-rest bar undersells a genuine collapse: one case had
+1,985 cells still adrift at 180 frames and needed until ~400 to fully
+settle — a debris pile takes longer to finish sliding than an undisturbed
+generated world does):
+
+| outcome | count | of 15 checked |
+|---|---|---|
+| collapsed (no longer reads as solid stone) | 6 | 40% |
+| still reachably anchored (the dig missed its real footing) | 6 | 40% |
+| reads as solid stone with **no path to any anchor** | 3 | 20% |
+
+So roughly one undermined residual in five ends up in exactly the state
+CLAUDE.md's own gotchas warn is easy to manufacture by accident and hard to
+notice: `Solid` (so a player can stand on it, walk into it, never sees it
+fall) while `structural::compute_world_distances` has already given it
+`u16::MAX` — the pass's own honest "cannot reach an anchor" value. It is a
+stable state, not a transient one (re-checked to 2000 frames on the seed
+that produced it, unchanged from frame ~400 on). **This is not a defect
+`residual.rs` introduced.** The same is true of any `Solid`/`attached`
+terrain in this engine today — an ordinary massif overhang undermined the
+same way would read identically — because nothing between here and
+`load.rs`'s still-unbuilt failure step converts "cannot reach an anchor"
+into "comes down" on its own; `Reports/load-model-handoff.md` is the
+document already tracking that gap. What round 6 adds is simply the first
+measurement of how often a *residual specifically* lands in it (~20% at
+this dig geometry), which the load-model work should have on hand once it
+picks the step back up — a residual is exactly the "first object a player
+can plausibly undermine" the task file asked this test to check for, and
+this is what checking it actually found.
+
+### B2 — the p90 bar is not met, and it is not a density problem
+
+The bar is prominence at reach 15 *and* 30, **p90 >= 20, max >= 60**, over
+16 seeds. Max is comfortably met at every density tried: **73-95** across
+three settings. **p90 is not**, and does not respond to density the way a
+coverage shortfall should:
+
+| `residual_density` | reach 15 p90 | reach 15 max | reach 30 p90 | reach 30 max |
+|---|---|---|---|---|
+| 0.8 (first shipped) | 0 | 73 | 1 | 90 |
+| 1.6 | 1 | 76 | 2 | 95 |
+| 3.5 (4.4x) | 1 | 91 | 2 | 95 |
+| **1.4 (shipped)** | **1** | **76** | **2** | **91** |
+
+Quadrupling density moved p90 from 0 to 1. If this were a frequency
+problem — too few residuals — density would move it close to linearly;
+instead it saturates almost immediately. Three things are actually
+happening, found by instrumenting placement directly (`RESIDUAL_PROBE=1`,
+reverted before this commit, per the same measurement-only discipline as
+B1):
+
+1. **A residual's painted footprint is usually narrower than its nominal
+   width.** `FlatCapped`/`AngularBlocky`'s base ring is `a * (0.55 + 0.45 *
+   hard)` or `a * (0.35 + 0.65 * jitter)` — both can and often do draw well
+   under `a` at the very first ring, so the visible base is already
+   narrower than the width the aspect draw implied before any shrinkage
+   toward the top even starts.
+2. **A wide residual reads as a plateau, not a spike, to this specific
+   probe.** Prominence at reach *r* compares a column to points *r* away on
+   both sides; for a residual wider than `2r`, both flank samples land on
+   the residual too, so the interior scores as flat as open ground and only
+   the two true edges register. Canyon seed 1 at density 3.5 placed 18
+   residuals summing ~350 columns of nominal width, and still barely moved
+   p90 — most of that width was interior, not edge.
+3. **Density increases pile more attempts into the same already-coarse
+   regions rather than spreading coverage.** `residual_density *
+   Character::formation` is evaluated once per 256-column placement window;
+   a region that already drew several residuals mostly produces overlap
+   rejections on further attempts (the collect-verify-write seal correctly
+   declines a site sitting on another residual's own attached stone), while
+   a smooth region (`formation` near 0) gets no more attempts at any global
+   density — by design, since a smooth region is supposed to stay smooth.
+
+None of these three is a bug — 1 and 2 are inherent to reading a
+per-column heightfield prominence off a real, mixed-aspect distribution of
+shapes, and 3 is the direct, working consequence of `Character::formation`
+being regional rather than global, which is what B2 was asked to build.
+Reaching p90 >= 20 by density alone would mean either abandoning "some
+regions stay smooth" or packing coarse regions solid enough to read as
+wallpaper rather than landmark country — neither of which is what the
+owner asked for, and `CLAUDE.md`'s own conventions say a bar the engine
+cannot yet hit should be recorded with the gap visible, not quietly met by
+inflating a knob until a number moves. Shipped at `residual_density: 1.4`
+(a modest lift from the first-tried 0.8, chosen for visible presence
+without the diminishing-returns region-saturation the 3.5 trial showed),
+with `residuals_lift_prominence_at_reach_15_and_30` left failing on p90 and
+its doc comment carrying this table, rather than the test relaxed to pass.
+
+**Open question for the owner or a later session**: is p90 the right
+statistic here at all? A world that is honestly "some coarse regions, most
+smooth" will never clear a percentile computed over the *whole* world,
+almost by construction — the aggregate is diluted by every column of every
+deliberately-smooth region. A per-region-character statistic (p90 measured
+only within columns whose `Character::formation` exceeds some coarse
+threshold) would answer the question B2 actually cares about — "does a
+coarse region read as tor country" — without being sunk by the smooth
+regions the owner explicitly wants to keep. That is a different metric
+than the one written into this task file, so re-deriving it is a decision
+for whoever reads this next, not something to have swapped in unasked.
