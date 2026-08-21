@@ -189,3 +189,51 @@ pimple eight times more common produces eight pimples.**
 
 *(Write here when a spec above does not survive contact with the code. One
 entry per surprise, with the numbers.)*
+
+### B1 — it is not "formed then destroyed"; nothing ever forms at all
+
+Instrumented a copy of `erode`'s loop body (canyon and rolling, seed 7,
+2048 columns, age 1.0 — measurement only, reverted before this commit) to
+print max prominence at reach 15 every 20 iterations, and to record, per
+column, its peak value across the whole run versus its value at the final
+iteration. The question was literally *does a column ever cross into
+residual territory mid-run and then get knocked back down* — a lifecycle,
+not a snapshot.
+
+**Answer: no column ever peaks above its iteration-0 value. Ever.**
+
+| | it 0 (pre-erosion) | it 100 | it 300 | it 599 (age 1.0) | peak-ever (any iteration) |
+|---|---|---|---|---|---|
+| canyon s7 | 8.34 | 7.45 | ~4.3 | 4.24 | **8.34** |
+| rolling s7 | 5.00 | 4.55 | ~4.3 | 4.24 | **5.00** |
+
+Both presets: max prominence at reach 15 **decreases monotonically across
+every printed sample**, and the "columns that peaked > 15 and later fell
+below half their peak" counter — the direct test for the hypothesized
+lifecycle — is **0 of 2048, in both presets**. Nothing ever peaks above 15
+in the first place, so nothing can be "knocked back down from" it.
+
+**This changes the diagnosis from what `worldgen-erosion-design.md`
+hypothesized.** The design doc's guess was that a residual *does* form
+transiently — presents a near-vertical face — and the stable-angle rule
+shaves it down on the next iteration before anyone sees it. That would
+still be "the mechanism is present but too eager." What is actually
+happening is upstream of erosion entirely: **the raw pre-erosion
+heightfield** (`Terrain::elev`, before `erode` touches a single column)
+never contains a column that stands 15+ cells proud of both flanks 15
+columns out. Its own ceiling is 8.34 (canyon) / 5.00 (rolling) — already
+below the reach-15 p90≥20 bar B2 has to hit, before any erosion runs at
+all. Erosion then makes this strictly worse (creep+stable-angle pull the
+already-small bumps down further, converging to ~4.2-4.4), but it did not
+create the deficit; it inherited one that was already there in the
+multi-octave hill/terrace/dune stack that builds `elev`.
+
+**Decision this settles**: B2 cannot be reached by retuning
+`THERMAL_STABLE_HARD_BONUS` or any other erosion rate (per the ground
+rules, not attempted) — there is no transient spike for a gentler rate to
+spare, at any rate. Nor can it be reached by "protect what erosion finds
+promising", because erosion is never offered a residual-scale candidate to
+protect. **B2 has to construct residual geometry directly** — a
+purpose-built pass that decides where a residual stands and writes it,
+using `HardnessField` for shape, rather than a rule that hopes one
+survives the relaxation. This is what B2 below does.
