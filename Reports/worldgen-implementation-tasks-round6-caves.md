@@ -296,3 +296,89 @@ thread `CaveSize` through a function that is not there; when A2 is
 reached, building chamber growth (or deciding not to) is new construction
 under A2's own budget, not a rename of existing code.
 
+
+---
+
+## Reviewer's verdict on the first run (2026-08-21)
+
+**A0 merged (`d041f6e`). A1 rejected. The round was spawned on the wrong
+base, and that is the reviewer's error, not the implementation session's.**
+
+### The base was wrong, and finding A6-1 is correct
+
+Track A was cut from `claude/game-world-gen-planning-h12713`, which does
+**not** contain round 5 — that work sits on `claude/worldgen-data-track-r5`
+and its merge on `review/r5-merge`, deliberately left unmerged pending the
+owner's ruling on the "merge tasks 1–3, respec task 4" split. Verified:
+
+    git merge-base --is-ancestor origin/claude/worldgen-data-track-r5 \
+        claude/game-world-gen-planning-h12713   ->  false
+
+    fn settle_cave_void        planning 0   caves-r6 0   review/r5-merge 1
+    fn erode_breaches          planning 0   caves-r6 0   review/r5-merge 1
+    fn grow_monumental_chamber planning 0   caves-r6 0   review/r5-merge 1
+
+So every premise in "Why this round exists" above — 0–8% reachable, the
+picket fence, the named functions in A0 and A2 — describes a tree the agent
+was never given. It detected this itself and wrote it up rather than
+improvising against a spec that did not match the code, which is exactly
+what the ground rules ask for.
+
+### A1 is a net negative on this base, and does not merge
+
+Re-measured independently by the reviewer with `cave_probe`, 16 seeds,
+confirming the session's own numbers exactly:
+
+| preset | reachable before → after | contrast x100 before → after |
+|---|---|---|
+| arid | 70 → **60** | 200 → 245 |
+| canyon | 70 → **59** | 203 → 215 |
+| rolling | 76 → **60** | 203 → 215 |
+| terraced | 75 → **60** | 203 → 203 |
+| wetland | 64 → **53** | 196 → 236 |
+
+A1's bar (reachable ≥ 50%) is met — but it was **already met by 64–76%
+before the change**, because the base predates the round-5 regression the
+task existed to undo. So the retune spent **10–16 points of reachability**
+to buy **0.00–0.45x of contrast**, and never approached the 3.0x contrast
+bar anyway (tops at 2.45x). On this base that is a bad trade in both
+directions. Median open column fell 30 → 19–20; still above `PLAYER_HEIGHT`,
+so the caves remain walkable, which is why this is a regression rather than
+a break.
+
+Not the session's fault and not a criticism of the work: given the base it
+was handed, "buy contrast without spending banked reachability" was the
+correct reading of the task, and it reported the trade honestly instead of
+quoting only the bar it met.
+
+### A0 is kept, and it immediately corrected the task's own arithmetic
+
+`VaultReport::build_ms` printed in the `vaults detail` line, plus the
+ceiling-tooth loop collapsed from one-tooth-per-flood to all-teeth-per-round.
+Census byte-identical before and after, which is the correctness proof a pure
+optimisation needs.
+
+**The number it produced overturns A0's own premise.** The task asserted the
+cave path is O(N²) in envelope area and a live threat to the ~800 ms regen
+budget. Measured on this base: **2–4 ms per world.** The quadratic reading
+came from round-5's `settle_cave_void` / `erode_breaches`, which are not
+here — and the session measured the same at a temporary 5x-area test (at most
+2 rounds, 3 teeth; 11.6 ms against 12.0 ms, a wash). The batching is correct
+and cheap, and it is banked for when the envelope actually grows; the alarm
+was misplaced.
+
+Keeping it anyway is deliberate: the instrument is base-independent and A2
+cannot be sized without it, and the print gate moving from `report.systems >
+0` to "the pass iterated" is a real improvement — the old gate hid exactly
+the rejection-heavy worlds the timing exists to catch.
+
+### What happens next
+
+A2/A3/A4 are **not** deferred for lack of time; they were built against the
+wrong tree. The formation respec (A3) and the real reachability problem (A1)
+both live in round 5's code, so the continuation runs on a branch cut from
+`review/r5-merge` instead. A4 is already done: the orphaned round-5 task-5
+work was recovered and committed as `3f5568d` on the r5 branch.
+
+**Still owner's to rule**: whether round 5's tasks 1–3 merge and task 4 is
+respecced, which is what decides the shipping base. Nothing here presumes it.
