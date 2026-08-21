@@ -167,7 +167,9 @@ you travel.
 A world is several screens across and about twice a screen deep, so most of
 it is somewhere you have to go rather than somewhere you can see. What is
 on screen is a **view** of it, not the whole of it: walk to the edge of
-the picture and the view travels with you.
+the picture and the view travels with you — and with nobody in the world,
+you can scroll it around yourself with `A`, `D`, `W` and `S`, which is much
+the faster way to see what a seed actually generated.
 
 Landscape is composed to a fixed scale rather than stretched to fit, so a
 bigger world is *more places*, not the same places drawn larger. Roughly

@@ -395,6 +395,30 @@ const MAX_ZOOM: i32 = 8;
 /// "the same kind of picture, zoomed out" rather than aliasing into noise.
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
+/// How fast the `WASD` map scroll travels, in **viewport-fuls per second**.
+///
+/// In screens, deliberately, never in cells: what has to feel the same at
+/// every zoom is how fast the *picture* slides, and a screens-per-second rate
+/// makes screen-pixels-per-second invariant by construction rather than by
+/// three numbers being tuned to agree. `Renderer::pan` multiplies it by
+/// `visible_span`, which already knows what a screenful is at the current
+/// scale.
+///
+/// `1.5` puts the whole 2048-cell world about two seconds end to end at 1:1
+/// (the pannable range is 1536 cells, the world less one viewport), against
+/// roughly seventeen seconds of the gnome running it at `run_max`. That gap
+/// is the point — exploring by walking is what was too slow.
+///
+/// **No hold-to-accelerate ramp, and that was considered rather than
+/// overlooked.** A ramp buys travel time on a long haul, and the longest haul
+/// here is two seconds: it would spend the whole ramp-up on a journey that is
+/// already over, in exchange for a second piece of invisible state and a
+/// "why is it sluggish for the first half second" complaint. Worth revisiting
+/// if M10 streaming makes the world big enough that a flat rate is the actual
+/// cost; until then `-` zooms out to travel and `=` back in to look, which is
+/// the gesture those keys already are.
+const PAN_SCREENS_PER_SECOND: f32 = 1.5;
+
 /// How far a fractured cell is darkened, out of 256. Dark enough to read as
 /// a break at a glance, light enough that a scored face is still obviously
 /// rock rather than a hole.
@@ -488,6 +512,10 @@ pub struct Renderer {
     /// The camera as last painted, so a move can force a full redraw. Same
     /// role as `last_zoom_state`, and for the same reason.
     last_camera: Option<(i32, i32)>,
+    /// Sub-cell scroll carried between frames by `pan`. See that method for
+    /// why truncating it instead would make one held key feel like a
+    /// different speed at every zoom level.
+    pan_residual: (f32, f32),
     /// Draws chunk boundaries tinted by whether the chunk will be swept next
     /// frame. This is the primary way to confirm sleeping actually works.
     pub show_chunk_overlay: bool,
@@ -620,6 +648,7 @@ impl Renderer {
             last_player_rect: None,
             camera_x: 0,
             camera_y: 0,
+            pan_residual: (0.0, 0.0),
             last_camera: None,
             show_chunk_overlay: false,
             zoom: 1,
@@ -729,6 +758,20 @@ impl Renderer {
             cam_y = target.1 - span_y / 2;
         }
 
+        self.set_camera(cam_x, cam_y, viewport, bounds);
+    }
+
+    /// Put the camera at `(x, y)`, clamped so the viewport stays inside
+    /// `bounds` and never shows the void beyond the world.
+    ///
+    /// The clamp lived inside `follow` while `follow` was the only thing that
+    /// ever moved the camera. It is not any more — `pan` writes it too — and a
+    /// clamp only one of two writers goes through is a clamp that is not
+    /// there. `camera_x`/`camera_y` being `pub` makes that a live hazard
+    /// rather than a theoretical one.
+    pub fn set_camera(&mut self, x: i32, y: i32, viewport: (u32, u32), bounds: Option<Rect>) {
+        let (span_x, span_y) = self.visible_span(viewport);
+        let (mut cam_x, mut cam_y) = (x, y);
         if let Some(b) = bounds {
             // `max` before `min` so a world narrower than the viewport pins to
             // its own origin rather than to a negative coordinate.
@@ -737,6 +780,64 @@ impl Renderer {
         }
         self.camera_x = cam_x;
         self.camera_y = cam_y;
+    }
+
+    /// Scroll the view. `dir` is -1/0/+1 per axis, `seconds` is real elapsed
+    /// time — the `WASD` map scroll with no gnome in the world, driven through
+    /// `App::pan_camera`.
+    ///
+    /// The counterpart to `follow`, for a view with nothing to follow, and
+    /// deliberately **without** a dead zone: `follow`'s exists because a
+    /// walking character would otherwise drag the camera every frame for
+    /// nothing, whereas here the delta *is* the request, and damping the input
+    /// against itself would only make the scroll feel like it was fighting
+    /// you.
+    ///
+    /// The sub-cell remainder is **carried, not truncated**. At `zoom` 8 the
+    /// viewport is 64 cells wide, so the rate above is about 1.6 cells a
+    /// frame; truncating each frame independently emits 1 and scrolls at 0.94
+    /// screens a second instead of 1.5 — visibly a different feel from the
+    /// same key at 1:1, which is the exact thing a screens-per-second rate
+    /// exists to make impossible.
+    ///
+    /// **Quantised to `zoom_out_stride`, and this one is not obvious.** A
+    /// zoomed-out view samples every `stride`-th cell (`screen_to_world` is
+    /// `camera + sx * stride` there), so a camera step that is *not* a whole
+    /// number of strides does not translate the picture at all — it resamples
+    /// the same view against a different lattice, the odd columns instead of
+    /// the even ones at stride 2, and reads as the screen hissing rather than
+    /// scrolling. Whole strides move it by exactly one screen pixel each, so
+    /// that is the unit; anything less waits in the residual until it is one.
+    ///
+    /// Diagonals are deliberately not normalised — holding two keys is
+    /// sqrt(2) faster, as in every map editor, and correcting it would make
+    /// two held keys slower than the sum of one.
+    ///
+    /// Costs a full redraw on every frame it actually moves the camera (see
+    /// `draw`'s `camera_moved`). That is the same price `follow` already pays
+    /// whenever the gnome walks, and unlike an animated grain it ends when the
+    /// key comes up — bounded by the gesture rather than permanent.
+    pub fn pan(&mut self, dir: (i32, i32), seconds: f32, viewport: (u32, u32), bounds: Option<Rect>) {
+        let (span_x, span_y) = self.visible_span(viewport);
+        let travel = PAN_SCREENS_PER_SECOND * seconds;
+        self.pan_residual.0 += dir.0 as f32 * span_x as f32 * travel;
+        self.pan_residual.1 += dir.1 as f32 * span_y as f32 * travel;
+
+        // Truncation toward zero is what is wanted on both signs: the residual
+        // keeps its sign, so reversing direction takes effect on the next
+        // frame rather than having to unwind a debt first.
+        let step = self.zoom_out_stride.max(1);
+        let dx = self.pan_residual.0 as i32 / step * step;
+        let dy = self.pan_residual.1 as i32 / step * step;
+        self.pan_residual.0 -= dx as f32;
+        self.pan_residual.1 -= dy as f32;
+        self.set_camera(self.camera_x + dx, self.camera_y + dy, viewport, bounds);
+    }
+
+    /// Drop any carried sub-cell scroll, so a fresh gesture starts clean
+    /// rather than inheriting a fraction of a cell from the last one.
+    pub fn end_pan(&mut self) {
+        self.pan_residual = (0.0, 0.0);
     }
 
     /// reads as a single "more/less zoom" control, not two separate ones a
@@ -3028,6 +3129,178 @@ mod tests {
         let touched = world.take_touched_chunks();
         let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
         assert_eq!(recomputed, (w * h) as usize, "a zoom change invalidates the whole buffer, settled or not");
+    }
+
+    #[test]
+    fn panning_between_draws_forces_one_more_full_redraw() {
+        // `camera_moved` has fed the `full` predicate since the camera could
+        // move at all, and nothing asserted it until the map scroll made it a
+        // path taken every frame someone is looking around. Sibling of
+        // `changing_zoom_between_draws_forces_one_more_full_redraw`, and for
+        // the identical reason: every pixel in the buffer now shows a
+        // different world cell. Without it the regression is a frozen, smeared
+        // world scrolling past the handful of chunks that happened to be
+        // dirty — which is precisely what `draw`'s own comment says this
+        // guards.
+        let mut world = World::new(Rect::new(0, 0, 255, 255));
+        world.end_step();
+        let (w, h) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let warm_up_touched = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &warm_up_touched, &mut frame, (w, h), true); // warm up
+
+        // Half a second of held key, mid-world so the clamp is not what
+        // decides the answer.
+        renderer.set_camera(64, 64, (w, h), world.bounds());
+        let settled = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &settled, &mut frame, (w, h), true);
+        let before = renderer.camera_x;
+        for _ in 0..30 {
+            renderer.pan((1, 0), 1.0 / 60.0, (w, h), world.bounds());
+        }
+        assert_ne!(renderer.camera_x, before, "half a second of pan moved nothing, so the redraw claim below is vacuous");
+
+        let touched = world.take_touched_chunks();
+        let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
+        assert_eq!(recomputed, (w * h) as usize, "a camera move invalidates the whole buffer, settled or not");
+    }
+
+    #[test]
+    fn a_pan_cannot_escape_the_world_at_any_scale() {
+        let world = Rect::new(0, 0, 2047, 639);
+        let viewport = (512u32, 320u32);
+        // Stride 4 is left out on purpose: its x span is the whole 2048-cell
+        // world, so the clamp collapses to a single legal camera and "did not
+        // escape" would be true by construction rather than by the clamp.
+        for (zoom, stride) in [(1, 1), (2, 1), (8, 1), (1, 2)] {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.zoom_out_stride = stride;
+            let (span_x, span_y) = r.visible_span(viewport);
+            for dir in [(1, 1), (-1, -1)] {
+                // Five seconds of held key — long enough to reach any edge at
+                // any of these scales and keep pushing against it.
+                for _ in 0..300 {
+                    r.pan(dir, 1.0 / 60.0, viewport, Some(world));
+                }
+                assert!(
+                    r.camera_x >= world.min_x && r.camera_x + span_x - 1 <= world.max_x,
+                    "zoom {zoom} stride {stride} dir {dir:?}: camera x {} escaped the world", r.camera_x
+                );
+                assert!(
+                    r.camera_y >= world.min_y && r.camera_y + span_y - 1 <= world.max_y,
+                    "zoom {zoom} stride {stride} dir {dir:?}: camera y {} escaped the world", r.camera_y
+                );
+            }
+            // **Not vacuous.** Pinned at the near edge by the loop above, one
+            // second back inward has to move — without this the whole test
+            // passes against a `pan` that does nothing at all, which is the
+            // trap `CLAUDE.md` keeps recording.
+            let before = (r.camera_x, r.camera_y);
+            for _ in 0..60 {
+                r.pan((1, 1), 1.0 / 60.0, viewport, Some(world));
+            }
+            assert_ne!(
+                (r.camera_x, r.camera_y), before,
+                "zoom {zoom} stride {stride}: a pan off the near edge moved nothing"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pan_moves_the_cell_under_a_pixel_by_exactly_the_camera_delta() {
+        // The property a player actually sees: the picture *translates*.
+        // Asserted through `screen_to_world`, because that is the mapping
+        // every pixel of `draw` is painted through — a pan that moved
+        // `camera_x` and disagreed with it would scroll the world past a
+        // cursor that lands somewhere else entirely.
+        let world = Rect::new(0, 0, 2047, 639);
+        let viewport = (512u32, 320u32);
+        for (zoom, stride) in [(1, 1), (2, 1), (4, 1), (1, 2)] {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.zoom_out_stride = stride;
+            // Mid-world, away from every clamp — and away from the origin,
+            // where world and screen coordinates are the same numbers and
+            // this would hold for the wrong reason.
+            r.set_camera(700, 200, viewport, Some(world));
+            let probe = (137, 91);
+            let before = r.screen_to_world(probe.0, probe.1);
+            let cam_before = r.camera_x;
+            for _ in 0..30 {
+                r.pan((1, 0), 1.0 / 60.0, viewport, Some(world));
+            }
+            let moved = r.camera_x - cam_before;
+            assert!(moved > 0, "zoom {zoom} stride {stride}: half a second of pan moved nothing");
+            assert_eq!(
+                r.screen_to_world(probe.0, probe.1),
+                (before.0 + moved, before.1),
+                "zoom {zoom} stride {stride}: the view did not translate by the camera delta"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pan_at_a_stride_steps_whole_strides_only() {
+        // A camera step that is not a whole number of strides re-samples the
+        // view against a different lattice instead of translating it, and the
+        // screen hisses rather than scrolling. Only catchable as an assertion
+        // about the *step*: both cases move `camera_x`, so any before/after
+        // comparison of the camera alone passes either way.
+        //
+        // **Unbounded on purpose**, which is the isolation this needs rather
+        // than a shortcut. The clamp in `set_camera` lands the camera wherever
+        // the world's edge is, which is not on the stride lattice in general —
+        // at stride 3 on a 2048-cell world the far stop is x=512, and 512 is
+        // not a multiple of 3. That is a *single* frame's lattice shift as the
+        // camera pins, not the repeated per-frame alternation this is about,
+        // and once pinned the view is static and cannot hiss at all. Including
+        // it would make the test fail for a reason it is not named for; the
+        // clamp is `a_pan_cannot_escape_the_world_at_any_scale`'s subject.
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        r.zoom_out_stride = 3;
+        let mut last = r.camera_x;
+        let mut moves = 0;
+        for _ in 0..120 {
+            r.pan((1, 0), 1.0 / 60.0, viewport, None);
+            let step = r.camera_x - last;
+            assert_eq!(step % 3, 0, "camera stepped {step} at stride 3, which does not translate the picture");
+            if step != 0 {
+                moves += 1;
+            }
+            last = r.camera_x;
+        }
+        assert!(moves > 0, "two seconds of pan produced no camera step at all");
+    }
+
+    #[test]
+    fn the_pan_covers_the_same_fraction_of_a_screen_at_every_zoom() {
+        // The whole reason the rate is in screens rather than cells. Compared
+        // as a fraction of a viewport, which is the quantity the eye judges;
+        // the cell counts differ by 8x across these and are not the claim.
+        //
+        // This is also the residual-carry test in disguise: drop the carry and
+        // zoom 8 lands near 0.94 screens against zoom 1's 1.5.
+        let world = Rect::new(0, 0, 2047, 639);
+        let viewport = (512u32, 320u32);
+        for zoom in [1, 2, 4, 8] {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.set_camera(700, 200, viewport, Some(world));
+            let before = r.camera_x;
+            for _ in 0..60 {
+                r.pan((1, 0), 1.0 / 60.0, viewport, Some(world));
+            }
+            let (span_x, _) = r.visible_span(viewport);
+            let screens = (r.camera_x - before) as f32 / span_x as f32;
+            assert!(
+                (screens - PAN_SCREENS_PER_SECOND).abs() < 0.03,
+                "zoom {zoom} panned {screens:.3} screens in a second, not {PAN_SCREENS_PER_SECOND}"
+            );
+        }
     }
 
     #[test]

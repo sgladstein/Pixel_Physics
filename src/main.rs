@@ -212,6 +212,17 @@ impl Handler {
         self.app.player_input.jump_pressed |= std::mem::take(&mut self.jump_pressed);
         self.app.player_input.aim = self.cursor.map(|(x, y)| self.app.renderer.screen_to_world(x, y));
 
+        // The *other* reading of those same four keys: with no gnome in the
+        // world they scroll the view instead of running him. Assembled here,
+        // beside the character's own input, so the two readings of `WASD` sit
+        // in one place rather than looking like unrelated features.
+        //
+        // The gate is `App::pan_camera`'s, not this function's -- one gate on
+        // the operation, per `paint_now`'s note below. It reports back whether
+        // the view was free, so a scroll held while a gnome owns the camera
+        // ends its gesture instead of banking a carry behind a closed gate.
+        self.pan(elapsed);
+
         self.accumulator += elapsed;
         let mut ticks = 0;
         while self.accumulator >= TICK && ticks < MAX_TICKS_PER_FRAME {
@@ -297,6 +308,33 @@ impl Handler {
             None => self.app.paint(pos.0, pos.1, erase),
         }
         self.last_paint = Some(world_pos);
+    }
+
+    /// Turn held `WASD` into one frame's worth of map scroll.
+    ///
+    /// Time-based rather than per-frame, so the view covers the same ground on
+    /// a slow machine as a fast one — and clamped to the same catch-up ceiling
+    /// `frame`'s tick loop uses: after a stall, `MAX_TICKS_PER_FRAME` stops the
+    /// world simulating the whole missing interval at once, and letting the
+    /// view teleport several screens instead would be that same mistake with
+    /// the same cause.
+    ///
+    /// The rate, the sub-cell carry and the zoom-stride quantisation all live
+    /// in `Renderer::pan`, which is where `zoom` and `zoom_out_stride` are;
+    /// this only says which way and for how long.
+    fn pan(&mut self, elapsed: Duration) {
+        // `held.jump` is the `W` key and `held.down` is `S` — named for the
+        // character, who is the other thing those keys drive.
+        let dir = (
+            i32::from(self.held.right) - i32::from(self.held.left),
+            i32::from(self.held.down) - i32::from(self.held.jump),
+        );
+        // Nothing held, or a gnome holding the camera: end the gesture so the
+        // next one starts without a fraction of a cell carried over from it.
+        let dt = elapsed.as_secs_f32().min(TICK.as_secs_f32() * MAX_TICKS_PER_FRAME as f32);
+        if dir == (0, 0) || !self.app.pan_camera(dir, dt) {
+            self.app.renderer.end_pan();
+        }
     }
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {

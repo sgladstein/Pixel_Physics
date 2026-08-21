@@ -176,9 +176,17 @@ pub struct App {
     /// rule is the failure mode of the whole genre; a mode can be named in
     /// the brush label and announced when it changes.
     pub tool: Tool,
-    /// Where a drag-out gesture started, in screen space, while the button
-    /// is still held. `None` for the freehand brush, which paints as it
-    /// goes rather than on release.
+    /// Where a drag-out gesture started, as a **world** cell, while the
+    /// button is still held. `None` for the freehand brush, which paints as
+    /// it goes rather than on release.
+    ///
+    /// This said "in screen space" long after `begin_drag` had been changed
+    /// to store a world cell, and the stale line is very probably why
+    /// `draw_hud` drew the preview rectangle from a world coordinate against
+    /// a screen one. World space is the deliberate choice, for the reason
+    /// `begin_drag` gives: a drag held across a camera move would otherwise
+    /// re-anchor to a different cell than the one under the cursor when the
+    /// button went down.
     pub drag_from: Option<(i32, i32)>,
     /// `N` — the stress overlay. Off by default: it repaints the world
     /// every frame it is up, which is the cost the dirty-rect skip exists
@@ -1036,6 +1044,24 @@ impl App {
             Tool::Line => format!("{} R{} - LINE", self.selected_name(), self.brush_radius),
             Tool::Dig => "GNOME DIG - LMB CUT, RMB ERASE, Z FOR THE BRUSH".to_string(),
         };
+        // With no gnome, `WASD` scrolls (`pan_camera`) and the view is a
+        // thing you move — so say where it is. Two jobs in one readout:
+        // the cue that the view moves at all, and the *number*, which is
+        // what makes a sighting nameable ("at VIEW 1600,400 there is a
+        // seam") instead of "somewhere off to the right".
+        //
+        // Safe to draw as changing text for free, which is not obvious:
+        // HUD text has no tracked footprint, so a readout that changes
+        // needs the terrain under it repainted or the old digits stay
+        // burned in over a settled world. The only thing that changes this
+        // one is a pan, and a pan moves the camera, which forces the full
+        // redraw that erases it (`Renderer::draw`'s `camera_moved`). It
+        // costs nothing on a settled world for the same reason: nothing
+        // moves it, so it never needs erasing.
+        let label = match &self.world.player {
+            Some(_) => label,
+            None => format!("{label}   VIEW {},{}", self.renderer.camera_x, self.renderer.camera_y),
+        };
         hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
         // Directly above the persistent brush label, so a mode change reads
         // as a line about the brush rather than as an unrelated notice
@@ -1052,7 +1078,17 @@ impl App {
 
         // The shape being dragged out, so the player can see what they are
         // about to commit before they release.
-        if let (Some(from), Some(to)) = (self.drag_from, cursor) {
+        // `drag_from` is a **world** cell (see `begin_drag`) and `cursor` is a
+        // screen pixel, so the anchor has to come back through the camera
+        // before the two can be compared. Wrong ever since the camera existed,
+        // and invisible until now: with no gnome the camera sat at the origin
+        // at zoom 1, where the two spaces are the same numbers and this drew
+        // in the right place for the wrong reason. Scrolling with no gnome is
+        // what makes it reachable, which is why it surfaced here. `None` at
+        // `zoom_out_stride > 1` means the anchor falls between sampled columns
+        // and simply has no pixel this frame.
+        let anchor = self.drag_from.and_then(|w| self.renderer.world_to_screen(w.0, w.1));
+        if let (Some(from), Some(to)) = (anchor, cursor) {
             match self.tool {
                 Tool::Rect | Tool::Room => {
                     let (x0, x1) = (from.0.min(to.0), from.0.max(to.0));
@@ -1455,13 +1491,14 @@ impl App {
     /// silently — the line describing the gnome's dig outlived the
     /// mechanism it described by two commits, still telling players to
     /// click *near him* long after proximity meant anything.
-    fn help_lines() -> [&'static str; 25] {
+    fn help_lines() -> [&'static str; 26] {
         [
             "LEFT CLICK PAINT    RIGHT CLICK ERASE",
             "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
             "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
             "",
             "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
+            "  WITH NO GNOME: A D W S SCROLL THE MAP INSTEAD",
             "  SUMMONING ARMS HIS DIG: LMB CUTS AT THE YELLOW RING, RMB ERASES",
             "  IN WATER: W STROKE UP    S SWIM DOWN",
             "  F3 JUMP FEEL  F4 WATER FEEL  F2 SPOIL (CYCLE, SAY WHICH IS BEST)",
@@ -1614,6 +1651,36 @@ impl App {
         self.renderer.screen_to_world(screen.0, screen.1)
     }
 
+    /// Scroll the view — `WASD` with no gnome in the world. `dir` is -1/0/+1
+    /// per axis and `seconds` is real elapsed time; `main.rs` turns held keys
+    /// into both. The world keeps simulating underneath, since scrolling is a
+    /// view change and `Space` is still the way to stop time.
+    ///
+    /// **Both gates live here, not at the call site**, for the reason
+    /// `main.rs`'s `paint_now` already records about its own: a gate on the
+    /// operation cannot be missed by a second caller added later, and a
+    /// gate at one of two call sites will be.
+    ///
+    /// - A gnome owns the camera *and* those four keys while he exists, so
+    ///   this is inert the moment one is summoned and `Renderer::follow`
+    ///   takes the view back. That is the whole reason the feature needs no
+    ///   mode toggle: the two readings of `WASD` are mutually exclusive by
+    ///   construction rather than by a flag somebody has to keep in sync.
+    /// - The tunables panel owns `S` while it is open (it saves), so
+    ///   scrolling stands aside rather than doing both at once.
+    ///
+    /// Returns whether the view was free to move, so the caller can end a
+    /// gesture that is being ignored rather than let its carried sub-cell
+    /// remainder sit behind a closed gate — see `main.rs`'s `pan`.
+    pub fn pan_camera(&mut self, dir: (i32, i32), seconds: f32) -> bool {
+        if self.world.player.is_some() || self.show_tunables {
+            return false;
+        }
+        let bounds = self.world.bounds();
+        self.renderer.pan(dir, seconds, (WIDTH, HEIGHT), bounds);
+        true
+    }
+
     /// Force-ignite the brush area at a screen position. See
     /// `World::ignite_circle` for why this exists as a debug tool ahead of
     /// M15's more physical ignition sources.
@@ -1733,6 +1800,13 @@ impl App {
                 self.tool = Tool::Brush;
             }
             self.message = Some("gnome dismissed".into());
+            // A **toast**, not just `message`: dismissing him hands the camera
+            // back, so `WASD` changes meaning underneath you, and that is
+            // exactly the kind of mode change that is invisible unless it is
+            // announced where someone is looking. `message` reaches the window
+            // title bar and the tunables panel footer only — its own doc says
+            // so, and neither is where anyone's eyes are when they press `U`.
+            self.show_toast("GNOME DISMISSED - WASD NOW SCROLLS THE VIEW");
             return;
         }
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
@@ -2023,13 +2097,60 @@ mod tests {
     fn the_help_panel_names_the_keys_the_gnome_actually_uses() {
         let help = App::help_lines().join("
 ");
-        for key in ["U SUMMON", "F3 JUMP FEEL", "F4 WATER FEEL", "F2 SPOIL", "GNOME DIG"] {
+        for key in ["U SUMMON", "F3 JUMP FEEL", "F4 WATER FEEL", "F2 SPOIL", "GNOME DIG", "SCROLL THE MAP"] {
             assert!(help.contains(key), "help panel no longer mentions {key:?}");
         }
         assert!(
             !help.contains("CLICK NEAR THE GNOME"),
             "the proximity-gated dig is gone; the help must not still describe it"
         );
+    }
+
+    #[test]
+    fn the_view_is_the_players_only_while_no_gnome_is_summoned() {
+        // The whole design in one assertion: the two readings of `WASD` are
+        // mutually exclusive by construction, not by two call sites both
+        // remembering. It has to be by construction — `App::draw` re-centres
+        // on a gnome every frame, so a pan that *did* work while one existed
+        // would be visibly yanked back on the next frame, and a control that
+        // fights back is worse than one that is not there.
+        let mut app = App::new();
+        let before = (app.renderer.camera_x, app.renderer.camera_y);
+        assert!(app.pan_camera((1, 0), 0.5), "no gnome: the view must be free to move");
+        assert_ne!(
+            (app.renderer.camera_x, app.renderer.camera_y), before,
+            "no gnome: WASD must scroll the view"
+        );
+
+        app.summon_player(100, 100);
+        // Load-bearing: `summon_player` can leave `player` as `None`, and
+        // without this the half below passes because nothing was summoned —
+        // the "check the scene still contains the situation you think it
+        // does" trap.
+        assert!(app.world.player.is_some(), "the summon must have landed or the rest of this proves nothing");
+        let his = (app.renderer.camera_x, app.renderer.camera_y);
+        assert!(!app.pan_camera((1, 0), 0.5), "with a gnome, the view is his");
+        assert_eq!(
+            (app.renderer.camera_x, app.renderer.camera_y), his,
+            "with a gnome, a pan must not move the camera"
+        );
+    }
+
+    #[test]
+    fn the_tunables_panel_keeps_its_own_keys_while_it_is_open() {
+        // `S` saves a tunable while the panel is open. Without this gate it
+        // would both save and scroll on the same keypress.
+        let mut app = App::new();
+        app.show_tunables = true;
+        let before = (app.renderer.camera_x, app.renderer.camera_y);
+        assert!(!app.pan_camera((0, 1), 0.5), "the panel owns S while it is open");
+        assert_eq!((app.renderer.camera_x, app.renderer.camera_y), before, "the panel is open; the view must hold still");
+
+        // And gives them back on close -- otherwise this passes against a
+        // `pan_camera` that never works at all.
+        app.show_tunables = false;
+        assert!(app.pan_camera((0, 1), 0.5), "closing the panel must hand the keys back");
+        assert_ne!((app.renderer.camera_x, app.renderer.camera_y), before, "closing the panel must hand the view back");
     }
 
     #[test]

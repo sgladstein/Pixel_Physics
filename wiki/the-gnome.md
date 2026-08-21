@@ -20,7 +20,7 @@ plants and creatures hold him up, shallow bumps and rubble (up to a couple
 of cells) are stepped over without jumping, and anything taller is a wall.
 The world's edge is a wall too.
 
-## The view follows him
+## The view
 
 The world is bigger than the screen, and while the gnome is in it the view
 is his. Run far enough toward the edge of the picture and it begins to
@@ -30,9 +30,19 @@ right up to the wall while the view stays over solid ground.
 
 Small movements do not shift it — the picture holds still while he shuffles
 about and only moves once he is genuinely going somewhere, which is what
-keeps a walk from feeling like the world sliding underneath him. With no
-gnome in the world, the view stays where it is and the mouse works on
-whatever is under it.
+keeps a walk from feeling like the world sliding underneath him.
+
+With no gnome in the world the view is **yours** instead. The same four keys
+that run him — `A`, `D`, `W` and `S` — scroll the map around, stopping at the
+edges of the world just as they do for him, and a readout in the corner says
+where you are looking. It is measured in screenfuls rather than in cells, so
+the picture slides past at the same speed however far in or out you are
+zoomed, and about two seconds of holding a key carries you from one end of
+the world to the other.
+
+There is nothing to switch between. Summon him and the view is his again;
+dismiss him and it comes back to you. The two can never both have it, which
+is why the keys can be the same ones.
 
 ## Sand, water, and falling rock
 
@@ -134,4 +144,5 @@ explosions are tuned.
 
 One housekeeping note: the gnome took over the movement keys, so two
 older debug tools moved — dig is now `H` (it was `D`), and planting a
-worm is now `J` (it was `W`).
+worm is now `J` (it was `W`). Those same keys now also scroll the map
+whenever he is not in the world — see *The view* above.
