@@ -1,0 +1,59 @@
+{
+  "id": "20260821T211123114Z-1ea716",
+  "created": "2026-08-21T21:11:23Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "9dc94b0",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Bubbles, re-shot on a pan heated from the bottom",
+  "question": "Which of these four should be the default for boiling water? Animated this time, and on a pan heated from below the way you asked. Named rather than blind, so your comment maps back to what you were looking at.",
+  "context_md": "Two things were wrong with the card you saw and both were mine.\n\n**I shot it on the wrong scene.** You said: *\"if we are testing bubbles in water the boiling needs to happen at the bottom of the pond/lake instead of the top.\"* Exactly right, and there was already a scene for it -- `simmer`, a shallow pan over a hot hearth, whose own comment in the code is that complaint written down in advance. I used the surface-heated one instead, which is the one scene where three of the four modes cannot differ.\n\n**And I used stills for a motion question.** These are GIFs. 90 frames of a pan at a rolling simmer, 5x zoom.\n\n**One of the four was also broken, and your card is what found it.** SURFACE needed a cell to be both near the top of the water *and* hot itself -- and heat comes from underneath, so on any bottom-heated pool those are never the same cell and the mode drew essentially nothing: **25 changed pixels out of 97,460**. It now reads the heat in the water *below* a surface cell, which is where the bubble came from. Same measurement now: **1,650**.\n\nPixels differing from OFF on this pan, so you can see how much each one is actually doing:\n\n| | changed pixels |\n|---|---|\n| RISING | 3,250 (3.3%) |\n| SURFACE | 1,650 (1.7%) |\n| COLUMNS | 1,350 (1.4%) |\n\nNone of them costs anything measurable: a forced full-screen redraw of this scene is 9.37 ms with bubbles off and 9.25 ms with SURFACE on, against a run-to-run spread of 9.25-12.50.\n\nThe pan holds **166 cells warm enough to bubble** at the moment these start, so if one of them looks empty that is the mode, not the scene.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "OFF (current)",
+      "files": [
+        "20260821T211123114Z-1ea716/000-bubbles_off.gif"
+      ],
+      "caption": "Heat glow only. Boiling reads as the steam above the pan.",
+      "meta": {}
+    },
+    {
+      "label": "RISING",
+      "files": [
+        "20260821T211123114Z-1ea716/001-bubbles_rising.gif"
+      ],
+      "caption": "Domed highlights scrolling up, scattered through the whole depth",
+      "meta": {}
+    },
+    {
+      "label": "COLUMNS",
+      "files": [
+        "20260821T211123114Z-1ea716/002-bubbles_columns.gif"
+      ],
+      "caption": "Same but stretched into short streams, climbing twice as fast",
+      "meta": {}
+    },
+    {
+      "label": "SURFACE",
+      "files": [
+        "20260821T211123114Z-1ea716/003-bubbles_surface.gif"
+      ],
+      "caption": "Only near the top, lit by how hot the water underneath it is",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
