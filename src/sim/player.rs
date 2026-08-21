@@ -641,6 +641,19 @@ enum Footing {
     /// something spoil can come to rest on, because the CA genuinely lets
     /// powder sit on a `Plant` cell.
     Climb,
+    /// Rock that is *scenery*: a stalagmite, a stalactite, a flowstone
+    /// column. **Passable like `Free`, never a floor, and not climbable.**
+    ///
+    /// Its own variant rather than reusing `Climb`, and the reason is one
+    /// line of code: `grip` tests `== Footing::Climb` exactly, so folding
+    /// these in would let the gnome haul himself up a stalagmite. Walking
+    /// *past* a formation and climbing a tree are different affordances and
+    /// the two flags say so separately (`Material::scenery`).
+    ///
+    /// Stops the aim ray, like `Climb` — you must be able to point at a
+    /// formation to mine it, and mining is what makes it breakable rather
+    /// than merely absent.
+    Scenery,
     /// Rock, creatures, a chunk body, or the world edge.
     Hard,
 }
@@ -729,6 +742,12 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
     //
     // Costs nothing: this resolved the material anyway, and `cell` was
     // already fetched.
+    // Scenery needs no organism gate: it is its own material, written only
+    // by worldgen, so there is no painted-wall twin to tell it apart from.
+    // See `Material::scenery`.
+    if material.scenery {
+        return Footing::Scenery;
+    }
     if cell.organism_id() != 0 && material.climbable {
         return Footing::Climb;
     }
@@ -1716,6 +1735,11 @@ fn face_toward(world: &World, from: (i32, i32), aim: (i32, i32), reach: i32) -> 
             // straight through it and put the dig ring on the cliff
             // behind, with no way to point at the tree in front of you.
             Footing::Climb => return cell,
+            // And at a formation, for the same reason plus a sharper one:
+            // the pick is aimed down this ray, so a stalagmite the ray flew
+            // through would be unminable — visible, walk-through, and
+            // impossible to remove.
+            Footing::Scenery => return cell,
             Footing::Soft => {
                 first_loose.get_or_insert(cell);
             }
@@ -2296,6 +2320,69 @@ mod tests {
         }
         let p = world.player.as_ref().unwrap();
         assert!(p.x < 64.0, "a painted wooden wall must still be a wall, but he reached x={:.1}", p.x);
+    }
+
+    #[test]
+    fn a_cave_formation_is_scenery_he_walks_past_and_can_still_mine() {
+        // Both halves in one test on purpose, because the owner's ruling was
+        // "all background, and breakable too" and each half is trivially
+        // satisfiable by breaking the other: a formation that blocks is
+        // certainly minable, and one made of air is certainly walk-through.
+        //
+        // No `organism_id` anywhere here -- that is the point of the split.
+        // `flowstone` carries `scenery` on the material, so it needs no
+        // per-cell gate, and because mining is what gates on `organism_id`
+        // (`rigid::mine_swept`), leaving it zero is what keeps the pick
+        // working. Giving a formation an organism id to reuse `climbable`
+        // would have taken the pick away *and* routed it into the
+        // amputating structural path.
+        let mut world = world_with_floor();
+        let flowstone = world.materials.id_of("flowstone").expect("flowstone is compiled in");
+        // A column standing floor to well above his head, right across his
+        // path -- the shape that used to be a wall.
+        for y in 60..88 {
+            for x in 64..69 {
+                world.set(x, y, Cell::new(flowstone, 0).with_attached(true));
+            }
+        }
+        world.player = Some(Player::at(30, 80));
+        for _ in 0..300 {
+            tick(&mut world, PlayerInput { right: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.x > 72.0, "a formation must be scenery he walks past, but he stalled at x={:.1}", p.x);
+
+        // And it is still rock: the pick takes it. `mine_swept` filters on
+        // `is_body_material` and `organism_id`, both of which a formation
+        // passes, so this needs no special case -- the assertion is that no
+        // future one is added.
+        let before = (60..88).filter(|&y| world.get(66, y).material == flowstone).count();
+        assert!(before > 0, "the column should still be standing before it is mined");
+        crate::sim::rigid::mine_swept(&mut world, (66, 70), (66, 70), 3, 0.0);
+        let after = (60..88).filter(|&y| world.get(66, y).material == flowstone).count();
+        assert!(after < before, "the pick must cut a formation: {before} cells before, {after} after");
+    }
+
+    #[test]
+    fn a_formation_is_not_something_he_can_climb() {
+        // `Footing::Scenery` exists rather than reusing `Climb` for exactly
+        // this: `grip` tests the climb variant by equality, so folding the
+        // two together would let him haul himself up a stalagmite. Walking
+        // past a formation and climbing a tree are different affordances.
+        let mut world = world_with_floor();
+        let flowstone = world.materials.id_of("flowstone").expect("flowstone is compiled in");
+        for y in 40..88 {
+            for x in 60..70 {
+                world.set(x, y, Cell::new(flowstone, 0).with_attached(true));
+            }
+        }
+        world.player = Some(Player::at(64, 80));
+        let start = world.player.as_ref().unwrap().y;
+        for _ in 0..200 {
+            tick(&mut world, PlayerInput { jump_held: true, grab: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.y >= start - 4.0, "he climbed a formation to y={:.1} from {start:.1}", p.y);
     }
 
     #[test]

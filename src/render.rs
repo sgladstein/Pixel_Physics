@@ -675,7 +675,14 @@ impl TreeDepth {
         }
     }
 
-    /// Whether the tree owned by `organism_id` draws in front of him.
+    /// Whether the thing identified by `key` draws in front of him.
+    ///
+    /// **Two callers with two keys.** A tree keys on its `organism_id`, so a
+    /// stand's sides are fixed for its life. A cave formation has no
+    /// identity to key on — it is loose cells of `flowstone`, not an
+    /// organism — so it keys on its **world column**, which gives the same
+    /// two properties for free: one formation keeps one side however long
+    /// it stands, and neighbouring formations decorrelate.
     ///
     /// **A hash, not `id & 1`.** Organism ids are handed out sequentially,
     /// so parity makes consecutively-planted trees alternate — a
@@ -686,11 +693,11 @@ impl TreeDepth {
     /// `dirty_rect_skip_is_pixel_identical_to_a_full_redraw` true: a fresh
     /// `Renderer` and one with history agree by construction. The reverted
     /// stateful skyline is the recorded case of getting this wrong.
-    fn in_front(self, organism_id: u16) -> bool {
+    fn in_front(self, key: u32) -> bool {
         match self {
             TreeDepth::Front => false,
             TreeDepth::Behind => true,
-            TreeDepth::Weave | TreeDepth::Haze => (organism_id as u32).wrapping_mul(2_654_435_761) >> 16 & 1 == 1,
+            TreeDepth::Weave | TreeDepth::Haze => key.wrapping_mul(2_654_435_761) >> 16 & 1 == 1,
         }
     }
 }
@@ -1725,9 +1732,19 @@ impl Renderer {
                 // over every candidate position to repaint trees *over* the
                 // sprite -- 163,840 at 512x320 -- for the same picture.
                 let cell = world.get(wx, wy);
-                let occluded = cell.organism_id() != 0
-                    && world.materials.get(cell.material).climbable
-                    && self.tree_depth.in_front(cell.organism_id());
+                let material = world.materials.get(cell.material);
+                // A tree or a cave formation standing between him and the
+                // camera. Both are walk-through, so both must be able to
+                // pass in front of him -- a stalagmite he strolls through
+                // *and* is always drawn over reads as a decal on the
+                // foreground, which is worse than either extreme.
+                let occluded = if material.scenery {
+                    self.tree_depth.in_front(wx as u32)
+                } else {
+                    cell.organism_id() != 0
+                        && material.climbable
+                        && self.tree_depth.in_front(cell.organism_id() as u32)
+                };
                 // Nothing is drawn where a tree covers him: the world's
                 // own pixels, already painted by the cell pass, are what
                 // shows. `OCCLUDED_ALPHA` above records the ghost this
@@ -1971,7 +1988,7 @@ impl Renderer {
         // Gated on `organism_id` first, which is a field of the `Cell`
         // already in hand, so a world with no organisms in it pays one
         // compare per non-empty pixel and nothing else.
-        if self.tree_depth == TreeDepth::Haze && cell.organism_id() != 0 && !self.tree_depth.in_front(cell.organism_id()) {
+        if self.tree_depth == TreeDepth::Haze && cell.organism_id() != 0 && !self.tree_depth.in_front(cell.organism_id() as u32) {
             base = [
                 (base[0] as u16 * HAZE_DIM / 256) as u8,
                 (base[1] as u16 * HAZE_DIM / 256) as u8,
@@ -3637,13 +3654,13 @@ mod tests {
         let mut front = 0;
         let mut behind = 0;
         for id in 1..200u16 {
-            match TreeDepth::Weave.in_front(id) {
+            match TreeDepth::Weave.in_front(id as u32) {
                 true => behind += 1,
                 false => front += 1,
             }
             assert_eq!(
-                TreeDepth::Weave.in_front(id),
-                TreeDepth::Weave.in_front(id),
+                TreeDepth::Weave.in_front(id as u32),
+                TreeDepth::Weave.in_front(id as u32),
                 "a tree must not change which side of him it is on"
             );
         }
@@ -3656,7 +3673,7 @@ mod tests {
         // sequentially and worldgen plants a stand left to right, so parity
         // would lay down front-back-front-back across the screen — a
         // correlation the eye picks out at once.
-        let runs = (2..60u16).filter(|&id| TreeDepth::Weave.in_front(id) == TreeDepth::Weave.in_front(id - 1)).count();
+        let runs = (2..60u16).filter(|&id| TreeDepth::Weave.in_front(id as u32) == TreeDepth::Weave.in_front((id - 1) as u32)).count();
         assert!(runs > 8, "only {runs} of 58 neighbouring pairs matched, which is parity in disguise");
     }
 
@@ -3673,7 +3690,7 @@ mod tests {
         // Find an organism whose hash puts it in front of him.
         let organism = (0..64)
             .map(|_| world.push_organism(species))
-            .find(|&id| TreeDepth::Weave.in_front(id))
+            .find(|&id| TreeDepth::Weave.in_front(id as u32))
             .expect("some organism id hashes to the front");
         for y in 20..50 {
             for x in 28..40 {

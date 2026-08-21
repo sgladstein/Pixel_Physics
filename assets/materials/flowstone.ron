@@ -1,0 +1,57 @@
+// Cave formations: stalagmites, stalactites, columns, drapery.
+//
+// **Its own material, and the split is what makes the mechanic possible.**
+// Speleothems used to be written as `stone` with the cap-rock palette family
+// — the same `MaterialId` as the cave wall, distinguished only by shade. So
+// "formations do not block the player" could not be said in data at all:
+// setting `scenery` on stone would make the entire massif walk-through. A
+// separate material says it about formations and nothing else.
+//
+// `scenery` is a *player* property only (see `Material::scenery`). This is
+// still solid rock to everything else: powder rests on it, it anchors the
+// ceiling it hangs from, and the pick digs it out — mining gates on
+// `organism_id`, which is zero here, so breakable comes for free.
+(
+    name: "flowstone",
+    display: "Flowstone",
+    kind: Solid,
+    scenery: true,
+    // Deposited calcite, a shade less dense than the massif it grew out of.
+    density: 2.4,
+    // **Four tones with a real dark, which is the whole point of the
+    // palette.** The owner's verdict on the old formations was "nothing here
+    // looks like a crystal", and the cause was that every tone sat in a
+    // narrow band near the top of the range: an object drawn in four
+    // near-identical values has no internal edge, so it reads as a flat
+    // block whatever silhouette it is given.
+    //
+    // These span 96..214 — 118 points against the old family's 38. The
+    // darkest is *below* the surrounding rock (stone's greys run 110..138),
+    // so a formation has a shadow side that reads against the wall instead
+    // of glowing off it, and the lightest is well above, so the lit side
+    // separates too. A shape needs coherent shading, and it needs somewhere
+    // to shade *to*.
+    //
+    // Ordered mid, dark, light, darkest, matching stone's own tone order so
+    // the shade byte means the same thing across both.
+    colors: [
+        (176, 170, 158),
+        (128, 123, 114),
+        (214, 208, 196),
+        (96, 92, 85),
+    ],
+    base_colors: 4,
+    // Hangs like a lining rather than standing like a wall: a stalactite is
+    // a cantilever from the ceiling, so it needs reach relative to its size.
+    // Copied from `crystal`, which solved the same geometry.
+    max_unsupported_span: 8,
+    attached_span_bonus: 12,
+    // Calcite crumbles rather than shattering — it is limestone, not quartz.
+    breaks_into: "rubble",
+    // Between stone's 6 and crystal's 4: a column comes apart in pieces you
+    // can see, not slabs and not dust.
+    fragment_rungs: 5,
+    support_cost_below: 1,
+    support_cost_beside: 2,
+    support_cost_above: 4,
+)

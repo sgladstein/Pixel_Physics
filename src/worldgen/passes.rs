@@ -1647,7 +1647,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             let cell = if formation == 2 {
                 // The crystal minority: the same material as a vug lining,
                 // attached like the rock it grows from.
-                Cell::new(ctx.crystal, loose_shade(ctx, Purpose::Vault, px, py)).with_attached(true)
+                Cell::new(ctx.spar, loose_shade(ctx, Purpose::Vault, px, py)).with_attached(true)
             } else if formation == 1 {
                 // Flowstone: stone, but *pale* stone -- the cap-rock family
                 // with its own per-cell tone rather than the wall's banding.
@@ -1658,8 +1658,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                 // diff every round-3 guard relies on can *see* it -- written
                 // with the wall's own shade it is byte-identical to the
                 // control world and vanishes from every test.
-                Cell::new(ctx.stone, FAMILY_RESISTANT * TONES + loose_shade(ctx, Purpose::Speleothem, px, py))
-                    .with_attached(true)
+                Cell::new(ctx.flowstone, loose_shade(ctx, Purpose::Speleothem, px, py)).with_attached(true)
             } else if gravel {
                 // Buried gravel's family, same as a lens and the vug floor:
                 // read against solid stone and nothing else.

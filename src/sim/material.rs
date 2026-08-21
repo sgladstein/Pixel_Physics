@@ -408,6 +408,32 @@ pub struct MaterialDef {
     /// up.
     #[serde(default)]
     pub climbable: bool,
+    /// Whether the character walks *through* this material without climbing
+    /// it — cave formations, and anything else that is scenery rather than
+    /// architecture.
+    ///
+    /// **`climbable`'s sibling, deliberately not the same flag.** That one
+    /// is ANDed with `Cell::organism_id() != 0`, because a grown tree and a
+    /// `wood` wall someone painted are the same material and must behave
+    /// differently. A speleothem has no such twin: it is its own material
+    /// (`flowstone`, `spar`), written by worldgen and nothing else, so the
+    /// material alone is a complete answer and no per-cell gate is needed.
+    /// Giving one an `organism_id` to reuse `climbable` would be actively
+    /// wrong — that routes it into `organism_structural_tick`, the
+    /// amputating path `Reports/felling-blockers.md` documents.
+    ///
+    /// Separate from `climbable` rather than folded into it because `grip`
+    /// tests `Footing::Climb` exactly, and a gnome hauling himself up a
+    /// stalagmite is not what "you walk past it" means.
+    ///
+    /// A **player** property, like `climbable`: nothing in the CA sweep,
+    /// the light field, the structural search or the mining path reads it.
+    /// A formation is still solid to powder, still anchors its ceiling, and
+    /// is still dug out with the pick — mining gates on `organism_id`
+    /// (`rigid::mine_swept`), which is zero here, so breakability comes for
+    /// free rather than needing a second mechanism.
+    #[serde(default)]
+    pub scenery: bool,
     /// How much of a falling character's downward speed this material takes
     /// off per tick, at full immersion. 0 (the default) catches nothing.
     ///
@@ -744,6 +770,8 @@ pub struct Material {
     pub reinforces_powder: bool,
     /// See `MaterialDef::climbable`.
     pub climbable: bool,
+    /// See `MaterialDef::scenery`.
+    pub scenery: bool,
     /// See `MaterialDef::fall_drag`.
     pub fall_drag: f32,
     /// Per-cell colour variation. A cell picks one entry when it is created and
@@ -995,6 +1023,7 @@ impl From<MaterialDef> for Material {
             evaporates: def.evaporates,
             reinforces_powder: def.reinforces_powder,
             climbable: def.climbable,
+            scenery: def.scenery,
             fall_drag: def.fall_drag,
             palette: def
                 .colors
@@ -1133,6 +1162,8 @@ const EMBEDDED: &[&str] = &[
     // of the two comes first beyond keeping this list readable.
     include_str!("../../assets/materials/crystal.ron"),
     include_str!("../../assets/materials/shard.ron"),
+    include_str!("../../assets/materials/flowstone.ron"),
+    include_str!("../../assets/materials/spar.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -1187,6 +1218,7 @@ impl MaterialRegistry {
             evaporates: false,
             reinforces_powder: false,
             climbable: false,
+            scenery: false,
             fall_drag: 0.0,
             colors: vec![[0, 0, 0]],
             base_colors: 0,
@@ -1226,6 +1258,7 @@ impl MaterialRegistry {
             evaporates: false,
             reinforces_powder: false,
             climbable: false,
+            scenery: false,
             fall_drag: 0.0,
             colors: vec![[20, 20, 24]],
             base_colors: 0,
