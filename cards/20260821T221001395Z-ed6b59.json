@@ -1,0 +1,45 @@
+{
+  "id": "20260821T221001395Z-ed6b59",
+  "created": "2026-08-21T22:10:01Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/creatures",
+    "branch": "creatures-m18",
+    "commit": "8390580",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\creatures"
+  },
+  "title": "Corpse shade: can you tell rich meat from poor?",
+  "question": "Six corpses, worth 120 / 320 / 520 / 760 / 1020, then a burnt one with no stamp. A corpse is now worth what the animal was made of, and its shade is the only player-visible sign of that. Which ramp reads? B changes nothing but the palette in corpse.ron (3 browns -> 5, span widened from 20 to 100 in red). Rendered at 10x; at play zoom the difference is smaller still.",
+  "context_md": "S3 makes food carry its own value. The visible half is corpse shade. A is what ships today after I reordered the palette dark-to-light (it was non-monotone: a corpse worth 760 rendered DARKER than a starved one worth 120). A is correct now but I do not think it is legible - this is the same order of colour difference as the canopy-density sheet that read as blank. B is my proposed widening. Left-to-right the corpses go starved -> killed in its prime; the last one burnt to death and carries no stamp, so it should NOT read as the richest.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "narrow (current)",
+      "files": [
+        "20260821T221001395Z-ed6b59/000-carrion-A-narrow.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "widened",
+      "files": [
+        "20260821T221001395Z-ed6b59/001-carrion-B-wide.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
