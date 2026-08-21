@@ -13,7 +13,16 @@ is **how big a room you can build**: a wide, thin-walled one can still
 fail to hold its own roof up the moment you finish it, and the exact width
 at which that starts is not yet where anyone wants it. Also unsettled, and
 the thing to watch when playing: whether collapse now happens **too
-rarely** on open terrain, having spent a long time happening far too much.*
+rarely** on open terrain, having spent a long time happening far too much.
+And newly unsettled, and the thing to watch above all: **rock cut loose by
+cracks deep inside solid stone now cracks further where it stands instead
+of being left alone.** A single buried charge reads much better for it —
+roughly twice as much rock comes away and it keeps coming for about twice
+as long. Several charges in one hillside currently read much worse: each
+severed piece cracks the rock around it and severs more, so a worked area
+goes dark with fissures from edge to edge and almost nothing actually
+flies. Expect one bang to look better than it did and a sustained working
+to look worse, and expect that second half to change.*
 
 Any solid structure needs an unbroken path of connected material leading
 back down to the ground, or out to the edge of the world, to stay up. Cut
@@ -43,6 +52,11 @@ not bring the building down. What the roof's reach strains is the roof.
 Wide flat spans are therefore the thing to watch when building: a long
 roof wants to be thick, or to be an arch, or to come down on a wall part
 way along.
+
+A crack that goes all the way *round* something now genuinely cuts it off,
+including deep inside solid rock where there is no open face anywhere near
+it — which is what the paragraph below has always claimed and, until
+recently, was not quite true of a crack drawn at an angle.
 
 Hitting rock scores fissures into it that run well past the material the
 blow actually removes, and they stay. Cracked rock carries less than

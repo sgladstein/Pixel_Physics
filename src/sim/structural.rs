@@ -421,12 +421,43 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             // change the support distances, so the relaxation wavefront in
             // `propagate` still has something to carry and is kept.
             //
-            // **Unsupported** is a pocket already cut free on every side,
-            // wedged in a hole its own shape. More cracks would add
-            // nothing -- there is nothing left to separate -- and it
-            // cannot fall, because there is nowhere to fall to. So it is
-            // recorded and left alone, and the wavefront is dropped
-            // because nothing changed for anything to learn about.
+            // **Unsupported** used to be dropped here outright -- no
+            // crush, no fissure, no reschedule -- on this reasoning, which
+            // is kept because it still describes a real case: *a pocket
+            // already cut free on every side, wedged in a hole its own
+            // shape. More cracks would add nothing -- there is nothing
+            // left to separate -- and it cannot fall, because there is
+            // nowhere to fall to.*
+            //
+            // **That was right for the world it was written in and is
+            // wrong now that cracks sever** (W3). It assumes the region is
+            // bounded by *air*, which is what `region_has_free_face`
+            // actually asks -- and it asks only about `EMPTY` neighbours.
+            // A crack is a bit on a cell edge and never a removed cell, so
+            // a chunk the fissures cut out of the middle of solid rock has
+            // no empty neighbour at all, takes this branch **every time**,
+            // and is bounded not by a hole its own shape but by **intact
+            // rock**. There is a great deal left to separate. Dropping it
+            // is precisely the owner's *"cracks that fully surround chunks
+            // of rock do not break them off"*: the sever landed and its
+            // consequence was discarded one branch later, which is why
+            // fixing the crack drawing alone would have changed nothing on
+            // screen.
+            //
+            // The air-bounded pocket the old reasoning describes is still
+            // real and is not harmed by going through the same door: it is
+            // already cracked, `crush_in_place` is idempotent on a set bit
+            // (`crushing_the_same_rock_twice_writes_nothing_the_second
+            // _time`), so it writes nothing, falls through to
+            // `Vec::new()`, and is left exactly as alone as before. What
+            // changed is that it is no longer the only thing this branch
+            // can be.
+            //
+            // Confinement still decides what a failure **produces**, never
+            // whether it happens -- `a_confined_failure_still_fails_it
+            // _just_cannot_travel` is the guard, and "confinement as an
+            // anchor" stays retired (`Reports/load-model-handoff.md`
+            // §6.1).
             //
             // Getting this split wrong costs real money in both
             // directions. Cracking-and-propagating the unsupported case
@@ -438,21 +469,77 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             // way -- stale distances took overload failures from 162 to
             // 382, damage from 919 to 1,691 cells of rock, and pending
             // sites from ~450 to 16,052.
-            if failure.mode == super::load::FailureMode::Overloaded {
-                // A crush that writes **no new fissure** has nothing to
-                // propagate. Cracks are bits, so re-crushing rock that is
-                // already crushed is idempotent -- it does no damage, and
-                // it also does no *good*, while still costing a load walk
-                // and a reschedule every time. Measured by the
-                // load-concentration session, whose change makes many more
-                // cells reach the criterion: `caveshallow` went from 488
-                // confined failures to 2,988 and produced *fewer* fissured
-                // cells (332 to 284), which is 6x the work for less
-                // output. Stopping when nothing was written turns that
-                // from a treadmill into a one-off.
-                if crush_in_place(world, &region, failure.at) > 0 {
-                    return propagate;
-                }
+            //
+            // A crush that writes **no new fissure** has nothing to
+            // propagate. Cracks are bits, so re-crushing rock that is
+            // already crushed is idempotent -- it does no damage, and it
+            // also does no *good*, while still costing a load walk and a
+            // reschedule every time. Measured by the load-concentration
+            // session, whose change makes many more cells reach the
+            // criterion: `caveshallow` went from 488 confined failures to
+            // 2,988 and produced *fewer* fissured cells (332 to 284),
+            // which is 6x the work for less output. Stopping when nothing
+            // was written turns that from a treadmill into a one-off.
+            //
+            // **That test is now load-bearing for both modes**, and it is
+            // the whole of what keeps the treadmill above from coming
+            // back with the unsupported case in it. The number to watch is
+            // `FailureCounts::confined` in `scripts/blastsweep.sh`: it
+            // climbing without bound is the treadmill, and it is the one
+            // reading that tells a working sever apart from one.
+            //
+            // # Read this before touching this branch again
+            //
+            // **It climbs.** Measured on `scene=worldgen preset=rolling
+            // seed=1 explode=300,160,20,180,60` out to frame 5,000, with
+            // the world's material dead still throughout (promoted frozen
+            // at 186 cells, shattered at 914, `crushed_cells` frozen at
+            // 90,512 from frame 2,200): **320 further confined failures
+            // every 400 frames, for ever.** The same run with only the
+            // crack change (W3) settles at 383 and stops. So the residual
+            // is this branch's, not the sever's -- damage terminates,
+            // judgement churn does not.
+            //
+            // And the damage it does before it terminates is worse than
+            // the churn. On the nine-charge sweep this branch is the
+            // difference between a world that breaks and a world that
+            // dissolves:
+            //
+            // ```text
+            //                       before W3/W4   W3 only   W3+W4   W3+W4, confine=0
+            // promoted cells max          11,100     4,872      95         17,639
+            // cracked cells (seed 1)       2,820     4,441  84,051          1,789
+            // unsupported failures         1,030    11,525 131,363            429
+            // furthest failure (cells)        44        36       2             33
+            // ```
+            //
+            // 84,051 cracked cells is most of the solid rock in a 512x320
+            // world. The contact sheet says it plainer than any of those
+            // numbers: the hillside goes dark from the crater outward
+            // until the whole slope is a cracked stain, and almost nothing
+            // flies. That is `crush_in_place`'s own "why not crack every
+            // edge" warning arriving by a different road -- *solid on
+            // screen and structurally sand*.
+            //
+            // The mechanism is `CLAUDE.md`'s **which object does this rule
+            // evaluate**. `crush_in_place` sizes its star off the region:
+            // `length = extent.clamp(CRACK_MIN_LENGTH, CRACK_MAX_LENGTH)`
+            // with `CRACK_MIN_LENGTH` 10, `CRACK_PRIMARIES` 3 and
+            // `CRACK_FORKS_BASE` 4. That is right for an over-capacity
+            // *section*, which is what it was written for. A crack-severed
+            // island is a **cell** -- mean failing region size on the deep
+            // charge is 1.1 -- so every one-cell island fires three
+            // ten-cell rays plus four forks into the rock around it, which
+            // severs more one-cell islands, which fire again. The feedback
+            // is in the sizing, not in the decision to crush.
+            //
+            // So the next lever is the star's size for this mode, or a
+            // floor on the region it is worth crushing -- **not**
+            // `calve_depth` or `POCKET_COLLAR_THICKNESS`, and not tuning
+            // the crack constants, which are shared with the blast and the
+            // overload crush and are right for both.
+            if crush_in_place(world, &region, failure.at) > 0 {
+                return propagate;
             }
             return Vec::new();
         }
@@ -2790,20 +2877,41 @@ mod tests {
         assert_eq!(w.get(0, 30).material, material::STONE, "the anchored root of the cantilever should still be standing");
     }
 
-    /// A slab cut free by cracks in the *middle of a massif* must not turn
-    /// into rubble, and the identical slab with a cavity above it must.
+    /// A slab cut free by cracks in the *middle of a massif* must **crack
+    /// where it stands**, and the identical slab with a cavity above it
+    /// must break up and move.
     ///
     /// **A paired comparison, and it has to be**, because either half
-    /// alone is passable by cheating in one direction. "Nothing turns to
-    /// rubble" passes the first by making rock indestructible, which is
-    /// how four earlier support models died; "everything turns to rubble"
-    /// passes the second. The pair is what pins the rule to *free space*
-    /// rather than to strength.
+    /// alone is passable by cheating in one direction. "Nothing moves"
+    /// passes the first by making rock indestructible, which is how four
+    /// earlier support models died; "everything moves" passes the second.
+    /// The pair is what pins the rule to *free space* rather than to
+    /// strength.
     ///
     /// It is also the guard against the replacement artifact rather than
     /// the original one: the way this fix fails is not by leaving the
     /// mid-mountain collapse in place, it is by suppressing collapse
     /// everywhere and leaving cliffs hanging in the air.
+    ///
+    /// # What this used to assert, and why that was the bug
+    ///
+    /// It asserted that all 32 cells of the buried slab were **still
+    /// intact stone**, and that passed for a reason nobody wanted: an
+    /// `Unsupported` failure that was also confined was discarded
+    /// outright at `tick` -- no crush, no fissure, nothing. "It cracks
+    /// where it stands" was the name of the test and the one thing it did
+    /// not check. The owner reported the consequence directly: *cracks
+    /// that fully surround chunks of rock do not break them off*.
+    ///
+    /// So the claim is restated as what the mechanism now promises, in the
+    /// two halves that can be told apart: the buried slab writes **fresh
+    /// fissures** and **leaves no hole behind**, and the opened one
+    /// **promotes cells to moving bodies**. Deliberately not "every cell
+    /// of the buried slab is still stone" -- that pins one of two outcomes
+    /// rather than the claim, and it is the exact assertion that made this
+    /// test agree with the bug. Rubble left standing in the slab's own
+    /// footprint would be a legitimate outcome; a hole where the slab was
+    /// would not.
     #[test]
     fn rock_with_nowhere_to_go_cracks_where_it_stands() {
         /// The slab is x 27..35 by y 33..37.
@@ -2878,6 +2986,12 @@ mod tests {
         // is that the rock either stayed or did not.
         let slab_intact =
             |w: &World| (33..37).flat_map(|y| (27..35).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::STONE).count();
+        // And the weaker question, which is the one the buried half asks:
+        // is there still *something* in every cell the slab occupied.
+        // Stone that crushed to rubble in its own footprint passes this
+        // and fails `slab_intact`; a slab that travelled fails both.
+        let slab_present =
+            |w: &World| (33..37).flat_map(|y| (27..35).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material != material::EMPTY).count();
 
         let mut buried = massif_with_isolated_slab(false);
         run(&mut buried, 300);
@@ -2888,10 +3002,32 @@ mod tests {
             buried.structural_failures.confined > 0,
             "test setup: the buried slab was never judged as a confined failure, so this proves nothing"
         );
+        // The buried half. Fissures, because that is what "cracks where it
+        // stands" means and it is what was missing; and no hole, because
+        // rock with nowhere to go must not have gone there anyway.
+        assert!(
+            buried.structural_failures.crushed_cells > 0,
+            "the buried slab was judged, found unsupported, and then left entirely alone -- confined rock has to crack where it stands"
+        );
         assert_eq!(
-            slab_intact(&buried),
+            buried.structural_failures.promoted_cells, 0,
+            "{} cells of the buried slab were promoted to moving bodies -- there is nowhere in solid rock for them to move to",
+            buried.structural_failures.promoted_cells
+        );
+        assert_eq!(
+            slab_present(&buried),
             SLAB_CELLS,
-            "a slab in the middle of a massif has nowhere to go: every cell of it must still be standing there"
+            "the buried slab left a hole behind: {} of {SLAB_CELLS} cells still hold material",
+            slab_present(&buried)
+        );
+        // The open half, on the counter rather than on the census: "moved"
+        // is a displacement and every other number in `FailureCounts` is a
+        // judgement (`world.rs`'s own note on `promoted_cells`). A slab
+        // that failed, was recorded, and then sat exactly where it was
+        // reads identically to this one on any of them.
+        assert!(
+            opened.structural_failures.promoted_cells > 0,
+            "the same slab with a cavity above it promoted nothing -- it was judged as failing and never moved"
         );
         assert!(
             slab_intact(&opened) < SLAB_CELLS,

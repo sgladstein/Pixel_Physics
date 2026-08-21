@@ -1,6 +1,9 @@
 # Explosions
 
-*Current as of: this build (the crack star grows over time, breaks pieces
+*Current as of: this build (a buried charge now cracks far more rock than
+it used to, and that is the half of this page most likely to change again
+— see the note at the top of [Structural
+Collapse](structural-collapse.md); the crack star grows over time, breaks pieces
 loose along its own lines, glows like an ember and cools to nothing; also
 confinement, the crack halo, and per-material blast resistance).*
 
