@@ -1,0 +1,53 @@
+{
+  "id": "20260821T081115716Z-2eb74a",
+  "created": "2026-08-21T08:11:15Z",
+  "board": "water",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "54ca725",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Quench crust, re-shot with the pond floor in frame (answers your last one)",
+  "question": "Now that the bottom of the pond is visible: does the mound of quenched rock down there read as the crust having sunk, or as debris piling up somewhere it should not?",
+  "context_md": "**Answering your question directly: yes, the rock sank below the crop.** My crop stopped at row 272 and the pond floor is at 312, so the one thing the card was about was outside the frame. Entirely my error. Same scene, same frames, crop extended to the floor -- the grey mound on the bottom is where the crust went.\n\n**And the other half of what you noticed is real, not a rendering difference.** You said the busy pane had \"a big reaction, lots of steam\" and the quiet one had almost nothing. That is the steam change doing its job: in the current build the condensate rains back down, re-lands on hot rock and re-boils, so the churn sustains itself and keeps producing cloud. With open-sky condensate going to the atmosphere instead, the plume runs once and is finished -- steam cells at frame 460 go **254 -> 7**, and the world sleeps (0 of 40 chunks awake against 7).\n\nSo the quiet pane is not less happening; it is the same event *terminating* instead of recirculating. Whether that is the right amount of drama is a fair question and is what I would like your eye on.\n\nNot blinded this time, since you have already seen both and the labels are the point.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "current",
+      "files": [
+        "20260821T081115716Z-2eb74a/000-dd_before.png"
+      ],
+      "caption": "crust stays at the surface; plume recirculates",
+      "meta": {
+        "steam cells at frame 460": 254,
+        "awake chunks at frame 1400": 7,
+        "unattached solids reaching no anchor": 54,
+        "overload failures": 231
+      }
+    },
+    {
+      "label": "with the fixes",
+      "files": [
+        "20260821T081115716Z-2eb74a/001-dd_after.png"
+      ],
+      "caption": "crust sinks to a mound on the floor; plume runs once",
+      "meta": {
+        "steam cells at frame 460": 7,
+        "awake chunks at frame 1400": 0,
+        "unattached solids reaching no anchor": 21,
+        "overload failures": 2
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
