@@ -11,6 +11,23 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
+### 0. The organism support search asks the wrong question — see `Reports/felling-blockers.md`
+
+Not new, but newly written up. `structural::organism_is_supported` anchors
+on `MaterialKind::Solid` (soil is a `Powder`, so it anchors nothing) and
+searches outward from the cell under test bounded by
+`max_unsupported_span`, so it answers "am I within 8 hops of stone" rather
+than "can I reach a root". Any structural check fired mid-crown therefore
+amputates the tree — measured at 772 cells against 20,213 (`plant.rs`'s
+`shed_stranded_leaves`).
+
+It is latent rather than live only because every organism path
+deliberately schedules no check: growth, germination, abscission and
+`player::shake` all say so in place. It goes live the moment anything
+does, and it is the blocker under felling. The fix, the cost, and the six
+paths that would trigger it are in `Reports/felling-blockers.md`.
+
+
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a
