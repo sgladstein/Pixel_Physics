@@ -2373,3 +2373,38 @@ fn probe_r4t4_valley_floor_retarget_diff() {
         println!("{name}: {flipped_columns} columns flip is_valley_floor, ~{flipped_cells} cells would draw differently (upper bound: the stony-contact dither can still override either way)");
     }
 }
+
+#[test]
+#[ignore]
+fn tmp_find_waterline_shot() {
+    let presets = presets();
+    let with = presets.get("wetland").expect("preset").clone();
+    for seed in 1u64..=16 {
+        let world = build(&with, seed);
+        let id = |n: &str| world.materials.id_of(n).expect(n);
+        let (crystal, water) = (id("crystal"), id("water"));
+        let mut best: Option<(i32, i32, i32)> = None; // (x, y, water_col_count)
+        for x in 0..pixel_physics::app::WORLD_WIDTH as i32 {
+            for y in 0..pixel_physics::app::WORLD_HEIGHT as i32 {
+                let c = world.get(x, y);
+                if c.material != crystal {
+                    continue;
+                }
+                let mut wcount = 0;
+                for dy in 0..5 {
+                    let below = world.get(x, y + dy);
+                    if below.material == water {
+                        wcount += 1;
+                    }
+                }
+                if wcount > 0 && best.is_none_or(|(_, _, b)| wcount > b) {
+                    best = Some((x, y, wcount));
+                }
+            }
+        }
+        match best {
+            Some((x, y, s)) => println!("seed {seed}: best crystal-at-waterline at ({x},{y}) score={s}"),
+            None => println!("seed {seed}: none found"),
+        }
+    }
+}

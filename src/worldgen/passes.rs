@@ -857,6 +857,26 @@ const SPELEO_SPACING_MIN: i32 = 2;
 const SPELEO_SPACING_MAX: i32 = 14;
 const DRIP_SCALE: f32 = 40.0;
 
+/// Round-5 task 5: how many cells below the waterline a column's floor may
+/// sit and still be a candidate -- too far below and a stalagmite would
+/// have to be implausibly tall to break the surface at all. The chance a
+/// candidate actually places one, and its crystal minority raised well
+/// past the ordinary `SPELEO_CRYSTAL`, because this is specifically the
+/// shot criterion 5 asks for: a lit formation breaking still water.
+///
+/// `WATERLINE_CHANCE` is 1.0 -- every eligible column places one -- and
+/// that is load-bearing, not generous: measured (`wetland`, 8 seeds), the
+/// span requirement below the reach check is what actually gates this,
+/// dropping 4-39 reach-eligible columns per system to 0-6 that also have
+/// the headroom to clear the surface. Most of a system's length is
+/// ordinary task-2 passage (span 5-8), and a floor several cells under the
+/// table needs more room than that to break through -- so there is
+/// nothing left to spend a chance draw on rejecting. See the round-5
+/// finding for the bar this did and did not reach.
+const WATERLINE_FLOOR_REACH: i32 = 4;
+const WATERLINE_CHANCE: f32 = 1.0;
+const WATERLINE_CRYSTAL: f32 = 0.5;
+
 /// What the vault pass did, beyond the cell count the pass table carries.
 ///
 /// The pass-table row says *whether* it fired; these say *what* it made, and
@@ -2129,6 +2149,68 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             if placed_here {
                 last = Some(dx);
             }
+        }
+    }
+
+    // ---- round-5 task 5: waterline formations ----
+    // Criterion 5's readable half: a formation standing *in* the pool,
+    // breaking the surface, with its crystal minority raised so its glow
+    // -- already spilling across water by construction -- has something
+    // lit to spill onto. Today's ordinary placement does not target this
+    // at all: a stalagmite is drawn for height independent of where the
+    // waterline sits, so it either stands high and dry above a flooded
+    // floor or, when it does reach the water, is drawn no more often and
+    // no more crystalline than any other column -- measured at 0-9
+    // formations at a waterline over 16 *seeds*, not per flooded system.
+    //
+    // A second, targeted pass over columns the main one already
+    // considered: only where the floor sits a handful of cells *below*
+    // the waterline (so a stalagmite reaching up from it can actually
+    // break the surface rather than standing fully submerged with
+    // nothing showing, or fully dry with nothing to break), sized to
+    // guarantee it clears the surface by at least one cell rather than
+    // leaving that to the ordinary heavy-tailed draw, which has no reason
+    // to know where the water is. `speleo[idx] == 0` guards every write
+    // so this never overwrites a formation the main pass already placed.
+    if water_line != i32::MAX {
+        let mut last_wl: Option<i32> = None;
+        for (i, slot) in floor.iter().enumerate() {
+            let Some((t, b, h)) = *slot else { continue };
+            let dx = i as i32 - CAVE_HALF_W;
+            let fs = b - h;
+            if fs < water_line || fs - water_line > WATERLINE_FLOOR_REACH {
+                continue;
+            }
+            if last_wl.is_some_and(|l| dx - l < 2) {
+                continue;
+            }
+            let span = fs - t + 1;
+            // Enough room to root on rock below and still break the
+            // surface by at least one cell. This is the bar most
+            // candidates miss (measured, `wetland` s1-8: of 4-39 columns
+            // whose floor is within reach, only 0-6 have enough span to
+            // actually clear it) -- most of a system's length is ordinary
+            // passage at the task-2 lattice scale, span 5-8, and a floor
+            // several cells under the table needs more headroom than that
+            // to break the surface at all. See the round-5 finding.
+            let need = fs - water_line + 1;
+            if span < need + 1 {
+                continue;
+            }
+            let px = cx + dx;
+            if noise::unit(seed, Purpose::Speleothem, px, 200) >= WATERLINE_CHANCE {
+                continue;
+            }
+            let lg = need.min(span - 2).max(2);
+            let crystal = noise::unit(seed, Purpose::Speleothem, px, 201) < WATERLINE_CRYSTAL;
+            let mat = if crystal { 2u8 } else { 1u8 };
+            for y in (fs - lg + 1)..=b {
+                let idx = cave_idx(dx, y);
+                if void[idx] && speleo[idx] == 0 {
+                    speleo[idx] = mat;
+                }
+            }
+            last_wl = Some(dx);
         }
     }
 
