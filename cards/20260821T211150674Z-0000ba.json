@@ -1,0 +1,43 @@
+{
+  "id": "20260821T211150674Z-0000ba",
+  "created": "2026-08-21T21:11:50Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "9dc94b0",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Splash: rock into water, which nothing could do before",
+  "question": "Does the rock entry read as an impact? And is the crown big enough, or should it throw more?",
+  "context_md": "You said: *\"I don't see any splash or difference in any of these, I think the issue is that you are testing with a disperse rain of sand instead of clumps of sand or rocks would be better.\"*\n\nYour premise turned out to be backwards and your instinct turned out to be right, which is worth saying plainly.\n\n**Backwards:** a splash needs air above the water it displaces, and a falling clump is the thing standing in that air. The engine refuses a splash site with anything over it -- so a denser clump makes the effect *disappear*, not appear. The scene's own comment says so, written before either of us looked at it.\n\n**Right anyway:** a falling *boulder* reported no splash from anywhere, ever. The code that shoves whole columns of water out of a rigid body's way never told the splash system anything, so rock into water was completely silent. No amount of changing what I dropped would have found that.\n\nA boulder now throws its crown where the water can actually go: up the sides, one column out from where it lands. It has to arrive with some speed, so a slab sliding off a ledge still enters quietly.\n\nThere was also **no scene that dropped rock into water**, so there is one now: a 600-cell slab held over an open pool by nothing, which the load model takes apart on the first frame.\n\n| | droplets thrown |\n|---|---|\n| rock, before this change | **2** |\n| rock, now | **33** |\n| loose grains (the old scene) | 58, dribbled over 140 frames |\n\nThe two clips are the two different mechanisms, not two settings -- worth comparing for *shape*: the rock throws its 33 in a single burst over about six frames, the grains trickle theirs out the whole time.\n\nThe dark box in the rock clip is the scene, not a bug: the engine freezes what counts as \"sky\" on the first frame, and the slab is in the way, so its columns render unlit for the rest of the run.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "a boulder",
+      "files": [
+        "20260821T211150674Z-0000ba/000-splash_rock.gif"
+      ],
+      "caption": "600-cell slab into an open pool: 33 droplets, all in one burst, plus 18 rock chunks",
+      "meta": {}
+    },
+    {
+      "label": "loose grains",
+      "files": [
+        "20260821T211150674Z-0000ba/001-splash_grains.gif"
+      ],
+      "caption": "The old scene, same crop and speed: 58 droplets trickled out over the whole clip",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
