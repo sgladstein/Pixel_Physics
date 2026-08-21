@@ -1,0 +1,43 @@
+{
+  "id": "20260821T073813979Z-958dbc",
+  "created": "2026-08-21T07:38:13Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-mechanic-stone-review-yksmi8",
+    "commit": "d9eec7f",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The slope does break open now - but it takes 7 to 15 seconds",
+  "question": "Is that delay right, or does the breakage need to arrive closer to the bang?",
+  "context_md": "One charge, radius 20, buried 45 cells deep in the rolling world - the same charge that gave you the small black hole. Six frames of **one run**, left to right then top to bottom: the bang, then +5s, +14s, +24s, +39s, +82s. Daylight is pinned so all six are lit identically; the simulation is untouched by that.\n\n**What changed.** Cracks now genuinely cut. The walker was marking one edge per cell and skipping cells outright on diagonal steps, so support zigzagged straight through every line it drew and nothing was ever really enclosed. Fixing that alone changed almost nothing on screen, because a chunk severed inside solid rock has no *empty* neighbour and was being thrown away by a branch that produced nothing at all - no crush, no rubble, not even a reschedule. Both are fixed.\n\n**The catch, and it is the question.** Panel 2 is +5s and still looks like your original complaint: hole plus scribble. The real breakage lands between panel 2 and panel 3. Then it stops - panels 4, 5 and 6 are identical, so it settles rather than creeping on for ever.\n\nNobody chose seven-to-fifteen seconds. It is simply what the relaxation wavefront takes at one cell per five frames. The wiki argues the delay is the point (*it is what gives you time to see it coming and get out*), but if it should be nearer two seconds that is a real change and I would rather know before building on top of this.\n\nAlready measured, don't spend attention on it: the counters under the image, and that this eats *less* world than before - 4,136 cells of rock against 4,837. Ignore the trees and the grain.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "buried charge, one run",
+      "files": [
+        "20260821T073813979Z-958dbc/000-timeline_w4b.png"
+      ],
+      "caption": "frames 61 / 400 / 900 / 1500 / 2400 / 5000",
+      "meta": {
+        "cells promoted at +5s": 89,
+        "cells promoted at +14s": 3637,
+        "cells promoted at +24s (final)": 4026,
+        "bodies promoted (final)": 157,
+        "cells shattered to rubble": 946,
+        "before this change: cells promoted": 97,
+        "before this change: seconds of visible motion": 0.2
+      }
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
