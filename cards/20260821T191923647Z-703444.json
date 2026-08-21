@@ -1,0 +1,45 @@
+{
+  "id": "20260821T191923647Z-703444",
+  "created": "2026-08-21T19:19:23Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-mechanic-stone-review-yksmi8",
+    "commit": "d5cb19a",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Joint density: how much grain does rock have?",
+  "question": "Which density reads as broken rock rather than as a pattern?",
+  "context_md": "Same charge, same world, same everything - only how far apart the rock's joints are. Both panes show the blast at 6 frames and again at 240 frames.\n\nThis is the knob your *\"I like a little of it, but there is too much\"* points at, and I would rather you set it than have me guess from a cave sheet on another branch. One of these is what I shipped; the other is clearly coarser. Coarser gives you two or three big blocks and stops reading as a web; finer gives more, smaller pieces.\n\nThere is no wrong answer here and no cost either way - it is one number, and blocks scale with it, so tell me if you want it coarser still than both of these.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260821T191923647Z-703444/000-ab_13_66.png",
+        "20260821T191923647Z-703444/001-ab_13_300.png"
+      ],
+      "caption": "frames 66 and 300",
+      "meta": {}
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260821T191923647Z-703444/002-ab_20_66.png",
+        "20260821T191923647Z-703444/003-ab_20_300.png"
+      ],
+      "caption": "frames 66 and 300",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
