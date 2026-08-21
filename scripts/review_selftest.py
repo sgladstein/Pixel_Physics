@@ -376,6 +376,37 @@ def test_focus_is_validated_at_post_time(root: Path, art: Path) -> None:
           "a card with no --focus stores none, so its zoom cycle is unchanged")
 
 
+def test_every_page_button_traces_to_a_card() -> None:
+    """A control the click handler cannot resolve is silently dead.
+
+    The play button sat inside `<div class="scrub" data-card=...>` but carried
+    no `data-card` of its own, and the handler read the attribute only from the
+    button -- so it did nothing, with no error, from the day it was written. The
+    browser check that was supposed to cover it exercised the *slider* instead,
+    which resolves its card by a different path and passed.
+
+    This is a static lint rather than a browser test on purpose: it costs
+    nothing, runs everywhere, and catches the whole class -- any future control
+    that forgets the attribute.
+    """
+    print("\npage controls")
+    import re
+    src = (HERE / "review_page.html").read_text(encoding="utf-8")
+
+    handler_ok = "btn.closest(\"[data-card]\")" in src
+    check(handler_ok, "the click handler falls back to an enclosing [data-card]")
+
+    orphans = []
+    for m in re.finditer(r"<button\s+([^>]*?)>", src, re.S):
+        attrs = m.group(1)
+        if "data-act" not in attrs:
+            continue
+        act = re.search(r'data-act="([^"]*)"', attrs)
+        if "data-card" not in attrs:
+            orphans.append(act.group(1) if act else "?")
+    check(not orphans, "every button[data-act] carries data-card", str(orphans))
+
+
 def test_root_is_shared_across_worktrees() -> None:
     """The one hard requirement: every worktree of a clone resolves to one queue."""
     print("\ncross-worktree root")
@@ -433,6 +464,7 @@ def main() -> int:
         test_wait_degrades(base / "q5", art_a)
         test_inbox_is_never_silently_empty(base / "q4", art_a)
         test_focus_is_validated_at_post_time(base / "q6", art_a)
+        test_every_page_button_traces_to_a_card()
         test_root_is_shared_across_worktrees()
         transport = Path(tempfile.mkdtemp(prefix="review-transport-"))
         try:

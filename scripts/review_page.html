@@ -529,7 +529,7 @@ function renderScrub(card, v) {
   const n = frameCount(card);
   return `
   <div class="scrub" data-card="${card.id}">
-    <button data-act="play">${v.playing ? "❚❚" : "▶"}</button>
+    <button data-act="play" data-card="${card.id}">${v.playing ? "❚❚" : "▶"}</button>
     <input type="range" min="0" max="${n - 1}" value="${Math.min(v.frame, n - 1)}"
            data-act="frame">
     <span class="frameno">${Math.min(v.frame, n - 1) + 1} / ${n}</span>
@@ -696,8 +696,18 @@ document.addEventListener("click", async ev => {
 
   const btn = ev.target.closest("button[data-act]");
   if (btn) {
-    const card = cardById(btn.dataset.card);
-    if (!card) return;
+    // Fall back to the enclosing card-scoped element. Requiring every control
+    // to repeat data-card meant one forgotten attribute produced a dead button
+    // and no error: `play` sits inside <div class="scrub" data-card=...> and
+    // never carried its own, so it did nothing at all until now.
+    const card = cardById(btn.dataset.card
+                          || btn.closest("[data-card]")?.dataset.card);
+    if (!card) {
+      console.warn("review: control %o could not be traced to a card — it will "
+                   + "do nothing. Give it data-card, or nest it inside an "
+                   + "element that has one.", btn.dataset.act);
+      return;
+    }
     const d = draft(card.id), v = view(card.id);
     switch (btn.dataset.act) {
       case "choice": {

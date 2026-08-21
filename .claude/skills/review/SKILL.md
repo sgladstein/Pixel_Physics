@@ -68,6 +68,11 @@ looked wrong; a sequence can.
 
 A card may carry both — a GIF to judge the feel, frames to find the moment.
 
+**Autoplay earns its place at roughly ten frames or more.** A two-frame sequence
+set playing is a strobe, not an animation: post those two states as an A/B and
+let the owner compare them, or step the slider. Frames are for motion you need
+to *scrub*; two instants are a comparison.
+
 ### Producing one, headlessly
 
 `filmstrip` encodes a GIF with **no window and no GPU**, so this works from a
