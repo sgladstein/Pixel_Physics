@@ -1,0 +1,62 @@
+{
+  "id": "20260821T175053320Z-a8d481",
+  "created": "2026-08-21T17:50:53Z",
+  "board": "camera",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/map-scrolling-no-gnome-4c5up6",
+    "commit": "7c4e741",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Map scroll, slowed down and given a ramp",
+  "question": "Is this the right speed now — and does a short tap feel like a nudge you could aim with?",
+  "context_md": "You said the old one was **way too fast**, that it both overshot and was too twitchy, and picked ~3x the gnome's run / about six seconds across.\n\n**Both clips are the same two seconds of held key**, same seed, same starting point, same frame rate — so they are directly comparable. In that two seconds the old one crossed the *entire world*; the new one covers **29% of it**.\n\nWhat changed:\n\n- **Sustained rate 256 cells/s** (2.8x the gnome's run), crossing the world in **6.25 s** — measured, not calculated.\n- **It now starts at 102 cells/s** — about his running pace — and ramps up over 0.8 s. A tenth-of-a-second tap moves **11 cells**, which is the answer to twitchy.\n- **Reversing restarts the ramp**, so correcting an overshoot is a nudge rather than a lurch back. Without that, a correcting tap moved *twice* as far as a fresh one.\n- Vertical was worse than horizontal before and the last card never said so: the world is only one screen deep, so a tap of `S` used to cross the whole depth in 0.67 s. It is now 2.25 s.\n\nWorth knowing about how it was wrong: your brief was *\"I want to scroll around when the gnome isn't deployed\"* — about not needing a gnome, not about pace. I read a speed requirement into it, justified the rate against how long the gnome takes to walk the same distance, and landed at 8.5x his run. Nobody asked for that. It is recorded in the constant so it does not happen again.\n\nOne caveat on the artifact: these play at 15 fps, not the 60 you will see live, so the motion is choppier here than in the app. That is a size limit, not the scroll — the rate itself is faithful.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — flat 1.5 screens/s (what you rejected)",
+      "files": [
+        "20260821T175053320Z-a8d481/000-pan-before-1p5.gif"
+      ],
+      "caption": "two seconds: the whole world goes by",
+      "meta": {
+        "cells in these 2s": 1536,
+        "fraction of world crossed": "100%",
+        "sustained cells/s": 768,
+        "multiple of gnome run": "8.5x",
+        "seconds across world": 2.0,
+        "seconds down full depth": 0.67,
+        "cells moved by a 100ms tap": 128
+      }
+    },
+    {
+      "label": "after — 0.5 screens/s with a ramp",
+      "files": [
+        "20260821T175053320Z-a8d481/001-pan-after-ramped.gif"
+      ],
+      "caption": "the same two seconds: under a third as far, and it opens gently",
+      "meta": {
+        "cells in these 2s": 451,
+        "fraction of world crossed": "29%",
+        "sustained cells/s": 256,
+        "start cells/s": 102,
+        "multiple of gnome run": "2.8x sustained, 1.1x at the start",
+        "seconds across world": 6.25,
+        "seconds down full depth": 2.25,
+        "cells moved by a 100ms tap": 11,
+        "worst render frame ms": 10.22,
+        "frames not fully redrawn": 0
+      }
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
