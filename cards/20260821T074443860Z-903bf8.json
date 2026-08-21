@@ -1,0 +1,35 @@
+{
+  "id": "20260821T074443860Z-903bf8",
+  "created": "2026-08-21T07:44:43Z",
+  "board": "worldgen-formations",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/form-r6",
+    "branch": "claude/worldgen-formations-r6",
+    "commit": "88b9dc0",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/form-r6"
+  },
+  "title": "Round 6 B3: boulders at a believable size",
+  "question": "Do these read as boulders (rock at player scale) rather than the two-cell pimples the old dome-halving bug produced? Too spiky/thin for a 'boulder', or is that fine given B2's residuals cover the squatter end already?",
+  "context_md": "canyon seed 6, world 2048x640, 2 boulder markers both seated. Taller one (right) measures 6 cells tall (viewshot's own print caps at 6; the uncapped test measures p50 12 / max 30 across canyon seeds 1..=600) and stands 14 cells proud of its flanks -- even with the player.\n\nFixed: width 2-5 -> 3-13, height was `height.min(width)` (1x) now drawn independently up to the design's real 3x-width ceiling, and the dome's *visible* semi-axis is used directly instead of implicitly halved (round 4's bug: a drawn '4 tall' boulder only rose 2 rows above ground).\n\nAlso found and fixed along the way (affects both boulders and B2's residuals): a seated feature that only converts its single top soil cell can end up structurally floating -- present, attached, reading solid, but with zero path to any anchor -- if its whole footprint sits over a soil blanket deep enough that no edge reaches bare rock. Caught by the pre-existing `every_solid_is_anchored` test, not by anything this track built new.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Two seated boulders",
+      "files": [
+        "20260821T074443860Z-903bf8/000-boulder_canyon6_crop.png"
+      ],
+      "caption": "canyon seed 6, world x ~700-920",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
