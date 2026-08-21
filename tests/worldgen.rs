@@ -2138,6 +2138,113 @@ fn a_forced_boulder_world_seats_stone_and_arrives_at_rest() {
 }
 
 #[test]
+fn a_seated_boulder_stands_at_a_believable_height() {
+    // Round 6 Track B, B3. Measured directly rather than through
+    // `viewshot`'s own boulder-height print, which caps its scan at 6 rows
+    // (`(1..=6).take_while(...)`) -- exactly the ceiling this task's bar
+    // asks to clear, so that instrument cannot demonstrate `max >= 20` even
+    // after the fix. `examples/*` is off limits to this track, so the
+    // measurement lives here instead: an uncapped upward scan from each
+    // seated boulder's own ground row.
+    //
+    // Bar: visible height p50 >= 6, max >= 20
+    // (`Reports/worldgen-implementation-tasks-round6-formations.md` B3).
+    //
+    // Located by `erosion::Deposits::boulder`'s own markers -- the same
+    // "how the object was found matters" argument the design record's own
+    // addendum makes, and residuals disabled for this measurement so a
+    // family-3 (`FAMILY_RESISTANT`) reading cannot mean "this is a
+    // residual" instead: `residual.rs` shares `strata_shade` with the
+    // ordinary massif, so its own family-3 cells are the same naturally
+    // speckled per-cell draw a cliff face gets, not a guaranteed run --
+    // `boulders` is the only pass that forces the whole dome to one family
+    // unconditionally, which is what makes a solid family-3 run a reliable
+    // boulder signal at all.
+    //
+    // A raw marker run's own columns confirm the *this* run seated (every
+    // one reads resistant stone at row 1) before its peak height -- scanned
+    // over a window widened by `reach` either side, since a seated dome's
+    // footprint extends past the narrow shed-marker run that placed it --
+    // is trusted. Scanning blind for any resistant-stone run and crediting
+    // its column range to whichever marker sits nearest was the first
+    // version, and it over-counted: a *rejected* run's centre can sit
+    // inside a wider *accepted* neighbour's own footprint (up to `reach`
+    // columns either side, and width now runs to 13), reading back a
+    // sliver of that neighbour's tapered edge as this run's own short
+    // boulder. Found by printing the (seed, column) of every suspiciously
+    // short reading and cross-checking against `BOULDER_PROBE=1` -- the
+    // short readings' own draws were all `sealed=false`, i.e. never
+    // written at all.
+    let presets = presets();
+    let base = presets.get("canyon").expect("canyon preset");
+    let params = WorldgenParams {
+        world_age: 1.0,
+        tree_density: 0.0,
+        moss_density: 0.0,
+        residual_density: 0.0,
+        ..base.clone()
+    };
+
+    let mut heights: Vec<i32> = Vec::new();
+    for seed in 1u64..=600 {
+        let mut world = World::new(Rect::new(0, 0, BOUNDS.0, BOUNDS.1));
+        let soil_tan = world.materials.get(world.materials.id_of("soil").unwrap()).friction_angle.to_radians().tan();
+        let sand_tan = world.materials.get(world.materials.id_of("sand").unwrap()).friction_angle.to_radians().tan();
+        let terrain =
+            worldgen::column::Terrain::new(seed, &params, BOUNDS.0 + 1, BOUNDS.1 + 1, soil_tan, sand_tan);
+        let (plans, deposits) = terrain.plan_all_with_deposits();
+        worldgen::generate(&mut world, Spec::Generated { params: &params, seed });
+        let stone = world.materials.id_of("stone").expect("stone");
+
+        let is_boulder_stone = |x: i32, row: i32| -> bool {
+            let ground = plans[x as usize].surface_y;
+            let c = world.get(x, ground - row);
+            c.material == stone && c.shade / 4 == 3
+        };
+        let height_at = |x: i32| -> i32 {
+            let mut h = 0;
+            while is_boulder_stone(x, h + 1) {
+                h += 1;
+            }
+            h
+        };
+
+        let mut x = 0i32;
+        while x < BOUNDS.0 {
+            if !deposits.boulder[x as usize] {
+                x += 1;
+                continue;
+            }
+            let start = x;
+            while x < BOUNDS.0 && deposits.boulder[x as usize] {
+                x += 1;
+            }
+            let confirmed = (start..x).all(|c| is_boulder_stone(c, 1));
+            if !confirmed {
+                continue; // this run's own draw rejected -- what's nearby belongs to someone else
+            }
+            let reach = 12; // >= the widest possible half-width (width maxes at 13), headroom included
+            let peak = (start - reach..x + reach)
+                .filter(|&c| c >= 0 && c < BOUNDS.0)
+                .map(height_at)
+                .fold(0, i32::max);
+            heights.push(peak);
+        }
+    }
+
+    assert!(!heights.is_empty(), "no seed in 1..=600 seated a boulder this test could measure");
+    heights.sort_unstable();
+    let p50 = heights[(heights.len() - 1) / 2];
+    let max = *heights.last().unwrap();
+    println!(
+        "canyon age 1.0, seeds 1..=600: {} boulders seated, visible height p50 {p50} max {max}",
+        heights.len()
+    );
+    assert!(p50 >= 6, "visible height p50 is {p50}, bar is 6 ({heights:?})");
+    assert!(max >= 20, "visible height max is {max}, bar is 20 ({heights:?})");
+}
+
+#[test]
 #[ignore = "probe: prints, never asserts (round-4 task 4)"]
 fn probe_r4t4_valley_floor_retarget_diff() {
     // Column-level flip rate is not the claim that matters -- the check only
@@ -2178,3 +2285,4 @@ fn probe_r4t4_valley_floor_retarget_diff() {
         println!("{name}: {flipped_columns} columns flip is_valley_floor, ~{flipped_cells} cells would draw differently (upper bound: the stony-contact dither can still override either way)");
     }
 }
+

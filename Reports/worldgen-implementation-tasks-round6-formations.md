@@ -189,3 +189,286 @@ pimple eight times more common produces eight pimples.**
 
 *(Write here when a spec above does not survive contact with the code. One
 entry per surprise, with the numbers.)*
+
+### B1 — it is not "formed then destroyed"; nothing ever forms at all
+
+Instrumented a copy of `erode`'s loop body (canyon and rolling, seed 7,
+2048 columns, age 1.0 — measurement only, reverted before this commit) to
+print max prominence at reach 15 every 20 iterations, and to record, per
+column, its peak value across the whole run versus its value at the final
+iteration. The question was literally *does a column ever cross into
+residual territory mid-run and then get knocked back down* — a lifecycle,
+not a snapshot.
+
+**Answer: no column ever peaks above its iteration-0 value. Ever.**
+
+| | it 0 (pre-erosion) | it 100 | it 300 | it 599 (age 1.0) | peak-ever (any iteration) |
+|---|---|---|---|---|---|
+| canyon s7 | 8.34 | 7.45 | ~4.3 | 4.24 | **8.34** |
+| rolling s7 | 5.00 | 4.55 | ~4.3 | 4.24 | **5.00** |
+
+Both presets: max prominence at reach 15 **decreases monotonically across
+every printed sample**, and the "columns that peaked > 15 and later fell
+below half their peak" counter — the direct test for the hypothesized
+lifecycle — is **0 of 2048, in both presets**. Nothing ever peaks above 15
+in the first place, so nothing can be "knocked back down from" it.
+
+**This changes the diagnosis from what `worldgen-erosion-design.md`
+hypothesized.** The design doc's guess was that a residual *does* form
+transiently — presents a near-vertical face — and the stable-angle rule
+shaves it down on the next iteration before anyone sees it. That would
+still be "the mechanism is present but too eager." What is actually
+happening is upstream of erosion entirely: **the raw pre-erosion
+heightfield** (`Terrain::elev`, before `erode` touches a single column)
+never contains a column that stands 15+ cells proud of both flanks 15
+columns out. Its own ceiling is 8.34 (canyon) / 5.00 (rolling) — already
+below the reach-15 p90≥20 bar B2 has to hit, before any erosion runs at
+all. Erosion then makes this strictly worse (creep+stable-angle pull the
+already-small bumps down further, converging to ~4.2-4.4), but it did not
+create the deficit; it inherited one that was already there in the
+multi-octave hill/terrace/dune stack that builds `elev`.
+
+**Decision this settles**: B2 cannot be reached by retuning
+`THERMAL_STABLE_HARD_BONUS` or any other erosion rate (per the ground
+rules, not attempted) — there is no transient spike for a gentler rate to
+spare, at any rate. Nor can it be reached by "protect what erosion finds
+promising", because erosion is never offered a residual-scale candidate to
+protect. **B2 has to construct residual geometry directly** — a
+purpose-built pass that decides where a residual stands and writes it,
+using `HardnessField` for shape, rather than a rule that hopes one
+survives the relaxation. This is what B2 below does.
+
+### B2 — a per-column ground row is the site centre's, not the column's own
+
+First implementation of `residual.rs` hoisted `ground_y` (and the elevation
+`ground_e` derived from it) once from the site's *centre* column and reused
+it for every column across the whole footprint. On sloped ground — which a
+footprint up to ~150 columns wide will cross often in `canyon` — this seats
+every column relative to a row that is not its own local surface: on the
+downhill side the residual's base floats clear of the real hillside, on the
+uphill side it buries into it. The collect-verify-write seal usually still
+rejects the worst mismatches (a wrong seat cell reads as empty or as
+existing massif and the whole site aborts), but not always, and
+`a_forced_residual_world_arrives_at_rest` caught the remainder directly:
+6-10 cells adrift after 120 frames, on the very first seed tried. Fixed by
+reading `ctx.plans[lx].surface_y` per column inside the paint loop (the same
+convention `passes::boulders` already uses), keeping the centre-column
+elevation only for the shape/height decision, which is legitimately about
+the site as a whole rather than any one column. **Which object a rule
+evaluates** — this time "whose ground row" rather than "whose span" —
+is the same question `CLAUDE.md`'s method section keeps asking, over a new
+mechanism this time instead of an old one.
+
+### B2 — the 3x aspect rule, measured against undermining: one in five ends up floating, and that is not this pass's bug
+
+`a_residual_survives_its_base_being_dug_out` digs a residual's base out with
+the real mining primitive (`World::paint_capsule`, the same call the
+player's own dig makes) and measures the outcome rather than asserting one,
+because whether the result *should* be a collapse is `load.rs`'s claim, not
+`residual.rs`'s, and `Reports/load-model-handoff.md` §1 states plainly that
+load/torque failure is **not started** — what exists today evaluates
+failure per cell against its own span, the exact defect that document
+exists to replace.
+
+Measured over 18 canyon seeds (`residual_density` forced to 3.0 so enough
+seeds seat one to dig under), each dug and settled for 480 frames (the
+ordinary 120-frame at-rest bar undersells a genuine collapse: one case had
+1,985 cells still adrift at 180 frames and needed until ~400 to fully
+settle — a debris pile takes longer to finish sliding than an undisturbed
+generated world does):
+
+| outcome | count | of 15 checked |
+|---|---|---|
+| collapsed (no longer reads as solid stone) | 6 | 40% |
+| still reachably anchored (the dig missed its real footing) | 6 | 40% |
+| reads as solid stone with **no path to any anchor** | 3 | 20% |
+
+So roughly one undermined residual in five ends up in exactly the state
+CLAUDE.md's own gotchas warn is easy to manufacture by accident and hard to
+notice: `Solid` (so a player can stand on it, walk into it, never sees it
+fall) while `structural::compute_world_distances` has already given it
+`u16::MAX` — the pass's own honest "cannot reach an anchor" value. It is a
+stable state, not a transient one (re-checked to 2000 frames on the seed
+that produced it, unchanged from frame ~400 on). **This is not a defect
+`residual.rs` introduced.** The same is true of any `Solid`/`attached`
+terrain in this engine today — an ordinary massif overhang undermined the
+same way would read identically — because nothing between here and
+`load.rs`'s still-unbuilt failure step converts "cannot reach an anchor"
+into "comes down" on its own; `Reports/load-model-handoff.md` is the
+document already tracking that gap. What round 6 adds is simply the first
+measurement of how often a *residual specifically* lands in it (~20% at
+this dig geometry), which the load-model work should have on hand once it
+picks the step back up — a residual is exactly the "first object a player
+can plausibly undermine" the task file asked this test to check for, and
+this is what checking it actually found.
+
+### B2 — the p90 bar is not met, and it is not a density problem
+
+The bar is prominence at reach 15 *and* 30, **p90 >= 20, max >= 60**, over
+16 seeds. Max is comfortably met at every density tried: **73-95** across
+three settings. **p90 is not**, and does not respond to density the way a
+coverage shortfall should:
+
+| `residual_density` | reach 15 p90 | reach 15 max | reach 30 p90 | reach 30 max |
+|---|---|---|---|---|
+| 0.8 (first shipped) | 0 | 73 | 1 | 90 |
+| 1.6 | 1 | 76 | 2 | 95 |
+| 3.5 (4.4x) | 1 | 91 | 2 | 95 |
+| **1.4 (shipped)** | **1** | **76** | **2** | **91** |
+
+Quadrupling density moved p90 from 0 to 1. If this were a frequency
+problem — too few residuals — density would move it close to linearly;
+instead it saturates almost immediately. Three things are actually
+happening, found by instrumenting placement directly (`RESIDUAL_PROBE=1`,
+reverted before this commit, per the same measurement-only discipline as
+B1):
+
+1. **A residual's painted footprint is usually narrower than its nominal
+   width.** `FlatCapped`/`AngularBlocky`'s base ring is `a * (0.55 + 0.45 *
+   hard)` or `a * (0.35 + 0.65 * jitter)` — both can and often do draw well
+   under `a` at the very first ring, so the visible base is already
+   narrower than the width the aspect draw implied before any shrinkage
+   toward the top even starts.
+2. **A wide residual reads as a plateau, not a spike, to this specific
+   probe.** Prominence at reach *r* compares a column to points *r* away on
+   both sides; for a residual wider than `2r`, both flank samples land on
+   the residual too, so the interior scores as flat as open ground and only
+   the two true edges register. Canyon seed 1 at density 3.5 placed 18
+   residuals summing ~350 columns of nominal width, and still barely moved
+   p90 — most of that width was interior, not edge.
+3. **Density increases pile more attempts into the same already-coarse
+   regions rather than spreading coverage.** `residual_density *
+   Character::formation` is evaluated once per 256-column placement window;
+   a region that already drew several residuals mostly produces overlap
+   rejections on further attempts (the collect-verify-write seal correctly
+   declines a site sitting on another residual's own attached stone), while
+   a smooth region (`formation` near 0) gets no more attempts at any global
+   density — by design, since a smooth region is supposed to stay smooth.
+
+None of these three is a bug — 1 and 2 are inherent to reading a
+per-column heightfield prominence off a real, mixed-aspect distribution of
+shapes, and 3 is the direct, working consequence of `Character::formation`
+being regional rather than global, which is what B2 was asked to build.
+Reaching p90 >= 20 by density alone would mean either abandoning "some
+regions stay smooth" or packing coarse regions solid enough to read as
+wallpaper rather than landmark country — neither of which is what the
+owner asked for, and `CLAUDE.md`'s own conventions say a bar the engine
+cannot yet hit should be recorded with the gap visible, not quietly met by
+inflating a knob until a number moves. Shipped at `residual_density: 1.4`
+(a modest lift from the first-tried 0.8, chosen for visible presence
+without the diminishing-returns region-saturation the 3.5 trial showed),
+with `residuals_lift_prominence_at_reach_15_and_30` left failing on p90 and
+its doc comment carrying this table, rather than the test relaxed to pass.
+
+**Open question for the owner or a later session**: is p90 the right
+statistic here at all? A world that is honestly "some coarse regions, most
+smooth" will never clear a percentile computed over the *whole* world,
+almost by construction — the aggregate is diluted by every column of every
+deliberately-smooth region. A per-region-character statistic (p90 measured
+only within columns whose `Character::formation` exceeds some coarse
+threshold) would answer the question B2 actually cares about — "does a
+coarse region read as tor country" — without being sunk by the smooth
+regions the owner explicitly wants to keep. That is a different metric
+than the one written into this task file, so re-deriving it is a decision
+for whoever reads this next, not something to have swapped in unasked.
+
+### B2/B3 — a seated feature on soil can be structurally solid and still float
+
+`tests/worldgen.rs::every_solid_is_anchored_and_no_liquid_carries_a_stale_
+fill` failed on the default preset (rolling, seed 3) once B2 shipped: one
+stone cell at (90, 113) had `aux == u16::MAX` -- present, attached, and
+reading as ordinary massif, but with no path to any anchor at all.
+Flood-filling the connected stone at that point found a 611-cell island,
+bbox 13 columns by 46 rows, touching neither bedrock nor the world edge:
+one entire residual, floating.
+
+**The mechanism**: converting the single seat row (the column's own
+topmost soil/sand/gravel cell) to attached stone is not the same as
+*connecting* to the massif. `structural::compute_world_distances`'s
+relaxation only walks *relaxable* (body) material -- ordinary soil is not
+one -- so a residual's new stone layer sitting on top of an unconverted
+soil blanket has no route down through that soil to the bedrock-connected
+rock underneath it, however solid it looks. A residual wide enough that
+every column of its footprint happens to sit over deep cover, with no
+column's edge close enough to outcropping bare rock, floats entirely.
+
+**This is not unique to residuals.** `boulders`' own socket had the
+identical shape of bug, just harder to trigger at a boulder's smaller
+footprint: it converted a *fixed fraction* of the visible height's worth
+of rows below grade (`~30%`), which on a soil blanket deeper than that
+fraction leaves exactly the same gap. Neither the boulder nor the
+residual acceptance tests (`a_forced_boulder_world_seats_stone_and_
+arrives_at_rest`, `a_forced_residual_world_arrives_at_rest`) catch this
+class of bug at all -- both only check that nothing *moves*, and a
+floating `Solid` never does, by construction. Only checking `aux !=
+u16::MAX` (equivalently, that every solid reached an anchor) catches it,
+which is exactly what `every_solid_is_anchored_and_no_liquid_carries_a_
+stale_fill` already existed to do -- it is a pre-existing, general-purpose
+gate that a new pass has to run under, not something either new pass came
+with its own copy of.
+
+**The fix, same shape in both files**: seat by walking down from grade
+through consecutive soil/sand/gravel, converting each cell, until hitting
+real (`ctx.stone`) rock -- not a fixed row count. A shape is contiguous by
+construction, so any *one* column of the footprint threading all the way
+to bare rock is enough to anchor the whole feature; the walk is bounded
+(`MAX_SOCKET_DEPTH = 80`, generous headroom over every shipped
+`soil_depth`) so a column whose cover is pathologically deep or that has
+wandered into something unexpected still rejects the site rather than
+looping. Landed in both `residual.rs` and `passes.rs::boulders` -- the
+second before it could ever ship, since nothing had yet measured it there.
+
+**Method note**: this was caught by re-running the *existing* test suite
+gate after a change that looked, by every metric this track had built for
+itself, complete -- prominence bar met on max, at-rest held, pass_ablation
+clean. `cargo test --lib`'s full run is not optional scaffolding around the
+task-specific tests; it is where a cross-cutting invariant like "every
+solid reaches an anchor" actually lives, and it found a bug none of B2's
+or B3's own measurements were shaped to see.
+
+### B3 — size re-derived; the instrument named in this task file cannot show the fix
+
+`boulders`' three shrinks are fixed: width redrawn 3-13 (from 2-5), height
+drawn independently up to a real `3x` ceiling (from `height.min(width)`,
+1x), and `b` used directly as the visible semi-axis instead of halved by
+the dome-writes-only-the-top-half arithmetic. Both draws are skewed toward
+their own top half (`sqrt` of the unit draw) after measuring that a
+uniform draw put p50 at 4 against the bar of 6: a marker is a steep-drop
+site by construction, so the tallest attempts are also the ones least
+likely to find enough open air to seat in, and a uniform draw's
+successfully-*seated* population skews small for exactly that reason
+(confirmed directly, `BOULDER_PROBE=1`, reverted before this commit --
+e.g. a width-7/height-19 draw at one site and a width-6/height-15 draw at
+another both came back `sealed=false` the same run a width-5/height-14
+one seated).
+
+**Measured** (canyon, age 1.0, seeds 1..=600, 13 boulders seated):
+**visible height p50 12, max 30** -- both bars (6 / 20) cleared with
+headroom.
+
+**The instrument this task named cannot demonstrate the second bar.**
+`viewshot boulder=1`'s height print is `(1..=6).take_while(...)` --
+capped at exactly 6 rows, the p50 floor this task set, so it can report
+"at least 6" but never "20". `examples/*` is off limits to this track, so
+`tests/worldgen.rs::a_seated_boulder_stands_at_a_believable_height` is the
+uncapped measurement instead, and it needed one more fix on the way: a
+naive version credited each raw shed-marker run's own centre column with
+whatever resistant-family stone stood there, which double-counted --
+a *rejected* run's centre can sit inside a wider *accepted* neighbour's
+own footprint (up to its own half-width away, and width now reaches 13),
+reading back that neighbour's tapered edge as if it were this run's own
+short boulder. Confirmed by cross-checking every suspiciously short
+reading against `BOULDER_PROBE=1`: the short readings' own draws were all
+`sealed=false`, never written at all. Fixed by requiring every column of
+a run's own raw marker range to show seated stone before trusting its
+peak, and by measuring with `residual_density: 0.0` for this test
+specifically -- `residual.rs` shares `strata_shade` with the ordinary
+massif, so a residual's own family-3 cells are naturally speckled, not a
+guaranteed run, and without isolating it a residual sitting near a boulder
+site could contaminate the same scan.
+
+**Frequency untouched**, per the task's own ordering: `boulders`' marker
+rejection rate (still dominated by `brows`) was not touched, and
+`pass_ablation`/`scripts/worldgen_sweep.sh compare` both show boulder
+counts moving only within ordinary seed-to-seed noise, no counter past
++/-30%.

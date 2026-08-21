@@ -59,12 +59,25 @@ pub struct Character {
     /// Multiplies loose-cover depth, independent of how dry it is: thin soil
     /// over rock, or a deep blanket.
     pub sediment: f32,
+    /// How much standing residual rock this region tends to leave behind as
+    /// its softer ground retreats — tors, stacks, boulder-strewn country —
+    /// as a multiplier on both how often `residual.rs` tries a site and how
+    /// large its size draw's ceiling reaches. Near `0` is smooth country
+    /// with nothing standing; above `1` is coarse, monument-strewn country.
+    ///
+    /// Independent of `resistance` (which strata band happens to be hard):
+    /// a region can carry sharp hardness contrast and still be smooth if
+    /// nothing ever gets tall enough to matter at this reach, or the
+    /// reverse. This is the axis the owner's "some regions boulder-strewn,
+    /// some a few monuments, some smooth" directive names directly
+    /// (`Reports/worldgen-erosion-design.md`'s 2026-08-20 addendum).
+    pub formation: f32,
 }
 
 impl Character {
     /// The neutral character: takes the preset exactly as written.
     pub fn neutral(aridity: f32) -> Self {
-        Self { elev: 0.0, relief: 1.0, aridity, resistance: 1.0, sediment: 1.0 }
+        Self { elev: 0.0, relief: 1.0, aridity, resistance: 1.0, sediment: 1.0, formation: 1.0 }
     }
 
     fn lerp(a: Self, b: Self, t: f32) -> Self {
@@ -76,6 +89,7 @@ impl Character {
             aridity: f(a.aridity, b.aridity),
             resistance: f(a.resistance, b.resistance),
             sediment: f(a.sediment, b.sediment),
+            formation: f(a.formation, b.formation),
         }
     }
 }
@@ -177,6 +191,18 @@ impl RegionMap {
                 aridity: (p.aridity + draw(4) * 0.55 * variation).clamp(0.0, 1.0),
                 resistance: (1.0 + draw(5) * 0.9 * variation).max(0.0),
                 sediment: (1.0 + draw(6) * 0.8 * variation).max(0.05),
+                // Skewed toward the low end, unlike the symmetric axes
+                // above: the owner's directive is regions that are mostly
+                // smooth with occasional coarse, monument-strewn country,
+                // not a bell curve centred on "some formations everywhere".
+                // `raw` is 0..1 uniform; squaring pulls the mass down while
+                // keeping the occasional near-1 draw that becomes a coarse
+                // region. Slot 7, freshly claimed here (0-6 were already
+                // spoken for).
+                formation: {
+                    let raw = noise::unit(seed, Purpose::Region, i, 7);
+                    (raw * raw * 2.2 * variation).max(0.0)
+                },
             };
             centres.push((cx, character));
         }

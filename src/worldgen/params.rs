@@ -229,6 +229,21 @@ pub struct WorldgenParams {
     /// convention for those is a runtime selector rather than an argument.
     pub palette_field: f32,
 
+    // ---- residual landforms ----
+    /// Expected residual sites (tors, stacks, pinnacles) per 256-column
+    /// region, before the region's own `Character::formation` multiplies
+    /// it up or down. Zero disables the pass entirely and leaves the world
+    /// byte-identical -- the same contract `pocket_density` and
+    /// `vault_density` make.
+    ///
+    /// Round 6 Track B, B2 (`Reports/worldgen-implementation-tasks-round6-
+    /// formations.md`). B1 measured that plan-space erosion never produces
+    /// a residual-scale candidate on its own -- max prominence at reach 15
+    /// across a full erosion run peaked at 8.34 (canyon) / 5.00 (rolling),
+    /// never once crossing into the 12-120 cell band a residual occupies --
+    /// so this is authored placement, not a rate this pass tunes toward.
+    pub residual_density: f32,
+
     // ---- history ----
     /// How much simulated history the terrain has been through, `0` none.
     ///
@@ -307,6 +322,7 @@ impl Default for WorldgenParams {
             aridity_table_drop: 90.0,
             region_variation: 0.75,
             palette_field: 0.30,
+            residual_density: 1.4,
             vault_density: 1.6,
             vault_min_depth: 200,
             vault_bedrock_margin: 16,

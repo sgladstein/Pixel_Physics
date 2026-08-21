@@ -45,6 +45,7 @@ pub mod noise;
 pub mod params;
 pub mod passes;
 pub mod region;
+pub mod residual;
 
 use crate::sim::material::MaterialId;
 use crate::sim::structural;
@@ -108,6 +109,19 @@ const PASSES: &[Pass] = &[
     Pass { name: "brows", margin: 40, run: passes::brows },
     Pass { name: "talus", margin: 200, run: passes::talus },
     Pass { name: "pockets", margin: 0, run: passes::pockets },
+    // Residual landforms -- tors, stacks, pinnacles authored directly
+    // (`residual.rs`; B1 measured plan-space erosion never offers one to
+    // protect, `Reports/worldgen-implementation-tasks-round6-formations.md`
+    // B1/B2). A site's footprint reaches at most its own half-width, and the
+    // size draw is capped at 120 cells tall with aspect >= 0.8 (width >=
+    // height/3), so the widest possible footprint is 120/0.8/2 = 75 columns
+    // either side of centre; 80 rounds that up for headroom. Runs after
+    // `pockets` (so a residual can stand on a settled surface, including
+    // any buried lens the collect-verify-write contract must still respect)
+    // and before `boulders` (so a boulder's own collect-verify-write sees a
+    // residual that already claimed a site as solid stone and correctly
+    // declines to overlap it, rather than the two colliding).
+    Pass { name: "residuals", margin: 80, run: residual::residuals },
     // Boulder sockets from erosion's shed markers. Zero margin: a marker at
     // `x` seats a cluster whose footprint is at most a handful of columns
     // either side of `x`, well inside a single column's worth of slack, and

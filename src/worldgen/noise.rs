@@ -137,6 +137,25 @@ pub enum Purpose {
     /// correlation every purpose tag exists to prevent. Claimed by the
     /// round-4 data track; 24 is the next free number after `Hardness`.
     Boulder = 24,
+    // 25–29 reserved: 27 is `CeilingGrain`, 28–29 belong to the concurrent
+    // round-6 cave-formations track (Track A). Append only — do not fill
+    // these in from the formations track; 30 is this track's first number.
+    /// Residual landform placement: where a tor/stack/pinnacle site sits
+    /// along x, keyed on the candidate's region cell.
+    ///
+    /// Round 6 Track B (`Reports/worldgen-erosion-design.md`'s "residual
+    /// landforms" step, `Reports/worldgen-implementation-tasks-round6-
+    /// formations.md` B2). B1 measured that plan-space erosion never offers
+    /// a residual-scale candidate to protect — max prominence at reach 15
+    /// peaks at 8.34 (canyon) / 5.00 (rolling) across a full erosion run,
+    /// never once above the reach-15 bar — so a residual is authored
+    /// directly by this pass rather than emerging from the erosion rates.
+    Residual = 30,
+    /// Residual size and shape draws, keyed on the same site as `Residual`
+    /// but its own stream — sharing would tie a residual's size/shape to
+    /// whether it happened to get placed at all, the correlation every
+    /// purpose tag exists to prevent.
+    ResidualShape = 31,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.
