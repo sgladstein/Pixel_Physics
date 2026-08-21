@@ -1,0 +1,43 @@
+{
+  "id": "20260821T211043227Z-a7bbd2",
+  "created": "2026-08-21T21:10:43Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "9dc94b0",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Quench crust: dust before, slabs after",
+  "question": "Is this the 'chunks instead of a pile of dust' you asked for? Watch what leaves the crust as it founders - single pixels, or pieces?",
+  "context_md": "Your verdict on the last crust card was **\"the stone sinking to the bottom is better, but it would be better with chunks instead of pile of dust.\"**\n\nI measured why before changing anything. The pond quench produced **572 structural failures, and 382 of them were a single cell** (sizes `1:382 2:92 3-5:85 6-7:8 8-15:5`). The engine declines to make a chunk below 6 cells and cannot make a rigid body below 8, so 97.7% of those failures could never reach the fragment ladder at all. Stone's six fragment sizes were already the widest in the game and sat downstream of a gate that had refused 559 times: no amount of tuning them could have worked.\n\nThe cause was that quench mints a few scattered cells a frame and each one was judged, alone, the instant it appeared. Fresh stone now gets about a second to knit together with whatever is quenching beside it before the world asks whether it is holding itself up.\n\n| | before | after |\n|---|---|---|\n| mean cells per failure | 1.7 | **6.0** |\n| largest single failure | 12 | **83** |\n| failures of 8+ cells | 5 | **137** |\n| chunk bodies in flight | 2 | **16** |\n\nBoth clips are the same seed, same scene, same 90 frames. Nothing else differs.\n\n**Also worth your eye:** the crust hangs for about a second before it goes. You said a brief hang was fine if it bought chunks -- this is what that costs, and I want to know whether it reads as a crust forming or as a bug.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260821T211043227Z-a7bbd2/000-crust_before.gif"
+      ],
+      "caption": "Judged the frame it appears: mean 1.7 cells per failure, largest 12, 2 chunk bodies all run",
+      "meta": {}
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260821T211043227Z-a7bbd2/001-crust_after.gif"
+      ],
+      "caption": "A second to form first: mean 6.0, largest 83, 16 chunk bodies",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
