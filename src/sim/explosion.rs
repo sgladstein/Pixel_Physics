@@ -740,6 +740,36 @@ pub struct Blasts {
     /// blast fissured nothing" — harmless, since nothing reads this before
     /// a first blast exists to ask about.
     last_report: BlastReport,
+    /// Reports of blasts that have finished, in the order they finished,
+    /// each with the site it fired at. Drained by the harness; the app's HUD
+    /// keeps reading `last_blast_report` and is untouched.
+    ///
+    /// A queue rather than one slot because the owner's play surface fires
+    /// several charges in a run and `last_report` keeps only the last: eight
+    /// of nine reports were being silently overwritten, which is the
+    /// "did it fire at all" failure `CLAUDE.md` records, one level up.
+    ///
+    /// Capped at `FINISHED_REPORT_CAP`, oldest dropped. That is a leak
+    /// guard and not a policy — the harness drains this every frame, so the
+    /// cap is only ever reached by a caller that never drains at all.
+    finished: Vec<(i32, i32, BlastReport)>,
+}
+
+/// How many finished reports `Blasts::finished` will hold before it starts
+/// dropping the oldest. See the field's own doc: a leak guard, not a policy.
+const FINISHED_REPORT_CAP: usize = 64;
+
+/// Push one finished report, dropping the oldest if the queue is full.
+///
+/// A free function rather than a method because `Blasts::step` pushes from
+/// inside `retain_mut`'s closure, which already holds `self.active` mutably
+/// — the same split-borrow `last_report` needs there, and a `&mut self`
+/// method would take the whole struct.
+fn push_finished(finished: &mut Vec<(i32, i32, BlastReport)>, cx: i32, cy: i32, report: BlastReport) {
+    if finished.len() >= FINISHED_REPORT_CAP {
+        finished.remove(0);
+    }
+    finished.push((cx, cy, report));
 }
 
 impl Blasts {
@@ -749,7 +779,7 @@ impl Blasts {
 
     /// Start from tuning loaded off disk rather than the compiled defaults.
     pub fn with_tuning(tuning: Tuning) -> Self {
-        Self { active: Vec::new(), tuning, last_report: BlastReport::default() }
+        Self { active: Vec::new(), tuning, last_report: BlastReport::default(), finished: Vec::new() }
     }
 
     /// Begin a blast at `(cx, cy)` using the current tuning's own radius and
@@ -779,6 +809,11 @@ impl Blasts {
         self.last_report = blast.report;
         if still_going {
             self.active.push(blast);
+        } else {
+            // A blast whose whole life is its trigger frame never reaches
+            // `step`, so it has to be queued here or it is the one blast in
+            // a run that produces no per-site report at all.
+            push_finished(&mut self.finished, cx, cy, blast.report);
         }
     }
 
@@ -792,9 +827,13 @@ impl Blasts {
         // borrow checker allows both at once as long as neither expression
         // goes through `self` as a whole.
         let last_report = &mut self.last_report;
+        let finished = &mut self.finished;
         self.active.retain_mut(|blast| {
             let still_going = blast.advance(world, particles, &tuning);
             *last_report = blast.report;
+            if !still_going {
+                push_finished(finished, blast.cx, blast.cy, blast.report);
+            }
             still_going
         });
     }
@@ -811,6 +850,17 @@ impl Blasts {
     /// run and left in place once it finishes. See `BlastReport`.
     pub fn last_blast_report(&self) -> BlastReport {
         self.last_report
+    }
+
+    /// Take every report queued since the last call, each with the site its
+    /// blast fired at, in the order the blasts finished.
+    ///
+    /// The reason this exists rather than `last_blast_report` being read
+    /// once per blast: a caller cannot tell from outside *which* frame a
+    /// given blast finished on, and two overlapping blasts collapse into one
+    /// slot. See `Blasts::finished`.
+    pub fn drain_finished_reports(&mut self) -> Vec<(i32, i32, BlastReport)> {
+        std::mem::take(&mut self.finished)
     }
 }
 
@@ -2153,6 +2203,72 @@ mod tests {
         trigger(&mut w2, &mut particles2, cx, cy, radius, 180.0);
         let synchronous = cracked(&w2, cx, cy, radius);
         assert!(synchronous >= 100, "the synchronous driver's star is only {synchronous} cracked cells");
+    }
+
+    /// **Two charges, two reports, each with its own site.**
+    ///
+    /// The guard for the queue `Blasts::finished` exists to be. Before it,
+    /// `last_blast_report` was one slot: fire nine charges in a run and
+    /// eight of the nine reports are overwritten before anything reads
+    /// them, and the harness prints one line that looks exactly like a
+    /// complete answer. That is `CLAUDE.md`'s "did it fire at all" failure
+    /// one level up — the counter itself going missing rather than the
+    /// mechanism — so it is asserted as *how many came back and where from*,
+    /// not merely that draining returns something.
+    ///
+    /// Deliberately fires the second charge well away from the first, so a
+    /// swapped or duplicated site is visible in the assertion rather than
+    /// hidden by two blasts at nearly the same place.
+    #[test]
+    fn every_blast_leaves_its_own_report_behind_not_just_the_last_one() {
+        let mut w = buried_stone();
+        let mut particles = ParticleSystem::new();
+        let mut blasts = Blasts::new();
+        blasts.trigger_with(&mut w, &mut particles, 40, 64, 12, 180.0);
+        blasts.trigger_with(&mut w, &mut particles, 96, 64, 12, 180.0);
+        let mut frames = 0;
+        while !blasts.is_empty() && frames < 600 {
+            blasts.step(&mut w, &mut particles);
+            frames += 1;
+        }
+        let reports = blasts.drain_finished_reports();
+        let sites: Vec<(i32, i32)> = reports.iter().map(|&(x, y, _)| (x, y)).collect();
+        assert_eq!(sites, vec![(40, 64), (96, 64)], "both charges must report, each from its own site");
+        for (x, y, report) in &reports {
+            assert!(report.cells_cleared > 0, "the blast at ({x}, {y}) reported clearing nothing");
+        }
+        // Drained means drained: a second call must not hand the same
+        // reports out again, or the harness would print every blast once
+        // per frame for the rest of the run.
+        assert!(blasts.drain_finished_reports().is_empty(), "draining twice returned the same reports again");
+    }
+
+    /// The queue is a leak guard, so it has to actually bound itself.
+    ///
+    /// A caller that never drains — anything that is not the harness — must
+    /// not grow this without limit for the life of a session. Oldest goes.
+    #[test]
+    fn the_finished_report_queue_stops_growing_at_its_cap() {
+        let mut w = buried_stone();
+        let mut particles = ParticleSystem::new();
+        let mut blasts = Blasts::new();
+        for i in 0..(FINISHED_REPORT_CAP + 5) {
+            // Radius 1 at strength 1: the smallest blast that still ends,
+            // so the loop is about the queue and not about the rock.
+            let x = 20 + (i % 80) as i32;
+            blasts.trigger_with(&mut w, &mut particles, x, 64, 1, 1.0);
+            let mut frames = 0;
+            while !blasts.is_empty() && frames < 600 {
+                blasts.step(&mut w, &mut particles);
+                frames += 1;
+            }
+        }
+        let reports = blasts.drain_finished_reports();
+        assert_eq!(reports.len(), FINISHED_REPORT_CAP, "the queue must cap rather than grow");
+        // The oldest were dropped, not the newest: the last charge fired is
+        // the one still in there.
+        let last_x = 20 + ((FINISHED_REPORT_CAP + 4) % 80) as i32;
+        assert_eq!(reports.last().map(|&(x, _, _)| x), Some(last_x), "the cap must drop the oldest, not refuse the newest");
     }
 
     /// A buried stone world with nothing else in it — the geometry every
