@@ -1481,7 +1481,7 @@ impl App {
     /// silently — the line describing the gnome's dig outlived the
     /// mechanism it described by two commits, still telling players to
     /// click *near him* long after proximity meant anything.
-    fn help_lines() -> [&'static str; 30] {
+    fn help_lines() -> [&'static str; 31] {
         [
             "LEFT CLICK PAINT    RIGHT CLICK ERASE",
             "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
@@ -1506,6 +1506,7 @@ impl App {
             "F1 CHUNK OVERLAY    G WATER GRAIN",
             "L ORGANISM OVERLAY  (CELL TYPE/RESOURCE/CANOPY)",
             "; DEPTH LIGHT ON/OFF    0 REVEAL CAVES  (ALSO F10/F11)",
+            "' GLOW SHAPE: NEAR/FIELD",
             "",
             "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
             "             ENTER PIN AND CLOSE, S SAVE)",
@@ -1828,7 +1829,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1855,6 +1856,14 @@ impl App {
                 String::new()
             } else {
                 format!(" — light {}", self.renderer.terrain_light.label())
+            },
+            // And the glow shape (`'`), same flipped rule as the depth light:
+            // the near-field term is the default, so the label appears only
+            // when someone has switched back to the 8-cell blocks to compare.
+            if self.renderer.glow_shape == render::GlowShape::default() {
+                String::new()
+            } else {
+                format!(" — glow {}", self.renderer.glow_shape.label())
             },
             // The void reveal (`F11`) is a debug X-ray, so a screenshot with
             // it on must say so — magenta caves in a shared image with no

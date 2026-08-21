@@ -47,6 +47,7 @@ struct Args {
     boulder: bool,
     reveal: bool,
     light: pixel_physics::render::TerrainLight,
+    glow: pixel_physics::render::GlowShape,
     spring: i32,
     age: Option<f32>,
     zoom: usize,
@@ -70,6 +71,7 @@ fn main() {
         boulder: false,
         reveal: false,
         light: pixel_physics::render::TerrainLight::default(),
+        glow: pixel_physics::render::GlowShape::default(),
         spring: 0,
         age: None,
         zoom: 1,
@@ -117,6 +119,15 @@ fn main() {
             // `reveal=1` turns on the F11 void X-ray, so a strip can show
             // where every sealed chamber and cavity sits without digging.
             "reveal" => a.reveal = v != "0",
+            // `glow=field` renders the pre-fix look for an A/B of the
+            // 8-cell light blocks (`'` in the app).
+            "glow" => {
+                a.glow = match v {
+                    "near" => pixel_physics::render::GlowShape::Near,
+                    "field" | "blocks" => pixel_physics::render::GlowShape::Field,
+                    other => panic!("unknown glow {other:?} (near|field)"),
+                }
+            }
             // `light=flat` renders the pre-review look, for A/B strips of
             // the terrain depth light (`F10` in the app).
             "light" => {
@@ -312,6 +323,7 @@ fn main() {
     }
 
     let mut renderer = Renderer::new();
+    renderer.glow_shape = a.glow;
     renderer.terrain_light = a.light;
     renderer.reveal_voids = a.reveal;
     let particles = ParticleSystem::new();

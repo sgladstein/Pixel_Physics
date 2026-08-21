@@ -412,6 +412,10 @@ impl Handler {
             // them there. Reported from a real playtest on a Mac; keep any
             // future binding off F9-F12 for the same reason.
             KeyCode::F10 | KeyCode::Semicolon => self.app.renderer.cycle_terrain_light(),
+            // `'` because every letter and digit is spoken for and macOS
+            // owns F9-F12; see the F10 double-binding that `unreachable_
+            // patterns` caught after the tree merge.
+            KeyCode::Quote => self.app.renderer.cycle_glow_shape(),
             KeyCode::F11 | KeyCode::Digit0 => self.app.renderer.reveal_voids = !self.app.renderer.reveal_voids,
             // The A/B key. Deliberately reassigned as the question changes --
             // see `App::toggle_experiment`.

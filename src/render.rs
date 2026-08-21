@@ -715,6 +715,62 @@ impl TreeDepth {
 /// any value between is valid.
 const OCCLUDED_ALPHA: f32 = 0.0;
 
+/// Where a glow's *shape* comes from: the coarse light field alone, or the
+/// emitting cells as well.
+///
+/// A selector rather than a silent replacement, because the repo's rule for
+/// "does this look right" is to ship the choice and name the active one on
+/// screen. Unusually, the default is the **new** behaviour: this is not a
+/// matter of taste that nobody has ruled on, it is
+/// `Reports/open-bugs-handoff.md` 0c, which the owner named twice
+/// unprompted on cards that were about something else. `Field` is kept so
+/// the two can be put side by side, and costs one branch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum GlowShape {
+    /// Emitting cells splat a per-cell near field; the coarse field carries
+    /// the far falloff. See `NEAR_GLOW_RADIUS`.
+    #[default]
+    Near,
+    /// The pre-fix look: the coarse light field alone, quantised to
+    /// `FIELD_SCALE`.
+    Field,
+}
+
+impl GlowShape {
+    fn next(self) -> Self {
+        match self {
+            GlowShape::Near => GlowShape::Field,
+            GlowShape::Field => GlowShape::Near,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GlowShape::Near => "NEAR (current)",
+            GlowShape::Field => "FIELD (8-cell blocks)",
+        }
+    }
+}
+
+/// Radius, in cells, of the near-field glow term that gives a light source
+/// a *shape*.
+///
+/// The coarse light field holds one value per `FIELD_SCALE` (8) cells and
+/// -- worse -- seeds the emitter itself at that resolution, so a two-cell
+/// crystal is a filled 8x8 block before a single diffusion step runs, and
+/// `field_at_bilinear` then smears it over about sixteen. The result the
+/// owner named twice unprompted: *"the big sharp squares that look like
+/// giant white gray pixels"* and *"the rectangular lighting looks bad"*.
+/// Smoothing does not help; a vaguer sixteen-cell blob is still a
+/// sixteen-cell blob.
+///
+/// Set to cover the zone where the quantisation is visible -- the steep
+/// part of the falloff, roughly two field cells -- and no further. Beyond
+/// it the coarse field's level is low and its gradient shallow, which is
+/// where a block edge stops being legible and where the field is doing the
+/// job it is good at.
+const NEAR_GLOW_RADIUS: i32 = 14;
+
 /// How far a background tree is dimmed under `TreeDepth::Haze`.
 const HAZE_DIM: u16 = 168;
 
@@ -834,7 +890,7 @@ pub struct Renderer {
     last_zoom_state: Option<(i32, i32)>,
     /// The look toggles as of the last draw — forces one full repaint when
     /// `F10`/`F11` flip. See the `look_changed` note in `draw`.
-    last_look: Option<(TerrainLight, bool, GrainMode)>,
+    last_look: Option<(TerrainLight, bool, GrainMode, GlowShape)>,
     /// Field tiles with any glowing material in them **plus their eight
     /// neighbours** (the diffused halo crosses tile seams; gating on the
     /// glow tile alone clipped it square at every chunk boundary), rebuilt
@@ -844,6 +900,21 @@ pub struct Renderer {
     /// set, so a glow-free world pays one `is_empty()` test per pixel and
     /// nothing else.
     glow_tiles: std::collections::HashSet<ChunkCoord>,
+    /// Per-cell near-field glow, one buffer per chunk in `glow_tiles`,
+    /// rebuilt whenever those tiles change or are still converging. Splat
+    /// from the *emitting cells themselves* rather than read from the
+    /// field, because the field has already thrown the emitter's position
+    /// away -- see `NEAR_GLOW_RADIUS`.
+    near_glow: std::collections::HashMap<ChunkCoord, Vec<f32>>,
+    /// Which emitter tiles `near_glow` was built from, so a settled world
+    /// does not rebuild it every draw.
+    near_glow_key: Option<Vec<ChunkCoord>>,
+    /// How many times the splat has been rebuilt. Exists so a test can ask
+    /// "did it fire", which no picture and no frame timing can answer: a
+    /// halo that is rebuilt every frame looks exactly like one that is
+    /// cached, and the cost only shows up on the settled world the
+    /// dirty-rect skip exists for.
+    pub near_glow_rebuilds: u32,
     /// The sky as of this frame, recomputed once per `draw` and read by
     /// every empty pixel. Held rather than passed because `cell_colour` is
     /// the per-pixel hot path and recomputing a cosine there would be paying
@@ -882,6 +953,8 @@ pub struct Renderer {
     cave_ramp: [u8; CAVE_FADE_DEPTH as usize + 1],
     /// `F10` — whether solid terrain is lit by depth below the skyline.
     pub terrain_light: TerrainLight,
+    /// Where a glow's shape comes from -- cycled with `'`. See `GlowShape`.
+    pub glow_shape: GlowShape,
     /// `F11` — reveal every void inside the ground, for testing.
     ///
     /// Sealed chambers are invisible by design (dark cave fade against dark
@@ -945,6 +1018,9 @@ impl Renderer {
             last_zoom_state: None,
             last_look: None,
             glow_tiles: std::collections::HashSet::new(),
+            near_glow: std::collections::HashMap::new(),
+            near_glow_key: None,
+            near_glow_rebuilds: 0,
             sky: Sky::at(0, 0, 1, 0, 1),
             last_sky_key: None,
             daylight: sky::LIGHT_LEVELS,
@@ -964,6 +1040,7 @@ impl Renderer {
                 ramp
             },
             terrain_light: TerrainLight::default(),
+            glow_shape: GlowShape::default(),
             reveal_voids: false,
             depth_light_ramp: {
                 let mut ramp = [256u16; DEPTH_LIGHT_RAMP_ROWS as usize + 1];
@@ -994,6 +1071,13 @@ impl Renderer {
     /// `F10` — toggle the terrain depth light, so the review's largest
     /// graphics change can be judged as an A/B in the running app against
     /// the pre-review look. Same convention as `cycle_grain` below.
+    pub fn cycle_glow_shape(&mut self) {
+        self.glow_shape = self.glow_shape.next();
+        // The halo is not owned by any chunk the CA touched, so nothing else
+        // would ever repaint it.
+        self.last_look = None;
+    }
+
     pub fn cycle_terrain_light(&mut self) {
         self.terrain_light = self.terrain_light.next();
     }
@@ -1287,7 +1371,7 @@ impl Renderer {
         // repaint, so `G` over a still pond looked like a dead key — the
         // owner reported exactly that. (The animated modes force full
         // frames on their own; the static-to-static switches were the gap.)
-        let look = (self.terrain_light, self.reveal_voids, self.grain);
+        let look = (self.terrain_light, self.reveal_voids, self.grain, self.glow_shape);
         let look_changed = self.last_look != Some(look);
         self.last_look = Some(look);
 
@@ -1307,15 +1391,44 @@ impl Renderer {
         // settles the halo is static and the skip gets its work back.
         self.glow_tiles.clear();
         let mut glow_unsettled = false;
+        let mut emitter_tiles: Vec<ChunkCoord> = Vec::new();
         for (&coord, tile) in world.fields_ref() {
             if tile.has_glow {
                 glow_unsettled |= !tile.settled();
+                emitter_tiles.push(coord);
                 for dy in -1..=1 {
                     for dx in -1..=1 {
                         self.glow_tiles.insert(ChunkCoord::new(coord.x + dx, coord.y + dy));
                     }
                 }
             }
+        }
+        // Sorted before anything reads it: `fields_ref()` is a `HashMap`, and
+        // the repo's rule is that no observable output depends on its
+        // iteration order. The splat itself accumulates with `max`, which is
+        // order-independent, so this is belt and braces -- but the next
+        // person to reach for a sum there gets determinism for free instead
+        // of a bug that only shows up as a one-bit pixel difference.
+        emitter_tiles.sort_unstable_by_key(|c| (c.x, c.y));
+        // **Rebuilt only when it can have changed**, which matters more than
+        // it looks: a settled world with a geode in it is precisely the state
+        // the dirty-rect skip exists for, and rebuilding the splat every
+        // draw would burn a chunk scan plus a disc per emitter on frames
+        // that repaint nothing -- the same shape as the animated grain that
+        // measured free in motion and cost ~10 ms on a settled world.
+        //
+        // The trigger is the **world**, not the light field. Keying it on
+        // `glow_unsettled` was the first attempt and rebuilt on every single
+        // draw, because the day/night cycle keeps the light channel moving
+        // for good: a tile with any sky in it is never settled, and the
+        // cache never hit once (measured: 9 rebuilds in 9 draws). The splat
+        // reads `Material::glow` off cells and nothing else, so what can
+        // invalidate it is a cell changing -- a crystal mined out, a new one
+        // exposed -- which is exactly what `touched` reports.
+        let emitters_touched = emitter_tiles.iter().any(|c| touched.contains(c));
+        if emitters_touched || force_full || self.near_glow_key.as_deref() != Some(&emitter_tiles[..]) {
+            self.rebuild_near_glow(world, &emitter_tiles);
+            self.near_glow_key = Some(emitter_tiles);
         }
 
         let full = force_full
@@ -1980,7 +2093,89 @@ impl Renderer {
         if self.glow_tiles.is_empty() || !self.glow_tiles.contains(&ChunkCoord::containing(x, y)) {
             return 0.0;
         }
-        (world.field_at_bilinear(x as f32, y as f32).light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0)
+        let coarse =
+            (world.field_at_bilinear(x as f32, y as f32).light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
+        // **The near term only sharpens light that is already there.** It is
+        // splatted as plain discs and knows nothing about rock, so on its own
+        // it would shine a crystal through a wall. The coarse field does
+        // respect blocking, so gating on it keeps that property and confines
+        // the near term to exactly the region whose *shape* is wrong -- the
+        // blocky lit rectangle -- rather than letting it invent lit ground of
+        // its own. `max`, not a sum: the near term is the same light seen at
+        // a resolution the field cannot hold, not a second lamp.
+        if coarse <= 0.0 || self.glow_shape == GlowShape::Field {
+            return coarse;
+        }
+        coarse.max(self.near_glow_at(x, y))
+    }
+
+    fn near_glow_at(&self, x: i32, y: i32) -> f32 {
+        let coord = ChunkCoord::containing(x, y);
+        let Some(buf) = self.near_glow.get(&coord) else { return 0.0 };
+        let (lx, ly) = (x - coord.x * CHUNK_SIZE, y - coord.y * CHUNK_SIZE);
+        buf[(ly * CHUNK_SIZE + lx) as usize]
+    }
+
+    /// Splat every glowing *cell* into a per-chunk, per-cell buffer.
+    ///
+    /// Rebuilt from the world rather than read from the light field because
+    /// the field cannot answer the question: `set_glow_local` writes one
+    /// value per `FIELD_SCALE`x`FIELD_SCALE` block, so by the time light is
+    /// in the field a two-cell crystal has already become an eight-cell
+    /// square. This is the "short-range term computed from the emitting
+    /// cells themselves" that `Reports/open-bugs-handoff.md` 0c asks for,
+    /// with the coarse field left carrying the far falloff.
+    ///
+    /// Cost is paid per rebuild, not per pixel: scanning a glowing chunk is
+    /// `CHUNK_SIZE^2` cell reads and each emitter writes one disc, against a
+    /// single array index in `near_glow_at`. Rebuilds happen only when the
+    /// glow tiles change or are still converging -- the same condition that
+    /// already forces a full redraw -- so a settled world with a geode in it
+    /// pays nothing per frame.
+    fn rebuild_near_glow(&mut self, world: &World, emitter_tiles: &[ChunkCoord]) {
+        self.near_glow.clear();
+        if emitter_tiles.is_empty() {
+            return;
+        }
+        self.near_glow_rebuilds += 1;
+        let area = (CHUNK_SIZE * CHUNK_SIZE) as usize;
+        for &tile in emitter_tiles {
+            for ly in 0..CHUNK_SIZE {
+                for lx in 0..CHUNK_SIZE {
+                    let (wx, wy) = (tile.x * CHUNK_SIZE + lx, tile.y * CHUNK_SIZE + ly);
+                    if !world.in_bounds(wx, wy) {
+                        continue;
+                    }
+                    let glow = world.materials.get(world.get(wx, wy).material).glow;
+                    if glow <= 0.0 {
+                        continue;
+                    }
+                    for dy in -NEAR_GLOW_RADIUS..=NEAR_GLOW_RADIUS {
+                        for dx in -NEAR_GLOW_RADIUS..=NEAR_GLOW_RADIUS {
+                            let d2 = (dx * dx + dy * dy) as f32;
+                            let r = NEAR_GLOW_RADIUS as f32;
+                            if d2 > r * r {
+                                continue;
+                            }
+                            // Squared linear falloff: full at the emitter,
+                            // zero at the radius, with the knee near the
+                            // source where the eye reads a light's shape.
+                            let t = 1.0 - d2.sqrt() / r;
+                            let v = t * t;
+                            let (nx, ny) = (wx + dx, wy + dy);
+                            let coord = ChunkCoord::containing(nx, ny);
+                            if !self.glow_tiles.contains(&coord) {
+                                continue;
+                            }
+                            let buf = self.near_glow.entry(coord).or_insert_with(|| vec![0.0; area]);
+                            let (bx, by) = (nx - coord.x * CHUNK_SIZE, ny - coord.y * CHUNK_SIZE);
+                            let slot = &mut buf[(by * CHUNK_SIZE + bx) as usize];
+                            *slot = slot.max(v);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn cell_colour(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
@@ -3834,6 +4029,53 @@ mod tests {
             occluding >= 40,
             "only {occluding} of the swept positions actually put a formation over him; \
              the sweep is not exercising the thing it claims to guard"
+        );
+    }
+
+    /// The near-field glow splat is built once, not once a frame.
+    ///
+    /// A counter, not a picture and not a timing, because neither can see
+    /// this: a halo rebuilt every frame draws identically to a cached one,
+    /// and the cost lands on a *settled* world -- the exact state the
+    /// dirty-rect skip exists to make free, and the state `ascii`'s
+    /// worst-frame line is least likely to catch because nothing is moving.
+    /// The animated-grain lesson in `CLAUDE.md`: measure a cost against the
+    /// state the optimisation exists for.
+    #[test]
+    fn a_settled_glow_does_not_rebuild_its_halo_every_frame() {
+        let (w, h) = (128i32, 128i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        let spar = world.materials.id_of("spar").expect("spar is compiled in");
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        for y in 60..64 {
+            for x in 60..64 {
+                world.set(x, y, Cell::new(spar, 0));
+            }
+        }
+        world.end_step();
+        // Let the light field converge, or every draw below is legitimately
+        // a rebuild and the test proves nothing.
+        for _ in 0..400 {
+            crate::sim::update::step(&mut world);
+            crate::sim::field::step(&mut world);
+        }
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut r = Renderer::new();
+        let mut buf = vec![0u8; (uw * uh * 4) as usize];
+        r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+        let first = r.near_glow_rebuilds;
+        assert!(first > 0, "vacuous: the scene never built a halo at all");
+
+        for _ in 0..8 {
+            r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), false);
+        }
+        assert_eq!(
+            r.near_glow_rebuilds, first,
+            "the halo was rebuilt on a settled world with nothing changed"
         );
     }
 
