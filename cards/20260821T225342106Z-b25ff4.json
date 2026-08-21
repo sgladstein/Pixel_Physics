@@ -1,0 +1,43 @@
+{
+  "id": "20260821T225342106Z-b25ff4",
+  "created": "2026-08-21T22:53:42Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "bc98143",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The rock stuck in the middle of the water is gone",
+  "question": "Is the water clear now? Anything left sitting where it should not be?",
+  "context_md": "You picked neither option on the lava-down-a-ramp card: **\"Both of these seem to have attached rock stuck in the in the middle of the water, unless you just didn't wait longer.\"**\n\nYou were right, and the waiting question had a definite answer: **no.** The count froze and never moved again -- the world went fully to sleep with the rock still there, so no amount of waiting would ever have cleared it. I only found that out by making the readout print *where* the cells were instead of how many, which is the thing I should have done before claiming that artifact was fixed.\n\nThree separate causes, all of them the same shape -- a cell the model *knew* was unsupported, that nothing ever asked again:\n\n1. **Steam did not count as somewhere to fall.** A cell in the cloud a quench throws off was filed as \"wedged in a hole its own shape\", left standing, and never rescheduled. Rock falls through steam exactly as it falls through air.\n2. **Ground can leave without telling anybody.** A piece resting on a grain of debris is held up by it -- and when the grain washes away nothing re-asks. That was justified in the code by a claim I checked and found false.\n3. **One swallowed pebble floated a raft.** A 90-cell slab sat on the pond for the whole run because a single grain of rubble was walled inside it, and \"resting on loose ground\" was being asked of one cell instead of the piece.\n\nStanding rock reaching no anchor, at rest, across the three lava scenes:\n\n| scene | before | now |\n|---|---|---|\n| lava down a ramp | 8 | **0** |\n| lava dropped in a pond | 23 | **1** |\n| open lava lake | 151 | **13** |\n\n**What to look for:** the clip is the last part of the pour, sped up. In the before, watch the specks left at and just under the water line after everything else has settled. There is also a genuine question in it -- rock does now sink, so the pond floor collects more debris than it used to. Tell me if that reads as too much.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260821T225342106Z-b25ff4/000-hang_before.gif"
+      ],
+      "caption": "8 cells left standing in the water, permanently -- the world is asleep with them there",
+      "meta": {}
+    },
+    {
+      "label": "now",
+      "files": [
+        "20260821T225342106Z-b25ff4/001-hang_after.gif"
+      ],
+      "caption": "0. Same scene, same seed, same frames.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
