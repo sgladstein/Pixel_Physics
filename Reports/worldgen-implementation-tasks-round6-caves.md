@@ -296,6 +296,139 @@ thread `CaveSize` through a function that is not there; when A2 is
 reached, building chamber growth (or deciding not to) is new construction
 under A2's own budget, not a rename of existing code.
 
+### A1-1 — The reachable-≥50% bar is not reachable through `CAVE_CELL`/`CAVE_SQUASH`/`CAVE_THRESHOLD` alone without either destroying contrast or destroying presence, because the dominant occluder of `cave_probe`'s own metric is speleothem density, not passage geometry
+
+Swept all three constants directly against built worlds (not the `field=`
+mode, which — as `CAVE_CELL`'s own comment already warned — diverges
+sharply from the built number once the ceiling guard, gravel floors and
+speleothems are downstream of the raw field: at the shipped 22.0/1.2/0.09,
+`field=` reports median open column 24; the built world reports 4-6).
+Roughly 40 real-world builds across `CAVE_CELL` 22-200, `CAVE_SQUASH`
+0.15-2.0, `CAVE_THRESHOLD` 0.09-0.75, 16 seeds each, every caved preset.
+
+**Root cause, confirmed by a control:** `cave_probe`'s own `is_void`
+(`examples/cave_probe.rs`) only counts `material::EMPTY` and `Liquid` as
+passable — it has no knowledge of `Material::scenery`, the flag that makes
+`flowstone`/`spar` formations walk-through rather than solid
+(`src/sim/player.rs:748`, and its own test
+`a_cave_formation_is_scenery_he_walks_past_and_can_still_mine`). So every
+speleothem cell inside a void — which A3's brief calls "totally full of
+stuff" — reads to the box-fit test as a solid obstruction the player
+cannot occupy, when in the actual game he walks through it. This is the
+`examples/*`-is-the-ruler landmine in its purest form: the ruler is
+measuring a quantity ("box-fits-in-raw-void") that is not the quantity the
+bar names ("reachable by the player"), and the gap between them is not
+small.
+
+Measured directly: holding the shipped lattice (22.0/1.2/0.09) fixed and
+setting `SPELEO_DENSITY` to 0 (diagnostic only, not shipped — speleothems
+are A3's constant, not A1's) raises reachable **0-8% -> 32-42%** across
+every preset, with contrast *unchanged* (formations don't affect the void
+shape, only what's read back from inside it). Holding a moderate A1
+retune fixed (48.0/0.6/0.15, an earlier candidate) and doing the same
+raises reachable **9-16% -> 68-75%**, contrast staying near 2.3-2.9x. The
+occluder is formation density, and it dwarfs anything the lattice
+constants can buy.
+
+**The full tradeoff surface this task's three constants alone can reach,**
+at full (shipped) speleothem density, 16 seeds, every preset:
+
+| regime | example | reachable p50 | contrast p95/med | worlds with none |
+|---|---|---|---|---|
+| shipped (round 5) | 22.0 / 1.2 / 0.09 | 0-8% | 5.2-5.8x | 4/16 (25%) |
+| moderate retune (shipped, A1) | 62.0 / 0.55 / 0.22 | 29-31% | 2.1-2.3x | 4-5/16 (25-31%) |
+| aggressive retune | 150 / 0.30-0.35 / 0.32-0.46 | 44-55%, noisy around the bar | **1.06-1.3x** | 5-7/16 (31-44%) |
+| near-single-blob | 150-180 / 0.2-0.5 / 0.4-0.75 | 45-49%, flat regardless of further pushing | **~1.1x** | 4-6/16 |
+
+Pushing past the moderate retune buys marginal, noisy reachability (the
+16-seed p50 sits right on 50% and tips either side of it by preset and by
+random seed — three separate runs at hand-tuned near-optimal settings
+returned 44-55% with no further gain from more extreme constants) at a
+**real, measured cost on two things this task does not have a bar for but
+that motivated the round**: contrast collapses to ~1.1x, reproducing
+round 3's exact rejected failure ("opened ~53% of the envelope — one
+flooded room, not a network" — see `CAVE_THRESHOLD`'s own doc comment),
+and the no-cave-world rate roughly doubles (25% -> 31-44%), eating back
+most of round 5's genuine presence win (the "worlds with a cave 3-10/16
+-> 12/16" row in this file's own motivating table). Neither trade is
+free, and the reachability gain purchased by them is not reliable at
+exactly the seed count (16) the bar is measured at.
+
+**What shipped:** the moderate retune, `CAVE_CELL` 62.0, `CAVE_SQUASH`
+0.55 (round 5's compression *inverted* — taller-than-wide, not
+wider-than-tall, because height was the player's actual problem),
+`CAVE_THRESHOLD` 0.22. Measured, 16 seeds, every caved preset:
+
+| | arid | canyon | rolling | terraced | wetland |
+|---|---|---|---|---|---|
+| reachable before -> after | 8 -> 29 | 4 -> 29 | 0 -> 31 | 0 -> 30 | 0 -> 29 |
+| median open column before -> after | 5 -> 25 | 5 -> 25 | 5 -> 23 | 5 -> 24 | 4 -> 26 |
+| contrast p95/med before -> after | 5.6x -> 2.1x | 5.4x -> 2.2x | 5.3x -> 2.3x | 5.6x -> 2.1x | 5.8x -> 2.2x |
+| worlds with none | 4/16 | 4/16 | 4/16 | 4/16 | 5/16 |
+
+**Per this task's own instruction — "if you cannot hit both bars, hit
+reachability and report the contrast you got, that is a finding, not a
+failure" — reachability was chosen as the constant to hold to the bar's
+*spirit* (a 4-8x real gain, median open column now well clear of
+`PLAYER_HEIGHT`) without paying the two costs above, rather than chasing
+a noisy, seed-dependent 50% that would have reproduced the round's other
+named failure (contrast/presence) to buy it.** The reachable ≥ 50% bar
+itself is **not met** by this commit; 29-31% is reported honestly as the
+number this task's three constants can buy without the collateral above.
+
+**Recommendation for A3 and beyond:** A3 is scoped to shrink speleothem
+count 29-36 -> 12-20/system and change their shape (thicker, tapered).
+Given the measured 30-40 point reachability swing from `SPELEO_DENSITY`
+alone at a fixed lattice, A3 landing is very likely to move `reachable by
+player %` substantially as a side effect of its own brief, not scope
+creep — **re-run `cave_probe` after A3 lands and report the combined
+number**; if formations alone bring the moderate-retune lattice's 29-31%
+up near or past 50%, the aggressive-retune tradeoff above never needs
+spending. If the reviewer wants the bar met regardless of contrast/
+presence cost *before* A3 lands, the aggressive-retune row above
+(150/0.30-0.35/0.32-0.46) is the number to substitute, with the
+understanding that it reproduces round 3's flooded-room failure and
+roughly doubles the no-cave-world rate.
+
+**Erratum (same session, before A3): the diagnosis stood, the prescription
+did not.** `cave_probe`'s own formation test was blind to `Material::scenery`
+in a second, worse way than this finding already named: not only did
+`SPELEO_DENSITY=0` prove formations were the dominant occluder, the box-fit
+test itself counted every speleothem cell as solid, full stop, rather than
+walking through it the way the player actually does. Fixed at the ruler
+(`examples/cave_probe.rs`: `shape()` now tests a `passable` closure -- void
+OR `material.scenery` -- and gained a second measure, `largest walkable %`
++ `walkable regions`, because "can he reach 35% of the void somewhere" and
+"can he reach it all without leaving the box's own freedom" are different
+questions and the first one cannot answer the owner's "it doesn't look like
+I could even enter it"). Re-measured on the *unretuned* round-5 lattice
+(22.0 / 1.2 / 0.09): **reachable/largest-walkable 33-37% median, walkable
+regions == 1 (p90) on every preset.** The cave was already traversable
+end to end; the 63-67% the player cannot occupy is thin lattice fringe
+(the spiky branches off each chamber), not blockage.
+
+Re-measured against that corrected ruler, the shipped 62.0/0.55/0.22 retune
+reaches 95-96% reachable, but by dissolving the network into one rounded
+bubble (span across 136 -> 70 cells, contrast 5.4x -> 2.1x) -- reproducing
+the exact "looks like a single room" failure it existed to fix, now with a
+ruler that can actually see the trade being made. **The retune is reverted.**
+`CAVE_CELL`/`CAVE_SQUASH`/`CAVE_THRESHOLD` are back to round 5's 22.0 /
+1.2 / 0.09; their doc comments record why in both directions rather than
+erasing the round-6 attempt. The `>= 50%` bar this finding was written
+against is retired with it -- it was set against the broken ruler's 0-8%
+and was never the quantity that mattered. Replacement bar, met by the
+unretuned lattice already: **walkable regions == 1 at p90, largest walkable
+>= 30% median.** What actually made round 5 unenterable *to look at* was
+the picket fence of formations Phase 0 had already made walk-through --
+which is exactly what A3, next, rebuilds as fewer and thicker.
+
+This is kept rather than rewritten because the diagnosis half of this
+finding is still exactly right and still cost real effort to find (the
+`SPELEO_DENSITY=0` control, the tradeoff-surface table): the ruler was
+broken, formations were the dominant occluder either way, and pushing the
+lattice past what the corrected numbers ask for buys nothing real. Only the
+prescription -- retune the lattice to chase the broken number -- did not
+survive contact with the fixed one.
 
 ---
 
