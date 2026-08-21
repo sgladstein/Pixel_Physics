@@ -609,3 +609,85 @@ Gates: `cargo test --release --test worldgen` green (`speleothems_never_bridge_a
 in particular, since tight clustering is exactly the geometry that rule
 has to still hold under); `cargo clippy --all-targets -- -D warnings`
 clean; `scripts/worldgen_sweep.sh compare` 0 counters moved.
+
+### R5-5 — Task 4c: one fused column per chamber landed, and it surfaced a leak in every paired-build vault test's own instrument
+
+Landed: after the per-column speleothem pass, the largest chamber run
+(from the same column-height census the waterline and the census use) is
+picked, a column a third to a bit less than half the way in from one side
+(never the run's own middle) is chosen, and its full floor-to-ceiling
+span is written solid -- crystal at `SPELEO_CRYSTAL`'s own rate, stone
+otherwise -- exempt from the "leave two open rows" rule everywhere else
+in this pass, exactly once per system.
+
+**Landing it exposed two real bugs, one older than this task and one this
+task's own secondary-column mechanic had always been capable of, both
+found because `speleothems_never_bridge_a_passage` got strict enough to
+notice them.**
+
+1. **The round-3 secondary-column widening can bridge a neighbour on its
+   own**, and always could. It clamps its top half and bottom half to
+   `span2 - 2` independently, which bounds each half alone but not their
+   sum: a *pair* formation (both halves non-zero) reaching the same
+   neighbour from both directions can have each half legally sized and
+   still cover the neighbour's whole run between them. Task 4b's tighter
+   spacing made two formations sharing a neighbour common enough to hit
+   this routinely; round 3's own looser spacing had made it rare enough
+   to never trip the old, coarser test. Fixed with a joint clamp
+   (shrink whichever half is larger until the sum leaves at least one
+   open row) plus a verify-then-repair pass over every void run after all
+   placement finishes: check the *actual* written state rather than
+   reasoning about every combination of independent writers in advance
+   (two *different* primary formations can each leave their own share of
+   a shared neighbour clear and still jointly cover it), and reopen the
+   middle cell of any run that came out fully solid. The repair runs
+   before task 4c's own deliberate fused column, which is exempt by
+   ordering -- it has not been written yet when the scan runs -- not by a
+   special case the scan has to know about.
+
+2. **Every paired-build vault test's diff has a leak.** Turning
+   `vault_density` on changes the *shade* of some ordinary wall stone
+   elsewhere in the world -- material unchanged, only the tone byte
+   differing, at locations with no carved void anywhere nearby (measured:
+   a probe dump found ~800 such cells in one forced-vault world, out of
+   ~6,700 total diffed cells). Root cause not chased down: every
+   shade-producing function this pass reads (`strata_shade`,
+   `palette_family`) is a pure function of `(seed, x, y)` with no
+   dependence on `vault_density`, and re-derivation would need to reach
+   into whatever runs between `stone_massif` and `vaults` in the pass
+   order, which is a bigger question than this task. Every existing
+   paired-build guard (round 2's seal test, round 3's ceiling-span test,
+   the original `speleothems_never_bridge_a_passage`) tolerates this
+   silently, because none of them assert "every other cell is identical"
+   -- they only check properties of the cells that *are* in the diff, and
+   a handful of extra, already-stone, already-solid cells never changed
+   any of those properties. This test's new per-run check was the first
+   one strict enough for the extra cells to matter: a batch of ordinary
+   stone that happens to all read `Solid` looks exactly like a bridged
+   passage once grouped by column.
+
+   Fixed by not asking a control build at all: `speleothems_never_bridge_a_passage`
+   now flood-fills void components directly in the one world under test
+   and reads formations back the same way `cave_probe` already does --
+   solid, with void on both flanks -- which cannot be contaminated by
+   whatever the leak is, because it never looks at a second build.
+   Flagged for whichever session next touches `stone_massif` through
+   `vaults` in the pass order, or the palette-family/strata-shade code:
+   the leak is real, small, and still there in every *other* paired-build
+   guard in this file, which is why they are named here rather than left
+   for someone to rediscover from a flaky-looking test failure.
+
+Bar: near-pairs >= 1/world p50 (44-50 of 16 seeds, well above), tallest
+combined pair >= 30 cells (40-44, met) -- already satisfied by tasks
+4a/4b's own side effects before this task's mechanic landed; exactly one
+fused column per system with a chamber, zero without, enforced by the new
+test.
+
+Strip: `target/filmstrips/r5t4c-canyon-s1.png` -- inside the chamber, a
+dense run of pale vertical threads with several spanning near its full
+height, against the thin passage web outside it.
+
+Gates: `cargo test --release` (615+8+2+31 passed, `speleothems_never_bridge_a_passage`
+rewritten and green under the new diff-free method), `cargo clippy
+--all-targets -- -D warnings` clean, `cargo run --release --example ascii`
+no timing change, `scripts/worldgen_sweep.sh compare` 0 counters moved.

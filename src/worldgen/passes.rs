@@ -1791,6 +1791,10 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     let mut chamber_col = vec![false; CAVE_GRID_W as usize];
     let mut chambers = 0usize;
     let mut chamber_floors: Vec<i32> = Vec::new();
+    // Round-5 task 4c needs the run bounds themselves, not only which
+    // columns are inside one -- it fuses a column in the *largest* chamber
+    // run, and "largest" is not recoverable from `chamber_col` alone.
+    let mut chamber_runs: Vec<(usize, usize)> = Vec::new();
     {
         let fs = |i: usize| floor[i].map(|(_, b, h)| b - h).unwrap_or(CAVE_HALF_H);
         let tall: Vec<bool> = (0..CAVE_GRID_W)
@@ -1825,6 +1829,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                 for c in chamber_col.iter_mut().take(i).skip(start) {
                     *c = true;
                 }
+                chamber_runs.push((start, i));
             }
         }
     }
@@ -2072,14 +2077,45 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                             let fs2 = b2 - h2;
                             let span2 = fs2 - t2 + 1;
                             if span2 >= 3 {
-                                if lt > 0 && (t2 - t).abs() <= 1 {
-                                    let lt2 = (lt * 3 / 5).clamp(1, span2 - 2);
+                                let mut lt2 = if lt > 0 && (t2 - t).abs() <= 1 {
+                                    (lt * 3 / 5).clamp(1, span2 - 2)
+                                } else {
+                                    0
+                                };
+                                let mut lg2 = if lg > 0 && (fs2 - fs).abs() <= 1 {
+                                    (lg * 3 / 5).clamp(1, span2 - 2)
+                                } else {
+                                    0
+                                };
+                                // Each half was clamped against `span2`
+                                // independently, which is correct alone but
+                                // not jointly: a *pair* formation (lt > 0
+                                // and lg > 0 together) can clamp each half
+                                // to `span2 - 2` and still have them sum
+                                // past `span2`, bridging the neighbour
+                                // floor-to-ceiling from the two secondary
+                                // touches together -- measured: this fired
+                                // dozens of times per system once task 4b's
+                                // density made two nearby pairs sharing a
+                                // neighbour common, though the shape was
+                                // already possible in round 3. Shrink the
+                                // larger half until at least one row of the
+                                // neighbour's own run stays open, the same
+                                // "leave an open cell" contract every other
+                                // placement in this pass keeps.
+                                while lt2 + lg2 > span2 - 1 && (lt2 > 0 || lg2 > 0) {
+                                    if lt2 >= lg2 {
+                                        lt2 -= 1;
+                                    } else {
+                                        lg2 -= 1;
+                                    }
+                                }
+                                if lt2 > 0 {
                                     for y in t2..t2 + lt2 {
                                         put(dx + side, y);
                                     }
                                 }
-                                if lg > 0 && (fs2 - fs).abs() <= 1 {
-                                    let lg2 = (lg * 3 / 5).clamp(1, span2 - 2);
+                                if lg2 > 0 {
                                     for y in (fs2 - lg2 + 1)..=b2 {
                                         put(dx + side, y);
                                     }
@@ -2092,6 +2128,72 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             }
             if placed_here {
                 last = Some(dx);
+            }
+        }
+    }
+
+    // Verify, then repair: no void run may end up fully solid by accident.
+    // The secondary-column touch above is jointly clamped against the ONE
+    // formation writing it, but two *different* primary formations can each
+    // reach into the same shared neighbour from opposite sides -- each
+    // leaving its own share of that neighbour's run clear, and still
+    // between them covering the whole thing once unioned. There is no
+    // single arithmetic clamp that covers every combination of independent
+    // writers, so this checks the actual written state directly: any
+    // maximal void run that came out fully covered by `speleo` -- by any
+    // combination of primary and secondary writes -- has its middle cell
+    // reopened. Run before task 4c's deliberate fused column below, which
+    // is exempt by ordering rather than by a special case: it has not been
+    // written yet when this scan runs.
+    for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+        let mut run: Vec<i32> = Vec::new();
+        for dy in -CAVE_HALF_H..=(CAVE_HALF_H + 1) {
+            let open = dy <= CAVE_HALF_H && void[cave_idx(dx, dy)];
+            if open {
+                run.push(dy);
+                continue;
+            }
+            if !run.is_empty() && run.iter().all(|&y| speleo[cave_idx(dx, y)] != 0) {
+                speleo[cave_idx(dx, run[run.len() / 2])] = 0;
+            }
+            run.clear();
+        }
+    }
+
+    // ---- round-5 task 4c: one fused column, in a chamber only ----
+    // The rule everywhere else in this pass -- a formation must never
+    // bridge floor to ceiling, because a column splits the passage the
+    // player walks -- is deliberately broken exactly once per system,
+    // exactly inside the largest chamber run: a fused column blocks
+    // nothing there, since a room is not a passage, and it is criterion
+    // 2's money shot (a stalactite and stalagmite that grew into one
+    // another) and criterion 1's monumental anchor in a single object.
+    // Placed off the run's own centre line -- a third or two-thirds of the
+    // way across, drawn per system -- so it does not stand in the one spot
+    // a player crossing the chamber would walk through anyway.
+    //
+    // Rooted exactly like every other formation here: written from the
+    // stone under the floor upward, through any gravel, to the stone
+    // ceiling above -- "structurally trivial, rooted in the massif" means
+    // rooted on rock at both ends, and a column spanning solid-to-solid is
+    // *more* attached support than a stalactite or stalagmite alone, never
+    // less, so it cannot be less safe than what the seal already allows.
+    if let Some(&(start, end)) = chamber_runs.iter().max_by_key(|&&(s, e)| e - s) {
+        let width = end - start;
+        // A third in from whichever side the draw picks -- off-centre by
+        // construction, never the run's own middle column.
+        let side = noise::unit(seed, Purpose::Speleothem, cx, -3) < 0.5;
+        let frac = 0.28 + noise::unit(seed, Purpose::Speleothem, cx, -4) * 0.12;
+        let offset = ((width as f32 * frac) as usize).clamp(1, width.saturating_sub(1).max(1));
+        let i = if side { start + offset } else { end - 1 - offset };
+        if let Some((t, b, _)) = floor[i] {
+            let dx = i as i32 - CAVE_HALF_W;
+            let crystal = noise::unit(seed, Purpose::Speleothem, cx, -5) < SPELEO_CRYSTAL;
+            let mat = if crystal { 2u8 } else { 1u8 };
+            for y in t..=b {
+                if void[cave_idx(dx, y)] {
+                    speleo[cave_idx(dx, y)] = mat;
+                }
             }
         }
     }
