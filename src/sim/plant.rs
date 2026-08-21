@@ -405,6 +405,16 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
 
 /// Mark (or clear) a cell as a primed lateral site — see
 /// `OrganismCell::primed`.
+#[cfg(test)]
+pub(crate) static S8E: [std::sync::atomic::AtomicU64; 6] = [
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+];
+
 fn write_primed(world: &mut World, x: i32, y: i32, primed: bool) {
     if let Some(slot) = world.organism_cell_mut(x, y) {
         slot.primed = primed;
@@ -3808,6 +3818,31 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // identity is asserted -- the seam the water economy's
         // `drought_death` tuning rests on.
         let capacity = water_capacity_of(state.root_cells);
+        #[cfg(test)]
+        {
+            // **Where closure actually fires**, bucketed by shoot size.
+            // Kept rather than scratch, because the question it answers was
+            // got wrong once from a plausible statistic: stock/capacity was
+            // read as 0.41 against a 0.2 reserve and closure declared a
+            // no-op for mature plants, from a ratio of *medians* taken
+            // across different plants at one final frame. Per settle, per
+            // plant, mature plants are under the line 83.5% of the time and
+            // seedlings 99.1% -- the reserve is a standing throttle, not a
+            // drought-only policy, because a plant chronically holds well
+            // under its own root-derived capacity. `#[cfg(test)]`, and once
+            // per organism tick rather than per cell.
+            let bucket = if shoot_cells < 20 {
+                0
+            } else if shoot_cells < 200 {
+                1
+            } else {
+                2
+            };
+            S8E[bucket * 2].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if stomatal_reserve > 0.0 && (state.water / capacity.max(f32::EPSILON)) < stomatal_reserve {
+                S8E[bucket * 2 + 1].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
         let (drawn, status, desiccation) = settle_water(state.water, capacity, demand, stomatal_reserve);
         state.water -= drawn;
         state.water_status = status;
@@ -6934,6 +6969,43 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             "slot 1 is a ROOT slot and must not move the shoot: {shoot_low} against {shoot_high} is {:.0}%              (measured 2%). A shoot moving with it means the draw is reaching slot 0's consumer.",
             shoot_spread * 100.0
         );
+    }
+
+    /// Scratch for §8e: **where** does the stomatal reserve actually close?
+    ///
+    /// The wet-scene deltas were predicted to be ~0 and were not (12% of
+    /// stand mass, two established plants). The tidy explanation —
+    /// capacity scales with root mass, so a big plant sits under its own
+    /// reserve line — was refuted by measurement: stock/capacity came out
+    /// at 0.41 against a 0.2 reserve, so openness clamps to 1.0 for a
+    /// mature plant. The surviving candidate is the *seedling*, which
+    /// carries ~11 root cells and therefore a capacity of 44 against
+    /// almost no stock, right where establishment margins are thinnest.
+    ///
+    /// This counts closure events bucketed by shoot size on a wet stand.
+    /// If the hypothesis is right, closure concentrates in the smallest
+    /// bucket and is rare in the largest.
+    ///
+    /// ```text
+    /// cargo test --lib print_closure_by_plant_size -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn print_closure_by_plant_size() {
+        for c in S8E.iter() {
+            c.store(0, std::sync::atomic::Ordering::Relaxed);
+        }
+        let mut w = test_world();
+        for x in [40, 90, 140] {
+            plant_tree_on_ground(&mut w, x, 60);
+        }
+        run_with_fields(&mut w, 30_000);
+        let g = |i: usize| S8E[i].load(std::sync::atomic::Ordering::Relaxed);
+        println!("closure by shoot size (wet stand, stomatal_reserve as shipped):");
+        for (i, name) in ["seedling (<20)", "young (<200)", "mature (>=200)"].iter().enumerate() {
+            let (total, closed) = (g(i * 2), g(i * 2 + 1));
+            println!("  {name:>16}: {closed:>7} closed of {total:>7} settles  ({:.1}%)", 100.0 * closed as f32 / total.max(1) as f32);
+        }
     }
 
     /// Scratch for WP-A: one run, for sweeping `branch_priming` and for

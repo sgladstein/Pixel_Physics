@@ -906,7 +906,10 @@ ground, making the reserve a permanent throttle rather than a drought
 policy. Measured on the wet scene: root cells median 318, so capacity
 1,272; stock median 524.8; **stock/capacity = 0.41**, twice the reserve.
 `openness` clamps to 1.0 and the reserve does nothing at all to a typical
-mature plant. The tidy story is refuted by its own numbers.
+mature plant. The tidy story is refuted by its own numbers. **§8h withdraws
+this withdrawal: that 0.41 is a ratio of medians across different plants at
+one frame, not the per-plant per-tick quantity the rule reads, and counted
+properly a mature plant is under the line 83.5% of the time.**
 
 What survives as a candidate is the **seedling** stage: a fresh seedling
 carries ~11 root cells, so a capacity of 44 and almost no stock, and sits
@@ -1082,6 +1085,70 @@ plants are bigger, so they are thirstier at the same soil.
 Root neighbour density is now 74–89% across all four arms — the fibrous
 mat is the normal architecture, where §8c had to force it with a pinned
 cost.
+
+### 8h. The §8e wet-stomatal anomaly, explained — and a statistic I got wrong
+
+§8e recorded a failed prediction: `stomatal_reserve` 0.2 against 0.0 was
+supposed to move a *wet* stand by ~0 and moved it by 12% of mass and two
+established plants. It offered a mechanism — capacity is
+`WATER_SCALE × root_cells`, so a plant could sit under its own reserve line
+even on wet ground — and then **withdrew that mechanism** on the strength of
+a measurement reading stock/capacity ≈ 0.41 against a 0.2 reserve.
+
+**The withdrawal was wrong, and the statistic is why.** That 0.41 was a
+*ratio of medians*, taken across different plants, at a single final frame:
+median stock 524.8 over median root cells 318 × 4. It is not the quantity
+the rule reads. The rule reads one plant's own stock against its own
+capacity, every organism tick. Counted that way
+(`plant::tests::print_closure_by_plant_size`, wet stand, three trees,
+30,000 frames):
+
+| shoot size | settles closed | of total |
+|---|---|---|
+| seedling (< 20 cells) | 2,949 | 2,976 — **99.1%** |
+| young (< 200 cells) | 0 | 93 — 0.0% |
+| mature (≥ 200 cells) | 1,566 | 1,875 — **83.5%** |
+
+**The reserve is a standing throttle, not a drought policy.** A plant
+chronically holds well under its root-derived capacity, so a 0.2 reserve is
+above the working stock fraction almost all the time, at almost every size.
+The original mechanism was right in substance; only the number offered
+against it was wrong. Recorded rather than quietly amended, because the
+failure mode is a general one — a ratio of medians across a population is
+not the per-individual quantity a per-individual rule keys on, and it will
+read plausible every time.
+
+**What WP-A did to it.** Root mass moving several-fold moves capacity with
+it, so the anomaly was re-measured on the post-repair build, wet stand,
+8 trees / 30,000 frames / `worldseed=1`:
+
+| | reserve 0.0 | reserve 0.2 |
+|---|---|---|
+| organism cells | 29,978 | 30,838 |
+| leaf | 9,084 | 9,199 |
+| **seeds set** | **70** | **58** |
+| **organisms** | **49** | **40** |
+| root cells, median | 305 | 438 |
+
+**The mass cost is gone** — 12% against the reserve before the repair, 3%
+*for* it after, which is inside this engine's spread. **The recruitment
+cost survives**: 17% fewer seeds set and nine fewer organisms. That is
+exactly the shape the closure buckets predict — a seedling is closed 99% of
+the time, and establishment is where thin margins live.
+
+So the anomaly is explained and half dissolved. What is left is a real,
+mechanism-backed statement about slot 7 rather than an open question:
+**the stomatal locus acts on recruitment more than on mass, and it acts at
+every plant size rather than only in drought.** The megastudy can read
+slot 7 against that; §8e's open item is closed.
+
+**Not decided here, and worth the owner's eye eventually:** whether
+`stomatal_reserve: 0.2` is *intended* as a near-permanent throttle. It was
+authored as "at a fifth of a tank the plant starts trading growth for
+endurance", which reads as an occasional drought behaviour; measured, the
+tank is under a fifth full most of the time. The value is the water
+session's first pass and nothing here changes it — this section only
+records what it actually does.
 
 **Not yet measured** — every remaining §4 row, held with the above:
 slot 5's depth histogram, slot 8 penetration (needs the sand-bank scene
