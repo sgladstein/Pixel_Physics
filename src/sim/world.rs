@@ -2358,6 +2358,26 @@ impl World {
         &self.sky_surface
     }
 
+    /// Whether `(x, y)` sits above this column's frozen ground surface.
+    ///
+    /// The stored definition of "outdoors" (see `sky_surface`), asked as a
+    /// predicate so callers do not each have to remember that the slice is
+    /// indexed from `bounds.min_x` and that `i32::MAX` means "this column
+    /// never held any ground".
+    ///
+    /// `false` before the surface has been frozen, which only happens on a
+    /// world nothing has ever stepped — `begin_step` freezes it before the
+    /// first sweep runs, so no CA rule can observe that state. Answering
+    /// `false` there is the conservative direction anyway: it keeps
+    /// whatever the indoor behaviour is.
+    pub fn is_outdoors(&self, x: i32, y: i32) -> bool {
+        let Some(b) = self.bounds else { return false };
+        let Some(&ground) = self.sky_surface.get((x - b.min_x) as usize) else {
+            return false;
+        };
+        y < ground
+    }
+
     pub fn end_step(&mut self) {
         // Recomputing reach is a full scan of the chunk's cells, so it only
         // runs at the one point that is both cheap and safe: exactly when a
@@ -2498,6 +2518,16 @@ impl CellSurface for World {
     #[inline]
     fn count_phase_event(&mut self, event: crate::sim::fire::PhaseEvent) {
         self.phase_changes.record(event);
+    }
+
+    #[inline]
+    fn is_outdoors(&self, x: i32, y: i32) -> bool {
+        World::is_outdoors(self, x, y)
+    }
+
+    #[inline]
+    fn credit_atmosphere(&mut self, fill: u16) {
+        World::credit_atmosphere(self, fill);
     }
 }
 

@@ -306,6 +306,13 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
             world.reindex_organism_cell(x, y, was, now);
         }
         world.phase_changes.merge(outcome.phase_counts);
+        // Summed in whole fill units per worker and converted once here, so
+        // a pass credits the same total however the chunks were divided
+        // between threads -- see `ChunkView::sky_condensate`.
+        if outcome.sky_condensate > 0 {
+            world.atmospheric_bank +=
+                outcome.sky_condensate as f64 / crate::sim::material::LIQUID_FULL as f64;
+        }
         // Through `report_splash` rather than pushed straight onto the
         // list, so `MAX_SPLASH_SITES` bounds the merged total and not each
         // worker's share of it.
@@ -391,6 +398,8 @@ struct ChunkOutcome {
     organism_moves: Vec<(i32, i32, u16, u16)>,
     /// See `ChunkView::phase_counts`'s own doc.
     phase_counts: crate::sim::fire::PhaseCounts,
+    /// See `ChunkView::sky_condensate`'s own doc.
+    sky_condensate: u64,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -462,6 +471,12 @@ struct ChunkView<'w> {
     /// `World::phase_changes` by `run_pass` — only `World` owns the
     /// cumulative counters, same reasoning as `pending_active_sites`.
     phase_counts: crate::sim::fire::PhaseCounts,
+    /// Fill units this worker handed to the sky
+    /// (`CellSurface::credit_atmosphere`), merged into
+    /// `World::atmospheric_bank` by `run_pass`. Whole fill units rather
+    /// than cell-equivalents so the merge is an integer sum and no pass can
+    /// lose a fraction of a cell to float ordering.
+    sky_condensate: u64,
 }
 
 impl<'w> ChunkView<'w> {
@@ -482,6 +497,7 @@ impl<'w> ChunkView<'w> {
             splash_sites: Vec::new(),
             organism_moves: Vec::new(),
             phase_counts: crate::sim::fire::PhaseCounts::default(),
+            sky_condensate: 0,
         }
     }
 
@@ -506,6 +522,7 @@ impl<'w> ChunkView<'w> {
             splash_sites: self.splash_sites,
             organism_moves: self.organism_moves,
             phase_counts: self.phase_counts,
+            sky_condensate: self.sky_condensate,
         }
     }
 
@@ -726,6 +743,16 @@ impl CellSurface for ChunkView<'_> {
         }
     }
 
+    fn is_outdoors(&self, x: i32, y: i32) -> bool {
+        self.world.is_outdoors(x, y)
+    }
+
+    #[inline]
+    fn credit_atmosphere(&mut self, fill: u16) {
+        self.sky_condensate += fill as u64;
+    }
+
+    #[inline]
     fn count_phase_event(&mut self, event: crate::sim::fire::PhaseEvent) {
         // Tallied privately and merged by `run_pass` — only `World` owns
         // `phase_changes`, the same reasoning as `pending_active_sites`.

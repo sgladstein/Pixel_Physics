@@ -151,6 +151,32 @@ pub trait CellSurface {
     /// shape as `schedule_active_site`.
     fn count_phase_event(&mut self, event: PhaseEvent);
 
+    /// Whether `(x, y)` is above this column's frozen ground surface — the
+    /// engine's stored definition of "outdoors" (`World::sky_surface`).
+    ///
+    /// Read by `fire::try_phase_change` to decide where a condensing gas's
+    /// water goes: a plume in the open hands it to the sky
+    /// (`MaterialDef::condenses_into_sky`), one sealed in a cave leaves a
+    /// liquid cell where it stood. `Reports/open-bugs-handoff.md` §4b is
+    /// why this is a stored answer and not a scan — every attempt to infer
+    /// it from the shape of the world was wrong in a new way.
+    ///
+    /// One `Vec` index for `World`; `ChunkView` answers from the same slice
+    /// through its own `&World`, so neither driver pays for a lookup.
+    fn is_outdoors(&self, x: i32, y: i32) -> bool;
+
+    /// Hand `fill` units of water (on `material::LIQUID_FULL`'s 0..1000
+    /// scale) to `World::atmospheric_bank` — the same credit half of the
+    /// outer cycle `evaporation::tick` uses, reached from inside the CA
+    /// sweep instead.
+    ///
+    /// `World` credits immediately; `ChunkView` accumulates privately and
+    /// `run_pass` merges, the same queue-and-replay shape as
+    /// `count_phase_event`. The worker tally is in **whole fill units**
+    /// rather than cell-equivalents so the merge is an integer sum and a
+    /// pass cannot lose a fraction of a cell to float ordering.
+    fn credit_atmosphere(&mut self, fill: u16);
+
     /// Schedule a new M16 active site (`decay.rs`'s ash → soil check is the
     /// first caller reached from inside a generic CA rule, but the seam is
     /// general). Only `World` owns the active-site heap, so `ChunkView`

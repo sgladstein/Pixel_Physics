@@ -528,6 +528,7 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
     let cooling_point = material.cooling_point;
     let cools_into = material.cools_into;
     let freeze_min_fill = material.freeze_min_fill;
+    let condenses_into_sky = material.condenses_into_sky;
     let from_kind = material.kind;
     // `material`'s borrow ends here, before `transform` needs `&mut surface`.
 
@@ -566,6 +567,53 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
                     transform(surface, x, y, cell, into);
                     surface.count_phase_event(PhaseEvent::Froze);
                 }
+            } else if condenses_into_sky && surface.is_outdoors(x, y) {
+                // **Condensation in the open air goes to the sky, not to a
+                // cell.** Reported from live play against a lava pour: the
+                // plume "rises about 5 ft in the air and then drops back
+                // into rain... it almost looks like bouncing because it
+                // goes up and down so fast."
+                //
+                // It was not a rate problem and not a height one. Measured
+                // on `filmstrip scene=lavapour`, whose plume census prints
+                // the standing state the cumulative `boiled`/`condensed`
+                // counters cannot: at the peak of the pour, **140 water
+                // cells standing in the air**, spread through the plume's
+                // whole 40-row height rather than pooled at its top. Every
+                // one was condensate on the way back down *through* the
+                // steam still rising — and a falling `Liquid` displaces a
+                // `Gas` (`update::try_move`), so each droplet shoved steam
+                // cells downward on its way. That is the bouncing itself,
+                // not merely its cause, and it is why the complaint reads
+                // as the *steam* going up and down when a `Gas` has no
+                // downward move at all.
+                //
+                // Water that reaches open air has left the world's cells;
+                // what happens to it after that is weather. So it is
+                // credited to `World::atmospheric_bank` — the same place
+                // `evaporation::tick` puts a dried puddle — and comes back
+                // when a front does. `water_equivalents(world) +
+                // atmospheric_bank` is unchanged to the unit, which is the
+                // invariant `weather.rs` asserts and `filmstrip`'s census
+                // prints under every tile.
+                //
+                // **Outdoors only, and that is what keeps the sealed cases
+                // intact.** A steam pocket in a cave, a chamber with a
+                // stone ceiling (`filmstrip scene=boil`), a boil under a
+                // roof someone built: all still condense into water exactly
+                // where they stood, because `is_outdoors` answers from the
+                // frozen `World::sky_surface` rather than from the shape of
+                // the world around the cell. `Reports/open-bugs-handoff.md`
+                // §4b records four attempts to infer that distinction and
+                // why every one of them was wrong.
+                //
+                // Still a `Condensed` event: it condensed. What changed is
+                // where the water went, and a counter that stopped ticking
+                // would hide the mechanism from the one census that can see
+                // it fire.
+                surface.credit_atmosphere(super::update::liquid_fill(*cell));
+                *cell = Cell::EMPTY;
+                surface.count_phase_event(PhaseEvent::Condensed);
             } else {
                 // Condensation (and any other downward transition), ungated:
                 // a steam cell held at its threshold reads as stuck to the

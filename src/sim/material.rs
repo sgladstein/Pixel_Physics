@@ -567,6 +567,46 @@ pub struct MaterialDef {
     #[serde(default)]
     pub floats: bool,
 
+    /// Whether this gas, condensing with **open sky above it**, hands its
+    /// water to `World::atmospheric_bank` instead of leaving a liquid cell
+    /// where it stood.
+    ///
+    /// Reported from live play: lava dropped into a pond boils, "rises
+    /// about 5 ft in the air and then drops back into rain... it almost
+    /// looks like bouncing because it goes up and down so fast." Measured
+    /// on `filmstrip scene=lavapour`, which reproduces it: at the peak of
+    /// the pour the plume held **140 water cells standing in the air**,
+    /// spread through its whole 40-row height rather than sitting at its
+    /// top. Every one of them was condensate on its way back down through
+    /// the steam that was still rising — and a falling `Liquid` displaces
+    /// a `Gas`, so the droplets pushed steam *down* as they went, which is
+    /// the "bouncing" itself and not merely its cause.
+    ///
+    /// A plume that reaches open air has left the world's cells: what
+    /// happens to it next is weather, which is what the bank is. Crediting
+    /// it there keeps `water_equivalents(world) + atmospheric_bank`
+    /// exactly conserved (the invariant `weather.rs` and `filmstrip`'s
+    /// census already print), and the water comes back as rain when a
+    /// front does, instead of two seconds later onto the pool it left.
+    ///
+    /// **Opt-in and `false` by default**, on `floats`'s precedent above and
+    /// for the same reason: no material that does not ask for it can change
+    /// behaviour. It is also a correctness gate rather than a taste one —
+    /// the bank is denominated in *water* cell-equivalents
+    /// (`World::credit_atmosphere`), so a second condensing gas would need
+    /// the density ratio `fire::melt_fill` already carries before it could
+    /// set this. Today exactly one material does (`steam.ron`).
+    ///
+    /// **"Open sky" is the frozen `World::sky_surface`, not a scan.** A
+    /// steam pocket sealed in a cave still condenses into water where it
+    /// stands, which is what `fire.rs`'s sealed-pocket guard asserts and
+    /// what a boil under a roof should do. `Reports/open-bugs-handoff.md`
+    /// §4b records four separate attempts to *infer* that distinction from
+    /// the shape of the world, each wrong in a new way; the stored answer
+    /// is one `Vec` index.
+    #[serde(default)]
+    pub condenses_into_sky: bool,
+
     /// How much further this material spans when it is part of the
     /// background mass (`Cell::attached`) rather than standing in front of
     /// it: `effective_span = max_unsupported_span * this` for attached
@@ -816,6 +856,8 @@ pub struct Material {
     pub max_unsupported_span: u16,
     /// See `MaterialDef::floats`.
     pub floats: bool,
+    /// See `MaterialDef::condenses_into_sky`.
+    pub condenses_into_sky: bool,
     /// See `MaterialDef::attached_span_bonus`. Always >= 1.
     pub attached_span_bonus: u16,
     /// See `MaterialDef::fragment_rungs`. Always >= 1.
@@ -1083,6 +1125,7 @@ impl From<MaterialDef> for Material {
             freeze_min_fill: def.freeze_min_fill,
             max_unsupported_span: def.max_unsupported_span,
             floats: def.floats,
+            condenses_into_sky: def.condenses_into_sky,
             // Floored at 1: 0 would silently make attached rock *weaker*
             // than loose material, which is never what a content author
             // means by leaving a field small.
@@ -1267,6 +1310,7 @@ impl MaterialRegistry {
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
             floats: false,
+            condenses_into_sky: false,
             breaks_into: String::new(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
@@ -1310,6 +1354,7 @@ impl MaterialRegistry {
             // other material's span is.
             max_unsupported_span: u16::MAX,
             floats: false,
+            condenses_into_sky: false,
             breaks_into: String::new(),
             attached_span_bonus: 1,
             fragment_rungs: 5,

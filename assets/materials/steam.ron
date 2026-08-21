@@ -35,6 +35,24 @@
     heat_conductivity: 0.12,
     cooling_point: 45.0,
     cools_into: "water",
+    // **Condensing under open sky hands the water to the atmosphere
+    // instead of dropping it.** Reported from live play against a lava
+    // pour: the plume "rises about 5 ft in the air and then drops back
+    // into rain... it almost looks like bouncing because it goes up and
+    // down so fast". Measured on `filmstrip scene=lavapour`, the plume held
+    // 140 water cells standing in the air at the peak of the pour, spread
+    // through its whole height -- condensate falling back *through* the
+    // steam still rising, shoving it downward as it went (a falling Liquid
+    // displaces a Gas), which is the bouncing itself.
+    //
+    // Steam that reaches open air has left the world's cells; what happens
+    // to it next is weather. The fill goes to `World::atmospheric_bank`,
+    // the same place a dried puddle goes, and comes back when a front does.
+    // Conservation is exact -- see `MaterialDef::condenses_into_sky`.
+    //
+    // Indoors is unchanged: a pocket sealed in a cave, or the chamber in
+    // `filmstrip scene=boil`, still condenses into water where it stands.
+    condenses_into_sky: true,
     // **Tried and reverted: direct-contact condensation** -- a
     // `(with: "water", produces: ("water", "water"))` reaction here, so a
     // steam bubble touching subcooled water collapses into it the way real
