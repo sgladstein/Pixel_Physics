@@ -1008,17 +1008,33 @@ pub fn water_equivalents(w: &World) -> f64 {
             let cell = w.get(x, y);
             let m = w.materials.get(cell.material);
             match m.kind {
-                // Water itself, and anything else that freezes.
-                MaterialKind::Liquid if m.cooling_point.is_finite() => {
-                    total += crate::sim::update::liquid_fill(cell) as f64 / full * (m.density as f64 / water_density);
-                }
-                // Steam and anything else that condenses back.
-                MaterialKind::Gas if m.cools_into.is_some() => {
+                // Water itself. **Identity, not "any liquid that freezes"**
+                // — which is what this arm asked before, and it counted
+                // *lava* as water at 2.7 cell-equivalents each, because
+                // `lava.ron` has a finite `cooling_point` (700C, where it
+                // crusts to stone) exactly as water has one at 0C. The
+                // predicate was written when water was the only liquid with
+                // a phase below it and was true for the whole of that
+                // period; lava made it wrong and nothing noticed, because
+                // no conservation test had lava in it.
+                //
+                // It is not a small error. On `filmstrip scene=lavapour`
+                // the ledger printed under each tile fell by ~1,530
+                // cell-equivalents over 300 frames with no water going
+                // anywhere at all — 647 lava cells crusting, at 2.7 apiece
+                // — so the one line that is supposed to *be* the
+                // conservation law read as a leak on every scene with lava
+                // in it. Found while verifying a change against it.
+                MaterialKind::Liquid if cell.material == material::WATER => {
                     total += crate::sim::update::liquid_fill(cell) as f64 / full;
                 }
-                // Ice, snow — a whole cell of a solid or powder phase, worth
-                // its own density in water.
-                MaterialKind::Solid | MaterialKind::Powder if m.melts_into.is_some() => {
+                // Steam and anything else that condenses *back into water*.
+                MaterialKind::Gas if m.cools_into == Some(material::WATER) => {
+                    total += crate::sim::update::liquid_fill(cell) as f64 / full;
+                }
+                // Ice, snow — a whole cell of a solid or powder phase that
+                // melts *into water*, worth its own density in water.
+                MaterialKind::Solid | MaterialKind::Powder if m.melts_into == Some(material::WATER) => {
                     total += m.density as f64 / water_density;
                 }
                 _ => {}
