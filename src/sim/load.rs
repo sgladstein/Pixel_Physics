@@ -148,7 +148,44 @@ const MAX_SUBTREE_CELLS: usize = 8192;
 /// CA sweep its room. Raising it is the first thing to try if collapses
 /// feel sluggish, and indexing the chunk directly instead of going through
 /// `World::get` is what would make it affordable to.
-pub const MAX_LOAD_CELLS_PER_FRAME: u32 = 12_000;
+///
+/// # Raised 12,000 -> 20,000, and what that bought
+///
+/// The quench-crust work made failing regions much larger (mean 1.7 cells
+/// -> 6.0 on `scene=lavadrop`), and a bigger region costs proportionally
+/// more per walk, so the same budget buys fewer checks. On the worst case
+/// for that -- `scene=lavalake`, a 21,492-cell basin solidifying from the
+/// top -- the queue could not keep up, and a starved check is not a
+/// harmless delay: `is_supported` answers "supported" from an unfinished
+/// search by design, the chain walk reads that as `Holds`, and `Holds` is
+/// what retires a cell from the scheduler. The result was **slabs of rock
+/// hanging in open air over the lake**, visible in the contact sheet.
+///
+/// Swept, one run each at frame 6,000, against the paired cost on
+/// `scene=worked` (the budget-bound acceptance scene, minimum of three
+/// `repeat=3` runs interleaved in one session):
+///
+/// ```text
+/// budget   lake: hanging / clusters / largest plate    worked worst frame
+/// 12,000   422 / 119 / 75                              9.13 ms
+/// 16,000   359 / 114 / 26                             10.34 ms
+/// 20,000    13 /  10 /  2                             11.64 ms
+/// 24,000   215 / 113 / 12                             13.57 ms
+/// ```
+///
+/// **The totals are chaotic in the budget and the plate size is not**, so
+/// the choice is made on the plate: it is the visible quantity, and above
+/// 16,000 the big ones stop appearing. 20,000 is the knee. `scene=ligament`
+/// -- which is not budget-bound -- measures 31.08 against 30.44 ms across
+/// the same change, i.e. nothing, so this is not a cost every scene pays.
+///
+/// **Also tried and reverted: deferring a starved check to the *next*
+/// frame** instead of `STRUCTURAL_TICK_INTERVAL` (5). Sound in principle --
+/// running out of budget is not a wait, and the next frame's budget is
+/// untouched -- and it bought almost nothing: 422 -> 379 hanging, largest
+/// 75 -> 99, at 12.52 -> 14.55 ms on `scene=strike`. The queue is bound by
+/// how much work each frame can do, not by when it is allowed to retry.
+pub const MAX_LOAD_CELLS_PER_FRAME: u32 = 20_000;
 
 /// How far up a support chain a walk will follow before giving up and
 /// calling the cell supported.
@@ -1471,6 +1508,30 @@ pub fn failing_along_support_chain(world: &World, x: i32, y: i32, cache: &mut Ca
         if let Some(failure) = failing_region(world, at.0, at.1, cache, budget) {
             return ChainVerdict::Failing(failure);
         }
+        // **And again *after* the walk, because the walk is what spends
+        // it.** The guard above catches a budget already empty on entry;
+        // this catches one emptied by the `failing_region` on the line
+        // between them, whose `is_supported` answers "supported" from an
+        // unfinished search by design ("never conclude falling from an
+        // unfinished search"). Without this the loop either goes round --
+        // and is caught -- or reaches an anchor and breaks out to `Holds`,
+        // and `Holds` is what stops a cell rescheduling itself. So the last
+        // iteration of a busy frame quietly retired the check.
+        //
+        // Measured on `filmstrip scene=lavalake`, frame 6,000: **497 cells
+        // reaching no anchor and still standing, in 171 clusters, the
+        // largest a 96-cell plate hanging in open air.** Raising
+        // `MAX_LOAD_CELLS_PER_FRAME` from 12,000 to 2,000,000 -- the
+        // control, not the fix -- took the same run to 164 in 112 clusters,
+        // largest 8. The plates were not standing because the model thought
+        // they held; they were standing because it never finished asking.
+        //
+        // Exposed rather than caused by the quench-crust work: bigger
+        // failing regions cost proportionally more per walk, so the same
+        // budget buys fewer checks and the tail of dropped ones grows.
+        if *budget == 0 {
+            return ChainVerdict::Deferred;
+        }
         match support_parent(world, at.0, at.1) {
             Some(parent) => at = parent,
             None => break, // reached an anchor
@@ -1523,6 +1584,59 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63))
+    }
+
+    /// **A walk that spends the last of the frame budget defers; it does
+    /// not report that the rock holds.**
+    ///
+    /// `is_supported` answers "supported" from an unfinished search by
+    /// design -- a 4,000-cell region deciding it is falling is the outcome
+    /// worth being paranoid about -- so a budget emptied *inside*
+    /// `failing_region` produces a `None` that is indistinguishable from a
+    /// genuine pass. The guard at the top of the loop only catches a budget
+    /// that was already empty on entry, so the last iteration of a busy
+    /// frame reached the `Holds` at the bottom, and `Holds` is what retires
+    /// a cell from the scheduler for good.
+    ///
+    /// Seen as rock left standing in open air: `filmstrip scene=lavalake`
+    /// at frame 6,000 held 497 cells reaching no anchor, in 171 clusters,
+    /// the largest a 96-cell plate in the sky -- and the same run with the
+    /// budget effectively unlimited held 164 in 112 clusters, largest 8. It
+    /// was a starved queue, not a verdict.
+    ///
+    /// A budget of 1 is the smallest thing that reproduces it: non-zero, so
+    /// the entry guard passes, and gone before the support search finishes.
+    #[test]
+    fn a_walk_that_runs_out_of_budget_defers_rather_than_reporting_holds() {
+        let mut w = test_world();
+        // A blob in open air with nothing under it: genuinely unsupported,
+        // so the only way to reach `Holds` is by giving up early.
+        for x in 20..30 {
+            for y in 20..24 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        structural::compute_world_distances(&mut w);
+
+        let mut cache = Cache::default();
+        let mut generous = u32::MAX;
+        assert!(
+            matches!(failing_along_support_chain(&w, 25, 22, &mut cache, &mut generous), ChainVerdict::Failing(_)),
+            "the blob is unsupported and must fail outright when there is room to find out"
+        );
+
+        let mut cache = Cache::default();
+        let mut starved = 1u32;
+        let verdict = failing_along_support_chain(&w, 25, 22, &mut cache, &mut starved);
+        assert!(
+            matches!(verdict, ChainVerdict::Deferred),
+            "a walk with one cell of budget reported {} -- Holds retires the check and the rock stands forever",
+            match verdict {
+                ChainVerdict::Holds => "Holds",
+                ChainVerdict::Failing(_) => "Failing",
+                ChainVerdict::Deferred => "Deferred",
+            }
+        );
     }
 
     /// A roof over a **small** opening owes a shorter arm than the same

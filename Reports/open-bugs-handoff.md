@@ -332,6 +332,39 @@ the run and a worst frame of 122 ms. A molten core sealed inside its own
 crust has no path to lose heat, which is arguably right and is certainly
 expensive: a large enough lava body is a permanent tax on the frame.
 
+### 1e-bis. ~~Slabs of rock hanging over a solidifying lava lake~~ — **FIXED, and the cause was the frame budget**
+
+Kept because the *shape* of it will recur. `scene=lavalake` at frame 6,000
+held **497 cells reaching no anchor, in 171 clusters, the largest a 96-cell
+plate in open air** — plainly visible in the contact sheet, and three times
+the pre-quench-crust baseline of 151 in 112 clusters, largest 8.
+
+Not a verdict. `is_supported` answers "supported" from an unfinished search
+by design, so a `MAX_LOAD_CELLS_PER_FRAME` emptied *inside*
+`failing_region` produced a `None` the chain walk read as `Holds` — and
+`Holds` is what retires a cell from the scheduler for good. The control was
+one line: the same run with the budget at 2,000,000 read 164 in 112
+clusters, largest 8.
+
+Two fixes, and the split matters:
+
+- `failing_along_support_chain` now checks the budget **after** each
+  `failing_region` as well as before it, so a walk that spends the last of
+  it defers instead of retiring the check. 497 → 422 on its own.
+- `MAX_LOAD_CELLS_PER_FRAME` 12,000 → 20,000, which is where the plates
+  actually stop: largest 75 / 26 / 2 / 12 at 12k / 16k / 20k / 24k. Costs
+  `scene=worked` 9.13 → 11.64 ms and `scene=ligament` nothing at all.
+
+**The totals are chaotic in the budget and the plate size is not** — 24k
+reads *worse* than 20k on the total and better than 12k on the plate. Judge
+this scene on the plate.
+
+Tried and reverted: deferring a starved check to the next frame rather than
+`STRUCTURAL_TICK_INTERVAL`. Right in principle, bought 422 → 379 with the
+largest plate going the wrong way (75 → 99), and cost `scene=strike` 12.52 →
+14.55 ms. The queue is bound by how much work a frame can do, not by when a
+check is allowed to retry.
+
 ### 1e. One cell in a lava pour is still left hanging, and the route is unknown
 
 `filmstrip scene=lavapour` settles at **one** stone cell at (303,250),
