@@ -232,3 +232,67 @@ the ceiling of a cave nobody can walk into decorates the wrong problem.
 *(Write here when a spec above does not survive contact with the code. One
 entry per surprise, with the numbers. A finding is a success, not a
 failure.)*
+
+### A6-1 — Round 5's code never merged; only its review docs did, and A0's named functions do not exist
+
+Before touching anything, `git merge-base --is-ancestor` against every
+round-5 task commit (`b499b8e` task 1 through `3f5568d` task 5) said **not
+an ancestor** of this branch's base
+(`origin/claude/game-world-gen-planning-h12713`), and `src/worldgen/passes.rs`
+has no `settle_cave_void`, `erode_breaches` or `grow_monumental_chamber` —
+none of round 5's six tasks landed in `passes.rs`. Only the *review*
+commits did (`1e2e38c` "Round 5 met its bars...", `3c540c4` "The round-5
+cave is 0% reachable...", both doc-only). `CAVE_CELL`/`CAVE_THRESHOLD`/
+`CAVE_SQUASH` read **52.0 / 0.34 / 2.0** — the pre-round-5 values verified
+by `cave_probe` below, not round 5's task-2 retune (22.0 / 0.09 / 1.2). This
+is exactly CLAUDE.md's revert convention working as designed (*"a revert
+keeps the knowledge... not the pre-fix baseline"*) applied at branch scope:
+the round-5 verdict said the round made the cave worse, so its code was
+withdrawn while the write-up that explains *why* was folded in for this
+round to read. It means every task below starts from the round-3/4
+baseline, not from round 5's (rejected) retuning — confirmed against
+`cave_probe`'s own numbers, which match the round-5 doc's "before" column
+exactly (reachable 70/70/76/75/64%, median open column 30, contrast
+p95/med ~2.0x, "worlds with none" arid 13/16 canyon 11/16 wetland 7/16).
+
+**Consequence for A0**: the task's cost model — "`settle_cave_void` drops
+one tooth per outer iteration... at 5x the area that is ~25x the settle
+cost" — describes a mechanism that isn't in this codebase. What exists is
+one inline fixpoint `loop` inside `carve_cave_void` (component-keep +
+ceiling-guard) and one single-pass seal-check loop inside `cave_system`
+(no repeated `World::get`, so trap 3's "stone mask" fix has nothing to
+apply to). A0 below targets that loop directly — see the commit — and
+gives it the two named entry points (`all_long_ceiling_runs`, still called
+from `carve_cave_void`) the task expected, so A2 has real functions to
+thread `CaveSize` through.
+
+**Measured, not assumed: at this codebase's actual tuning, the settle loop
+is not the bottleneck the task predicted, at any envelope size tried.**
+Instrumented the outer loop with a round/tooth counter and swept both the
+shipped envelope (90x35 half-extents) and a temporary 200x80 (400x160,
+approximately A2's own upper bound) over the full 16-seed x 7-preset
+sweep: **max 2 rounds, max 3 teeth total, at either size** — nowhere near
+the "5x area, 25x teeth" the task's back-of-envelope arithmetic predicted,
+because `MAX_CEILING_SPAN = 36` bounds any *one* run regardless of
+envelope width and a violation is a rare event at this lattice tuning, not
+one proportional to area. Head-to-head timing (batched-teeth vs. the old
+one-tooth-per-round loop, same instrumentation, same build) at 400x160:
+**11.6ms vs 12.0ms mean over 6 systems** — a wash, inside run-to-run noise.
+The batching change is still landed (it is strictly no worse, it is what
+the task asked for, and it removes a real quadratic-*shaped* hazard that
+just happens not to be loaded today), but its measured benefit right now
+is zero, not the large win the task's arithmetic implied. If A2's own
+retuning of `CAVE_CELL`/`CAVE_THRESHOLD` (A1) or `MAX_CEILING_SPAN` (A2's
+own trap 4) later makes long-ceiling violations common, re-measure before
+claiming this fix is what saved the frame budget.
+
+**A2's `grow_monumental_chamber` does not exist to thread a size through.**
+Round-3/4's "chamber" is a column-run census over the void the floor/
+waterline logic already computed (`chamber_col`, `chambers`,
+`chamber_floors` in `cave_system`) — there is no growth mechanism that
+carves anything beyond the Worley field itself. Round 5's task 3 added
+one and it was reverted with the rest of round 5. A2 as written asks to
+thread `CaveSize` through a function that is not there; when A2 is
+reached, building chamber growth (or deciding not to) is new construction
+under A2's own budget, not a rename of existing code.
+
