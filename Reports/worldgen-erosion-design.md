@@ -386,6 +386,34 @@ can host the whole range the owner named; it currently hosts none of it.
    the ellipse is drawn. Three independent shrinks, none of them
    required.
 
+### Owner directive on the formation distribution (2026-08-20)
+
+Ruled when the scale question was put: **full spread, weighted small — and
+it varies by biome.** In the owner's words: *"some should have large, some
+small, some mixed, some round boulders, some angular, the real world
+variability."*
+
+Two consequences that are not restatements of each other:
+
+- **The size distribution is heavy-tailed with no separate "rare" tier.**
+  Not "common 5-10 ft plus a rare 40 ft landmark" — one continuous draw
+  from ~12 cells to ~120, weighted toward the small end, which is the
+  shape talus-and-tor country actually has. Harder to tune than a two-tier
+  scheme and the right target.
+- **The distribution's *parameters* are a regional property, not a global
+  constant.** One country is boulder-strewn and coarse, the next has a few
+  monuments and bare ground between them, the next is smooth. That is the
+  `Character` vector's job and it is the same directive as the world
+  review's §6 Q5 (regions become the biomes) arriving at rock formations:
+  a preset must not decide this and a global constant certainly must not.
+  Shape belongs to the same treatment — a region whose rock weathers
+  round should not also be producing angular frost-shattered piles.
+
+So a formation spec that ships one global size draw has missed the
+directive even if the sizes are right, and the acceptance test is a strip
+across regions showing visibly different rock country, not a histogram
+from one world.
+
 **On shape variety**, the other half of the push-back: there is one
 shape today, an ellipse. The variety should come from where the sizes
 come from — the process and the rock. The `HardnessField` already knows

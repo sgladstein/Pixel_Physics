@@ -273,6 +273,74 @@ pub fn generate_reported(world: &mut World, spec: Spec) -> Vec<(&'static str, us
     }
 }
 
+/// Names of the generation passes, in order — the ablation harness's
+/// vocabulary.
+///
+/// Exposed so `examples/pass_ablation.rs` can name a pass to skip without
+/// duplicating the table. Duplicating it was the first design and it is the
+/// wrong one: a harness carrying its own copy of the pass list goes stale
+/// silently the moment a pass is added or reordered, and an ablation run
+/// against a stale list reports interference between the wrong pair.
+pub fn pass_names() -> Vec<&'static str> {
+    PASSES.iter().map(|p| p.name).collect()
+}
+
+/// Generate with one pass switched off, reporting what every *other* pass
+/// wrote.
+///
+/// **The instrument for pass interference, which is this generator's
+/// recurring defect class.** Five separate times a shipped mechanism has
+/// been found producing nothing visible because an earlier pass had already
+/// taken the cells it wanted, and every one of them was found by accident,
+/// one per round: `pockets` lenses rejecting whole cave systems, `brows`
+/// lips refusing boulder domes (round-4 finding R4-1), `soil_blanket`
+/// folding erosion's talus in before the legacy talus pass could add its
+/// own (R4-2), `brows` roofing water that `ponds` then filled from both
+/// sides (R4-3, open bug 0), and plan-space erosion flattening the
+/// formation-scale relief the raw heightfield had
+/// (`worldgen-erosion-design.md`). None of those is visible in a pass's own
+/// cell count, because each pass reports only what *it* wrote — a pass that
+/// wrote nothing because its cells were taken looks exactly like a pass
+/// whose noise draw came up empty.
+///
+/// Differencing the whole report vector across an ablation makes the
+/// interaction a number: if switching off `brows` raises what `boulders`
+/// writes, `brows` was eating boulders, and the size of the rise is how
+/// much. Genesis-only and read-only — nothing here runs per frame.
+///
+/// `skip` names a pass from [`pass_names`]; an unknown name is a caller
+/// error and panics rather than silently ablating nothing, because "no
+/// interference detected" and "the ablation never happened" are the same
+/// output otherwise.
+pub fn generate_ablated(
+    world: &mut World,
+    spec: Spec,
+    skip: &str,
+) -> Vec<(&'static str, usize)> {
+    match spec {
+        Spec::Legacy => {
+            legacy::build(world);
+            Vec::new()
+        }
+        Spec::Generated { params, seed } => {
+            assert!(
+                skip.is_empty() || PASSES.iter().any(|p| p.name == skip),
+                "no pass named {skip:?}; the table has {:?}",
+                pass_names()
+            );
+            world.seed = seed;
+            let ctx = Ctx::new(world, params, seed);
+            PASSES
+                .iter()
+                .map(|pass| {
+                    let wrote = if pass.name == skip { 0 } else { (pass.run)(&ctx, world) };
+                    (pass.name, wrote)
+                })
+                .collect()
+        }
+    }
+}
+
 /// Material placement only, without the structural pass.
 ///
 /// Split out so `examples/ascii.rs` can time the two halves separately and
