@@ -1,0 +1,35 @@
+{
+  "id": "20260821T065648709Z-c72adc",
+  "created": "2026-08-21T06:56:48Z",
+  "board": "water",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "8b96a81",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Freeze creep on a wide pond",
+  "question": "Does the ice arriving read as a sheet creeping out from the shores, or as the pond going white all at once?",
+  "context_md": "`filmstrip scene=coldsnap pond=300` -- five times the width the acceptance case uses, which is where the creep is supposed to be legible. Frames 180 through 1180, reading left to right then down.\n\nNothing here is scripted: the cold is the weather system acting on the world the way it does in the app, the freeze is water's own cooling point, and the thaw is the *absence* of the storm. `ice.ron`'s `max_unsupported_span` is 48, swept on the 60-wide pond -- and outcomes there were **not monotone in width** (0 failures at 30, 60, 300 and 460 cells, but 4 overloads at 120 and 2 overloads plus 41 unsupported at 240), so 300 is one sample of a jumpy distribution rather than a representative one.\n\nThe one thing I would like your eye on specifically: whether the sheet arrives fast enough to read as weather doing it, or slowly enough to read as a bug.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "coldsnap pond=300",
+      "files": [
+        "20260821T065648709Z-c72adc/000-ice300.png"
+      ],
+      "caption": "frames 180-1180",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
