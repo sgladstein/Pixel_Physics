@@ -831,45 +831,66 @@ const VUG_CHANCE: f32 = 0.25;
 /// per-candidate-column chance at full ceiling height (the smoothstep over
 /// the open span makes tall chambers -- drip height -- much denser than low
 /// passages), the crystal minority, and how often a formation is a paired
-/// stalactite-over-stalagmite almost meeting -- the postcard shot.
-const SPELEO_DENSITY: f32 = 0.30;
+/// stalactite-over-stalagmite.
+///
+/// **Round 6's A3 roughly halves this from round 5's 0.30**, landed
+/// together with the spacing and width constants below because the fix the
+/// owner asked for -- *"fewer... but thicker"* -- is a budget reallocation,
+/// not a density dial alone: round 5 measured 29-40/system by spending
+/// everything on count; A3 spends less on count (target 12-20/system) so
+/// there is width budget for the taper below without exceeding it.
+const SPELEO_DENSITY: f32 = 0.19;
 const SPELEO_CRYSTAL: f32 = 0.15;
+/// Chance a placement is a stalactite-over-stalagmite pair rather than a
+/// single stalactite or stalagmite. Round 5 forced the pair's two halves to
+/// stop just short of touching (`SPELEO_PAIR`'s "almost meeting" gap-shrink,
+/// removed in round 6's A3 below); this constant, which only decides *how
+/// often* a placement is a pair at all, is unchanged.
 const SPELEO_PAIR: f32 = 0.25;
 
 /// Round-5 task 4b: the fixed `SPELEO_SPACING = 4` this replaces enforced
 /// *even* spacing everywhere, which is precisely the "reads as a comb"
 /// artefact the beauty review named -- the opposite of drip concentration.
-/// The minimum gap between candidate columns is now driven by
+/// The minimum gap between candidate columns is driven by
 /// [`noise::value_1d`] on `Purpose::Drip`, a low-frequency field sampled
 /// every [`DRIP_SCALE`] cells: in a wet stretch the gap shrinks to
 /// [`SPELEO_SPACING_MIN`], letting formations bunch; in a dry one it grows
-/// to [`SPELEO_SPACING_MAX`], leaving the stretch close to bare. The floor
-/// stays a hard 2 regardless of how wet a stretch reads -- two formations
-/// one column apart can still read as merged into a single wall (measured:
-/// dropping it to 1 *reduced* the counted total, because the 2-wide
-/// secondary taper then reached into the one clear column between
-/// neighbours and merged them into a shape with no free-standing face at
-/// all), which is the "keep a minimum of 1-2 columns" the task asks for.
-/// The same reasoning gates the secondary taper off entirely below a gap
-/// of 4: it is a cosmetic width variation, not worth the merge risk in a
-/// tight cluster.
+/// to [`SPELEO_SPACING_MAX`], leaving the stretch close to bare.
 ///
-/// **`SPELEO_SPACING_MAX` measured down from a literal reading, not
-/// guessed.** The bar is 60 free-standing formations/system (from 17);
-/// `cave_probe`'s own silhouette test only counts a column as one formation
-/// if *both* neighbours are void, so a cluster has to stay just loose
-/// enough to keep each member individually free-standing while packing as
-/// many in as it can. Un-throttled dry stretches (`SPELEO_SPACING_MAX`
-/// near the envelope's own width) left most of a system's length
-/// contributing nothing, measuring 27-38/system; loosening the dry ceiling
-/// to 14 -- still an order of magnitude sparser than the wet floor of 2 --
-/// raised it to 35-45/system without moving the height bars (p50 stays at
-/// the task-4a ceiling of 3, p90 18-19, well inside both). 60 was not
-/// reached; see the round-5 task file's finding for the honest number and
-/// what was tried.
-const SPELEO_SPACING_MIN: i32 = 2;
-const SPELEO_SPACING_MAX: i32 = 14;
+/// **Round 6's A3 raises both floors.** Round 5's floor was a hard 2,
+/// tuned so a 1-2 wide secondary taper could not reach across the gap and
+/// merge two neighbours into one wall. A3's base width
+/// ([`SPELEO_WIDTH_MIN`]..[`SPELEO_WIDTH_MAX`]) is a real cone reaching up
+/// to 4 cells either side of its own centre, so the same merge risk now
+/// needs a wider floor to guarantee against -- every footprint's half-width
+/// is clamped to `(min_spacing - 1) / 2` at the write site
+/// (`carve_cave_void`'s speleothem block) precisely so two neighbouring
+/// footprints can never touch, by construction, rather than by a
+/// fully-covered-run check after the fact (round 5's approach, removed:
+/// see the block's own comment for why it no longer has a job). Raising
+/// the floor from 2 to 6 and the ceiling from 14 to 26 is also most of how
+/// A3 buys back "fewer": count, spacing and width are the same knob spent
+/// three ways, and this task spends more of it on spacing/width than round
+/// 5 did, per the owner's explicit instruction to spend the budget on size
+/// rather than count now that formations are scenery and cost nothing in
+/// walkability.
+const SPELEO_SPACING_MIN: i32 = 9;
+const SPELEO_SPACING_MAX: i32 = 28;
 const DRIP_SCALE: f32 = 40.0;
+
+/// Base width of a formation's cone, in cells, drawn per placement --
+/// round 6's A3, replacing round 5's "a minority go two cells wide, the
+/// secondary column shorter", which the owner read correctly as one step,
+/// not a taper (*"they are all 1 pixel thick. They should have a taper and
+/// be thicker"*). Every formation with a bottommost run draws a width in
+/// this range (not a minority chance -- "thicker" means most of them, not
+/// some of them) and gets a real cone: height falls off linearly with
+/// distance from centre, reaching the drawn base width only at the very
+/// foot and narrowing to the ordinary 1-wide trunk at the tip. Clamped
+/// against [`SPELEO_SPACING_MIN`]/`MAX` at the write site so no footprint
+/// can ever reach a neighbour's.
+const SPELEO_WIDTH_MIN: i32 = 3;
+const SPELEO_WIDTH_MAX: i32 = 8;
 
 /// Round-5 task 5: how many cells below the waterline a column's floor may
 /// sit and still be a candidate -- too far below and a stalagmite would
@@ -907,6 +928,15 @@ struct VaultReport {
     passage_cells: usize,
     speleothem_cells: usize,
     water_cells: usize,
+    /// Every formation's drawn base width, in cells (round 6, A3).
+    ///
+    /// `cave_probe` has no width instrument -- its formation test only ever
+    /// recognises a column with void on *both* immediate flanks, which a
+    /// wide cone's own base rows fail by construction (see finding A3-1) --
+    /// so this is the only place the "median base width >= 3, range 3-8"
+    /// bar can be read from directly, off the true values this pass wrote
+    /// rather than a re-derivation through a ruler blind to the quantity.
+    formation_widths: Vec<i32>,
     /// Wall time of the whole `vaults` pass, in milliseconds (round 6, A0).
     ///
     /// Nothing measured this before: the pass table's cell count says
@@ -1005,6 +1035,7 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
             report.passage_cells += r.passage_cells;
             report.speleothem_cells += r.speleothem_cells;
             report.water_cells += r.water_cells;
+            report.formation_widths.extend(r.formation_widths);
             continue;
         }
 
@@ -1202,13 +1233,29 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
     // rejection-heavy worlds this number exists to catch.
     report.build_ms = t0.elapsed().as_secs_f64() * 1000.0;
     if whole + extra > 0 {
+        // Formation base widths (round 6, A3): median and range, read off
+        // this pass's own writes rather than `cave_probe` -- see
+        // `VaultReport::formation_widths`'s own comment for why the probe
+        // cannot see this quantity at all.
+        let (w_med, w_lo, w_hi) = if report.formation_widths.is_empty() {
+            (0, 0, 0)
+        } else {
+            let mut ws = report.formation_widths.clone();
+            ws.sort_unstable();
+            (ws[ws.len() / 2], ws[0], ws[ws.len() - 1])
+        };
         println!(
-            "  vaults detail: systems {} chambers {} passages {} speleothems {} water {} | {:.1}ms",
+            "  vaults detail: systems {} chambers {} passages {} speleothems {} water {} \
+             | formations {} base-width med {} range {}-{} | {:.1}ms",
             report.systems,
             report.chambers,
             report.passage_cells,
             report.speleothem_cells,
             report.water_cells,
+            report.formation_widths.len(),
+            w_med,
+            w_lo,
+            w_hi,
             report.build_ms
         );
     }
@@ -1951,22 +1998,47 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     };
 
     // ---- speleothems: the wonder, grown after the void is cut ----
-    // Stalactites from ceilings, stalagmites from floors, 1-2 cells wide and
-    // tapering (the secondary column is shorter, so the root is the wide
-    // end), a crystal minority, and the occasional pair almost meeting.
-    // Placed on the bottommost run per column -- the galleries the floors
-    // are in -- *after* the floor verifier, because adding attached solid
-    // can only ever add support, never take it away, so the verified gravel
-    // stays verified. A stalagmite is written from the *stone* under the run
+    // Stalactites from ceilings, stalagmites from floors, a crystal
+    // minority, and the occasional pair.
+    //
+    // **Round 6's A3 rebuild.** Owner, verbatim, on round 5's output: *"they
+    // are all 1 pixel thick. They should have a taper and be thicker but
+    // fewer of them"*, and the cave is *"totally full of stuff"*. Round 5's
+    // one concession to width -- a minority of formations grew a single
+    // secondary column, shorter, beside the trunk -- was read correctly as
+    // a rectangle with one step, not a taper, and was deliberately not
+    // relaxed further in Phase 0 until this task landed the taper that
+    // makes doing so safe. Below: every formation with a bottommost run
+    // draws a real base width ([`SPELEO_WIDTH_MIN`]..[`SPELEO_WIDTH_MAX`])
+    // and a continuous cone -- not a chance of one extra column -- and
+    // [`SPELEO_DENSITY`]/[`SPELEO_SPACING_MIN`]/`MAX` are retuned together
+    // so the count drops enough to spend on that width. Placed on the
+    // bottommost run per column -- the galleries the floors are in --
+    // *after* the floor verifier, because adding attached solid can only
+    // ever add support, never take it away, so the verified gravel stays
+    // verified. A stalagmite is written from the *stone* under the run
     // upward through any gravel over it: "structurally trivial, rooted in
     // the massif" means rooted on rock, not standing on loose fill.
     //
-    // A formation must never bridge floor to ceiling -- a column splits the
-    // passage the player walks -- so every placement leaves at least two
-    // open rows in its column, except a pair, which closes to a drawn gap
-    // of one or two on purpose.
+    // **A formation may now bridge floor to ceiling.** The old rule --
+    // never bridge, because a column splits the passage the player walks
+    // -- predates Phase 0's `Material::scenery`: `flowstone`/`spar` are
+    // scenery now, the player walks through one, and a column blocks
+    // nothing regardless of where it stands. `SPELEO_PAIR`'s "almost
+    // meeting" gap-shrink existed only to enforce the old rule for a pair,
+    // and is gone below; a pair now closes all the way when the heavy-tailed
+    // draw takes it there, which is the one shape a cave photograph is
+    // built on. The only remaining constraint on any half's length is
+    // physical -- it cannot exceed the open span it is drawn into.
     let mut speleo = vec![0u8; (CAVE_GRID_W * CAVE_GRID_H) as usize]; // 0 none, 1 stone, 2 crystal
     let mut speleo_cells = 0usize;
+    // Base-width census for `VaultReport` below. `cave_probe` has no width
+    // instrument of its own -- its formation silhouette test only ever
+    // recognises a column with void on *both* immediate flanks, so a wide
+    // cone's base rows are invisible to it by construction (see the
+    // A3-1 finding) -- so this pass grades its own homework instead of
+    // asking a ruler that cannot see the quantity.
+    let mut widths: Vec<i32> = Vec::new();
     {
         let mut last: Option<i32> = None;
         for i in 0..floor.len() {
@@ -2102,10 +2174,10 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                     0
                 };
                 if pair {
-                    // Almost meeting: shrink the longer half until the
-                    // drawn one-or-two-cell gap fits.
-                    let gap = 1 + (noise::unit(seed, Purpose::Speleothem, px, ry + 5) * 2.0) as i32;
-                    while lt + lg + gap > span {
+                    // Round 6's A3: no forced gap any more (see this
+                    // block's own header comment) -- shrink only as far as
+                    // physically necessary to fit inside the open span.
+                    while lt + lg > span {
                         if lt >= lg {
                             lt -= 1;
                         } else {
@@ -2134,69 +2206,123 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                 for y in (fs - lg + 1)..=b {
                     put(dx, y);
                 }
-                // A minority go two cells wide, the secondary column
-                // shorter -- the taper that makes the root the wide end.
-                // Only where the neighbouring column's run lines up, and
-                // always leaving that column its own two open rows.
-                // Bottommost gallery only: the comparison is against the
-                // neighbour's own bottommost run (`floor[j]`), which is
-                // not a meaningful comparison for an upper gallery.
-                if is_bottom && min_spacing >= 4 && noise::unit(seed, Purpose::Speleothem, px, ry + 6) < 0.4 {
-                    let side =
-                        if noise::unit(seed, Purpose::Speleothem, px, ry + 7) < 0.5 { 1 } else { -1 };
-                    let j = i as i32 + side;
-                    if j >= 0 && (j as usize) < floor.len() {
-                        // `span2 >= 3` before clamping to it: a two-row
-                        // slot has no room for a secondary at all, and
-                        // `clamp(1, 0)` panics -- found by the debug suite
-                        // on a world the release sweep never built.
-                        if let Some((t2, b2, h2)) = floor[j as usize] {
-                            let fs2 = b2 - h2;
-                            let span2 = fs2 - t2 + 1;
-                            if span2 >= 3 {
-                                let mut lt2 = if lt > 0 && (t2 - t).abs() <= 1 {
-                                    (lt * 3 / 5).clamp(1, span2 - 2)
-                                } else {
-                                    0
-                                };
-                                let mut lg2 = if lg > 0 && (fs2 - fs).abs() <= 1 {
-                                    (lg * 3 / 5).clamp(1, span2 - 2)
-                                } else {
-                                    0
-                                };
-                                // Each half was clamped against `span2`
-                                // independently, which is correct alone but
-                                // not jointly: a *pair* formation (lt > 0
-                                // and lg > 0 together) can clamp each half
-                                // to `span2 - 2` and still have them sum
-                                // past `span2`, bridging the neighbour
-                                // floor-to-ceiling from the two secondary
-                                // touches together -- measured: this fired
-                                // dozens of times per system once task 4b's
-                                // density made two nearby pairs sharing a
-                                // neighbour common, though the shape was
-                                // already possible in round 3. Shrink the
-                                // larger half until at least one row of the
-                                // neighbour's own run stays open, the same
-                                // "leave an open cell" contract every other
-                                // placement in this pass keeps.
-                                while lt2 + lg2 > span2 - 1 && (lt2 > 0 || lg2 > 0) {
-                                    if lt2 >= lg2 {
-                                        lt2 -= 1;
-                                    } else {
-                                        lg2 -= 1;
-                                    }
-                                }
-                                if lt2 > 0 {
-                                    for y in t2..t2 + lt2 {
-                                        put(dx + side, y);
-                                    }
-                                }
-                                if lg2 > 0 {
-                                    for y in (fs2 - lg2 + 1)..=b2 {
-                                        put(dx + side, y);
-                                    }
-                                }
+                // ---- the cone: a real taper, not one stepped secondary ----
+                // Round 6's A3. Every formation with a bottommost run draws
+                // a base width -- not a minority chance of one extra column
+                // -- and every offset out from the centre gets a height
+                // scaled down linearly with distance: `height(o) =
+                // height(0) * (1 - |o| / reach)`, a true cone in cross-
+                // section that only reaches its full drawn width at the
+                // very foot and narrows continuously to the ordinary
+                // 1-wide trunk at the tip, rather than round 5's single
+                // step at a fixed fraction of the height.
+                //
+                // The half-width is clamped to `(min_spacing - 1) / 2`
+                // *before* it is used for anything -- this is what
+                // guarantees two neighbouring footprints can never touch,
+                // by construction, so there is no "two independent writers
+                // jointly seal a shared neighbour" case left to catch after
+                // the fact (round 5's fully-covered-run reopen, removed
+                // below: see that block's own comment for why). At
+                // `SPELEO_SPACING_MIN` (9) the clamp is already `(9-1)/2 =
+                // 4`, `SPELEO_WIDTH_MAX`'s own half -- so this cap is
+                // saturated across the whole spacing range, not adaptive
+                // within it, and exists purely as the overlap proof: two
+                // centres are guaranteed >= 9 apart and no footprint can
+                // reach further than 4, so `9 > 4 + 4` holds everywhere.
+                // Kept as `(min_spacing - 1) / 2` rather than a bare
+                // constant so the proof stays visible at the call site and
+                // survives a future change to either spacing bound without
+                // silently losing the guarantee.
+                //
+                // Bottommost gallery only, same reason round 5 gave: the
+                // neighbour-alignment comparison is against `floor[j]`,
+                // the neighbour's own *bottommost* run, which is not a
+                // meaningful comparison for an upper gallery.
+                if is_bottom {
+                    let half_cap = ((min_spacing - 1) / 2).clamp(1, SPELEO_WIDTH_MAX / 2);
+                    let bw = (SPELEO_WIDTH_MIN
+                        + (noise::unit(seed, Purpose::Speleothem, px, ry + 6).powf(1.5)
+                            * (SPELEO_WIDTH_MAX - SPELEO_WIDTH_MIN) as f32) as i32)
+                        .min(2 * half_cap + 1);
+                    let half_l = (bw / 2).min(half_cap);
+                    let half_r = (bw - 1 - bw / 2).min(half_cap);
+                    widths.push(half_l + half_r + 1);
+                    let reach = half_l.max(half_r) as f32 + 1.0;
+                    // The cone's vertical reach is capped to a *fraction*
+                    // of the trunk's own height, not the full height --
+                    // this is what keeps `cave_probe`'s formation-height
+                    // stat honest. Its silhouette test only recognises a
+                    // column with void on *both* immediate flanks, so any
+                    // row where a neighbour offset is also present is
+                    // invisible to it (see the A3-1 finding); a cone
+                    // reaching all the way to the tip would truncate the
+                    // *measured* height to whatever is left above the
+                    // widest neighbour's own reach, which measured p90 9-12
+                    // against round 5's 18-19 -- a real regression the
+                    // render would not show (the true silhouette is
+                    // unaffected) but the bar would fail. Confining the
+                    // flare to the bottom third leaves the top two-thirds
+                    // of every trunk 1-wide and fully visible, which is
+                    // also the more natural shape: a real stalactite's
+                    // root is wide where it meets the rock and slender
+                    // for the rest of its length, not a uniform taper
+                    // start-to-tip.
+                    let skirt_max = ((lt.max(lg) as f32) * 0.22).max(2.0);
+                    for o in -half_l..=half_r {
+                        if o == 0 {
+                            continue;
+                        }
+                        let j = i as i32 + o;
+                        if j < 0 || (j as usize) >= floor.len() {
+                            continue;
+                        }
+                        let Some((t2, b2, h2)) = floor[j as usize] else { continue };
+                        let fs2 = b2 - h2;
+                        let span2 = fs2 - t2 + 1;
+                        // A two-row slot has no room for a taper cell at
+                        // all, and `clamp(1, 0)` panics -- found by the
+                        // debug suite on a world the release sweep never
+                        // built (round 5's own note, still true here).
+                        if span2 < 3 {
+                            continue;
+                        }
+                        let frac = 1.0 - (o.unsigned_abs() as f32) / reach;
+                        if frac <= 0.0 {
+                            continue;
+                        }
+                        // Only where the neighbouring column's run lines up
+                        // with this one -- round 5's own alignment check,
+                        // generalised from a fixed +-1 offset to any
+                        // offset inside the drawn width.
+                        let mut lt2 = if lt > 0 && (t2 - t).abs() <= 1 {
+                            ((skirt_max * frac) as i32).clamp(1, span2 - 1)
+                        } else {
+                            0
+                        };
+                        let mut lg2 = if lg > 0 && (fs2 - fs).abs() <= 1 {
+                            ((skirt_max * frac) as i32).clamp(1, span2 - 1)
+                        } else {
+                            0
+                        };
+                        // A true column is legal here too (A3), but the
+                        // two halves still cannot exceed what this
+                        // neighbour column physically holds.
+                        while lt2 + lg2 > span2 && (lt2 > 0 || lg2 > 0) {
+                            if lt2 >= lg2 {
+                                lt2 -= 1;
+                            } else {
+                                lg2 -= 1;
+                            }
+                        }
+                        if lt2 > 0 {
+                            for y in t2..t2 + lt2 {
+                                put(dx + o, y);
+                            }
+                        }
+                        if lg2 > 0 {
+                            for y in (fs2 - lg2 + 1)..=b2 {
+                                put(dx + o, y);
                             }
                         }
                     }
@@ -2271,44 +2397,34 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
         }
     }
 
-    // Verify, then repair: no void run may end up fully solid by accident.
-    // The secondary-column touch above is jointly clamped against the ONE
-    // formation writing it, but two *different* primary formations can each
+    // **Round 5's "verify, then repair" fully-covered-run reopen is gone.**
+    // It existed because two *different* primary formations could each
     // reach into the same shared neighbour from opposite sides -- each
     // leaving its own share of that neighbour's run clear, and still
-    // between them covering the whole thing once unioned. There is no
-    // single arithmetic clamp that covers every combination of independent
-    // writers, so this checks the actual written state directly: any
-    // maximal void run that came out fully covered by `speleo` -- by any
-    // combination of primary and secondary writes -- has its middle cell
-    // reopened. Run before task 4c's deliberate fused column below, which
-    // is exempt by ordering rather than by a special case: it has not been
-    // written yet when this scan runs.
-    for dx in -CAVE_HALF_W..=CAVE_HALF_W {
-        let mut run: Vec<i32> = Vec::new();
-        for dy in -CAVE_HALF_H..=(CAVE_HALF_H + 1) {
-            let open = dy <= CAVE_HALF_H && void[cave_idx(dx, dy)];
-            if open {
-                run.push(dy);
-                continue;
-            }
-            if !run.is_empty() && run.iter().all(|&y| speleo[cave_idx(dx, y)] != 0) {
-                speleo[cave_idx(dx, run[run.len() / 2])] = 0;
-            }
-            run.clear();
-        }
-    }
-
+    // between them covering the whole thing once unioned -- and no single
+    // arithmetic clamp covered every combination of independent writers, so
+    // it checked the written state directly and reopened the middle cell
+    // of any run that came out fully solid. Round 6's A3 removes the
+    // scenario it guarded against instead of re-deriving the check for it:
+    // every footprint's half-width is now clamped to guarantee it can never
+    // reach a neighbouring footprint at all (see the cone's own comment
+    // above), so there is no "two independent writers jointly seal a
+    // shared column" case left to happen, deliberately or otherwise. Kept
+    // reopening anyway, this check would have undone A3's whole point --
+    // it cannot tell an accidental seal from a true column doing exactly
+    // what the owner asked for.
+    //
     // ---- round-5 task 4c: one fused column, in a chamber only ----
-    // The rule everywhere else in this pass -- a formation must never
-    // bridge floor to ceiling, because a column splits the passage the
-    // player walks -- is deliberately broken exactly once per system,
-    // exactly inside the largest chamber run: a fused column blocks
-    // nothing there, since a room is not a passage, and it is criterion
-    // 2's money shot (a stalactite and stalagmite that grew into one
-    // another) and criterion 1's monumental anchor in a single object.
-    // Placed off the run's own centre line -- a third or two-thirds of the
-    // way across, drawn per system -- so it does not stand in the one spot
+    // A *guaranteed* bridged column, off-centre in the system's largest
+    // chamber: criterion 2's money shot (a stalactite and stalagmite grown
+    // into one another) and criterion 1's monumental anchor, drawn every
+    // time rather than left to the ordinary mechanism's own chance. Round
+    // 6's A3 makes an ordinary pair bridging elsewhere a legitimate,
+    // occasional outcome too (see this block's own header comment) -- this
+    // is no longer the *only* place it can happen, but it is still the one
+    // guaranteed to. Placed off the run's own centre line -- a third or
+    // two-thirds of the way across, drawn per system -- so it does not
+    // stand in the one spot
     // a player crossing the chamber would walk through anyway.
     //
     // Rooted exactly like every other formation here: written from the
@@ -2395,6 +2511,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
         passage_cells,
         speleothem_cells: speleo_cells,
         water_cells,
+        formation_widths: widths,
         // Set by the caller (`vaults`), which times the whole pass rather
         // than any one system.
         build_ms: 0.0,
