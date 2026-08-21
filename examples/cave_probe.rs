@@ -62,6 +62,19 @@ struct System {
     /// tubes joining two big rooms scores low even though both rooms are
     /// enormous.
     reachable_pct: i32,
+    /// Percent of the void inside the **largest single connected** walkable
+    /// region, and how many disjoint walkable regions the system has.
+    ///
+    /// `reachable_pct` alone cannot answer the owner's question. A system of
+    /// three fine chambers strung on tubes four cells across scores well on
+    /// it -- every chamber is walkable -- and is three separate caves to a
+    /// player who cannot get from one to the next. What "can I enter it and
+    /// walk it" means is *one* walkable region covering most of the void, so
+    /// that is what these measure: 8-connected flood over the positions
+    /// where the whole 7x14 box fits, then the void within one box of the
+    /// biggest such region.
+    walk_largest_pct: i32,
+    walk_regions: i32,
 }
 
 /// Formations, measured as what the eye reads: a silhouette's height.
@@ -193,6 +206,8 @@ fn main() {
         stat("  p95 open column    ", systems.iter().map(|s| s.col_p95).collect());
         stat("  widest ceiling span", systems.iter().map(|s| s.widest).collect());
         stat("  reachable by player %", systems.iter().map(|s| s.reachable_pct).collect());
+        stat("  largest walkable  %", systems.iter().map(|s| s.walk_largest_pct).collect());
+        stat("  walkable regions   ", systems.iter().map(|s| s.walk_regions).collect());
         // The compression/release ratio, per system: what a photograph of a
         // cave is composed on. 1.0 is a tube of constant bore.
         let contrast: Vec<i32> = systems
@@ -401,6 +416,59 @@ fn shape(world: &World, cells: &[(i32, i32)]) -> System {
             }
         }
     }
+    // --- and is it *one* cave, or several he cannot travel between? ---
+    //
+    // Flood the fit positions 8-connected. Two fit positions adjacent in the
+    // grid mean the box slides between them, so a component is a region he
+    // can walk without leaving the box's freedom -- the traversal question,
+    // asked of the same box that answers the occupancy one.
+    let mut region = vec![u32::MAX; cw * ch];
+    let mut regions: Vec<Vec<usize>> = Vec::new();
+    for start in 0..cw * ch {
+        if !fits[start] || region[start] != u32::MAX {
+            continue;
+        }
+        let id = regions.len() as u32;
+        let mut stack = vec![start];
+        let mut members = Vec::new();
+        region[start] = id;
+        while let Some(i) = stack.pop() {
+            members.push(i);
+            let (cx, cy) = ((i % cw) as i32, (i / cw) as i32);
+            for dy in -1..=1i32 {
+                for dx in -1..=1i32 {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if nx < 0 || ny < 0 || nx >= cw as i32 || ny >= ch as i32 {
+                        continue;
+                    }
+                    let n = ny as usize * cw + nx as usize;
+                    if fits[n] && region[n] == u32::MAX {
+                        region[n] = id;
+                        stack.push(n);
+                    }
+                }
+            }
+        }
+        regions.push(members);
+    }
+    let mut walk_largest = 0usize;
+    for members in &regions {
+        let mut seen = vec![false; cw * ch];
+        let mut n = 0;
+        for &i in members {
+            let (cx, cy) = (i % cw, i / cw);
+            for dy in 0..ph {
+                for dx in 0..pw {
+                    let j = (cy + dy) * cw + cx + dx;
+                    if grid[j] && !seen[j] {
+                        seen[j] = true;
+                        n += 1;
+                    }
+                }
+            }
+        }
+        walk_largest = walk_largest.max(n);
+    }
     // Numerator is reached **void**, not reached cells: now that the box may
     // sit over scenery, `reached` covers cells that are not in `cells` at all,
     // and dividing those by the void count would report more than 100% of a
@@ -420,6 +488,8 @@ fn shape(world: &World, cells: &[(i32, i32)]) -> System {
         col_p95: pick(0.95),
         widest,
         reachable_pct,
+        walk_largest_pct: (100 * walk_largest / cells.len().max(1)) as i32,
+        walk_regions: regions.len() as i32,
     }
 }
 
