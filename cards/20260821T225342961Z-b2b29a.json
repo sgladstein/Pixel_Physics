@@ -1,0 +1,45 @@
+{
+  "id": "20260821T225342961Z-b2b29a",
+  "created": "2026-08-21T22:53:42Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-ecology",
+    "branch": "plant-ecology-design",
+    "commit": "1bb4c4b",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-ecology"
+  },
+  "title": "Two upright plants: same kind, or two kinds?",
+  "question": "Do these read as two forms of the same kind of plant, or as two different kinds of plant?",
+  "context_md": "One of these is the shipped `tree`. The other differs from it by exactly one line -- `upward_weight` goes negative on branch orders 1 and up, so the laterals score downward steps positively and hang. Every other value is copied verbatim, so whatever you see is that one line.\n\n**I have a stake, hence blind:** I called this one a within-class variation and sent it to the dead-end register. If you read them as two different kinds of plant, I am wrong and the register entry comes out.\n\nSame scene, same seed, same three noon frames.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "tree (shipped)",
+      "files": [
+        "20260821T225342961Z-b2b29a/000-wpc-tree.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "weeping (negative upward_weight)",
+      "files": [
+        "20260821T225342961Z-b2b29a/001-wpc-weeping.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
