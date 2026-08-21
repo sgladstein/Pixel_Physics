@@ -1,6 +1,6 @@
 # Fire & Heat
 
-*Current as of: this build (the water-cycle polish pass — verified unchanged).*
+*Current as of: this build (boiling costs the heat it takes).*
 
 Fire spreads by contact: a material touching something already burning has
 a chance, each moment it stays in contact, to catch as well. That chance
@@ -29,6 +29,15 @@ and gives off steam, cell by cell rather than all at once, so a boil
 builds into a rolling plume instead of flashing over. The steam is the
 same water in another shape — see [Liquids & Gases](liquids-and-gases.md)
 for where it goes and how it comes back.
+
+**Boiling costs heat, and that is what limits it.** Turning a cell of water
+to steam draws a large amount of warmth out of whatever is heating it, so a
+heat source boils only as much water as it actually holds heat for: a pan
+over a bed of hot stone boils briskly, cools the stone as it goes, and then
+stops with water still in it, rather than steadily emptying itself. A
+bigger fire under the same pan boils more. Water that is merely hot, with
+nothing hot beside it, will not boil at all however hot it is — there is
+nothing left to pay for it.
 
 **Lava** is the one thing in the world that is hot simply because of what
 it is. Nothing has to set it alight and nothing puts it out; it glows,

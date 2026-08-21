@@ -245,6 +245,93 @@ than as a ledge, it does not look worth the frame cost: the renderer has no
 dirty-rect equivalent, and distinguishing a comb tooth from a droplet needs
 the run length, i.e. a neighbour scan on every liquid pixel every frame.
 
+### 1b. `diffuse_heat` does not conserve heat, and a hot cell is an amplifier
+
+**Found while braking a boil-off, measured, and deliberately not fixed** —
+it is the hottest loop in the engine and the right answer is the owner's
+call, not a 3 a.m. rewrite.
+
+`fire::diffuse_heat` relaxes each cell toward the average of its four
+neighbours using **its own** `heat_conductivity`, and nothing debits the
+cell it took the heat from. Five separate ways that breaks conservation,
+in rough order of how much they matter:
+
+1. **Asymmetric conductivity.** Cell A's step uses `k_A`, cell B's uses
+   `k_B`, computed independently. Water (0.08) pulls forty times harder off
+   a lava cell than lava (0.002) pushes into it, and lava is never charged
+   for the difference. `lava.ron` states this as *intended* — "it does NOT
+   throttle how fast lava heats other things" — which is a fine statement
+   about responsiveness and an accidental one about energy.
+2. **Air is an infinite reservoir at ambient.** `Cell::EMPTY` reads
+   `AMBIENT_TEMPERATURE` and is never written, so every empty neighbour
+   donates and absorbs without limit.
+3. **The minimum-progress nudge** (`here + raw_delta.signum()`) invents or
+   destroys up to half a degree per cell per visit whenever the physical
+   step rounds to nothing.
+4. **`i16` rounding**, every visit, every cell.
+5. **Sequential in-place writes**, so a neighbour visited later in the
+   sweep sees the post-update value and sweep order changes the result.
+
+What it costs, measured: `scene=simmer`'s hearth of 336 cells at 900°C
+holds about 547 boils' worth of stored heat and boiled **1,941** cells —
+3.5x its own inventory — while terminating perfectly happily, which is why
+every existing guard was green. `fire::LATENT_HEAT_DEGREES` now charges
+boiling to its source, which bounds the one consequence that was visible;
+it does not fix the underlying non-conservation, and anything else that
+reads temperature is still downstream of an amplifier.
+
+There is no total-heat invariant, ledger or test anywhere in the tree. The
+nearest thing is `a_finite_heat_inventory_stops_boiling_and_the_world_
+sleeps`, which asserts termination and not a quantity — so it cannot catch
+an energy budget change, and equally will not block one.
+`boiling_stops_where_the_stored_heat_runs_out` is the first guard that
+bounds a quantity, and it only covers boiling.
+
+### 1c. A rigid body loses about a tenth of its cells when it lands
+
+Pre-existing, unrelated to water, and found while fixing the *underwater*
+case of the same code path.
+
+`rigid::settle` writes a body's cells back into the grid: into the target
+if it is empty, else into the nearest empty cell within `DISPLACE_SEARCH`
+(4 rings), else **dropped**. A body that comes to rest overlapping the
+floor — which rotation and the fractional origin make ordinary — loses
+whatever part of it sits deeper than four cells.
+
+Measured on a 40x2 stone raft dropped in plain air onto bedrock: **80 cells
+in, 72 out**. Underwater it used to be far worse (9 out of 80, because a
+submerged body has water in every cell and no empty cell within reach of
+any of them); a swap arm now takes that to 64 and it is guarded at 20 lost.
+The remaining ~10% is the general case and is untouched.
+
+**A fix was written and withdrawn**, and the reason is worth having: a
+last-resort walk straight up the column to the first empty cell made the
+air case lossless (80/80) and cost `scene=ligament` **18.1 ms → 86.6 ms**
+against a 60 ms bar, byte-identical failure counts either side, because the
+ligament's one failure settles ~4,400 cells in a single frame and every one
+of them paid a walk up the whole world. It also put stone in the sky over a
+pond, because the first empty cell above a submerged body is above the
+waterline — and `settle` scheduled its structural checks around where each
+cell was *aimed*, so a cell relocated that far was never checked where it
+actually landed and hung there forever. Any replacement has to be O(1) in
+the common case and cost nothing on a scene with no liquid in it.
+
+### 1d. A large lava lake never finishes solidifying
+
+`filmstrip scene=lavalake` — a 21,492-cell walled basin open to the sky.
+
+Before `rubble.ron`'s density was corrected, the lake could never finish at
+all: broken crust floated on the melt, lidded the surface, and `froze`
+flatlined at 5,224 from frame 6,000 onward while overload failures climbed
+without bound (188 → 3,205 by frame 10,000). That much is fixed — the crust
+founders and sinks and `froze` reaches 11,976 by frame 10,000.
+
+It still does not *finish*. Run to 60,000 frames it stalls at **9,551
+molten cells from frame 30,000**, with 12 of 40 chunks awake for the rest of
+the run and a worst frame of 122 ms. A molten core sealed inside its own
+crust has no path to lose heat, which is arguably right and is certainly
+expensive: a large enough lava body is a permanent tax on the frame.
+
 ### 2. Sand-into-water displacement
 
 Unchanged from the previous handoff and still the design gap it was.

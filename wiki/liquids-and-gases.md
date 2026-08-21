@@ -1,6 +1,6 @@
 # Liquids & Gases
 
-*Current as of: this build (the water-cycle polish pass — splashes).*
+*Current as of: this build (steam joins the weather; rock sinks in water).*
 
 Where a powder falls and piles, a liquid falls and then spreads sideways
 until it finds a level surface — the same way real water does, settling
@@ -31,8 +31,13 @@ has the mass itself sitting on top of it.
   touch: the lava becomes stone and the water becomes steam, so a flow
   entering a pond builds its own crust as it goes, cell by cell rather than
   all at once, and the crust — being loose new rock rather than part of the
-  bank — tends to crumble into rubble and sink. See
-  [Fire & Heat](fire-and-heat.md) for what lava does to everything else.
+  bank — crumbles into rubble and **goes to the bottom**, so a pour into
+  deep water leaves a bed of new stone on the floor rather than a raft on
+  the surface. Rock that forms with nothing holding it up sinks whether it
+  is in air or in water; only something buoyant, like ice, rides on a pool.
+  See [Fire & Heat](fire-and-heat.md) for what lava does to everything
+  else, and [Structural Collapse](structural-collapse.md) for what decides
+  that a piece has come loose.
 
 There are two gases, and both rise rather than fall, drifting upward
 through open space and pooling against a ceiling once they hit one,
@@ -47,12 +52,21 @@ smoke-filled.
 [Fire & Heat](fire-and-heat.md)) — pale and a little lighter than smoke, so
 it rises through it. Unlike smoke it
 does not last: steam is born hot, cools as it drifts, and once cool enough
-it turns back into water wherever it happens to be — beading up under a
-ceiling and dripping back down, or condensing in mid-air into droplets
-that fall. Boiled water is moved, not destroyed: what leaves a heated pool
-as steam comes back as exactly that much water, so a sealed chamber over a
-boiling pool rains its own water back instead of filling up with gas
-forever.
+it turns back into water.
+
+**Where that water goes depends on whether the steam is indoors.** Under a
+roof — a cave, a sealed chamber, anything with ground above it — steam
+beads up and drips back down exactly where it condensed, so a boiling pool
+in a closed room rains its own water back instead of filling up with gas
+forever. **Under open sky it joins the weather instead**, and comes back
+later as rain rather than immediately as drizzle onto the pool it left. A
+plume off a lava flow therefore rises, thins and disperses, where it used
+to turn around a few body-lengths up and fall back through itself.
+
+Either way the water is moved and not destroyed: what leaves a heated pool
+as steam is exactly what the sky is later able to rain. What it does mean
+is that a pond boiled hard in the open **visibly drops**, and only fills
+back up when weather brings it back.
 
 **Ice** is water's other phase, and it comes from the other direction:
 weather, not heat. A hard snowfall freezes standing water into a floating

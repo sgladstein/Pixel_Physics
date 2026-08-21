@@ -256,6 +256,58 @@ changing and would need the same quantised-staircase treatment
 (`SKY_TEMPERATURE_QUANTUM`'s doc is the whole argument) or it will hold the
 world awake through every cold epoch.
 
+### 1e. The outer cycle now has a *hot* leg, and it exposed a magnitude
+
+**Landed.** Steam that condenses with open sky above it credits
+`World::atmospheric_bank` instead of leaving a water cell where it stood
+(`MaterialDef::condenses_into_sky`, set only on `steam.ron`). Reported from
+live play as a plume that "rises about 5 ft in the air and then drops back
+into rain... it almost looks like bouncing".
+
+The complaint was not about rate or height. On the new
+`filmstrip scene=lavadrop` the plume held **421 water cells standing in the
+air** at peak, through its whole 40-row height — condensate falling back
+*through* the steam still rising, and since a falling `Liquid` displaces a
+`Gas`, each droplet shoved steam cells downward on the way. Airborne water
+421 → 0; `water_equivalents + bank` unchanged to a tenth of a cell.
+
+"Open sky" is the frozen `World::sky_surface`, so a sealed pocket, a cave,
+or `scene=boil`'s roofed chamber all still condense into water in place —
+which is what keeps the sealed-pocket guards meaningful rather than
+vacuous.
+
+**What it exposed.** The boil-off was always this large; recycling hid it.
+With the return leg gone, an 800-cell lava blob visibly drops a
+12,000-cell pond. The cause turned out not to be the boil rate but
+`diffuse_heat` being non-conservative — see
+`Reports/open-bugs-handoff.md` 1b, which is the real defect and is left
+open deliberately.
+
+`fire::LATENT_HEAT_DEGREES` (540, water's latent heat as a multiple of its
+specific heat) charges each boil to the stored heat of its neighbours and
+refuses the boil if they cannot pay. It cannot go on the *product*: water
+boils at 100 and steam condenses at 45, so a birth temperature more than
+~55 degrees down flashes straight back. Measured where boiling is the
+mechanism:
+
+| | boiled | standing water |
+|---|---|---|
+| `scene=boil`, no charge | 42,740 | 4,369 |
+| `scene=boil`, 540 | **17,019** | **7,379** |
+| `scene=simmer`, no charge | 1,941 | pan dry |
+| `scene=simmer`, 540 | **191** | 1,334 |
+
+On `scene=lavadrop` the charge is nearly flat, because there the water goes
+through the **quench reaction** rather than through boiling — and that path
+is already about one water per lava (944 reactions for 800 cells of lava,
+banking 924 cell-equivalents). A `min_fill` gate on the reaction was built
+to cut it further, swept, and reverted: it moves conversions between paths
+without changing the total. The table is in `lava.ron`.
+
+**Still open here:** nothing bounds how much water a *reaction* may
+convert, the way the boil is now bounded. The quench happens to be roughly
+1:1 by construction; a future reaction need not be.
+
 ### 2. Thunder
 
 Lightning flashes and forks; the world is silent. The engine has no audio at
