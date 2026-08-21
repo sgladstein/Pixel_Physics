@@ -1,0 +1,35 @@
+{
+  "id": "20260821T211216716Z-e6299c",
+  "created": "2026-08-21T21:12:16Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "9dc94b0",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ice creep, animated - and yes, the weather warmed up",
+  "question": "Now that it moves: does the freeze creep at a rate that feels right, and does the thaw at the end read as the weather turning rather than as ice vanishing?",
+  "context_md": "You said: *\"Not sure on timing without an animated gif or playtest but the pattern looks good. It does disappear after the 3rd panel. Did the weather warm up?\"*\n\n**Yes.** It was not a bug and it was not the ice giving up -- the cold snap ends. Counted across the same run:\n\n| step | frozen cells | snow cells |\n|---|---|---|\n| 600 | 375 | 1,577 |\n| 700 | 362 | 1,788 |\n| **800** | **0** | **0** |\n\nThe snow turns to rain at world frame 25,010, which is step 700 of this run -- and that fell exactly between my third and fourth stills, so the sheet showed you a full pond and then an empty one with nothing in between to say why. That is my fault for using stills on a timing question when the tool has done animation all along.\n\nThis clip is 100 frames at step 600 to 1,200, so it brackets the thaw: you should see the sheet at its widest, then go. Cropped to the pond and its two shores.\n\nNothing about the ice changed since your last look -- this is the same behaviour, shown properly.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "cold snap into thaw",
+      "files": [
+        "20260821T211216716Z-e6299c/000-ice.gif"
+      ],
+      "caption": "Steps 600-1200. Snow turns to rain at step 700; frozen cells go 375 -> 362 -> 0.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
