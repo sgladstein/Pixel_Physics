@@ -37,8 +37,14 @@ that run him — `A`, `D`, `W` and `S` — scroll the map around, stopping at th
 edges of the world just as they do for him, and a readout in the corner says
 where you are looking. It is measured in screenfuls rather than in cells, so
 the picture slides past at the same speed however far in or out you are
-zoomed, and about two seconds of holding a key carries you from one end of
-the world to the other.
+zoomed.
+
+It also **starts gently and speeds up**. A tap nudges the view a little, which
+is what you want when you are lining something up; keep the key down and it
+picks up over about a second, so holding it carries you from one end of the
+world to the other in roughly six seconds. Let go, or change your mind and
+press the opposite key, and it starts gently again — so correcting an
+overshoot is a nudge rather than a lurch back the other way.
 
 There is nothing to switch between. Summon him and the view is his again;
 dismiss him and it comes back to you. The two can never both have it, which

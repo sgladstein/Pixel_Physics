@@ -283,14 +283,20 @@ fn main() {
         let moving_secs = (moving_frames as f32 / 60.0).max(1.0 / 60.0);
         println!(
             "  scrolled world x {start_x} -> {} ({travelled} cells over {moving_frames} moving frames \
-             = {:.0} cells/s, {:.2} screens/s; {} s of key held in total)",
+             = {:.0} cells/s, {:.2} screens/s averaged across the ramp; {} s of key held in total)",
             renderer.camera_x,
             travelled as f32 / moving_secs,
             // Divided by the **visible span**, not by `WIDTH`. A screenful is
             // 128 cells at zoom 4 and 1024 at stride 2, so dividing by the
-            // framebuffer width reported a scroll running at exactly 1.5
-            // screens/s as 0.38 and 3.00 -- the readout wrong at every scale
-            // but 1:1, which is precisely the claim it exists to check.
+            // framebuffer width reported a scroll running at one rate as three
+            // different ones -- wrong at every scale but 1:1, which is
+            // precisely the claim it exists to check.
+            //
+            // An **average** over the moving frames, not the instantaneous
+            // rate: the scroll ramps up from `PAN_START_FRACTION`, so a short
+            // run reads below `PAN_SCREENS_PER_SECOND` and a long one
+            // approaches it. Comparing this against the constant is only
+            // meaningful once the run is much longer than `PAN_RAMP_SECONDS`.
             travelled as f32 / moving_secs / renderer.visible_span((WIDTH, HEIGHT)).0 as f32,
             a.shots
         );
@@ -335,11 +341,14 @@ fn main() {
             .unwrap_or(WORLD_HEIGHT as i32 / 2);
         // `pan=` scrolls with the real map-scroll rate between shots instead
         // of teleporting to a target, so consecutive tiles are what a player
-        // holding `D` actually sees. At the default 1.5 screens/s, `pan=0.7`
-        // is a little over one screenful per tile, so neighbouring tiles
-        // should abut with a sliver of overlap -- and **uneven tile spacing
-        // is the dropped-residual bug made visible in a still image**, which
-        // is unusual enough to be worth exploiting.
+        // holding `D` actually sees -- including the ramp, since the camera is
+        // driven by `Renderer::pan` at 60 Hz rather than teleported.
+        //
+        // The first tile therefore covers less ground than later ones, which
+        // is the ramp and not a bug. **Uneven tile spacing is otherwise the
+        // dropped-residual bug made visible in a still image**, which is
+        // unusual enough to be worth exploiting -- so read the spacing from
+        // the second tile on, once the rate is flat.
         if a.pan > 0.0 {
             if shot == 0 {
                 renderer.set_camera(0, ground - HEIGHT as i32 / 2, (WIDTH, HEIGHT), world.bounds());
