@@ -1,0 +1,71 @@
+{
+  "id": "20260821T064810098Z-0e3bea",
+  "created": "2026-08-21T06:48:10Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "c826141",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Bubbles in boiling water: which of the four, if any?",
+  "question": "Which of these reads as water boiling rather than as speckle on the water -- and is any of them better than leaving it off?",
+  "context_md": "The pending `BubbleMode` default. Four modes behind `,` in the app, `Off` today. `filmstrip scene=boil` -- a walled chamber of water under a burning oil slick -- at frames 150, 270, 390, with gas drawn translucent so you can see the pool through the steam.\n\nOne thing worth knowing before you look, because it decides *where* you can judge this: **`Surface` draws literally nothing on a pan heated from below.** Diffed pixel-for-pixel against `Off` on `scene=simmer` and on `scene=lavadrop`: **0 pixels differ** in both. It gates on the cell being within a couple of rows of the top of its own body, and on anything heated from underneath the hot water is at the bottom -- the same trap `BUBBLE_MIN_TEMPERATURE` was lowered to 40C to escape. It only has anything to draw here, where the heat is a slick floating on top. So if you like it, it is a mode that shows up in roughly one situation.\n\nChanged pixels against `Off` on this scene: Rising 5,975, Columns 4,450, Surface 5,125 -- so all three are firing, and none of them is being judged blank.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260821T064810098Z-0e3bea/000-bb_off.png"
+      ],
+      "caption": "Off (today's default)",
+      "meta": {
+        "pixels differing from Off": 0,
+        "fires on a pan heated from below": "n/a"
+      }
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260821T064810098Z-0e3bea/001-bb_rising.png"
+      ],
+      "caption": "Rising -- sparse domed highlights scrolling up",
+      "meta": {
+        "pixels differing from Off": 5975,
+        "fires on a pan heated from below": "yes"
+      }
+    },
+    {
+      "label": "C",
+      "files": [
+        "20260821T064810098Z-0e3bea/002-bb_columns.png"
+      ],
+      "caption": "Columns -- stretched, a stream from a nucleation site",
+      "meta": {
+        "pixels differing from Off": 4450,
+        "fires on a pan heated from below": "yes"
+      }
+    },
+    {
+      "label": "D",
+      "files": [
+        "20260821T064810098Z-0e3bea/003-bb_surface.png"
+      ],
+      "caption": "Surface -- only near the top of a body",
+      "meta": {
+        "pixels differing from Off": 5125,
+        "fires on a pan heated from below": "NO -- 0 pixels"
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
