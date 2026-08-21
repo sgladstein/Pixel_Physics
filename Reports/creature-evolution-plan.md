@@ -484,6 +484,69 @@ The carrier fix costs the colony nothing measurable: a colony ant only reaches
 that branch under half its budget with a full mandible, which is rare when a
 nest is close.
 
+#### The standing guards, and which of them actually ran
+
+The full `creature_space mode=economy` sweep is **~3.5 hours paired** at its
+defaults (8 seeds x 18,000 frames x 4 settings x 2 genomes). It was started and
+abandoned after two base rows: moss=no, advantage **0.249** at food 120 and
+**0.388** at 700. Do not treat those two numbers as an S3b result — they are
+the *baseline* arm.
+
+What did run is the reference-genome pair, reduced to 4 seeds and run on both
+builds back to back:
+
+| | S3a (8390580) | S3b |
+|---|---|---|
+| `zero` | 0.300 | **0.300** |
+| `authored` | 0.499 | **0.540** |
+| mean cells | 46.7 | 50.4 |
+
+`zero` is identical to three digits, which it has to be: that genome cannot
+move or eat, so nothing S3b changed can reach it, and a *moved* `zero` row
+would have meant something was wrong with the harness rather than the animal.
+
+`authored` is **+0.041**, inside one standard error at four seeds (per-seed sd
+0.116, so SE 0.058) and pointing up. There is a mechanism rather than just
+noise: `creature_space` cuts `start_energy` to 90 to make starvation reachable
+inside a run, so ants there are hungry within a few hundred ticks and a carrier
+that starves holding its load is the common case, not the rare one. That is
+exactly what the carrier fix removes, and it is why well-fed `ascii` showed no
+change on the same fix (deliveries 238 both sides) while this does. **If a
+later session re-runs the full sweep and finds the advantage up rather than
+flat, this is the expected direction and this paragraph is the reason.**
+
+**And the rewired nutrition knob is connected — checked, because the first
+reading said it was not.** S3b had to move that arm off `def.eat_energy`
+(deleted) onto repricing leaf/moss/seed plus `body_energy`. Run at 1 seed /
+12,000 frames it produced **bit-identical no-moss rows** at food 120 and 700 —
+this repo's exact signature for a knob wired to nothing, and not explainable
+as "nothing is eating" either, since `ants fed` read 0.62 (the fraction of ants
+ever above `START_ENERGY`, so 62% of them ate).
+
+The control was the same reduced config on the baseline build:
+
+| row | S3a | S3b | knob effect, 120 → 700 |
+|---|---|---|---|
+| no moss | 0.718 / 0.729 | 0.729 / 0.729 | base **0.011**, new **0.000** |
+| moss | 0.685 / 0.730 | 0.689 / 0.730 | base **0.045**, new **0.041** |
+
+The moss arm keeps its signal at one seed and both builds respond with matched
+magnitude, which is the connectivity proof. The no-moss row is the artifact:
+the *baseline's own* effect there falls from 0.139 at 8 seeds to 0.011 at 1
+seed, so 0.000 is that row having no resolution left rather than a dead knob.
+
+**The lesson is a narrowing of an existing rule, not a new one.** "Identical
+output across settings means the knob was never connected" is still right, but
+it has to be read on a row that *has* signal at the sample size you ran. Ask
+the baseline the same question at the same reduced settings before concluding
+anything from a collapsed column — the reduction is a change to the sweep, and
+`CLAUDE.md` already says that when every setting fails the same way, the sweep
+is the first suspect.
+
+All four rows also agree across builds within noise and lean slightly positive
+(+0.011, 0.000, +0.004, 0.000), which is consistent with the `authored` +0.041
+above and with the same explanation.
+
 #### Deviations from the plan, and their reasons
 
 * `carrying` is `Option<Carried { material, worth, shade }>`, not the planned
