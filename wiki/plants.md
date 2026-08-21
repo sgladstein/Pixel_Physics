@@ -5,7 +5,8 @@ file names — see `Reports/` for why any of it is built the way it is.*
 
 Freshness: written when water became a real currency and roots started
 mattering; updated when the genome took over leaf economics, wood density
-and seed provisioning. Accurate as of that change.
+and seed provisioning, and again when grass arrived and plants stopped all
+being made of the same stuff. Accurate as of that change.
 
 ## What a plant is
 
@@ -80,6 +81,27 @@ can no longer cover another cell, not because it hit a size limit.
   before it breaks.
 
 ## Species
+
+Not every plant is a tree. **Grass** grows a few rows tall instead of a
+hundred, in tufts that spread into a continuous green layer over open
+ground, and it is a different kind of thing to look at rather than a small
+version of the same thing. It has no separate leaves — the blade *is* the
+plant, so the whole of it is green from the soil up, and there is no bare
+brown stem holding it there.
+
+Three consequences follow from that, and none of them is a rule about grass:
+
+- Its roots run **sideways through the top few rows of soil** instead of
+  diving, and that mat holds loose ground together where a tree's few thick
+  roots do not.
+- It is the **fastest fuel in the world**. Fire runs through dry grass and
+  is gone, which is how a fire crosses open ground between two stands. The
+  roots survive underground.
+- It **breeds far faster than a tree** — it is cheap to build, it sets seed
+  young, and it will colonise bare ground long before anything woody does.
+
+Grass cannot get into dry sand, though, and neither can a tree: sand is
+simply harder to push a root through than either of them can manage.
 
 Species differ in shape, colour and habit — how readily they branch, how
 strongly they reach for light, how far apart their leaves sit, whether they

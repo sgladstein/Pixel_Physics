@@ -1026,6 +1026,11 @@ const EMBEDDED: &[&str] = &[
     // reload reads the directory), so leaving it out would mean the switch-
     // over lands *and* silently does nothing.
     include_str!("../../assets/materials/litter.ron"),
+    // Herbaceous tissue, above and below ground -- WP-B3. `grassroot`
+    // carries `reinforces_powder`, which is the one consequence grass
+    // brings that no other plant here does.
+    include_str!("../../assets/materials/grassblade.ron"),
+    include_str!("../../assets/materials/grassroot.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

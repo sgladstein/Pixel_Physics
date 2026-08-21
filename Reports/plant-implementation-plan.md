@@ -227,6 +227,23 @@ writes it; the creature branch consumes it later):
 
 ## WP-B3 — Grass (Session F, after WP-B2; root re-tune after WP-A)
 
+> **STATUS 2026-08-21: landed, acceptance items 1-2 and 6 met; 3, 4, 5
+> outstanding.** Grass grows, reproduces (gen 1 inside 12,000 frames) and
+> reads as a sward, not as tiny trees. Sheets:
+> `target/filmstrips/wpb3-grass-sward.png` (64 founders, both drivers) and
+> `wpb3-grass.png` (8 founders — the tree-spacing scene, kept because it is
+> the one that shows why a density knob was needed).
+>
+> Not run yet, and each needs a scene that does not exist here: **(3)** the
+> paired slope for `reinforces_powder`, **(4)** the paired burn against bare
+> soil and canopy, **(5)** the organism-slot high-water mark over a long run
+> (the 12,000-frame run reached 9 organisms from 8 founders, so exhaustion
+> is not close at this seed rate, but that is not the long-run number the
+> acceptance asks for). Item 6's `ascii` worst-frame pairing is also
+> outstanding; the only figure in hand is filmstrip's own worst frame,
+> 27.93 ms at 64 founders, which is not the `ascii` number and is not paired.
+
+
 **Spec** (calls 2 and 8: grass is an ancestor and a niche probe,
 authored through the shared slots — no grass-only mechanisms):
 

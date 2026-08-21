@@ -292,7 +292,9 @@ fn build(args: &Args) -> World {
         // uses -- see that module for why these two harnesses may not build
         // their own worlds any more.
         "grove" => {
-            return common::PlantScene { species: args.species.clone(), ..Default::default() }.build();
+            let base = common::PlantScene::default();
+            let plants = if args.plants > 0 { args.plants } else { base.trees };
+            return common::PlantScene { species: args.species.clone(), trees: plants, ..base }.build();
         }
         // The sandbox's *real* starting terrain, built by the same
         // `app::build_terrain` the running game calls -- not a replica, so
@@ -662,6 +664,17 @@ struct Args {
     /// shrub). The grove is the shape harness, and Phase 2's whole point
     /// is that different species are different *shapes*.
     species: String,
+    /// `plants=N` -- how many founders `scene=grove` plants, evenly
+    /// spaced. Defaults to `PlantScene`'s own 8, which is tree spacing.
+    ///
+    /// Exists because a *ground layer* cannot be judged on tree spacing.
+    /// Grass at 8 founders across 512 cells renders as four isolated
+    /// sprigs per tile -- which says nothing about whether a sward reads
+    /// as a surface layer, the actual question WP-B3's acceptance asks.
+    /// That is this repo's own "a scene that contradicts the code will
+    /// look like a bug in the code", in its cheaper form: a scene that
+    /// cannot contain the artifact will look like the artifact is absent.
+    plants: usize,
     /// `preset=NAME` -- which entry of `assets/worldgen.ron` it uses. Empty
     /// means that file's own `default`.
     preset: String,
@@ -787,6 +800,8 @@ fn parse() -> Args {
         scene: "pour".into(),
         seed: 1,
         species: "tree".into(),
+        // 0 means "leave `PlantScene`'s own default alone".
+        plants: 0,
         preset: String::new(),
         start: 100,
         every: 60,
@@ -820,6 +835,7 @@ fn parse() -> Args {
             "scene" => a.scene = v.into(),
             "seed" => a.seed = v.parse().expect("seed"),
             "species" => a.species = v.into(),
+            "plants" => a.plants = v.parse().expect("plants"),
             "preset" => a.preset = v.into(),
             "start" => a.start = v.parse().expect("start"),
             "every" => a.every = v.parse().expect("every"),

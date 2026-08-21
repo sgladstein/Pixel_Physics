@@ -1,0 +1,228 @@
+// **Grass.** WP-B3 of `Reports/plant-implementation-plan.md`; owner calls 2
+// and 8 in `plant-evolution-design.md`.
+//
+// This is the species the whole plant programme leads to, and §4a says why:
+// of the nine plant forms in its corner table, grass is the only one that
+// differs from a tree on **all four** of the axes a form difference can
+// actually read on at pixel scale — size class (a handful of rows against a
+// hundred), material and palette (its own yellower green, its own litter),
+// form class (a surface layer, not an upright with a crown), and
+// consequence (it holds a bank together and it carries fire). The three form
+// probes that shipped before it moved one axis each at best.
+//
+// **It is an ancestor and a niche probe, not a product** (call 2). Nothing
+// here is a grass-only mechanism: every value is a knob some other species
+// already has, and the two materials are ordinary materials. The bar this
+// is written against is `plant-evolution-design.md` §6a's — *delete this
+// file and see whether something grass-shaped comes back* — and that bar is
+// only meaningful because grass is expressed through the shared slots
+// rather than through machinery built for it.
+//
+// The one thing that is genuinely structural rather than tuned:
+// `plastochron: 0` everywhere. A grass has no separate foliage stage
+// because its photosynthetic surface *is* its shoot, which is the case
+// `organism.rs`'s own `plastochron` doc anticipates ("a species whose
+// photosynthetic surface is its shoot legitimately wants no separate leaf
+// stage at all"). So `Photosynthesize` sits on `GrowingTip` and
+// `MatureBody`, and there is no `Leaf` cell type in this file at all.
+//
+// **Numbers here are a first pass and are the implementer's**, per the
+// plan. They are swept at landing, rebuilt between every sweep point
+// (`.ron` is `include_str!`; identical output across settings means the
+// knob was never connected).
+(
+    name: "grass",
+    // Its own tissue, top and bottom -- and shoot and leaf are the same
+    // material because for a grass they are the same cells.
+    shoot_material: "grassblade",
+    root_material: "grassroot",
+    leaf_material: "grassblade",
+    // Bands 0..3 of `grassblade`: fresh green through yellow-green. An
+    // individual draws one, so a sward is a spread of related tones. Straw
+    // (band 3) is deliberately left outside the range -- it is there for a
+    // dry-site species to reach later, and a stand that starts half-dead
+    // reads as broken rather than as varied.
+    foliage_bands: (first: 0, count: 3),
+    // The same range: with no separate leaf stage the "bark" band and the
+    // "foliage" band index the *same* palette, so keeping them equal is
+    // what stops a plant drawing its stem cells out of a different part of
+    // the ramp than its tip.
+    bark_bands: (first: 0, count: 3),
+    stomatal_reserve: 0.2,
+    cell_types: [
+        (Seed, [
+            Germinate(
+                // Grass germinates in the open, on light a tree seedling
+                // would find marginal -- this is the pioneer of the two.
+                light_threshold: 0.08,
+                moisture_threshold: 0.0,
+                instant: false,
+            ),
+        ]),
+        (GrowingTip, [
+            Grow(
+                // Cheap per cell: a blade is not an investment the way a
+                // trunk segment is, and cheap growth is half of what makes
+                // a pioneer a pioneer.
+                cost: 0.12,
+                // High and rising, because a tussock is *tillers* -- a
+                // grass plant is a bundle of shoots from a crown, not one
+                // stem with side branches. This is the same knob a tree
+                // uses to make a canopy; set this far up it makes a tuft.
+                branch_chance: [0.4, 0.45],
+                continuation_weight: 0.7,
+                // Low: a blade does not chase light sideways the way a
+                // branch does. It goes up, and if it is shaded it dies.
+                light_weight: [0.1, 0.1],
+                // The tallest thing in the world at this scale is a blade
+                // of grass, so wind is proportionally a bigger deal.
+                wind_weight: 0.35,
+                upward_weight: [0.85, 0.7],
+                crowding_weight: 30.0,
+                max_active_tips: 10,
+                // **0 = no separate leaf stage.** See the header. This is
+                // the structural line in the file.
+                plastochron: [0, 0],
+                penetration_force: 0.0,
+                // **Measured, not derived.** The nominal h_max here is
+                // (source - yield) / per_cell, but that is a *path length*
+                // bound and a tillering plant's path wanders, so it is an
+                // upper bound on height and not a prediction of it. At
+                // 0.15 the nominal was 6.7 rows and the ensemble measured
+                // 9-19 (median 12) -- over the plan's "well under 10".
+                // 0.13 puts the nominal at 4 rows; the measured figure is
+                // in the commit message rather than guessed at here.
+                turgor_source: 0.13,
+                turgor_yield: 0.1,
+                turgor_per_cell: 0.0075,
+                turgor_taper: 0.4,
+                // Middling, not near-zero: a blade holds a line as it
+                // rises. Near-zero is the creeper habit and produced a
+                // sprawl (WP-C's register) -- the wrong silhouette here.
+                heading_inertia: 0.55,
+                // Narrow, so tillers rise nearly parallel out of the crown
+                // instead of splaying. A splayed tuft reads as a tiny
+                // shrub, which is the failure mode this package is told to
+                // stop and report on.
+                branch_angle: [22.0, 18.0],
+                internode: [1, 1],
+                leaf_cluster: 0,
+                juvenile_size: 6,
+                juvenile_plastochron: 1.0,
+                juvenile_branch: 1.4,
+                // Non-zero on the same slots a tree varies, per call 8 --
+                // grass must be able to respond to selection through the
+                // shared genome, not a private one.
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0),
+                sympodial: [false],
+                tropism: [Orthotropic],
+            ),
+            // On the tip itself, because the tip *is* photosynthetic
+            // tissue here.
+            //
+            // **`shade_death` and `drought_death` are INERT on this species
+            // and are left in deliberately, at the values they would want.**
+            // Both abscission rules in `plant.rs` are gated on the cell
+            // being `CellType::Leaf`, and a `plastochron: 0` species has no
+            // `Leaf` cells by construction -- so the whole succession story
+            // (a sward thinning where a canopy closes over it) does not
+            // work for grass, and neither does drought shedding. This was
+            // caught by asking CLAUDE.md's own question -- *which cell does
+            // this rule actually evaluate?* -- before the sheet, not after.
+            //
+            // Not fixed here: WP-B3 is specified as pure data, and widening
+            // the gate to photosynthetic tips and bodies is a `plant.rs`
+            // change with its own blast radius (every species' shed
+            // behaviour reads that predicate). Left as data so the day the
+            // gate widens, grass already says what it wants.
+            Photosynthesize(rate: 0.55, shade_death: 0.004, transpiration: 0.05, drought_death: 0.002),
+        ]),
+        (RootTip, [
+            Absorb(rate: 1.6),
+            Grow(
+                cost: 0.15,
+                // **The fibrous mat.** Far above a tree root's 0.04: sod is
+                // many fine roots threading the top few rows, and that
+                // multiplicity is what makes `grassroot`'s
+                // `reinforces_powder` add up to a held bank instead of a
+                // few anchored points.
+                branch_chance: [0.4],
+                continuation_weight: 0.6,
+                light_weight: [0.0],
+                wind_weight: 0.0,
+                // **Shallow, and this is the load-bearing number.** A
+                // `RootTip` scores against `(0.0, 1.0)` -- down -- so this
+                // is how hard the root dives. Trees use 0.6. At 0.22 the
+                // mat spreads sideways through the top rows instead of
+                // making a taproot, which is both what sod is and what
+                // puts the roots where a bank actually fails.
+                upward_weight: [0.22],
+                crowding_weight: 0.0,
+                max_active_tips: 12,
+                plastochron: [0],
+                // Low, so the mat wanders and interleaves rather than
+                // running straight lines out from the crown.
+                heading_inertia: 0.4,
+                // **Must exceed the substrate's `penetration_resistance`,
+                // not merely be small.** `growable` is a strict inequality
+                // -- `resistance < force` -- so this is a threshold, not a
+                // rate, and a value under soil's 0.8 does not make fine
+                // roots, it makes a plant that cannot enter the ground at
+                // all. The first draft said 0.5 for "fine roots, not a
+                // tree's" and the whole species died: 0 organisms, 0 seeds
+                // set, soil untouched at 620 across all 17,408 cells after
+                // 12,000 frames. A picture said "bare soil"; only the
+                // counter said the plant had never once rooted.
+                //
+                // 1.0 clears soil (0.8) and stays under sand (1.4), so
+                // grass threads a soil bank and still cannot colonise dry
+                // sand -- a real niche boundary, falling out of two numbers
+                // rather than a rule. Trees sit at 1.2 and are also barred
+                // from sand, so this costs grass nothing against them.
+                penetration_force: 1.0,
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25),
+            ),
+        ]),
+        (MatureBody, [
+            // **Fast and cheap against a tree's 4e-05 / 600 frames.** An
+            // annual pioneer's whole strategy is turnover: seed early,
+            // seed often, cost little. This is also what makes grass the
+            // species that can actually accumulate generations inside a
+            // run, which every §6 evolution experiment needs and which the
+            // trees cannot supply on their own.
+            // Moderated from a first draft of 4e-04 / 90 *before* it was
+            // ever run, which would have been ~67x a tree's turnover once
+            // maturity is folded in. Organism slots are not reclaimed yet
+            // (WP-D is the relief valve and has not landed), so a stand
+            // that seeds that hard walks into the 4095 ceiling long before
+            // the sheet it was rendered for -- and the acceptance asks for
+            // the slot high-water mark precisely because of that. ~4x a
+            // tree is still a pioneer and leaves room to sweep upward.
+            Reproduce(seed_cost: 0.12, seed_chance: 8e-05, seed_maturity: 10),
+
+            // **`seed_maturity` is SHOOT CELLS, not frames.** Read as
+            // frames it looks like "seed early"; it is a hard size gate,
+            // and at the drafted 150 no grass plant could ever reproduce --
+            // measured 0 seeds set in 12,000 frames against an ensemble
+            // whose median plant is 38 cells total. 10 clears every plant
+            // in that ensemble (min 26 cells) while still doing the job the
+            // field exists for: stopping a two-cell seedling breeding, the
+            // "dynasties that never pay to grow up" attractor its own doc
+            // names.
+            StructuralAnchor,
+            Absorb(rate: 1.6),
+            // Standing blades keep earning, at a lower rate than the
+            // growing tip. With no `Leaf` cell type in the species, this
+            // and the tip arm above are the entire carbon income.
+            Photosynthesize(rate: 0.4, shade_death: 0.004, transpiration: 0.05, drought_death: 0.002),
+        ]),
+        (DormantBud, [
+            BudBreak(
+                cost: 0.12,
+                thickening_survival: 0.5,
+                acrotony: 0.0,
+            ),
+            StructuralAnchor,
+        ]),
+    ],
+)

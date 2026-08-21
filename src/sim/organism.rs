@@ -1343,6 +1343,11 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/species/creeper.ron"),
     include_str!("../../assets/species/weeping.ron"),
     include_str!("../../assets/species/prostrate.ron"),
+    // **A shipped species, not a probe** -- WP-B3. Listed after the probes
+    // because it postdates them, not because it ranks with them: grass is
+    // the species the plant programme is for, and the one that differs from
+    // a tree on all four of the axes in `plant-evolution-design.md` §4a.
+    include_str!("../../assets/species/grass.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working
