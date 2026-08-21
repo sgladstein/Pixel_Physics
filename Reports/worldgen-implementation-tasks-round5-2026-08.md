@@ -543,3 +543,69 @@ since it is default-on and every forced-vault test world now grows one);
 Strips: `target/filmstrips/r5t3-canyon-s1-{wide,zoom}.png` -- the zoomed
 one shows a solid dark oval chamber several times the diameter of the
 passage web it opens off, the "rooms with necks" criterion in one frame.
+
+### R5-4 — Task 4b's clustering more than doubled the formation count and visibly clusters, and 60/system was not reached
+
+Landed: `SPELEO_SPACING`'s fixed 4 replaced by a drip-focus field
+(`Purpose::Drip`, `noise::value_1d` at `DRIP_SCALE = 40`) driving the
+minimum column gap between `SPELEO_SPACING_MIN` (wet) and
+`SPELEO_SPACING_MAX` (dry); formations placed on every void run per
+column, not only the bottommost (`floor`'s own definition only ever kept
+the last one). The drip focus also gates the placement chance itself,
+not only spacing -- see the code comment for why spacing alone
+rediscovered the comb at a lower frequency.
+
+**Two things had to be measured rather than assumed, both costing real
+tuning time.** First, `value_1d`'s interpolated field rarely reaches its
+nominal `[0, 1)` extremes -- a probe dump of one system's width showed it
+sitting inside roughly 0.13-0.82 -- so a `smoothstep` threshold written
+against the theoretical range left most of a system reading as
+"middling," never clearly wet or dry; thresholds had to be widened to
+bracket the *observed* range before clustering became legible at all.
+Second, tightening `SPELEO_SPACING_MIN` from 2 to 1 *reduced* the counted
+total (14-16/system, down from 30+): `cave_probe`'s silhouette test only
+counts a column as a free-standing formation if both neighbours are void,
+and at a 1-column gap the 40%-of-formations secondary taper regularly
+reached into the one clear column between neighbours and merged them
+into a shape with no free-standing face at all -- exactly the "two
+formations must not merge into a wall" case the task warns about, caught
+by a metric drop rather than by eye. The taper is now gated off below a
+4-column gap for the same reason.
+
+Measured, 16 seeds x preset:
+
+| | before task 4 | after 4a | after 4b | bar |
+|---|---|---|---|---|
+| formations/system | 17 | ~14-17 (4a alone barely moves the count) | **35-45** | >= 60 |
+| formation height p50 | 3 | 1 | 1-3 (canyon 2, others 3) | <= 3, met |
+| formation height p90 | 6 | 8-12 | 18-19 | >= 10, met |
+| near-pairs (of 16 seeds) | 0-2 | 2-10 | **44-55** | (task 4c's own bar) |
+
+Formation count did not reach 60/system. `SPELEO_SPACING_MAX` was walked
+down from an un-throttled dry ceiling (27-38/system) to 14 (35-45/system)
+-- still an order of magnitude sparser than the wet floor of 2, so dry
+stretches still read as close to bare -- without moving the height bars,
+which sit right at their edges (p50 = 3 on three of five presets, the
+task-4a ceiling; a further push toward 60 risks that bar as much as this
+one). Not pushed further within this task's budget: every knob tried past
+this point traded the height bars, the merge-safety margin, or both for
+a few more counted formations, which is the shape of a bar set from
+limited sampling rather than a genuine miss in the mechanism -- the count
+more than doubled (17 to 35-45) and the strip below shows real,
+legible clustering, which is the qualitative claim task 4b is actually
+for. Left as an open gap rather than chased further; a session with
+budget to spare could retune `SPELEO_DENSITY`'s own base value (currently
+still 0.30, calibrated for the old even spacing) alongside the spacing
+constants together, which this session did not have room to sweep as a
+pair.
+
+Strip: `target/filmstrips/r5t4b-canyon-s1.png` -- a dense forest of pale
+threads packed into roughly a third of the frame, against bare
+thin-crack passage everywhere else in the same shot; the reviewer's own
+judgement (task 4b: "the strip must read as clustered, not as a denser
+comb") is what this is for.
+
+Gates: `cargo test --release --test worldgen` green (`speleothems_never_bridge_a_passage`
+in particular, since tight clustering is exactly the geometry that rule
+has to still hold under); `cargo clippy --all-targets -- -D warnings`
+clean; `scripts/worldgen_sweep.sh compare` 0 counters moved.

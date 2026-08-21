@@ -816,13 +816,46 @@ const VUG_CHANCE: f32 = 0.25;
 /// Speleothem placement, all tuned against the ASCII probe:
 /// per-candidate-column chance at full ceiling height (the smoothstep over
 /// the open span makes tall chambers -- drip height -- much denser than low
-/// passages), minimum columns between formations (a few per chamber, not a
-/// forest), the crystal minority, and how often a formation is a paired
+/// passages), the crystal minority, and how often a formation is a paired
 /// stalactite-over-stalagmite almost meeting -- the postcard shot.
 const SPELEO_DENSITY: f32 = 0.30;
-const SPELEO_SPACING: i32 = 4;
 const SPELEO_CRYSTAL: f32 = 0.15;
 const SPELEO_PAIR: f32 = 0.25;
+
+/// Round-5 task 4b: the fixed `SPELEO_SPACING = 4` this replaces enforced
+/// *even* spacing everywhere, which is precisely the "reads as a comb"
+/// artefact the beauty review named -- the opposite of drip concentration.
+/// The minimum gap between candidate columns is now driven by
+/// [`noise::value_1d`] on `Purpose::Drip`, a low-frequency field sampled
+/// every [`DRIP_SCALE`] cells: in a wet stretch the gap shrinks to
+/// [`SPELEO_SPACING_MIN`], letting formations bunch; in a dry one it grows
+/// to [`SPELEO_SPACING_MAX`], leaving the stretch close to bare. The floor
+/// stays a hard 2 regardless of how wet a stretch reads -- two formations
+/// one column apart can still read as merged into a single wall (measured:
+/// dropping it to 1 *reduced* the counted total, because the 2-wide
+/// secondary taper then reached into the one clear column between
+/// neighbours and merged them into a shape with no free-standing face at
+/// all), which is the "keep a minimum of 1-2 columns" the task asks for.
+/// The same reasoning gates the secondary taper off entirely below a gap
+/// of 4: it is a cosmetic width variation, not worth the merge risk in a
+/// tight cluster.
+///
+/// **`SPELEO_SPACING_MAX` measured down from a literal reading, not
+/// guessed.** The bar is 60 free-standing formations/system (from 17);
+/// `cave_probe`'s own silhouette test only counts a column as one formation
+/// if *both* neighbours are void, so a cluster has to stay just loose
+/// enough to keep each member individually free-standing while packing as
+/// many in as it can. Un-throttled dry stretches (`SPELEO_SPACING_MAX`
+/// near the envelope's own width) left most of a system's length
+/// contributing nothing, measuring 27-38/system; loosening the dry ceiling
+/// to 14 -- still an order of magnitude sparser than the wet floor of 2 --
+/// raised it to 35-45/system without moving the height bars (p50 stays at
+/// the task-4a ceiling of 3, p90 18-19, well inside both). 60 was not
+/// reached; see the round-5 task file's finding for the honest number and
+/// what was tried.
+const SPELEO_SPACING_MIN: i32 = 2;
+const SPELEO_SPACING_MAX: i32 = 14;
+const DRIP_SCALE: f32 = 40.0;
 
 /// What the vault pass did, beyond the cell count the pass table carries.
 ///
@@ -1855,120 +1888,211 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     {
         let mut last: Option<i32> = None;
         for i in 0..floor.len() {
-            let Some((t, b, h)) = floor[i] else { continue };
             let dx = i as i32 - CAVE_HALF_W;
-            let fs = b - h; // lowest open row: the floor surface
-            let span = fs - t + 1;
-            if span < 5 {
-                continue;
-            }
-            if last.is_some_and(|l| dx - l < SPELEO_SPACING) {
-                continue;
-            }
             let px = cx + dx;
-            // Denser where the ceiling is high: drip height.
-            let chance = SPELEO_DENSITY * noise::smoothstep(6.0, 26.0, span as f32);
-            if noise::unit(seed, Purpose::Speleothem, px, 0) >= chance {
+
+            // Round-5 task 4b: `SPELEO_SPACING = 4` enforced *even* spacing
+            // everywhere, which is precisely the "reads as a comb" artefact
+            // the beauty review named -- the opposite of drip
+            // concentration. The minimum gap is now a low-frequency
+            // drip-focus field: in a wet stretch it shrinks toward
+            // `SPELEO_SPACING_MIN`, letting formations bunch; in a dry one
+            // it grows toward `SPELEO_SPACING_MAX`, leaving the stretch
+            // close to bare.
+            //
+            // The `smoothstep(0.1, 0.5, focus)` thresholds are read off
+            // `value_1d`'s own measured range at this `DRIP_SCALE`, not the
+            // nominal `[0, 1)` -- interpolating between two per-lattice
+            // `unit` draws rarely reaches either extreme, so a threshold
+            // written against the theoretical range left most of a system
+            // reading as "middling" instead of clearly wet or dry (a probe
+            // dump showed the field only ever reaching about 0.13-0.82 over
+            // one system's width). Widening the window to bracket the
+            // *observed* range is what actually produces legible clustering
+            // rather than a mild, all-over ripple.
+            let focus = noise::value_1d(seed, Purpose::Drip, px as f32 / DRIP_SCALE);
+            let dry = 1.0 - noise::smoothstep(0.1, 0.5, focus);
+            let min_spacing = SPELEO_SPACING_MIN + (dry * (SPELEO_SPACING_MAX - SPELEO_SPACING_MIN) as f32) as i32;
+            if last.is_some_and(|l| dx - l < min_spacing) {
                 continue;
             }
-            let kind = noise::unit(seed, Purpose::Speleothem, px, 1);
-            let crystal = noise::unit(seed, Purpose::Speleothem, px, 2) < SPELEO_CRYSTAL;
-            let pair = kind < SPELEO_PAIR && span >= 7;
-            let stalactite = pair || kind < SPELEO_PAIR + 0.45;
-            // Round-5 task 4a: a heavy-tailed draw scaled to the local open
-            // span, replacing the old `2 + unit * 6` -- a uniform draw
-            // capped at 8 regardless of how tall the room was, measured
-            // (`cave_probe`) at median 3, p90 6, max 7 over 539 formations:
-            // there was no tail to make heavy, the ceiling had to move
-            // first. `unit^1.3 * avail`, base 1: tried cubed and squared
-            // first and both under-shot the p90 >= 10 bar (cubed: p90 5-6;
-            // squared: p90 7-8) while already meeting p50 <= 3 and max >=
-            // 25 -- most formations sit in ordinary passage, where `avail`
-            // itself is small, so a heavier tail alone cannot lift the 90th
-            // percentile past what enough *tall-span* formations reach.
-            // 1.3 is the mildest exponent that clears p90 >= 10 on every
-            // preset (measured: p50 1, p90 8-12, max 28-34) without giving
-            // up the fringe: median stays at the soda-straw floor while the
-            // tail reaches deep into the chamber-scale spans task 3 added.
-            // `.min(span - 2)` still holds as the structural cap; it binds
-            // rarely now instead of almost always.
-            let avail = (span - 2).max(0) as f32;
-            let mut lt = if stalactite {
-                (1.0 + noise::unit(seed, Purpose::Speleothem, px, 3).powf(1.3) * avail).min((span - 2) as f32) as i32
-            } else {
-                0
-            };
-            let mut lg = if pair || !stalactite {
-                (1.0 + noise::unit(seed, Purpose::Speleothem, px, 4).powf(1.3) * avail).min((span - 2) as f32) as i32
-            } else {
-                0
-            };
-            if pair {
-                // Almost meeting: shrink the longer half until the drawn
-                // one-or-two-cell gap fits.
-                let gap = 1 + (noise::unit(seed, Purpose::Speleothem, px, 5) * 2.0) as i32;
-                while lt + lg + gap > span {
-                    if lt >= lg {
-                        lt -= 1;
-                    } else {
-                        lg -= 1;
+
+            // Round-5 task 4b: every run tall enough to qualify, not only
+            // the column's bottommost -- formations used to decorate one
+            // gallery of a multi-level system and leave the rest bare,
+            // because placement read `floor[i]` directly, which is the
+            // bottommost run by construction. Enumerated fresh here rather
+            // than reused from `floor` (which only ever keeps the last
+            // one): a maximal vertical run of void is exactly what a
+            // gallery *is*, the same definition `floor`'s own construction
+            // uses, just not discarded for every run but one.
+            let mut runs: Vec<(i32, i32)> = Vec::new();
+            let mut open_top: Option<i32> = None;
+            for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+                if void[cave_idx(dx, dy)] {
+                    if open_top.is_none() {
+                        open_top = Some(dy);
+                    }
+                } else if let Some(top) = open_top.take() {
+                    runs.push((top, dy - 1));
+                }
+            }
+            if let Some(top) = open_top {
+                runs.push((top, CAVE_HALF_H));
+            }
+
+            let mut placed_here = false;
+            for (ri, &(t, b_raw)) in runs.iter().enumerate() {
+                // Only the bottommost run of a column ever carries a
+                // gravel floor (see the fill loop above): every other
+                // run's own bottom cell is solid rock by construction --
+                // that rock is *why* the run ended -- so only the bottom
+                // run needs the `floor[i]` height correction.
+                let is_bottom = ri == runs.len() - 1;
+                let (b, h) = if is_bottom {
+                    match floor[i] {
+                        Some((_, fb, fh)) => (fb, fh),
+                        None => (b_raw, 0),
+                    }
+                } else {
+                    (b_raw, 0)
+                };
+                let fs = b - h; // lowest open row: the floor surface
+                let span = fs - t + 1;
+                if span < 5 {
+                    continue;
+                }
+                // A distinct sub-range of the noise coordinate per run, so
+                // a second gallery in the same column does not draw
+                // identically to the first.
+                let ry = ri as i32 * 20;
+                // The drip focus doubles as a density multiplier, not just
+                // a spacing throttle: wide spacing alone rediscovers the
+                // old comb at a lower frequency (measured), because
+                // `SPELEO_DENSITY` -- calibrated for the old *even*
+                // spacing -- is far too low to fill even a loosened gap.
+                // The span term is loosened too (`smoothstep(3, 5, ..)`
+                // against the old `(6, 26)`, tuned for round-3's wide flat
+                // lens): the outer `span < 5` filter already keeps out
+                // anything too cramped to hold a formation, and gating
+                // *again* on the same quantity at a chamber-only scale
+                // left ordinary passage -- most of a system's length --
+                // essentially undecorated regardless of how wet it read.
+                let wet = noise::smoothstep(0.1, 0.4, focus);
+                let chance = SPELEO_DENSITY * 4.0 * wet * noise::smoothstep(3.0, 5.0, span as f32);
+                if noise::unit(seed, Purpose::Speleothem, px, ry) >= chance {
+                    continue;
+                }
+                let kind = noise::unit(seed, Purpose::Speleothem, px, ry + 1);
+                let crystal = noise::unit(seed, Purpose::Speleothem, px, ry + 2) < SPELEO_CRYSTAL;
+                let pair = kind < SPELEO_PAIR && span >= 7;
+                let stalactite = pair || kind < SPELEO_PAIR + 0.45;
+                // Round-5 task 4a: a heavy-tailed draw scaled to the local
+                // open span, replacing the old `2 + unit * 6` -- a uniform
+                // draw capped at 8 regardless of how tall the room was,
+                // measured (`cave_probe`) at median 3, p90 6, max 7 over
+                // 539 formations: there was no tail to make heavy, the
+                // ceiling had to move first. `unit^1.3 * avail`, base 1:
+                // tried cubed and squared first and both under-shot the
+                // p90 >= 10 bar (cubed: p90 5-6; squared: p90 7-8) while
+                // already meeting p50 <= 3 and max >= 25 -- most formations
+                // sit in ordinary passage, where `avail` itself is small,
+                // so a heavier tail alone cannot lift the 90th percentile
+                // past what enough *tall-span* formations reach. 1.3 is
+                // the mildest exponent that clears p90 >= 10 on every
+                // preset (measured: p50 1, p90 8-12, max 28-34) without
+                // giving up the fringe: median stays at the soda-straw
+                // floor while the tail reaches deep into the chamber-scale
+                // spans task 3 added. `.min(span - 2)` still holds as the
+                // structural cap; it binds rarely now instead of almost
+                // always.
+                let avail = (span - 2).max(0) as f32;
+                let mut lt = if stalactite {
+                    (1.0 + noise::unit(seed, Purpose::Speleothem, px, ry + 3).powf(1.3) * avail)
+                        .min((span - 2) as f32) as i32
+                } else {
+                    0
+                };
+                let mut lg = if pair || !stalactite {
+                    (1.0 + noise::unit(seed, Purpose::Speleothem, px, ry + 4).powf(1.3) * avail)
+                        .min((span - 2) as f32) as i32
+                } else {
+                    0
+                };
+                if pair {
+                    // Almost meeting: shrink the longer half until the
+                    // drawn one-or-two-cell gap fits.
+                    let gap = 1 + (noise::unit(seed, Purpose::Speleothem, px, ry + 5) * 2.0) as i32;
+                    while lt + lg + gap > span {
+                        if lt >= lg {
+                            lt -= 1;
+                        } else {
+                            lg -= 1;
+                        }
                     }
                 }
-            }
-            if lt < 2 {
-                lt = 0;
-            }
-            if lg < 2 {
-                lg = 0;
-            }
-            if lt == 0 && lg == 0 {
-                continue;
-            }
-            let mat = if crystal { 2u8 } else { 1u8 };
-            let mut put = |gx: i32, gy: i32| {
-                if gx.abs() <= CAVE_HALF_W && gy.abs() <= CAVE_HALF_H && void[cave_idx(gx, gy)] {
-                    speleo[cave_idx(gx, gy)] = mat;
+                if lt < 2 {
+                    lt = 0;
                 }
-            };
-            for y in t..t + lt {
-                put(dx, y);
-            }
-            for y in (fs - lg + 1)..=b {
-                put(dx, y);
-            }
-            // A minority go two cells wide, the secondary column shorter --
-            // the taper that makes the root the wide end. Only where the
-            // neighbouring column's run lines up, and always leaving that
-            // column its own two open rows.
-            if noise::unit(seed, Purpose::Speleothem, px, 6) < 0.4 {
-                let side = if noise::unit(seed, Purpose::Speleothem, px, 7) < 0.5 { 1 } else { -1 };
-                let j = i as i32 + side;
-                if j >= 0 && (j as usize) < floor.len() {
-                    // `span2 >= 3` before clamping to it: a two-row slot has
-                    // no room for a secondary at all, and `clamp(1, 0)`
-                    // panics -- found by the debug suite on a world the
-                    // release sweep never built.
-                    if let Some((t2, b2, h2)) = floor[j as usize] {
-                        let fs2 = b2 - h2;
-                        let span2 = fs2 - t2 + 1;
-                        if span2 >= 3 {
-                            if lt > 0 && (t2 - t).abs() <= 1 {
-                                let lt2 = (lt * 3 / 5).clamp(1, span2 - 2);
-                                for y in t2..t2 + lt2 {
-                                    put(dx + side, y);
+                if lg < 2 {
+                    lg = 0;
+                }
+                if lt == 0 && lg == 0 {
+                    continue;
+                }
+                let mat = if crystal { 2u8 } else { 1u8 };
+                let mut put = |gx: i32, gy: i32| {
+                    if gx.abs() <= CAVE_HALF_W && gy.abs() <= CAVE_HALF_H && void[cave_idx(gx, gy)] {
+                        speleo[cave_idx(gx, gy)] = mat;
+                    }
+                };
+                for y in t..t + lt {
+                    put(dx, y);
+                }
+                for y in (fs - lg + 1)..=b {
+                    put(dx, y);
+                }
+                // A minority go two cells wide, the secondary column
+                // shorter -- the taper that makes the root the wide end.
+                // Only where the neighbouring column's run lines up, and
+                // always leaving that column its own two open rows.
+                // Bottommost gallery only: the comparison is against the
+                // neighbour's own bottommost run (`floor[j]`), which is
+                // not a meaningful comparison for an upper gallery.
+                if is_bottom && min_spacing >= 4 && noise::unit(seed, Purpose::Speleothem, px, ry + 6) < 0.4 {
+                    let side =
+                        if noise::unit(seed, Purpose::Speleothem, px, ry + 7) < 0.5 { 1 } else { -1 };
+                    let j = i as i32 + side;
+                    if j >= 0 && (j as usize) < floor.len() {
+                        // `span2 >= 3` before clamping to it: a two-row
+                        // slot has no room for a secondary at all, and
+                        // `clamp(1, 0)` panics -- found by the debug suite
+                        // on a world the release sweep never built.
+                        if let Some((t2, b2, h2)) = floor[j as usize] {
+                            let fs2 = b2 - h2;
+                            let span2 = fs2 - t2 + 1;
+                            if span2 >= 3 {
+                                if lt > 0 && (t2 - t).abs() <= 1 {
+                                    let lt2 = (lt * 3 / 5).clamp(1, span2 - 2);
+                                    for y in t2..t2 + lt2 {
+                                        put(dx + side, y);
+                                    }
                                 }
-                            }
-                            if lg > 0 && (fs2 - fs).abs() <= 1 {
-                                let lg2 = (lg * 3 / 5).clamp(1, span2 - 2);
-                                for y in (fs2 - lg2 + 1)..=b2 {
-                                    put(dx + side, y);
+                                if lg > 0 && (fs2 - fs).abs() <= 1 {
+                                    let lg2 = (lg * 3 / 5).clamp(1, span2 - 2);
+                                    for y in (fs2 - lg2 + 1)..=b2 {
+                                        put(dx + side, y);
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                placed_here = true;
             }
-            last = Some(dx);
+            if placed_here {
+                last = Some(dx);
+            }
         }
     }
 

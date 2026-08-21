@@ -148,6 +148,17 @@ pub enum Purpose {
     /// 26 (`Drip`) and 27 (`CeilingGrain`) are reserved for later round-5
     /// tasks; appended when each lands, not claimed unused here.
     CaveChamber = 25,
+    /// The round-5 drip-focus field: a low-frequency 1D value-noise field
+    /// over x giving a local speleothem density, so formations bunch in
+    /// wet stretches and leave dry ones bare instead of standing at even
+    /// spacing.
+    ///
+    /// Its own stream rather than sharing `Speleothem`, which draws every
+    /// per-formation coin flip (height, crystal, pair) at the same `px` --
+    /// sharing would correlate a stretch's clustering with the formations'
+    /// own shapes, the correlation every purpose tag exists to prevent.
+    /// 27 (`CeilingGrain`) is still reserved and unclaimed, for task 6.
+    Drip = 26,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.
