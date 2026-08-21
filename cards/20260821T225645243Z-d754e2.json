@@ -1,0 +1,58 @@
+{
+  "id": "20260821T225645243Z-d754e2",
+  "created": "2026-08-21T22:56:45Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-ecology",
+    "branch": "plant-ecology-design",
+    "commit": "1bb4c4b",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-ecology"
+  },
+  "title": "Grass: does this read as ground cover, or as very short trees?",
+  "question": "Does the dense sward read as a different KIND of object from a tree -- ground cover -- or as tiny trees planted close together?",
+  "context_md": "WP-B3. This is the species the plant programme has been heading for, and the one thing the plan says to stop and report on is *if it reads as tiny trees*.\n\n**My reading, which is what I want you to overturn if it's wrong:** the dense sheet reads as a sward -- a continuous green layer over a visible pale root mat in the top soil rows -- and not as trees. On that basis I recorded grass as moving all four of the §4a axes, where WP-C's three probes moved one each at best.\n\n**Both sheets are the same species, same seed, same frames.** The only difference is how many founders the scene plants. I'm including the sparse one because it is what I looked at first and it nearly sent me tuning the species: 8 founders is *tree* spacing, and a scene that cannot contain a ground layer looks exactly like a species that cannot make one.\n\n**Measured, so you can ignore it or contradict it:** median plant 56 cells, 14 rows tall, **0 leaves** (that is correct — grass has no separate leaf stage, the blade is the shoot). It reached generation 1 inside 12,000 frames; trees do not.\n\n**What I have NOT measured:** whether the root mat actually holds a bank, and whether grass burns as a distinct fast front. Both are paired scenes that don't exist yet. Judge the look only.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "64 founders — the sward",
+      "files": [
+        "20260821T225645243Z-d754e2/000-wpb3-grass-sward.png"
+      ],
+      "caption": "dense planting; pale root mat visible in the top soil rows",
+      "meta": {
+        "founders": 64,
+        "median cells/plant": 56,
+        "median height (rows)": 14,
+        "leaf cells": 0,
+        "generations reached": "gen 1",
+        "worst frame (ms)": 27.93
+      },
+      "focus": null
+    },
+    {
+      "label": "8 founders — tree spacing",
+      "files": [
+        "20260821T225645243Z-d754e2/001-wpb3-grass.png"
+      ],
+      "caption": "the same grass on the stock grove scene; this is what nearly sent me tuning",
+      "meta": {
+        "founders": 8,
+        "organisms after 12k frames": 9,
+        "established": 3,
+        "seeds set": 2,
+        "leaf cells": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
