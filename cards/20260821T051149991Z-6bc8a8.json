@@ -1,0 +1,53 @@
+{
+  "id": "20260821T051149991Z-6bc8a8",
+  "created": "2026-08-21T05:11:49Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-mechanic-stone-review-yksmi8",
+    "commit": "585cc29",
+    "agent": "explosion-stone",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Terrain at rest: the pale-light fix takes a gradient with it",
+  "question": "Which rock would you rather the world was made of?",
+  "context_md": "The pale light is fixed and confirmed (halo: 2,683 brightening stone pixels down to 94, and none of them outside the crater). But the cause was that **stone's brightness was its distance to the nearest structural anchor**, and worldgen's terrain carries real anchor distances — so removing the bug also removes a soft standing gradient from untouched rock.\n\nOne of these is before, one after. **79,765 of 163,840 pixels differ**, all brighter, up to +102 on a channel. By row: +57 luminance just under the soil cap at row 160, +27 at row 180, tapering to +3 by row 300.\n\n**My read, and it is yours to overrule:** the gradient was *inverted* — it made shallow rock darker and deep rock brighter, where a depth shade would do the opposite — and it was **live**, moving whenever anything anywhere in the world was disturbed. That movement is the bug you reported. If you want a standing depth shade on rock, it should be an explicit depth term that does not move, and that is a few lines next to the existing cave ramp.\n\nSecond thing to look at while you are here, and it was an accident: **the water**. Liquid fill was going through the same darkening (both scales are 1000, and on a liquid  means *full*), so water drew darker the fuller it was and then snapped bright at exactly full. The sea's 8,051 pixels move [114,150,190] to [121,163,214]. I think that one is a straight win but you should see it.\n\nIgnore the strata banding, the ore blobs and the soil profile — those come from the palette and are untouched.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260821T051149991Z-6bc8a8/000-before_worldgen_tile2x.png"
+      ],
+      "caption": "rolling, seed 1, at rest",
+      "meta": {
+        "pixels differing from the other pane": 79765,
+        "sea mean RGB": "114,150,190",
+        "row 160 luminance": 298.9,
+        "row 300 luminance": 368.8
+      }
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260821T051149991Z-6bc8a8/001-after_worldgen_tile2x.png"
+      ],
+      "caption": "rolling, seed 1, at rest",
+      "meta": {
+        "pixels differing from the other pane": 79765,
+        "sea mean RGB": "121,163,214",
+        "row 160 luminance": 355.9,
+        "row 300 luminance": 371.7
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
