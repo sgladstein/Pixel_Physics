@@ -252,7 +252,15 @@ def serve(root: Path, port: int, open_browser: bool = False,
 
     url = "http://127.0.0.1:%d/" % port
     print("review queue: %s" % root)
-    if sync_interval > 0 and not rl.sync_disabled():
+    if rl.sync_disabled():
+        print("NOT syncing: %s is set. Cards from other machines will not appear."
+              % rl.NO_SYNC_ENV)
+    elif sync_interval <= 0:
+        print("NOT syncing: --sync-interval 0. Cards from other machines will not appear.")
+    elif not rl.remote_url():
+        print("NOT syncing: no git remote 'origin' here. Cards posted from a cloud "
+              "session will not appear. Start this from inside the repo checkout.")
+    else:
         print("syncing with origin/%s every %ds" % (rl.SYNC_BRANCH, int(sync_interval)))
     print("open %s" % url, flush=True)
     if open_browser:

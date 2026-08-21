@@ -268,7 +268,7 @@ async function load() {
   state.boards = data.boards;
   state.counts = data.counts;
   state.rev = data.rev;
-  state.sync = data.sync || null;
+  state.sync = "sync" in data ? data.sync : { unsupported: true };
   document.getElementById("rootpath").textContent = data.root;
   // Blocking cards first: a session is actually parked on those.
   state.cards.sort((a, b) =>
@@ -282,7 +282,7 @@ async function load() {
 async function poll() {
   try {
     const info = await (await fetch("/api/rev")).json();
-    state.sync = info.sync || state.sync;
+    state.sync = "sync" in info ? info.sync : { unsupported: true };
     if (info.rev !== state.rev) await load(); else renderSync();
   } catch (_) { /* server restarted mid-session; next tick retries */ }
 }
@@ -303,6 +303,19 @@ function renderSync() {
   if (!el) return;
   const s = state.sync;
   if (!s) { el.className = "syncbox"; el.textContent = ""; return; }
+  if (s.unsupported) {
+    el.className = "syncbox bad";
+    el.innerHTML = "<strong>This server is out of date.</strong> It predates "
+      + "remote sync, so cards from other machines cannot arrive. Restart it: "
+      + "<code>python3 scripts/review.py serve</code>";
+    return;
+  }
+  if (s.skipped) {
+    el.className = "syncbox bad";
+    el.innerHTML = "<strong>Not syncing.</strong><span class=\"err\">"
+      + esc(s.skipped) + "</span>";
+    return;
+  }
   if (s.last_error) {
     el.className = "syncbox bad";
     el.innerHTML = "<strong>Sync is failing.</strong> Cards posted from other "
@@ -347,13 +360,16 @@ function renderFeed() {
   const feed = document.getElementById("feed");
   if (!state.cards.length) {
     const s = state.sync || {};
-    const unsure = s.last_error || !s.last_ok;
+    const unsure = s.unsupported || s.skipped || s.last_error || !s.last_ok;
+    const why = s.unsupported
+        ? "This server predates remote sync — restart it to pick up cards from other machines."
+        : s.skipped ? "Sync is off (" + esc(s.skipped) + "), so only local cards appear."
+        : s.last_error ? "Sync is failing, so cards from other machines are not arriving."
+        : "Sync has not completed a pass yet. If this persists, run "
+          + "<code>python3 scripts/review.py sync</code> to see the error.";
     feed.innerHTML = `<div id="empty">${unsure
         ? `Nothing queued <em>that this machine can see</em>.<br><br>
-           <span class="hint">${s.last_error
-             ? "Sync is failing, so cards from other machines are not arriving."
-             : "No remote sync yet — a card posted from a cloud session would not be here."}
-           </span>`
+           <span class="hint">${why}</span>`
         : `Nothing queued here.<br><br>
            <span class="hint">Agents post with
            <code>python3 scripts/review.py post …</code></span>`}</div>`;

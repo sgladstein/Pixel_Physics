@@ -408,7 +408,7 @@ def sync_dir(root: Path) -> Path:
 
 def sync_state(root: Path) -> dict:
     return read_json(root / "sync-state.json") or {"last_ok": None, "last_error": None,
-                                                   "last_attempt": None}
+                                                   "last_attempt": None, "skipped": None}
 
 
 def _record_sync(root: Path, ok: bool, detail: dict) -> None:
@@ -547,12 +547,18 @@ def sync_now(root: Path, cwd=None, attempts: int = 4) -> dict:
     ours is layered on, and the push is a fast-forward.
     """
     if sync_disabled():
-        return {"ok": False, "skipped": "disabled via %s" % NO_SYNC_ENV,
-                "pulled": [], "pushed": []}
+        result = {"ok": False, "skipped": "disabled via %s" % NO_SYNC_ENV,
+                  "pulled": [], "pushed": []}
+        _record_sync(root, False, dict(result, error=None))
+        return result
     url = remote_url(cwd)
     if not url:
-        return {"ok": False, "skipped": "no git remote 'origin' — local-only queue",
-                "pulled": [], "pushed": []}
+        result = {"ok": False,
+                  "skipped": "no git remote 'origin' in %s — local-only queue"
+                             % (cwd or Path.cwd()),
+                  "pulled": [], "pushed": []}
+        _record_sync(root, False, dict(result, error=None))
+        return result
 
     last_error = None
     for attempt in range(attempts):
