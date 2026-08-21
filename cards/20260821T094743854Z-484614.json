@@ -1,0 +1,43 @@
+{
+  "id": "20260821T094743854Z-484614",
+  "created": "2026-08-21T09:47:43Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/caves-r6b",
+    "branch": "claude/worldgen-caves-r6b",
+    "commit": "ddb2440",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/caves-r6b"
+  },
+  "title": "Formations: fewer and thicker, or the same comb?",
+  "question": "Ignoring the grey light-blocks — do the stalactites and stalagmites in one of these read as rock with a taper, rather than scratches? And is either one still 'totally full of stuff'?",
+  "context_md": "Same cave, same seed, same camera and crop, flat lighting so shape is\nreadable. **Ignore the big grey rectangles** — that is the light-block bug\nyou flagged (\"very large uniform gray blocks with blurry light\"), it is\nunfixed in both shots, and it is what I am on next. This card is only\nabout the stone.\n\nYour words on the first one: *\"they are all 1 pixel thick. They should\nhave a taper and be thicker but fewer of them\"*, and the cave is\n*\"totally full of stuff\"*.\n\nMeasured over 16 seeds, wetland, with an instrument I had to rewrite\nfirst — the old one defined a formation as a column with empty space on\nboth sides, which is a fine definition while everything is one pixel wide\nand exactly wrong once things taper. It was reporting the new formations\nas *shorter* while they were getting bigger, and an earlier version of the\nwork had already been shaped around that bad number.\n\n|                    | one | other |\n|---|---|---|\n| formations/system  | 45.8 | 15.4 |\n| base width, median | 1 | 3 |\n| base width, p90    | 1 | 6 |\n| height p90         | 19 | 18 |\n| height max         | 45 | 45 |\n| floor-to-ceiling columns | 181 | 99 |\n\n\"Base width median 1, p90 1\" is your \"all 1 pixel thick\", in a number.\n\nThe cave passages themselves are untouched between the two shots.\n",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "45.8 per system, 1 wide",
+      "files": [
+        "20260821T094743854Z-484614/000-R5.png"
+      ],
+      "caption": "",
+      "meta": {}
+    },
+    {
+      "label": "15.4 per system, 3-6 wide",
+      "files": [
+        "20260821T094743854Z-484614/001-CONE.png"
+      ],
+      "caption": "",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
