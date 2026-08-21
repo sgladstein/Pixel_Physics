@@ -294,6 +294,18 @@ authored through the shared slots — no grass-only mechanisms):
 
 ## WP-C — Form probes (Session F, any time; no dependencies)
 
+> **STATUS 2026-08-21: COMPLETE, and the answer is no.** All three probes
+> built, rendered and owner-judged through the review queue (two blind).
+> Verdicts: `weeping` *"same plant"* as tree; `creeper` vs `prostrate`
+> *"Not that different"* (2/5). **Tally at most one against a bar of two, so
+> the envelope claim is not validated** and the owner's original pushback
+> stands. `weeping.ron` and `prostrate.ron` are retired, and the four-line
+> order-0 tropism change in `plant.rs` is reverted with a do-not-retry note
+> in place. `creeper.ron` survives. The finding worth carrying forward:
+> every group change came from the size budget (`turgor_source`), none from
+> an architectural knob. Full register in `plant-evolution-design.md` §4a.
+
+
 **Spec** (P1a, signed off): three probes, each one `.ron` + one noon
 filmstrip, judged against the four-axes bar — does it read as a new
 form *class*, or as another small tree?

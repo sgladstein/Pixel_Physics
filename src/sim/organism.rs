@@ -1332,17 +1332,19 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/species/tree.ron"),
     include_str!("../../assets/species/conifer.ron"),
     include_str!("../../assets/species/shrub.ron"),
-    // **Form probes, not shipped species** -- WP-C of `Reports/plant-
-    // implementation-plan.md`. Each asks whether one corner of the Grow
-    // envelope is a real form *class* or just another small tree, and each
-    // is one file plus one contact sheet. They are embedded because a
-    // headless harness reads only this list (P-7), not the assets
-    // directory. Retire any that the sheets condemn -- the dead-end
-    // register in `Reports/plant-evolution-design.md` §4a is where the
-    // verdict goes, and a condemned probe should not outlive it here.
+    // **A form probe, not a shipped species** -- WP-C of `Reports/plant-
+    // implementation-plan.md`. It asks whether one corner of the Grow
+    // envelope is a real form *class* or just another small tree, at the
+    // cost of one file plus one contact sheet. Embedded because a headless
+    // harness reads only this list (P-7), not the assets directory.
+    //
+    // **Two siblings shipped with it and have been retired against the
+    // owner's verdicts** -- `weeping.ron` ("same plant" as `tree`) and
+    // `prostrate.ron` ("Not that different" from this file, 2/5). Both
+    // verdicts and what they cost are in `Reports/plant-evolution-
+    // design.md` §4a's register; a condemned probe does not outlive its
+    // verdict here.
     include_str!("../../assets/species/creeper.ron"),
-    include_str!("../../assets/species/weeping.ron"),
-    include_str!("../../assets/species/prostrate.ron"),
     // **A shipped species, not a probe** -- WP-B3. Listed after the probes
     // because it postdates them, not because it ranks with them: grass is
     // the species the plant programme is for, and the one that differs from

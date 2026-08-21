@@ -464,57 +464,73 @@ small tree goes to the dead-end register before it costs a milestone —
 that is one filmstrip against one `.ron`, the cheapest experiment this
 document proposes (staged as P1a in §7).
 
-### The register, filled in: WP-C's three probes (2026-08-21)
+### The register, filled in: WP-C's three probes — OWNER-JUDGED (2026-08-21)
 
-All three built and rendered — `assets/species/{creeper,weeping,prostrate}.ron`,
-one grove sheet each at noon (frames 10,800 / 18,000 / 25,200; crop
-`0,40,512,170`), against a `tree` sheet re-rendered in the same batch as the
-paired control. **These are the session's readings, not the owner's**; the bar
-above is "reads as a new category *by eye*", and that eye is the owner's. The
-cards are queued for review. Provisional verdicts:
+All three built and rendered — one grove sheet each at noon (frames 10,800 /
+18,000 / 25,200), against a `tree` sheet re-rendered in the same batch as the
+paired control — and **all three judged by the owner through the review
+queue**, the two closest calls posted blind because the session had a stake in
+the answer. The verdicts, verbatim:
 
-| Probe | Cost | Reading | Verdict |
-|---|---|---|---|
-| **creeper** | values only, no code | a few rows tall, sprawling, ragged — an ankle-high scrub, not a scaled-down tree | **new form class** |
-| **prostrate** | 4-line `plant.rs` change | reads as creeper. Flatter and sparser by a little; nothing a sheet separates | **new class vs tree, but not separable from creeper** |
-| **weeping** | one `.ron` line, no code | laterals do hang and the crown sits lower and shaggier than `tree` — but same size, same palette, an upright with a crown | **within-class variation — dead-end register** |
+| Card | Verdict | Rating |
+|---|---|---|
+| Form probes (gallery) | *"Tree and weeping look the same. creeper and prostrate look the same"* | — |
+| `tree` vs `weeping` (**blind**) | *"same plant"* | — |
+| `creeper` vs `prostrate` (**blind**) | *"Not that different"* | 2 |
 
-**Tally: one.** The bar was *at least two probes reading as new categories*, so
-on this session's reading **the envelope claim is not validated by this round**.
-Prostrate cannot be counted as the second: it is the same object creeper is, and
-it cost a code change creeper did not.
+| Probe | Cost | Outcome |
+|---|---|---|
+| **creeper** | values only, no code | **Kept.** Reads as its own group, apart from the tree group — the strongest claim the verdict supports. |
+| **prostrate** | 4-line `plant.rs` change | **RETIRED**, file and code both. Not separable from creeper, which needed no code. |
+| **weeping** | one `.ron` line, no code | **RETIRED.** *"same plant"* as `tree` — a within-class variation. |
 
-**And the three probes accidentally form a controlled comparison, which is the
-part worth keeping.** Sort them by which axis each one moved:
+**Tally: at most one, against a bar of two. The envelope claim is not
+validated, and the owner's original pushback stands.** Note the tally is
+generous to itself: the gallery verdict groups {tree, weeping} against
+{creeper, prostrate} and so *implies* creeper is a different kind of thing
+from a tree, but it never says so outright. Nothing here certifies a second
+new class, and the one probe that survives does so on an inference.
+
+**The three probes accidentally formed a controlled comparison, and that is
+the part worth keeping.** Sort them by which axis each one moved:
 
 - creeper and prostrate both cut `turgor_source` to a 5–8 row budget (an
-  **axis-1 size-class** move) and both changed form class. They differ from each
-  other *only* on form knobs — `heading_inertia` 0.05 vs 0.1, and order-0
-  `Plagiotropic` vs not — and are not tellable apart.
+  **axis-1 size-class** move) and both landed in the same group. They differ
+  from each other *only* on form knobs — `heading_inertia` 0.05 vs 0.1, and
+  order-0 `Plagiotropic` vs not — and the owner could not tell them apart.
 - weeping kept `tree`'s `turgor_source: 1.0` and moved **only** a form knob
-  (`upward_weight` negative on orders >= 1). It did not change class.
+  (`upward_weight` negative on orders >= 1). It stayed in the tree group.
 
-So across three probes, every class change came from the size budget and none
-came from an architectural knob. **This is the appearance phase's finding
-arriving again from a new direction** (CLAUDE.md, "ask which *pixels* a lever
+So across three probes, **every group change came from the size budget and
+none came from an architectural knob.** This is the appearance phase's finding
+arriving again from a new direction (CLAUDE.md, "ask which *pixels* a lever
 moves"): sympody, tropism and acrotony all fired and moved nothing visible,
 because they change *which cell gets a label*. Negative `upward_weight` and
-order-0 `Plagiotropic` are levers of exactly that kind, and they behaved exactly
-that way. `turgor_source` is not — it sets how much plant there is.
+order-0 `Plagiotropic` are levers of exactly that kind, and they behaved
+exactly that way. `turgor_source` is not — it sets how much plant there is.
 
-The practical consequence for §4's staging: **the corners in the table above
-that are named by an architectural knob should be assumed not to read until
-shown otherwise, and the ones named by a size or material change should be
-assumed to read.** Grass leads §4 because it moves size *and* material *and*
-consequence; that ordering survives this round and is reinforced by it.
+**Consequence for the corner table above: a corner named by an architectural
+knob should be assumed not to read until shown otherwise; a corner named by a
+size or material change should be assumed to read.** Grass leads §4 because it
+moves size *and* material *and* consequence — and its own card came back
+*"looks different from trees"* at 4/5, which is the first thing in this
+programme to clear the bar by eye.
 
-Retirement: if the owner's verdict agrees, `prostrate.ron` and the four-line
-order-0 tropism change are candidates for removal — the change is behaviour-free
-for every shipped species (proven: the `tree` sheet is byte-identical across it,
-md5 `35f6147408e8ff75ce865b38697961fc`) so it costs nothing to keep, but it buys
-nothing either. `weeping.ron` is worth keeping regardless: it is free, and a
-hanging habit may read once foliage is mass rather than garnish (WP-E).
+**What was withdrawn, and what would change the answer.** The order-0 tropism
+change let a species' founding axis be plagiotropic from its species file
+(never from an allele — no point mutation may lay a trunk over). It was
+behaviour-free for everything shipped, proven not assumed: the `tree` grove
+sheet was byte-identical across it, md5
+`35f6147408e8ff75ce865b38697961fc`. It went because the only form it unlocked
+was one pure values already reached. Reviving it needs a sheet showing
+order-0 plagiotropy doing something `heading_inertia` and a low turgor budget
+cannot — not the reachability argument, which was sound and still lost.
 
+`weeping` is worth one line of memory: negative `upward_weight` **is**
+expressible today, was never clamped anywhere in `src/sim`, and does make
+laterals hang. It simply does not change what kind of thing the plant is at
+this scale. If WP-E makes foliage a mass rather than a garnish, that is the
+event that would justify re-authoring it — the droop had nothing to drape.
 
 ### Within a form class: cone against dome, and the two channels the engine lacks
 
