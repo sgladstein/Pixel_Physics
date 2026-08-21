@@ -53,6 +53,31 @@ const FAMILY_RESISTANT: u8 = 3;
 /// sign of the bias, which is the pier again with a different threshold.
 const FAMILY_FIELD_WAVELENGTH: f32 = 48.0;
 
+/// Wavelength of the field a palette-family threshold is compared against,
+/// in cells -- the scale at which the boundary between two rock countries
+/// wanders. See `palette_family`, and open bug 0b for the per-cell white
+/// noise it replaced.
+///
+/// Chosen by eye from a three-point sweep on the same crop, because "does
+/// this read as a rock boundary" is not a question a number answers:
+///
+/// - **14** -- the boundary has so much detail it reads as camouflage
+///   blotches rather than as two countries meeting.
+/// - **40** -- a coastline, with bays and peninsulas. Shipped.
+/// - **96** -- clean and sweeping, but a bare curve; the geology goes out
+///   of it.
+///
+/// Deliberately much shorter than [`FAMILY_FIELD_WAVELENGTH`]. The two do
+/// different jobs and must not converge: the slow one displaces the
+/// *threshold*, this one is what the threshold is compared against, and if
+/// they moved together the comparison would be degenerate.
+const FAMILY_DITHER_WAVELENGTH: f32 = 40.0;
+
+/// How far the fBm draw is stretched about its centre before it is compared
+/// against a family threshold -- see `palette_family`. Set so the field
+/// covers the full 0..1 the thresholds were tuned against.
+const FAMILY_DITHER_CONTRAST: f32 = 3.2;
+
 /// Gravel's second family: the buried read, for lenses sealed in the rock.
 ///
 /// Not a region family — it is a *context* family, and that distinction is
@@ -113,7 +138,43 @@ fn palette_family(ctx: &Ctx, x: i32, y: i32, cap_rock: bool) -> u8 {
         return FAMILY_NEUTRAL;
     }
     let ch = ctx.terrain.character(x);
-    let u = noise::unit(ctx.terrain.seed, Purpose::Palette, x, y);
+    // **A *field*, not a per-cell coin** (open bug 0b).
+    //
+    // This was `noise::unit(.., x, y)` -- an independent draw per cell.
+    // Wherever the family probability is mid-range, which is most of the
+    // world *by design* (the aridity ramps were widened deliberately to make
+    // it so), that is a per-cell Bernoulli dither between families differing
+    // by ~40 brightness points *and* a large hue shift: neutral grey
+    // `128,128,132` against warm sandstone `168,146,112`. At play scale it
+    // reads as television static, and it was measured as the majority of the
+    // deep massif's speckle -- which is why cutting `render.rs`'s grain to
+    // zero at depth barely moved the picture.
+    //
+    // The *intent* is right and is kept: a meandering boundary between
+    // differently-coloured countries. The meander was in the wrong place.
+    // Sampling fBm on the same `Purpose::Palette` stream -- same stream,
+    // different function, so no discriminant is claimed -- puts it in the
+    // field, and a country's interior comes out solid instead of sprayed.
+    // Stretched, because swapping the *distribution* changes what every
+    // threshold below means. `noise::unit` is uniform on 0..1; a normalised
+    // three-octave fBm piles up around the middle -- sampled across a world
+    // it spans roughly 0.30..0.60. Thresholds tuned to catch the tails of a
+    // uniform draw therefore stop firing at all: measured, `wetland` seed 1
+    // came out with **every rock cell in a single family**, caught by
+    // `a_varied_world_uses_more_than_one_rock_family`. Fixing a mechanism
+    // and leaving the constants that read it un-re-derived is its own
+    // recurring bug here; the stretch is that re-derivation, and it is one
+    // line rather than four retuned ramps.
+    let u = ((noise::fbm_2d(
+        ctx.terrain.seed,
+        Purpose::Palette,
+        x as f32 / FAMILY_DITHER_WAVELENGTH,
+        y as f32 / FAMILY_DITHER_WAVELENGTH,
+        3,
+    ) - 0.45)
+        * FAMILY_DITHER_CONTRAST
+        + 0.5)
+        .clamp(0.0, 1.0);
     // The slow displacement, centred on zero so it pushes a threshold both
     // ways: a field that only ever *added* probability would widen every
     // family into its neighbour rather than making the boundary meander.
