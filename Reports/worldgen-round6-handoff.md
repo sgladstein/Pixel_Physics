@@ -6,12 +6,16 @@
 ## The short version
 
 Everything in round 6's plan landed except round-5 task 6 (ceiling grain),
-plus one thing that was not in the plan and turned out to matter more than
-most of it: **open bug 0c, the grey light blocks**, is fixed.
+plus two things that were not in the plan and turned out to matter more than
+most of it: **both halves of the deep-rock complaint are fixed** — 0c, the
+grey light blocks, and 0b, the colour static in the rock. They were the two
+things you named about how a cave *looks*, and neither was on the night's
+task list.
 
-Four review cards are waiting for you. Two of them (the formation A/B and
-the cave-size A/B) are the ones I would most like an eye on, because the
-numbers say yes and numbers have been wrong about this three times tonight.
+Five review cards are waiting for you. The two I would most like an eye on
+are the formation A/B and the cave-size A/B, because there the numbers say
+yes and numbers have been wrong about this six times tonight. The two
+lighting/rock ones are closer to "look at what changed" than to a question.
 
 ## The night's actual lesson
 
@@ -88,7 +92,7 @@ of why they were needed is the paired control now in the acceptance test:
 reach is 3 cells**, against a 14-cell character. Nothing else in the
 generator makes rock at your scale.
 
-### The grey light blocks (open bug 0c)
+### The two things you said about how it looks (open bugs 0c and 0b)
 
 You named these twice, unprompted, on cards that were about something else.
 Not a smoothing problem: the light field stores one value per 8x8 cells and
@@ -96,6 +100,19 @@ quantises the *emitter* to that grid before diffusion runs, so a two-cell
 crystal is a filled 8x8 square before anything smooths it. Each glowing cell
 now gets its own short-range falloff, with the coarse field carrying the far
 tail. Costs nothing per frame on a settled world.
+
+**The colour static in the rock (0b)** was the other half. The rock is meant
+to change country as you walk, and the boundary was drawn as **white noise,
+one coin flip per cell** — so instead of a coastline the two colours sprayed
+through each other everywhere. Because the families differ in *hue* as well
+as brightness it was a colour dither, which is why the earlier attempt at
+this (turning the render's grain down) did nothing visible. Measured: luma
+speckle down 61%, colour speckle down 82%.
+
+That fix needed a constant re-derived with it, and a test caught it rather
+than I did: fBm's draw piles up around the middle where white noise is
+uniform, so thresholds tuned for the tails stopped firing and one preset came
+out with every rock cell in a single family.
 
 ## What I ruled, so you can overrule it
 
@@ -121,9 +138,10 @@ tail. Costs nothing per frame on a settled world.
 
 ## Still open, in the order I would take them
 
-1. **Palette dither (open bug 0b).** With the light blocks gone, the static
-   in the rock is what is left to look at. You named the two together and
-   only one is done.
+1. **`strata_shade`'s "12% of cells jump a tone".** The last of the deep-rock
+   texture, and deliberately left: it is the same shape as 0b at much
+   smaller amplitude — brightness only, no hue — and to my eye it now reads
+   as rock texture rather than noise. One line if you disagree.
 2. **Round-5 task 6, ceiling grain.** Was blocked behind A1; A1 is settled,
    so it is unblocked and unstarted.
 3. **The vertical banding question** on the cave-size card. Broad light and
