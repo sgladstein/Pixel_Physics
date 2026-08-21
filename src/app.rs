@@ -1779,7 +1779,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1824,6 +1824,22 @@ impl App {
                 String::new()
             } else {
                 format!(" — chain {}", crate::sim::structural::CHAIN_MODES[self.chain_mode].name)
+            },
+            // The same rule again, and this one was **missing entirely**
+            // until the overlay it names was mistaken for a bug. `V` cycles
+            // Off -> Pressure -> Temperature -> Light -> Moisture ->
+            // Pheromone A -> Pheromone B -> Off, and `FieldOverlay::Light`
+            // is a pale cream blended at up to 75% over every pixel
+            // *including solid rock* -- so a player who pressed `V` four
+            // times got "a pale light effect spreading through rock" with
+            // nothing on screen to say why, or that it was a debug channel
+            // at all. Every other selector here already knew that the whole
+            // value of a selector is being able to report which one you
+            // liked.
+            if self.renderer.field_overlay == render::FieldOverlay::Off {
+                String::new()
+            } else {
+                format!(" — field {}", self.renderer.field_overlay.label())
             },
             // Same "only once turned on" rule. Worth showing at all because
             // the tint is subtle on a sparse tree and "is this channel on,
@@ -2055,6 +2071,27 @@ mod tests {
         assert!(!app.status(60.0).contains("ASSETS EDITED"), "a clean tree must not add noise to the title");
         app.assets_dirty = None;
         assert!(!app.status(60.0).contains("ASSETS EDITED"), "git being unavailable is silence, not a warning");
+    }
+
+    /// The field overlay was the one selector on the status line that never
+    /// said its own name, and `FieldOverlay::Light` is a pale cream blended
+    /// at up to 75% over *every* pixel including solid rock. A player who
+    /// pressed `V` four times had no way to find out why the world had
+    /// gone pale, and the report that came back — "a pale light effect
+    /// spreads through rock" — is a literal description of it.
+    #[test]
+    fn the_status_line_names_the_field_overlay_it_is_showing() {
+        let mut app = App::new();
+        assert!(
+            !app.status(60.0).contains("field"),
+            "the default line must stay quiet, the same as grain, spoil, chain and organism do"
+        );
+        app.renderer.field_overlay = render::FieldOverlay::Light;
+        assert!(
+            app.status(60.0).contains("field LIGHT"),
+            "a selected field overlay has to name itself: {}",
+            app.status(60.0)
+        );
     }
 
     #[test]

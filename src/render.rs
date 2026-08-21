@@ -609,6 +609,28 @@ pub struct Renderer {
     /// rock, which is the "caves are dark, bring a torch" feature and not
     /// this one.
     daylight: u8,
+    /// Draw every frame at this much daylight — `0.0` (the darkest the
+    /// lighting term goes) through `1.0` (noon) — instead of at whatever
+    /// hour `world.frame` says it is. `None`, the default, is the ordinary
+    /// day/night cycle, so nothing already recorded changes.
+    ///
+    /// **Render-only, and deliberately so.** It reaches exactly `daylight`
+    /// and `sky` below; the world's own clock, the light channel, plants
+    /// and weather are untouched, so this changes what a sheet *looks*
+    /// like and nothing about what happened in it.
+    ///
+    /// It exists for the contact sheets. The nine-blast harness fires
+    /// charges 400 frames apart and a day is
+    /// `field::DAY_NIGHT_PERIOD_FRAMES` = 3,600, so its nine panels come
+    /// out at nine different hours — the middle columns at night, genuinely
+    /// hard to read, with the exposure varying across the sheet as much as
+    /// the physics does. `CLAUDE.md`'s "a channel that oscillates by design
+    /// must be divided out of decisions" is about thresholds and applies
+    /// just as hard to a picture: the nine tiles are being compared *to
+    /// each other*, and a variable that is not the one under test has to be
+    /// held constant. See `sky::frame_for_daylight` for what a value maps
+    /// to.
+    pub daylight_pin: Option<f32>,
     /// `CAVE_FADE_DEPTH`'s ramp, precomputed: how far toward `UNDERGROUND`
     /// a cell `i` rows below its column's sky floor is drawn, as a 0..=255
     /// weight.
@@ -657,6 +679,7 @@ impl Renderer {
             sky: Sky::at(0, 0, 1, 0, 1),
             last_sky_key: None,
             daylight: sky::LIGHT_LEVELS,
+            daylight_pin: None,
             cave_ramp: {
                 let mut ramp = [0u8; CAVE_FADE_DEPTH as usize + 1];
                 for (i, slot) in ramp.iter_mut().enumerate() {
@@ -942,9 +965,19 @@ impl Renderer {
         // sky is doing -- a downpour drawn against a clear blue gradient
         // being the obvious way that goes wrong.
         let weather = crate::sim::weather::at(world.seed, world.frame);
-        self.sky = Sky::at(world.frame, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
-            .muted(sky::overcast(weather.intensity));
-        self.daylight = sky::daylight_level(world.frame);
+        // The hour the *picture* is drawn at. Normally the world's own
+        // frame; `daylight_pin` (see the field) holds it still for a
+        // contact sheet whose tiles are hours apart. Only the sky and the
+        // light level read it -- weather above is still read at
+        // `world.frame`, because a pinned exposure must not also rewrite
+        // what the weather was doing.
+        let clock = match self.daylight_pin {
+            Some(fraction) => sky::frame_for_daylight(fraction),
+            None => world.frame,
+        };
+        self.sky =
+            Sky::at(clock, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1)).muted(sky::overcast(weather.intensity));
+        self.daylight = sky::daylight_level(clock);
         self.rebuild_horizon(world);
         let sky_key = self.sky.key();
         let sky_changed = self.last_sky_key != Some(sky_key);
@@ -1291,13 +1324,23 @@ impl Renderer {
     /// pixel grid beyond that; the CA cell it becomes on landing carries
     /// all the same visual weight bulk material has, so a free particle
     /// mid-flight not doing that too is not a loss worth more complexity.
+    ///
+    /// **The lighting is the exception to that, and it was missing.** The
+    /// grain is a texture and a cell can go without it for a few frames of
+    /// flight; the light level is not — `sky::apply_light` is a 0.42x term
+    /// at the dark end of the cycle, so raw palette colour meant a grain
+    /// *flashed brighter* the instant it left the grid and flashed back
+    /// when it landed. See `draw_chunk_bodies` for the whole reasoning.
     fn draw_particles(&self, world: &World, particles: &ParticleSystem, frame: &mut [u8], width: u32, height: u32) {
+        let ambient = self.sky.ambient();
         for particle in particles.iter() {
             let Some((sx, sy)) = self.world_to_screen(particle.x.round() as i32, particle.y.round() as i32) else {
                 continue;
             };
             let palette = &world.materials.get(particle.material).palette;
-            let colour = palette[particle.shade as usize % palette.len()];
+            let raw = palette[particle.shade as usize % palette.len()];
+            let lit = sky::apply_light([raw[0], raw[1], raw[2]], self.daylight, ambient);
+            let colour = [lit[0], lit[1], lit[2], raw[3]];
             let block = self.zoom.max(1);
             for dy in 0..block {
                 for dx in 0..block {
@@ -1313,8 +1356,43 @@ impl Renderer {
     /// cannot duplicate them), so the per-cell pass above cannot see it. A
     /// falling chunk would otherwise simply vanish for the whole of its
     /// flight and reappear on landing.
+    ///
+    /// # Lit here as well as in the grid, and why only that term
+    ///
+    /// This pass and `draw_particles` painted **raw palette colour**, so the
+    /// same rock was drawn by two different pipelines depending on whether
+    /// it was in the grid or in flight. `sky::apply_light` alone is up to a
+    /// 0.42x difference (`sky::UNLIT_FLOOR`), so every promotion flashed its
+    /// cells brighter and every landing flashed them back — and a cascade
+    /// promotes and lands bodies continuously. That is the "random flashes
+    /// during cascades" the owner reported: measured on `scene=ligament`,
+    /// 34-99 bodies and up to 2,514 cells in flight in a single tile, drawn
+    /// pale grey against rock the sky had darkened to brown.
+    ///
+    /// Three terms are still not shared with `cell_colour`, each for its
+    /// own reason:
+    ///
+    /// - **Grain, deliberately.** `draw_particles`' doc already argues that
+    ///   a free cell not carrying the same visual weight mid-flight is not
+    ///   worth more complexity, and position-keyed noise on a *moving* body
+    ///   would shimmer as it moves rather than reading as texture. The term
+    ///   that mattered was the lighting one.
+    /// - **Crack darkening, because there is nothing to draw.**
+    ///   `rigid::promote` builds a `BodyCell` from material and shade only
+    ///   — the flags, and with them `FLAG_CRACK_DOWN`/`_RIGHT`, are dropped
+    ///   at promotion and `Cell::new` re-creates an uncracked cell on
+    ///   landing. A slab really does lose its fissures the moment it starts
+    ///   falling, and keeping them is a change to what a body *carries*,
+    ///   not to how it is painted.
+    /// - **The cave fade**, which is a property of the column a cell sits
+    ///   in and is already applied to the sky behind it.
+    ///
+    /// Sharing `cell_colour` outright would be the tidy answer and is not
+    /// what this is: that function takes a `World` and a grid position and
+    /// reads neighbours, and unpicking it is a bigger change than the bug.
     fn draw_chunk_bodies(&self, world: &World, frame: &mut [u8], width: u32, height: u32) {
         let block = self.zoom.max(1);
+        let ambient = self.sky.ambient();
         for body in &world.chunk_bodies {
             for cell in &body.cells {
                 let (wx, wy) = body.cell_position(cell);
@@ -1322,7 +1400,9 @@ impl Renderer {
                     continue;
                 };
                 let palette = &world.materials.get(cell.material).palette;
-                let colour = palette[cell.shade as usize % palette.len()];
+                let raw = palette[cell.shade as usize % palette.len()];
+                let lit = sky::apply_light([raw[0], raw[1], raw[2]], self.daylight, ambient);
+                let colour = [lit[0], lit[1], lit[2], raw[3]];
                 for dy in 0..block {
                     for dx in 0..block {
                         put(frame, width, height, sx + dx, sy + dy, colour);
@@ -1522,7 +1602,41 @@ impl Renderer {
         // Darkening rather than tinting blue: damp soil is the same soil,
         // and a blue cast reads as a different material rather than as the
         // same one being wet.
-        let saturation = crate::sim::update::soil_moisture(cell);
+        //
+        // **Gated on `Powder`, and that gate is a bug fix rather than a
+        // tidy-up.** `Cell::aux` is a tagged union (see its own doc): only
+        // on a `Powder` does it hold saturation. On a `Solid` or a `Plant`
+        // it is the **distance to the nearest structural anchor**, on a
+        // `Creature` the owning creature id, and on a `Liquid` the fill
+        // amount. Without the gate every stone cell in the world was drawn
+        // darker in proportion to how far it stood from an anchor -- a
+        // live, invisible, per-frame structural quantity rendered as
+        // dampness at up to 41% -- and `structural::tick`'s relaxation
+        // wavefront then re-lit it over the following frames wherever
+        // anything was disturbed. That is what reached the owner as "a pale
+        // light effect spreads through rock, lightening it over time", on a
+        // plain strike with no explosion anywhere near it. `CLAUDE.md`'s
+        // "two conventions for `Cell::aux` point opposite ways", one kind
+        // further along.
+        //
+        // The same test `apply_organism_overlay`'s `SoilMoisture` channel
+        // has always made, which is what proved this was an oversight: the
+        // debug overlay of this very quantity gated correctly while the
+        // main path did not.
+        //
+        // **Standing water was the other casualty, and it was worse than
+        // it looks.** `LIQUID_FULL` and `SOIL_SATURATED` are both 1000, so
+        // a liquid's fill went straight through this at full scale -- and
+        // since `aux == 0` means *full* on a `Liquid`, the darkening got
+        // *stronger* the fuller the cell was and then snapped to nothing at
+        // exactly full, on top of the deliberate `fill_dimming` below.
+        // Measured on `scene=worldgen preset=rolling seed=1`: the sea's
+        // 8,051 pixels went from a mean [114, 150, 190] to [121, 163, 214]
+        // when the gate landed -- +12% on the blue channel, murk to water.
+        let saturation = match world.materials.kind(cell.material) {
+            material::MaterialKind::Powder => crate::sim::update::soil_moisture(cell),
+            _ => 0,
+        };
         if saturation > 0 {
             let t = saturation as u32 * (256 - DAMP_DARKEN) / material::SOIL_SATURATED.max(1) as u32;
             let scale = (256 - t) as u16;
@@ -2300,6 +2414,153 @@ mod tests {
             deep <= dark + 2,
             "past the fade depth it must reach full dark, or every cave in the world turns grey: {deep} against {dark}"
         );
+    }
+
+    /// Reported from play: "a pale light effect spreads through rock,
+    /// lightening it over time" — from the core of whatever was hit, deep
+    /// as well as shallow, every time.
+    ///
+    /// It was the damp darkening reading a `Solid` cell's `aux`, which on a
+    /// `Solid` is its **distance to the nearest anchor**, not saturation.
+    /// So every stone cell was drawn darker in proportion to how far it
+    /// stood from an anchor, and `structural::tick`'s relaxation wavefront
+    /// re-lit it over the following frames wherever anything was disturbed.
+    /// Measured on `scene=worldcrack preset=rolling seed=1 strike=12`
+    /// against the same world unstruck: 2,683 grey-stone pixels brightening
+    /// at frame 400, in a halo running x 200-339 around a 12-cell strike at
+    /// x=256 — a thousand of them more than 40 cells from anything the blow
+    /// touched.
+    ///
+    /// Two reads of one cell at one position, so the grain, the palette
+    /// shade and the lighting are identical between them by construction
+    /// and `aux` is the only thing that moved.
+    #[test]
+    fn a_solids_anchor_distance_does_not_change_how_it_is_drawn() {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 32..64 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        world.begin_step();
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+
+        // Deep enough that the cave fade is at its floor for both reads.
+        let (x, y) = (32, 50);
+        world.set(x, y, Cell::new(material::STONE, 3).with_aux(0));
+        let anchored = r.cell_colour(&world, x, y, (0, 0));
+        // 900 is a plausible standing distance in generated terrain, and
+        // above `SOIL_SATURATED`'s own scale it would be a 41% darkening.
+        world.set(x, y, Cell::new(material::STONE, 3).with_aux(900));
+        let far_from_an_anchor = r.cell_colour(&world, x, y, (0, 0));
+
+        assert_eq!(
+            anchored, far_from_an_anchor,
+            "a Solid cell's structural anchor distance is not dampness and must not be drawn: \
+             aux=0 drew {anchored:?}, aux=900 drew {far_from_an_anchor:?}"
+        );
+    }
+
+    /// The other side of the same gate, and the reason it is a gate rather
+    /// than a deletion: saturation is real on a `Powder` and drawing it is
+    /// the whole point of the block. A fix that simply removed the
+    /// darkening would pass the test above and lose the feature.
+    #[test]
+    fn a_powders_saturation_still_darkens_it() {
+        let soil = {
+            let world = World::new(Rect::new(0, 0, 63, 63));
+            world.materials.id_of("soil").expect("soil is a compiled-in material")
+        };
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 32..64 {
+                world.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        world.begin_step();
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+
+        let (x, y) = (32, 50);
+        let brightness = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
+        world.set(x, y, Cell::new(soil, 3).with_aux(0));
+        let dry = brightness(r.cell_colour(&world, x, y, (0, 0)));
+        world.set(x, y, Cell::new(soil, 3).with_aux(900));
+        let wet = brightness(r.cell_colour(&world, x, y, (0, 0)));
+
+        assert!(
+            wet < dry - dry / 8,
+            "wet ground has to read as visibly darker than dry ground: dry {dry}, wet {wet}"
+        );
+    }
+
+    /// Reported from play as "random flashes" during cascades.
+    ///
+    /// Bodies and free particles are drawn by a second pass that painted
+    /// **raw palette colour** — no `sky::apply_light` — so the same rock was
+    /// drawn one way in the grid and another in flight. At the dark end of
+    /// the cycle the lighting term alone is `sky::UNLIT_FLOOR` = 0.42, so
+    /// every promotion flashed its cells brighter and every landing flashed
+    /// them back, continuously, for as long as a cascade lasted.
+    ///
+    /// The grain is *deliberately* still missing in flight (see
+    /// `draw_particles`' own doc), so the bar is "equal up to the grain
+    /// term" rather than equality: position-keyed noise on a moving body
+    /// would shimmer as it moves, and the term that mattered was the
+    /// lighting one.
+    #[test]
+    fn a_body_in_flight_is_lit_the_same_way_the_grid_is() {
+        const X: i32 = 30;
+        const Y: i32 = 20;
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 40..64 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // Freeze the skyline on the floor alone, so placing and removing
+        // the test cell cannot move it between the two reads.
+        world.begin_step();
+
+        let particles = ParticleSystem::new();
+        let (w, h) = (64u32, 64u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let mut r = Renderer::new();
+        // A dark phase, pinned rather than stepped to: this is where the
+        // two pipelines are furthest apart, and a pin is a fixed *phase*
+        // instead of a frame number that would drift with the day length.
+        r.daylight_pin = Some(0.0);
+        let pixel = |frame: &[u8]| {
+            let i = (Y as usize * w as usize + X as usize) * 4;
+            [frame[i], frame[i + 1], frame[i + 2], frame[i + 3]]
+        };
+
+        world.set(X, Y, Cell::new(material::STONE, 3));
+        r.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        let in_grid = pixel(&frame);
+
+        world.set(X, Y, Cell::EMPTY);
+        world.chunk_bodies.push(crate::sim::rigid::ChunkBody::at(
+            vec![crate::sim::rigid::BodyCell { dx: 0, dy: 0, material: material::STONE, shade: 3 }],
+            X as f32,
+            Y as f32,
+        ));
+        r.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        let in_flight = pixel(&frame);
+
+        // The grid pixel carries the grain and the body pixel does not, so
+        // they may differ by that factor and no more.
+        let slack = JITTER_STRENGTH / (1.0 - JITTER_STRENGTH);
+        for c in 0..3 {
+            let allowed = (in_grid[c] as f32 * slack).round() as i32 + 1;
+            let delta = in_flight[c] as i32 - in_grid[c] as i32;
+            assert!(
+                delta.abs() <= allowed,
+                "a promoted body must be lit like the rock it broke off: in the grid {in_grid:?}, \
+                 in flight {in_flight:?}, channel {c} differs by {delta} against {allowed} allowed for grain"
+            );
+        }
     }
 
 

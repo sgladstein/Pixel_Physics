@@ -948,3 +948,67 @@ pieces that used to sit still, that is the line to read first.
    considered and not taken — the scheduler already gives trapped smoke
    its own path, and one number is the whole knob.
 
+
+---
+
+## 14. The "pale light" report — it was not the explosion
+
+Filed under §14 rather than in the open list because the answer turned out
+to have nothing to do with blasting, and the next session to read a report
+like it should not spend the day here.
+
+**The report.** *"A pale light effect spreads through rock, lightening it
+over time"* — slowly, from the core of whatever was hit, every time, deep as
+well as shallow — plus *"random flashes"* during cascades.
+
+**What it actually was.** `render.rs`'s damp-ground darkening read
+`Cell::aux` with no material-kind check, and `aux` is a tagged union: on a
+`Solid` it is the **distance to the nearest structural anchor**. Every stone
+cell in the world was therefore drawn darker in proportion to how far it
+stood from an anchor, and `structural::tick`'s relaxation wavefront re-lit
+it over the following frames wherever anything was disturbed. The owner's
+own observation settled it — *it also happens on a strike, with no explosion
+anywhere*. Measured on `scene=worldcrack preset=rolling seed=1 strike=12`
+against the same world unstruck, diffed at frame 400: **2,683 grey-stone
+pixels brightening, in a halo x 200-339 around a 12-cell strike at x=256**,
+998 of them more than 40 cells from anything the blow touched, mean delta
+dead achromatic. After the one-line kind gate: **94, all inside x 238-284,
+none beyond 40 cells** — and those are crater cells whose material really
+changed. The flashes were a second defect in the same file: bodies and free
+particles were painted raw palette colour with no `sky::apply_light`, so
+every promotion flashed its cells up to 0.42x brighter and every landing
+flashed them back.
+
+Three explosion-side candidates were ruled out by measurement and code read
+before landing on that, and they are recorded so nobody re-derives them:
+the skyline is **frozen at worldgen** (`World::sky_surface`, never revised),
+so removing material cannot re-lighten a column; rock brightness comes from
+a **global** scalar (`sky::apply_light`) and never from the light field,
+which `render.rs` documents as a deliberate correction; and nothing copies
+field temperature into cell temperature.
+
+**One measurement trap worth keeping.** Above the soil line a paired
+blast/no-blast comparison is **useless**: the blast draws from `world.rng`
+and shifts every later roll, so plants and weather diverge and the diff is
+mostly foliage. The strike control and a deep-rock restriction are what made
+the pair readable.
+
+### 14a. Two real leaks found on the way, left for a later pass
+
+Neither fits the owner's report — the first decays rather than lightens —
+and both want a counter next to the image before anyone touches them.
+
+1. **A glowing cell that becomes a falling grain escapes the fade
+   permanently.** `cool_toward_ambient` cools **by position** (the shell box
+   plus `walks.scored()`), while `rigid::shatter_to_rubble` carries the
+   source cell's temperature into the new grain — and that grain then
+   *moves*. It is never at a cooled position again, and rubble is thermally
+   inert (no conductivity, so `fire.rs`'s fast path returns before any
+   decay), so it stays hot for the rest of the run. The afterglow's extent
+   is real too: the crack star reaches ~85 cells against the fireball box's
+   ~29, and those cells are cooled only via `walks.scored()`.
+2. **Weather lightning is not a blast artifact.** `weather::strike` is a
+   whole-frame white lift with **no world damage** at all, so it explains
+   "random flashes" seen over several day/night cycles and has nothing to do
+   with the charge. Nothing to fix; recorded so it is not investigated a
+   second time.

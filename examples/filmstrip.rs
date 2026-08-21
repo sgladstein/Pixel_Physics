@@ -1059,6 +1059,23 @@ struct Args {
     /// and how it evolves across the tiles, which is the question.
     organism_overlay: OrganismOverlay,
     field_overlay: FieldOverlay,
+    /// `daylight=<0.0..1.0>` -- draw every tile at one fixed hour instead
+    /// of at whatever time of day the run happened to reach. `1.0` is noon,
+    /// `0.0` the darkest the lighting term goes. Unset is the ordinary
+    /// day/night cycle, so every sheet recorded before this existed still
+    /// reproduces exactly.
+    ///
+    /// **Render-only, and not a cheat.** It reaches `Renderer::
+    /// daylight_pin` and nothing else: the simulation's clock, the light
+    /// field, plants and weather all still run on `world.frame`, so this
+    /// changes what the sheet looks like and nothing about what happened
+    /// in it. The nine-blast harness fires charges 400 frames apart into a
+    /// 3,600-frame day, so its nine panels are nine different exposures --
+    /// columns 3-6 come out at night and are genuinely hard to read -- and
+    /// the tiles are being compared *to each other*. A variable that is not
+    /// the one under test has to be held constant (`CLAUDE.md`: a channel
+    /// that oscillates by design must be divided out of decisions).
+    daylight: Option<f32>,
     /// Write an animated GIF of every frame in the range instead of a grid.
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
@@ -1287,6 +1304,7 @@ fn parse() -> Args {
         grain: GrainMode::Position,
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
+        daylight: None,
         gif: false,
         explosions: Vec::new(),
         blasts: Vec::new(),
@@ -1362,6 +1380,11 @@ fn parse() -> Args {
                     "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure, pheromone_a, pheromone_b"
                 ),
             },
+            "daylight" => {
+                let f: f32 = v.parse().expect("daylight=<0.0..1.0>");
+                assert!((0.0..=1.0).contains(&f), "daylight=<0.0..1.0>, got {f}");
+                a.daylight = Some(f);
+            }
             "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),
             "wall" => a.wall = v.parse().expect("wall"),
             "dig" => a.dig = v.parse().expect("dig"),
@@ -2130,6 +2153,7 @@ impl PanelSheet {
         renderer.grain = args.grain;
         renderer.organism_overlay = args.organism_overlay;
         renderer.field_overlay = args.field_overlay;
+        renderer.daylight_pin = args.daylight;
         Self {
             w,
             h,
@@ -2189,6 +2213,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     renderer.grain = args.grain;
     renderer.organism_overlay = args.organism_overlay;
     renderer.field_overlay = args.field_overlay;
+    renderer.daylight_pin = args.daylight;
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
     let mut pending_blasts = args.blasts.clone();
@@ -2524,6 +2549,11 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
             .expect("writing the contact sheet");
         println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
+        // Said out loud, because a pinned exposure is invisible in the
+        // image and a sheet nobody can reproduce is not evidence.
+        if let Some(f) = args.daylight {
+            println!("  drawn at a pinned daylight of {f} (render only -- the run itself was unaffected)");
+        }
         if let Some(p) = panels {
             let path = panels_path(&args.out);
             image::save_buffer(&path, &p.sheet, p.sheet_w as u32, p.sheet_h as u32, image::ColorType::Rgba8)

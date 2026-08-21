@@ -105,6 +105,31 @@ pub fn daylight_level(frame: u64) -> u8 {
     (field::daylight_fraction(frame) * LIGHT_LEVELS as f32).round().min(LIGHT_LEVELS as f32) as u8
 }
 
+/// The frame at which the day carries `fraction` of its noon light — the
+/// inverse of [`field::daylight_fraction`], for **rendering a fixed hour**.
+///
+/// Only [`Renderer::daylight_pin`](crate::render::Renderer) uses it, and
+/// only to hold the exposure still across a contact sheet whose tiles are
+/// hundreds of frames apart. `CLAUDE.md`'s "a channel that oscillates by
+/// design must be divided out of decisions" applies to a picture being
+/// judged as much as to a threshold: nine blasts fired 400 frames apart in
+/// a 3,600-frame day are nine *different exposures*, and a variable that is
+/// not the one under test has to be held constant. Nothing in the
+/// simulation may read this — the world's own clock, the light channel,
+/// plants and weather all keep running on `world.frame`.
+///
+/// `daylight_fraction` is `max(sun_elevation, 0)` exactly, so this is
+/// `acos` on the *afternoon* half of the cycle: `1.0` resolves to noon and
+/// `0.0` to the sunset instant. The whole night shares fraction `0.0` by
+/// construction (the cosine is clamped there), so `0.0` cannot mean
+/// midnight specifically — it means the darkest the *lighting* term ever
+/// gets, which is the same at every hour of the night and is what a "dark
+/// phase" capture is asking for. The sky painted behind it is a sunset one.
+pub fn frame_for_daylight(fraction: f32) -> u64 {
+    let phase = fraction.clamp(0.0, 1.0).acos() / std::f32::consts::TAU;
+    (phase * field::DAY_NIGHT_PERIOD_FRAMES as f32).round() as u64
+}
+
 /// Apply a quantised light level to a material colour.
 ///
 /// Two effects, because darkening alone reads as a screen-wide fade rather
