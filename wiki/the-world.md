@@ -41,9 +41,9 @@ hold standing water. Both can occur in the same world.
 **Each region colours its own country.** Dry country runs to warm, pale
 sandstone and dusty ground; wet country to cooler, darker rock and rich
 loam; a particularly hard region bleaches toward pale cap-rock. The change
-arrives as a scatter that thickens from one country into the next rather
-than as a painted line, and a cut face keeps its region's colour all the
-way down — so crossing an escarpment changes what the rock *is*, not just
+arrives along a wandering boundary — bays and headlands, the odd island of
+one country stranded inside the other — rather than as a painted line, and
+a cut face keeps its region's colour all the way down — so crossing an escarpment changes what the rock *is*, not just
 how high it stands. Nothing you place by hand picks up these regional
 casts; built stone is the same familiar grey everywhere.
 
