@@ -410,9 +410,9 @@ mod tests {
             .collect()
     }
 
-    fn p90(v: &mut [i32]) -> i32 {
+    fn quantile(v: &mut [i32], q: f32) -> i32 {
         v.sort_unstable();
-        v[((v.len() as f32 - 1.0) * 0.9) as usize]
+        v[((v.len() as f32 - 1.0) * q) as usize]
     }
 
     /// The B2 acceptance bar itself, at the shipped 2048x640 size a real
@@ -422,52 +422,121 @@ mod tests {
     /// `cargo test --lib residuals_lift_prominence -- --ignored --nocapture`
     /// prints the numbers this task's report quotes.
     ///
-    /// **This currently fails on p90, and that failure is left in rather
-    /// than softened.** Max clears its bar with room to spare at every
-    /// density tried (73-95 against a 60 floor). p90 does not, and does
-    /// not move with density the way a frequency problem should: 0.8 -> 1.6
-    /// -> 3.5 residual_density moved reach-15 p90 only 0 -> 1 -> 1. The
-    /// Findings entry for this task has the full diagnosis -- in short, a
-    /// residual's *painted* footprint is usually narrower than its nominal
-    /// width (ring shrinkage), a wide residual reads as a plateau to this
-    /// probe (only its two edges register, not its interior), and
-    /// deliberately-smooth regions dilute the aggregate. More density
-    /// mostly buys overlap rejections inside already-coarse regions, not
-    /// world coverage. Left failing rather than relaxing the bar or
-    /// inflating density into visual wallpaper (`CLAUDE.md`: exactness is
-    /// not a goal, but neither is a bar nobody re-derived).
+    /// **The bar was p90 and p90 was impossible.** This test failed for a
+    /// whole round on `reach 15 p90 is 1, bar is 20`, and the diagnosis
+    /// written here at the time blamed the mechanism -- ring shrinkage,
+    /// residuals reading as plateaus, smooth regions diluting the aggregate.
+    /// All of that is true and none of it was the reason. The sample this
+    /// pools is **every column of every world**: 2048 columns x 16 seeds.
+    /// `p90 >= 20` therefore asserts that *a tenth of the world* stands 20
+    /// cells proud of the ground 15 cells away in both directions -- not a
+    /// landscape with monuments in it, a landscape made of nothing else.
+    /// No density reaches it, which is why density barely moved it (0.8 ->
+    /// 3.5 moved p90 from 0 to 1): the statistic was never measuring the
+    /// residuals, it was measuring the ordinary hillside they stand on.
+    ///
+    /// My error, and the same one as the >=50% cave-reachability bar and the
+    /// 4-cell boulder cap: a number adopted in the aggregate's own units
+    /// without asking which object it evaluates.
+    ///
+    /// Residuals are by design a small fraction of the surface, so the
+    /// statistic that sees them is the **top percentile**. Measured, canyon,
+    /// 16 seeds at the shipped 2048x640:
+    ///
+    /// ```text
+    /// reach15: p50 -2  p90 1  p99 29  p99.9 60  max 76
+    /// reach30: p50 -5  p90 2  p99 49  p99.9 87  max 91
+    /// ```
+    ///
+    /// The mechanism was clearing its intent the whole time. Bars re-set
+    /// from those numbers with headroom below, per the convention -- reach
+    /// 15 p99 >= 20 against 29, reach 30 p99 >= 35 against 49, max >= 60 at
+    /// both against 76 and 91 -- so a real regression trips them and
+    /// ordinary seed variation does not.
+    ///
+    /// Absolute floors alone would still be weak, because they pass on
+    /// whatever erosion happens to leave and would keep passing if this
+    /// module stopped writing a cell. So the test is **paired** against the
+    /// same 16 worlds at `residual_density: 0.0`:
+    ///
+    /// ```text
+    /// residuals off: reach15 p99 3 max 11 | reach30 p99 5
+    /// residuals on : reach15 p99 29 max 76 | reach30 p99 49
+    /// ```
+    ///
+    /// Which is also the cleanest statement of B1's finding: strip this
+    /// module and the whole world's 99th-percentile relief at a 15-cell
+    /// reach is **3 cells** against a 14-cell character. Erosion does not
+    /// make formation-scale rock; nothing did, before this pass. Bar set at
+    /// a paired +15 against a measured +26 and +44.
+    ///
+    /// Expensive (16 full generations, each paying the structural relax
+    /// `Reports/worldgen-erosion-design.md` measured at ~600 ms), so
+    /// `--ignored` like `erosion.rs`'s own sweep probes;
+    /// `cargo test --release --lib residuals_lift_prominence -- --ignored --nocapture`
+    /// prints the quantile table above.
     #[test]
     #[ignore = "expensive 16-seed sweep at full world size; run explicitly for the B2 bar"]
     fn residuals_lift_prominence_at_reach_15_and_30() {
-        // The B2 bar: p90 >= 20, max >= 60 at both reaches, over a seed
-        // sweep -- an order statistic, never one seed
-        // (`Reports/world-review-2026-08.md` §7 item 9).
+        // The B2 bar, re-derived: p99 (not p90 -- see above), max >= 60 at
+        // both reaches, over a seed sweep -- an order statistic, never one
+        // seed (`Reports/world-review-2026-08.md` §7 item 9).
         let presets = presets();
         let base = presets.presets.get("canyon").expect("canyon preset");
         let bounds = (2047, 639);
-        let mut all15 = Vec::new();
-        let mut all30 = Vec::new();
-        let mut max15 = 0;
-        let mut max30 = 0;
-        for seed in 1u64..=16 {
-            let mut world = World::new(Rect::new(0, 0, bounds.0, bounds.1));
-            worldgen::generate(&mut world, Spec::Generated { params: base, seed });
-            let p15 = prominence(&world, bounds, 15);
-            let p30 = prominence(&world, bounds, 30);
-            max15 = max15.max(*p15.iter().max().unwrap());
-            max30 = max30.max(*p30.iter().max().unwrap());
-            all15.extend(p15);
-            all30.extend(p30);
+        // **Paired against the same world with residuals off.** A floor a
+        // plain hillside can walk over is not a guard: an absolute p99 bar
+        // passes on whatever the erosion pass happens to leave behind, and
+        // would keep passing if this module stopped writing a single cell.
+        // The control isolates the mechanism and cancels everything the rule
+        // is not about, which is the only comparison this repo trusts.
+        let bare = WorldgenParams { residual_density: 0.0, ..base.clone() };
+        let measure = |params: &WorldgenParams| {
+            let (mut all15, mut all30) = (Vec::new(), Vec::new());
+            let (mut max15, mut max30) = (0, 0);
+            for seed in 1u64..=16 {
+                let mut world = World::new(Rect::new(0, 0, bounds.0, bounds.1));
+                worldgen::generate(&mut world, Spec::Generated { params, seed });
+                let p15 = prominence(&world, bounds, 15);
+                let p30 = prominence(&world, bounds, 30);
+                max15 = max15.max(*p15.iter().max().unwrap());
+                max30 = max30.max(*p30.iter().max().unwrap());
+                all15.extend(p15);
+                all30.extend(p30);
+            }
+            (all15, all30, max15, max30)
+        };
+        let (mut bare15, mut bare30, bare_max15, _bare_max30) = measure(&bare);
+        let (mut all15, mut all30, max15, max30) = measure(base);
+        // Printed whole, not just the gated quantiles: the reason this bar
+        // was wrong for a round is that nobody could see p90 sitting in the
+        // hillside while p99 sat in the residuals.
+        for (label, v) in [("reach15", &mut all15), ("reach30", &mut all30)] {
+            println!(
+                "{label}: p50 {} p90 {} p99 {} p99.9 {} max {}",
+                quantile(v, 0.5),
+                quantile(v, 0.9),
+                quantile(v, 0.99),
+                quantile(v, 0.999),
+                v[v.len() - 1],
+            );
         }
-        let p90_15 = p90(&mut all15);
-        let p90_30 = p90(&mut all30);
-        println!(
-            "canyon, 16 seeds: reach15 p90 {p90_15} max {max15} | reach30 p90 {p90_30} max {max30}"
+        let (b99_15, b99_30) = (quantile(&mut bare15, 0.99), quantile(&mut bare30, 0.99));
+        println!("residuals off: reach15 p99 {b99_15} max {bare_max15} | reach30 p99 {b99_30}");
+        let p99_15 = quantile(&mut all15, 0.99);
+        let p99_30 = quantile(&mut all30, 0.99);
+        assert!(
+            p99_15 >= b99_15 + 15,
+            "residuals lifted reach-15 p99 only {b99_15} -> {p99_15}; the bar is a paired +15 (measured +26)"
         );
-        assert!(p90_15 >= 20, "reach 15 p90 is {p90_15}, bar is 20");
-        assert!(max15 >= 60, "reach 15 max is {max15}, bar is 60");
-        assert!(p90_30 >= 20, "reach 30 p90 is {p90_30}, bar is 20");
-        assert!(max30 >= 60, "reach 30 max is {max30}, bar is 60");
+        assert!(
+            p99_30 >= b99_30 + 15,
+            "residuals lifted reach-30 p99 only {b99_30} -> {p99_30}; the bar is a paired +15 (measured +44)"
+        );
+        assert!(p99_15 >= 20, "reach 15 p99 is {p99_15}, bar is 20 (measured 29)");
+        assert!(max15 >= 60, "reach 15 max is {max15}, bar is 60 (measured 76)");
+        assert!(p99_30 >= 35, "reach 30 p99 is {p99_30}, bar is 35 (measured 49)");
+        assert!(max30 >= 60, "reach 30 max is {max30}, bar is 60 (measured 91)");
     }
 
     #[test]
