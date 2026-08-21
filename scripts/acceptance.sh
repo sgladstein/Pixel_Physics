@@ -89,8 +89,19 @@ run terrain  scene=terrain  start=2 every=90 count=4 crop=0,0,512,320 zoom=1 max
 #    cut into a 17-cell-thick wall took down 2,516 cells of a room that was
 #    standing at 15% of capacity, because a column carried its roof's full
 #    bending moment all the way to the floor and any one cell of it that lost
-#    its attachment bonus failed wherever it stood. `min_overloaded` on case
-#    8 measured 56; the bar is 5.
+#    its attachment bonus failed wherever it stood.
+#
+#    **The cut case's bar is cells, not events, and the swap was forced by a
+#    measurement.** `min_overloaded` measured 56 when written and the bar was
+#    5; the quench-crust work then took the identical cut from 11 overload
+#    events carrying 2,398 cells to 4 carrying 2,197 -- coarser pieces, the
+#    same room coming down (2,742 total failing cells against 2,713), and a
+#    bar that reads "at least 5 events" calls that a regression. It was
+#    measuring granularity, which is the very thing that change set out to
+#    coarsen. `min_failing_cells` asks the question the case is named for --
+#    does cutting the wall bring the room down -- and `CLAUDE.md` prefers a
+#    sum over a count for exactly this reason. Measured 2,713; the bar is
+#    1,800.
 #
 #    A bigger budget than the rest, and not a tuning fudge: the room is the
 #    largest structure any scene here builds and the only one that is mostly
@@ -98,7 +109,7 @@ run terrain  scene=terrain  start=2 every=90 count=4 crop=0,0,512,320 zoom=1 max
 #    massif. Measured 29-32 ms against the 13-22 ms the others sit at, so 90
 #    keeps the same ~3x margin over the measurement that 60 gives them.
 run roomstands scene=room wall=5 dig=0 start=2 every=50 count=5 crop=100,120,280,200 zoom=2 max_failures=0   repeat=2 max_frame_ms=90
-run roomcut    scene=room wall=5 dig=3 start=2 every=50 count=5 crop=100,120,280,200 zoom=2 min_overloaded=5 repeat=2 max_frame_ms=90
+run roomcut    scene=room wall=5 dig=3 start=2 every=50 count=5 crop=100,120,280,200 zoom=2 min_failing_cells=1800 repeat=2 max_frame_ms=90
 
 # 6. One dig into a *generated* world, on more than one seed. The case that
 #    the other seven are structurally blind to: every scene above builds

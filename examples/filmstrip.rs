@@ -1749,6 +1749,22 @@ struct Args {
     /// closest thing to the machine's actual cost. The spread is printed
     /// beside it so a sample that is all noise is visible as such.
     repeat: usize,
+    /// `min_failing_cells=N` -- exit non-zero unless the run's structural
+    /// failures took at least N cells between them.
+    ///
+    /// **The continuous counterpart of `min_overloaded`, and it exists
+    /// because the count measured the wrong thing.** `roomcut`'s bar was
+    /// "at least 5 overload events", which is a *granularity* reading
+    /// dressed up as a collapse reading: making pieces bigger takes the
+    /// same room apart in fewer, larger events and trips it. Measured
+    /// across the quench-crust change, on the identical cut: 11 events
+    /// carrying 2,398 cells became 4 events carrying 2,197, with total
+    /// failing cells 2,742 against 2,713 -- the same room coming down, in
+    /// coarser pieces, and the event count halved twice over.
+    ///
+    /// `CLAUDE.md`: "prefer a continuous quantity over a count of bad
+    /// cells -- counts give knife-edge margins; sums separate cleanly."
+    min_failing_cells: Option<u32>,
     /// `min_overloaded=N` / `max_failures=N` -- exit non-zero unless the
     /// run produced at least / at most that many structural failures. See
     /// `check_expectations`.
@@ -1909,6 +1925,7 @@ fn parse() -> Args {
         probes: Vec::new(),
         loadmap: false,
         repeat: 1,
+        min_failing_cells: None,
         min_overloaded: None,
         max_unconfined: None,
         max_failures: None,
@@ -2004,6 +2021,7 @@ fn parse() -> Args {
             "relax" => a.relax = v != "false",
             "span" => a.span = v.parse().expect("span"),
             "pond" => a.pond = v.parse().expect("pond"),
+            "min_failing_cells" => a.min_failing_cells = Some(v.parse().expect("min_failing_cells")),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
             "max_unconfined" => a.max_unconfined = Some(v.parse().expect("max_unconfined")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
@@ -2507,6 +2525,79 @@ fn describe_hanging(world: &World, cells: &[(i32, i32)]) -> Vec<String> {
     out
 }
 
+/// Groups of unattached `Solid` touching no possible support, one line
+/// each, largest first. See the call site for why this exists beside
+/// `hanging` rather than instead of it.
+fn describe_afloat(world: &World) -> Vec<String> {
+    use pixel_physics::sim::material;
+    let mut seen: HashSet<(i32, i32)> = HashSet::new();
+    let mut out: Vec<(usize, String)> = Vec::new();
+    for y0 in 0..HEIGHT {
+        for x0 in 0..WIDTH {
+            let cell = world.get(x0, y0);
+            if cell.attached()
+                || cell.organism_id() != 0
+                || world.materials.kind(cell.material) != MaterialKind::Solid
+                || seen.contains(&(x0, y0))
+            {
+                continue;
+            }
+            // 8-connected over unattached solids, the neighbourhood
+            // `load::detached_piece` floods over, so a group here is the
+            // piece the model would have considered.
+            let mut stack = vec![(x0, y0)];
+            seen.insert((x0, y0));
+            let mut members = Vec::new();
+            let mut liquid = 0u32;
+            let mut supportable = false;
+            while let Some((x, y)) = stack.pop() {
+                members.push((x, y));
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let (nx, ny) = (x + dx, y + dy);
+                        if (dx, dy) == (0, 0) || !world.in_bounds(nx, ny) {
+                            continue;
+                        }
+                        let n = world.get(nx, ny);
+                        match world.materials.kind(n.material) {
+                            // Anything that could bear weight, whether or
+                            // not the model currently thinks it does.
+                            MaterialKind::Powder => supportable = true,
+                            MaterialKind::Solid if n.material == material::BEDROCK || n.attached() => {
+                                supportable = true;
+                            }
+                            MaterialKind::Solid if n.organism_id() == 0 => {
+                                if seen.insert((nx, ny)) {
+                                    stack.push((nx, ny));
+                                }
+                            }
+                            MaterialKind::Liquid => liquid += 1,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            if supportable || liquid == 0 {
+                continue;
+            }
+            let (x1, y1) = (
+                members.iter().map(|c| c.0).max().unwrap(),
+                members.iter().map(|c| c.1).max().unwrap(),
+            );
+            let (xa, ya) = (
+                members.iter().map(|c| c.0).min().unwrap(),
+                members.iter().map(|c| c.1).min().unwrap(),
+            );
+            out.push((
+                members.len(),
+                format!("{:>4} cells at x {xa}..{x1} y {ya}..{y1}, {liquid} liquid faces", members.len()),
+            ));
+        }
+    }
+    out.sort_by(|a, b| b.0.cmp(&a.0));
+    out.into_iter().map(|(_, line)| line).collect()
+}
+
 /// Print whatever structural probes were asked for. Separate from the tile
 /// line above because these scan the world and the tile line does not — a
 /// scene that isn't about structure should pay nothing for this existing.
@@ -2606,6 +2697,13 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
             ok = false;
         }
     }
+    if let Some(min) = args.min_failing_cells {
+        let cells = f.overloaded_cells + f.unsupported_cells;
+        if cells < min {
+            println!("  FAIL: expected structural failures to take at least {min} cells, they took {cells}");
+            ok = false;
+        }
+    }
     if let Some(min) = args.min_overloaded {
         if f.overloaded < min {
             println!("  FAIL: expected at least {min} overload failures, got {}", f.overloaded);
@@ -2637,6 +2735,7 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
     }
     if ok
         && (args.min_overloaded.is_some()
+            || args.min_failing_cells.is_some()
             || args.max_failures.is_some()
             || args.max_unconfined.is_some()
             || args.max_frame_ms.is_some()
@@ -3071,6 +3170,31 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
                 println!("      {line}");
             }
         }
+        // **The same artifact asked of the world instead of the model, and
+        // the pair is the point.** `hanging` above is the load model's own
+        // verdict censused, which makes it blind in exactly one direction:
+        // a piece the model *wrongly* calls supported does not appear, and
+        // that is the failure mode with the worst consequences, because
+        // nothing downstream will ever touch it either. Caught for real --
+        // a stone raft sat on `scene=lavadrop`'s pond from frame 600 to the
+        // end of the run, plainly visible in the contact sheet, with
+        // `hanging` reading 0 the whole time.
+        //
+        // So this one consults no model at all: a group of unattached solid
+        // cells, none of which touches anything that could hold it up
+        // (bedrock, attached rock, or loose material), with liquid
+        // somewhere around it. That is "rock floating in water" as the
+        // owner says it, and no support rule can talk it out of the answer.
+        let afloat = describe_afloat(&world);
+        if !afloat.is_empty() {
+            println!("    afloat: {} groups of unattached rock held up by nothing but liquid", afloat.len());
+            for line in afloat.iter().take(6) {
+                println!("      {line}");
+            }
+            if afloat.len() > 6 {
+                println!("      ... and {} smaller", afloat.len() - 6);
+            }
+        }
         if steam_cells > 0 || airborne > 0 {
             let span = |n: u32, a: i32, b: i32| if n == 0 { "-".to_string() } else { format!("rows {a}..{b}") };
             println!(
@@ -3180,10 +3304,30 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // at.
         let events = f.overloaded + f.unsupported;
         if events > 0 {
+            // The histogram, not just the mean and the max: those two are
+            // satisfied by 570 single cells with one outlier and by a real
+            // spread alike, and only one of those can ever produce a chunk.
+            // `MIN_FRACTURE_CELLS` (6) and `MIN_BODY_CELLS` (8) are bucket
+            // edges, so the floors that decide the outcome are visible as
+            // floors in the readout.
+            let edges = pixel_physics::sim::world::SIZE_BUCKETS;
+            let hist: Vec<String> = f
+                .size_buckets
+                .iter()
+                .enumerate()
+                .filter(|&(_, &n)| n > 0)
+                .map(|(i, n)| {
+                    let hi = edges.get(i + 1).map_or(String::from("+"), |next| {
+                        if next - edges[i] == 1 { String::new() } else { format!("-{}", next - 1) }
+                    });
+                    format!("{}{hi}:{n}", edges[i])
+                })
+                .collect();
             println!(
-                "    failing region size: mean {:.1} cells, largest {}",
+                "    failing region size: mean {:.1} cells, largest {}, sizes [{}]",
                 (f.overloaded_cells + f.unsupported_cells) as f64 / events as f64,
-                f.largest_failure
+                f.largest_failure,
+                hist.join(" ")
             );
         }
         if render {
@@ -3195,6 +3339,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     }
 
     if render {
+        // **The one number a contact sheet cannot give you.** A collapse
+        // rendered as coherent falling slabs was once read as "chunks are
+        // working" while the body count was zero for the whole run -- what
+        // was on screen was loose rubble that happened to hold its shape,
+        // and the two are indistinguishable at the zoom a sheet is read at
+        // (`CLAUDE.md`: "did it fire at all" needs a counter). Sampled every
+        // frame rather than per tile, because a body's whole life can fall
+        // between two captures.
+        println!("peak chunk bodies in flight at once: {peak_bodies}");
         image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
             .expect("writing the contact sheet");
         println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);

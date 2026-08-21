@@ -1708,16 +1708,14 @@ const DETACH_DEPTH: i32 = 3;
 ///
 /// Only the cell *directly below*: this answers "is it standing on the
 /// ground", not "is there a second, weaker way to span a gap sideways".
+/// **Delegates to `load::rests_on_ground`, and used to be a second copy of
+/// it.** Two modules answering the same question separately is the shape
+/// `CLAUDE.md` warns about, and it went wrong the moment one of them
+/// learned something: `load.rs` grew a rule about grains swallowed inside a
+/// piece (see `load::grain_is_footing`, and the raft it found floating on a
+/// pond) and this one would have gone on rooting chains on them.
 fn is_resting_on_ground(world: &World, x: i32, y: i32) -> bool {
-    match world.materials.kind(world.get(x, y + 1).material) {
-        MaterialKind::Powder => true,
-        // Read from the cell being judged, not from the liquid: buoyancy is
-        // a property of the thing floating. One `Vec` index behind a kind
-        // compare that has already failed, so the ordinary case pays
-        // nothing for it.
-        MaterialKind::Liquid => world.materials.get(world.get(x, y).material).floats,
-        _ => false,
-    }
+    super::load::rests_on_ground(world, x, y)
 }
 
 /// Whether `material` participates in the structural system at all —
@@ -1960,6 +1958,61 @@ mod tests {
             debris,
             "the stone should have come free into debris; it is still {}",
             w.materials.get(w.get(32, 32).material).name
+        );
+    }
+
+    /// **A grain the piece has swallowed does not hold the piece up.**
+    ///
+    /// A raft of rock floating on water, with one grain of rubble encased
+    /// in the middle of it. `is_resting_on_ground` said Powder, therefore
+    /// ground, so that cell rooted at distance 0 and the whole raft relaxed
+    /// a chain to it — and the load model then called every cell of it
+    /// supported. Seen for real on `scene=lavadrop`: a 90-cell slab sat at
+    /// the water surface from frame 600 to the end of the run while the
+    /// `hanging` census, which reports the model's own verdict, read 0.
+    ///
+    /// The paired negative is the point and is asserted first: the same
+    /// raft with the same grain **on its underside**, where a grain
+    /// genuinely is a footing, must still be held. Without it this test
+    /// would pass against a rule that had simply stopped believing in
+    /// rubble at all, which is the change that took `scene=ligament`'s slab
+    /// out of the air and is not wanted.
+    #[test]
+    fn a_grain_swallowed_by_a_piece_is_not_a_footing() {
+        let sand_grain_at = |gx: i32, gy: i32| {
+            let mut w = test_world();
+            let sand = w.materials.id_of("sand").expect("sand.ron should be embedded");
+            for x in 0..64 {
+                w.set(x, 63, Cell::new(material::BEDROCK, 0));
+            }
+            // A raft in open water, touching neither shore.
+            for x in 10..54 {
+                for y in 40..63 {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+            for x in 24..40 {
+                for y in 30..34 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            w.set(gx, gy, Cell::new(sand, 0));
+            compute_world_distances(&mut w);
+            w
+        };
+
+        // Under the raft: a real footing, and the chain roots on it.
+        let w = sand_grain_at(32, 34);
+        assert!(
+            is_resting_on_ground(&w, 32, 33),
+            "a grain beneath the piece is exactly what `rests_on_ground` is for and must still count"
+        );
+
+        // Inside the raft: rock on all four sides, and it must not.
+        let w = sand_grain_at(32, 32);
+        assert!(
+            !is_resting_on_ground(&w, 32, 31),
+            "a grain with rock on all four faces is filler inside the piece, not something the piece stands on"
         );
     }
 

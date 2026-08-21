@@ -614,7 +614,29 @@ pub struct FailureCounts {
     /// from cracks too fine to see at that zoom. An image cannot say
     /// whether the thing you built is what produced it.
     pub crushed_cells: u32,
+    /// Failing-region sizes, bucketed — `SIZE_BUCKETS` names the edges.
+    ///
+    /// **The mean and the max together still hide the shape, and the shape
+    /// is the whole question.** `largest_failure` says a 12-cell region
+    /// happened once; the mean says 1.7; neither says whether the
+    /// distribution has a body between them or is 570 single cells with one
+    /// outlier. The answer decides whether the fragment ladder can help at
+    /// all: `rigid::MIN_FRACTURE_CELLS` declines below 6, and 6-7 cells can
+    /// produce no fragment reaching `MIN_BODY_CELLS`, so a distribution that
+    /// lives entirely under 8 cannot produce a chunk however the rungs are
+    /// tuned. The owner's report is the other end of the same fact:
+    /// *"better with chunks instead of pile of dust"*.
+    ///
+    /// Bucket edges are the two floors and powers of two around them, so
+    /// the boundary that matters is a boundary in the readout too.
+    pub size_buckets: [u32; SIZE_BUCKETS.len()],
 }
+
+/// Inclusive lower bounds of `FailureCounts::size_buckets`. 6 is
+/// `rigid::MIN_FRACTURE_CELLS` and 8 is `MIN_BODY_CELLS`; a region below the
+/// first cannot fracture at all, and one below the second cannot yield a
+/// promoted body.
+pub const SIZE_BUCKETS: [u32; 7] = [1, 2, 3, 6, 8, 16, 64];
 
 impl FailureCounts {
     pub fn record_reach(&mut self, reach: u32) {
@@ -629,6 +651,8 @@ impl FailureCounts {
 
     pub fn record(&mut self, mode: crate::sim::load::FailureMode, cells: usize) {
         self.largest_failure = self.largest_failure.max(cells as u32);
+        let bucket = SIZE_BUCKETS.iter().rposition(|&edge| cells as u32 >= edge).unwrap_or(0);
+        self.size_buckets[bucket] += 1;
         match mode {
             crate::sim::load::FailureMode::Overloaded => {
                 self.overloaded += 1;

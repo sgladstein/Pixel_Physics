@@ -1,6 +1,7 @@
 # Fire & Heat
 
-*Current as of: this build (boiling costs the heat it takes).*
+*Current as of: this build (boiling costs the heat it takes; a quench
+crust breaks up into slabs rather than grit).*
 
 Fire spreads by contact: a material touching something already burning has
 a chance, each moment it stays in contact, to catch as well. That chance
@@ -49,6 +50,15 @@ contact, leaving new stone where the lava was and a hard boil where the
 water was — see [Liquids & Gases](liquids-and-gases.md) for the steam.
 Fresh-quenched stone comes out searing and cools off over the following
 seconds like anything else hot.
+
+New stone made in mid-water gets a moment to knit together with whatever
+else is quenching beside it before the world asks whether it is holding
+itself up. That pause is what makes a quench read as a *crust*: a plate
+forms at the water line, hangs for about a second, then founders and goes
+down in slabs of assorted size — with grit among them, but not only grit.
+Judging each fresh cell the instant it appeared instead gave the same
+material as a uniform cloud of single pixels, which is what the crust used
+to look like.
 
 A flow that never meets water cools on its own instead: lava skins over
 where it touches air, stays molten inside its own crust, and a spill that

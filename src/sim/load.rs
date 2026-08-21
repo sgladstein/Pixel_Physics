@@ -354,12 +354,48 @@ fn is_anchor(world: &World, x: i32, y: i32) -> bool {
 /// *not* owe is the `bearing_moment` footing clamp — buoyancy is
 /// distributed rather than a patch to tip about, and the caller skips it
 /// via `floats_on_liquid` for exactly that reason.
-fn rests_on_ground(world: &World, x: i32, y: i32) -> bool {
+pub(crate) fn rests_on_ground(world: &World, x: i32, y: i32) -> bool {
     match world.materials.kind(world.get(x, y + 1).material) {
-        MaterialKind::Powder => true,
+        MaterialKind::Powder => grain_is_footing(world, x, y + 1),
         MaterialKind::Liquid => floats_on_liquid(world, x, y),
         _ => false,
     }
+}
+
+/// Whether the grain at `(x, y)` is loose material something can *stand
+/// on*, or just filler wedged inside a structure.
+///
+/// # One grain floated a raft on a pond
+///
+/// Found by eye and then in a dump, on `scene=lavadrop`: a 90-cell stone
+/// raft sat at the water surface from frame 600 to the end of the run, and
+/// the dump showed a single `o` inside it —
+///
+/// ```text
+/// 254 ~~~~~~~~~~~~~~~~#######..####o##~~~~~~
+/// 255 ~~~~~~~~~~~~~~~~~###.##..######~~~~~~~
+/// ```
+///
+/// — one rubble grain, encased in rock on all four sides, in the middle of
+/// a piece with nothing but water under it. `rests_on_ground` said Powder,
+/// therefore ground; that cell rooted at distance 0; and every other cell
+/// of the raft relaxed a chain to it. The load model then called all
+/// ninety of them supported, which is why the `hanging` census — the
+/// model's own verdict — read **0** for the whole run while the raft was
+/// plainly visible in the contact sheet.
+///
+/// The rule was `CLAUDE.md`'s recurring trap in a new costume: *"which
+/// object does this rule evaluate — a cell, a section, or a whole
+/// piece?"*. "Rests on loose ground" is a statement about a **piece**, and
+/// asked per cell it let a grain the piece had swallowed hold the piece up.
+///
+/// Enclosure is the cheap discriminator, and it is the physical one: a
+/// grain with body material on all four faces is not bearing anything,
+/// it is *in* something. A grain at the top of a pile always has powder or
+/// air beside or below it, so a slab resting on scree is untouched; and
+/// this runs only on the structural path, never in the sweep.
+fn grain_is_footing(world: &World, x: i32, y: i32) -> bool {
+    !NEIGHBOURS_4.iter().all(|&(dx, dy)| is_body_material(world, world.get(x + dx, y + dy).material))
 }
 
 /// The buoyant half of `rests_on_ground`, split out because the caller of

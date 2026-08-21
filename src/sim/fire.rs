@@ -861,6 +861,20 @@ fn transform<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell, i
         (MaterialKind::Solid, MaterialKind::Liquid) | (MaterialKind::Powder, MaterialKind::Liquid) => {
             melt_fill(surface.materials(), cell.material, into)
         }
+        // **A solid that has just appeared claims no support, rather than
+        // claiming to be anchored.** On a `Solid` or `Plant`, `aux` is the
+        // distance to an anchor and `0` means *anchored* -- so minting a
+        // quench cell at 0 tells every neighbour that relaxes off it that
+        // it has found a load path to bedrock. `u16::MAX` is the value
+        // `compute_world_distances` writes for a cell that genuinely
+        // reaches nothing, and it is the honest answer for a cell that has
+        // existed for no frames and has been asked nothing.
+        //
+        // It mattered little while the check ran the same frame; it matters
+        // a great deal now that `NEW_SOLID_SETTLE_FRAMES` leaves the cell
+        // unjudged for a while, because everything around it spends that
+        // window treating it as ground.
+        (_, MaterialKind::Solid) | (_, MaterialKind::Plant) => u16::MAX,
         _ => 0,
     };
     *cell = Cell::new(into, shade).with_temperature(temp);
@@ -869,7 +883,29 @@ fn transform<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell, i
     let was_structural = matches!(from_kind, MaterialKind::Solid | MaterialKind::Plant);
     let now_structural = matches!(to_kind, MaterialKind::Solid | MaterialKind::Plant);
     if was_structural != now_structural {
-        let frame = surface.frame();
+        // **A solid that has just *appeared* is given a moment to acquire
+        // neighbours before it is judged; one that has just *gone* is
+        // judged at once.** The two directions are not symmetric and
+        // treating them alike is what made quench produce dust.
+        //
+        // Measured on `scene=lavadrop` before this existed: 572 structural
+        // failures whose region sizes were `1:382 2:92 3-5:85 6-7:8
+        // 8-15:5`. `rigid::MIN_FRACTURE_CELLS` declines below 6 and
+        // `MIN_BODY_CELLS` needs 8, so 97.7% of those failures could not
+        // reach the fragment ladder at all -- `stone.ron`'s six rungs sit
+        // downstream of a gate that had already refused. The cause is
+        // upstream of any tuning: quench mints a few scattered cells a
+        // frame, and a lone unsupported solid judged the instant it exists
+        // is one cell, every time. `ice.ron:68-77` records the identical
+        // failure for ice ("3,969 freezes in one storm and never ten cells
+        // standing") and solved it with `floats`; stone has to sink, so the
+        // lever here is time instead.
+        //
+        // The other direction must stay immediate: material *leaving* is
+        // support that neighbours have already lost, and delaying that is
+        // rock hanging in the air with nothing under it.
+        let delay = if now_structural { NEW_SOLID_SETTLE_FRAMES } else { 0 };
+        let frame = surface.frame() + delay;
         for (dx, dy) in [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)] {
             surface.schedule_active_site(ActiveSite {
                 x: x + dx,
@@ -880,6 +916,10 @@ fn transform<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell, i
         }
     }
 }
+
+/// How long a freshly minted solid is left alone before its first
+/// structural check. See `transform`, which carries the measurement.
+const NEW_SOLID_SETTLE_FRAMES: u64 = 60;
 
 /// Pairwise reactions with a directly touching neighbour — water quenching
 /// lava into stone and steam, that kind of thing. `self` becomes
@@ -974,6 +1014,141 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63))
+    }
+
+    /// **A solid that has just appeared claims no support.**
+    ///
+    /// On a `Solid`, `Cell::aux` is the distance to an anchor and `0` means
+    /// *anchored* -- the value bedrock-adjacent rock carries. `transform`
+    /// minted every new solid at 0, which told every neighbour that
+    /// relaxed off it that a load path to bedrock ran through a cell that
+    /// had existed for no frames and been asked nothing.
+    ///
+    /// It cost little while the check ran the same frame and a great deal
+    /// once `NEW_SOLID_SETTLE_FRAMES` left the cell unjudged for a second:
+    /// on `scene=lavapour` the fake anchors took the standing hanging-rock
+    /// count to 127, against 1 before the delay and 0 with this. `u16::MAX`
+    /// is what `compute_world_distances` writes for a cell that genuinely
+    /// reaches nothing, and it is the honest answer here.
+    #[test]
+    fn a_freshly_minted_solid_does_not_claim_to_be_anchored() {
+        let mut w = test_world();
+        let lava = w.materials.id_of("lava").expect("lava.ron should be embedded");
+        w.set(30, 30, Cell::new(lava, 0));
+        w.set(30, 31, Cell::new(material::WATER, 0));
+        // The quench is a chance per visit, so drive it rather than
+        // assuming one visit is enough.
+        for _ in 0..500 {
+            update(&mut w, 30, 30);
+            if w.materials.kind(w.get(30, 30).material) == MaterialKind::Solid {
+                break;
+            }
+        }
+        let quenched = w.get(30, 30);
+        assert_eq!(
+            w.materials.kind(quenched.material),
+            MaterialKind::Solid,
+            "the lava never quenched, so this asserts nothing -- it is still {}",
+            w.materials.get(quenched.material).name
+        );
+        assert_eq!(
+            quenched.aux(),
+            u16::MAX,
+            "a solid one frame old is claiming an anchor distance of {} -- 0 reads as *anchored* and every \
+             neighbour will relax off it as though it were bedrock",
+            quenched.aux()
+        );
+    }
+
+    /// **A quench crust comes apart into a spread of sizes, not into
+    /// dust** — the owner's verdict on the re-shot crust card, in a test:
+    /// *"the stone sinking to the bottom is better, but it would be better
+    /// with chunks instead of pile of dust."*
+    ///
+    /// Measured on `filmstrip scene=lavadrop` before
+    /// `NEW_SOLID_SETTLE_FRAMES` existed: 572 structural failures whose
+    /// region sizes were `1:382 2:92 3-5:85 6-7:8 8-15:5`. 97.7% of them
+    /// were below `rigid::MIN_FRACTURE_CELLS`, so the fragment ladder was
+    /// never consulted once and no amount of tuning `stone.ron`'s six rungs
+    /// could have changed the outcome — a two-cell region has nothing to
+    /// distribute. Peak chunk bodies over the whole run: 2.
+    ///
+    /// The bar is the **spread**, deliberately, and not "some rubble
+    /// exists": every version of this scene produces rubble, including the
+    /// one the owner rejected. It is also not "the mean is above N" — one
+    /// large break averaged with two hundred single cells reads
+    /// respectable. What separates the two behaviours is whether anything
+    /// at all reaches the size at which a body can promote.
+    ///
+    /// Bars set below the measurement with headroom, per `CLAUDE.md`, and
+    /// **the control was run**: this scene at the shipped delay produces
+    /// region sizes `[71, 23, 38, 10, 41, 19, 0]` -- 60 failures of 8 cells
+    /// or more, largest 55 -- against `[207, 31, 32, 9, 3, 0, 0]` with
+    /// `NEW_SOLID_SETTLE_FRAMES` set to 0: 3 and 10. Twenty times apart on
+    /// the quantity the bar reads.
+    ///
+    /// The blob is deliberately small relative to the pond. A first
+    /// version dropped 1200 cells of lava into the same water and **passed
+    /// with the delay removed** -- enough lava piles into a raft whatever
+    /// the schedule does, so the scene could not fail for the artifact it
+    /// is named after. `CLAUDE.md`: a guard must be able to fail for the
+    /// replacement.
+    #[test]
+    fn a_quench_crust_breaks_into_a_spread_of_sizes_rather_than_dust() {
+        use crate::sim::world::SIZE_BUCKETS;
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        let lava = w.materials.id_of("lava").expect("lava.ron should be embedded");
+        // `scene=lavadrop` in miniature: a walled pond with a blob of lava
+        // released over the middle of it. Walls attached, so they are the
+        // anchor and nothing that quenches mid-pond can reach one.
+        for y in 40..127 {
+            w.set(20, y, Cell::new(material::STONE, 0).with_attached(true));
+            w.set(108, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        for x in 0..128 {
+            w.set(x, 127, Cell::new(material::BEDROCK, 0));
+        }
+        for x in 21..108 {
+            for y in 44..127 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        for x in 52..80 {
+            for y in 24..38 {
+                w.set(x, y, Cell::new(lava, 0));
+            }
+        }
+        crate::sim::structural::compute_world_distances(&mut w);
+        // `App::update`'s order, and `update::step` opens and closes the
+        // frame itself -- wrapping it in another `begin_step`/`end_step`
+        // pair leaves the sweep with nothing to sweep, which reads exactly
+        // like "the mechanism is dead" and cost a confused ten minutes.
+        for _ in 0..600 {
+            crate::sim::update::step(&mut w);
+            crate::sim::rigid::step_chunk_bodies(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+        }
+
+        let buckets = w.structural_failures.size_buckets;
+        let body_sized: u32 = SIZE_BUCKETS
+            .iter()
+            .zip(buckets.iter())
+            .filter(|(&edge, _)| edge >= crate::sim::rigid::MIN_BODY_CELLS as u32)
+            .map(|(_, &n)| n)
+            .sum();
+        let events: u32 = buckets.iter().sum();
+        assert!(events > 50, "the scene did not quench enough to be asking the question: {events} failures, sizes {buckets:?}");
+        assert!(
+            body_sized >= 20,
+            "the crust came apart as dust: only {body_sized} of {events} failures reached {} cells, sizes {buckets:?}",
+            crate::sim::rigid::MIN_BODY_CELLS
+        );
+        assert!(
+            w.structural_failures.largest_failure >= 24,
+            "no failing region got anywhere near chunk size -- largest was {}, sizes {buckets:?}",
+            w.structural_failures.largest_failure
+        );
     }
 
     #[test]
@@ -1181,12 +1356,18 @@ mod tests {
     }
 
     #[test]
-    fn a_freezing_liquid_writes_anchor_distance_zero_and_schedules_checks() {
+    fn a_freezing_liquid_writes_no_anchor_distance_and_schedules_checks() {
         // Liquid → Solid crosses `aux` conventions: fill on the way in,
-        // anchor distance on the way out. The distance must be written as 0
-        // (the same "claims anchored" transient a brush-painted stone cell
-        // has) and the 5-position StructuralCheck fan-out must be scheduled
-        // to correct it — not a raw fill copied across as a distance.
+        // anchor distance on the way out. It must be a *distance* and not a
+        // raw fill copied across — and specifically `u16::MAX`, the value
+        // for "reaches no anchor".
+        //
+        // **This asserted 0 until the quench-crust work, and 0 was the
+        // bug.** 0 is what bedrock-adjacent rock carries, so a cell one
+        // frame old was telling every neighbour a load path ran through it.
+        // See `a_freshly_minted_solid_does_not_claim_to_be_anchored`, which
+        // is that claim on its own, and `NEW_SOLID_SETTLE_FRAMES`, which is
+        // what made a one-frame lie into a one-second one.
         let dir = std::env::temp_dir().join("pixel-physics-freeze-test");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
@@ -1209,7 +1390,11 @@ mod tests {
         assert!(update_until_changed(&mut w, 30, 30, 100), "a full liquid at -5C never froze");
         let frozen = w.get(30, 30);
         assert_eq!(frozen.material, solid);
-        assert_eq!(frozen.aux(), 0, "a fresh solid claims anchor distance 0 until its scheduled check runs");
+        assert_eq!(
+            frozen.aux(),
+            u16::MAX,
+            "a fresh solid must claim no anchor until its scheduled check finds it one"
+        );
         assert_eq!(w.phase_changes.froze, 1);
         assert_eq!(
             w.active_site_count(),

@@ -359,6 +359,49 @@ temporary `PP_TRACE=x,y` `eprintln!` in `structural::tick` (what found both
 causes above) prints every tick, verdict and confinement decision for one
 cell.
 
+### 1f. A pond with rock in it never stops shuffling fill
+
+`filmstrip scene=lavadrop` used to settle to **0 of 40 chunks awake** by
+frame 160 and stay there. Since the quench crust started surviving as rock
+rather than dissolving into rubble, it sits at **4-5 of 40 awake at frame
+12,000** — and at frame 6,000 on `scene=lavapour` too.
+
+Nothing is happening. Five consecutive frames at 12,000 report identical
+material counts, identical phase-change totals, and a water total identical
+to 0.1 of a cell. It is liquid moving fill between cells around the
+submerged rock without changing anything, which is `CLAUDE.md`'s own
+example of a cost buying nothing: *"a pool that is visually flat but still
+shuffling fill for another quarter of an hour"*.
+
+**Structural is ruled out by control**, not by argument: with
+`structural::tick` stubbed to return immediately the pond is still awake
+(6/40), and turning off `GROUNDED_RECHECK_INTERVAL` does not settle it
+either. The awake set is the pond and its floor. Cost measured on the
+scene's worst frame: none — 8.47 ms against 8.70 baseline on lavadrop, 7.96
+against 8.37 on lavapour, minimum of three interleaved runs each. What it
+costs is the dirty-rect render skip over ~12% of the screen, permanently,
+after any lava-into-water event.
+
+Likely the same root as §4 (levelling is O(width²)) meeting an obstacle
+field. Nobody has looked at whether the fill differences are converging
+slowly or oscillating; that is the first thing to measure.
+
+### 1g. `scene=lavapour` leaves one 3-cell raft that a poke does not drop
+
+Eight lone hanging cells and one 3-cell group afloat at frame 6,000, up
+from one lone cell before the quench-crust change and against 40 hanging on
+`scene=lavalake` before it (now 0).
+
+Worth a note because it is **a different shape from §1e**: `poke=305,247`
+schedules the check and the group stays, so this one is asked and refused,
+not never asked. The lead is its `aux` — 1903, a finite anchor distance for
+a three-cell group that touches nothing but air and water, so something is
+handing it a support chain that cannot exist.
+
+The `afloat:` census in `filmstrip` is what to watch: unlike `hanging:` it
+consults no support rule, so it still sees a piece the model has convinced
+itself is fine.
+
 ### 2. Sand-into-water displacement
 
 Unchanged from the previous handoff and still the design gap it was.

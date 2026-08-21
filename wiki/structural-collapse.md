@@ -2,7 +2,8 @@
 
 *Current as of: this build (rock submerged in water sinks rather than
 hanging, and so does rock left in steam or standing on debris that has
-since washed away). Where something breaks — at the neck, across
+since washed away; a quench crust comes apart in slabs). Where something
+breaks — at the neck, across
 a section, sharing load between supports — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
 building. Digging into open ground no longer spreads: a hole is a hole,
@@ -105,7 +106,11 @@ be part of the structure" rather than a material swap.
 Rubble is something rock can stand *on*, and that is all. Loose material
 holds a piece up the way a gravel bed holds up a paving slab — it takes
 weight, and it takes it wherever the piece actually touches down — but it
-cannot hold anything *steady*. A piece whose weight sits over its footing
+cannot hold anything *steady*. It has to be underneath, too: a grain that
+ends up walled in on every side *inside* a piece is filler, not footing,
+and holds nothing up. That sounds like a technicality and is the
+difference between a raft of rock sinking and a raft of rock parked on a
+pond forever, held there by a single swallowed pebble. A piece whose weight sits over its footing
 rests on rubble indefinitely, however heavy it is; one reaching out past
 the edge of what it's standing on tips off, however light. Nothing in
 between is special-cased, and the same rule covers a boulder settling into
