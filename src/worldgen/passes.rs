@@ -738,9 +738,20 @@ const CAVE_GRID_H: i32 = 2 * CAVE_HALF_H + 1;
 ///
 /// Together with [`CAVE_SQUASH`] this sets how many chambers a system holds:
 /// the envelope spans `(2 * CAVE_HALF_W / CAVE_CELL)` lattice cells across
-/// and `(2 * CAVE_HALF_H * CAVE_SQUASH / CAVE_CELL)` down -- about 3.5 x 2.7
-/// = 9 cells at these values, the middle of the 6-12 the spec asks for.
-const CAVE_CELL: f32 = 52.0;
+/// and `(2 * CAVE_HALF_H * CAVE_SQUASH / CAVE_CELL)` down -- about 3.9 x 3.0
+/// = ~12 cells at these values (round 6, A1; was 52.0 / ~9 cells).
+///
+/// **Retuned against `reachable by player %`, not contrast** (round 6, A1) --
+/// round 5 retuned this same knob against contrast alone and produced a cave
+/// 0% reachable in three of five presets (`cave-beauty-review-2026-08.md`).
+/// Swept with `cave_probe field=1` before building anything: shrinking this
+/// (and `CAVE_THRESHOLD` with it) below ~46/0.28 buys no further contrast --
+/// 38/0.24 measured *lower* median contrast than this setting while cutting
+/// reachability to 22-41% -- so the field genuinely tops out around
+/// contrast ~2.1-2.6x at this envelope's lattice count; see the A1 finding
+/// for the full sweep and why 3.0x is not reachable here without A2's larger
+/// envelope.
+const CAVE_CELL: f32 = 46.0;
 
 /// Vertical compression applied before the field is sampled, so everything
 /// the threshold carves -- chambers and passages both -- comes out wider
@@ -772,7 +783,9 @@ const CAVE_EDGE_FADE_Y: f32 = 7.0;
 /// keep below then throws away. One threshold on one field is also exactly
 /// what the research names (`Reports/worldgen-design.md` §7). See the
 /// round-3 finding.
-const CAVE_THRESHOLD: f32 = 0.34;
+///
+/// Retuned 0.34 -> 0.28 alongside [`CAVE_CELL`] (round 6, A1) -- see there.
+const CAVE_THRESHOLD: f32 = 0.28;
 
 /// Longest horizontal run of void with stone directly above it that a
 /// system may keep, in cells -- the roof-span bound the round-2 arithmetic

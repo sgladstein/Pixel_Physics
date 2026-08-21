@@ -296,3 +296,97 @@ thread `CaveSize` through a function that is not there; when A2 is
 reached, building chamber growth (or deciding not to) is new construction
 under A2's own budget, not a rename of existing code.
 
+### A6-2 — A1's own bars pull apart at this envelope size exactly the way the beauty review predicted; reachability was already above bar, contrast is not, and 3.0x is not reachable here without A2
+
+Starting point (A6-1): reachable 64-76%, contrast p95/med ~2.0x, median
+open column 30 -- the round-3/4 baseline, already clearing the 50%
+reachability bar with 14-26 points of headroom, and well short of the 3.0x
+contrast bar. So A1 here is the opposite problem from the one it was
+written to guard against (round 5 traded all its reachability for
+contrast): the task is to buy contrast without spending the reachability
+already banked.
+
+**Swept `cave_probe field=1` before building anything**, per the task's own
+instruction, across `CAVE_CELL` in {52,46,44,40,38,36,35} and
+`CAVE_THRESHOLD` in {0.34..0.15} at 5-8 field seeds each (`t3=0`, `squash`
+held at 2.0 first). Two findings from the field alone:
+
+1. **Squash is not a lever here.** Sweeping 2.0 -> 1.0 at fixed cell/t
+   moves median column *up* slightly (less vertical compression -> taller
+   passages) and leaves contrast flat (~2.0-2.7x either way). Left
+   unchanged.
+2. **Cell and threshold trade reachability for contrast along one curve,
+   and the curve tops out well short of 3.0x.** Lowering threshold alone
+   (cell=52) pushes median contrast from ~2.4x at t=0.34 to ~2.6-3.0x at
+   t=0.15 -- but median open column falls from 18-31 to 8-17 over the same
+   range, i.e. *below* `PLAYER_HEIGHT` in most seeds by t=0.18. Shrinking
+   cell alone (t=0.34 fixed) moves contrast within noise (1.5-3.6x,
+   overlapping the baseline's own spread) while leaving median roughly
+   where it was. The two together (round 5's own move) is what actually
+   crushes reachability -- shrinking cell narrows every passage's absolute
+   width in cells regardless of threshold, and round 5's lower threshold
+   on top of that narrowed cell compounded it, which is the field-level
+   version of the 0-8% reachable result already on record.
+
+**Validated candidates against real world builds** (the field is a proxy;
+`reachable by player %` only exists in a built world) at `cell=40, t=0.28`
+(reachable 48-52%, arid/wetland *miss* the 50% bar) and `cell=38, t=0.24`
+(reachable 22-41%, a clear miss everywhere, and contrast did not improve
+over the milder settings below it -- 2.0-2.17x, *worse* than the setting
+finally shipped). Both rejected on measurement, not guessed away.
+
+**Landed: `CAVE_CELL 52.0 -> 46.0`, `CAVE_THRESHOLD 0.34 -> 0.28`,
+`CAVE_SQUASH` unchanged at 2.0.** Real-build sweep, 16 seeds x 5 caved
+presets:
+
+| preset | reachable (was) | contrast x100 (was) | median open column (was) |
+|---|---|---|---|
+| arid | 62% (70%) | 247 (200) | 21 (30) |
+| canyon | 61% (70%) | 214 (203) | 21 (30) |
+| rolling | 63% (76%) | 219 (203) | 21 (30) |
+| terraced | 62% (75%) | 216 (203) | 21 (30) |
+| wetland | 58% (64%) | 214 (196) | 20 (22) |
+
+**Bar 1 (reachable >= 50% p50) met on every preset, with 8-13 points of
+headroom.** **Bar 2 (contrast >= 3.0x) is not met anywhere** -- every
+preset improved (14-24%, arid's 200 -> 247 is the largest single move) but
+tops out at 2.1-2.6x, matching the field ceiling found above. Per the
+task's own "watch" clause, this is the finding to report rather than a
+failure: **at this envelope's ~12 Worley lattice cells (up from ~9 at the
+old `CAVE_CELL`), 3.0x contrast is not achievable without giving up
+reachability below 50%** -- confirming the beauty review's own diagnosis
+("the envelope holds ~9 Worley lattice cells... there is no anatomy to
+have") is still the binding constraint after this round's retune, just
+less severely. Median open column (20-21, was 22-30) stayed comfortably
+above `PLAYER_HEIGHT` (14) with real margin, which is the number this task
+exists to protect and the one round 5's own retune broke.
+
+**Worlds-with-a-system count held**: arid 13/16 -> 13/16 none, canyon
+11/16 -> 10/16, rolling 9/16 -> 9/16, terraced 9/16 -> 10/16, wetland
+7/16 -> 8/16 -- within a seed or two of baseline in either direction, not
+a systematic loss.
+
+A2's larger envelope is the actual next lever for contrast: more lattice
+cells at the same `CAVE_CELL` (grow the envelope rather than shrink the
+cell) is the one direction this sweep did not touch, because A1's scope is
+the three field constants and A2 owns envelope size. If A2 does not close
+the contrast gap either, that is worth a fresh field sweep at the larger
+size before concluding 3.0x needs a different mechanism.
+
+Gates: `cargo test --release` (646+8+2+30 = 686 passed, 0 failed, across
+lib/main/determinism/worldgen), `cargo test --release --test worldgen` (30
+passed, 8 ignored --
+seal, at-rest, roof-span, determinism and speleothem-bridge tests all
+still green at the new constants), `cargo clippy --all-targets -- -D
+warnings` (clean), `scripts/worldgen_sweep.sh compare` (0 counters moved --
+that harness builds at 512x320, where `vaults` never fires at all per
+`tests/worldgen.rs`'s own comment, so it is a no-op gate for this change
+specifically, not a validation of it; `cave_probe` at 2048x640 is the
+instrument that actually exercises this). `cargo run --release --example
+ascii`'s worst-frame number was contended by a concurrent session's own
+`cargo test` on this shared machine during this run (33.7ms / 113ms /
+72.7ms across three measurements in the same few minutes, all on
+unrelated ants/organism scenes) -- noise from machine load, not this
+change: `vaults` is genesis-only and cannot affect a per-frame organism
+simulation cost regardless of its own tuning.
+
