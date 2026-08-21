@@ -46,8 +46,62 @@ Use it whenever you have a stake in the answer — which is most of the time.
 The stored verdict records the real label, so blinding costs you nothing.
 
 Pass several files to `--a`/`--b` and they become **frame sequences** sharing one
-scrubber. For anything about motion this beats a GIF, which cannot be paused on
-the frame that looked wrong.
+scrubber, so both sides step to the same instant.
+
+## Animation: GIF or frame sequence
+
+Both are supported. They answer different questions, and picking the wrong one
+wastes the round trip.
+
+**GIF — when the question is *feel*.** Does this collapse read as destruction,
+does this fall read as sand, is this satisfying. It plays on its own and loops;
+the owner does nothing but look. This is the right default for "watch this".
+
+```
+python3 scripts/review.py post --title "..." --question "..." --gif fall.gif
+```
+
+**Frame sequence — when the question is *detail*.** Which frame is wrong; do A
+and B differ at the same instant. Scrubbable, steppable with the arrow keys, and
+synchronised side by side for an A/B. A GIF cannot be paused on the frame that
+looked wrong; a sequence can.
+
+A card may carry both — a GIF to judge the feel, frames to find the moment.
+
+### Producing one, headlessly
+
+`filmstrip` encodes a GIF with **no window and no GPU**, so this works from a
+cloud session or over a plain shell:
+
+```
+cargo run --release --example filmstrip -- scene=fall gif=1 out=/tmp/fall.gif \
+    start=100 every=6 count=20 zoom=1 crop=0,140,256,110
+```
+
+`start` is the first frame sampled, `every` the interval between samples,
+`count` how many. Frame delay follows `every` (`every*1000/60` ms, floored at
+16). Drop `gif=1` and the same command writes a contact-sheet PNG instead.
+
+**Never pass `zoom` to a GIF.** It multiplies the bytes and buys nothing: the
+page scales client-side to exact integer multiples under
+`image-rendering: pixelated`, and its zoom control reports the true factor. So
+`zoom=2` ships 2.4x the data for a picture the owner could already have got by
+pressing `z`. Crop instead — that removes pixels the question is not about.
+
+Measured, `scene=fall`, `every=6`:
+
+| settings | size |
+|---|---|
+| `count=40 zoom=2 crop=0,140,256,110` | 2353 KB |
+| `count=40 zoom=1` (whole world) | 2080 KB |
+| `count=40 zoom=1 crop=0,140,256,110` | 997 KB |
+| `count=20 zoom=1 crop=0,140,256,110` | 558 KB |
+| `count=20 zoom=1 crop=64,150,128,80` | 235 KB |
+
+These ride in git on the `review-queue` branch that every clone fetches, so an
+animation is not free the way a local file is. Twenty careless cards is 50 MB;
+twenty cropped ones is 5 MB. Crop to the part the question is about, and prefer
+`count=20` unless the motion genuinely needs longer.
 
 ### The general form
 

@@ -219,6 +219,17 @@ def cmd_post(args) -> int:
         spec["blind"] = True
     if args.image:
         spec.setdefault("items", []).extend({"files": [p]} for p in args.image)
+    if args.gif:
+        # Mechanically identical to --image: the queue copies any file and the
+        # page renders whatever it is. It exists because an agent decides what
+        # to post by reading --help, and "gif" appeared nowhere in it -- so the
+        # capability was invisible at the one moment it mattered, and agents
+        # kept sending contact sheets for questions about motion.
+        for path in args.gif:
+            if not path.lower().endswith(".gif"):
+                print("review: --gif was given %s, which is not a .gif. Posting it "
+                      "anyway; use --image for stills." % path, file=sys.stderr)
+            spec.setdefault("items", []).extend([{"files": [path]}])
     if args.item:
         spec.setdefault("items", []).extend(parse_item_flag(v) for v in args.item)
     if args.wait:
@@ -481,7 +492,10 @@ def main(argv=None) -> int:
     sp.add_argument("--context", help="markdown context shown above the images")
     sp.add_argument("--context-file")
     sp.add_argument("--image", action="append", metavar="PATH",
-                    help="artifact file; repeatable")
+                    help="still artifact file; repeatable")
+    sp.add_argument("--gif", action="append", metavar="PATH",
+                    help="animated GIF; repeatable. Produce one headlessly with "
+                         "`cargo run --release --example filmstrip -- gif=1 out=x.gif`")
     sp.add_argument("--item", action="append", metavar="LABEL:PATH[::CAPTION]",
                     help="labelled artifact; repeatable")
     sp.add_argument("--blind", action="store_true",

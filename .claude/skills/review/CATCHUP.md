@@ -84,7 +84,10 @@ Post when:
 - a complaint could mean two things — render both readings and ask which;
 - a step is "judge by eye" — post *before* declaring it done;
 - you are choosing between approaches and the difference is visual: post a
-  blind A/B (`ab --blind`) rather than arguing it out.
+  blind A/B (`ab --blind`) rather than arguing it out;
+- the question is whether something *moves* right — post an animation, not a
+  contact sheet. `filmstrip` encodes a GIF headlessly (`gif=1 out=x.gif`) and
+  `post --gif` attaches it.
 
 Two house rules, both from failures already paid for here:
 

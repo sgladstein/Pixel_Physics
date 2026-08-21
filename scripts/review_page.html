@@ -209,6 +209,7 @@ function blindOrder(card) {
 }
 
 const isBlind = card => card.blind && card.status === "open";
+const isAnimated = item => item.files.length === 1 && /\.gif$/i.test(item.files[0]);
 
 // Zoom must state the factor it is actually showing. A control that read
 // "1x" while displaying a 7x upscale of a 96px scene is the debug-readout
@@ -422,8 +423,9 @@ function renderPane(card, realIdx, slot, d, v) {
   return `
   <div class="pane ${d.choice === realIdx ? "picked" : ""}" data-card="${card.id}"
        data-item="${realIdx}" data-slot="${slot}">
-    ${label || item.files.length > 1 ? `<div class="pane-label"><span>${esc(label)}</span>
-      <span class="hint">${item.files.length > 1 ? item.files.length + " frames" : ""}</span>
+    ${label || item.files.length > 1 || isAnimated(item) ? `<div class="pane-label"><span>${esc(label)}</span>
+      <span class="hint">${item.files.length > 1 ? item.files.length + " frames"
+                            : isAnimated(item) ? "animated" : ""}</span>
     </div>` : ""}
     <div class="imgwrap" data-card="${card.id}" data-item="${realIdx}">
       <div class="imgbox"><img src="/media/${esc(item.files[frame])}"

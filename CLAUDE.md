@@ -91,7 +91,10 @@ python3 scripts/review.py serve --open      # the owner's review queue; see belo
 ```
 
 `filmstrip` writes a contact-sheet PNG — several frames of one run in a grid —
-so an artifact can be judged by eye without a window. For the real app, press
+so an artifact can be judged by eye without a window. Add `gif=1 out=x.gif` and
+it encodes an animation instead, still with no window and no GPU: reach for that
+when the question is whether something *moves* right, which a grid of stills
+cannot answer. For the real app, press
 `F7` to the `flat` preset — dead-level bare rock with 200 rows of sky, the
 structural test bed — or set
 `PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start>,<interval>,<count>`; frames and a GIF
