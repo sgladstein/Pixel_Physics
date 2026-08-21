@@ -954,8 +954,86 @@ pub fn step(world: &mut World) {
     // Solved tiles merge into the live map; sleeping tiles stay where they
     // are, untouched and unallocated — the point of the subset.
     let all_settled = solve.iter().all(|c| next.get(c).is_some_and(|t| t.settled()));
+    debug_drift(world, &solve, &next);
     world.merge_fields(next);
     world.set_fields_settled(all_settled);
+}
+
+/// Per-channel attribution of *why* the solve set is not shrinking, printed
+/// when `FIELD_DRIFT=<every N frames>` is set. Off by default and reading one
+/// env var per call; nothing here runs in a shipped frame.
+///
+/// This exists because the first attempt to attribute the load transient
+/// guessed at the channel from the order of the `if` in `mark_converged` and
+/// got it wrong. `mark_converged` short-circuits on the first channel over
+/// epsilon, so it cannot say what *else* was also moving, and pressure is
+/// tested first. Every channel is tested here, independently.
+fn debug_drift(world: &World, coords: &[ChunkCoord], next: &HashMap<ChunkCoord, FieldTile>) {
+    use std::sync::OnceLock;
+    static EVERY: OnceLock<u64> = OnceLock::new();
+    let every = *EVERY.get_or_init(|| {
+        std::env::var("FIELD_DRIFT").ok().and_then(|v| v.parse().ok()).unwrap_or(0)
+    });
+    if every == 0 || !world.frame.is_multiple_of(every) {
+        return;
+    }
+    let old = world.fields_ref();
+    // Six channels, in `FieldCell`'s own order: pressure, vx, vy,
+    // temperature, light, moisture.
+    let names = ["pressure", "vx", "vy", "temp", "light", "moisture"];
+    let eps = [
+        SETTLE_EPSILON_PRESSURE,
+        SETTLE_EPSILON_VELOCITY,
+        SETTLE_EPSILON_VELOCITY,
+        SETTLE_EPSILON_TEMPERATURE,
+        SETTLE_EPSILON_LIGHT,
+        SETTLE_EPSILON_MOISTURE,
+    ];
+    let mut over = [0usize; 6];
+    let mut peak = [0.0f32; 6];
+    let mut unsettled = 0usize;
+    for &coord in coords {
+        let (Some(a_t), Some(b_t)) = (old.get(&coord), next.get(&coord)) else { continue };
+        if !b_t.settled() {
+            unsettled += 1;
+        }
+        let mut tile_over = [false; 6];
+        for ly in 0..FIELD_TILE_SIZE {
+            for lx in 0..FIELD_TILE_SIZE {
+                let a = a_t.get_local(lx, ly);
+                let b = b_t.get_local(lx, ly);
+                let d = [
+                    (a.pressure - b.pressure).abs(),
+                    (a.vx - b.vx).abs(),
+                    (a.vy - b.vy).abs(),
+                    (a.temperature - b.temperature).abs(),
+                    (a.light - b.light).abs(),
+                    (a.moisture - b.moisture).abs(),
+                ];
+                for c in 0..6 {
+                    peak[c] = peak[c].max(d[c]);
+                    if d[c] > eps[c] {
+                        tile_over[c] = true;
+                    }
+                }
+            }
+        }
+        for c in 0..6 {
+            if tile_over[c] {
+                over[c] += 1;
+            }
+        }
+    }
+    let detail: Vec<String> = (0..6)
+        .map(|c| format!("{} {}/{:.4}", names[c], over[c], peak[c]))
+        .collect();
+    println!(
+        "  [drift] frame {:>6} solved {:>4} unsettled {:>4} | {}",
+        world.frame,
+        coords.len(),
+        unsettled,
+        detail.join("  ")
+    );
 }
 
 /// Below this much change in a single step, per channel, a field cell counts
@@ -1066,7 +1144,7 @@ const NIGHT_LIGHT_FLOOR: f32 = 0.2;
 /// above the floor. Real daylight is roughly this shape — a smooth rise
 /// from sunrise, a peak at noon, a smooth fall to sunset, then flat dark
 /// until the next sunrise — not a pure sinusoid with no true night.
-fn sky_light_amplitude(frame: u64) -> f32 {
+pub fn sky_light_amplitude(frame: u64) -> f32 {
     let daylight = sun_elevation(frame).max(0.0);
     // Quantised on the 0..1 *daylight fraction* rather than on the amplitude
     // it scales to, so the two endpoints survive exactly: `daylight == 0`
