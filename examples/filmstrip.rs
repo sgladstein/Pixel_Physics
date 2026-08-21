@@ -1677,10 +1677,18 @@ impl Gnome {
             self.start_x = world.player.as_ref().map(|p| p.x);
         }
         if self.script == Script::Shake && step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS {
-            let target = world
-                .player
-                .as_ref()
-                .and_then(|p| player::shake_target(world, p, (WIDTH, 190), &tuning));
+            // **Pointed at, not merely toward.** This aimed at the far
+            // right edge of the world, which worked while the shake walked
+            // a ray out from the gnome and took the first living thing on
+            // it -- and stopped working the moment it started taking what
+            // the cursor is actually on. Zero shakes, zero shed, off a
+            // stand full of trees.
+            //
+            // His own centre is the honest aim for this script: he walks
+            // through trees, so when he is standing in one the cursor on
+            // himself is a cursor on it, and when he is not, it is not and
+            // he keeps walking. That is exactly what the scene is for.
+            let target = world.player.as_ref().and_then(|p| player::shake_target(world, p, p.center(), &tuning));
             if let Some(at) = target {
                 self.grabbed = true;
                 let shaken = world.get(at.0, at.1).organism_id();

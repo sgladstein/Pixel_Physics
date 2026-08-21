@@ -197,6 +197,16 @@ pub struct App {
     /// once and worth nothing a second later, unlike the persistent brush
     /// label beneath it.
     toast: Option<(String, u64)>,
+    /// Where the last shake landed, and the frame it stops being drawn —
+    /// the `toast` shape, for the same reason.
+    ///
+    /// **Feedback, not an affordance.** A marker that showed where a shake
+    /// *would* land was on almost permanently in a wood and was reported
+    /// as "a green square when near trees"; worse, its position was a
+    /// half-truth, since a shake moves the whole connected plant rather
+    /// than the cell it pointed at. Marking the blow after the fact costs
+    /// nothing when you are only walking about.
+    shake_flash: Option<((i32, i32), u64)>,
     /// Every worldgen preset, reloaded whenever `assets/worldgen.ron` changes.
     pub worldgen: WorldgenPresets,
     /// Which preset a new world is built from. May be `worldgen::LEGACY`,
@@ -261,6 +271,11 @@ pub enum Tool {
 /// Long enough to read a short line without looking away from the cursor,
 /// short enough that it is gone before the next stroke finishes.
 const TOAST_FRAMES: u64 = 120;
+
+/// Frames the shake mark stays up. Sized to the gnome's own swing pose
+/// (`player::SWING_FRAMES`), so the mark and the blow that made it read as
+/// one event rather than two.
+const SHAKE_FLASH_FRAMES: u64 = 5;
 
 /// Re-read both the material and species directories over the current
 /// registries, returning a combined status message. Shared by `App::new`
@@ -364,6 +379,7 @@ impl App {
             drag_from: None,
             show_stress: false,
             toast: None,
+            shake_flash: None,
             worldgen: worldgen_presets,
             worldgen_preset,
             worldgen_seed,
@@ -994,6 +1010,7 @@ impl App {
             // over a settled world -- the exact reason every other overlay
             // is in this list.
             || self.active_toast().is_some()
+            || self.shake_flash.is_some()
             || self.show_stress
             || self.drag_from.is_some();
         // The view follows the gnome. Here rather than in `update` on purpose:
@@ -1021,13 +1038,34 @@ impl App {
         self.toast.as_ref().filter(|(_, until)| self.world.frame < *until).map(|(text, _)| text.as_str())
     }
 
+    fn active_shake_flash(&self) -> Option<(i32, i32)> {
+        self.shake_flash.as_ref().filter(|(_, until)| self.world.frame < *until).map(|(at, _)| *at)
+    }
+
     fn draw_hud(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
         const WHITE: [u8; 4] = [255, 255, 255, 255];
         const YELLOW: [u8; 4] = [255, 240, 120, 255];
-        /// The shake ring. Green rather than a second yellow, because the
-        /// point is that two verbs live on one button and you can tell
-        /// which you are about to use before you press it.
+        /// Radius of the shake mark, in world cells. Small: it says *where
+        /// the blow landed*, and the shake's actual extent is the whole
+        /// plant, which no ring could honestly draw.
+        const SHAKE_MARK_RADIUS: i32 = 2;
+        /// The shake mark. Green rather than a second yellow, so a blow on
+        /// a plant is distinguishable from a bite out of rock.
         const GREEN: [u8; 4] = [130, 240, 140, 255];
+
+        // The shake mark, drawn independently of the cursor: it records an
+        // event, not a hover, so it stays put for its few frames whether or
+        // not the mouse is still there.
+        if let Some((wx, wy)) = self.active_shake_flash() {
+            if let Some((mx, my)) = self.renderer.world_to_screen(wx, wy) {
+                let radius = if self.renderer.zoom > 1 {
+                    SHAKE_MARK_RADIUS * self.renderer.zoom
+                } else {
+                    (SHAKE_MARK_RADIUS / self.renderer.zoom_out_stride.max(1)).max(1)
+                };
+                render::draw_circle_outline(frame, WIDTH, HEIGHT, mx, my, radius, GREEN);
+            }
+        }
 
         // Brush label -- always on, bottom-left, the data `status()` above
         // already computes just shown persistently instead of only in the
@@ -1107,22 +1145,28 @@ impl App {
             // `player::bite_point`, the same function `dig` aims with, so
             // the marker cannot drift from the cut. Sized to
             // `dig_radius`, so the ring also says how big a bite is.
-            // Two verbs on one button, so the ring has to say which. A cut
-            // is a yellow disc the size of the bite; a shake is a green
-            // ring at the plant, sized to nothing in particular because
-            // what it shakes is the plant, not a radius.
-            let mut shaking = false;
+            // Two verbs on one button, and only the cut gets a ring.
+            //
+            // A shake drew its own green ring here, so you could tell which
+            // verb the button was before pressing it. Reported as "a green
+            // square when near trees" and taken out: it was on almost
+            // permanently, and its position was a half-truth anyway, since
+            // a shake moves the whole connected plant and not the cell
+            // under the cursor. **No ring now means no bite is coming**,
+            // which is a true thing to say, and the blow marks itself after
+            // the fact (`shake_flash`).
             let dig_marker = match (self.tool, &self.world.player) {
                 (Tool::Dig, Some(p)) => {
                     let aim = self.renderer.screen_to_world(sx, sy);
-                    let (at, radius) = match player::shake_target(&self.world, p, aim, &self.player_tuning) {
-                        Some(at) => {
-                            shaking = true;
-                            (at, 3)
+                    match player::shake_target(&self.world, p, aim, &self.player_tuning) {
+                        Some(_) => None,
+                        None => {
+                            let at = player::bite_point(&self.world, p, aim, &self.player_tuning);
+                            self.renderer
+                                .world_to_screen(at.0, at.1)
+                                .map(|s| (s, self.player_tuning.dig_radius as i32))
                         }
-                        None => (player::bite_point(&self.world, p, aim, &self.player_tuning), self.player_tuning.dig_radius as i32),
-                    };
-                    self.renderer.world_to_screen(at.0, at.1).map(|s| (s, radius))
+                    }
                 }
                 _ => None,
             };
@@ -1136,11 +1180,7 @@ impl App {
             } else {
                 (radius / self.renderer.zoom_out_stride.max(1)).max(1)
             };
-            let ring = match (dig_marker.is_some(), shaking) {
-                (_, true) => GREEN,
-                (true, false) => YELLOW,
-                (false, false) => WHITE,
-            };
+            let ring = if dig_marker.is_some() { YELLOW } else { WHITE };
             render::draw_circle_outline(frame, WIDTH, HEIGHT, cx, cy, screen_radius, ring);
 
             if self.show_hover_inspector {
@@ -1491,7 +1531,7 @@ impl App {
             "  SUMMONING ARMS HIS DIG: LMB CUTS AT THE YELLOW RING, RMB ERASES",
             "  IN WATER: W STROKE UP    S SWIM DOWN",
             "  IN A TREE: HOLD SHIFT TO HOLD ON, THEN W UP / S DOWN",
-            "  LMB ON A TREE (GREEN RING) SHAKES IT INSTEAD OF CUTTING",
+            "  LMB ON A TREE SHAKES IT; ANYWHERE ELSE CUTS ROCK",
             "  F3 JUMP FEEL  F4 WATER FEEL  F2 SPOIL (CYCLE, SAY WHICH IS BEST)",
             "  F10 TREES IN FRONT OF HIM / BEHIND HIM (CYCLE)",
             "C STRIKE ROCK    H DIG (PRECISE CUT)",
@@ -1636,7 +1676,12 @@ impl App {
                 .and_then(|p| player::shake_target(&self.world, p, to, &self.player_tuning));
             match shake_at {
                 Some(at) => {
-                    player::shake(&mut self.world, at, &self.player_tuning);
+                    // Only on a shake that actually landed: the cooldown
+                    // returns `None` between blows, and marking those would
+                    // put the flash back to being permanent.
+                    if let Some(shake) = player::shake(&mut self.world, at, &self.player_tuning) {
+                        self.shake_flash = Some((shake.at, self.world.frame + SHAKE_FLASH_FRAMES));
+                    }
                 }
                 None => {
                     player::dig(&mut self.world, to, &self.player_tuning);
@@ -2107,7 +2152,12 @@ mod tests {
         app.summon_player(30, 64);
         assert_eq!(app.tool, Tool::Dig, "summoning must arrive in the dig tool");
 
-        app.paint_stroke((60, 64), (60, 64), false);
+        // **On the trunk, not merely toward it.** This clicked at (60, 64)
+        // -- past the tree, at his own height -- and shook, because the
+        // shake used to walk a ray out from the gnome and take the first
+        // living thing on it. That is the bug this test now guards the fix
+        // for: pointing past a tree digs, pointing at one shakes.
+        app.paint_stroke((40, 60), (40, 60), false);
 
         assert_ne!(
             app.world.get(40, 54).material,
@@ -2115,10 +2165,32 @@ mod tests {
             "the grain resting on the trunk should have been shaken off it"
         );
         assert_eq!(
-            app.world.get(40, 60).material,
+            app.world.get(40, 62).material,
             wood,
             "and the trunk itself is not something a click may cut or paint over"
         );
+
+        // The other half of the routing, through the same door: a click
+        // *past* the tree at the same height must reach the pick, which is
+        // what a tree between the two reaches used to swallow.
+        // Inside `dig_reach` (30 from his centre at x=30) and beyond the
+        // trunk at x=40, so the pick has to see *through* living tissue to
+        // reach it -- which is the other half of the same fix.
+        let rubble = id(&app, "rubble");
+        for y in 55..70 {
+            for x in 50..58 {
+                app.world.set(x, y, Cell::new(stone, 0).with_attached(true));
+            }
+        }
+        let count_rubble = |app: &App| (55..70).map(|y| (45..65).filter(|&x| app.world.get(x, y).material == rubble).count()).sum::<usize>();
+        let rubble_before = count_rubble(&app);
+        // Let the bite cooldown run down the way a player would.
+        for _ in 0..12 {
+            app.update();
+        }
+        app.paint_stroke((55, 62), (55, 62), false);
+        let rubble_after = count_rubble(&app);
+        assert!(rubble_after > rubble_before, "a click past the tree should have cut rock: {rubble_before} -> {rubble_after}");
     }
 
     /// The help panel is the only place several keys are documented, and

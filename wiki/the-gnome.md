@@ -78,9 +78,12 @@ way through is a thing you can do.
 
 ## Shaking a tree
 
-Left-clicking a plant shakes it instead of cutting it, and the ring turns
-green so you know which of the two you're about to do before you press.
-Pointing at rock still digs.
+Left-clicking a plant shakes it instead of cutting it. It has to be a
+plant you are actually **pointing at** — a tree merely standing between
+you and where you clicked doesn't take the blow, and the pick sees
+straight through living wood to the rock behind, so you can dig in a wood
+and dig while standing inside a tree. There's no marker beforehand; the
+shake marks itself where it lands, for a moment, as it happens.
 
 A shake does three things and takes nothing structural. Whatever was
 resting on the branches — snow, sand, your own spoil — comes off them.
