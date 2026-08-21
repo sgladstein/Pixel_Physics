@@ -95,6 +95,20 @@ EOF
   distribution. Two runs side by side cancel everything the question is not
   about.
 
+## Catching up a session that started before this existed
+
+A session whose `CLAUDE.md` predates the queue needs two steps this file assumes
+you already did — installing the tool and flushing anything queued locally.
+Those live in `.claude/skills/review/CATCHUP.md`, which is also what to point
+such a session at:
+
+```
+git fetch -q origin main && git show origin/main:.claude/skills/review/CATCHUP.md
+```
+
+Pointing at the file rather than pasting its contents keeps the instructions
+current after the next change; a pasted copy went stale within a day.
+
 ## If you are not on the owner's machine
 
 **Read this before your first card if you are a cloud or web session.**
