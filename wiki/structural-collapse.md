@@ -16,13 +16,18 @@ the thing to watch when playing: whether collapse now happens **too
 rarely** on open terrain, having spent a long time happening far too much.
 And newly unsettled, and the thing to watch above all: **rock cut loose by
 cracks deep inside solid stone now cracks further where it stands instead
-of being left alone.** A single buried charge reads much better for it —
-roughly twice as much rock comes away and it keeps coming for about twice
-as long. Several charges in one hillside currently read much worse: each
-severed piece cracks the rock around it and severs more, so a worked area
-goes dark with fissures from edge to edge and almost nothing actually
-flies. Expect one bang to look better than it did and a sustained working
-to look worse, and expect that second half to change.*
+of being left alone — but only if there is enough of it left to be worth
+cracking.** A worked hillside no longer goes dark with fissures from edge
+to edge, which is what it did briefly: the damage a severed piece does is
+now sized to the piece, and a chip with no inside left does nothing at all.
+Several charges in one hillside read about as they did before this work.
+A single buried charge no longer throws noticeably more rock at the moment
+of the bang than it used to — that went with the fix. What it does instead,
+and this is the thing to judge in play, is **keep working long after the
+bang**: the crater goes on opening for a good ten or twenty seconds, and a
+great deal more rock comes away in the end than ever came away at the blast
+itself. Whether that reads as a mountain settling around a wound or as a
+hillside quietly eating itself is exactly the open question.*
 
 Any solid structure needs an unbroken path of connected material leading
 back down to the ground, or out to the edge of the world, to stay up. Cut

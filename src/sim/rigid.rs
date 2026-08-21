@@ -105,7 +105,13 @@ const MIN_BODY_CELLS: usize = 8;
 /// Smallest failing region worth fracturing at all. Below this the region is
 /// left to the caller's per-cell conversion, which looks the same and costs
 /// less.
-const MIN_FRACTURE_CELLS: usize = 6;
+///
+/// Shared with `structural::tick`, which uses it as the floor on a confined
+/// *severed piece* worth cracking at all: a chip this small has nothing left
+/// inside it to separate. Deliberately the same number as the one here, so
+/// "too small to come apart into pieces" means one thing in this engine
+/// rather than two.
+pub(crate) const MIN_FRACTURE_CELLS: usize = 6;
 
 /// Largest a single body may be. Past this one piece stops reading as a
 /// chunk broken off a wall and starts reading as the wall gliding intact,

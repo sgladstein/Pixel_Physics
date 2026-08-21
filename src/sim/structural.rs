@@ -488,9 +488,9 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             // climbing without bound is the treadmill, and it is the one
             // reading that tells a working sever apart from one.
             //
-            // # Read this before touching this branch again
+            // # The regression W4 shipped with, and what W4b did about it
             //
-            // **It climbs.** Measured on `scene=worldgen preset=rolling
+            // **W4 climbed.** Measured on `scene=worldgen preset=rolling
             // seed=1 explode=300,160,20,180,60` out to frame 5,000, with
             // the world's material dead still throughout (promoted frozen
             // at 186 cells, shattered at 914, `crushed_cells` frozen at
@@ -500,45 +500,138 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             // is this branch's, not the sever's -- damage terminates,
             // judgement churn does not.
             //
-            // And the damage it does before it terminates is worse than
-            // the churn. On the nine-charge sweep this branch is the
-            // difference between a world that breaks and a world that
-            // dissolves:
+            // And the damage it did before it terminated was worse than
+            // the churn. On the nine-charge sweep W4 was the difference
+            // between a world that breaks and a world that dissolves:
             //
             // ```text
-            //                       before W3/W4   W3 only   W3+W4   W3+W4, confine=0
-            // promoted cells max          11,100     4,872      95         17,639
-            // cracked cells (seed 1)       2,820     4,441  84,051          1,789
-            // unsupported failures         1,030    11,525 131,363            429
-            // furthest failure (cells)        44        36       2             33
+            //                       before W3/W4   W3 only   W3+W4   W3+W4, confine=0    W4b
+            // promoted cells max          11,100     4,872      95         17,639      4,862
+            // promoted cells min           1,726       651       8              -        654
+            // cracked cells (seed 1)       2,820     4,441  84,051          1,789      6,185
+            // unsupported failures         1,030    11,525 131,363            429     16,046
+            // furthest failure (cells)        44        36       2             33         47
             // ```
             //
             // 84,051 cracked cells is most of the solid rock in a 512x320
-            // world. The contact sheet says it plainer than any of those
-            // numbers: the hillside goes dark from the crater outward
-            // until the whole slope is a cracked stain, and almost nothing
-            // flies. That is `crush_in_place`'s own "why not crack every
+            // world. The contact sheet said it plainer than any of those
+            // numbers: the hillside went dark from the crater outward
+            // until the whole slope was a cracked stain, and almost nothing
+            // flew. That was `crush_in_place`'s own "why not crack every
             // edge" warning arriving by a different road -- *solid on
             // screen and structurally sand*.
             //
-            // The mechanism is `CLAUDE.md`'s **which object does this rule
+            // The mechanism was `CLAUDE.md`'s **which object does this rule
             // evaluate**. `crush_in_place` sizes its star off the region:
             // `length = extent.clamp(CRACK_MIN_LENGTH, CRACK_MAX_LENGTH)`
             // with `CRACK_MIN_LENGTH` 10, `CRACK_PRIMARIES` 3 and
             // `CRACK_FORKS_BASE` 4. That is right for an over-capacity
             // *section*, which is what it was written for. A crack-severed
             // island is a **cell** -- mean failing region size on the deep
-            // charge is 1.1 -- so every one-cell island fires three
+            // charge is 1.1 -- so every one-cell island fired three
             // ten-cell rays plus four forks into the rock around it, which
-            // severs more one-cell islands, which fire again. The feedback
-            // is in the sizing, not in the decision to crush.
+            // severed more one-cell islands, which fired again. The
+            // feedback was in the sizing, not in the decision to crush.
             //
-            // So the next lever is the star's size for this mode, or a
-            // floor on the region it is worth crushing -- **not**
-            // `calve_depth` or `POCKET_COLLAR_THICKNESS`, and not tuning
-            // the crack constants, which are shared with the blast and the
-            // overload crush and are right for both.
-            if crush_in_place(world, &region, failure.at) > 0 {
+            // ## What it cost to take that feedback out, and why no tuning
+            // ## of these two levers buys it back
+            //
+            // **The deep charge's W4 gain and the nine-blast dissolve are
+            // the same mechanism.** W4 took the single deep charge from 89
+            // promoted cells to 186 and from 10 frames with a body to 22.
+            // Three variants were measured on it, all on
+            // `explode=300,160,20,180,60 start=58 every=2 count=45`:
+            //
+            // ```text
+            //                                       promoted   frames with a body
+            // W3 only                                     89                   10
+            // W4 (no floor removed, no gate)             186                   22
+            // W4b, sizing scaled from zero only           89                   10
+            // W4b, small-end gate only (full star)        89                   10
+            // W4b, both (shipped)                         89                   10
+            // ```
+            //
+            // Read the third and fourth rows together: **either** lever
+            // alone returns the deep charge to W3, because W4's extra 97
+            // cells were severed by sub-six-cell islands firing ten-cell
+            // stars -- which is the runaway itself. There is no setting of
+            // a minimum length or a fork base that keeps the gain and drops
+            // the cascade; they are one behaviour. Anyone who wants that
+            // gain back has to get it from a *different* mechanism (a real
+            // impulse into confined rock, say), not from this pair of
+            // knobs. Do not re-tune them expecting a middle -- it was
+            // looked for and it is not there.
+            //
+            // The gate-only variant is worth recording separately because
+            // it is not simply worse: on the nine-blast sweep it promotes
+            // *more* than the shipped version (seed 1: 3,399 cells against
+            // 1,785) at the price of 10,662 cracked cells against 6,185.
+            // It is a live option if the sweep's promotion figure ever
+            // matters more than its cracking figure.
+            //
+            // ## The residual, which is real and is not settled
+            //
+            // On the same deep charge out to frame 5,000, W4b's `confined`
+            // stands at 4,043 at frame 2,200 and 5,723 at frame 5,000 --
+            // **+240 every 400 frames, flat, for ever**, against W3-only's
+            // 383 settled by frame 1,000 and the pre-branch build's 2. It
+            // is milder than W4's +320 and it is *damage-free*: fissures
+            // frozen at 610 cells, cracked cells at 1,114 and material lost
+            // at 692 from frame 2,200 onward, and the worst frame is 32.4
+            // ms against W3-only's 33.3 ms on the same run. So it is
+            // judgement churn over a rubble field, not the damage treadmill
+            // the `crush_in_place(..) > 0` guard was built to stop. It is
+            // still the shape `CLAUDE.md` says to stop for, and it is
+            // recorded rather than tuned around. What it costs today is
+            // ~7,300 pending sites standing for ever against 400.
+            //
+            // # W4b: two objects, two rules
+            //
+            // Both levers named above were taken and nothing else was.
+            // `calve_depth`, `POCKET_COLLAR_THICKNESS` and the crack
+            // constants are all untouched -- they are shared with the blast
+            // and with the overload crush and are right for both, so a
+            // retune to damp this would have changed two working mechanisms
+            // to fix a third.
+            //
+            // The **overloaded** half keeps today's sizing byte for byte. It
+            // is a *section*, it is what `crush_in_place`'s floors were tuned
+            // against, and it is not what regressed: its arm of
+            // `rock_with_nowhere_to_go_cracks_where_it_stands` and the
+            // `caveshallow` acceptance case are the guards on that.
+            //
+            // The **unsupported** half is a *severed piece* and gets sizing
+            // that scales from zero -- see `CrushedObject`. A one-cell island
+            // now draws a zero-length star instead of the same three ten-cell
+            // rays a ten-cell section gets, which is where the feedback was.
+            let object = match failure.mode {
+                super::load::FailureMode::Overloaded => CrushedObject::Section,
+                super::load::FailureMode::Unsupported => CrushedObject::SeveredPiece,
+            };
+            // **A piece with nothing left to separate cracks nothing.** A
+            // chip already severed on every side has no interior to break
+            // into blocks; cracking it can only damage the rock *around* it,
+            // which is the neighbour's business and not this failure's. So
+            // below `MIN_FRACTURE_CELLS` -- the constant that already means
+            // "smallest failing region worth fracturing at all", and which
+            // the non-confined branch below applies to the same question --
+            // behave exactly as the pre-W4 code did: the confined failure is
+            // recorded (above, unconditionally), nothing is written, and
+            // nothing is propagated.
+            //
+            // **This is the small end, and it is not the size cap the
+            // do-not-retry list forbids.** That entry is about `if too_big {
+            // return }` -- declining the *largest* cases, so the bigger the
+            // collapse the less behaviour it gets, which is backwards. This
+            // declines the *smallest*, alongside `MIN_FRACTURE_CELLS` and
+            // `MIN_BODY_CELLS` doing the same thing a few lines down, and it
+            // is the physically right answer rather than a budget: there is
+            // no interior in a six-cell chip to crack. Anyone reading this as
+            // the forbidden shape later: check which end it declines.
+            if object == CrushedObject::SeveredPiece && region.len() < super::rigid::MIN_FRACTURE_CELLS {
+                return Vec::new();
+            }
+            if crush_in_place(world, &region, failure.at, object) > 0 {
                 return propagate;
             }
             return Vec::new();
@@ -899,6 +992,63 @@ fn burial_depth(world: &World, region: &[(i32, i32)]) -> u32 {
 /// unambiguously inside a massif, and the search is quadratic in it.
 const BURIAL_PROBE_CAP: u32 = 24;
 
+/// **Which object a confined crush is breaking.** Not which caller asked --
+/// the two callers are the two failure modes, but what decides the star's
+/// size is the *thing* being cracked, and these are two different things.
+///
+/// This split exists because the star was sized for one of them and then
+/// handed the other, which is `CLAUDE.md`'s **which object does this rule
+/// evaluate -- a cell, a section, or a whole piece?** for the third time on
+/// this branch. `crush_in_place`'s floors (`CRACK_MIN_LENGTH` 10,
+/// `CRACK_FORKS_BASE` 4) were tuned against an over-capacity section and are
+/// right for it. Give them to a one-cell island and a chip fires three
+/// ten-cell rays and four forks into the rock around it, severing more
+/// islands, which fire again -- 84,051 cracked cells and a hillside that
+/// went dark from the crater outward. See `tick`'s confined branch for the
+/// full measurement.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CrushedObject {
+    /// An over-capacity **section**: rock still attached to the world,
+    /// carrying more moment than it can bear. It is large by construction
+    /// (that is what put it over capacity) and it is *whole*, so there is
+    /// interior to break into blocks and a floor under the damage is right
+    /// -- a failure this big must not produce cracks too faint to see.
+    ///
+    /// Keeps the sizing byte for byte: this half was never what regressed.
+    Section,
+    /// A **severed piece**: a chunk the fissures already cut out of solid
+    /// rock, judged unsupported because nothing holds it any more. Its size
+    /// is whatever the cracks happened to enclose, and on a cascading world
+    /// that is routinely a single cell (mean failing region size 1.1 on the
+    /// deep charge). So the damage must genuinely scale from zero: no floor
+    /// on the ray length, no fork base. A piece with nothing inside it draws
+    /// nothing.
+    SeveredPiece,
+}
+
+impl CrushedObject {
+    /// The floor under a fissure's length. `CRACK_MIN_LENGTH` exists so a
+    /// small *section* still produces damage the eye can find; a severed
+    /// piece has no such claim on the rock outside it, so its rays are
+    /// bounded by the piece and nothing else.
+    fn min_crack_length(self) -> usize {
+        match self {
+            CrushedObject::Section => CRACK_MIN_LENGTH,
+            CrushedObject::SeveredPiece => 0,
+        }
+    }
+
+    /// The same argument for the fork pool. Both halves have to scale or
+    /// neither does: a zero-length ray that still throws four branches is
+    /// the same feedback loop with a shorter reach.
+    fn forks_base(self) -> usize {
+        match self {
+            CrushedObject::Section => CRACK_FORKS_BASE,
+            CrushedObject::SeveredPiece => 0,
+        }
+    }
+}
+
 /// A confined region fails **in place**: it cracks into blocks and does not
 /// go anywhere.
 ///
@@ -972,20 +1122,30 @@ const BURIAL_PROBE_CAP: u32 = 24;
 /// a failure that creates no loose material cannot undermine its
 /// neighbours, which is the positive feedback `Reports/next-session-
 /// handoff.md` §1b traces every cascade to.
-fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32)) -> u32 {
+fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32), object: CrushedObject) -> u32 {
     // Both the length and the number of forks scale with the piece,
     // because a fist-sized failure and a 900-cell one should not come
     // apart to the same amount of damage -- the all-or-nothing outcome is
     // this project's most expensive recurring artifact and this is where
     // it would reappear.
+    //
+    // **And at the small end it only scales if the floors come off**,
+    // which is the caveat this comment was missing while it read as
+    // already true. `CRACK_MIN_LENGTH` 10 and `CRACK_FORKS_BASE` 4 are a
+    // floor, not a scale: below a ten-cell extent every piece got the
+    // identical star, so a one-cell chip and a ten-cell section came apart
+    // to exactly the same damage -- the all-or-nothing outcome, in the
+    // half of the range nobody was looking at. The floors are right for
+    // the object they were tuned on and wrong for the other, so they now
+    // come from `CrushedObject` rather than straight from the constants.
     let extent = region
         .iter()
         .map(|&(x, y)| (x - at.0).abs().max((y - at.1).abs()))
         .max()
         .unwrap_or(0) as usize;
-    let length = extent.clamp(CRACK_MIN_LENGTH, CRACK_MAX_LENGTH);
+    let length = extent.clamp(object.min_crack_length(), CRACK_MAX_LENGTH);
     let seed = super::rng::jitter(at.0, at.1) * std::f32::consts::TAU;
-    let forks = CRACK_FORKS_BASE + region.len() / CRACK_CELLS_PER_FORK;
+    let forks = object.forks_base() + region.len() / CRACK_CELLS_PER_FORK;
     // `detach: false` -- a confined crush must not unbrace the rock or
     // reschedule it. Both are right for a *blow* and wrong here:
     // unbracing confined rock tells the load model the inside of a
@@ -3033,6 +3193,137 @@ mod tests {
             slab_intact(&opened) < SLAB_CELLS,
             "the same slab with a cavity above it must still come apart -- {} of {SLAB_CELLS} cells still intact",
             slab_intact(&opened)
+        );
+    }
+
+    /// A severed piece's damage must **scale with the piece**, right down
+    /// to zero -- a chip with no inside left cracks nothing.
+    ///
+    /// # What this is guarding, and from which direction
+    ///
+    /// `crush_in_place`'s star used to be sized with a floor
+    /// (`CRACK_MIN_LENGTH` 10, `CRACK_FORKS_BASE` 4) that was tuned against
+    /// an over-capacity *section*. When cracks learned to sever, that same
+    /// star started being handed one-cell islands, and each one fired three
+    /// ten-cell rays into the rock around it, severing more islands, which
+    /// fired again: 84,051 cracked cells on a nine-blast rolling world, most
+    /// of the solid rock in it, and a hillside that went dark from the
+    /// crater outward while almost nothing flew.
+    ///
+    /// So this is a **paired** test, because either half alone is passable
+    /// by cheating. "Nothing cracks" passes the chip by suppressing the
+    /// confined crush entirely, which is the mechanism
+    /// `rock_with_nowhere_to_go_cracks_where_it_stands` exists to defend;
+    /// "everything cracks" passes the slab and is the runaway above. The
+    /// pair pins the damage to the *size of the piece*.
+    ///
+    /// The chip's arm looks past the counter at the rock **around** it as
+    /// well, and that is the assertion that would catch the runaway coming
+    /// back: a restored floor writes its rays outward, into cells the chip
+    /// does not occupy, which is exactly how one severed island manufactures
+    /// the next one.
+    #[test]
+    fn a_severed_chip_with_no_inside_left_cracks_nothing() {
+        // Cracks all the way round a `w` x `h` block at (30, 34), in the
+        // middle of a massif, so nothing holds it and there is no empty
+        // neighbour anywhere: unsupported *and* confined, which is the one
+        // branch under test. Deliberately isolated on all four edges --
+        // `crack_down` is the edge *below* a cell and `crack_right` the edge
+        // to its right, so the bottom row's own `crack_down` and the right
+        // column's own `crack_right` are the far sides.
+        fn massif_with_severed_piece(w_cells: i32, h_cells: i32) -> (World, Vec<(i32, i32)>) {
+            let mut w = test_world();
+            for y in 20..50 {
+                for x in 10..50 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            let (x0, y0) = (30, 34);
+            let (x1, y1) = (x0 + w_cells - 1, y0 + h_cells - 1);
+            for x in x0..=x1 {
+                let above = w.get(x, y0 - 1);
+                w.set(x, y0 - 1, above.with_crack_down(true));
+                let bottom = w.get(x, y1);
+                w.set(x, y1, bottom.with_crack_down(true));
+            }
+            for y in y0..=y1 {
+                let left = w.get(x0 - 1, y);
+                w.set(x0 - 1, y, left.with_crack_right(true));
+                let right = w.get(x1, y);
+                w.set(x1, y, right.with_crack_right(true));
+            }
+            // Distances *after* the cracks: the relaxation skips cracked
+            // edges, so this is what actually leaves the piece with no path
+            // to an anchor. The other order leaves every cell holding a
+            // stale, perfectly good distance and nothing ever fails.
+            compute_world_distances(&mut w);
+            let piece: Vec<(i32, i32)> = (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).collect();
+            for &(x, y) in &piece {
+                w.schedule_structural_check(x, y);
+            }
+            (w, piece)
+        }
+
+        // Every crack bit in the world that is not on one of the piece's own
+        // cells. The setup writes some of these itself (the collar that cuts
+        // the piece loose), so it is the *change* that is the assertion.
+        fn cracks_outside(w: &World, piece: &[(i32, i32)]) -> usize {
+            (0..64)
+                .flat_map(|y| (0..64).map(move |x| (x, y)))
+                .filter(|p| !piece.contains(p))
+                .filter(|&(x, y)| w.get(x, y).crack_down() || w.get(x, y).crack_right())
+                .count()
+        }
+
+        // Two cells by two: below `MIN_FRACTURE_CELLS`, and physically a
+        // chip that is already severed on all four sides. There is nothing
+        // inside it left to separate.
+        let (mut chip, chip_cells) = massif_with_severed_piece(2, 2);
+        assert!(chip_cells.len() < super::super::rigid::MIN_FRACTURE_CELLS);
+        let cracks_before = cracks_outside(&chip, &chip_cells);
+        run(&mut chip, 300);
+        assert!(
+            chip.structural_failures.confined > 0,
+            "test setup: the chip was never judged as a confined failure, so this proves nothing"
+        );
+        assert_eq!(
+            chip.structural_failures.crushed_cells, 0,
+            "a four-cell severed chip cracked {} cells -- it has no inside left to separate",
+            chip.structural_failures.crushed_cells
+        );
+        assert_eq!(
+            cracks_outside(&chip, &chip_cells),
+            cracks_before,
+            "the chip wrote fissures into the rock *around* it -- that is how one severed island manufactures the next"
+        );
+
+        // The other end of the same rule: a piece with an interior still
+        // comes apart where it stands.
+        let (mut slab, slab_cells) = massif_with_severed_piece(6, 6);
+        assert!(slab_cells.len() >= super::super::rigid::MIN_FRACTURE_CELLS);
+        let slab_cracks_before = cracks_outside(&slab, &slab_cells);
+        run(&mut slab, 300);
+        assert!(
+            slab.structural_failures.confined > 0,
+            "test setup: the slab was never judged as a confined failure, so this proves nothing"
+        );
+        assert!(
+            slab.structural_failures.crushed_cells > 0,
+            "a 36-cell severed slab cracked nothing -- scaling the star from zero must not turn the crush off"
+        );
+        // **And this is the arm that catches a restored floor.** The gate
+        // above hides that change from the chip -- a four-cell chip is
+        // declined before the star is ever sized -- so without a bar here
+        // the pair would pass while the runaway was back for every piece
+        // over six cells. Measured on this scene: 49 crack bits written
+        // outside the slab's own footprint with the sizing scaled from
+        // zero, 199 with `CRACK_MIN_LENGTH`/`CRACK_FORKS_BASE` restored to
+        // the severed-piece arm. The bar sits at twice the measured value
+        // and half the artifact's, which is the widest gap available.
+        let slab_spread = cracks_outside(&slab, &slab_cells) - slab_cracks_before;
+        assert!(
+            slab_spread <= 100,
+            "the slab wrote {slab_spread} crack bits into the rock around it (measured 49 when the star scales with the piece, 199 when the section's floor is restored to it) -- the star is being sized for the wrong object again"
         );
     }
 
