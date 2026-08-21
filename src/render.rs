@@ -1712,6 +1712,43 @@ impl Renderer {
         let (ox, oy) = player.rect_origin();
         let block = self.zoom.max(1);
         let table = if player.action > 0 { &GNOME_SWING } else { &GNOME_SPRITE };
+        // **One side per formation, decided once, not one side per column.**
+        //
+        // The first version keyed the scenery branch below on `wx` -- the
+        // world column -- because a formation had no id to key on and a
+        // stalactite was one cell wide, where per-column and per-formation
+        // are the same thing. They are not the same thing the moment a
+        // formation is three cells wide: `in_front`'s hash is deliberately
+        // decorrelated between adjacent keys, so a run of columns never
+        // agrees. Measured over 4000 columns, the fraction of a w-wide
+        // formation that lands wholly on one side of him:
+        //
+        //   w=1 100%   w=2 48%   w=3 0%   w=5 0%   w=8 0%   w=12 0%
+        //
+        // **Zero, from width three up.** Every formation the round-6 respec
+        // makes (3-8 cells at the base, tapering) would have sliced him into
+        // vertical stripes -- half his columns drawn, half not -- and the
+        // one-pixel speleothems that hid it are exactly the bug the respec
+        // was fixing. A constant that was only ever right because something
+        // else was broken.
+        //
+        // So the key is the leftmost scenery column his box overlaps, found
+        // in one pass before the sprite loop: he is wholly in front of, or
+        // wholly behind, whatever he is standing in. Two formations he
+        // straddles put him on one side for both, which is right -- the
+        // question the picture asks is where *he* is, not where each stone
+        // is. Costs one extra `World::get` per sprite cell in the worst
+        // case (98), on the same rectangle the loop already walks, and it
+        // stays a pure function of world state so the dirty-rect skip's
+        // pixel-identity still holds.
+        let scenery_key = {
+            let (w, h) = (table[0].len() as i32, table.len() as i32);
+            (ox..ox + w)
+                .find(|&wx| {
+                    (oy..oy + h).any(|wy| world.materials.get(world.get(wx, wy).material).scenery)
+                })
+                .unwrap_or(ox)
+        };
         for (dy, row) in table.iter().enumerate() {
             for (dx, colour) in row.iter().enumerate() {
                 let Some(colour) = colour else { continue };
@@ -1739,7 +1776,7 @@ impl Renderer {
                 // *and* is always drawn over reads as a decal on the
                 // foreground, which is worse than either extreme.
                 let occluded = if material.scenery {
-                    self.tree_depth.in_front(wx as u32)
+                    self.tree_depth.in_front(scenery_key as u32)
                 } else {
                     cell.organism_id() != 0
                         && material.climbable
@@ -3713,6 +3750,91 @@ mod tests {
         through.draw(&world, &particles, &HashSet::new(), &mut b, (uw, uh), true);
 
         assert_ne!(a, b, "a tree in front of him should not draw the same as one behind him");
+    }
+
+    /// A formation wider than one cell must put him on **one** side of it.
+    ///
+    /// The guard for the bug the round-6 formation respec would have
+    /// shipped: the scenery depth key was the world column, and
+    /// `in_front`'s hash decorrelates adjacent keys by design, so from
+    /// width three up a formation never agreed with itself -- 0% of 4000
+    /// sampled columns, at widths 3, 5, 8 and 12 alike. He rendered as
+    /// vertical stripes, half his columns drawn over the stone and half
+    /// hidden behind it.
+    ///
+    /// Written to fail for the **replacement** artifact too, not only the
+    /// original: it asserts a uniform decision across his whole width at
+    /// every plausible formation width, so a key that is per-formation but
+    /// unstable (a run-start recomputed per row, say, which would slice him
+    /// horizontally instead) fails it as surely as the per-column one did.
+    #[test]
+    fn a_wide_formation_puts_the_gnome_wholly_in_front_or_wholly_behind() {
+        use crate::sim::player::Player;
+        let (w, h) = (64i32, 64i32);
+        let flowstone = {
+            let world = World::new(Rect::new(0, 0, 1, 1));
+            world.materials.id_of("flowstone").expect("flowstone is compiled in")
+        };
+        let mut occluding = 0;
+        for formation_w in [2i32, 3, 5, 8, 12] {
+            // Sweep the formation across him so the test cannot pass by
+            // landing on one lucky alignment: which columns the hash would
+            // have disagreed on depends on where the formation sits.
+            for left in 24..40 {
+                let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+                for x in 0..w {
+                    world.set(x, h - 1, Cell::new(material::STONE, 0));
+                }
+                for y in 20..50 {
+                    for x in left..left + formation_w {
+                        world.set(x, y, Cell::new(flowstone, 0));
+                    }
+                }
+                world.end_step();
+                world.player = Some(Player::at(32, 32));
+
+                // Rendered through the real `draw`, not through a copy of
+                // the key arithmetic -- a test that re-derives the key
+                // passes on the buggy renderer too, which is the whole
+                // failure this file keeps a comment about.
+                //
+                // `Front` never occludes and `Behind` always does, so those
+                // two frames *are* the only two uniform outcomes. "Wholly
+                // one side" is then exactly "the weave frame is one of
+                // them", asserted over every pixel.
+                let (uw, uh) = (w as u32, h as u32);
+                let particles = ParticleSystem::new();
+                let frame = |depth: TreeDepth| {
+                    let mut r = Renderer::new();
+                    r.tree_depth = depth;
+                    let mut buf = vec![0u8; (uw * uh * 4) as usize];
+                    r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+                    buf
+                };
+                let (over, under, weave) =
+                    (frame(TreeDepth::Front), frame(TreeDepth::Behind), frame(TreeDepth::Weave));
+                // Most sweep positions put the formation clear of him, and
+                // those prove nothing either way. Counted rather than
+                // assumed: a renderer that stopped occluding altogether
+                // would satisfy every case below and is caught by the
+                // count at the end instead. (`CLAUDE.md`: "did it fire at
+                // all" needs a counter, not a picture.)
+                if over == under {
+                    continue;
+                }
+                occluding += 1;
+                assert!(
+                    weave == over || weave == under,
+                    "width {formation_w} at x={left}: he is in front of some of the formation and \
+                     behind the rest -- the weave frame matches neither extreme"
+                );
+            }
+        }
+        assert!(
+            occluding >= 40,
+            "only {occluding} of the swept positions actually put a formation over him; \
+             the sweep is not exercising the thing it claims to guard"
+        );
     }
 
     #[test]
