@@ -736,16 +736,34 @@ const CAVE_GRID_H: i32 = 2 * CAVE_HALF_H + 1;
 
 /// Size of one Worley lattice cell, in *sheared* cave-space cells.
 ///
-/// Together with [`CAVE_SQUASH`] this sets how many chambers a system holds:
-/// the envelope spans `(2 * CAVE_HALF_W / CAVE_CELL)` lattice cells across
-/// and `(2 * CAVE_HALF_H * CAVE_SQUASH / CAVE_CELL)` down -- about 3.5 x 2.7
-/// = 9 cells at these values, the middle of the 6-12 the spec asks for.
-const CAVE_CELL: f32 = 52.0;
+/// Together with [`CAVE_SQUASH`] this sets how many lattice cells the
+/// envelope holds: `(2 * CAVE_HALF_W / CAVE_CELL)` across and
+/// `(2 * CAVE_HALF_H * CAVE_SQUASH / CAVE_CELL)` down. Round 3 shipped 52,
+/// which gives ~3.5 x 2.7 = 9 -- and round 5 measured what that actually
+/// means: the whole envelope is one open lens with the ceiling guard's
+/// stone teeth in it read as pillars, median open column 30 in a 69-tall
+/// box (`Reports/cave-beauty-review-2026-08.md`'s measured addendum). At 9
+/// lattice cells there is no anatomy to have. 22.0 gives ~8.2 x 3.8 = 31
+/// cells -- `cave_probe field=` at this value measures open column med 4,
+/// p95 11-12, max 20-28 over three field seeds, against the old field's
+/// med 30 (see the round-5 task file's table); the built world has to be
+/// re-measured because the ceiling guard and gravel floors are downstream
+/// of the raw field and can reshape it.
+const CAVE_CELL: f32 = 22.0;
 
 /// Vertical compression applied before the field is sampled, so everything
 /// the threshold carves -- chambers and passages both -- comes out wider
 /// than tall, lying along the bedding rather than cutting across it.
-const CAVE_SQUASH: f32 = 2.0;
+///
+/// Round 3 shipped 2.0; round 5 drops it to 1.2, landed together with
+/// [`CAVE_CELL`] and [`CAVE_THRESHOLD`] because the three only mean
+/// anything as a set (`Reports/worldgen-implementation-tasks-round5-2026-08.md`
+/// task 2). This is the anisotropy of the *lattice*, not of the bedding
+/// dip -- that is `strata_offset`'s shear, applied separately below, and
+/// unaffected by this constant; a strip has to confirm by eye that systems
+/// still lie along the visible dip after the drop, and if they stop, that
+/// is a finding, not a reason to put the squash back.
+const CAVE_SQUASH: f32 = 1.2;
 
 /// Cells over which the threshold fades to nothing at the envelope edge,
 /// per axis. Without the fade, a passage crossing the boundary is sawn off
@@ -772,7 +790,13 @@ const CAVE_EDGE_FADE_Y: f32 = 7.0;
 /// keep below then throws away. One threshold on one field is also exactly
 /// what the research names (`Reports/worldgen-design.md` §7). See the
 /// round-3 finding.
-const CAVE_THRESHOLD: f32 = 0.34;
+///
+/// Round 3 shipped 0.34, which at the round-3 [`CAVE_CELL`] opened ~53% of
+/// a 9-lattice-cell envelope -- one flooded room, not a network. Round 5
+/// drops it to 0.09 alongside the smaller lattice cell above; the two
+/// changes are not independent; see [`CAVE_CELL`] for the measured field
+/// numbers this pair produces.
+const CAVE_THRESHOLD: f32 = 0.09;
 
 /// Longest horizontal run of void with stone directly above it that a
 /// system may keep, in cells -- the roof-span bound the round-2 arithmetic
@@ -792,13 +816,66 @@ const VUG_CHANCE: f32 = 0.25;
 /// Speleothem placement, all tuned against the ASCII probe:
 /// per-candidate-column chance at full ceiling height (the smoothstep over
 /// the open span makes tall chambers -- drip height -- much denser than low
-/// passages), minimum columns between formations (a few per chamber, not a
-/// forest), the crystal minority, and how often a formation is a paired
+/// passages), the crystal minority, and how often a formation is a paired
 /// stalactite-over-stalagmite almost meeting -- the postcard shot.
 const SPELEO_DENSITY: f32 = 0.30;
-const SPELEO_SPACING: i32 = 4;
 const SPELEO_CRYSTAL: f32 = 0.15;
 const SPELEO_PAIR: f32 = 0.25;
+
+/// Round-5 task 4b: the fixed `SPELEO_SPACING = 4` this replaces enforced
+/// *even* spacing everywhere, which is precisely the "reads as a comb"
+/// artefact the beauty review named -- the opposite of drip concentration.
+/// The minimum gap between candidate columns is now driven by
+/// [`noise::value_1d`] on `Purpose::Drip`, a low-frequency field sampled
+/// every [`DRIP_SCALE`] cells: in a wet stretch the gap shrinks to
+/// [`SPELEO_SPACING_MIN`], letting formations bunch; in a dry one it grows
+/// to [`SPELEO_SPACING_MAX`], leaving the stretch close to bare. The floor
+/// stays a hard 2 regardless of how wet a stretch reads -- two formations
+/// one column apart can still read as merged into a single wall (measured:
+/// dropping it to 1 *reduced* the counted total, because the 2-wide
+/// secondary taper then reached into the one clear column between
+/// neighbours and merged them into a shape with no free-standing face at
+/// all), which is the "keep a minimum of 1-2 columns" the task asks for.
+/// The same reasoning gates the secondary taper off entirely below a gap
+/// of 4: it is a cosmetic width variation, not worth the merge risk in a
+/// tight cluster.
+///
+/// **`SPELEO_SPACING_MAX` measured down from a literal reading, not
+/// guessed.** The bar is 60 free-standing formations/system (from 17);
+/// `cave_probe`'s own silhouette test only counts a column as one formation
+/// if *both* neighbours are void, so a cluster has to stay just loose
+/// enough to keep each member individually free-standing while packing as
+/// many in as it can. Un-throttled dry stretches (`SPELEO_SPACING_MAX`
+/// near the envelope's own width) left most of a system's length
+/// contributing nothing, measuring 27-38/system; loosening the dry ceiling
+/// to 14 -- still an order of magnitude sparser than the wet floor of 2 --
+/// raised it to 35-45/system without moving the height bars (p50 stays at
+/// the task-4a ceiling of 3, p90 18-19, well inside both). 60 was not
+/// reached; see the round-5 task file's finding for the honest number and
+/// what was tried.
+const SPELEO_SPACING_MIN: i32 = 2;
+const SPELEO_SPACING_MAX: i32 = 14;
+const DRIP_SCALE: f32 = 40.0;
+
+/// Round-5 task 5: how many cells below the waterline a column's floor may
+/// sit and still be a candidate -- too far below and a stalagmite would
+/// have to be implausibly tall to break the surface at all. The chance a
+/// candidate actually places one, and its crystal minority raised well
+/// past the ordinary `SPELEO_CRYSTAL`, because this is specifically the
+/// shot criterion 5 asks for: a lit formation breaking still water.
+///
+/// `WATERLINE_CHANCE` is 1.0 -- every eligible column places one -- and
+/// that is load-bearing, not generous: measured (`wetland`, 8 seeds), the
+/// span requirement below the reach check is what actually gates this,
+/// dropping 4-39 reach-eligible columns per system to 0-6 that also have
+/// the headroom to clear the surface. Most of a system's length is
+/// ordinary task-2 passage (span 5-8), and a floor several cells under the
+/// table needs more room than that to break through -- so there is
+/// nothing left to spend a chance draw on rejecting. See the round-5
+/// finding for the bar this did and did not reach.
+const WATERLINE_FLOOR_REACH: i32 = 4;
+const WATERLINE_CHANCE: f32 = 1.0;
+const WATERLINE_CRYSTAL: f32 = 0.5;
 
 /// What the vault pass did, beyond the cell count the pass table carries.
 ///
@@ -1185,11 +1262,35 @@ fn first_long_ceiling_run(void: &[bool]) -> Option<(i32, i32, i32)> {
 /// Collect a cave system's void as a boolean grid over the envelope.
 ///
 /// Worley `F2 - F1` under [`CAVE_THRESHOLD`], evaluated in a frame sheared
-/// onto the local bedding and squashed by [`CAVE_SQUASH`]; then only the
-/// seed component is kept; then the ceiling-span guard drops a stone tooth
-/// into any roof run longer than [`MAX_CEILING_SPAN`] until every span
-/// complies. Returns `None` when what survives is too small to be a system.
-fn carve_cave_void(ctx: &Ctx, k: i32, cx: i32) -> Option<Vec<bool>> {
+/// onto the local bedding and squashed by [`CAVE_SQUASH`]; then three
+/// repairs alternate to a fixpoint (round-5 task 1): the seed component is
+/// kept, the ceiling-span guard drops a stone tooth into any roof run
+/// longer than [`MAX_CEILING_SPAN`], and [`erode_breaches`] retracts the
+/// void from anything that is not stone. Returns `None` when what survives
+/// is too small to be a system.
+///
+/// **Why erosion joins this loop rather than running once before or after
+/// it.** The old seal check scanned the *whole* dilated envelope in one go
+/// and rejected the entire system for a single non-stone cell anywhere in
+/// it -- measured (see the round-5 task file's addendum): every rejection
+/// across canyon/rolling/wetland was one stray `sand` or `gravel` cell from
+/// a `pockets` lens, and the bigger the system the likelier one fell inside
+/// its rind. That is the size-cap landmine in a new costume: a check meant
+/// to guarantee "nothing loose sits flush with a free face" was instead
+/// gating *whether a system exists at all*. Retracting only the void near
+/// the breach keeps the guarantee -- by construction, not by inference --
+/// while losing only the few cells actually threatened.
+///
+/// The three repairs cannot run in a fixed sequence because each can create
+/// work for another: the ceiling guard's tooth leaves whatever the world
+/// already had at that cell un-carved, and if that happens to be a stray
+/// grain rather than stone, erosion has a new breach source to react to;
+/// erosion shrinking the void can sever a passage and orphan a component,
+/// which only the seed-component keep notices; and either can shorten or
+/// lengthen a roof run enough to cross [`MAX_CEILING_SPAN`]. Looping until
+/// none of the three changes anything terminates because each one that
+/// fires removes at least one void cell from a finite grid.
+fn carve_cave_void(ctx: &Ctx, world: &World, k: i32, cx: i32, cy: i32) -> Option<Vec<bool>> {
     // A per-system field seed derived from the placement stream: two systems
     // in one world must not share a Worley lattice, or a pair placed near
     // each other would carve correlated shapes.
@@ -1218,49 +1319,304 @@ fn carve_cave_void(ctx: &Ctx, k: i32, cx: i32) -> Option<Vec<bool>> {
         }
     }
 
-    // Component keep and ceiling guard alternate to a fixpoint: a dropped
-    // tooth can sever a low wide slit and orphan the far side, and an
-    // orphaned region turning back to stone can expose a new, lower ceiling
-    // run. Each tooth removes at least one void cell, so this terminates.
-    loop {
-        keep_seed_component(&mut void);
-        let Some((y, x0, len)) = first_long_ceiling_run(&void) else { break };
-        // A stone tooth hung from the run's middle: three rows deep,
-        // tapering 5-3-1 wide, so the splitter reads as rock coming down
-        // from the roof rather than as a one-cell film. It splits the span
-        // into two runs of at most half the original.
-        let mx = x0 + len / 2;
-        for j in 0..3 {
-            let half = 2 - j;
-            for x in mx - half..=mx + half {
-                if x.abs() <= CAVE_HALF_W && (y + j).abs() <= CAVE_HALF_H {
-                    void[cave_idx(x, y + j)] = false;
-                }
-            }
-        }
+    settle_cave_void(ctx, world, cx, cy, &mut void);
+
+    // Round-5 task 3: one monumental chamber, grown around the point of
+    // greatest clearance in the settled void, then the whole settle runs
+    // again -- growth can only ever breach or over-lengthen a span, never
+    // disconnect (it is a pure union), but it can do either of the first
+    // two, and re-settling is what turns "grew into a lens" or "grew a roof
+    // too wide" back into a system that still satisfies every earlier
+    // guarantee.
+    let (requested, added) = grow_monumental_chamber(ctx, k, cx, &mut void);
+    if requested > 0 {
+        settle_cave_void(ctx, world, cx, cy, &mut void);
+        // Reported unconditionally, including the zero case: a chamber
+        // eaten down to nothing by a nearby breach is exactly the "size cap
+        // gates whether it happens" landmine in a new shape if it goes
+        // unremarked (CLAUDE.md, and task 1/3's own text).
+        let survived = added.iter().filter(|&&idx| void[idx]).count();
+        println!("  chamber: requested {requested} cells, {survived} survived the re-settle");
     }
 
     let count = void.iter().filter(|&&v| v).count();
     (count >= MIN_SYSTEM_CELLS).then_some(void)
 }
 
+/// Component keep, ceiling guard and breach erosion, alternated to a
+/// fixpoint (round-5 task 1's doc comment on [`carve_cave_void`] has the
+/// full reasoning for why none of the three can run only once or only in a
+/// fixed order). Factored out because round-5 task 3 has to run it twice:
+/// once on the raw carved field, and again after the monumental chamber's
+/// growth, which can breach or over-lengthen a span but never disconnect.
+fn settle_cave_void(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool]) {
+    loop {
+        keep_seed_component(void);
+        let ceiling = first_long_ceiling_run(void);
+        if let Some((y, x0, len)) = ceiling {
+            // A stone tooth hung from the run's middle: three rows deep,
+            // tapering 5-3-1 wide, so the splitter reads as rock coming down
+            // from the roof rather than as a one-cell film. It splits the
+            // span into two runs of at most half the original.
+            let mx = x0 + len / 2;
+            for j in 0..3 {
+                let half = 2 - j;
+                for x in mx - half..=mx + half {
+                    if x.abs() <= CAVE_HALF_W && (y + j).abs() <= CAVE_HALF_H {
+                        void[cave_idx(x, y + j)] = false;
+                    }
+                }
+            }
+        }
+        let eroded = erode_breaches(ctx, world, cx, cy, void);
+        if ceiling.is_none() && !eroded {
+            break;
+        }
+    }
+}
+
+/// Round-5 task 3: dilate the void's point of greatest clearance into one
+/// monumental chamber -- criterion 3's "rooms with necks" and criterion 1's
+/// "one monumental anchor formation" both need one conspicuously larger
+/// space per system, and the shipped anatomy (task 2) has none.
+///
+/// The point chosen is a void cell with the greatest Chebyshev distance to
+/// the nearest non-void cell, computed by an exact two-pass chessboard
+/// distance transform (chessboard distance is separable, unlike Euclidean,
+/// so two raster sweeps suffice) over the *settled* void -- the deepest
+/// interior point of whatever the system already carved, which is where a
+/// real cavern's biggest room tends to sit: as far as possible from every
+/// wall the passage network has already found. Among cells within 1 of that
+/// maximum, the one with the most room to grow into wins; see the
+/// selection code below for why that tie-break is load-bearing rather than
+/// cosmetic.
+///
+/// Half-extents are a per-system draw on [`Purpose::CaveChamber`] (12-24
+/// vertical, 1.4x that horizontal), **capped to the room the envelope has
+/// left from that centre, never to zero** -- the cap CLAUDE.md asks for
+/// twice: it bounds the ellipse, it never gates whether one grows. Returns
+/// `(requested, added)`: how many *new* cells the ellipse tried to add
+/// (for a printed report -- a chamber that survives re-settling at 0 of a
+/// nonzero request is exactly the silently-skipped case that report exists
+/// to catch) and the indices added, so the caller can measure how many
+/// survive the following settle.
+fn grow_monumental_chamber(ctx: &Ctx, k: i32, cx: i32, void: &mut [bool]) -> (usize, Vec<usize>) {
+    let n = (CAVE_GRID_W * CAVE_GRID_H) as usize;
+    let mut dist = vec![0i32; n];
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+            let idx = cave_idx(dx, dy);
+            dist[idx] = if void[idx] { i32::MAX / 4 } else { 0 };
+        }
+    }
+    let get = |dist: &[i32], dx: i32, dy: i32| {
+        if dx.abs() > CAVE_HALF_W || dy.abs() > CAVE_HALF_H { 0 } else { dist[cave_idx(dx, dy)] }
+    };
+    // Forward pass (top-left to bottom-right), then backward -- together
+    // exact for Chebyshev distance, where a single pass is not.
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+            let idx = cave_idx(dx, dy);
+            if dist[idx] == 0 {
+                continue;
+            }
+            let mut d = dist[idx];
+            for (ox, oy) in [(-1, 0), (0, -1), (-1, -1), (1, -1)] {
+                d = d.min(get(&dist, dx + ox, dy + oy) + 1);
+            }
+            dist[idx] = d;
+        }
+    }
+    for dy in (-CAVE_HALF_H..=CAVE_HALF_H).rev() {
+        for dx in (-CAVE_HALF_W..=CAVE_HALF_W).rev() {
+            let idx = cave_idx(dx, dy);
+            if dist[idx] == 0 {
+                continue;
+            }
+            let mut d = dist[idx];
+            for (ox, oy) in [(1, 0), (0, 1), (1, 1), (-1, 1)] {
+                d = d.min(get(&dist, dx + ox, dy + oy) + 1);
+            }
+            dist[idx] = d;
+        }
+    }
+
+    // The greatest clearance value anywhere in the void, first.
+    let mut max_clear = 0i32;
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+            let idx = cave_idx(dx, dy);
+            if void[idx] {
+                max_clear = max_clear.max(dist[idx]);
+            }
+        }
+    }
+    if max_clear <= 0 {
+        // No interior void cell at all -- a system too thin to have one.
+        return (0, Vec::new());
+    }
+    // Among cells within 1 of that maximum -- a task-2 passage network is
+    // close to uniform width, so the true widest points are rarely a
+    // singleton and are almost always several cells wide at the "widest"
+    // junction, not one pixel -- break toward the one with the most room to
+    // grow into, i.e. `min(room_v, room_h)`, raster order the final
+    // tie-break for determinism.
+    //
+    // **Measured, not assumed.** The literal single argmax (raster
+    // tie-break only) put the chosen point hard against the vertical
+    // envelope edge often enough that the room cap below throttled most
+    // chambers to a fraction of their drawn size: tallest-open-column p50
+    // over 16 seeds was 30-31 (task 3's bar is >= 40) and canyon's own
+    // per-seed max was 21-48 with a median of 30. A system's own vertical
+    // span already reaches within a few cells of the envelope edge (task
+    // 2's own census: span down med 67-68 of a possible 71), so "the"
+    // widest point sits near that edge about as often as not -- and this is
+    // where the effect shows up, not in the location choice being wrong.
+    // Widening the candidate set to near-ties and keying the pick on
+    // available room fixed it without moving the primary criterion (still
+    // greatest clearance, not an arbitrary central point): p50 rose to
+    // 45-48 across every preset, comfortably clearing the bar.
+    let mut best = (0i32, 0i32, 0i32); // (room, dx, dy)
+    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+            let idx = cave_idx(dx, dy);
+            if void[idx] && dist[idx] >= max_clear - 1 {
+                let room = (CAVE_HALF_H - dy.abs()).min(CAVE_HALF_W - dx.abs());
+                if room > best.0 {
+                    best = (room, dx, dy);
+                }
+            }
+        }
+    }
+    let (_, bx, by) = best;
+
+    let seed = ctx.terrain.seed;
+    let rv_draw = 12.0 + noise::unit(seed, Purpose::CaveChamber, cx + bx, k) * 12.0;
+    let rh_draw = rv_draw * 1.4;
+    // The cap: shrink to whatever room the envelope has left from this
+    // centre. Never to less than 2 -- a system whose clearance point sits
+    // hard against the envelope edge still gets *a* chamber, a small one,
+    // not none.
+    let rv = rv_draw.min((CAVE_HALF_H - by.abs()) as f32).max(2.0);
+    let rh = rh_draw.min((CAVE_HALF_W - bx.abs()) as f32).max(2.0);
+
+    let mut added = Vec::new();
+    let (rv_i, rh_i) = (rv.ceil() as i32, rh.ceil() as i32);
+    for dy in -rv_i..=rv_i {
+        for dx in -rh_i..=rh_i {
+            if (dx as f32 / rh).powi(2) + (dy as f32 / rv).powi(2) > 1.0 {
+                continue;
+            }
+            let (ex, ey) = (bx + dx, by + dy);
+            if ex.abs() > CAVE_HALF_W || ey.abs() > CAVE_HALF_H {
+                continue;
+            }
+            let idx = cave_idx(ex, ey);
+            if !void[idx] {
+                void[idx] = true;
+                added.push(idx);
+            }
+        }
+    }
+    (added.len(), added)
+}
+
+/// Retract the void from any breach: a void cell is kept only if it is
+/// itself stone in the world today, and every cell within [`VAULT_RIND`]
+/// Chebyshev cells of it that is *not itself part of the void* is stone too
+/// (the world edge counts as not-stone, via `Cell::OUT_OF_BOUNDS`'s bedrock
+/// sentinel). A neighbour that is still part of the void poses no risk --
+/// it is carved to air as well, not loose material left flush with a free
+/// face, which is the property this check exists to guarantee.
+///
+/// **Iterated to its own fixpoint inside this call**, because retracting a
+/// void cell that was itself non-stone turns it into exactly the kind of
+/// solid, non-stone neighbour that can breach whatever void survives next
+/// to it -- the grain of sand does not disappear when it stops being void,
+/// it just becomes a permanent resident of the rind. Each pass that removes
+/// anything shrinks a finite grid, so this terminates.
+///
+/// Returns whether anything was removed, so the caller's outer fixpoint
+/// (component keep, ceiling guard, this) knows whether to loop again.
+fn erode_breaches(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool]) -> bool {
+    let is_stone = |px: i32, py: i32| world.get(px, py).material == ctx.stone;
+    let mut any = false;
+    loop {
+        let mut to_remove = Vec::new();
+        for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+            for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+                if !void[cave_idx(dx, dy)] {
+                    continue;
+                }
+                let mut breached = !is_stone(cx + dx, cy + dy);
+                if !breached {
+                    'nb: for ry in -VAULT_RIND..=VAULT_RIND {
+                        for rx in -VAULT_RIND..=VAULT_RIND {
+                            if rx == 0 && ry == 0 {
+                                continue; // the cell itself, checked above
+                            }
+                            let (nx, ny) = (dx + rx, dy + ry);
+                            let still_void = nx.abs() <= CAVE_HALF_W
+                                && ny.abs() <= CAVE_HALF_H
+                                && void[cave_idx(nx, ny)];
+                            if still_void {
+                                continue;
+                            }
+                            if !is_stone(cx + nx, cy + ny) {
+                                breached = true;
+                                break 'nb;
+                            }
+                        }
+                    }
+                }
+                if breached {
+                    to_remove.push(cave_idx(dx, dy));
+                }
+            }
+        }
+        if to_remove.is_empty() {
+            break;
+        }
+        any = true;
+        for idx in to_remove {
+            void[idx] = false;
+        }
+    }
+    any
+}
+
 /// One cave system: carve the void, verify the seal, write the cells.
 ///
 /// Returns cells written; zero is a wholesale rejection -- the
 /// collect-then-verify contract, kept from `pockets` through the round-2
-/// vaults: nothing is written unless the entire envelope passed.
+/// vaults: nothing is written unless the entire envelope passed. After
+/// round-5 task 1, that rejection should be near-never: [`carve_cave_void`]
+/// now erodes the void away from any breach as it carves, so the seal check
+/// below is expected to pass by construction and is kept as an assertion
+/// rather than a silent reject -- a failure here is a bug in the erosion
+/// step, not a normal outcome, and the test suite has to be able to see it
+/// fail for that reason.
 fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultReport {
-    let Some(void) = carve_cave_void(ctx, k, cx) else { return VaultReport::default() };
+    let Some(void) = carve_cave_void(ctx, world, k, cx, cy) else { return VaultReport::default() };
 
-    // The seal: every cell within the rind of the kept component -- a
-    // 2-cell Chebyshev dilation, diagonals included -- must be solid stone,
-    // or the whole system is rejected before a single write. The dilation is
-    // this shape's equivalent of the ellipse path's `inside(.., VAULT_RIND)`:
-    // the *envelope grown by the rind*, not the bounding box. The spec
-    // sketched "bounding box + rind, all stone", and that reading rejects a
-    // system for a sand lens tens of cells from the nearest void -- see the
-    // round-3 finding; the r2 skeleton this grew from never checked a box
-    // either, it checked the dilated shape.
+    // The seal, kept as an assertion rather than a silent reject (round-5
+    // task 1). Every cell within the rind of the kept component -- a 2-cell
+    // Chebyshev dilation, diagonals included -- must be solid stone. The
+    // dilation is this shape's equivalent of the ellipse path's
+    // `inside(.., VAULT_RIND)`: the *envelope grown by the rind*, not the
+    // bounding box. The spec sketched "bounding box + rind, all stone", and
+    // that reading rejects a system for a sand lens tens of cells from the
+    // nearest void -- see the round-3 finding; the r2 skeleton this grew
+    // from never checked a box either, it checked the dilated shape.
+    //
+    // This used to reject the whole system wholesale on the first breach it
+    // found, and that is what round 5 replaced: `carve_cave_void` now erodes
+    // the void away from every breach as part of carving it, so by the time
+    // control reaches here the property below is expected to hold *by
+    // construction*, not by luck. Asserting rather than returning turns a
+    // regression in that erosion into a loud, attributable failure instead
+    // of a silent drop back to the old "one grain deletes the system"
+    // behaviour wearing a passing test.
     for dy in -(CAVE_HALF_H + VAULT_RIND)..=(CAVE_HALF_H + VAULT_RIND) {
         for dx in -(CAVE_HALF_W + VAULT_RIND)..=(CAVE_HALF_W + VAULT_RIND) {
             let in_grid = dx.abs() <= CAVE_HALF_W && dy.abs() <= CAVE_HALF_H;
@@ -1269,9 +1625,11 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             // *inside* the would-be void is just as much a breach as one in
             // the rind.
             if in_grid && void[cave_idx(dx, dy)] {
-                if world.get(cx + dx, cy + dy).material != ctx.stone {
-                    return VaultReport::default();
-                }
+                assert_eq!(
+                    world.get(cx + dx, cy + dy).material,
+                    ctx.stone,
+                    "cave system k={k} at ({cx},{cy}): void cell ({dx},{dy}) was not eroded from a breach"
+                );
                 continue;
             }
             let near_void = (-VAULT_RIND..=VAULT_RIND).any(|ry| {
@@ -1282,8 +1640,12 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                         && void[cave_idx(nx, ny)]
                 })
             });
-            if near_void && world.get(cx + dx, cy + dy).material != ctx.stone {
-                return VaultReport::default();
+            if near_void {
+                assert_eq!(
+                    world.get(cx + dx, cy + dy).material,
+                    ctx.stone,
+                    "cave system k={k} at ({cx},{cy}): rind cell ({dx},{dy}) was not eroded from a breach"
+                );
             }
         }
     }
@@ -1387,10 +1749,25 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     // open air, and eleven cells avalanched off it on frame one. That is the
     // talus lesson re-learnt in a cave: enumerating every way geometry can
     // undercut a heap misses one. So the planned shape is checked cell by
-    // cell against the slide rule powder actually obeys -- a gravel cell
-    // with open flank *and* open diagonal below it moves -- and any column
-    // that fails is lowered until nothing can. A property of the check, not
-    // of the case analysis.
+    // cell against the slide rule powder actually obeys, and any column that
+    // fails is lowered until nothing can. A property of the check, not of
+    // the case analysis.
+    //
+    // **Round-5 correction: the slide rule has no flank requirement.**
+    // `update_powder`'s diagonal step (`src/sim/update.rs`) tries
+    // `try_move(x, y, x +/- 1, y + 1)` straight off, and `try_move` only
+    // ever inspects the *target* cell -- it never reads `(x +/- 1, y)` at
+    // all. This check used to require that same-row flank open too, which
+    // is a stricter condition than the engine actually enforces, and task
+    // 2's narrower lattice was the first geometry to produce the gap: a
+    // gravel pair walled solid on both flanks, sitting over solid floor,
+    // but with the flank's *own* diagonal-down neighbour open one row
+    // further over -- `wetland` seed 1 lost exactly the two cells at
+    // (326,219)-(326,220) into (327,221) on frame one, reproduced with
+    // `probe_temp_t2_regression` before this fix and gone after it. Checking
+    // the flank was true of every shape round 3's wide, flat lenses could
+    // produce, so the gap was invisible until task 2 made narrow vertical
+    // shafts routine; it was never true of the rule the sand itself obeys.
     loop {
         let mut changed = false;
         for i in 0..floor.len() {
@@ -1400,12 +1777,10 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             }
             let dx = i as i32 - CAVE_HALF_W;
             let mut new_h = h;
-            // Shallowest gravel cell with an exposed flank, scanning down.
+            // Shallowest gravel cell with an open diagonal-down neighbour,
+            // scanning down -- the flank itself need not be open too.
             for y in (b - h + 1)..=b {
-                let exposed = [-1, 1].iter().any(|&s| {
-                    !planned_solid(&void, &floor, dx + s, y)
-                        && !planned_solid(&void, &floor, dx + s, y + 1)
-                });
+                let exposed = [-1, 1].iter().any(|&s| !planned_solid(&void, &floor, dx + s, y + 1));
                 if exposed {
                     // Drop this cell and everything stacked on it.
                     new_h = b - y;
@@ -1436,6 +1811,10 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     let mut chamber_col = vec![false; CAVE_GRID_W as usize];
     let mut chambers = 0usize;
     let mut chamber_floors: Vec<i32> = Vec::new();
+    // Round-5 task 4c needs the run bounds themselves, not only which
+    // columns are inside one -- it fuses a column in the *largest* chamber
+    // run, and "largest" is not recoverable from `chamber_col` alone.
+    let mut chamber_runs: Vec<(usize, usize)> = Vec::new();
     {
         let fs = |i: usize| floor[i].map(|(_, b, h)| b - h).unwrap_or(CAVE_HALF_H);
         let tall: Vec<bool> = (0..CAVE_GRID_W)
@@ -1470,6 +1849,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                 for c in chamber_col.iter_mut().take(i).skip(start) {
                     *c = true;
                 }
+                chamber_runs.push((start, i));
             }
         }
     }
@@ -1533,102 +1913,370 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     {
         let mut last: Option<i32> = None;
         for i in 0..floor.len() {
-            let Some((t, b, h)) = floor[i] else { continue };
             let dx = i as i32 - CAVE_HALF_W;
-            let fs = b - h; // lowest open row: the floor surface
-            let span = fs - t + 1;
-            if span < 5 {
-                continue;
-            }
-            if last.is_some_and(|l| dx - l < SPELEO_SPACING) {
-                continue;
-            }
             let px = cx + dx;
-            // Denser where the ceiling is high: drip height.
-            let chance = SPELEO_DENSITY * noise::smoothstep(6.0, 26.0, span as f32);
-            if noise::unit(seed, Purpose::Speleothem, px, 0) >= chance {
+
+            // Round-5 task 4b: `SPELEO_SPACING = 4` enforced *even* spacing
+            // everywhere, which is precisely the "reads as a comb" artefact
+            // the beauty review named -- the opposite of drip
+            // concentration. The minimum gap is now a low-frequency
+            // drip-focus field: in a wet stretch it shrinks toward
+            // `SPELEO_SPACING_MIN`, letting formations bunch; in a dry one
+            // it grows toward `SPELEO_SPACING_MAX`, leaving the stretch
+            // close to bare.
+            //
+            // The `smoothstep(0.1, 0.5, focus)` thresholds are read off
+            // `value_1d`'s own measured range at this `DRIP_SCALE`, not the
+            // nominal `[0, 1)` -- interpolating between two per-lattice
+            // `unit` draws rarely reaches either extreme, so a threshold
+            // written against the theoretical range left most of a system
+            // reading as "middling" instead of clearly wet or dry (a probe
+            // dump showed the field only ever reaching about 0.13-0.82 over
+            // one system's width). Widening the window to bracket the
+            // *observed* range is what actually produces legible clustering
+            // rather than a mild, all-over ripple.
+            let focus = noise::value_1d(seed, Purpose::Drip, px as f32 / DRIP_SCALE);
+            let dry = 1.0 - noise::smoothstep(0.1, 0.5, focus);
+            let min_spacing = SPELEO_SPACING_MIN + (dry * (SPELEO_SPACING_MAX - SPELEO_SPACING_MIN) as f32) as i32;
+            if last.is_some_and(|l| dx - l < min_spacing) {
                 continue;
             }
-            let kind = noise::unit(seed, Purpose::Speleothem, px, 1);
-            let crystal = noise::unit(seed, Purpose::Speleothem, px, 2) < SPELEO_CRYSTAL;
-            let pair = kind < SPELEO_PAIR && span >= 7;
-            let stalactite = pair || kind < SPELEO_PAIR + 0.45;
-            let mut lt = if stalactite {
-                (2 + (noise::unit(seed, Purpose::Speleothem, px, 3) * 6.0) as i32).min(span - 2)
-            } else {
-                0
-            };
-            let mut lg = if pair || !stalactite {
-                (2 + (noise::unit(seed, Purpose::Speleothem, px, 4) * 6.0) as i32).min(span - 2)
-            } else {
-                0
-            };
-            if pair {
-                // Almost meeting: shrink the longer half until the drawn
-                // one-or-two-cell gap fits.
-                let gap = 1 + (noise::unit(seed, Purpose::Speleothem, px, 5) * 2.0) as i32;
-                while lt + lg + gap > span {
-                    if lt >= lg {
-                        lt -= 1;
-                    } else {
-                        lg -= 1;
+
+            // Round-5 task 4b: every run tall enough to qualify, not only
+            // the column's bottommost -- formations used to decorate one
+            // gallery of a multi-level system and leave the rest bare,
+            // because placement read `floor[i]` directly, which is the
+            // bottommost run by construction. Enumerated fresh here rather
+            // than reused from `floor` (which only ever keeps the last
+            // one): a maximal vertical run of void is exactly what a
+            // gallery *is*, the same definition `floor`'s own construction
+            // uses, just not discarded for every run but one.
+            let mut runs: Vec<(i32, i32)> = Vec::new();
+            let mut open_top: Option<i32> = None;
+            for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+                if void[cave_idx(dx, dy)] {
+                    if open_top.is_none() {
+                        open_top = Some(dy);
+                    }
+                } else if let Some(top) = open_top.take() {
+                    runs.push((top, dy - 1));
+                }
+            }
+            if let Some(top) = open_top {
+                runs.push((top, CAVE_HALF_H));
+            }
+
+            let mut placed_here = false;
+            for (ri, &(t, b_raw)) in runs.iter().enumerate() {
+                // Only the bottommost run of a column ever carries a
+                // gravel floor (see the fill loop above): every other
+                // run's own bottom cell is solid rock by construction --
+                // that rock is *why* the run ended -- so only the bottom
+                // run needs the `floor[i]` height correction.
+                let is_bottom = ri == runs.len() - 1;
+                let (b, h) = if is_bottom {
+                    match floor[i] {
+                        Some((_, fb, fh)) => (fb, fh),
+                        None => (b_raw, 0),
+                    }
+                } else {
+                    (b_raw, 0)
+                };
+                let fs = b - h; // lowest open row: the floor surface
+                let span = fs - t + 1;
+                if span < 5 {
+                    continue;
+                }
+                // A distinct sub-range of the noise coordinate per run, so
+                // a second gallery in the same column does not draw
+                // identically to the first.
+                let ry = ri as i32 * 20;
+                // The drip focus doubles as a density multiplier, not just
+                // a spacing throttle: wide spacing alone rediscovers the
+                // old comb at a lower frequency (measured), because
+                // `SPELEO_DENSITY` -- calibrated for the old *even*
+                // spacing -- is far too low to fill even a loosened gap.
+                // The span term is loosened too (`smoothstep(3, 5, ..)`
+                // against the old `(6, 26)`, tuned for round-3's wide flat
+                // lens): the outer `span < 5` filter already keeps out
+                // anything too cramped to hold a formation, and gating
+                // *again* on the same quantity at a chamber-only scale
+                // left ordinary passage -- most of a system's length --
+                // essentially undecorated regardless of how wet it read.
+                let wet = noise::smoothstep(0.1, 0.4, focus);
+                let chance = SPELEO_DENSITY * 4.0 * wet * noise::smoothstep(3.0, 5.0, span as f32);
+                if noise::unit(seed, Purpose::Speleothem, px, ry) >= chance {
+                    continue;
+                }
+                let kind = noise::unit(seed, Purpose::Speleothem, px, ry + 1);
+                let crystal = noise::unit(seed, Purpose::Speleothem, px, ry + 2) < SPELEO_CRYSTAL;
+                let pair = kind < SPELEO_PAIR && span >= 7;
+                let stalactite = pair || kind < SPELEO_PAIR + 0.45;
+                // Round-5 task 4a: a heavy-tailed draw scaled to the local
+                // open span, replacing the old `2 + unit * 6` -- a uniform
+                // draw capped at 8 regardless of how tall the room was,
+                // measured (`cave_probe`) at median 3, p90 6, max 7 over
+                // 539 formations: there was no tail to make heavy, the
+                // ceiling had to move first. `unit^1.3 * avail`, base 1:
+                // tried cubed and squared first and both under-shot the
+                // p90 >= 10 bar (cubed: p90 5-6; squared: p90 7-8) while
+                // already meeting p50 <= 3 and max >= 25 -- most formations
+                // sit in ordinary passage, where `avail` itself is small,
+                // so a heavier tail alone cannot lift the 90th percentile
+                // past what enough *tall-span* formations reach. 1.3 is
+                // the mildest exponent that clears p90 >= 10 on every
+                // preset (measured: p50 1, p90 8-12, max 28-34) without
+                // giving up the fringe: median stays at the soda-straw
+                // floor while the tail reaches deep into the chamber-scale
+                // spans task 3 added. `.min(span - 2)` still holds as the
+                // structural cap; it binds rarely now instead of almost
+                // always.
+                let avail = (span - 2).max(0) as f32;
+                let mut lt = if stalactite {
+                    (1.0 + noise::unit(seed, Purpose::Speleothem, px, ry + 3).powf(1.3) * avail)
+                        .min((span - 2) as f32) as i32
+                } else {
+                    0
+                };
+                let mut lg = if pair || !stalactite {
+                    (1.0 + noise::unit(seed, Purpose::Speleothem, px, ry + 4).powf(1.3) * avail)
+                        .min((span - 2) as f32) as i32
+                } else {
+                    0
+                };
+                if pair {
+                    // Almost meeting: shrink the longer half until the
+                    // drawn one-or-two-cell gap fits.
+                    let gap = 1 + (noise::unit(seed, Purpose::Speleothem, px, ry + 5) * 2.0) as i32;
+                    while lt + lg + gap > span {
+                        if lt >= lg {
+                            lt -= 1;
+                        } else {
+                            lg -= 1;
+                        }
                     }
                 }
-            }
-            if lt < 2 {
-                lt = 0;
-            }
-            if lg < 2 {
-                lg = 0;
-            }
-            if lt == 0 && lg == 0 {
-                continue;
-            }
-            let mat = if crystal { 2u8 } else { 1u8 };
-            let mut put = |gx: i32, gy: i32| {
-                if gx.abs() <= CAVE_HALF_W && gy.abs() <= CAVE_HALF_H && void[cave_idx(gx, gy)] {
-                    speleo[cave_idx(gx, gy)] = mat;
+                if lt < 2 {
+                    lt = 0;
                 }
-            };
-            for y in t..t + lt {
-                put(dx, y);
-            }
-            for y in (fs - lg + 1)..=b {
-                put(dx, y);
-            }
-            // A minority go two cells wide, the secondary column shorter --
-            // the taper that makes the root the wide end. Only where the
-            // neighbouring column's run lines up, and always leaving that
-            // column its own two open rows.
-            if noise::unit(seed, Purpose::Speleothem, px, 6) < 0.4 {
-                let side = if noise::unit(seed, Purpose::Speleothem, px, 7) < 0.5 { 1 } else { -1 };
-                let j = i as i32 + side;
-                if j >= 0 && (j as usize) < floor.len() {
-                    // `span2 >= 3` before clamping to it: a two-row slot has
-                    // no room for a secondary at all, and `clamp(1, 0)`
-                    // panics -- found by the debug suite on a world the
-                    // release sweep never built.
-                    if let Some((t2, b2, h2)) = floor[j as usize] {
-                        let fs2 = b2 - h2;
-                        let span2 = fs2 - t2 + 1;
-                        if span2 >= 3 {
-                            if lt > 0 && (t2 - t).abs() <= 1 {
-                                let lt2 = (lt * 3 / 5).clamp(1, span2 - 2);
-                                for y in t2..t2 + lt2 {
-                                    put(dx + side, y);
+                if lg < 2 {
+                    lg = 0;
+                }
+                if lt == 0 && lg == 0 {
+                    continue;
+                }
+                let mat = if crystal { 2u8 } else { 1u8 };
+                let mut put = |gx: i32, gy: i32| {
+                    if gx.abs() <= CAVE_HALF_W && gy.abs() <= CAVE_HALF_H && void[cave_idx(gx, gy)] {
+                        speleo[cave_idx(gx, gy)] = mat;
+                    }
+                };
+                for y in t..t + lt {
+                    put(dx, y);
+                }
+                for y in (fs - lg + 1)..=b {
+                    put(dx, y);
+                }
+                // A minority go two cells wide, the secondary column
+                // shorter -- the taper that makes the root the wide end.
+                // Only where the neighbouring column's run lines up, and
+                // always leaving that column its own two open rows.
+                // Bottommost gallery only: the comparison is against the
+                // neighbour's own bottommost run (`floor[j]`), which is
+                // not a meaningful comparison for an upper gallery.
+                if is_bottom && min_spacing >= 4 && noise::unit(seed, Purpose::Speleothem, px, ry + 6) < 0.4 {
+                    let side =
+                        if noise::unit(seed, Purpose::Speleothem, px, ry + 7) < 0.5 { 1 } else { -1 };
+                    let j = i as i32 + side;
+                    if j >= 0 && (j as usize) < floor.len() {
+                        // `span2 >= 3` before clamping to it: a two-row
+                        // slot has no room for a secondary at all, and
+                        // `clamp(1, 0)` panics -- found by the debug suite
+                        // on a world the release sweep never built.
+                        if let Some((t2, b2, h2)) = floor[j as usize] {
+                            let fs2 = b2 - h2;
+                            let span2 = fs2 - t2 + 1;
+                            if span2 >= 3 {
+                                let mut lt2 = if lt > 0 && (t2 - t).abs() <= 1 {
+                                    (lt * 3 / 5).clamp(1, span2 - 2)
+                                } else {
+                                    0
+                                };
+                                let mut lg2 = if lg > 0 && (fs2 - fs).abs() <= 1 {
+                                    (lg * 3 / 5).clamp(1, span2 - 2)
+                                } else {
+                                    0
+                                };
+                                // Each half was clamped against `span2`
+                                // independently, which is correct alone but
+                                // not jointly: a *pair* formation (lt > 0
+                                // and lg > 0 together) can clamp each half
+                                // to `span2 - 2` and still have them sum
+                                // past `span2`, bridging the neighbour
+                                // floor-to-ceiling from the two secondary
+                                // touches together -- measured: this fired
+                                // dozens of times per system once task 4b's
+                                // density made two nearby pairs sharing a
+                                // neighbour common, though the shape was
+                                // already possible in round 3. Shrink the
+                                // larger half until at least one row of the
+                                // neighbour's own run stays open, the same
+                                // "leave an open cell" contract every other
+                                // placement in this pass keeps.
+                                while lt2 + lg2 > span2 - 1 && (lt2 > 0 || lg2 > 0) {
+                                    if lt2 >= lg2 {
+                                        lt2 -= 1;
+                                    } else {
+                                        lg2 -= 1;
+                                    }
                                 }
-                            }
-                            if lg > 0 && (fs2 - fs).abs() <= 1 {
-                                let lg2 = (lg * 3 / 5).clamp(1, span2 - 2);
-                                for y in (fs2 - lg2 + 1)..=b2 {
-                                    put(dx + side, y);
+                                if lt2 > 0 {
+                                    for y in t2..t2 + lt2 {
+                                        put(dx + side, y);
+                                    }
+                                }
+                                if lg2 > 0 {
+                                    for y in (fs2 - lg2 + 1)..=b2 {
+                                        put(dx + side, y);
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                placed_here = true;
             }
-            last = Some(dx);
+            if placed_here {
+                last = Some(dx);
+            }
+        }
+    }
+
+    // ---- round-5 task 5: waterline formations ----
+    // Criterion 5's readable half: a formation standing *in* the pool,
+    // breaking the surface, with its crystal minority raised so its glow
+    // -- already spilling across water by construction -- has something
+    // lit to spill onto. Today's ordinary placement does not target this
+    // at all: a stalagmite is drawn for height independent of where the
+    // waterline sits, so it either stands high and dry above a flooded
+    // floor or, when it does reach the water, is drawn no more often and
+    // no more crystalline than any other column -- measured at 0-9
+    // formations at a waterline over 16 *seeds*, not per flooded system.
+    //
+    // A second, targeted pass over columns the main one already
+    // considered: only where the floor sits a handful of cells *below*
+    // the waterline (so a stalagmite reaching up from it can actually
+    // break the surface rather than standing fully submerged with
+    // nothing showing, or fully dry with nothing to break), sized to
+    // guarantee it clears the surface by at least one cell rather than
+    // leaving that to the ordinary heavy-tailed draw, which has no reason
+    // to know where the water is. `speleo[idx] == 0` guards every write
+    // so this never overwrites a formation the main pass already placed.
+    if water_line != i32::MAX {
+        let mut last_wl: Option<i32> = None;
+        for (i, slot) in floor.iter().enumerate() {
+            let Some((t, b, h)) = *slot else { continue };
+            let dx = i as i32 - CAVE_HALF_W;
+            let fs = b - h;
+            if fs < water_line || fs - water_line > WATERLINE_FLOOR_REACH {
+                continue;
+            }
+            if last_wl.is_some_and(|l| dx - l < 2) {
+                continue;
+            }
+            let span = fs - t + 1;
+            // Enough room to root on rock below and still break the
+            // surface by at least one cell. This is the bar most
+            // candidates miss (measured, `wetland` s1-8: of 4-39 columns
+            // whose floor is within reach, only 0-6 have enough span to
+            // actually clear it) -- most of a system's length is ordinary
+            // passage at the task-2 lattice scale, span 5-8, and a floor
+            // several cells under the table needs more headroom than that
+            // to break the surface at all. See the round-5 finding.
+            let need = fs - water_line + 1;
+            if span < need + 1 {
+                continue;
+            }
+            let px = cx + dx;
+            if noise::unit(seed, Purpose::Speleothem, px, 200) >= WATERLINE_CHANCE {
+                continue;
+            }
+            let lg = need.min(span - 2).max(2);
+            let crystal = noise::unit(seed, Purpose::Speleothem, px, 201) < WATERLINE_CRYSTAL;
+            let mat = if crystal { 2u8 } else { 1u8 };
+            for y in (fs - lg + 1)..=b {
+                let idx = cave_idx(dx, y);
+                if void[idx] && speleo[idx] == 0 {
+                    speleo[idx] = mat;
+                }
+            }
+            last_wl = Some(dx);
+        }
+    }
+
+    // Verify, then repair: no void run may end up fully solid by accident.
+    // The secondary-column touch above is jointly clamped against the ONE
+    // formation writing it, but two *different* primary formations can each
+    // reach into the same shared neighbour from opposite sides -- each
+    // leaving its own share of that neighbour's run clear, and still
+    // between them covering the whole thing once unioned. There is no
+    // single arithmetic clamp that covers every combination of independent
+    // writers, so this checks the actual written state directly: any
+    // maximal void run that came out fully covered by `speleo` -- by any
+    // combination of primary and secondary writes -- has its middle cell
+    // reopened. Run before task 4c's deliberate fused column below, which
+    // is exempt by ordering rather than by a special case: it has not been
+    // written yet when this scan runs.
+    for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+        let mut run: Vec<i32> = Vec::new();
+        for dy in -CAVE_HALF_H..=(CAVE_HALF_H + 1) {
+            let open = dy <= CAVE_HALF_H && void[cave_idx(dx, dy)];
+            if open {
+                run.push(dy);
+                continue;
+            }
+            if !run.is_empty() && run.iter().all(|&y| speleo[cave_idx(dx, y)] != 0) {
+                speleo[cave_idx(dx, run[run.len() / 2])] = 0;
+            }
+            run.clear();
+        }
+    }
+
+    // ---- round-5 task 4c: one fused column, in a chamber only ----
+    // The rule everywhere else in this pass -- a formation must never
+    // bridge floor to ceiling, because a column splits the passage the
+    // player walks -- is deliberately broken exactly once per system,
+    // exactly inside the largest chamber run: a fused column blocks
+    // nothing there, since a room is not a passage, and it is criterion
+    // 2's money shot (a stalactite and stalagmite that grew into one
+    // another) and criterion 1's monumental anchor in a single object.
+    // Placed off the run's own centre line -- a third or two-thirds of the
+    // way across, drawn per system -- so it does not stand in the one spot
+    // a player crossing the chamber would walk through anyway.
+    //
+    // Rooted exactly like every other formation here: written from the
+    // stone under the floor upward, through any gravel, to the stone
+    // ceiling above -- "structurally trivial, rooted in the massif" means
+    // rooted on rock at both ends, and a column spanning solid-to-solid is
+    // *more* attached support than a stalactite or stalagmite alone, never
+    // less, so it cannot be less safe than what the seal already allows.
+    if let Some(&(start, end)) = chamber_runs.iter().max_by_key(|&&(s, e)| e - s) {
+        let width = end - start;
+        // A third in from whichever side the draw picks -- off-centre by
+        // construction, never the run's own middle column.
+        let side = noise::unit(seed, Purpose::Speleothem, cx, -3) < 0.5;
+        let frac = 0.28 + noise::unit(seed, Purpose::Speleothem, cx, -4) * 0.12;
+        let offset = ((width as f32 * frac) as usize).clamp(1, width.saturating_sub(1).max(1));
+        let i = if side { start + offset } else { end - 1 - offset };
+        if let Some((t, b, _)) = floor[i] {
+            let dx = i as i32 - CAVE_HALF_W;
+            let crystal = noise::unit(seed, Purpose::Speleothem, cx, -5) < SPELEO_CRYSTAL;
+            let mat = if crystal { 2u8 } else { 1u8 };
+            for y in t..=b {
+                if void[cave_idx(dx, y)] {
+                    speleo[cave_idx(dx, y)] = mat;
+                }
+            }
         }
     }
 

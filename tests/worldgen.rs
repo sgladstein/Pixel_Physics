@@ -1573,6 +1573,96 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
 }
 
 #[test]
+fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
+    // Round-5 task 1's own reproduction. Before this fix, a `pockets` lens
+    // landing inside or against a cave system's envelope deleted the *whole
+    // system* -- measured (see the round-5 task file's addendum): every
+    // wholesale rejection across canyon/rolling/wetland was a single stray
+    // `sand` or `gravel` cell. `pocket_density` cranked to 20 (the shipped
+    // default is 0.6) saturates the deep massif with lenses, so one lands
+    // inside a cave envelope in every seed here rather than waiting for a
+    // seed that happens to produce it -- and the "lens nearby" count below
+    // is what proves the collision actually happened, so this cannot pass
+    // by having gotten lucky and never meeting one.
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = WorldgenParams { pocket_density: 20.0, ..vault_test_params(base) };
+    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+    let mut placed = 0;
+    let mut overlapped = 0;
+    for seed in SEEDS {
+        let mut world = build(&with, seed);
+        let control = build(&without, seed);
+        let mut carved: Vec<(i32, i32)> = Vec::new();
+        for y in 0..=BOUNDS.1 {
+            for x in 0..=BOUNDS.0 {
+                if world.get(x, y).material != control.get(x, y).material
+                    || world.get(x, y).shade != control.get(x, y).shade
+                {
+                    carved.push((x, y));
+                }
+            }
+        }
+        if carved.is_empty() {
+            continue;
+        }
+        placed += 1;
+
+        // Evidence the reproduction is real: sand/gravel within a
+        // Chebyshev-6 dilation of the carved envelope, read off the
+        // *control* world -- no cave carving happened there at all, so this
+        // counts what `pockets` left behind on its own, not anything the
+        // vault pass wrote.
+        let (x0, x1) = (
+            carved.iter().map(|&(x, _)| x).min().unwrap() - 6,
+            carved.iter().map(|&(x, _)| x).max().unwrap() + 6,
+        );
+        let (y0, y1) = (
+            carved.iter().map(|&(_, y)| y).min().unwrap() - 6,
+            carved.iter().map(|&(_, y)| y).max().unwrap() + 6,
+        );
+        let (sand, gravel) = (
+            control.materials.id_of("sand").expect("sand"),
+            control.materials.id_of("gravel").expect("gravel"),
+        );
+        let mut lens_cells = 0;
+        for y in y0.max(0)..=y1.min(BOUNDS.1) {
+            for x in x0.max(0)..=x1.min(BOUNDS.0) {
+                let m = control.get(x, y).material;
+                if m == sand || m == gravel {
+                    lens_cells += 1;
+                }
+            }
+        }
+        assert!(
+            lens_cells > 0,
+            "seed {seed}: no pocket lens fell near the carved system -- this seed proves nothing"
+        );
+        overlapped += 1;
+
+        // And it still arrives at rest, exactly like the plain seal test --
+        // this is the same claim, just under a reproduction that used to
+        // delete the system outright rather than merely stress it.
+        let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        for _ in 0..120 {
+            step(&mut world);
+        }
+        let after: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        let gone: Vec<_> = before.difference(&after).copied().collect();
+        assert!(
+            gone.is_empty(),
+            "seed {seed}: {} cells left their position in a lens-stressed cave world; first {:?}",
+            gone.len(),
+            gone.iter().take(6).collect::<Vec<_>>()
+        );
+    }
+    // The counters beside the claim: a run where nothing placed, or placed
+    // without ever actually meeting a lens, would pass vacuously.
+    assert!(placed >= 3, "only {placed}/{} lens-stressed worlds placed a system at all", SEEDS.len());
+    assert_eq!(overlapped, placed, "every placed system should have a lens nearby at this density");
+}
+
+#[test]
 fn vault_water_cannot_wet_the_massif_around_it() {
     // Stated as a test because the task asks for it stated: water sealed in a
     // chamber is moisture-inert. The reason is structural rather than lucky
@@ -1856,83 +1946,188 @@ fn a_forced_cave_world_is_deterministic() {
     assert!(placed > 0, "vacuous: neither forced world placed a system");
 }
 
-/// Round-3 guard: a speleothem may narrow a passage, never close it.
+/// Round-3 guard, amended by round-5 task 4c: a speleothem may narrow a
+/// passage, never close it -- with exactly one deliberate exception per
+/// system.
 ///
 /// A column of rock from floor to ceiling splits the passage the player
 /// walks, so the pass promises every column it decorates keeps at least one
 /// open cell (a pair closes to a one-or-two-cell gap on purpose, which
-/// still satisfies this). Attribution is the paired build again: in a cave
-/// system's diff, the only *solid* carved cells are speleothems -- the
-/// ceiling guard's teeth are never written, so they never enter the diff --
-/// and vugs are excluded by component size, because a vug's crystal ring
+/// still satisfies this) -- **except the single fused column task 4c
+/// places inside the largest chamber run, which is deliberately solid
+/// floor-to-ceiling** because a chamber is not a passage and blocks no
+/// route through it. The guard now allows *at most one* fully-solid column
+/// per system rather than none; a second one, or one outside a chamber,
+/// would be the bridging bug this test was written to catch, wearing task
+/// 4c's exception as cover, so the bound stays tight rather than being
+/// dropped. Attribution is the paired build again: in a cave system's
+/// diff, the only *solid* carved cells are speleothems -- the ceiling
+/// guard's teeth are never written, so they never enter the diff -- and
+/// vugs are excluded by component size, because a vug's crystal ring
 /// legitimately fills its rim columns.
 #[test]
 fn speleothems_never_bridge_a_passage() {
+    // **Diff-free, unlike every other round-2/3 vault guard**, and that
+    // change is load-bearing, not a style choice. The paired-build diff
+    // (`with` vs `vault_density: 0.0`) those guards share has a leak this
+    // test's stricter per-run check was the first to actually trip over:
+    // turning vaults on changes the *shade* of some ordinary, untouched
+    // wall stone elsewhere in the world (measured -- a probe dump found
+    // hundreds of such cells per world, material unchanged, only the tone
+    // byte differing, at locations with no carved void anywhere near
+    // them). Root cause not chased down; every shade-producing function
+    // read is a pure function of `(seed, x, y)` with no dependence on
+    // `vault_density`, so the leak is somewhere upstream of this pass, not
+    // in it. Whatever it is, it inflates the "carved" set with cells the
+    // vault pass never touched, and column-diffing a batch of ordinary
+    // stone that happens to all read as `Solid` reads exactly like a
+    // bridged passage.
+    //
+    // The fix is to stop asking the control world at all. A "formation" is
+    // read back the same way `cave_probe` already reads one: a solid cell
+    // with void on both horizontal sides, inside a flood-filled void
+    // component found directly in the one world under test. Nothing here
+    // depends on a second build being byte-identical anywhere it should
+    // not differ.
     let presets = presets();
     let base = presets.get("rolling").expect("preset");
     let with = vault_test_params(base);
-    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
     let mut speleo_cells = 0usize;
     let mut columns_checked = 0usize;
+    let mut systems_checked = 0usize;
+    let mut fused_columns_total = 0usize;
     for seed in SEEDS {
         let world = build(&with, seed);
-        let control = build(&without, seed);
-        let mut carved: std::collections::HashSet<(i32, i32)> = Default::default();
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
-                if world.get(x, y).material != control.get(x, y).material
-                    || world.get(x, y).shade != control.get(x, y).shade
-                {
-                    carved.insert((x, y));
-                }
+        let is_void = |x: i32, y: i32| {
+            if x < 0 || x > BOUNDS.0 || y < 0 || y > BOUNDS.1 {
+                return false;
             }
-        }
-        // Components, 8-connected, so a system is one group and a vug
-        // elsewhere in the world is another.
-        let mut remaining = carved.clone();
-        while let Some(&start) = remaining.iter().min() {
-            let mut comp = Vec::new();
-            let mut stack = vec![start];
-            remaining.remove(&start);
-            while let Some((x, y)) = stack.pop() {
-                comp.push((x, y));
-                for dy in -1..=1 {
-                    for dx in -1..=1 {
-                        let n = (x + dx, y + dy);
-                        if remaining.remove(&n) {
-                            stack.push(n);
+            let c = world.get(x, y);
+            c.material == material::EMPTY
+                || world.materials.kind(c.material) == material::MaterialKind::Liquid
+        };
+        let mut seen: std::collections::HashSet<(i32, i32)> = Default::default();
+        for y0 in 0..=BOUNDS.1 {
+            for x0 in 0..=BOUNDS.0 {
+                if seen.contains(&(x0, y0)) || !is_void(x0, y0) {
+                    continue;
+                }
+                let mut comp = Vec::new();
+                let mut stack = vec![(x0, y0)];
+                seen.insert((x0, y0));
+                while let Some((x, y)) = stack.pop() {
+                    comp.push((x, y));
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            let n = (x + dx, y + dy);
+                            if !seen.contains(&n) && is_void(n.0, n.1) {
+                                seen.insert(n);
+                                stack.push(n);
+                            }
                         }
                     }
                 }
-            }
-            // Vugs are a few hundred cells; systems are thousands.
-            if comp.len() < 1000 {
-                continue;
-            }
-            let mut by_col: std::collections::BTreeMap<i32, Vec<(i32, bool)>> = Default::default();
-            for &(x, y) in &comp {
-                let solid = world.materials.kind(world.get(x, y).material)
-                    == material::MaterialKind::Solid;
-                by_col.entry(x).or_default().push((y, solid));
-            }
-            for (x, cells) in by_col {
-                let solids = cells.iter().filter(|&&(_, s)| s).count();
-                if solids == 0 {
+                // Vugs are a few hundred cells; systems are thousands.
+                if comp.len() < 1000 {
                     continue;
                 }
-                speleo_cells += solids;
-                columns_checked += 1;
-                assert!(
-                    cells.iter().any(|&(_, s)| !s),
-                    "seed {seed}: column x = {x} of a cave system is solid floor-to-ceiling -- a speleothem bridged it"
+                systems_checked += 1;
+                let void_here: std::collections::HashSet<(i32, i32)> = comp.iter().copied().collect();
+                let (x0b, x1b) = (
+                    comp.iter().map(|c| c.0).min().unwrap(),
+                    comp.iter().map(|c| c.0).max().unwrap(),
                 );
+                let (y0b, y1b) = (
+                    comp.iter().map(|c| c.1).min().unwrap(),
+                    comp.iter().map(|c| c.1).max().unwrap(),
+                );
+                // A formation cell, exactly as `cave_probe` reads one:
+                // solid, and free-standing -- void on both flanks at the
+                // same row. `void_here.contains` on both sides is what
+                // keeps this from also matching the massif's own wall.
+                let is_form = |x: i32, y: i32| {
+                    let m = world.get(x, y).material;
+                    world.materials.kind(m) == material::MaterialKind::Solid
+                        && !void_here.contains(&(x, y))
+                        && void_here.contains(&(x - 1, y))
+                        && void_here.contains(&(x + 1, y))
+                };
+                let mut fused_here = 0usize;
+                for x in x0b..=x1b {
+                    // A column can carry more than one *run* -- round-5
+                    // task 4b decorates every void run in a column, not
+                    // only the bottommost, so the same x can revisit the
+                    // passage network at a completely unrelated y
+                    // elsewhere in the same system. "Bridged
+                    // floor-to-ceiling" is a claim about one contiguous
+                    // run, not the whole column.
+                    let mut cells: Vec<(i32, bool)> = Vec::new();
+                    for y in y0b..=y1b {
+                        if void_here.contains(&(x, y)) {
+                            cells.push((y, false));
+                        } else if is_form(x, y) {
+                            cells.push((y, true));
+                        }
+                    }
+                    let mut runs: Vec<Vec<(i32, bool)>> = Vec::new();
+                    for cell in cells {
+                        match runs.last_mut() {
+                            Some(run) if cell.0 - run.last().expect("non-empty").0 <= 1 => {
+                                run.push(cell);
+                            }
+                            _ => runs.push(vec![cell]),
+                        }
+                    }
+                    for run in runs {
+                        let solids = run.iter().filter(|&&(_, s)| s).count();
+                        if solids == 0 {
+                            continue;
+                        }
+                        speleo_cells += solids;
+                        columns_checked += 1;
+                        // A run under 5 cells is not a passage a player
+                        // would ever call one -- the same floor this pass
+                        // itself uses to decide whether a run is even
+                        // eligible to carry a formation (`span < 5` is
+                        // skipped entirely). A column that only grazes a
+                        // room's edge for one or two rows, where a
+                        // formation legitimately reaches the boundary of
+                        // open space without another void cell anywhere
+                        // else in that column, is not a closed passage --
+                        // it is a formation touching a wall.
+                        if run.len() >= 5 && run.iter().all(|&(_, s)| s) {
+                            fused_here += 1;
+                            println!(
+                                "seed {seed}: fused run at x = {x}, y {}..={} ({solids} solid rows)",
+                                run[0].0,
+                                run.last().expect("non-empty").0
+                            );
+                        }
+                    }
+                }
+                // Round-5 task 4c allows *exactly one* fused (fully solid)
+                // column per system, inside its largest chamber -- a
+                // second one, anywhere, is the bridging bug this test
+                // exists to catch wearing task 4c's exception as cover.
+                assert!(
+                    fused_here <= 1,
+                    "seed {seed}: {fused_here} columns bridged floor-to-ceiling in one cave system -- \
+                     task 4c allows at most one"
+                );
+                fused_columns_total += fused_here;
             }
         }
     }
-    // The counters beside the claim.
+    // The counters beside the claim: a suite where the decoration pass
+    // barely fired, or where the fused column never once appeared, would
+    // pass every assertion above vacuously.
     assert!(
         speleo_cells >= 40 && columns_checked >= 10,
         "only {speleo_cells} speleothem cells in {columns_checked} columns -- the decoration pass barely fired"
+    );
+    assert!(
+        fused_columns_total >= 1,
+        "the fused column never appeared across {systems_checked} systems -- task 4c's mechanic is vacuous here"
     );
 }
 
@@ -2176,5 +2371,40 @@ fn probe_r4t4_valley_floor_retarget_diff() {
             }
         }
         println!("{name}: {flipped_columns} columns flip is_valley_floor, ~{flipped_cells} cells would draw differently (upper bound: the stony-contact dither can still override either way)");
+    }
+}
+
+#[test]
+#[ignore]
+fn tmp_find_waterline_shot() {
+    let presets = presets();
+    let with = presets.get("wetland").expect("preset").clone();
+    for seed in 1u64..=16 {
+        let world = build(&with, seed);
+        let id = |n: &str| world.materials.id_of(n).expect(n);
+        let (crystal, water) = (id("crystal"), id("water"));
+        let mut best: Option<(i32, i32, i32)> = None; // (x, y, water_col_count)
+        for x in 0..pixel_physics::app::WORLD_WIDTH as i32 {
+            for y in 0..pixel_physics::app::WORLD_HEIGHT as i32 {
+                let c = world.get(x, y);
+                if c.material != crystal {
+                    continue;
+                }
+                let mut wcount = 0;
+                for dy in 0..5 {
+                    let below = world.get(x, y + dy);
+                    if below.material == water {
+                        wcount += 1;
+                    }
+                }
+                if wcount > 0 && best.is_none_or(|(_, _, b)| wcount > b) {
+                    best = Some((x, y, wcount));
+                }
+            }
+        }
+        match best {
+            Some((x, y, s)) => println!("seed {seed}: best crystal-at-waterline at ({x},{y}) score={s}"),
+            None => println!("seed {seed}: none found"),
+        }
     }
 }

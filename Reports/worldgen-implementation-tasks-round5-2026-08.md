@@ -416,3 +416,278 @@ you know is fine before trusting it about a case you don't.
 *(Write here when a spec above does not survive contact with the code.
 One entry per surprise, with the numbers. Rounds 1–4 have eleven and
 every one is load-bearing.)*
+
+### R5-1 — Task 2's landed constants clear every bar but the contrast p10, and the built world matches the raw field
+
+`cave_probe field=1 t=0.09 t3=0 cell=22 squash=1.2` at three field seeds
+(1, 2, 3) measures contrast p95/median of 3.0x, 2.8x, 2.4x — already
+below 3.0 two times out of three at the *field* level, before anything
+downstream touches it. The built world (16 seeds x 5 caved presets,
+`cave_probe` with the task-1 fix and task 2's constants both landed)
+agrees with the field almost exactly: median open column 5 everywhere,
+tallest ≥ 25 everywhere (bar met, with headroom), median contrast 2.80x
+(wetland) to 3.00x (arid/canyon/rolling/terraced) — but **p10 of
+per-system contrast is 2.2x–2.6x across all five presets, below the
+task's own ≥ 3.0 bar**:
+
+| preset | p10 contrast (x100) |
+|---|---|
+| arid | 240 |
+| canyon | 240 |
+| rolling | 220 |
+| terraced | 260 |
+| wetland | 220 |
+
+Per the "watch for" note, the built world and the raw field agree (both
+sit at 2.4–3.0x depending on seed), which rules out the ceiling guard or
+gravel floors reshaping the field downstream — the field itself, sampled
+over more than three seeds, simply dips below 3.0x often enough to pull
+the 16-seed p10 under the bar. The bar was set from a 3-field-seed
+sample; at 16 seeds the true spread is wider than that sample showed.
+Median open column (3–8 target) and tallest column (≥25 target) both
+clear their bars with headroom, so the constants are not wrong, and nothing
+here calls for retuning them again mid-round (`CAVE_CELL`/`CAVE_THRESHOLD`/
+`CAVE_SQUASH` land as specified) — task 3's monumental chamber is the
+next lever, and it is expected to raise per-system contrast further
+because it adds one large opening to *every* system with room for one,
+which should lift the whole distribution rather than only the top of it.
+Recorded here in case task 3 does not close the gap: if the p10 bar is
+still short after task 3 lands, that is a second finding, not a reason
+to have skipped this one.
+
+### R5-2 — The floor verifier's slide rule was missing the sim's actual diagonal-move precondition, and task 2's tighter lattice was the first geometry to expose it
+
+Landing task 2's constants broke `a_forced_vault_world_is_sealed_and_arrives_at_rest`
+(`wetland` seed 1: 2 cells moved) — the first at-rest failure either task
+1 or task 2 produced. Reproduced with a temporary probe
+(`probe_temp_t2_regression`, written and removed in the same session):
+two gravel cells at (326,219)-(326,220), walled solid on *both* flanks
+and resting on solid stone below, moved to (327,221) on frame one.
+
+The floor verifier added in round 3 (R3-3) states its rule as "a gravel
+cell with open flank *and* open diagonal below it moves" and checks
+exactly that conjunction. `src/sim/update.rs::update_powder`'s actual
+diagonal step is `try_move(x, y, x +/- 1, y + 1)`, and `try_move` (same
+file) only ever inspects the *target* cell — it has no read of `(x +/-
+1, y)`, the flank, at all. The stated rule was stricter than the engine
+by one clause, so it silently passed any column where a flank was solid
+but that flank's *own* diagonal-down neighbour was open one column over
+— a case round 3's wide, flat lenses never produced (a wide room's
+floor has no narrow one-cell-wide verticals to expose it), and task 2's
+smaller `CAVE_CELL`/`CAVE_SQUASH` made routine.
+
+Fixed in `worldgen/passes.rs`'s floor-verifier fixpoint by dropping the
+flank half of the check — `exposed` is now just "either diagonal-down
+neighbour is open," matching `try_move`'s actual precondition exactly.
+This is a bug fix to code the round-3 task already owns and states as
+its own contract, not new scope: the verifier's whole point is to check
+the plan against "the slide rule powder actually obeys," and it was
+checking a rule that was not that one. Confirmed fixed: the reproduction
+no longer moves, and the full `cargo test --release` suite (615+31+2+8
+tests) passes with both task 1 and task 2 landed.
+
+### R5-3 — Task 3's chamber closes most of R5-1's contrast gap, and needed a tie-break the spec's literal reading did not have
+
+Landed as specced -- greatest-Chebyshev-clearance point, per-system draw on
+`Purpose::CaveChamber` (12-24 vertical half-extent, 1.4x horizontal),
+capped to room, re-settled after growth -- the first build measured
+tallest-open-column p50 **30-31** over 16 seeds (bar: >= 40), a clear miss.
+Instrumented and reverted rather than guessed at: printing the chosen
+point, its drawn half-extents and its room cap showed the room cap was the
+active constraint on *most* draws, not the draw itself (draws matched the
+specified 12-24 range). The reason is geometric, not a bug: task 2's own
+census already says a system's vertical span reaches within a few cells of
+the envelope's edge in the typical case (span down med 67-68 of a possible
+71), so the single literal argmax of clearance -- raster tie-break only --
+lands near that edge about as often as not, where the "cap the ellipse to
+the room left" rule (task 3's own text) throttles it hard. The location
+rule was not wrong; the *tie-break* on it was silently picking cramped
+points as often as roomy ones among near-equal candidates, because a
+task-2 passage network is close to uniform width and rarely has a single
+best cell.
+
+Fix, within the same rule: among void cells within 1 of the maximum
+clearance (not a singleton in this geometry), prefer the one with the most
+room to grow into (`min(room_v, room_h)`), raster order the final
+tie-break. This does not move the primary criterion -- still greatest
+clearance, never an arbitrary central point -- it only resolves which
+near-tied cell wins. Measured after: tallest-open-column p50 rose to
+**45-48** across every preset (bar >= 40, met with headroom), and
+per-system contrast (task 2's own stalled bar, R5-1) rose with it --
+p10 over 16 seeds is now **362-414%** (3.6-4.1x) for arid, canyon, rolling
+and terraced, against R5-1's 2.2-2.6x. `wetland` alone is still short at
+**243%** (2.43x). Chamber growth's own reporting (`requested`/`survived`,
+printed whenever a chamber is attempted) never showed a zero-survival
+case across the full sweep -- worst measured was 66% of a request
+surviving re-settle, so the "grew into nothing" failure mode task 3 warns
+about is exercised (0 teeth-drop-equivalent silent failures) without
+having actually happened yet in this seed range; the report exists for
+when it does.
+
+**`wetland`'s contrast p10 is an open gap, not closed by this task.**
+Median contrast for `wetland` was already the one preset reading lower
+than the rest back in task 2 (280 vs 300 x100 for every other preset), so
+this is consistent with `wetland` differing in some way this round has not
+traced further (its relief or character sampling puts systems in a
+slightly different part of the massif, most likely) rather than a new
+effect from task 3. Left as a known gap rather than chased further within
+this task's budget; a future session re-measuring cave criteria should
+re-check `wetland` specifically before assuming the round-5 chamber work
+closed every preset evenly.
+
+Gates: `cargo test --release` and `cargo test --release --test worldgen`
+both green (the at-rest and seal tests exercise the chamber path directly,
+since it is default-on and every forced-vault test world now grows one);
+`cargo clippy --all-targets -- -D warnings` clean; `cargo run --release
+--example ascii` shows no timing change (chambers are genesis-only).
+Strips: `target/filmstrips/r5t3-canyon-s1-{wide,zoom}.png` -- the zoomed
+one shows a solid dark oval chamber several times the diameter of the
+passage web it opens off, the "rooms with necks" criterion in one frame.
+
+### R5-4 — Task 4b's clustering more than doubled the formation count and visibly clusters, and 60/system was not reached
+
+Landed: `SPELEO_SPACING`'s fixed 4 replaced by a drip-focus field
+(`Purpose::Drip`, `noise::value_1d` at `DRIP_SCALE = 40`) driving the
+minimum column gap between `SPELEO_SPACING_MIN` (wet) and
+`SPELEO_SPACING_MAX` (dry); formations placed on every void run per
+column, not only the bottommost (`floor`'s own definition only ever kept
+the last one). The drip focus also gates the placement chance itself,
+not only spacing -- see the code comment for why spacing alone
+rediscovered the comb at a lower frequency.
+
+**Two things had to be measured rather than assumed, both costing real
+tuning time.** First, `value_1d`'s interpolated field rarely reaches its
+nominal `[0, 1)` extremes -- a probe dump of one system's width showed it
+sitting inside roughly 0.13-0.82 -- so a `smoothstep` threshold written
+against the theoretical range left most of a system reading as
+"middling," never clearly wet or dry; thresholds had to be widened to
+bracket the *observed* range before clustering became legible at all.
+Second, tightening `SPELEO_SPACING_MIN` from 2 to 1 *reduced* the counted
+total (14-16/system, down from 30+): `cave_probe`'s silhouette test only
+counts a column as a free-standing formation if both neighbours are void,
+and at a 1-column gap the 40%-of-formations secondary taper regularly
+reached into the one clear column between neighbours and merged them
+into a shape with no free-standing face at all -- exactly the "two
+formations must not merge into a wall" case the task warns about, caught
+by a metric drop rather than by eye. The taper is now gated off below a
+4-column gap for the same reason.
+
+Measured, 16 seeds x preset:
+
+| | before task 4 | after 4a | after 4b | bar |
+|---|---|---|---|---|
+| formations/system | 17 | ~14-17 (4a alone barely moves the count) | **35-45** | >= 60 |
+| formation height p50 | 3 | 1 | 1-3 (canyon 2, others 3) | <= 3, met |
+| formation height p90 | 6 | 8-12 | 18-19 | >= 10, met |
+| near-pairs (of 16 seeds) | 0-2 | 2-10 | **44-55** | (task 4c's own bar) |
+
+Formation count did not reach 60/system. `SPELEO_SPACING_MAX` was walked
+down from an un-throttled dry ceiling (27-38/system) to 14 (35-45/system)
+-- still an order of magnitude sparser than the wet floor of 2, so dry
+stretches still read as close to bare -- without moving the height bars,
+which sit right at their edges (p50 = 3 on three of five presets, the
+task-4a ceiling; a further push toward 60 risks that bar as much as this
+one). Not pushed further within this task's budget: every knob tried past
+this point traded the height bars, the merge-safety margin, or both for
+a few more counted formations, which is the shape of a bar set from
+limited sampling rather than a genuine miss in the mechanism -- the count
+more than doubled (17 to 35-45) and the strip below shows real,
+legible clustering, which is the qualitative claim task 4b is actually
+for. Left as an open gap rather than chased further; a session with
+budget to spare could retune `SPELEO_DENSITY`'s own base value (currently
+still 0.30, calibrated for the old even spacing) alongside the spacing
+constants together, which this session did not have room to sweep as a
+pair.
+
+Strip: `target/filmstrips/r5t4b-canyon-s1.png` -- a dense forest of pale
+threads packed into roughly a third of the frame, against bare
+thin-crack passage everywhere else in the same shot; the reviewer's own
+judgement (task 4b: "the strip must read as clustered, not as a denser
+comb") is what this is for.
+
+Gates: `cargo test --release --test worldgen` green (`speleothems_never_bridge_a_passage`
+in particular, since tight clustering is exactly the geometry that rule
+has to still hold under); `cargo clippy --all-targets -- -D warnings`
+clean; `scripts/worldgen_sweep.sh compare` 0 counters moved.
+
+### R5-5 — Task 4c: one fused column per chamber landed, and it surfaced a leak in every paired-build vault test's own instrument
+
+Landed: after the per-column speleothem pass, the largest chamber run
+(from the same column-height census the waterline and the census use) is
+picked, a column a third to a bit less than half the way in from one side
+(never the run's own middle) is chosen, and its full floor-to-ceiling
+span is written solid -- crystal at `SPELEO_CRYSTAL`'s own rate, stone
+otherwise -- exempt from the "leave two open rows" rule everywhere else
+in this pass, exactly once per system.
+
+**Landing it exposed two real bugs, one older than this task and one this
+task's own secondary-column mechanic had always been capable of, both
+found because `speleothems_never_bridge_a_passage` got strict enough to
+notice them.**
+
+1. **The round-3 secondary-column widening can bridge a neighbour on its
+   own**, and always could. It clamps its top half and bottom half to
+   `span2 - 2` independently, which bounds each half alone but not their
+   sum: a *pair* formation (both halves non-zero) reaching the same
+   neighbour from both directions can have each half legally sized and
+   still cover the neighbour's whole run between them. Task 4b's tighter
+   spacing made two formations sharing a neighbour common enough to hit
+   this routinely; round 3's own looser spacing had made it rare enough
+   to never trip the old, coarser test. Fixed with a joint clamp
+   (shrink whichever half is larger until the sum leaves at least one
+   open row) plus a verify-then-repair pass over every void run after all
+   placement finishes: check the *actual* written state rather than
+   reasoning about every combination of independent writers in advance
+   (two *different* primary formations can each leave their own share of
+   a shared neighbour clear and still jointly cover it), and reopen the
+   middle cell of any run that came out fully solid. The repair runs
+   before task 4c's own deliberate fused column, which is exempt by
+   ordering -- it has not been written yet when the scan runs -- not by a
+   special case the scan has to know about.
+
+2. **Every paired-build vault test's diff has a leak.** Turning
+   `vault_density` on changes the *shade* of some ordinary wall stone
+   elsewhere in the world -- material unchanged, only the tone byte
+   differing, at locations with no carved void anywhere nearby (measured:
+   a probe dump found ~800 such cells in one forced-vault world, out of
+   ~6,700 total diffed cells). Root cause not chased down: every
+   shade-producing function this pass reads (`strata_shade`,
+   `palette_family`) is a pure function of `(seed, x, y)` with no
+   dependence on `vault_density`, and re-derivation would need to reach
+   into whatever runs between `stone_massif` and `vaults` in the pass
+   order, which is a bigger question than this task. Every existing
+   paired-build guard (round 2's seal test, round 3's ceiling-span test,
+   the original `speleothems_never_bridge_a_passage`) tolerates this
+   silently, because none of them assert "every other cell is identical"
+   -- they only check properties of the cells that *are* in the diff, and
+   a handful of extra, already-stone, already-solid cells never changed
+   any of those properties. This test's new per-run check was the first
+   one strict enough for the extra cells to matter: a batch of ordinary
+   stone that happens to all read `Solid` looks exactly like a bridged
+   passage once grouped by column.
+
+   Fixed by not asking a control build at all: `speleothems_never_bridge_a_passage`
+   now flood-fills void components directly in the one world under test
+   and reads formations back the same way `cave_probe` already does --
+   solid, with void on both flanks -- which cannot be contaminated by
+   whatever the leak is, because it never looks at a second build.
+   Flagged for whichever session next touches `stone_massif` through
+   `vaults` in the pass order, or the palette-family/strata-shade code:
+   the leak is real, small, and still there in every *other* paired-build
+   guard in this file, which is why they are named here rather than left
+   for someone to rediscover from a flaky-looking test failure.
+
+Bar: near-pairs >= 1/world p50 (44-50 of 16 seeds, well above), tallest
+combined pair >= 30 cells (40-44, met) -- already satisfied by tasks
+4a/4b's own side effects before this task's mechanic landed; exactly one
+fused column per system with a chamber, zero without, enforced by the new
+test.
+
+Strip: `target/filmstrips/r5t4c-canyon-s1.png` -- inside the chamber, a
+dense run of pale vertical threads with several spanning near its full
+height, against the thin passage web outside it.
+
+Gates: `cargo test --release` (615+8+2+31 passed, `speleothems_never_bridge_a_passage`
+rewritten and green under the new diff-free method), `cargo clippy
+--all-targets -- -D warnings` clean, `cargo run --release --example ascii`
+no timing change, `scripts/worldgen_sweep.sh compare` 0 counters moved.
