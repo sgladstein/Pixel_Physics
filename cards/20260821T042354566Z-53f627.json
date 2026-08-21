@@ -1,0 +1,57 @@
+{
+  "id": "20260821T042354566Z-53f627",
+  "created": "2026-08-21T04:23:54Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/game-world-gen-planning-h12713",
+    "commit": "49dbacf",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Round 5 whole-round verdict: anatomy vs decoration",
+  "question": "One of these is before round 5 and one is after. Which is the cave you would rather find — and separately, is the pale vertical banding in one of them the 'large uniform gray blocks' you reported?",
+  "context_md": "Canyon seed 1, 4x, **same renderer both sides** so only worldgen differs. Round 5 landed tasks 1-5; task 6 never started.\n\n**Every structural bar was met or exceeded, measured with `cave_probe` over 16 seeds x 7 presets:**\n\n| | before | after | bar | |\n|---|---|---|---|---|\n| worlds with a cave | arid 3/16, canyon 5/16, wetland 10/16 | **12/16 every preset** | >=12/16 | met |\n| median open column | 30 | **4-5** | 3-8 | met |\n| contrast p95/median | 2.0x | **5.2-5.8x** | >=3.0 | far exceeded |\n| tallest chamber (per-seed p50) | 64* | **44-47** | >=40 | met |\n| formation height | med 3, max 7 | med 2-3, p90 18, **max 43** | p90>=10, max>=25 | met |\n| near-pairs / 16 seeds | 0-2, tallest 7 cells | **45-53, tallest 44** | >=1/world | met |\n\n\\* the 'before' 64 is not an achievement — it was the envelope height, because every system filled its box.\n\n**Three bars missed:** formations/system 29-36 against my bar of 60; `wetland` contrast p10 2.43x against 3.0; and waterline formations ~1.5/system against 8 (unverified — the agent stopped before writing that finding).\n\n**What I want your eye on, because the numbers cannot answer it.** The passage network is real now — corridors, junctions, two systems in this frame instead of one lens. But the chamber in the 'after' reads to me as a **picket fence**: many adjacent tall pale columns of similar width and height. If that is what you saw, then this round met its bars and made the cave look worse, and the cause is my spec, not the implementation: I asked for heavy-tailed heights *and* clustering *and* a minimum spacing of only 1-2 columns, and tall formations at 1-2 spacing are a wall. Tell me if you read it that way and I will respec the formation half before anything else lands.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - before round 5",
+      "files": [
+        "20260821T042354566Z-53f627/000-r5_before_canyon_s1.png"
+      ],
+      "caption": "one lens, 3-4 small formations",
+      "meta": {
+        "systems per world": 0.3,
+        "visible formations per system": 17,
+        "formation height med/max": "3 / 7",
+        "near-pairs per 16 seeds": "0-2",
+        "contrast p95/med": "2.0x",
+        "tallest chamber this seed": 64
+      }
+    },
+    {
+      "label": "B - after round 5",
+      "files": [
+        "20260821T042354566Z-53f627/001-r5_after_canyon_s1.png"
+      ],
+      "caption": "passage web plus chamber",
+      "meta": {
+        "systems per world": 1.2,
+        "visible formations per system": 35.5,
+        "formation height med/p90/max": "2 / 18 / 43",
+        "near-pairs per 16 seeds": 48,
+        "contrast p95/med": "5.4x",
+        "tallest chamber this seed": 52
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
