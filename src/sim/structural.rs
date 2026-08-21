@@ -709,14 +709,88 @@ const COLLAPSE_IMPULSE_STRENGTH: f32 = 4.0;
 /// Air specifically, by the raw material test: `Cell::is_empty()` is
 /// managed-aware and would count a promoted liquid body's container cells
 /// as occupied, which is the wrong answer to "could rock move into here".
-fn region_has_free_face(world: &World, region: &[(i32, i32)]) -> bool {
-    let cells: std::collections::HashSet<(i32, i32)> = region.iter().copied().collect();
+///
+/// # Water is somewhere to go, and reading it as rock cost the owner a bug
+///
+/// **A liquid the piece outweighs counts as a free face.** Air-only was the
+/// original rule and it is wrong in exactly one direction: a piece
+/// submerged in water has no empty neighbour at all, so it read as
+/// *confined* -- "a pocket already cut free on every side, wedged in a hole
+/// its own shape", per the caller's own words -- and the caller's answer to
+/// a confined `Unsupported` failure is to record it and **leave it exactly
+/// where it is, with nothing rescheduled**. Correct for rock in the middle
+/// of a mountain. For a quench crust floating mid-lake it is the whole of
+/// the owner's report that stone "freezes in place" instead of sinking.
+///
+/// `CLAUDE.md`'s "when a rule must tell apart two things that can look
+/// identical, state the difference as data", one more time: buried in rock
+/// and submerged in water are the same arrangement of not-empty cells, and
+/// the difference is a density the materials already carry.
+///
+/// The **piece's** mean density against the liquid's, on the same "which
+/// object does this rule evaluate" argument this function's own doc makes
+/// above -- and matching `rigid::clear_or_displaceable`, which is the mover
+/// this has to agree with. A slab with one cell of ice in it still sinks; a
+/// floe does not.
+///
+/// Powder is deliberately *not* included even though `rigid::displace` can
+/// shove it. A piece buried in sand has to push a granular pile out of the
+/// way rather than swap with a fluid, and whether that should count is a
+/// separate question with its own scenes; nothing has reported it.
+/// The original rule: is any neighbour of the region materially empty?
+/// Split out so the buoyant case above can reach it without duplicating it.
+fn region_touches_air(world: &World, region: &[(i32, i32)], cells: &std::collections::HashSet<(i32, i32)>) -> bool {
     region.iter().any(|&(x, y)| {
         NEIGHBOURS_8.iter().any(|&(dx, dy)| {
             let (nx, ny) = (x + dx, y + dy);
             !cells.contains(&(nx, ny))
                 && world.in_bounds(nx, ny)
                 && world.get(nx, ny).material == super::material::EMPTY
+        })
+    })
+}
+
+fn region_has_free_face(world: &World, region: &[(i32, i32)]) -> bool {
+    let cells: std::collections::HashSet<(i32, i32)> = region.iter().copied().collect();
+    // **`floats` first, density second, and the order was decided by
+    // measurement.** Density alone took `scene=coldsnap` from 1 overload
+    // failure to 23 plus 12 unsupported, against an acceptance bar of zero
+    // *unconfined* failures whose entire job is that nothing on that scene
+    // is dismantled. Reverting this one arm and changing nothing else put
+    // it back to 1/0/1-confined, identical to the pre-change baseline, so
+    // the attribution is not in doubt.
+    //
+    // What density gets wrong there is a **mixed** piece: a region that is
+    // mostly ice but has picked up a stone cell averages over 1.0, so the
+    // water beside it read as somewhere to go and the sheet was taken apart
+    // instead of cracking where it stood. `ice.ron` says why in advance --
+    // "the floating below is a flag rather than a density test" -- and
+    // `is_resting_on_ground` already asks the flag for the same question.
+    // Asking density here made this a second, disagreeing reader of it.
+    //
+    // Any floating cell makes the whole piece float, which is the
+    // conservative direction: it can only ever leave a piece confined that
+    // density would have dismantled.
+    if region.iter().any(|&(x, y)| world.materials.get(world.get(x, y).material).floats) {
+        return region_touches_air(world, region, &cells);
+    }
+    let piece_density = if region.is_empty() {
+        0.0
+    } else {
+        region.iter().map(|&(x, y)| world.materials.density(world.get(x, y).material)).sum::<f32>() / region.len() as f32
+    };
+    region.iter().any(|&(x, y)| {
+        NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+            let (nx, ny) = (x + dx, y + dy);
+            if cells.contains(&(nx, ny)) || !world.in_bounds(nx, ny) {
+                return false;
+            }
+            let neighbour = world.get(nx, ny);
+            if neighbour.material == super::material::EMPTY {
+                return true;
+            }
+            world.materials.kind(neighbour.material) == MaterialKind::Liquid
+                && piece_density > world.materials.density(neighbour.material)
         })
     })
 }
