@@ -114,6 +114,30 @@ fn main() {
         structural::compute_world_distances(&mut world);
         let structural_ms = t.elapsed().as_secs_f64() * 1000.0;
 
+        // A checksum of the finished world, so an "optimisation" can be held
+        // to producing the *same world*. Tests passing is not that: the suite
+        // asserts properties, and a distance field that is subtly different
+        // but still plausible passes every one of them. Two builds printing
+        // the same number is the claim worth making.
+        if std::env::var("WORLD_HASH").is_ok() {
+            let mut acc: u64 = 0xcbf2_9ce4_8422_2325;
+            for y in 0..h {
+                for x in 0..w {
+                    let c = world.get(x, y);
+                    for byte in [
+                        c.material.0 as u64,
+                        c.aux() as u64,
+                        c.shade as u64,
+                        u64::from(c.organism_id()),
+                    ] {
+                        acc ^= byte;
+                        acc = acc.wrapping_mul(0x100_0000_01b3);
+                    }
+                }
+            }
+            println!("  world hash {w}x{h}: {acc:016x}");
+        }
+
         // **Step until the world is genuinely quiet, and report how long that
         // took**, rather than stepping a fixed count and calling the result
         // "settled".

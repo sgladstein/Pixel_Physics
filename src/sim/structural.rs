@@ -1119,7 +1119,20 @@ pub fn compute_world_distances(world: &mut World) {
     let idx = |x: i32, y: i32| (y - bounds.min_y) as usize * w + (x - bounds.min_x) as usize;
     let inside = |x: i32, y: i32| x >= bounds.min_x && x <= bounds.max_x && y >= bounds.min_y && y <= bounds.max_y;
 
-    let mut cells = vec![Cell::EMPTY; w * h];
+    // **Three bytes per cell, not twelve.** The mirror was a `Vec<Cell>`,
+    // which is the whole 12-byte cell -- temperature, burn timer, shade and
+    // all -- and at the sizes this now has to serve that is 240 MiB of
+    // transient allocation on top of the world's own 240 MiB, which is most
+    // of why peak RSS during generation is roughly double the steady grid
+    // (measured: 539 MiB at 8192x2560).
+    //
+    // Everything the two loops below actually read is: the material (for
+    // `relaxable`, for the bedrock anchor test, and to price a step), the
+    // two crack bits, and whether an organism owns the cell. That is a
+    // `u16` and three bits. Splitting it also makes the hot inner loop
+    // touch a quarter of the cache lines it used to.
+    let mut mat = vec![material::EMPTY.0; w * h];
+    let mut bits = vec![0u8; w * h];
     for chunk in world.chunks() {
         let (ox, oy) = chunk.coord.origin();
         for ly in 0..CHUNK_SIZE {
@@ -1129,11 +1142,19 @@ pub fn compute_world_distances(world: &mut World) {
                 // exactly the bounds, so the overhang is dropped rather
                 // than wrapped into the opposite side.
                 if inside(x, y) {
-                    cells[idx(x, y)] = chunk.get_world(x, y);
+                    let c = chunk.get_world(x, y);
+                    let i = idx(x, y);
+                    mat[i] = c.material.0;
+                    bits[i] = u8::from(c.crack_right())
+                        | (u8::from(c.crack_down()) << 1)
+                        | (u8::from(c.organism_id() != 0) << 2);
                 }
             }
         }
     }
+    const CRACK_RIGHT: u8 = 1;
+    const CRACK_DOWN: u8 = 2;
+    const OWNED: u8 = 4;
 
     // `is_relaxable` and the support costs both go through
     // `world.materials`, which is borrowed immutably for the whole search
@@ -1148,16 +1169,34 @@ pub fn compute_world_distances(world: &mut World) {
             (mat.support_cost_below, mat.support_cost_above, mat.support_cost_beside)
         })
         .collect();
-    let relaxable = |c: Cell| body.get(c.material.0 as usize).copied().unwrap_or(false) && c.organism_id() == 0;
+    let relaxable = |i: usize| {
+        body.get(mat[i] as usize).copied().unwrap_or(false) && bits[i] & OWNED == 0
+    };
 
     // Seed: anchors at 0, everything else at "unreachable" so a cell the
     // search never reaches ends up honestly unsupported rather than
     // accidentally reading as anchored.
     let mut dist = vec![u16::MAX; w * h];
-    let mut heap: BinaryHeap<Reverse<(u16, i32, i32)>> = BinaryHeap::new();
+    // **A dial queue, not a binary heap.** Every step cost here is a
+    // material's `support_cost_*`, and those are 1..5 across the whole
+    // registry (default 1). Dijkstra over small integer weights does not
+    // need a comparison heap: buckets indexed by distance modulo
+    // `max_step + 1` pop in nondecreasing order for free, which turns
+    // O(E log V) into O(E) and removes the per-push allocation entirely.
+    //
+    // Determinism is unaffected and does not need the heap's old
+    // `(distance, x, y)` tiebreak: a shortest-path distance is a unique
+    // minimum, so the order cells are *popped* in cannot change the `dist`
+    // array they produce. The tiebreak was insurance against a
+    // `BinaryHeap` whose order among equals is unspecified; a bucket has no
+    // such freedom to constrain.
+    let max_step = costs.iter().map(|&(b, a, s)| b.max(a).max(s)).max().unwrap_or(1).max(1) as usize;
+    let ring = max_step + 1;
+    let mut buckets: Vec<Vec<u32>> = vec![Vec::new(); ring];
+    let mut queued = 0usize;
     for y in bounds.min_y..=bounds.max_y {
         for x in bounds.min_x..=bounds.max_x {
-            if !relaxable(cells[idx(x, y)]) {
+            if !relaxable(idx(x, y)) {
                 continue;
             }
             // **Outside the world counts as bedrock.** `World::get` returns
@@ -1170,65 +1209,76 @@ pub fn compute_world_distances(world: &mut World) {
             // tests down with it.
             let anchored = NEIGHBOURS_4.iter().any(|&(dx, dy)| {
                 let (nx, ny) = (x + dx, y + dy);
-                !inside(nx, ny) || cells[idx(nx, ny)].material == material::BEDROCK
+                !inside(nx, ny) || mat[idx(nx, ny)] == material::BEDROCK.0
             });
             if anchored {
                 dist[idx(x, y)] = 0;
-                heap.push(Reverse((0, x, y)));
+                buckets[0].push(idx(x, y) as u32);
+                queued += 1;
             }
         }
     }
 
-    // Relax. `Reverse` makes this a min-heap ordered on (distance, x, y) --
-    // the position tiebreak is what keeps the result identical run to run,
-    // the same reason `ActiveSite`'s own `Ord` spells its tiebreak out
-    // (issue #7 / determinism §8b).
-    while let Some(Reverse((distance, x, y))) = heap.pop() {
-        if dist[idx(x, y)] != distance {
-            continue; // superseded by a shorter path already processed
+    // Relax, popping buckets in nondecreasing distance. `level` is the
+    // distance currently being drained; a cell reached with a stale (larger)
+    // distance is skipped exactly as the heap version skipped a superseded
+    // entry.
+    let mut level = 0u16;
+    while queued > 0 {
+        let slot = level as usize % ring;
+        while let Some(packed) = buckets[slot].pop() {
+            queued -= 1;
+            let i = packed as usize;
+            if dist[i] != level {
+                continue; // superseded by a shorter path already processed
+            }
+            let (x, y) = (bounds.min_x + (i % w) as i32, bounds.min_y + (i / w) as i32);
+            for (dx, dy) in NEIGHBOURS_4 {
+                let (nx, ny) = (x + dx, y + dy);
+                if !inside(nx, ny) {
+                    continue;
+                }
+                let ni = idx(nx, ny);
+                // `edge_is_cracked` against the mirror. Each edge is owned by
+                // exactly one of the two cells it separates, so reaching left
+                // or up means asking the *neighbour* about its own right or
+                // down edge -- see that function, which stays as the
+                // world-reading version everything outside this pass uses.
+                let cracked = match (dx, dy) {
+                    (1, 0) => bits[i] & CRACK_RIGHT != 0,
+                    (-1, 0) => bits[idx(nx, y)] & CRACK_RIGHT != 0,
+                    (0, 1) => bits[i] & CRACK_DOWN != 0,
+                    (0, -1) => bits[idx(x, ny)] & CRACK_DOWN != 0,
+                    _ => false,
+                };
+                if cracked || !relaxable(ni) {
+                    continue;
+                }
+                // The cost is paid by the cell being *supported* -- so it
+                // reads the neighbour's own material, and the direction is
+                // from the neighbour back to (x, y), which is the negation
+                // of the offset used to reach it. `dy == -1` means (x, y)
+                // sits below the neighbour, i.e. the neighbour is standing
+                // on it. Getting this backwards would silently price towers
+                // as cantilevers.
+                let (below, above, beside) = costs[mat[ni] as usize];
+                let step = match dy {
+                    -1 => below,
+                    1 => above,
+                    _ => beside,
+                };
+                let candidate = level.saturating_add(step);
+                if candidate < dist[ni] {
+                    dist[ni] = candidate;
+                    buckets[candidate as usize % ring].push(ni as u32);
+                    queued += 1;
+                }
+            }
         }
-        for (dx, dy) in NEIGHBOURS_4 {
-            let (nx, ny) = (x + dx, y + dy);
-            if !inside(nx, ny) {
-                continue;
-            }
-            // `edge_is_cracked` against the mirror. Each edge is owned by
-            // exactly one of the two cells it separates, so reaching left or
-            // up means asking the *neighbour* about its own right or down
-            // edge -- see that function, which stays as the world-reading
-            // version everything outside this pass uses.
-            let cracked = match (dx, dy) {
-                (1, 0) => cells[idx(x, y)].crack_right(),
-                (-1, 0) => cells[idx(nx, y)].crack_right(),
-                (0, 1) => cells[idx(x, y)].crack_down(),
-                (0, -1) => cells[idx(x, ny)].crack_down(),
-                _ => false,
-            };
-            if cracked {
-                continue;
-            }
-            let neighbour = cells[idx(nx, ny)];
-            if !relaxable(neighbour) {
-                continue;
-            }
-            // The cost is paid by the cell being *supported* -- so it reads
-            // the neighbour's own material, and the direction is from the
-            // neighbour back to (x, y), which is the negation of the offset
-            // used to reach it. `dy == -1` means (x, y) sits below the
-            // neighbour, i.e. the neighbour is standing on it. Getting this
-            // backwards would silently price towers as cantilevers.
-            let (below, above, beside) = costs[neighbour.material.0 as usize];
-            let step = match dy {
-                -1 => below,
-                1 => above,
-                _ => beside,
-            };
-            let candidate = distance.saturating_add(step);
-            if candidate < dist[idx(nx, ny)] {
-                dist[idx(nx, ny)] = candidate;
-                heap.push(Reverse((candidate, nx, ny)));
-            }
+        if level == u16::MAX {
+            break;
         }
+        level += 1;
     }
 
     // Write back, only where the answer differs from what the cell already
@@ -1238,11 +1288,15 @@ pub fn compute_world_distances(world: &mut World) {
     // which `World::set` is what maintains.
     for y in bounds.min_y..=bounds.max_y {
         for x in bounds.min_x..=bounds.max_x {
-            let cell = cells[idx(x, y)];
-            if !relaxable(cell) {
+            let i = idx(x, y);
+            if !relaxable(i) {
                 continue;
             }
-            let d = dist[idx(x, y)];
+            let d = dist[i];
+            // The mirror no longer carries the whole cell, so the write-back
+            // reads the live one. It is one `World::get` per *relaxable*
+            // cell, paid only where something is about to be written anyway.
+            let cell = world.get(x, y);
             if cell.aux() != d {
                 world.set(x, y, cell.with_aux(d));
             }
