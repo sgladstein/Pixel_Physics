@@ -759,7 +759,7 @@ const CAVE_GRID_H: i32 = 2 * CAVE_HALF_H + 1;
 /// bar** -- see the A1-1 finding below for the full tradeoff surface and
 /// why the remaining gap belongs to speleothem density (A3), not this
 /// constant.
-const CAVE_CELL: f32 = 62.0;
+const CAVE_CELL: f32 = 22.0;
 
 /// Vertical compression applied before the field is sampled, so everything
 /// the threshold carves -- chambers and passages both -- comes out wider
@@ -776,7 +776,7 @@ const CAVE_CELL: f32 = 62.0;
 /// this constant; a strip has to confirm by eye that systems still lie
 /// along the visible dip after the drop, and if they stop, that is a
 /// finding, not a reason to put the squash back.
-const CAVE_SQUASH: f32 = 0.55;
+const CAVE_SQUASH: f32 = 1.2;
 
 /// Cells over which the threshold fades to nothing at the envelope edge,
 /// per axis. Without the fade, a passage crossing the boundary is sawn off
@@ -816,7 +816,7 @@ const CAVE_EDGE_FADE_Y: f32 = 7.0;
 /// changes are not independent -- see [`CAVE_CELL`] for the measured
 /// numbers each pairing produces, including round 6's A1 retune to 0.22
 /// alongside 62.0 / 0.55.
-const CAVE_THRESHOLD: f32 = 0.22;
+const CAVE_THRESHOLD: f32 = 0.09;
 
 /// Longest horizontal run of void with stone directly above it that a
 /// system may keep, in cells -- the roof-span bound the round-2 arithmetic
