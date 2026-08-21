@@ -1,0 +1,53 @@
+{
+  "id": "20260821T045817552Z-6f35a8",
+  "created": "2026-08-21T04:58:17Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-mechanic-stone-review-yksmi8",
+    "commit": "ab6387e",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Blast cracks: the shape before I build it",
+  "question": "Which of these reads as rock that has been broken, rather than a pattern drawn on rock?",
+  "context_md": "You said the current star \"looks like a graphic, not physics\" and later that it \"shouldn't look like a scribble\". Before I spend an implementation pass on it, I want your read on the **shape**.\n\n**These are not engine renders.** They are drawn by a model of the engine's own crack walker (same sub-cell stepping, same kink statistics, same edge-marking rules, same grain), on a synthetic grey rock, at the zoom a blast is judged at. I did it this way because the alternative is building the thing and finding out afterwards.\n\nOne is today's behaviour. The other starts the cracks **at the crater edge instead of 13 cells away from it**, cuts the ray count in half, makes the kinks mean-revert so lines stay net-straight, drops the forks, and adds closed loops that leave the cavity wall and come back to it.\n\n**The honest tension, which is what I actually want judged:** one of these draws about six times as many dark cells as the other. It is bolder and busier. But its lines close into shapes, and the sparser one closes into nothing at all — which is why nothing currently breaks off. More line that means something, against less line that means nothing.\n\nAlready measured, so don't spend attention on it: the enclosure counts under each image are from flooding the interior using the engine's own support rules. Ignore the exact crater shape and the background texture — neither is real.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - current behaviour",
+      "files": [
+        "20260821T045817552Z-6f35a8/000-ab2_crack_A.png"
+      ],
+      "caption": "12 rays starting 13 cells outside the crater, free-sign kinks, forks on",
+      "meta": {
+        "cells drawn dark": 257,
+        "enclosed pieces": 0,
+        "pieces >=8 cells (would tumble)": 0,
+        "largest piece": 0
+      }
+    },
+    {
+      "label": "B - proposed",
+      "files": [
+        "20260821T045817552Z-6f35a8/001-ab2_crack_B.png"
+      ],
+      "caption": "6 rays from the crater edge + 6 closed spall loops, mean-reverting kinks, no forks",
+      "meta": {
+        "cells drawn dark": 1620,
+        "enclosed pieces": 91,
+        "pieces >=8 cells (would tumble)": 10,
+        "largest piece": 279
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
