@@ -1,0 +1,43 @@
+{
+  "id": "20260821T090012986Z-1f70c3",
+  "created": "2026-08-21T09:00:12Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/game-world-gen-planning-h12713",
+    "commit": "029dcb6",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The gnome and the formations: he was being cut in half",
+  "question": "The fix is already in. Does anything in the 'after' sheet still read wrong to you — particularly the width-8 row, where he vanishes completely behind the pillar?",
+  "context_md": "Not blind and not a choice — you are seeing a fixed bug, and the only\nquestion I actually need your eye on is the last paragraph.\n\nRows are formation widths 1, 2, 3, 5, 8. Across a row the stone slides\npast him a cell at a time. Both sheets are the real renderer.\n\n**Before** (26 of 46 tiles): look at rows 3, 5 and 8 — he is cut down the\nmiddle, some of his columns drawn over the stone and the rest hidden\nbehind it. The depth key was the world *column*, and the hash that decides\nfront-or-behind is built to disagree between neighbouring columns, so a\nformation three or more cells wide never agreed with itself. Measured: 0%\nof formations put him wholly on one side, from width 3 up.\n\nThis was invisible until now only because speleothems are one pixel wide,\nwhich is the thing being replaced tonight — the respec makes them 3-8\ncells at the base. So every formation of the new kind would have shipped\nhim shredded, and at play zoom that reads as sprite detail rather than as\na bug.\n\n**After**: wholly in front, or wholly hidden. 0 of 46.\n\n**What I want your eye on:** in the width-8 row, when he is behind the\npillar he is *gone* — completely invisible. That is your own earlier\nruling (\"behind has too much transparency, the player character should be\nhidden\"), but you made it about trees, and foliage has gaps a solid stone\ncolumn does not. A tapered formation is only 8 wide down at his boots, so\nhe should rarely disappear whole. Tell me if that trade is wrong and I\nwill give scenery its own alpha rather than sharing the trees'.\n",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before (26 of 46 sliced)",
+      "files": [
+        "20260821T090012986Z-1f70c3/000-depth_before.png"
+      ],
+      "caption": "",
+      "meta": {}
+    },
+    {
+      "label": "after (0 of 46)",
+      "files": [
+        "20260821T090012986Z-1f70c3/001-depth_after.png"
+      ],
+      "caption": "",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
