@@ -1,0 +1,45 @@
+{
+  "id": "20260821T225425190Z-731011",
+  "created": "2026-08-21T22:54:25Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-ecology",
+    "branch": "plant-ecology-design",
+    "commit": "1bb4c4b",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-ecology"
+  },
+  "title": "Two ground-hugging plants: is the code change earning its keep?",
+  "question": "Do these read as two different kinds of plant, or as the same kind twice?",
+  "context_md": "Both are low, small-budget probes. One of them is pure data and cost no code. The other needed a four-line change to `plant.rs` to let a plant's *founding* axis grow sideways instead of up.\n\n**This decides whether that change stays.** If they read as the same kind of plant, the code change bought nothing a `.ron` could not already express and I will retire it -- it is behaviour-free for every shipped species (the `tree` sheet is byte-identical across it), so it is free to keep, but free is not the same as worth keeping.\n\n**I have a stake, hence blind:** I read them as the same kind of plant.\n\nSame scene, same seed, same three noon frames. They differ in `heading_inertia` (0.05 vs 0.1) and turgor budget (8 rows vs 4.7) as well as the tropism.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "creeper (values only, no code)",
+      "files": [
+        "20260821T225425190Z-731011/000-wpc-creeper.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "prostrate (order-0 plagiotropy, 4-line change)",
+      "files": [
+        "20260821T225425190Z-731011/001-wpc-prostrate.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
