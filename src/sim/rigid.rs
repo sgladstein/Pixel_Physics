@@ -1215,6 +1215,10 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     // and neither can change while the body is in flight -- a quarter turn
     // permutes the offsets and does not add or remove one.
     let shape = BodyShape { density: mean_density(world, body), floats: body_floats(world, body), reach: body_extent(body) + 1 };
+    // Taken before the substep loop, because a collision damps `vy` by
+    // `COLLISION_RETENTION` on the way through -- the same reason
+    // `peak_speed` is recorded rather than read at landing.
+    let entry_speed = body.vy;
     let mut moved = false;
     for _ in 0..steps {
         let (next_x, next_y) = (body.x + step_x, body.y + step_y);
@@ -1241,8 +1245,86 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
         }
     }
 
+    if moved {
+        report_entry_splash(world, body, entry_speed);
+    }
     body.stalled = if moved { 0 } else { body.stalled.saturating_add(1) };
     body.stalled < STALL_FRAMES_BEFORE_SETTLING
+}
+
+/// How fast a body has to be falling before it throws a crown, in cells per
+/// frame.
+///
+/// A body settling the last cell into a pool should slide in; one that has
+/// fallen any distance should not. `GRAVITY` is 0.05/frame, so this is
+/// roughly the speed reached after a ten-cell drop -- set from that rather
+/// than from a scene, because the quantity it gates is the *feel* of an
+/// impact and a bar tuned to one pond depth would be a bar about that pond.
+const SPLASH_MIN_ENTRY_SPEED: f32 = 0.7;
+
+/// Report splash sites beside a body that has just broken a free surface.
+///
+/// # A solid slab cannot splash where it lands, and that is not a bug in the splash
+///
+/// Reported from play: *"I don't see any splash or difference in any of
+/// these"*, with the suggestion that the test should use clumps rather than
+/// scattered grains. The premise is backwards and the instinct was right
+/// anyway, which is worth writing down.
+///
+/// Backwards, because `particle::throw_splashes` refuses any site whose
+/// cell above is not empty, and a falling clump *is* the thing standing in
+/// that space -- `scene=splash`'s own fixture says so: "loose grains rather
+/// than a block: a splash site needs air above the displaced water, which a
+/// solid slab never leaves". A denser clump would make the effect
+/// disappear, not appear.
+///
+/// Right anyway, because a falling **rigid body** reported no splash site
+/// at all, from anywhere: `clear_or_displaceable` shoves whole columns of
+/// water out of a body's way and never went near `report_splash`. Rock into
+/// water was silent, and no amount of tuning the CA rule could have found
+/// it.
+///
+/// The crown goes at the **rim**, one column outside the footprint on each
+/// side, which is both where the model can put it (air above) and where one
+/// physically forms -- under the body there is nowhere for the water to go
+/// but sideways, and sideways is here. `throw_splashes` fans out from each
+/// site on its own, so two reports are a crown and not two droplets.
+///
+/// Straddling the surface is the trigger, not "is wet": the scan starts one
+/// row above the body's own top and stops one below its leading edge, so a
+/// body already under water finds no free surface in range and reports
+/// nothing. That is what keeps this from firing every frame of a long sink.
+fn report_entry_splash(world: &mut World, body: &ChunkBody, entry_speed: f32) {
+    if entry_speed < SPLASH_MIN_ENTRY_SPEED {
+        return;
+    }
+    let (mut x0, mut x1, mut y0, mut y1) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for c in &body.cells {
+        let (px, py) = body.cell_position(c);
+        x0 = x0.min(px);
+        x1 = x1.max(px);
+        y0 = y0.min(py);
+        y1 = y1.max(py);
+    }
+    if x1 < x0 {
+        return;
+    }
+    for x in [x0 - 1, x1 + 1] {
+        for y in (y0 - 1)..=(y1 + 1) {
+            if !world.in_bounds(x, y) {
+                continue;
+            }
+            if world.materials.kind(world.get(x, y).material) != MaterialKind::Liquid {
+                continue;
+            }
+            // The free surface, and only it: `throw_splashes` checks the
+            // same thing a frame later and the two have to agree.
+            if world.in_bounds(x, y - 1) && world.get(x, y - 1).material == crate::sim::material::EMPTY {
+                crate::sim::surface::CellSurface::report_splash(world, x, y);
+            }
+            break; // the topmost liquid in this column is the only candidate
+        }
+    }
 }
 
 enum Axis {
@@ -1826,6 +1908,83 @@ mod tests {
             rows.len(),
             rows.iter().min(),
             rows.iter().max()
+        );
+    }
+
+    /// **A boulder entering water at speed reports a crown; one sliding in
+    /// does not.**
+    ///
+    /// Reported from play as *"I don't see any splash"*, on a scene of
+    /// scattered sand — and the honest answer was that a falling rigid body
+    /// had never reported a splash site from anywhere.
+    /// `clear_or_displaceable` shoves whole columns of water out of a
+    /// body's way and never went near `report_splash`, so rock into water
+    /// was silent. See `report_entry_splash`.
+    ///
+    /// The paired negative is what makes this a test of *entry* rather than
+    /// of wetness: the identical body started at the surface at rest is
+    /// under water before gravity gets it past `SPLASH_MIN_ENTRY_SPEED`, so
+    /// the scan finds no free surface beside it and it reports nothing. A
+    /// version without that control would pass against a rule that splashed
+    /// every frame of a long sink.
+    ///
+    /// # Why this counts *sites*, and where the droplet count is asserted
+    ///
+    /// A site only becomes a droplet if the water it names is full —
+    /// `particle::SPLASH_MIN_FILL`, because taking a whole droplet out of a
+    /// part-empty cell is water from nowhere. A settled pond's top row is
+    /// the remainder of its volume and is usually not full: this fixture's
+    /// measures 570 to 800 within ten frames of settling, so every site is
+    /// reported and every one correctly declined. That is `throw_splashes`
+    /// working, and it made a first version of this test read as though the
+    /// reporting were dead.
+    ///
+    /// The end-to-end number is measured on the scene instead, where a pool
+    /// deep enough to stay full at the surface exists: `filmstrip
+    /// scene=rockdrop` drops a 600-cell slab and throws **61 droplets
+    /// against 2** with `report_entry_splash` ablated, at an unchanged 25
+    /// chunk bodies in flight.
+    #[test]
+    fn a_body_entering_water_at_speed_reports_a_crown_and_one_sliding_in_does_not() {
+        let sites_from = |start_y: f32, vy: f32| {
+            let mut w = pond_world(80);
+            // Walled, unlike `pond_world` on its own: that pond has no
+            // sides, spreads to the world edges and drops seven rows, so
+            // "the surface" is not where the fixture says it is.
+            for y in 0..124 {
+                w.set(9, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(118, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            let cells: Vec<BodyCell> = (0..6)
+                .flat_map(|dx| (0..4).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0 }))
+                .collect();
+            let mut body = ChunkBody::at(cells, 60.0, start_y);
+            body.vy = vy;
+            w.chunk_bodies.push(body);
+            let mut reported = 0;
+            for _ in 0..60 {
+                crate::sim::parallel::step(&mut w);
+                step_chunk_bodies(&mut w);
+                // Sampled here rather than at the end: `begin_step` clears
+                // the list every frame, which is what makes it a per-frame
+                // candidate set rather than a running total.
+                reported += w.splash_sites.len();
+            }
+            reported
+        };
+
+        // Dropped from six rows up: well past `SPLASH_MIN_ENTRY_SPEED`
+        // when it reaches the water at row 80.
+        let fast = sites_from(74.0, 1.4);
+        assert!(fast > 0, "a boulder hitting open water at speed reported no splash site at all");
+
+        // Started at the surface at rest. Gravity is 0.05/frame, so it is
+        // several rows under before it is moving fast enough to qualify.
+        let gentle = sites_from(79.0, 0.0);
+        assert!(
+            gentle < fast,
+            "a body sliding in gently reported {gentle} sites against {fast} for one arriving at speed -- \
+             the speed gate is not doing anything"
         );
     }
 

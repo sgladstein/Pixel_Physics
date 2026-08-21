@@ -806,6 +806,56 @@ fn build(args: &Args) -> World {
             }
             println!("splash: {grains} loose grains over an open pool 271 wide");
         }
+        // **Rock into water, which nothing here dropped before.** The
+        // splash scene above is loose grains, deliberately -- a splash
+        // needs air above the water it displaces, and a solid slab never
+        // leaves any. That makes it the wrong instrument for the owner's
+        // report ("I don't see any splash... clumps of sand or rocks would
+        // be better"), because the answer for a *clump* is the CA rule and
+        // the answer for a *boulder* is `rigid::report_entry_splash`, and
+        // only the second is a thing the engine can do at all.
+        //
+        // A slab of unattached stone held over an open pool by nothing.
+        // Unattached, so the load model takes it on the first check; wide
+        // and thick enough to clear `MIN_FRACTURE_CELLS` and produce real
+        // bodies rather than grit; and dropped from `fall=` rows up
+        // (default 90) so it arrives well over `SPLASH_MIN_ENTRY_SPEED`.
+        "rockdrop" => {
+            stone_floor(&mut w);
+            for y in 0..floor_y {
+                w.set(120, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(392, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in 121..392 {
+                for y in 200..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            let top = 200 - args.fall;
+            let mut rock = 0;
+            for x in 226..286 {
+                for y in top..(top + 10) {
+                    w.set(x, y, Cell::new(material::STONE, (rng::jitter(x, y) * 255.0) as u8));
+                    rock += 1;
+                }
+            }
+            // **The dark box under the slab in every tile is the scene, not
+            // a bug.** `World::freeze_sky_surface` records top-of-ground per
+            // column on the first frame and the slab is `Solid`, so its
+            // sixty columns are "underground" from row `top` down and
+            // render unlit for the rest of the run. Nothing can be done
+            // about it from here -- the freeze is deliberately once-only
+            // (`open-bugs-handoff.md` §4b records four failed attempts to
+            // infer the surface instead) -- so crop below `top` when the
+            // picture is for judging.
+            //
+            // Nothing disturbs this scene, so the first check has to be
+            // asked for -- the same way `capped` does it. Without this the
+            // slab hangs there and the harness reports zero of everything,
+            // which reads exactly like the splash being broken.
+            w.schedule_structural_check_around(256, top + 5);
+            println!("rockdrop: a {rock}-cell slab of unattached stone {} rows over an open pool 271 wide", args.fall);
+        }
         // A dense blob dropped into a walled pool: the displacement striping.
         "blob" => {
             stone_floor(&mut w);
@@ -1657,6 +1707,10 @@ struct Args {
     /// single width says the room stands or does not, and what is wanted is
     /// the *envelope*.
     span: i32,
+    /// `fall=N` -- how many rows above the pool `scene=rockdrop` starts its
+    /// slab. The lever on entry speed, which is what
+    /// `rigid::SPLASH_MIN_ENTRY_SPEED` gates on.
+    fall: i32,
     /// `pond=N` -- how wide `scene=coldsnap` cuts its pond, shore to shore.
     ///
     /// A knob rather than a constant for the same reason `span` is one: the
@@ -1947,6 +2001,7 @@ fn parse() -> Args {
         span: 200,
         // A pond a player would recognise as a pond, and the width the
         // acceptance case in ice.ron's note is stated at.
+        fall: 90,
         pond: 60,
     };
     for arg in std::env::args().skip(1) {
@@ -2020,6 +2075,7 @@ fn parse() -> Args {
             "tunnel" => a.tunnel = v.parse().expect("tunnel"),
             "relax" => a.relax = v != "false",
             "span" => a.span = v.parse().expect("span"),
+            "fall" => a.fall = v.parse().expect("fall"),
             "pond" => a.pond = v.parse().expect("pond"),
             "min_failing_cells" => a.min_failing_cells = Some(v.parse().expect("min_failing_cells")),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),

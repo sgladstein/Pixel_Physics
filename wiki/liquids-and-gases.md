@@ -1,6 +1,7 @@
 # Liquids & Gases
 
-*Current as of: this build (steam joins the weather; rock sinks in water).*
+*Current as of: this build (steam joins the weather; rock sinks in water;
+a boulder entering a pool throws a crown).*
 
 Where a powder falls and piles, a liquid falls and then spreads sideways
 until it finds a level surface — the same way real water does, settling
@@ -15,6 +16,12 @@ messier around the edges. A single large mass hitting the surface makes far
 less of it than the same amount arriving as a scatter, for the same reason a
 dropped bucket splashes less than a thrown handful: the water it displaces
 has the mass itself sitting on top of it.
+
+A **boulder** is the exception, and it throws its water where the water can
+actually go: not from under itself, where the rock is, but up the sides — a
+crown around the point of entry. It has to arrive with some speed to do it,
+so a slab that slides in off a ledge enters quietly while one that has
+fallen any distance does not.
 
 - **Water** settles quickly and cleanly into a flat pool, and left in the
   open it slowly dries up — see [Weather](weather.md) for why a puddle goes
