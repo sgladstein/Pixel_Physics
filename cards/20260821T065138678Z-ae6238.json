@@ -1,0 +1,43 @@
+{
+  "id": "20260821T065138678Z-ae6238",
+  "created": "2026-08-21T06:51:38Z",
+  "board": "worldgen-caves-r6",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/caves-r6",
+    "branch": "claude/worldgen-caves-r6",
+    "commit": "eec06e8",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/caves-r6"
+  },
+  "title": "A1 cave retune: reachability-first vs old contrast-tuned lattice",
+  "question": "Does either cave read as something you could walk into and through, versus a flooded single lens?",
+  "context_md": "",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "old (cell 52, t 0.34)",
+      "files": [
+        "20260821T065138678Z-ae6238/000-r6a1-canyon-s1-before.png"
+      ],
+      "caption": "",
+      "meta": {}
+    },
+    {
+      "label": "new (cell 46, t 0.28)",
+      "files": [
+        "20260821T065138678Z-ae6238/001-r6a1-canyon-s1.png"
+      ],
+      "caption": "",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
