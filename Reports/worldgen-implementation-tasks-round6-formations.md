@@ -472,3 +472,91 @@ rejection rate (still dominated by `brows`) was not touched, and
 `pass_ablation`/`scripts/worldgen_sweep.sh compare` both show boulder
 counts moving only within ordinary seed-to-seed noise, no counter past
 +/-30%.
+
+
+---
+
+## Reviewer's verdict (2026-08-21) — merged, and it exposed two of my errors
+
+**All three tasks landed and merge.** Gates re-run independently: `cargo
+test` 648 + 31 passed, 0 failed; clippy clean. The one failing acceptance
+test is `#[ignore]`d with an honest reason and its doc says why it was left
+failing rather than relaxed — which is the repo's own convention, not a
+dodge.
+
+### B1 is the most valuable thing in the round, and it reverses my hypothesis
+
+I wrote that erosion *removes* formation-scale relief and told the track to
+find out whether the stable-angle rule was shaving residuals down after they
+formed. Instrumented: max prominence at reach 15 is **monotonically
+decreasing from iteration 0**, and **0 of 2048 columns** ever peaked above 15
+and later fell.
+
+So erosion never offers a residual to protect. The deficit is in the *raw
+heightfield*, before a single erosion iteration runs — which means no rate
+retune could ever have produced one, and the "hoodoos/spires fall out of the
+differential rates" promise in `worldgen-erosion-design.md` was never
+reachable from those rates. Exactly the finding B1 existed to get, and it
+saved the round from tuning constants that could not have worked.
+
+### The p90 bar was mis-specified, and that is my error
+
+The bar was *prominence p90 ≥ 20 and max ≥ 60 at reach 15 and 30*. Measured
+after: **max 73–95 (met), p90 1–2 (missed)**, and the session reported the
+miss rather than quietly hitting one of the two.
+
+**p90 was never achievable and should not have been set.** It is the 90th
+percentile over *every column in the world*, so reaching 20 requires more
+than a tenth of every world to be standing residual — which is wallpaper, and
+the opposite of the heavy-tailed weighted-small distribution the owner asked
+for. The right statistic is **p99**, and by that measure the pass works:
+reach-15 p99 moved from ~4 to **18–26**, reach-30 max from 8–10 to **69–71**
+(canyon s1/s7, verified independently). The session diagnosed the metric
+correctly and the acceptance test is left failing against the wrong number;
+**re-derive it to p99 before anyone reads that failure as a defect.**
+
+### The floating-island bug is a real find, in two places
+
+A residual seated entirely over soil converted only the *top* soil cell,
+leaving a 611-cell island that renders as solid rock and is structurally
+disconnected — caught by `every_solid_is_anchored_and_no_liquid_carries_a_
+stale_fill`, which is the landmine test CLAUDE.md §6b keeps for exactly this.
+The same bug was then found and fixed in `boulders`' socket before it could
+ship independently. Two defects that would have reached the player as rock
+that vanishes the moment anything disturbs it.
+
+### B3 met both bars, and caught my instrument lying
+
+Boulders: **visible height p50 16, max 30** over 600 seeds, against bars of 6
+and 20, and against **1–2 cells** before. The three compounding shrinks are
+gone (`height.min(width)`'s 1x clamp where 3x was allowed, and the dome's
+semi-axis being implicitly halved).
+
+`viewshot boulder=1` still prints "2 cells tall" for a seated boulder — **my
+instrument, now stale**, because it walks up from `plans[cx].surface_y` and a
+socketed boulder no longer starts there, and its height counter is capped at
+6 rows regardless. The session was right not to touch `examples/` and right
+to write `a_seated_boulder_stands_at_a_believable_height` as the uncapped
+replacement. **Reviewer to fix the print.** That is twice in one night an
+instrument of mine went stale under a change it was supposed to measure —
+`cave_probe` looking for `stone`/`crystal` after formations became their own
+materials was the first. Worth stating as a pattern: *a ruler that names a
+material or a coordinate convention breaks silently when either changes, and
+reads as "the mechanism is dead" rather than as "the ruler moved".*
+
+### What is still wrong, and it is the same thing as the caves
+
+Judged by eye on a four-shot traverse of canyon seed 7
+(`target/filmstrips/r6b_residual_canyon_s7.png`): the scale is right and the
+**shape is not**. The spires read as flat vertical slabs — straight sides,
+uniform width, flat top — rising abruptly from flat ground with no talus at
+the foot and no broken profile. The pair at the far left reads as two fence
+posts.
+
+That is the *same* failure the owner named in the caves ("all 1 pixel thick
+... should have a taper"), in a different pass, which makes it worth naming
+as a pattern rather than a bug: **this generator authors shape as extents —
+a width and a height — and an extent-shaped object is a rectangle at every
+scale.** A profile (width as a function of height, with a foot and a
+weathered crown) is what both passes are missing. Posted to the owner as a
+blind A/B; their verdict decides whether that becomes round 7's spine.
