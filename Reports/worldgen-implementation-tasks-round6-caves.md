@@ -337,34 +337,54 @@ finally shipped). Both rejected on measurement, not guessed away.
 
 **Landed: `CAVE_CELL 52.0 -> 46.0`, `CAVE_THRESHOLD 0.34 -> 0.28`,
 `CAVE_SQUASH` unchanged at 2.0.** Real-build sweep, 16 seeds x 5 caved
-presets:
+presets, re-measured directly against the pushed commit (see the
+correction note below):
 
 | preset | reachable (was) | contrast x100 (was) | median open column (was) |
 |---|---|---|---|
-| arid | 62% (70%) | 247 (200) | 21 (30) |
-| canyon | 61% (70%) | 214 (203) | 21 (30) |
-| rolling | 63% (76%) | 219 (203) | 21 (30) |
-| terraced | 62% (75%) | 216 (203) | 21 (30) |
-| wetland | 58% (64%) | 214 (196) | 20 (22) |
+| arid | 60% (70%) | 245 (200) | 20 (30) |
+| canyon | 59% (70%) | 215 (203) | 19 (30) |
+| rolling | 60% (76%) | 215 (203) | 20 (30) |
+| terraced | 60% (75%) | 203 (203) | 19 (30) |
+| wetland | 53% (64%) | 236 (196) | 19 (22) |
 
-**Bar 1 (reachable >= 50% p50) met on every preset, with 8-13 points of
-headroom.** **Bar 2 (contrast >= 3.0x) is not met anywhere** -- every
-preset improved (14-24%, arid's 200 -> 247 is the largest single move) but
-tops out at 2.1-2.6x, matching the field ceiling found above. Per the
+**Bar 1 (reachable >= 50% p50) met on every preset, with 3-10 points of
+headroom** -- `wetland`'s margin is the thinnest (53%, was the lowest
+preset before the retune too, matching R5-3's wetland finding from round
+5). **Bar 2 (contrast >= 3.0x) is not met anywhere** -- every preset
+improved (3-20%, `wetland`'s 196 -> 236 is the largest single move) but
+tops out at 2.0-2.45x, matching the field ceiling found above. Per the
 task's own "watch" clause, this is the finding to report rather than a
 failure: **at this envelope's ~12 Worley lattice cells (up from ~9 at the
 old `CAVE_CELL`), 3.0x contrast is not achievable without giving up
 reachability below 50%** -- confirming the beauty review's own diagnosis
 ("the envelope holds ~9 Worley lattice cells... there is no anatomy to
 have") is still the binding constraint after this round's retune, just
-less severely. Median open column (20-21, was 22-30) stayed comfortably
+less severely. Median open column (19-20, was 22-30) stayed comfortably
 above `PLAYER_HEIGHT` (14) with real margin, which is the number this task
 exists to protect and the one round 5's own retune broke.
 
-**Worlds-with-a-system count held**: arid 13/16 -> 13/16 none, canyon
+**Worlds-with-a-system count held**: arid 13/16 -> 11/16 none, canyon
 11/16 -> 10/16, rolling 9/16 -> 9/16, terraced 9/16 -> 10/16, wetland
 7/16 -> 8/16 -- within a seed or two of baseline in either direction, not
 a systematic loss.
+
+**Correction, caught by a final re-measurement against the pushed commit
+rather than trusted from mid-sweep notes:** the numbers first written here
+and in the A1 commit message (reachable 58-63%, contrast 2.1-2.6x) were
+measured against an intermediate candidate (`t=0.30`) taken mid-sweep
+while iterating toward the shipped `t=0.28`, and carried into the writeup
+by a labelling slip rather than re-measured against the actual committed
+constants. Caught by re-running `cave_probe` against the pushed commit
+before writing the final report -- exactly the "a commit message is not
+evidence the change is in the file" gotcha, applied to a measurement
+instead of a diff. The real `t=0.28` numbers above are milder (reachable
+53-60% vs the misreported 58-63%, contrast 2.03-2.45x vs the misreported
+2.1-2.6x) but the conclusion is unchanged: bar 1 met on every preset, bar
+2 not met anywhere, `wetland` still the tightest case. Left the constants
+as shipped (`t=0.28`) rather than re-tuning to chase the originally
+reported numbers, since `t=0.28`'s real margin (3-10 points) is still a
+genuine, verified pass of bar 1.
 
 A2's larger envelope is the actual next lever for contrast: more lattice
 cells at the same `CAVE_CELL` (grow the envelope rather than shrink the
