@@ -1444,10 +1444,28 @@ pub fn shake_target(world: &World, p: &Player, aim: (i32, i32), tuning: &Tuning)
     if p.buried {
         return None; // buried digs upward, whatever is out there
     }
-    let at = face_toward(world, p.center(), aim, tuning.shake_reach as i32);
-    let cell = world.get(at.0, at.1);
-    (cell.organism_id() != 0 && world.materials.get(cell.material).climbable).then_some(at)
+    let (cx, cy) = p.center();
+    let (dx, dy) = (aim.0 - cx, aim.1 - cy);
+    if dx * dx + dy * dy > (tuning.shake_reach as i32).pow(2) {
+        return None; // out of arm's reach: whatever it is, this is not it
+    }
+    let living = |(x, y): (i32, i32)| {
+        let cell = world.get(x, y);
+        cell.organism_id() != 0 && world.materials.get(cell.material).climbable
+    };
+    // The cursor, plus a cell or two of forgiveness — a twig is one pixel
+    // at zoom 1 and a trunk is a few, and neither should need pixel-perfect
+    // pointing. Nearest first, so a cursor between a branch and the ground
+    // takes the branch it is closest to rather than whichever the scan
+    // reached first.
+    (0..=SHAKE_SNAP)
+        .flat_map(|r| ring_offsets(r).map(move |(ox, oy)| (aim.0 + ox, aim.1 + oy)))
+        .find(|&at| world.in_bounds(at.0, at.1) && living(at))
 }
+
+/// How far from the cursor a shake will look for something to take hold
+/// of. Small: this is forgiveness for a one-pixel twig, not aim assist.
+const SHAKE_SNAP: i32 = 2;
 
 /// How much of a plant one shake reaches through — a backstop against a
 /// pathological organism, not a design knob.
@@ -1751,18 +1769,34 @@ fn face_toward(world: &World, from: (i32, i32), aim: (i32, i32), reach: i32) -> 
         let cell = (from.0 + (sx * t).round() as i32, from.1 + (sy * t).round() as i32);
         match footing(world, &Bodies::none(), cell.0, cell.1) {
             Footing::Hard => return cell,
-            // A tree stops the *aim* even though it no longer stops the
-            // body, and that split is the whole reason `Climb` is not
-            // `Free`. Movement collision and aim collision are different
-            // questions and this function only ever asked the first one;
-            // once a trunk became passable, the ray would have looked
-            // straight through it and put the dig ring on the cliff
-            // behind, with no way to point at the tree in front of you.
-            Footing::Climb => return cell,
-            // And at a formation, for the same reason plus a sharper one:
-            // the pick is aimed down this ray, so a stalagmite the ray flew
-            // through would be unminable — visible, walk-through, and
-            // impossible to remove.
+            // Living tissue is **invisible to the pick's aim**, and that
+            // is a reversal worth reading before changing it back.
+            //
+            // This returned the cell, on the argument that a tree stops the
+            // aim even though it no longer stops the body — so you could
+            // point at a trunk standing in front of a cliff. The split was
+            // right and the place was wrong: movement collision, aim
+            // collision and *cut* collision are three questions, and that
+            // merged the last two. `mine_swept` skips organism cells, so a
+            // tree the ray stopped at was a bite that did nothing — a trunk
+            // between `shake_reach` and `dig_reach` was a dead click, which
+            // `Tool::Dig`'s own doc forbids.
+            //
+            // The shake asks its own question now (`shake_target`, off the
+            // cursor rather than off a ray), so this function only has to
+            // answer the pick's: where is the nearest thing I can cut.
+            Footing::Climb => {}
+            // A formation **does** stop the aim, and the contrast with the
+            // arm above is the rule rather than an exception to it: this ray
+            // stops at whatever the pick can cut. A stalagmite is scenery he
+            // walks through, but `mine_swept` cuts it like any other rock, so
+            // a ray that flew through one would leave it visible and
+            // impossible to remove. Living tissue is the opposite case —
+            // passable *and* uncuttable — so the ray passes through it.
+            //
+            // Walk-through is therefore not what either arm keys on. If a
+            // third passable material ever arrives, ask the only question
+            // that decides this: can the pick cut it?
             Footing::Scenery => return cell,
             Footing::Soft => {
                 first_loose.get_or_insert(cell);
@@ -2776,7 +2810,7 @@ mod tests {
         use crate::sim::scheduler::ActiveKind;
         let mut world = world_with_leafy_tree();
         let before = world.active_sites_for_test().iter().filter(|s| s.kind == ActiveKind::StructuralCheck).count();
-        let target = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &Tuning::default()).expect("aimed at the tree");
+        let target = shake_target(&world, world.player.as_ref().unwrap(), (71, 80), &Tuning::default()).expect("aimed at the tree");
         shake(&mut world, target, &Tuning::default()).expect("a shake should fire");
         let after = world.active_sites_for_test().iter().filter(|s| s.kind == ActiveKind::StructuralCheck).count();
         assert_eq!(before, after, "a shake must schedule no structural check");
@@ -2793,7 +2827,7 @@ mod tests {
         let before = count(&world);
         let tuning = Tuning { shake_shed: 1.0, ..Default::default() };
         for _ in 0..40 {
-            let Some(target) = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &tuning) else {
+            let Some(target) = shake_target(&world, world.player.as_ref().unwrap(), (71, 80), &tuning) else {
                 break;
             };
             shake(&mut world, target, &tuning);
@@ -2811,7 +2845,7 @@ mod tests {
             world.set(x, 61, Cell::new(sand, 0));
         }
         let tuning = Tuning::default();
-        let target = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &tuning).expect("aimed at the tree");
+        let target = shake_target(&world, world.player.as_ref().unwrap(), (71, 80), &tuning).expect("aimed at the tree");
         let shake_result = shake(&mut world, target, &tuning).expect("a shake should fire");
         assert!(shake_result.dislodged > 0, "nothing came off the branches: {shake_result:?}");
     }
@@ -2829,7 +2863,7 @@ mod tests {
             // oscillator is at — which is the point of going through it.
             world.add_light(72, 70, 24, light);
             let tuning = Tuning { shake_shed: 1.0, ..Default::default() };
-            let target = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &tuning).expect("aimed at the tree");
+            let target = shake_target(&world, world.player.as_ref().unwrap(), (71, 80), &tuning).expect("aimed at the tree");
             shake(&mut world, target, &tuning).expect("a shake should fire").shed
         }
         let dark = shed_with(0.0);
@@ -2838,15 +2872,32 @@ mod tests {
     }
 
     #[test]
-    fn pointing_at_rock_still_digs_and_pointing_at_a_tree_shakes() {
+    fn the_shake_takes_what_you_point_at_and_nothing_else() {
         // One button, two verbs, and no dead click: `Tool::Dig`'s recorded
         // lesson is that a reach may bound where a verb lands and must
         // never decide whether it happens.
+        //
+        // **Pointing, not a ray.** This used to walk out from the gnome and
+        // take the first living thing on the line, so a cursor anywhere at
+        // all shook whatever tree happened to be in the way -- and standing
+        // inside one, that was every direction.
         let world = world_with_leafy_tree();
         let p = world.player.as_ref().unwrap();
         let tuning = Tuning::default();
-        assert!(shake_target(&world, p, (127, 87), &tuning).is_some(), "pointing at the trunk should shake");
+        assert!(shake_target(&world, p, (71, 80), &tuning).is_some(), "pointing at the trunk should shake");
         assert!(shake_target(&world, p, (64, 92), &tuning).is_none(), "pointing at the floor should dig");
+        // Past the trunk at its own height: the tree is on the line but not
+        // under the cursor, so the pick gets the click.
+        assert!(
+            shake_target(&world, p, (127, 80), &tuning).is_none(),
+            "a tree merely in the way must not steal the click"
+        );
+        // A couple of cells off the trunk still counts -- a twig is one
+        // pixel and should not need pixel-perfect pointing.
+        assert!(
+            shake_target(&world, p, (68, 80), &tuning).is_some(),
+            "just off the trunk should still take hold"
+        );
     }
 
     #[test]
@@ -2890,17 +2941,50 @@ mod tests {
     }
 
     #[test]
-    fn the_dig_aim_still_stops_at_a_tree_he_can_walk_through() {
-        // Movement collision and aim collision are different questions.
-        // Without the split, the ray looks straight through the trunk and
-        // the dig ring lands on whatever is behind it.
-        let world = world_with_tree(80, 5, 60);
-        let mut world = world;
+    fn the_pick_aims_through_a_tree_at_the_rock_behind_it() {
+        // **This replaces a test that asserted the opposite**, and the flip
+        // is the point. `face_toward` was taught to stop at living tissue
+        // so the shake could aim at a tree standing in front of a cliff --
+        // right split, wrong place. Movement collision, aim collision and
+        // *cut* collision are three questions, and that change merged the
+        // last two: the pick cannot cut an organism cell (`mine_swept`
+        // skips them), so a tree it stopped at was a bite that did nothing.
+        // A trunk between `shake_reach` and `dig_reach` was therefore a
+        // dead click, which `Tool::Dig`'s own doc forbids. The shake asks
+        // its own question now (`shake_target`), so this ray only has to
+        // answer the pick's.
+        let mut world = world_with_tree(85, 3, 60);
+        let stone = material::STONE;
+        for y in 60..88 {
+            for x in 88..96 {
+                world.set(x, y, Cell::new(stone, 0));
+            }
+        }
         world.player = Some(Player::at(60, 80));
         let p = world.player.take().expect("just placed");
-        let at = bite_point(&world, &p, (127, 80), &Tuning::default());
+        let at = bite_point(&world, &p, (127, 87), &Tuning::default());
         world.player = Some(p);
-        assert_eq!(at.0, 80, "the aim should stop at the near face of the trunk, landed at {at:?}");
+        assert_eq!(
+            world.get(at.0, at.1).material,
+            stone,
+            "the pick should reach past the trunk to the rock, landed at {at:?}"
+        );
+    }
+
+    #[test]
+    fn standing_inside_a_tree_pointing_at_rock_is_a_dig() {
+        // Reported as a green marker that would not go away; the marker was
+        // the symptom. The shake aimed with a ray *from the gnome*, so
+        // standing inside a trunk the nearest living tissue was distance 1
+        // in every direction -- the shake won the routing whatever you
+        // pointed at, and you could not dig at all in a wood.
+        let mut world = world_with_tree(60, 12, 40);
+        world.player = Some(Player::at(64, 80));
+        let p = world.player.as_ref().expect("just placed");
+        assert!(
+            shake_target(&world, p, (78, 92), &Tuning::default()).is_none(),
+            "pointing at the floor from inside a tree must still be a dig"
+        );
     }
 
     /// A pool of water in a stone basin, surface at `surface_y`.
