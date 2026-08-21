@@ -272,6 +272,18 @@ pub fn from_explosion(t: &Explosion) -> Vec<Tunable> {
         // (0.94 fades in ~90 frames, 0.99 in ~550) and a 0.05 step would
         // step straight over it -- `swim_damp`'s 0.01 for the same reason.
         Tunable::float(g, c, "afterglow_retention", t.afterglow_retention, 0.5, 1.0, 0.01),
+        // The joint fabric (F). `joint_reach` is a multiple of `radius`
+        // like `crack_reach`, and the other two are 0..1 fractions.
+        //
+        // These three are the density controls the owner's verdict on the
+        // pattern lands on -- *"I like a little of it, but there is too
+        // much"* -- so they are exactly the kind of judged-by-eye question
+        // this panel exists for. The fourth control is
+        // `stone.ron`'s `joint_spacing`, which is a material field and is
+        // already listed by `from_materials`.
+        Tunable::float(g, c, "joint_reach", t.joint_reach, 0.0, 6.0, 0.1),
+        Tunable::float(g, c, "joint_open_fraction", t.joint_open_fraction, 0.0, 1.0, 0.05),
+        Tunable::float(g, c, "joint_density", t.joint_density, 0.0, 1.0, 0.05),
     ]
 }
 
@@ -373,6 +385,9 @@ pub fn apply_explosion(t: &mut Explosion, name: &str, value: f32) {
         "confined_cavity_fraction" => t.confined_cavity_fraction = value,
         "calve_depth" => t.calve_depth = value.max(0.0).round() as u32,
         "afterglow_retention" => t.afterglow_retention = value,
+        "joint_reach" => t.joint_reach = value,
+        "joint_open_fraction" => t.joint_open_fraction = value,
+        "joint_density" => t.joint_density = value,
         _ => {}
     }
 }
@@ -616,6 +631,9 @@ mod tests {
             afterglow_retention,
             crack_glow_temperature,
             pierce_divisor,
+            joint_reach,
+            joint_open_fraction,
+            joint_density,
         );
         let listed = from_explosion(&base);
         for field in fields {

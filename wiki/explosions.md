@@ -1,25 +1,51 @@
 # Explosions
 
-*Current as of: this build (a buried charge now cracks far more rock than
-it used to, and that is the half of this page most likely to change again
-— see the note at the top of [Structural
-Collapse](structural-collapse.md); the crack star grows over time, breaks pieces
-loose along its own lines, glows like an ember and cools to nothing; also
-confinement, the crack halo, and per-material blast resistance).*
+*Current as of: this build (a blast now breaks rock along the grain the
+rock already has, rather than drawing a star of fissures across it — that
+is the newest part of this page and the half most likely to change again;
+see also the note at the top of [Structural
+Collapse](structural-collapse.md), and confinement, the crack halo and
+per-material blast resistance).*
 
-**A blast's fissures propagate.** They race outward from the crater over
-the half-second after the flash — angular, kinked lines, the way brittle
-rock actually breaks, their tips glowing dark-red as they run and cooling
-behind the front. When the star finishes, the crater's rim lets go along
-those same lines: pieces bounded by the fissures the blast just drew break
-away and tumble into the hole. Even a fully buried charge shifts a few
-pieces into its own pocket rather than only painting damage.
+**Rock has a grain, and a blast finds it.** Stone is not uniform: it is
+disposed to part along particular planes, and where those planes run is a
+fixed property of the place — the same spot cracks the same way every
+time, and a second charge on it deepens the first one's breaks instead of
+drawing new ones. What a blast does is **wake** that grain. The result is
+a web of closed, straight-sided blocks around the crater, meeting at
+three-way junctions, the way dried mud or cooled lava cracks: not a
+scribble of wandering lines, and not a star of spokes.
+
+**Near the crater the joints come open; further out they only score.**
+Close in, the rock actually parts: a thin dark seam of empty space with
+loose grit trickling out of it, so blocks that are cut free on every side
+have nowhere to hold on and come away. Further out the same joints are
+only cracked — the rock is scored and weakened but everything is still
+standing. Beyond that, nothing. There is no clean edge to the damaged
+area: some joints reach a long way out from the blast while their
+neighbours stop short, so the damage fades raggedly into intact rock
+instead of ending on a circle.
+
+**The near breakage happens with the flash; the rest spreads.** The seams
+around the crater open on the frame the charge goes off, so there is
+visible breakage *at* the bang rather than a wait. The scored halo then
+races outward over the next half-second, joint by joint, tips glowing
+dark-red as they run and cooling behind them. When it finishes, the
+crater's rim lets go along those same lines: pieces bounded by the joints
+the blast just woke break away and tumble into the hole. Even a fully
+buried charge shifts pieces into its own pocket rather than only painting
+damage.
+
+**Loose ground has no grain to wake.** Sand, soil, gravel and snow are
+already broken up, so they never show joints at all — the web stops dead
+where the stone does, which is what a bed of sand against a cliff face
+actually looks like.
 
 **The glow is an ember, not a lantern.** The scorched ring around a blast
 hugs the crater, burns deep red rather than pale orange, and fades back to
 cold rock over a couple of seconds. Once it does, the marks that remain
-are the honest ones: the crater, its rubble, and thin dark fissure lines
-threading the rock along the actual breaks.
+are the honest ones: the crater, its rubble, the open seams near it, and
+thin dark joint lines threading the rock further out.
 
 A blast doesn't happen in a single instant — the cavity expands outward
 over a brief span of time, not all at once. Right at the center, material
@@ -32,12 +58,12 @@ than perfectly swept clean.
 there's a free face nearby — open air, a cave, water — the blast bites
 toward it and throws its rubble out through the mouth. Where it's sealed
 in by solid rock, it doesn't excavate at all: it crushes a small pocket
-and spends the rest of its violence driving a star of fissures deep into
-the standing rock, the way a real confined charge does. So burying a bomb
+and spends the rest of its violence waking the joints in the standing
+rock all the way round, the way a real confined charge does. So burying a bomb
 in the middle of a mountain no longer digs an invisible chamber that
 fills itself back in — it *cracks* the mountain, visibly, and that
 cracked rock is weaker: it breaks more easily under the next blast or
-blow, and striking the same spot again drives the same fissures deeper.
+blow, and striking the same spot again drives the same joints deeper.
 Blasting in a sequence toward a face — the way real mining works — is now
 the effective way to dig with explosives.
 

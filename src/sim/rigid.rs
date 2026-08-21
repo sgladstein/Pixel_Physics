@@ -748,7 +748,13 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
 
 /// Convert one cell to its material's `breaks_into`, losing attachment —
 /// whatever comes free is no longer backed by the mass it broke out of.
-fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
+///
+/// `pub(crate)` for `explosion::JointSeams`, which opens a joint into a seam
+/// of void *and grit* and wants the same conversion, the same attachment
+/// loss and — importantly — the same `record_shattered` bookkeeping. Grit
+/// counted anywhere else would not appear in the promoted-to-shattered ratio
+/// that says whether a break has a *distribution* of sizes behind it.
+pub(crate) fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
     let cell = world.get(x, y);
     let Some(into) = world.materials.get(cell.material).breaks_into else {
         return; // no configured debris: leave it rather than deleting content

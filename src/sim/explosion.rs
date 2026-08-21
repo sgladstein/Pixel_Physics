@@ -32,6 +32,22 @@
 //!   particle lands the instant its next substep is occupied and a buried
 //!   blast is enclosed on all sides. `particle::Particle::pierce` is the
 //!   answer to that one; see its own doc.
+//!
+//! # What a blast does to rock, and why it stopped being a walked star
+//!
+//! The fracture pattern is no longer drawn. It is **read off the rock's own
+//! grain** — see `sim::fracture_field` for the field and `JointSeams` below
+//! for what a blast does with it. The short version, because three rejected
+//! contact sheets are the reason it changed: a walker that re-rolls its
+//! heading every cell cannot draw a straight segment, and a walker cannot
+//! enclose a piece except by luck. Worley domain boundaries are straight by
+//! construction and closed by construction, and that is the whole argument.
+//!
+//! `Tuning::crack_rays` still drives the old radial walker; what changed is
+//! that it defaults to **zero**, so the fabric is the shipped pattern and
+//! the walker is a knob for re-asking the question. `strike` and the chisel
+//! keep `structural::FissureWalks` untouched — their sheets are archived and
+//! their short odd-ray fans never showed the artifact.
 
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::field::FIELD_SCALE;
@@ -294,6 +310,97 @@ pub struct Tuning {
     /// already sets how much material is thrown; conflating the two would
     /// make a wide, weak blast punch as far as a narrow, violent one.
     pub pierce_divisor: f32,
+    /// How far the **joint fabric** reaches, as a multiple of `radius` —
+    /// the outer edge of the region where a blast wakes the rock's own
+    /// grain (`sim::fracture_field`, and `JointSeams` below).
+    ///
+    /// Distinct from `crack_reach`, which belongs to the radial walker and
+    /// still means what it always did. Both exist because `crack_rays` is a
+    /// hybrid knob: at its default of `0` the fabric is the whole pattern,
+    /// and at `4`-`6` a fan of walked rays rides on top of it for an A/B.
+    ///
+    /// There is **no hard cut at this radius.** It is the distance at which
+    /// the activation ramp reaches zero, and a joint activates only if its
+    /// own draw falls under the ramp — so the damaged region's edge is
+    /// ragged, with some joints reaching much further out than their
+    /// neighbours. Clipping the output at a radius instead is the mistake
+    /// that shipped the round-3 caves with a sawn-off face at their
+    /// envelope edge, diagnosed and fixed once already in this repo
+    /// (`CAVE_EDGE_FADE`).
+    #[serde(default = "default_joint_reach")]
+    pub joint_reach: f32,
+    /// The inner zone, as a fraction of `joint_reach * radius`: inside it an
+    /// activated joint **opens** into a one-cell seam of void and rubble;
+    /// outside it, out to the full reach, it is only **scored**.
+    ///
+    /// This is the knob that decides how bold the pattern is *and* what it
+    /// costs, and it is deliberately the same number for both. Opening
+    /// removes material, so if a seed sweep says the blast is eating the
+    /// world this is the first lever to reach for — the black lines in the
+    /// reference the owner asked for are carved void, and void is the only
+    /// thing that reads like that, so the trade is real and has to be made
+    /// in the open rather than hidden behind a darker crack colour.
+    ///
+    /// `0.0` scores everything and removes nothing, which is the "cracks
+    /// only" behaviour the pattern had before the fabric existed.
+    #[serde(default = "default_joint_open_fraction")]
+    pub joint_open_fraction: f32,
+    /// The height of the activation ramp at the crater wall — the fraction
+    /// of joints that wake in the thick of it.
+    ///
+    /// At `1.0` every boundary inside the crater's own radius activates and
+    /// the near rock is fully diced into closed polygons. Lower values
+    /// thin the whole pattern out evenly, which is the second density lever
+    /// after `Material::joint_spacing`: that one changes how *big* the
+    /// polygons are, this one changes how many of their edges are there at
+    /// all. Prefer the spacing when the pattern reads as too fine, and this
+    /// when it reads as too complete.
+    #[serde(default = "default_joint_density")]
+    pub joint_density: f32,
+}
+
+/// `2.4` — a radius-20 charge wakes joints out to about 48 cells, a little
+/// over twice the crater. Sized against the walker star it replaces (whose
+/// rays reached `radius * crack_reach` past `radius + 4`, so 55-ish cells at
+/// the long end) so the halo covers comparable ground: this is a change of
+/// *pattern*, not a change of how far a blast is felt.
+fn default_joint_reach() -> f32 {
+    2.4
+}
+
+/// `0.30`, and it is the number the nine-blast seed sweep chose.
+///
+/// This is the knob that pays for the look, so it was swept rather than
+/// picked. Against `d9eec7f`, over seeds 1/3/7/24301, max of the four:
+///
+/// | setting | rock destroyed | promoted cells (max / **min**) | sites at the final tile |
+/// |---|---|---|---|
+/// | baseline, no fabric | 4,136 | 4,862 / **654** | 8,643 |
+/// | `joint_spacing` 13, this at 0.45 | 10,539 | 16,266 / 11,641 | 21,577 |
+/// | `joint_spacing` 16, this at 0.45 | 9,978 | 17,467 / 10,953 | 22,448 |
+/// | **`joint_spacing` 13, this at 0.30** | **8,472** | **11,021 / 6,043** | **13,056** |
+///
+/// Two things to read out of that. **The spacing is not the cost lever** --
+/// coarsening 13 to 16 cuts the boundary length by a fifth and the material
+/// bill by a twentieth, because most of what a blast removes is not the seam
+/// cells but the blocks the seams cut free. This is the lever. And the
+/// *minimum* of the promoted column is the one that matters: 654 cells over
+/// nine charges was the "no pieces move, ever" complaint as a number, and
+/// every fabric setting clears it by an order of magnitude.
+///
+/// 0.30 also read best by eye at 60 frames after the bang -- at 0.45 the
+/// near field is opened so completely that it collapses into one dark
+/// region and the polygons stop being legible, which is losing the thing
+/// this was built for in order to be bolder.
+fn default_joint_open_fraction() -> f32 {
+    0.30
+}
+
+/// `0.9` — near-complete polygons at the crater, thinning to nothing at the
+/// reach. Not `1.0`: a handful of missing edges even in the thick of it is
+/// what stops the near field reading as a drawn tessellation.
+fn default_joint_density() -> f32 {
+    0.9
 }
 
 impl Default for Tuning {
@@ -316,7 +423,13 @@ impl Default for Tuning {
             speed_per_strength: 0.05,
             debris_jitter: 0.4,
             pierce_divisor: 12.0,
-            crack_rays: 12,
+            // **Zero, and that is the shipped pattern.** The radial walker
+            // is what the owner called a scribble three times over; the
+            // fabric replaced it rather than joining it. The knob stays
+            // reachable (4-6 gives fabric-plus-radials) so the question can
+            // be re-asked from the tuning panel without a rebuild, which is
+            // `CLAUDE.md`'s "ship a runtime selector rather than choosing".
+            crack_rays: 0,
             crack_reach: 1.5,
             crack_growth: 2,
             crack_stagger: 8.0,
@@ -325,6 +438,9 @@ impl Default for Tuning {
             calve_depth: 8,
             afterglow_retention: 0.94,
             crack_glow_temperature: 300.0,
+            joint_reach: default_joint_reach(),
+            joint_open_fraction: default_joint_open_fraction(),
+            joint_density: default_joint_density(),
         }
     }
 }
@@ -656,17 +772,42 @@ pub struct BlastReport {
     /// pixels at the zoom a contact sheet is read at. A buried blast scored
     /// **zero** bodies before this existed, which is the number to watch.
     pub calved: u32,
+    /// Joints the fabric **opened** into seams of void and rubble, on the
+    /// bang frame. See `JointSeams`.
+    ///
+    /// The "did it fire at all" counter for the joint fabric, and it needs
+    /// to be one for the reason `CLAUDE.md` keeps re-learning: a walked
+    /// crack star and a Worley boundary web are the same grey scratches at
+    /// the zoom a contact sheet is read at, and the sheet cannot say which
+    /// mechanism drew them. Sanity-checked against cases that are known to
+    /// be right -- an airburst, and a charge inside sand -- where both of
+    /// these must read exactly zero, because there is no jointed rock to
+    /// wake.
+    pub joints_opened: u32,
+    /// Joints the fabric **scored** -- severed without removing anything --
+    /// accumulating as the front travels outward. Read it once the blast
+    /// has finished, like `cells_fissured`: sampled mid-blast it is a
+    /// progress reading, not a total.
+    pub joints_scored: u32,
+    /// Joints activated in total, counted once at trigger. Deliberately not
+    /// derivable as `joints_opened + joints_scored`: those two only add up
+    /// to this once the front has finished, and the *gap* between them
+    /// mid-flight is the growth beat being visible.
+    pub joints_activated: u32,
 }
 
 impl std::fmt::Display for BlastReport {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "cleared {} cells, {} held by containment, {} fissured, {} calved, sectors open {}/{} contained {}/{}",
+            "cleared {} cells, {} held by containment, {} fissured, {} calved, joints {} activated ({} opened, {} scored), sectors open {}/{} contained {}/{}",
             self.cells_cleared,
             self.cells_held_by_containment,
             self.cells_fissured,
             self.calved,
+            self.joints_activated,
+            self.joints_opened,
+            self.joints_scored,
             self.open_sectors,
             CONFINEMENT_SECTORS,
             self.contained_sectors,
@@ -705,6 +846,12 @@ pub struct Blast {
     /// one-call version drew, only the *timing* of the writes changed. See
     /// `structural::FissureWalks`.
     fissures: Option<structural::FissureWalks>,
+    /// The joint fabric's scored halo, still spreading. `None` for the same
+    /// reason `fissures` is: nothing jointed was struck, so there is no
+    /// grain to wake and the scan is not paid for. Its *opened* half has
+    /// already happened by the time this exists -- that is at trigger, by
+    /// design (see `JointSeams`).
+    seams: Option<JointSeams>,
     /// Running totals for `Blasts::last_blast_report`. `open_sectors` and
     /// `contained_sectors` are set once at construction;
     /// `cells_cleared`/`cells_held_by_containment` accumulate as
@@ -973,6 +1120,28 @@ impl Blast {
             None
         };
 
+        // F: the joint fabric. Same `struck_solid` gate as the walker star
+        // above -- an airburst has no grain to wake -- and the same
+        // trigger-time timing, but with one deliberate difference that the
+        // owner's other complaint on that card decides: the **near** joints
+        // are opened *now*, on the bang frame, not handed to the growth
+        // front. Breakage currently arrives 7-15 seconds after the flash
+        // because it waits on a structural relaxation wavefront travelling
+        // one cell per five frames; opening the near seams at detonation
+        // puts visible breakage at the bang and leaves the slower beat to
+        // the scored halo, which is what should look like it is spreading.
+        let mut joints_opened = 0;
+        let mut joints_activated = 0;
+        let seams = if struck_solid {
+            JointSeams::wake(world, cx, cy, radius, tuning).map(|(seams, opened, activated)| {
+                joints_opened = opened;
+                joints_activated = activated;
+                seams
+            })
+        } else {
+            None
+        };
+
         Self {
             cx,
             cy,
@@ -981,6 +1150,7 @@ impl Blast {
             stage: 0,
             sector_reach,
             fissures,
+            seams,
             report: BlastReport {
                 open_sectors,
                 contained_sectors,
@@ -988,6 +1158,9 @@ impl Blast {
                 cells_held_by_containment: 0,
                 cells_fissured: 0,
                 calved: 0,
+                joints_opened,
+                joints_scored: 0,
+                joints_activated,
             },
             calved: false,
             afterglow_frames: 0,
@@ -1031,6 +1204,19 @@ impl Blast {
         } else {
             false
         };
+        // The fabric's own growth beat, and it is not optional: a pattern
+        // that arrives whole is a decal whatever its outline, which is
+        // precisely the complaint ("a graphic stamped on the stone") that
+        // the walker star was staged to answer. The *opening* happened at
+        // trigger; this is the scored halo spreading outward behind it, on
+        // the same two knobs (`crack_growth` sets the front's speed in
+        // cells per frame, `crack_stagger` how ragged its arrival is).
+        let spreading = if let Some(seams) = self.seams.as_mut() {
+            self.report.joints_scored += seams.advance(world, tuning);
+            !seams.is_done()
+        } else {
+            false
+        };
         // The second beat: the star has finished racing, so the rim it cut
         // free lets go. Deliberately gated on the *cavity* being finished
         // too, not on the star alone -- `crack_growth` set high enough
@@ -1045,7 +1231,7 @@ impl Blast {
         // `scorch` is writing the ring this would be taking back down, and
         // the two would fight over the same cells every frame.
         let cooling = self.stage >= stages && self.afterglow(world, tuning);
-        self.stage < stages || growing || cooling
+        self.stage < stages || growing || spreading || cooling
     }
 
     /// Break the crater rim off along the cracks, once, when the star is
@@ -1167,6 +1353,16 @@ impl Blast {
         // at double rate.
         if let Some(walks) = self.fissures.as_ref() {
             for (x, y) in walks.scored() {
+                if (x - self.cx).abs() > reach || (y - self.cy).abs() > reach {
+                    warm |= cool_toward_ambient(world, x, y, retention);
+                }
+            }
+        }
+        // And the fabric's, for the same reason and with the same
+        // don't-cool-twice guard: the joint halo reaches `joint_reach`
+        // blast-radii out, well past the fireball's own box.
+        if let Some(seams) = self.seams.as_ref() {
+            for &(x, y) in &seams.revealed {
                 if (x - self.cx).abs() > reach || (y - self.cy).abs() > reach {
                     warm |= cool_toward_ambient(world, x, y, retention);
                 }
@@ -1504,6 +1700,378 @@ impl Blast {
         }
     }
 }
+
+/// The joint fabric in action: what one blast does to the grain of the rock
+/// around it.
+///
+/// # The three zones, and why the near one costs material
+///
+/// One field (`fracture_field::domain`), one distance, three outcomes:
+///
+/// | zone | what happens |
+/// |---|---|
+/// | inner, out to `joint_open_fraction` of the halo | the joint **opens**: the boundary cell becomes void or rubble — a visible dark seam, and grit |
+/// | middle, out to `joint_reach * radius` | the joint is **scored**: the edge is severed, nothing is removed |
+/// | outer | nothing |
+///
+/// The opening is the half that makes the pattern read like the reference
+/// the owner pointed at, and it is not free. Those black lines in his image
+/// are **carved void** — the cave field's own thresholded passages — not
+/// darkened rock. A crack bit draws as a one-cell darkening that removes
+/// nothing, and no amount of drawing it more boldly turns it into that.
+/// Gas wedging the near joints open is the physical reading, and it buys the
+/// look at material cost only where the blast really was.
+///
+/// # Two things it deliberately does *not* do
+///
+/// **No hard radius.** A joint activates iff its own position-keyed draw
+/// falls under a ramp that decays to zero at the reach, so the damaged
+/// region has a ragged edge with some joints reaching much further out than
+/// their neighbours. Clipping at a radius instead is how the round-3 caves
+/// shipped with a 70-row sawn-off face at their envelope edge — the same
+/// artifact, diagnosed and fixed once already in this repo.
+///
+/// **No sector gating.** `clear_annulus` and `fracture_shell` both obey the
+/// confinement probe, because a contained sector must not vent. Joints are
+/// the opposite case: a *confined* charge is exactly the one whose energy
+/// goes into the grain instead of into a cavity, so a fully buried shot
+/// wakes its joints all the way round while clearing almost nothing. That
+/// asymmetry is the mechanism, not an oversight.
+#[derive(Clone, Debug)]
+struct JointSeams {
+    /// The scored halo, sorted by the distance at which the front reaches
+    /// it, and consumed from `cursor` forward. Not a set: each entry is one
+    /// edge, and an edge appears exactly once because it is owned by
+    /// exactly one of its two cells (`Cell::FLAG_CRACK_RIGHT`).
+    pending: Vec<PendingJoint>,
+    cursor: usize,
+    /// How far the fracture front has travelled, in cells. Compared against
+    /// `PendingJoint::key`, which is a distance plus a per-boundary delay.
+    front: f32,
+    /// Cells the front has actually written to, kept only so the blast's
+    /// afterglow can cool the ones it heated: the halo reaches
+    /// `joint_reach` blast-radii out, far outside the fireball's own
+    /// bounding box, so a box scan wide enough to contain it would be
+    /// almost entirely untouched rock. Same trick, same reason as
+    /// `FissureWalks::scored`.
+    revealed: Vec<(i32, i32)>,
+    /// Written into the rock a joint parts, if it is colder — the fracture
+    /// front's own incandescence, shared with the walker star so the two
+    /// halves of the hybrid knob glow alike. `0` is off.
+    glow: i16,
+}
+
+/// One severed edge waiting for the front. `down` picks which of the two
+/// edges `(x, y)` owns: its bottom edge, or its right one.
+#[derive(Clone, Copy, Debug)]
+struct PendingJoint {
+    key: f32,
+    x: i32,
+    y: i32,
+    down: bool,
+}
+
+impl JointSeams {
+    /// Wake the fabric around a charge: open the near joints **now**, and
+    /// queue the far ones for the growth front.
+    ///
+    /// Returns `None` when nothing in reach is jointed at all — an airburst,
+    /// a charge inside a sand pile, a shot into soil. That is the case the
+    /// counters are sanity-checked against (`CLAUDE.md`: check what a metric
+    /// says when nothing is wrong), and it must read zero rather than
+    /// something small.
+    ///
+    /// Otherwise `(seams, joints opened, joints activated)`.
+    fn wake(world: &mut World, cx: i32, cy: i32, radius: i32, tuning: &Tuning) -> Option<(Self, u32, u32)> {
+        let crater = radius.max(1) as f32;
+        let reach = (crater * tuning.joint_reach).max(crater + 1.0);
+        // The opened zone is measured **from the crater wall outward**, not
+        // from the epicentre. Measured from the centre it would be swallowed
+        // whole by the hole on an open surface shot -- the crater clears
+        // that ground anyway -- and the bold near seams would only ever
+        // appear on buried charges. As a fraction of the halo it means the
+        // same thing to both: the inner part of whatever rock is left
+        // standing comes apart, and the rest is scored.
+        let open_fraction = tuning.joint_open_fraction.clamp(0.0, 1.0);
+        // `0.0` is a **hard off**, not the bottom of the ramp, and the
+        // difference is not cosmetic: the zone is measured from the crater
+        // wall *outward*, so the smallest positive setting still opens every
+        // joint inside the nominal radius -- which for a contained charge is
+        // rock that is standing there and would be removed. Its doc says
+        // "scores everything and removes nothing", and this is what makes
+        // that true. Caught by `debris_is_thrown_away_from_the_epicentre`,
+        // which sets it to zero to take the fabric's removals out of a scene
+        // whose pressure gradient it is reading, and still saw them.
+        let open_to = if open_fraction <= 0.0 { f32::NEG_INFINITY } else { crater + (reach - crater) * open_fraction };
+        let density = tuning.joint_density.clamp(0.0, 1.0);
+
+        // The domain map for the box, computed once. A cell's domain costs
+        // nine hashes, and the edge test needs both cells' domains, so
+        // caching halves the work outright -- and the box is scanned once
+        // per blast, at trigger, never per frame.
+        let r = reach.ceil() as i32;
+        let (x0, y0) = (cx - r, cy - r);
+        // One extra row and column: the last cell in the box still has to
+        // be able to ask about the neighbour it owns an edge with.
+        let (w, h) = ((2 * r + 2) as usize, (2 * r + 2) as usize);
+        let idx = |x: i32, y: i32| ((y - y0) as usize) * w + (x - x0) as usize;
+        // `(domain, pitch)`. The pitch travels with the domain because it is
+        // per material: two different jointed materials meeting have
+        // *different lattices*, and comparing a domain from one against a
+        // domain from the other would be comparing lattice coordinates that
+        // do not mean the same thing.
+        let mut map: Vec<Option<((i32, i32), f32)>> = vec![None; w * h];
+        let mut any = false;
+        for y in y0..(y0 + h as i32) {
+            for x in x0..(x0 + w as i32) {
+                let (dx, dy) = (x - cx, y - cy);
+                // A cell just outside the reach still has to be mapped: the
+                // edge it shares with the last cell *inside* is a real
+                // boundary and would otherwise read as "no domain".
+                if ((dx * dx + dy * dy) as f32) > (reach + 1.0) * (reach + 1.0) {
+                    continue;
+                }
+                if !world.in_bounds(x, y) {
+                    continue;
+                }
+                let cell = world.get(x, y);
+                if !structural::is_body_material(world, cell.material) {
+                    continue;
+                }
+                // The hot-path gate, at the call site that already holds the
+                // `Cell`: a `Vec` index on the resolved `Material`, never an
+                // `id_of("stone")` string hash in a loop. Sand, soil, gravel
+                // and snow leave this at `0.0` and are skipped here.
+                let pitch = world.materials.get(cell.material).joint_spacing;
+                if pitch <= 0.0 {
+                    continue;
+                }
+                map[idx(x, y)] = Some((super::fracture_field::domain(world.seed, x, y, pitch), pitch));
+                any = true;
+            }
+        }
+        if !any {
+            return None;
+        }
+
+        let glow = tuning.crack_glow_temperature.clamp(0.0, i16::MAX as f32) as i16;
+        let mut seams = Self { pending: Vec::new(), cursor: 0, front: 0.0, revealed: Vec::new(), glow };
+        let mut opened = 0;
+        let mut activated = 0;
+        let mut to_open: Vec<(i32, i32)> = Vec::new();
+
+        for y in y0..(y0 + h as i32 - 1) {
+            for x in x0..(x0 + w as i32 - 1) {
+                let Some((home, pitch)) = map[idx(x, y)] else { continue };
+                let (dx, dy) = (x - cx, y - cy);
+                let d = ((dx * dx + dy * dy) as f32).sqrt();
+                if d > reach {
+                    continue;
+                }
+                // The activation ramp: flat at `joint_density` out to the
+                // crater wall, then linear to zero at the reach. Flat rather
+                // than falling from the epicentre because the near field has
+                // to come apart into *closed* polygons -- half the boundary
+                // of a cell is not a cell, it is a scribble again -- and
+                // linear rather than clipped for the ragged edge.
+                let t = ((d - crater) / (reach - crater)).clamp(0.0, 1.0);
+                let ramp = density * (1.0 - t);
+                for down in [false, true] {
+                    let (nx, ny) = if down { (x, y + 1) } else { (x + 1, y) };
+                    let Some((other, other_pitch)) = map[idx(nx, ny)] else { continue };
+                    // Different lattices never share a joint: the web stops
+                    // where the rock type does, which is what a bed of sand
+                    // against a cliff actually looks like.
+                    if other_pitch != pitch || other == home {
+                        continue;
+                    }
+                    // The severing rule, in one line and with no threshold:
+                    // an edge is a joint iff its two cells sit in different
+                    // domains. That set is *exactly* the boundary of each
+                    // domain on the 4-connected grid, so a domain whose
+                    // boundary is fully severed is enclosed by construction
+                    // -- which is the entire reason to prefer this to more
+                    // walker work. See `fracture_field`'s module doc.
+                    if super::fracture_field::joint_draw(world.seed, home, other) >= ramp {
+                        continue;
+                    }
+                    activated += 1;
+                    if d <= open_to {
+                        to_open.push((x, y));
+                    } else {
+                        // `distance + delay` order, one slice per frame.
+                        // The delay is per *boundary*, not per edge, so a
+                        // whole straight segment races outward as one line
+                        // instead of arriving in a dashed scatter.
+                        let delay = super::fracture_field::joint_delay(world.seed, home, other);
+                        seams.pending.push(PendingJoint { key: d + delay * tuning.crack_stagger.max(0.0), x, y, down });
+                    }
+                }
+            }
+        }
+
+        // Opened last, in one pass, and that ordering matters: opening
+        // *removes* cells, and a removed cell has no domain, so interleaving
+        // it with the scan above would have later edges consulting a map
+        // that no longer describes the world. Deduplicated, because a cell
+        // that owns two activated joints is still one cell.
+        let mut uniq = to_open.clone();
+        uniq.sort_unstable();
+        uniq.dedup();
+        let mut done: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+        for (x, y) in uniq {
+            if open_seam(world, x, y) {
+                done.insert((x, y));
+            }
+        }
+        // Counted in **edges**, not in cells removed, so that
+        // `opened + scored == activated` once the front has finished and the
+        // three numbers can be read against each other. A cell that owns two
+        // activated joints is removed once and counts twice, which is right:
+        // two joints did open there. How much material went is the census's
+        // question, and the census answers it.
+        opened += to_open.iter().filter(|c| done.contains(c)).count() as u32;
+
+        // A total order, with the position as the tiebreak: determinism is
+        // required (`PLAN.md`), and two joints at the same key would
+        // otherwise reveal in whatever order the scan happened to push them.
+        seams.pending.sort_by(|a, b| {
+            a.key.partial_cmp(&b.key).unwrap_or(std::cmp::Ordering::Equal).then((a.y, a.x, a.down).cmp(&(b.y, b.x, b.down)))
+        });
+        Some((seams, opened, activated))
+    }
+
+    /// Advance the front by one frame and sever everything it has reached.
+    /// Returns how many joints were newly scored.
+    fn advance(&mut self, world: &mut World, tuning: &Tuning) -> u32 {
+        if self.is_done() {
+            return 0;
+        }
+        // `crack_growth` is "steps per frame" for a walker; here it is the
+        // same thing measured in cells of front travel, so the two halves of
+        // the hybrid knob spread at the same speed and one number still
+        // means "how fast does fracture race outward". Clamped to at least
+        // one for the reason it is clamped there: `0` would freeze the
+        // pattern half-drawn and keep the blast alive forever.
+        self.front += tuning.crack_growth.max(1) as f32;
+        let mut scored = 0;
+        while self.cursor < self.pending.len() && self.pending[self.cursor].key <= self.front {
+            let j = self.pending[self.cursor];
+            self.cursor += 1;
+            if sever(world, j.x, j.y, j.down, self.glow, &mut self.revealed) {
+                scored += 1;
+            }
+        }
+        scored
+    }
+
+    fn is_done(&self) -> bool {
+        self.cursor >= self.pending.len()
+    }
+}
+
+/// Sever one edge: the crack bit, the glow, and the two pieces of
+/// bookkeeping without which a fissure is decoration.
+///
+/// Returns whether this was *fresh* damage — a cell whose bit was already
+/// set and which this only reheated is not new, the same meaning
+/// `FissureWalks` gives `cells_fissured`.
+///
+/// **Only the one edge, and no mirror write.** The walker has to score both
+/// perpendicular edges of every cell it visits, because a line drawn through
+/// cells leaves the visited cell joined to the rock on the far side of the
+/// line and a 4-connected flood threads straight out through the gap. A
+/// domain boundary is not a line drawn through cells: it *is* the edge set,
+/// it already contains every edge that separates the two domains, and adding
+/// the perpendicular ones would cut into the polygons it is supposed to
+/// enclose.
+fn sever(world: &mut World, x: i32, y: i32, down: bool, glow: i16, revealed: &mut Vec<(i32, i32)>) -> bool {
+    let cell = world.get(x, y);
+    if !structural::is_body_material(world, cell.material) {
+        return false; // the rock moved on since the scan; nothing left to part
+    }
+    let mut scored = if down { cell.with_crack_down(true) } else { cell.with_crack_right(true) };
+    let fresh = scored != cell;
+    // Never cools a cell that is already hotter -- the same one-way rule
+    // `scorch` and the walker both use, for the same reason: two overlapping
+    // blasts, or a joint opening through something on fire.
+    if glow > 0 && scored.temperature() < glow {
+        scored.set_temperature(glow);
+        revealed.push((x, y));
+    }
+    if scored != cell {
+        world.set(x, y, scored);
+    }
+    // A fissure is where rock has parted company with the mass behind the
+    // slice, so both sides stop claiming to be braced by it, and both get
+    // re-evaluated. Done whether or not the bit was already set: a repeat
+    // charge has to re-loosen rock it has already scored, or the second shot
+    // throws nothing.
+    let (nx, ny) = if down { (x, y + 1) } else { (x + 1, y) };
+    for (ax, ay) in [(x, y), (nx, ny)] {
+        structural::detach_around_crack(world, ax, ay);
+        world.schedule_structural_check_around(ax, ay);
+    }
+    fresh
+}
+
+/// Open one joint into a seam: the boundary cell becomes void, or grit.
+///
+/// **One cell wide, always.** The seam follows the boundary on the side of
+/// the cell that *owns* the edge, so a run of boundary edges removes a run
+/// of single cells. The reference's thickness comes from the lines being
+/// void rather than from their being fat, and a two-cell seam eats the world
+/// for no extra legibility.
+///
+/// Mostly void, some rubble. The void is what reads: a seam that is merely
+/// darker is the crack bit again, which is the thing this exists to get past.
+/// The rubble is the other half of the owner's brief — *"a few blocks, more
+/// cobbles, a lot of grit"* — and it is real grit, converted through
+/// `rigid::shatter_to_rubble` so it lands in the same `record_shattered`
+/// census as every other kind, and so it falls, trickles down the seam and
+/// piles up the way loose material in an open joint does.
+fn open_seam(world: &mut World, x: i32, y: i32) -> bool {
+    let cell = world.get(x, y);
+    if !structural::is_body_material(world, cell.material) {
+        return false;
+    }
+    // Position-keyed, never `world.rng`: geometry that drew from the world
+    // stream would put a blast into the replay draw order and stop a repeat
+    // charge from retracing its own seams. `JITTER_AXIS_OFFSET` reused as an
+    // arbitrary fixed decorrelating offset, so this draw is not the same
+    // number some other position-keyed choice at this cell already took.
+    if rng::jitter(x + JITTER_AXIS_OFFSET, y) < SEAM_VOID_FRACTION {
+        world.set(x, y, Cell::EMPTY);
+        world.schedule_structural_check_around(x, y);
+        // The loudest possible version of "this rock has been broken": what
+        // the seam exposes stops being part of the mass behind it, so the
+        // polygons it cuts out can actually come down. Without this every
+        // joint in attached terrain would be a decoration, which is exactly
+        // what the crack bits were before `detach_around_crack` existed.
+        structural::detach_exposed_neighbours(world, x, y);
+    } else {
+        super::rigid::shatter_to_rubble(world, x, y);
+    }
+    true
+}
+
+/// What fraction of an opened seam cell is removed outright rather than
+/// turned to grit.
+///
+/// Void-dominant, and picked by eye rather than measured: the seam has to
+/// read as a **black line** at play zoom, and rubble is a mid-grey powder
+/// that draws as more rock, so a seam made mostly of it would be the crack
+/// bit again in a costlier form. Two thirds was not swept against a half or
+/// a quarter -- if the seams ever read as too bold or too faint, this is
+/// the first thing to try, and it is cheap to sweep.
+///
+/// The remaining third is not decoration. Grit is the small end of *"a few
+/// blocks, more cobbles, a lot of grit"*, and the nine-blast sweep at
+/// `d9eec7f` put promoted cells against shattered ones at roughly 1.6-1.9:1
+/// per seed (1,785:1,086, 654:991, 4,862:2,542, 2,710:1,507) -- so the
+/// engine was not short of grit in the ratio, it was short of *both*, which
+/// is what the promoted-cells minimum of 654 across nine charges says.
+const SEAM_VOID_FRACTION: f32 = 0.66;
 
 /// Take one cell a fraction of the way back to ambient, and say whether it
 /// is still warm afterwards.
@@ -2465,12 +3033,21 @@ mod tests {
     /// Paired against `crack_glow_temperature: 0`, and with the fireball
     /// turned off in both, so the only thing that can put heat on a cracked
     /// cell is the walker.
+    ///
+    /// **`crack_rays` is set explicitly**, because the default went to `0`
+    /// when the joint fabric replaced the radial star as the shipped
+    /// pattern. Without it this test measured a mechanism that no longer
+    /// runs by default and failed — which is the honest failure and the
+    /// reason it is spelled out here rather than deleted: the walker is
+    /// still reachable through the hybrid knob, so its glow is still a
+    /// contract. The fabric's own glow has its own test below
+    /// (`the_joint_front_glows_as_it_spreads`).
     #[test]
     fn the_crack_tips_glow_as_they_run() {
         let hot_cracked_cells = |glow: f32| {
             let mut w = buried_stone();
             let mut particles = ParticleSystem::new();
-            let tuning = Tuning { flash_temperature: 0.0, crack_glow_temperature: glow, ..Tuning::default() };
+            let tuning = Tuning { flash_temperature: 0.0, crack_glow_temperature: glow, crack_rays: 12, ..Tuning::default() };
             let mut blasts = Blasts::with_tuning(tuning);
             blasts.trigger_with(&mut w, &mut particles, 64, 64, 20, 180.0);
             // Mid-growth: the star is still extending, so the tips are the
@@ -2489,6 +3066,243 @@ mod tests {
 
         assert_eq!(hot_cracked_cells(0.0), 0, "crack_glow_temperature 0 still heated the rock it cracked");
         assert!(hot_cracked_cells(300.0) > 0, "the crack tips never lit up");
+    }
+
+
+    // ---- The joint fabric (F) --------------------------------------------
+
+    /// **Did it fire at all.** Not a look at a sheet: a walked crack star
+    /// and a Worley boundary web draw the same grey scratches at the zoom a
+    /// contact sheet is read at, and `CLAUDE.md` records a whole feature
+    /// that had never once executed while its sheet was being read as proof
+    /// it had.
+    ///
+    /// Also the arithmetic the three counters promise: once the front has
+    /// finished, `opened + scored == activated`.
+    #[test]
+    fn a_blast_wakes_the_joint_fabric_and_the_counters_add_up() {
+        let mut w = buried_stone();
+        let (_frames, _peak, report) = run_staged(&mut w, Tuning::default(), 64, 64, 20, 600);
+        assert!(report.joints_activated > 100, "only {} joints activated in solid stone", report.joints_activated);
+        assert!(report.joints_opened > 0, "no joint opened -- the seams are the half that reads as void");
+        assert!(report.joints_scored > 0, "no joint was scored -- the halo never spread past the opened zone");
+        assert_eq!(
+            report.joints_opened + report.joints_scored,
+            report.joints_activated,
+            "the fabric's three counters disagree once the front has finished"
+        );
+    }
+
+    /// What the counters say when nothing is wrong — the sanity check
+    /// `CLAUDE.md` asks for *before* a new metric is trusted about the case
+    /// it was written for. Three situations with no jointed rock in reach
+    /// must read exactly zero, not something small.
+    #[test]
+    fn nothing_jointed_in_reach_wakes_no_joints() {
+        // An airburst: nothing but air within the whole halo.
+        let mut air = test_world();
+        let mut particles = ParticleSystem::new();
+        let mut blasts = Blasts::new();
+        blasts.trigger_with(&mut air, &mut particles, 64, 40, 20, 180.0);
+        assert_eq!(blasts.last_blast_report().joints_activated, 0, "an airburst woke joints");
+
+        // A charge inside loose material. Sand has no `joint_spacing`, and
+        // that is the *content* gate this is here to prove: no id test in
+        // the code says "stone", so a material that never asked for joints
+        // must never get them.
+        let mut sand = test_world();
+        for y in 10..118 {
+            for x in 10..118 {
+                sand.set(x, y, Cell::new(material::SAND, 0));
+            }
+        }
+        let mut blasts = Blasts::new();
+        blasts.trigger_with(&mut sand, &mut particles, 64, 64, 20, 180.0);
+        assert_eq!(blasts.last_blast_report().joints_activated, 0, "a charge in sand woke joints");
+
+        // And the knob's own off position, in rock that would otherwise
+        // wake hundreds: a `joint_spacing` of 0 is "not jointed".
+        let mut stone = buried_stone();
+        let id = stone.materials.id_of("stone").expect("stone exists");
+        stone.materials.get_mut(id).joint_spacing = 0.0;
+        let (_f, _p, report) = run_staged(&mut stone, Tuning::default(), 64, 64, 20, 600);
+        assert_eq!(report.joints_activated, 0, "joint_spacing 0 still woke joints");
+    }
+
+    /// **Breakage arrives at the bang.** The owner's second complaint on the
+    /// same card was that it turns up 7-15 seconds late, which it did:
+    /// nothing moved until the structural relaxation wavefront got there at
+    /// one cell per five frames.
+    ///
+    /// A paired comparison rather than a bar (`CLAUDE.md`: compare two runs,
+    /// not one run against a remembered number) — the same charge with the
+    /// opening stood down is the control, and the only difference between
+    /// the two runs is the mechanism under test.
+    #[test]
+    fn the_near_joints_open_on_the_bang_frame() {
+        let rock_after_one_frame = |open_fraction: f32| -> usize {
+            let mut w = buried_stone();
+            let mut particles = ParticleSystem::new();
+            let tuning = Tuning { joint_open_fraction: open_fraction, ..Tuning::default() };
+            let mut blasts = Blasts::with_tuning(tuning);
+            // `trigger_with` runs `Blast::new` *and* the first `advance`, so
+            // this is the state of the world on the frame of the flash --
+            // no relaxation, no failure pass, no falling.
+            blasts.trigger_with(&mut w, &mut particles, 64, 64, 20, 180.0);
+            (10..118)
+                .flat_map(|y| (10..118).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material == material::STONE)
+                .count()
+        };
+        let scored_only = rock_after_one_frame(0.0);
+        let opened = rock_after_one_frame(Tuning::default().joint_open_fraction);
+        assert!(
+            scored_only > opened + 100,
+            "opening the near joints took only {} extra cells on the bang frame ({scored_only} standing against {opened}) -- the seams are not arriving with the flash",
+            scored_only - opened
+        );
+    }
+
+    /// The fabric's fracture front is incandescent while it spreads, the
+    /// same way the walker's tip is — `the_crack_tips_glow_as_they_run`'s
+    /// sibling, for the mechanism that now ships by default.
+    ///
+    /// Sampled *mid-spread* on purpose: the afterglow takes this heat away
+    /// again, so an end-state check would read zero on a working front.
+    #[test]
+    fn the_joint_front_glows_as_it_spreads() {
+        let hot_cracked_cells = |glow: f32| {
+            let mut w = buried_stone();
+            let mut particles = ParticleSystem::new();
+            let tuning = Tuning { flash_temperature: 0.0, crack_glow_temperature: glow, ..Tuning::default() };
+            let mut blasts = Blasts::with_tuning(tuning);
+            blasts.trigger_with(&mut w, &mut particles, 64, 64, 20, 180.0);
+            for _ in 0..30 {
+                blasts.step(&mut w, &mut particles);
+            }
+            (10..118)
+                .flat_map(|y| (10..118).map(move |x| (x, y)))
+                .filter(|&(x, y)| {
+                    let c = w.get(x, y);
+                    c.cracked() && c.temperature() > AMBIENT_TEMPERATURE
+                })
+                .count()
+        };
+        assert_eq!(hot_cracked_cells(0.0), 0, "crack_glow_temperature 0 still heated the rock the fabric parted");
+        assert!(hot_cracked_cells(300.0) > 0, "the joint front never lit up");
+    }
+
+    /// The growth beat, and it is not optional: a pattern that arrives whole
+    /// is *"a graphic stamped on the stone"*, which is a complaint this
+    /// engine has already answered once and must not walk back into.
+    ///
+    /// Asserted as a trajectory — scored joints strictly increasing across
+    /// the spread, and finished inside a budget — rather than as two
+    /// instants, so it survives a retune of the reach.
+    #[test]
+    fn the_scored_halo_spreads_over_frames_rather_than_arriving_whole() {
+        let mut w = buried_stone();
+        let mut particles = ParticleSystem::new();
+        let mut blasts = Blasts::new();
+        blasts.trigger_with(&mut w, &mut particles, 64, 64, 20, 180.0);
+        let at_trigger = blasts.last_blast_report().joints_scored;
+        for _ in 0..6 {
+            blasts.step(&mut w, &mut particles);
+        }
+        let early = blasts.last_blast_report().joints_scored;
+        let mut frames = 6;
+        while !blasts.is_empty() && frames < 600 {
+            blasts.step(&mut w, &mut particles);
+            frames += 1;
+        }
+        let done = blasts.last_blast_report().joints_scored;
+        assert_eq!(at_trigger, 0, "the scored halo was already {at_trigger} joints deep on the bang frame -- it is a stamp");
+        assert!(early < done, "the halo did not spread: {early} scored at frame 6, {done} at the end");
+        assert!(frames < 200, "the halo was still spreading at frame {frames} -- it has to finish inside a few seconds");
+    }
+
+    /// Same rock, same grain. A repeat charge on the same spot has to
+    /// retrace and deepen its own joints rather than draw a new pattern, and
+    /// that is only true if nothing here draws from `world.rng` — which
+    /// would put the blast into the replay draw order.
+    #[test]
+    fn the_same_charge_wakes_the_same_joints_every_time() {
+        let run = || {
+            let mut w = buried_stone();
+            let (_f, _p, report) = run_staged(&mut w, Tuning::default(), 64, 64, 20, 600);
+            let cracked: Vec<(i32, i32)> = (10..118)
+                .flat_map(|y| (10..118).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).cracked())
+                .collect();
+            (report.joints_activated, report.joints_opened, cracked)
+        };
+        let a = run();
+        let b = run();
+        assert_eq!(a.0, b.0, "two identical charges activated different numbers of joints");
+        assert_eq!(a.1, b.1, "two identical charges opened different numbers of joints");
+        assert_eq!(a.2, b.2, "two identical charges cut different rock");
+    }
+
+    /// **Both drivers**, because the app runs the parallel one and behaviour
+    /// only the player sees is behaviour only `parallel::step` produces.
+    ///
+    /// The fabric itself is written by the blast rather than by the sweep,
+    /// so what is actually at risk here is everything *downstream*: the
+    /// structural checks the seams schedule, the pieces that promote, the
+    /// grit that falls. Both drivers must move rock, and neither may run
+    /// away with it.
+    #[test]
+    fn both_drivers_break_rock_along_the_woken_joints() {
+        let settle = |parallel: bool| -> (u32, u32) {
+            let mut w = buried_stone();
+            let mut particles = ParticleSystem::new();
+            let mut blasts = Blasts::new();
+            blasts.trigger_with(&mut w, &mut particles, 64, 64, 20, 180.0);
+            for _ in 0..400 {
+                if !blasts.is_empty() {
+                    blasts.step(&mut w, &mut particles);
+                }
+                if parallel {
+                    crate::sim::parallel::step(&mut w);
+                } else {
+                    crate::sim::update::step(&mut w);
+                }
+            }
+            (w.structural_failures.promoted_cells, w.structural_failures.shattered_cells)
+        };
+        let (serial_promoted, serial_grit) = settle(false);
+        let (par_promoted, par_grit) = settle(true);
+        assert!(serial_promoted > 0, "the serial driver promoted nothing -- no piece ever moved");
+        assert!(par_promoted > 0, "the parallel driver promoted nothing -- no piece ever moved");
+        // Grit is the other half of "a few blocks, more cobbles, a lot of
+        // grit": the seams convert part of what they open rather than
+        // deleting all of it, so a run with no shattered cells at all means
+        // the rubble half of `open_seam` stopped happening.
+        assert!(serial_grit > 0 && par_grit > 0, "no grit at all: serial {serial_grit}, parallel {par_grit}");
+        // Not equality: the two drivers legitimately differ in *order*
+        // (`FissureWalks`' own doc says so for the walker, and the same
+        // applies to which piece falls first). What must hold is that
+        // neither takes the mountain apart while the other does not.
+        let (lo, hi) = (serial_promoted.min(par_promoted), serial_promoted.max(par_promoted));
+        assert!(hi < lo * 4 + 200, "the drivers disagree wildly: serial {serial_promoted} cells promoted, parallel {par_promoted}");
+    }
+
+    /// The hybrid knob still works in both positions. `crack_rays` defaults
+    /// to `0` — pure fabric — but the walker is deliberately left reachable
+    /// so the A/B can be re-run from the tuning panel without a rebuild, and
+    /// a knob nobody can move is not a knob.
+    #[test]
+    fn the_hybrid_knob_puts_the_radial_walker_back() {
+        let fissured = |rays: u32| {
+            let mut w = buried_stone();
+            let (_f, _p, report) = run_staged(&mut w, Tuning { crack_rays: rays, ..Tuning::default() }, 64, 64, 20, 600);
+            (report.cells_fissured, report.joints_activated)
+        };
+        let (none, fabric_off_rays) = fissured(0);
+        let (some, fabric_on_rays) = fissured(6);
+        assert_eq!(none, 0, "crack_rays 0 still walked {none} cells of radial fissure");
+        assert!(some > 0, "crack_rays 6 walked nothing");
+        assert!(fabric_off_rays > 0 && fabric_on_rays > 0, "the fabric must run in both positions of the hybrid knob");
     }
 
     /// R2's material term, the other direction from the test above (§7c(ii)):
@@ -2576,9 +3390,18 @@ mod tests {
         }
         let mut particles = ParticleSystem::new();
         let radius = 8;
-        trigger(&mut w, &mut particles, 40, 40, radius, 200.0);
+        // **The joint fabric's opening is turned off, and nothing else is.**
+        // It legitimately removes stone in exactly this annulus -- that is
+        // the whole of `JointSeams`' inner zone -- so leaving it on would
+        // make this test fail for a mechanism it is not about, which is
+        // `CLAUDE.md`'s "a scene that contradicts the code will look like a
+        // bug in the code" from the other side. The shockwave itself, and
+        // the `Powder`-only rule this asserts, are untouched: scoring still
+        // happens, the fabric still runs, only the removal is stood down.
+        let tuning = Tuning { joint_open_fraction: 0.0, ..Tuning::default() };
+        trigger_tuned(&mut w, &mut particles, 40, 40, radius, 200.0, &tuning);
 
-        let shockwave_radius = (radius as f32 * tuning().shockwave_multiplier).round() as i32;
+        let shockwave_radius = (radius as f32 * tuning.shockwave_multiplier).round() as i32;
         let untouched_beyond_crater = ((40 - shockwave_radius)..=(40 + shockwave_radius))
             .flat_map(|y| ((40 - shockwave_radius)..=(40 + shockwave_radius)).map(move |x| (x, y)))
             .filter(|&(x, y)| {
@@ -2631,7 +3454,19 @@ mod tests {
             }
         }
         let mut particles = ParticleSystem::new();
-        trigger(&mut w, &mut particles, 40, 40, 8, 200.0);
+        // Fabric opening off, and only that -- see
+        // `the_shockwave_does_not_uproot_solid_material_beyond_the_crater`
+        // for the same scoping and the same reason. `debris_velocity` reads
+        // the *pressure gradient*, which is a function of what is standing
+        // where; seams opened before the first stage put voids inside a
+        // 20x20 test block and tilt that gradient. Measured with them on,
+        // the worst particle in this scene grazed to cos -0.209 against a
+        // -0.2 tolerance that already exists for grazes -- a scene change,
+        // not the sign error this test is here to catch, and widening the
+        // tolerance to absorb it would have blunted the only thing it
+        // measures.
+        let tuning = Tuning { joint_open_fraction: 0.0, ..Tuning::default() };
+        trigger_tuned(&mut w, &mut particles, 40, 40, 8, 200.0, &tuning);
 
         // For every fast-moving particle, its velocity should point broadly
         // away from (40, 40), not toward it — checked via the cosine of the

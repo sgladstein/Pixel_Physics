@@ -107,6 +107,14 @@ fn build(args: &Args) -> World {
     if let Some(reach) = args.chain_reach {
         w.chain_reach = reach;
     }
+    // Before the scene is built, like the three above: `scene=worldgen`
+    // cuts caves during construction, and a material property has to be in
+    // force for that as much as for the run.
+    if let Some(spacing) = args.joint_spacing {
+        if let Some(stone) = w.materials.id_of("stone") {
+            w.materials.get_mut(stone).joint_spacing = spacing.max(0.0);
+        }
+    }
     let floor_y = HEIGHT - FLOOR_THICKNESS;
     match args.scene.as_str() {
         // A large body released against the left wall, spreading right across
@@ -1283,6 +1291,27 @@ struct Args {
     /// failure may happen, in cells. Unset means no limit, the shipped
     /// behaviour. `0` is "only what you struck ever fails".
     chain_reach: Option<i32>,
+    /// `joints=<spacing>` -- override stone's `Material::joint_spacing`, the
+    /// pitch of the joint fabric (`sim::fracture_field`), in cells.
+    ///
+    /// It exists because the alternative is a rebuild per sweep point: the
+    /// `.ron` files are `include_str!`d into the binary, so editing
+    /// `stone.ron` and re-running a prebuilt harness produces bit-identical
+    /// "runs" -- which `CLAUDE.md` records as having produced three of them
+    /// before anyone noticed the knob was not connected. With this, the
+    /// density A/B is one binary and one flag, and *differing* output across
+    /// settings is itself the proof the knob reaches the mechanism.
+    ///
+    /// `0` turns jointing off entirely, which is the control.
+    joint_spacing: Option<f32>,
+    /// `jreach=`, `jopen=`, `jdensity=` -- the three `explosion::Tuning`
+    /// knobs of the same mechanism, for the same no-rebuild reason.
+    joint_reach: Option<f32>,
+    joint_open: Option<f32>,
+    joint_density: Option<f32>,
+    /// `crack_rays=` -- the hybrid knob. `0` (the default) is pure fabric;
+    /// 4-6 puts the old radial walker back on top of it for an A/B.
+    crack_rays: Option<u32>,
 
 }
 
@@ -1326,6 +1355,11 @@ fn parse() -> Args {
         confine: true,
         arch: true,
         chain_reach: None,
+        joint_spacing: None,
+        joint_reach: None,
+        joint_open: None,
+        joint_density: None,
+        crack_rays: None,
         wall: 3,
         dig: 3,
         strike: 0,
@@ -1406,6 +1440,11 @@ fn parse() -> Args {
             "confine" => a.confine = v != "0" && v != "false",
             "arch" => a.arch = v != "0" && v != "false",
             "chain_reach" => a.chain_reach = Some(v.parse().expect("chain_reach")),
+            "joints" => a.joint_spacing = Some(v.parse().expect("joints=<spacing in cells>")),
+            "jreach" => a.joint_reach = Some(v.parse().expect("jreach")),
+            "jopen" => a.joint_open = Some(v.parse().expect("jopen")),
+            "jdensity" => a.joint_density = Some(v.parse().expect("jdensity")),
+            "crack_rays" => a.crack_rays = Some(v.parse().expect("crack_rays")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
             "loadmap" => a.loadmap = v != "false",
@@ -2238,6 +2277,18 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     let mut pending_depowder = args.depowder;
     let mut depowder_first = true;
     let mut blasts = explosion::Blasts::new();
+    if let Some(v) = args.joint_reach {
+        blasts.tuning.joint_reach = v;
+    }
+    if let Some(v) = args.joint_open {
+        blasts.tuning.joint_open_fraction = v;
+    }
+    if let Some(v) = args.joint_density {
+        blasts.tuning.joint_density = v;
+    }
+    if let Some(v) = args.crack_rays {
+        blasts.tuning.crack_rays = v;
+    }
     let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield);
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 

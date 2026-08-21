@@ -1012,3 +1012,100 @@ and both want a counter next to the image before anyone touches them.
    "random flashes" seen over several day/night cycles and has nothing to do
    with the charge. Nothing to fix; recorded so it is not investigated a
    second time.
+
+## 15. The joint fabric — the pattern stops being drawn and starts being read
+
+Three sheets in a row came back rejected on the same axis, in escalating
+terms: *"thin criss-cross wiggly crack patterns — looks like a graphic, not
+physics"*, then *"it shouldn't look like a scribble"*, then — after a blind
+A/B of two tunings of the walker, **both** of which he declined — *"I thought
+we were going to match the Voronoi type pattern from my worldgen example
+image."* On that same card: *"The voronoi pattern is too much. I like a
+little of it, but there is too much."* So: right *kind*, wrong *density*.
+
+### 15a. Why it could not be a tuning
+
+Two properties of the reference are out of `structural::FissureWalks`' reach
+by construction, and no setting of `CRACK_WANDER` gets to either.
+
+- **Straight edges.** The wander is 0.9 rad *per cell*. A heading re-rolled
+  every cell cannot draw a straight segment; the scribble is the walker's
+  statistic, not its tuning.
+- **Closed cells.** A walker encloses a piece only by luck, and four rounds
+  of work went into improving that luck (decomposed diagonals, both
+  perpendicular edges, the mirror write). The measured table in
+  `FissureWalks` says the best of those still escaped in three of four
+  builds before the last two landed together.
+
+`sim::fracture_field` replaces both with one rule: **an edge is a joint iff
+its two cells lie in different Worley domains.** That set is *exactly* the
+boundary of each domain on the 4-connected grid, and support is 4-connected
+everywhere (`NEIGHBOURS_4` in `structural.rs`, `rigid::take_fragment`), so a
+domain whose boundary is severed is enclosed — watertight, not lucky. Worley
+boundaries are straight by construction. It is an **identity comparison, not
+a threshold on `f2 - f1`**: a threshold has width, and width is what leaked
+and needed lateral patching in the cave work.
+
+### 15b. What a blast does with it
+
+Three zones off one distance (`explosion::JointSeams`): the inner one
+**opens** a joint into a one-cell seam of void and grit, the middle one
+**scores** it, the outer does nothing. Activation is `joint_draw(pair) <
+ramp(distance)` with the ramp flat to the crater wall and linear to zero at
+`joint_reach * radius` — no hard cut anywhere, so the damaged region's edge
+is ragged and some joints reach much further out than their neighbours.
+
+**The draw is keyed on the pair of domains, not on the edge**, and that is
+the difference between a craquelure and a dotted line: one number per
+boundary means a joint is either a full straight segment or absent, and
+comparing it against a falling ramp draws each boundary *from the blast
+outward until the ramp drops under its own draw*. That is where "some cracks
+short and near, some reaching further" comes from — geometry, not a length
+distribution.
+
+Opening happens **at trigger**, which also answers the other complaint on
+that card (breakage arriving 7–15 seconds late, because it waited on a
+relaxation wavefront moving one cell per five frames). The scored halo keeps
+the growth beat, on the same `crack_growth` / `crack_stagger` knobs.
+
+### 15c. The sweep, and which knob is the cost lever
+
+Nine charges into a generated rolling world, seeds 1/3/7/24301, max over the
+four (`scripts/blastsweep.sh`). Baseline is `d9eec7f`, re-measured in the
+same session on the same machine and matching its recorded figures exactly.
+
+| setting | cells lost | rock destroyed | promoted max / **min** | sites, final tile |
+|---|---|---|---|---|
+| baseline (walker star) | 2,801 | 4,136 | 4,862 / **654** | 8,643 |
+| spacing 13, open 0.45 | 5,245 | 10,539 | 16,266 / 11,641 | 21,577 |
+| spacing 16, open 0.45 | 5,454 | 9,978 | 17,467 / 10,953 | 22,448 |
+| **spacing 13, open 0.30** | **4,695** | **8,472** | **11,021 / 6,043** | **13,056** |
+| spacing 16, open 0.30 | 4,860 | 7,941 | 14,437 / 10,181 | 23,576 |
+
+**`joint_spacing` is not the cost lever, and that was not obvious.**
+Coarsening 13 → 16 cuts total boundary length by a fifth and the material
+bill by a twentieth, because most of what a blast removes is not the seam
+cells themselves but the blocks the seams cut free — bigger polygons, same
+mass. `joint_open_fraction` is the lever: 0.45 → 0.30 takes rock destroyed
+down 20% and the still-busy site count down 40%.
+
+Read the **minimum** of the promoted column, not the max. 654 cells over
+nine charges is *"no pieces move, ever"* expressed as a number; every fabric
+setting clears it by an order of magnitude, and the bodies count went 77 →
+559 on seed 1.
+
+Cracked cells in the world went **down**, 6,185 → 3,368 on seed 1: the
+fabric leaves less ink on the rock than the walker did, which is the
+"sparser" half of the brief as a number rather than an opinion.
+
+### 15d. Open, and deliberately not fixed here
+
+**Four of the 36 sweep charges wake no joints at all**, all of them with
+16/16 open sectors. The gate is `probe_confinement`'s `struck_solid`, shared
+with the walker — a shallow charge on a slope whose every probe ray vents to
+air before crossing a `Solid` cell reads as "no rock to crack". It is
+pre-existing (those same charges scored zero fissures at `d9eec7f`), and the
+obvious fix — let `JointSeams::wake` decide, since it already returns `None`
+when nothing in reach is jointed — makes an *airburst* dice the ground under
+it at full ramp, which is worse. It wants a distance term on the charge's own
+standoff, not a gate flip.

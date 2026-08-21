@@ -574,6 +574,27 @@ pub struct MaterialDef {
     #[serde(default = "default_fragment_rungs")]
     pub fragment_rungs: u32,
 
+    /// The pitch of this material's **joint fabric**, in world cells — the
+    /// characteristic width of the block it comes apart into. `0.0` (the
+    /// default) means *not jointed*, and nothing about
+    /// `sim::fracture_field` ever touches it.
+    ///
+    /// Jointing is a property of brittle rock: it has bedding planes and
+    /// cooling joints, and a blast finds them. Sand, soil, gravel and snow
+    /// have no such planes — they are already the fragments — so they stay
+    /// at `0.0` and a blast moves them the way it always did.
+    ///
+    /// This is read **at the call site that already holds the `Cell`**, as a
+    /// `Vec` index on the resolved `Material`, never by matching a name in a
+    /// loop (`CLAUDE.md`'s hot-path rule). It is what makes "which materials
+    /// get joints" a content question rather than a hardcoded id test.
+    ///
+    /// Smaller is finer. The worldgen cave field that the pattern was
+    /// modelled on used 22 for a whole-world network; a blast wants a good
+    /// deal smaller, because the fabric has to read as *several* polygons
+    /// across a halo only a few blast-radii wide.
+    #[serde(default)]
+    pub joint_spacing: f32,
 
     /// What one step of `max_unsupported_span` costs, per direction the
     /// support comes *from*: standing on the cell below, leaning on the one
@@ -753,6 +774,9 @@ pub struct Material {
     pub attached_span_bonus: u16,
     /// See `MaterialDef::fragment_rungs`. Always >= 1.
     pub fragment_rungs: u32,
+    /// See `MaterialDef::joint_spacing`. `0.0` means not jointed; never
+    /// negative, and never small enough to divide the world into slivers.
+    pub joint_spacing: f32,
     /// See `MaterialDef::support_cost_below` and its siblings.
     pub support_cost_below: u16,
     pub support_cost_beside: u16,
@@ -1011,6 +1035,11 @@ impl From<MaterialDef> for Material {
             // At least one rung, or the ladder has no rungs to draw from
             // and `Rng::below(0)` is meaningless.
             fragment_rungs: def.fragment_rungs.max(1),
+            // Clamped rather than asserted: this is content, and a
+            // hand-edited `.ron` must not be able to panic the simulation.
+            // A negative or sub-cell pitch is meaningless, so both read as
+            // "not jointed" -- the same treatment `0.0` gets by default.
+            joint_spacing: if def.joint_spacing >= 1.0 { def.joint_spacing } else { 0.0 },
             // Clamped to at least 1 so a lateral or upward step always costs
             // *something*. All three at 0 would let a distance propagate
             // arbitrarily far without ever growing, silently disabling
@@ -1176,6 +1205,7 @@ impl MaterialRegistry {
             blast_resistance: default_blast_resistance(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
+            joint_spacing: 0.0,
             support_cost_below: 1,
             support_cost_beside: 1,
             support_cost_above: 1,
@@ -1216,6 +1246,7 @@ impl MaterialRegistry {
             blast_resistance: default_blast_resistance(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
+            joint_spacing: 0.0,
             support_cost_below: 1,
             support_cost_beside: 1,
             support_cost_above: 1,
