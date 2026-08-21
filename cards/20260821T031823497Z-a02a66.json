@@ -1,0 +1,41 @@
+{
+  "id": "20260821T031823497Z-a02a66",
+  "created": "2026-08-21T03:18:23Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/game-world-gen-planning-h12713",
+    "commit": "1d80f0e",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The grey blocks: which half of your complaint is this?",
+  "question": "In your screenshot you said 'large uniform gray blocks with blurry light coming off'. Is the block itself — this rectangular silhouette, flat-toned, hard corners — the thing that looks bad, or were you only objecting to the light? If it is the block, is it the shape or the flatness?",
+  "context_md": "Your complaint could mean two things and the fixes are unrelated, so I would rather ask than spend the detour on the wrong one.\n\nThis is canyon seed 1 at 8x. The formation left-of-centre on the floor is a speleothem. **It is flowstone, not crystal — it emits nothing.** Only ~15% of formations are crystal; the rest are pale cap-rock stone that merely sits inside another crystal's halo, which is likely why they read as though they are glowing.\n\n**What I already know about its shape, so you do not need to tell me:** the widening rule writes at most **2 columns**, with a single secondary column at 3/5 the height. So the silhouette is a rectangle, or a rectangle with one step. There is no taper. Round 5 (running now) raises formation heights substantially — median 3, to a heavy tail reaching 25+ — and a taller rectangle is a worse rectangle, so I expect this to get *more* objectionable before it gets better unless the taper is fixed in the same round.\n\n**What I am unsure of and want your eye on:** whether the flat tone is also part of it. Flowstone uses four palette tones spanning 154-192 luma, which at cave depth compresses to roughly a 10-unit spread — present, but possibly invisible. If you say the flatness bothers you, that is a different fix from the silhouette and I will treat them separately.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "canyon s1, 8x",
+      "files": [
+        "20260821T031823497Z-a02a66/000-glow_close.png"
+      ],
+      "caption": "flowstone speleothem on the cave floor; the pale wash is a nearby crystal's halo",
+      "meta": {
+        "formation max width (columns)": 2,
+        "secondary column height": "3/5 of primary",
+        "crystal share of formations": "15%",
+        "flowstone palette luma range": "154-192",
+        "visible formations per system (measured)": 17
+      }
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}

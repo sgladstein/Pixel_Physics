@@ -1,0 +1,51 @@
+{
+  "id": "20260821T031746334Z-56937a",
+  "created": "2026-08-21T03:17:46Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/game-world-gen-planning-h12713",
+    "commit": "1d80f0e",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Deep rock grain, graded down with depth",
+  "question": "Does one of these read as rock rather than television static — or are they close enough that this change is not worth having?",
+  "context_md": "You ruled 'just make the change' on grading the per-pixel grain down at depth, on my claim that `JITTER_STRENGTH 0.12` was the loudest thing in every cave render. **The change is real but my claim was wrong, and the numbers are why I want your eye on it rather than my word.**\n\nGrain now fades from full strength at the skyline to a third of it over the same 64-row ramp the depth light uses — the same pure function of (x, y, horizon[x]), so the dirty-rect skip is untouched.\n\n**What I measured after.** Setting the floor to *zero* — grain entirely off at depth — barely moved the picture, which is how I caught the wrong attribution. Apportioned with mean-absolute-deviation from the 3x3 neighbourhood mean (so smooth gradients score ~0):\n\n| | luma MAD | chroma MAD |\n|---|---|---|\n| current | 3.017 | 1.374 |\n| graded to 1/3 (pane B) | 2.325 | — |\n| grain OFF entirely | 2.090 | 1.301 |\n\nSo this change removes **23% of the luma speckle and almost none of the chroma**. The rest is `palette_family` drawing a *per-cell* coin flip between neutral grey and warm sandstone — ~40 brightness points and a big hue shift apart, pixel by pixel. That is open bug 0b, it is in `passes.rs` where round 5 is live, and it is scheduled for round 6.\n\n**So the honest question is whether a 23% cut is visible at all to you**, given the bigger cause is still in. If these two panes look the same, say so — I would rather revert it than carry a change that buys nothing.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - current",
+      "files": [
+        "20260821T031746334Z-56937a/000-zoom-canyon-s1.png"
+      ],
+      "caption": "grain at full strength everywhere",
+      "meta": {
+        "luma MAD (deep rock crop)": 3.017,
+        "chroma MAD": 1.374,
+        "worst render frame ms": 0.003
+      }
+    },
+    {
+      "label": "B - graded to 1/3 at depth",
+      "files": [
+        "20260821T031746334Z-56937a/001-grain_after_canyon_s1.png"
+      ],
+      "caption": "fades over the depth-light ramp",
+      "meta": {
+        "luma MAD (deep rock crop)": 2.325,
+        "chroma MAD": "~1.3, unchanged",
+        "worst render frame ms": 0.003
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}

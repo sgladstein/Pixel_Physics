@@ -1,0 +1,53 @@
+{
+  "id": "20260821T031728014Z-6c3cb7",
+  "created": "2026-08-21T03:17:28Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/game-world-gen-planning-h12713",
+    "commit": "1d80f0e",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Crystal glow: a core, and the square halo it exposes",
+  "question": "Which reads as a light source in rock? And in the one you pick, is the rectangular patch of lit rock around it something you want me to spend frame budget fixing?",
+  "context_md": "Your report: cave lights look like large uniform grey blocks with blurry light coming off them. Two separate causes, and this card is only the first.\n\n**Cause 1 — no core.** The renderer read a glowing cell's brightness out of the light *field*, so a crystal was lit by its own diffused halo: a value averaged over the 8x8 field cell it occupies one sixty-fourth of, then dimmed by depth and night along with the rock. The one thing emitting was no brighter than the wall it lit. One of these panes composites emitters back toward their own unlit palette colour. Costs one Vec index and a branch; render skip still measures 0.003 ms.\n\n**What I want you to look at second.** Fixing the core made a defect *more* visible, and I would rather you saw it than have me quietly ship it: the lit patch of rock around the vug is a **rectangle** with hard vertical edges, wider on one side. That is `FIELD_SCALE = 8` — light lives at one value per 8x8 cells and is bilinearly smoothed, so the halo cannot be smaller than ~8 cells, its gradient is smeared over ~16, and it aligns to the field lattice rather than to the crystal. A brilliant point with a square halo may look worse to you than a dull point with a square halo. Say so if it does.\n\n**Not in this card:** the big grey blocks in your screenshot are mostly *flowstone*, not crystal — only ~15% of formations are crystal and flowstone does not emit at all. That is a separate finding and a separate card.\n\n**A near-miss worth knowing:** my first A/B of this change showed no difference, because the cave I rendered contained no crystal. The scene here is the rolling seed 7 geode vug, whose entire lining is crystal by construction.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - current",
+      "files": [
+        "20260821T031728014Z-6c3cb7/000-glow_before_vug.png"
+      ],
+      "caption": "emitter lit from the field like any other cell",
+      "meta": {
+        "FIELD_SCALE (cells per light value)": 8,
+        "crystal Material::glow": 1.8,
+        "worst render frame ms": 0.003,
+        "cargo test": "655 passed 0 failed"
+      }
+    },
+    {
+      "label": "B - emissive core",
+      "files": [
+        "20260821T031728014Z-6c3cb7/001-glow_core_vug.png"
+      ],
+      "caption": "emitter restored toward its own palette colour",
+      "meta": {
+        "FIELD_SCALE (cells per light value)": 8,
+        "crystal Material::glow": 1.8,
+        "worst render frame ms": 0.003,
+        "cargo test": "655 passed 0 failed"
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
