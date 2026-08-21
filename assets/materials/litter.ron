@@ -1,0 +1,90 @@
+// Shed foliage on the ground: what a leaf becomes when a plant drops it,
+// instead of the `Cell::EMPTY` the three abscission sites used to write.
+// WP-B2, `Reports/plant-implementation-plan.md`; owner call 3 in
+// `plant-evolution-design.md` — **one material, landed once, written by the
+// plant side and consumed by the creature side later.** It is deliberately
+// not `deadwood` (that is a snapped *branch*, dense and slow-burning) and
+// not `ash` (that is what fire leaves, and it is mineral).
+//
+// **This material is inert as landed: nothing decays it yet.** See the
+// blocking note at the bottom — that is a decision for the owner, not a
+// default for an implementer to pick.
+//
+// The creature branch's S3 will extend this with the edibility fields
+// (`food_energy` and friends). Named here in a comment rather than added as
+// dead data, on the same reasoning as `design-philosophy.md`'s line on
+// speculative parameters: the plant side has no use for them, and a field
+// nothing reads is a field nobody maintains.
+(
+    name: "litter",
+    display: "Leaf litter",
+    kind: Powder,
+    // **Lighter than water (1.0), unlike every other powder here** — ash is
+    // 1.1, deadwood 0.7, soil and sand heavier still. Shed leaves float and
+    // raft on a pond surface rather than sinking to the bottom, which is
+    // both what real litter does and what makes a wooded pond read as
+    // wooded. It also means litter does *not* displace soil downward when
+    // it lands on it, so a forest floor accumulates a layer on top instead
+    // of stirring the profile underneath.
+    density: 0.3,
+    // High for a powder — sand is 34, ash 22. Leaf litter mats: it
+    // interlocks and holds a steep face instead of slumping flat, so a
+    // drift piles up against a trunk rather than running out to a level
+    // sheet. This is the difference between "there is litter under that
+    // tree" and "there is a uniform brown line across the world".
+    friction_angle: 42.0,
+    // Browns and faded olives — leaves that have left the tree. Kept
+    // deliberately close in value so a litter layer reads as *texture* on
+    // the ground rather than as a second canopy lying down; the greens are
+    // gone, which is what says "shed" at a glance.
+    colors: [
+        (104, 82, 48),
+        (118, 94, 56),
+        (88, 70, 40),
+        (126, 106, 68),
+        (96, 88, 52),
+        (110, 100, 62),
+    ],
+    // Between `leaf` (0.75, burns out in 40) and `deadwood` (0.35, 300).
+    // Dry litter is the fuel that actually carries a ground fire, and it
+    // burns out fast — this is the layer that lets a fire cross open ground
+    // between two stands, which is the whole point of having it as a
+    // material rather than deleting the leaf.
+    flammability: 0.6,
+    burn_temperature: 500.0,
+    burn_duration: 60,
+    burns_into: "ash",
+    // Mandatory for anything fire can heat — see `ash.ron`'s note on why a
+    // material with no conductivity keeps its chunk awake forever holding
+    // heat it cannot shed.
+    heat_conductivity: 0.15,
+    // **No `breaks_into`.** Litter is already the broken-down form; there is
+    // nothing smaller for it to become, and pointing it at itself would make
+    // a fragment loop. The plan asks for exactly this.
+    //
+    // ------------------------------------------------------------------
+    // **BLOCKED, and not with a placeholder: litter has no way to decay.**
+    //
+    // The plan called for "decays to soil on the ash decay schedule (copy
+    // ash's transformation pattern; if ash has no reusable hook, say so and
+    // stop rather than inventing one)". There *is* a hook —
+    // `ActiveKind::Decay`, dispatched to `decay::tick` — but it is welded to
+    // ash by identity (`if world.get(x, y).material != ash_id { return }`)
+    // and hardcoded to produce soil, and there is no `decays_into` field on
+    // `Material` at all. Generalising it is a small change.
+    //
+    // That is not the blocker. The blocker is that **a decay site is a
+    // coordinate and nothing makes it follow its cell.**
+    // `CellSurface::move_cell` copies the cell and its flags and touches no
+    // scheduler state, and `decay::tick` *unschedules* on a material
+    // mismatch — which is what "the cell fell out of this coordinate" looks
+    // like. Litter is shed in a canopy and falls to the ground every single
+    // time, so every litter cell would strand its own decay site in mid-air
+    // and the forest floor would accumulate litter that never drains.
+    // `decay::tests::ash_that_falls_before_its_first_check_still_decays` is
+    // the reproduction, `#[ignore]`d because it fails.
+    //
+    // Emitting litter with no decay would be shipping a known leak, so the
+    // three abscission sites are NOT switched over in this commit.
+    // ------------------------------------------------------------------
+)

@@ -172,6 +172,21 @@ architecture moved under both.
 
 ## WP-B2 — Litter (Session F, after WP-B1)
 
+> **STATUS 2026-08-21: item 1 landed, item 2 BLOCKED, awaiting an owner
+> decision.** `assets/materials/litter.ron` exists and is embedded. The three
+> abscission sites are deliberately *not* switched over: a decay site is a
+> bare coordinate and nothing makes it follow its cell, so every litter cell
+> — shed in a canopy, falling to the ground every time — would strand its own
+> decay site in mid-air and the forest floor would accumulate litter that
+> never drains. Proven paired, not read off the source:
+> `decay::tests::ash_that_falls_before_its_first_check_still_decays`.
+> Full write-up and four rejected candidate fixes in
+> `Reports/open-bugs-handoff.md` §0. **The frame-cost and edible-cell
+> measurements in the acceptance below are not runnable until this is
+> decided** — nothing emits litter, so both would measure zero and mean
+> nothing.
+
+
 **Spec** (call 3, signed off: one material, landed once, plant side
 writes it; the creature branch consumes it later):
 

@@ -106,6 +106,33 @@ mod tests {
         }
     }
 
+    /// `run` with a real physics driver in front of it, in `App::update`'s
+    /// own order. Every other test in this module uses `run`, which drives
+    /// no driver at all -- so nothing in them can fall, and a scheduled
+    /// site can never be stranded by its cell moving out from under it.
+    /// Anything asking a question about a cell that *moves* has to use
+    /// this one.
+    fn run_with_physics(w: &mut World, frames: usize) {
+        for _ in 0..frames {
+            crate::sim::update::step(w);
+            w.step_active_sites();
+            field::step(w);
+        }
+    }
+
+    fn count(w: &World, id: crate::sim::material::MaterialId) -> usize {
+        let b = w.bounds().unwrap();
+        let mut n = 0;
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                if w.get(x, y).material == id {
+                    n += 1;
+                }
+            }
+        }
+        n
+    }
+
     #[test]
     fn damp_ash_decays_into_soil_but_dry_ash_does_not() {
         let mut w = test_world();
@@ -189,6 +216,81 @@ mod tests {
             m == moss || m == wood
         });
         assert!(reseeded, "no ash cell near any puddle's edge reseeded plant growth in twenty thousand frames");
+    }
+
+    /// **A decay site is a coordinate, and nothing makes it follow its
+    /// cell.** `CellSurface::move_cell` copies the cell and its flags and
+    /// touches no scheduler state, and `tick` above *unschedules* on a
+    /// material mismatch (the "burned into something else, erased, buried"
+    /// arm) -- which is also what a cell simply having fallen out of the
+    /// coordinate looks like. So any ash that moves before its first check
+    /// comes due, 200 frames later, is immortal.
+    ///
+    /// Every other test in this module hides this, and hides it the way
+    /// CLAUDE.md warns about: their `run` drives `field::step` and
+    /// `scheduler::step` and **no physics driver at all**, so their ash is
+    /// on a platform that cannot fall because nothing in the test can make
+    /// anything fall. They pass because the scenario is trivially stable,
+    /// which looks exactly like passing because the code is correct.
+    ///
+    /// Found while scoping WP-B2 (litter), which this blocks outright:
+    /// litter is shed in a canopy and falls to the ground every single
+    /// time, so *all* of it would strand and the ground would accumulate
+    /// litter that never drains. The live consequence for ash is narrower
+    /// but real -- fire makes ash where the fuel was, the fuel below it has
+    /// just burned away, so ash usually falls too, and M16's own "a forest
+    /// burns and regrows" criterion is only half-working.
+    ///
+    /// Ignored, not deleted: it asserts the behaviour that is *wanted* and
+    /// fails today. Un-ignore it with the fix.
+    #[test]
+    #[ignore = "live bug: a decay site does not follow its cell -- see the doc comment"]
+    fn ash_that_falls_before_its_first_check_still_decays() {
+        let mut w = test_world();
+        let ash = material::ASH;
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+
+        // A walled basin, flooded, so both arms end up damp on the same
+        // floor -- a paired comparison that cancels everything except
+        // whether the cell moved.
+        for x in 10..=31 {
+            w.set(x, 110, Cell::new(material::STONE, 0));
+        }
+        for y in 100..=109 {
+            w.set(10, y, Cell::new(material::STONE, 0));
+            w.set(31, y, Cell::new(material::STONE, 0));
+        }
+        for y in 103..=109 {
+            for x in 11..=30 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+
+        // Control: wedged between two stone blocks on the floor, so it
+        // physically cannot move and its site cannot strand.
+        w.set(12, 109, Cell::new(material::STONE, 0));
+        w.set(14, 109, Cell::new(material::STONE, 0));
+        w.set(13, 109, Cell::new(ash, 0));
+        w.schedule_active_site(ActiveSite { x: 13, y: 109, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
+
+        // The arm under test: identical in every way except that it is
+        // released above the waterline and falls to the same floor. Its
+        // site is scheduled where it was *created*, which is exactly what
+        // `fire::tick_burn` does for a real burnout.
+        w.set(25, 100, Cell::new(ash, 0));
+        w.schedule_active_site(ActiveSite { x: 25, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
+
+        run_with_physics(&mut w, 20_000);
+
+        assert_eq!(
+            w.get(13, 109).material, soil,
+            "the wedged control never decayed -- the scene is wrong, not the mechanism",
+        );
+        assert_eq!(
+            count(&w, ash), 0,
+            "ash that fell before its first decay check is still ash after 20,000 frames: \
+             its decay site stranded at the coordinate it was created in",
+        );
     }
 
     #[test]

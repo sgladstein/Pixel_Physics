@@ -1017,6 +1017,15 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/leaf.ron"),
     include_str!("../../assets/materials/rootwood.ron"),
     include_str!("../../assets/materials/seed.ron"),
+    // Embedded although **nothing writes it yet** -- the three abscission
+    // sites that should are blocked on the decay strand (`litter.ron`'s own
+    // closing note, and `decay::tests::
+    // ash_that_falls_before_its_first_check_still_decays`). Listed here
+    // rather than left out because a material that is not in this list does
+    // not exist to any headless harness (the P-7 lesson: only the app's F5
+    // reload reads the directory), so leaving it out would mean the switch-
+    // over lands *and* silently does nothing.
+    include_str!("../../assets/materials/litter.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

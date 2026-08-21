@@ -11,6 +11,62 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
+### 0. A decay site does not follow its cell, so anything that falls never decays
+
+**Reproduction:** `decay::tests::ash_that_falls_before_its_first_check_still_decays`,
+`#[ignore]`d because it fails. Paired, and the pairing is what makes it
+credible: two ash cells, same flooded basin, same floor, same damp. One is
+wedged between stone blocks so it cannot move and **decays to soil as
+intended**; the other is released six rows up, falls to the same floor, and
+is **still ash after 20,000 frames**.
+
+**Cause, and it is two lines apart.** A scheduled `ActiveKind::Decay` site is
+a bare coordinate. `CellSurface::move_cell` (`surface.rs`) copies the cell and
+its flags and touches no scheduler state, so a cell that moves leaves its site
+behind. `decay::tick` then finds a different material at the coordinate and
+takes its "burned into something else, erased, buried" arm — which returns an
+empty `Vec`, i.e. **unschedules**. That arm is correct for the cases it names
+and wrong for the case it cannot distinguish: the cell simply having fallen.
+
+**Why no existing test caught it.** Every other test in `decay.rs` drives
+`field::step` and `scheduler::step` and *no physics driver at all*, so nothing
+in any of them can fall. They pass because the scenario is trivially stable —
+CLAUDE.md's own "a test can pass because the code under it is dead" in its
+other costume. The new test adds `update::step`.
+
+**Live consequence today (ash):** fire produces ash exactly where the fuel
+was, and the fuel *below* it has just burned away, so ash usually falls. Its
+first check is 200 frames later (`DECAY_TICK_INTERVAL`), long after it lands.
+So M16's "a forest burns and regrows" criterion is half-working, and the ash
+that stays is the ash that happened not to move.
+
+**What it blocks:** WP-B2 (litter) outright. Litter is shed in a canopy and
+falls to the ground *every* time, so 100% of it would strand. The material
+(`assets/materials/litter.ron`) is landed and embedded but **nothing writes
+it**, and the three abscission sites are deliberately not switched over —
+emitting litter with no drain is shipping a known leak. See that file's
+closing note.
+
+**Not fixed here, because the cheap-looking fixes are each wrong in a
+different way** and picking one is a design call, not an implementer's
+default:
+
+| candidate | why it is not obviously right |
+|---|---|
+| Re-schedule from `move_cell` | It is described in its own comments as the hottest path in the engine, and already pays a registry lookup grudgingly. A scheduler write per powder move is a frame cost, and WP-B2's own acceptance carries a hard ~1 ms settled-frame budget. |
+| Have `tick` search for the cell | Bounded scan, fragile, and wrong the moment two litter cells swap which one it finds. |
+| Per-cell age in `aux` | The real fix in spirit, but `aux` carries two opposite conventions already (`CLAUDE.md`'s first gotcha) and a third reader is how that gotcha gets a fourth entry. |
+| Schedule on settle | Wants a "powder came to rest" hook that does not exist. |
+
+A fifth option, and the one that makes `litter.ron` work with no hot-path
+cost, is to stop scheduling per cell at all and sweep for decayable material
+on a slow cadence — but that trades a per-cell schedule for a periodic scan,
+which is exactly the kind of cost this repo measures before adopting.
+
+**Also noted while here:** `decay::tick` is welded to ash by identity and
+hardcoded to produce soil, and `Material` has no `decays_into` field. That
+generalisation is small and is *not* the blocker; the strand is.
+
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a
