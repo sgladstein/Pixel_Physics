@@ -116,7 +116,35 @@ zero and only per-pixel departure counts. Check it against a region you
 know is clean before trusting it about one you don't.
 
 
-### 0c. Cave light is quantised to 8-cell squares (render)
+### 0c. Cave light is quantised to 8-cell squares (render) — **FIXED**
+
+> **Fixed 2026-08-21** by the near-field glow term this entry asks for, in
+> `render.rs`'s `rebuild_near_glow`/`near_glow_at`. Every cell with
+> `Material::glow > 0` splats a squared-linear falloff over
+> `NEAR_GLOW_RADIUS` (14 cells) into a per-chunk, per-cell buffer;
+> `glow_at` returns `coarse.max(near)`, gated on the coarse field being
+> non-zero so the term inherits the field's blocking rather than shining
+> through rock. Shipped behind `GlowShape` (`'` in the app,
+> `glow=field|near` in `viewshot`) with the **new** behaviour as default,
+> since this was a reported bug rather than an open question of taste.
+>
+> The cost trigger took a correction worth keeping: keying the rebuild on
+> `glow_unsettled` rebuilt on every draw (9 in 9, measured), because the
+> day/night cycle means a tile with any sky in it never settles. The splat
+> depends on world cells only, so the trigger is `touched`.
+> `a_settled_glow_does_not_rebuild_its_halo_every_frame` guards it.
+>
+> **Residual, deliberately not chased:** beyond the radius the coarse
+> field's own blocks are still faintly legible on a large halo. They are
+> much dimmer there; growing the radius until they leave the screen would
+> cost the whole point of a *short*-range term.
+>
+> Note for 0b, which is still open: with the light blocks gone, what is
+> left to look at in a cave is the palette static. The two were named
+> together and only one of them is done.
+
+The original entry, kept because the diagnosis is the load-bearing part:
+
 
 `FIELD_SCALE = 8`: the light channel holds one value per 8x8 cells and
 `field_at_bilinear` smooths between those. So a glow's smallest possible
