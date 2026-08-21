@@ -332,6 +332,33 @@ the run and a worst frame of 122 ms. A molten core sealed inside its own
 crust has no path to lose heat, which is arguably right and is certainly
 expensive: a large enough lava body is a permanent tax on the frame.
 
+### 1e. One cell in a lava pour is still left hanging, and the route is unknown
+
+`filmstrip scene=lavapour` settles at **one** stone cell at (303,250),
+alone in open air, from frame 1,200 to the end of the run. Down from 31
+(and `scene=lavadrop` from 23 to none), after the two causes below were
+found and fixed:
+
+- `region_has_free_face` read `EMPTY` and a lighter `Liquid` and said no to
+  every `Gas`, so a quench cell in its own steam was recorded as a confined
+  `Unsupported` failure — which the caller answers by leaving the cell
+  standing and rescheduling nothing.
+- `is_resting_on_ground` roots a chain on a `Powder` beneath, and the grain
+  can leave without scheduling anything. See `GROUNDED_RECHECK_INTERVAL`.
+
+The survivor is **the same shape and a third route**: `filmstrip`'s
+`poke=303,250,1200` drops it on the next check, which proves it is a cell
+nothing ever asked again rather than a cell asked and refused. What
+scheduled — or failed to schedule — its last check is not known.
+
+Worth chasing only if the count comes back up. One pixel in a 400-frame
+pour is below what anyone can see, and the tools to find it are now in the
+tree: the `hanging` census prints cluster positions and what each cluster
+touches, `poke=` separates "never asked" from "asked and refused", and a
+temporary `PP_TRACE=x,y` `eprintln!` in `structural::tick` (what found both
+causes above) prints every tick, verdict and confinement decision for one
+cell.
+
 ### 2. Sand-into-water displacement
 
 Unchanged from the previous handoff and still the design gap it was.

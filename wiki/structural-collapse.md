@@ -1,7 +1,8 @@
 # Structural Collapse
 
 *Current as of: this build (rock submerged in water sinks rather than
-hanging). Where something breaks — at the neck, across
+hanging, and so does rock left in steam or standing on debris that has
+since washed away). Where something breaks — at the neck, across
 a section, sharing load between supports — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
 building. Digging into open ground no longer spreads: a hole is a hole,
@@ -59,11 +60,22 @@ stages rather than vanishing instantly.
 **Rock underwater still comes down.** A piece that has come loose is judged
 on whether it has anywhere to go, and water counts: a slab that loses its
 support in a pond sinks to the bottom rather than hanging where it was, and
-so does the fresh rock a lava flow leaves when it quenches mid-water. What
-does *not* count is rock wedged in a hole its own shape, deep inside a
-mountain — that has genuinely nowhere to move, so it cracks where it stands
-instead. Something buoyant is the other exception: an ice sheet is held up
-by the water under it and stays there.
+so does the fresh rock a lava flow leaves when it quenches mid-water. Steam
+counts the same way — rock falls through a cloud of it exactly as it falls
+through air, so the stone a quench mints in the middle of its own steam
+does not stay up there once the steam clears. What does *not* count is rock
+wedged in a hole its own shape, deep inside a mountain — that has genuinely
+nowhere to move, so it cracks where it stands instead. Something buoyant is
+the other exception: an ice sheet is held up by the water under it and
+stays there.
+
+**And ground that goes away is noticed.** A piece can be held up by nothing
+but the loose material beneath it, and loose material moves: the gravel
+washes out, the debris sinks, the sand pours away downhill. When that
+happens the piece comes down too, within about a second rather than
+instantly — a short pause while it works out that its footing has gone,
+then it falls. It does not stay hanging in the space its support used to
+fill.
 
 **What you build is sound until something happens to it.** Placed stone is
 braced the same way the world's own rock is — the way a real cliff face is

@@ -1714,6 +1714,21 @@ struct Args {
     /// which is what isolates the *physiological* response from the
     /// mechanical one.
     cuts: Vec<(i32, i32, i32, i32, usize)>,
+    /// `poke=x,y,frame` -- schedule a structural check on that cell and its
+    /// four neighbours at the given frame, changing nothing else.
+    /// Repeatable.
+    ///
+    /// **The control for "was this cell ever asked?".** A cell the load
+    /// model calls unsupported and that is nonetheless still standing has
+    /// exactly two explanations -- no check was ever scheduled on it, or
+    /// one was and something downstream declined -- and no readout can tell
+    /// them apart, because both look like a standing cell with an
+    /// UNSUPPORTED verdict beside it. Poking it schedules the check that
+    /// may be missing and touches nothing else: if the cell then falls, it
+    /// was never asked; if it stays, it was asked and refused, and the
+    /// refusal is the bug. Distinct from `cut=` on purpose -- a cut removes
+    /// material, which changes the very support question being asked.
+    pokes: Vec<(i32, i32, usize)>,
     /// `load=x,y` -- print `sim::load::evaluate` at that cell for every
     /// tile. Repeatable. The structural counterpart of the `bodies` line:
     /// an image says a shelf is still up, and only a number says whether it
@@ -1890,6 +1905,7 @@ fn parse() -> Args {
         gif: false,
         explosions: Vec::new(),
         cuts: Vec::new(),
+        pokes: Vec::new(),
         probes: Vec::new(),
         loadmap: false,
         repeat: 1,
@@ -2021,6 +2037,11 @@ fn parse() -> Args {
                 assert_eq!(n.len(), 5, "cut=x,y,w,h,frame");
                 a.cuts.push((n[0], n[1], n[2], n[3], n[4] as usize));
             }
+            "poke" => {
+                let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("poke")).collect();
+                assert_eq!(n.len(), 3, "poke=x,y,frame");
+                a.pokes.push((n[0], n[1], n[2] as usize));
+            }
             "crop" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
                 assert_eq!(n.len(), 4, "crop=x,y,w,h");
@@ -2047,6 +2068,34 @@ fn parse() -> Args {
 /// on a contact sheet to one that severed it, and this branch has already
 /// spent a session reading a collapse as a feature that had never once
 /// executed.
+/// Schedule structural checks at whatever positions `poke=` named, once
+/// their frame arrives. See `Args::pokes` for what the experiment is.
+///
+/// A disturbance is recorded alongside, because `World::chain_reach` can
+/// refuse a failure that is far from anything disturbed -- and a poke that
+/// is silently vetoed by that rule would read as "asked and refused" when
+/// it was really "asked with the licence withheld", which is the exact
+/// confusion this arg exists to end.
+fn fire_due_pokes(world: &mut World, pending: &mut Vec<(i32, i32, usize)>, now: usize) {
+    let mut i = 0;
+    while i < pending.len() {
+        if pending[i].2 <= now {
+            let (x, y, _) = pending.remove(i);
+            world.record_disturbance(x, y);
+            world.schedule_structural_check_around(x, y);
+            let cell = world.get(x, y);
+            println!(
+                "  poke: ({x}, {y}) at frame {now} -- {}, aux {}, attached {}",
+                world.materials.get(cell.material).name,
+                cell.aux(),
+                cell.attached()
+            );
+        } else {
+            i += 1;
+        }
+    }
+}
+
 fn fire_due_cuts(world: &mut World, pending: &mut Vec<(i32, i32, i32, i32, usize)>, now: usize) {
     let mut i = 0;
     while i < pending.len() {
@@ -2344,6 +2393,120 @@ fn dump_materials(world: &World, args: &Args) {
     }
 }
 
+/// The `hanging` census's cells, folded into 8-connected clusters, one
+/// line each.
+///
+/// **A count answers "how much"; only this answers "what".** 47 hanging
+/// cells is one raft the size of a dinner plate *or* 47 grains scattered
+/// over a pond, and those are opposite bugs: the first is a piece the model
+/// declines to drop, the second is cells it never joins into a piece at
+/// all. The bare count read the same either way and the owner had to read
+/// the ambiguity off the image instead.
+///
+/// The neighbour tally beside each cluster is the second half of the
+/// question. Rock left in mid-*air* and rock left in mid-*water* look
+/// identical in a count and are different failures — water is a medium the
+/// buoyancy rule in `structural::region_has_free_face` has an opinion
+/// about, and air is not — so what is around a cluster is printed rather
+/// than inferred from the scene name.
+///
+/// 8-connected, matching the neighbourhood `load::detached_piece` floods
+/// over: a cluster here is meant to be the piece the model would have
+/// considered, so a diagonal join must not split it into two.
+fn describe_hanging(world: &World, cells: &[(i32, i32)]) -> Vec<String> {
+    use pixel_physics::sim::material;
+    let set: HashSet<(i32, i32)> = cells.iter().copied().collect();
+    let mut seen: HashSet<(i32, i32)> = HashSet::new();
+    struct Cluster {
+        size: usize,
+        x0: i32,
+        x1: i32,
+        y0: i32,
+        y1: i32,
+        air: u32,
+        water: u32,
+        solid: u32,
+    }
+    let mut clusters: Vec<Cluster> = Vec::new();
+    for &start in cells {
+        if !seen.insert(start) {
+            continue;
+        }
+        let mut stack = vec![start];
+        let mut members = Vec::new();
+        while let Some((x, y)) = stack.pop() {
+            members.push((x, y));
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let n = (x + dx, y + dy);
+                    if set.contains(&n) && seen.insert(n) {
+                        stack.push(n);
+                    }
+                }
+            }
+        }
+        let mut c = Cluster {
+            size: members.len(),
+            x0: i32::MAX,
+            x1: i32::MIN,
+            y0: i32::MAX,
+            y1: i32::MIN,
+            air: 0,
+            water: 0,
+            solid: 0,
+        };
+        for &(x, y) in &members {
+            c.x0 = c.x0.min(x);
+            c.x1 = c.x1.max(x);
+            c.y0 = c.y0.min(y);
+            c.y1 = c.y1.max(y);
+            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if set.contains(&(nx, ny)) || !world.in_bounds(nx, ny) {
+                    continue;
+                }
+                let cell = world.get(nx, ny);
+                if cell.material == material::EMPTY {
+                    c.air += 1;
+                } else if cell.material == material::WATER {
+                    c.water += 1;
+                } else {
+                    match world.materials.kind(cell.material) {
+                        MaterialKind::Solid | MaterialKind::Powder => c.solid += 1,
+                        // Steam, lava and the rest: real, and not the
+                        // distinction this readout exists to draw.
+                        _ => {}
+                    }
+                }
+            }
+        }
+        clusters.push(c);
+    }
+    clusters.sort_by(|a, b| b.size.cmp(&a.size));
+    // Six is enough to see the shape of the distribution without burying
+    // the tile it belongs to; the tail is summarised rather than dropped,
+    // because "and 200 singletons" is itself the finding in the scattered
+    // case.
+    const SHOWN: usize = 6;
+    let mut out = Vec::new();
+    let singletons = clusters.iter().filter(|c| c.size == 1).count();
+    out.push(format!(
+        "in {} clusters, largest {}, {singletons} lone cells",
+        clusters.len(),
+        clusters.first().map_or(0, |c| c.size),
+    ));
+    for c in clusters.iter().take(SHOWN) {
+        out.push(format!(
+            "{:>4} cells at x {}..{} y {}..{}, touching {} air / {} water / {} solid",
+            c.size, c.x0, c.x1, c.y0, c.y1, c.air, c.water, c.solid,
+        ));
+    }
+    if clusters.len() > SHOWN {
+        out.push(format!("... and {} smaller", clusters.len() - SHOWN));
+    }
+    out
+}
+
 /// Print whatever structural probes were asked for. Separate from the tile
 /// line above because these scan the world and the tile line does not — a
 /// scene that isn't about structure should pay nothing for this existing.
@@ -2528,6 +2691,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
     let mut pending_cuts = args.cuts.clone();
+    let mut pending_pokes = args.pokes.clone();
     let mut blasts = explosion::Blasts::new();
     let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield);
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
@@ -2558,11 +2722,13 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             while step_no < target {
                 fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
                 fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+                fire_due_pokes(&mut world, &mut pending_pokes, step_no);
                 advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome);
                 step_no += 1;
             }
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_pokes(&mut world, &mut pending_pokes, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
 
@@ -2631,6 +2797,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         while step_no < target {
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_pokes(&mut world, &mut pending_pokes, step_no);
             let began = std::time::Instant::now();
             advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome);
             let ms = began.elapsed().as_secs_f64() * 1000.0;
@@ -2649,6 +2816,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         }
         fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
         fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+        fire_due_pokes(&mut world, &mut pending_pokes, step_no);
         // `force_full`, not the dirty-rect path: this must draw the whole
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.
@@ -2871,7 +3039,17 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // terrain is attached and is the overwhelming majority, and an
         // attached cell braced by the massif is not what anyone means by
         // rock hanging in the air.
-        let mut hanging = 0u32;
+        //
+        // **Reported as clusters, not as a bare count, because the count
+        // cannot say what the artifact is.** 47 hanging cells is either one
+        // raft the size of a dinner plate or 47 grains scattered over the
+        // pond, and those are different bugs with different fixes -- the
+        // first is a piece the model refuses to drop, the second is cells
+        // it never groups in the first place. The owner read the same
+        // ambiguity off the image ("attached rock stuck in the middle of
+        // the water, unless you just didn\'t wait long enough") and a
+        // number that cannot distinguish them cannot answer them either.
+        let mut hanging_cells: Vec<(i32, i32)> = Vec::new();
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
                 let cell = world.get(x, y);
@@ -2882,12 +3060,16 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
                     continue;
                 }
                 if pixel_physics::sim::load::evaluate(&world, x, y).is_some_and(|l| !l.supported) {
-                    hanging += 1;
+                    hanging_cells.push((x, y));
                 }
             }
         }
+        let hanging = hanging_cells.len() as u32;
         if hanging > 0 {
             println!("    hanging: {hanging} unattached solid cells the load model says reach no anchor");
+            for line in describe_hanging(&world, &hanging_cells) {
+                println!("      {line}");
+            }
         }
         if steam_cells > 0 || airborne > 0 {
             let span = |n: u32, a: i32, b: i32| if n == 0 { "-".to_string() } else { format!("rows {a}..{b}") };

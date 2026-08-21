@@ -139,6 +139,59 @@ pub const NEIGHBOURS_8: [(i32, i32); 8] =
 /// progressive rather than either frozen or all-at-once.
 const STRUCTURAL_TICK_INTERVAL: u64 = 5;
 
+/// Frames between re-checks of a cell whose *only* support is loose
+/// material underneath it.
+///
+/// # The one anchor that can leave without telling anybody
+///
+/// `is_resting_on_ground` roots a support chain on a `Powder` beneath, and
+/// its own doc justified that with: *"treating a granular pile as ground is
+/// safe because it is under the CA sweep's control: if it flows out from
+/// underneath, that write dirties the chunk and whatever sat on it is
+/// re-examined."*
+///
+/// **That was not true.** Dirtying a chunk wakes the *sweep*; nothing on
+/// that path schedules a `StructuralCheck`, and `World::set` — the write
+/// seam every mover goes through — does not either. So a cell that took the
+/// ground root read `aux 0`, was judged "holds", stopped rescheduling
+/// itself (the tail of `tick`), and was never asked again however
+/// completely the pile beneath it drained away.
+///
+/// Traced on `scene=lavadrop`, cell (272,252): quench stone at frame 45,
+/// one rubble grain below it, distance 0, verdict holds, dropped. The
+/// rubble sank; sixty frames later the stone was a lone pixel hanging in
+/// open water, and `load::evaluate` — which reads the world, not the cache
+/// — called it UNSUPPORTED for the rest of the run. `filmstrip`'s `poke=`
+/// dropped it instantly, which is what proves it was never re-asked rather
+/// than asked and refused.
+///
+/// # Why here and not at the grain that leaves
+///
+/// Telling the cell above from `update_powder` was built and measured
+/// first. It is the precise trigger and it is **too expensive**: one extra
+/// `World::get` per moving grain per frame took `ascii`'s parallel
+/// sand-and-water stress from 7.6 ms to 9.8 ms worst frame (minimum of
+/// three interleaved runs each), and gating it on `!flowing` — free, the
+/// cell is already in hand — bought the cost back and lost the fix, because
+/// the grains under a quench crust are all mid-flow. A full screen of sand
+/// is that path's worst case by construction, and `CLAUDE.md` is explicit
+/// that frame cost is a hard constraint rather than a tiebreaker.
+///
+/// This costs the CA sweep nothing at all: it is one more site on the
+/// structural scheduler, which is already bounded by
+/// `scheduler::MAX_SITES_PER_FRAME` and `load::MAX_LOAD_CELLS_PER_FRAME`,
+/// and it applies only to cells with no support but the loose stuff below
+/// them — the *contact row* of a detached piece, never the piece's volume
+/// and never attached terrain, which reaches an anchor by relaxation and
+/// takes no ground root at all.
+///
+/// Twelve times `STRUCTURAL_TICK_INTERVAL` — a second at 60Hz. Slow enough
+/// that a settled rubble field is not a treadmill, and the owner has
+/// already said a brief hang is acceptable where it buys something; fast
+/// enough that a piece left stranded comes down while the player is still
+/// looking at what stranded it.
+const GROUNDED_RECHECK_INTERVAL: u64 = STRUCTURAL_TICK_INTERVAL * 12;
+
 /// Recompute one `Solid` cell's distance to the nearest anchor from its
 /// neighbours' currently-stored distances. Dispatched from
 /// `scheduler::step` via `ActiveKind::StructuralCheck`.
@@ -256,7 +309,14 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
 
     // The last resort described above: nothing else holds this, so what it
     // is standing on does.
-    let new_distance: u16 = if relaxed == u16::MAX && is_resting_on_ground(world, x, y) { 0 } else { relaxed };
+    //
+    // `grounded_root` is kept because a 0 that came from *here* is not the
+    // same claim as a 0 that came from bedrock: it is provisional on loose
+    // material that can flow away without scheduling anything. See
+    // `GROUNDED_RECHECK_INTERVAL`, which is what the tail of this function
+    // does about it.
+    let grounded_root = relaxed == u16::MAX && is_resting_on_ground(world, x, y);
+    let new_distance: u16 = if grounded_root { 0 } else { relaxed };
 
     // Written *before* the failure test, not after, and the order is
     // load-bearing: `load::failing_region` reads stored distances, and the
@@ -499,6 +559,18 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     if moved {
         return propagate;
     }
+    // Held up by nothing but the loose stuff underneath, and that can go
+    // away silently -- keep asking, slowly. See `GROUNDED_RECHECK_INTERVAL`
+    // for the trace this comes from and for why the trigger is not at the
+    // grain that leaves.
+    if grounded_root {
+        return vec![ActiveSite {
+            x,
+            y,
+            kind: ActiveKind::StructuralCheck,
+            next_frame: world.frame + GROUNDED_RECHECK_INTERVAL,
+        }];
+    }
     //
     // Scheduling the parent here instead was tried and reverted. It fixed
     // the same ordering bug `failing_along_support_chain` now fixes, but
@@ -737,21 +809,63 @@ const COLLAPSE_IMPULSE_STRENGTH: f32 = 4.0;
 /// shove it. A piece buried in sand has to push a granular pile out of the
 /// way rather than swap with a fluid, and whether that should count is a
 /// separate question with its own scenes; nothing has reported it.
-/// The original rule: is any neighbour of the region materially empty?
-/// Split out so the buoyant case above can reach it without duplicating it.
-fn region_touches_air(world: &World, region: &[(i32, i32)], cells: &std::collections::HashSet<(i32, i32)>) -> bool {
+///
+/// # A gas is somewhere to go too, and leaving it out stranded rock in mid-air
+///
+/// This rule read `EMPTY` and, later, a lighter `Liquid`, and silently said
+/// **no** to every `Gas`. Steam is not air by the material test, so a stone
+/// cell in a cloud of it was "wedged in a hole its own shape" -- and the
+/// caller's answer to a confined `Unsupported` failure is to record it,
+/// leave it standing, and *reschedule nothing*, so the cell is never asked
+/// again however the world changes around it.
+///
+/// Measured, on `scene=lavadrop`: the quench mints a stone cell at frame
+/// 25 whose eight neighbours are five lava and three steam, it fails as
+/// `Unsupported` with a one-cell region, `confined` comes back true, and it
+/// is dropped from the scheduler for good. Sixty frames later the lava and
+/// the steam have gone and it is a lone stone pixel hanging over open
+/// water, which is what the owner saw. Poking those positions by hand
+/// (`filmstrip`'s `poke=`) drops them immediately, which is what proves the
+/// cell was never re-asked rather than asked and refused.
+///
+/// Rock falls through steam exactly as it falls through air, so a gas the
+/// piece outweighs is an open face. The density test is kept rather than
+/// waved through -- every gas in the game today is orders of magnitude
+/// lighter than any solid, and a rule that says *why* survives one that
+/// isn't.
+fn face_is_open(world: &World, piece_density: f32, nx: i32, ny: i32) -> bool {
+    let material = world.get(nx, ny).material;
+    if material == super::material::EMPTY {
+        return true;
+    }
+    world.materials.kind(material) == MaterialKind::Gas && piece_density > world.materials.density(material)
+}
+
+/// The original rule, plus gases: is any neighbour of the region open space
+/// the piece could move into *without* counting a liquid? Split out so the
+/// buoyant case above can reach it without duplicating it -- what `floats`
+/// must not do is read water as somewhere to go, and a gas is not water.
+fn region_touches_air(
+    world: &World,
+    region: &[(i32, i32)],
+    cells: &std::collections::HashSet<(i32, i32)>,
+    piece_density: f32,
+) -> bool {
     region.iter().any(|&(x, y)| {
         NEIGHBOURS_8.iter().any(|&(dx, dy)| {
             let (nx, ny) = (x + dx, y + dy);
-            !cells.contains(&(nx, ny))
-                && world.in_bounds(nx, ny)
-                && world.get(nx, ny).material == super::material::EMPTY
+            !cells.contains(&(nx, ny)) && world.in_bounds(nx, ny) && face_is_open(world, piece_density, nx, ny)
         })
     })
 }
 
 fn region_has_free_face(world: &World, region: &[(i32, i32)]) -> bool {
     let cells: std::collections::HashSet<(i32, i32)> = region.iter().copied().collect();
+    let piece_density = if region.is_empty() {
+        0.0
+    } else {
+        region.iter().map(|&(x, y)| world.materials.density(world.get(x, y).material)).sum::<f32>() / region.len() as f32
+    };
     // **`floats` first, density second, and the order was decided by
     // measurement.** Density alone took `scene=coldsnap` from 1 overload
     // failure to 23 plus 12 unsupported, against an acceptance bar of zero
@@ -772,23 +886,18 @@ fn region_has_free_face(world: &World, region: &[(i32, i32)]) -> bool {
     // conservative direction: it can only ever leave a piece confined that
     // density would have dismantled.
     if region.iter().any(|&(x, y)| world.materials.get(world.get(x, y).material).floats) {
-        return region_touches_air(world, region, &cells);
+        return region_touches_air(world, region, &cells, piece_density);
     }
-    let piece_density = if region.is_empty() {
-        0.0
-    } else {
-        region.iter().map(|&(x, y)| world.materials.density(world.get(x, y).material)).sum::<f32>() / region.len() as f32
-    };
     region.iter().any(|&(x, y)| {
         NEIGHBOURS_8.iter().any(|&(dx, dy)| {
             let (nx, ny) = (x + dx, y + dy);
             if cells.contains(&(nx, ny)) || !world.in_bounds(nx, ny) {
                 return false;
             }
-            let neighbour = world.get(nx, ny);
-            if neighbour.material == super::material::EMPTY {
+            if face_is_open(world, piece_density, nx, ny) {
                 return true;
             }
+            let neighbour = world.get(nx, ny);
             world.materials.kind(neighbour.material) == MaterialKind::Liquid
                 && piece_density > world.materials.density(neighbour.material)
         })
@@ -1807,6 +1916,104 @@ mod tests {
                  buoyancy is opt-in per material and must not leak to material that never asked"
             );
         }
+    }
+
+    /// **A cloud of steam is somewhere to fall, exactly as air is.**
+    ///
+    /// `region_has_free_face` read `EMPTY` and, later, a lighter `Liquid`,
+    /// and silently said no to every `Gas` -- so a stone cell in the steam
+    /// a quench throws off was "wedged in a hole its own shape", recorded
+    /// as a confined `Unsupported` failure and **left standing with nothing
+    /// rescheduled**. The steam then blew away and the stone hung in open
+    /// air for the rest of the run: 23 such cells on `scene=lavadrop` and
+    /// 31 on `scene=lavapour`, which is what the owner reported as rock
+    /// "stuck in the middle of the water".
+    ///
+    /// Asserted on the **confined counter** as well as on the cell,
+    /// because the two claims come apart: a cell that broke free for some
+    /// other reason and a cell the free-face rule let go look identical
+    /// afterwards, and only the counter says which rule ran.
+    #[test]
+    fn a_solid_in_a_cloud_of_gas_is_not_confined() {
+        let mut w = test_world();
+        let steam = w.materials.id_of("steam").expect("steam.ron should be embedded");
+        let debris = stone_debris(&w);
+        for dy in -2i32..=2 {
+            for dx in -2i32..=2 {
+                w.set(32 + dx, 32 + dy, Cell::new(steam, 0));
+            }
+        }
+        // One unattached stone cell in the middle of it, touching nothing
+        // solid and nothing empty.
+        w.set(32, 32, Cell::new(material::STONE, 0));
+        compute_world_distances(&mut w);
+        w.schedule_structural_check_around(32, 32);
+        run(&mut w, 60);
+
+        assert_eq!(
+            w.structural_failures.confined, 0,
+            "a gas the piece outweighs is a free face -- {} confined failures says the rule still reads steam as rock",
+            w.structural_failures.confined
+        );
+        assert_eq!(
+            w.get(32, 32).material,
+            debris,
+            "the stone should have come free into debris; it is still {}",
+            w.materials.get(w.get(32, 32).material).name
+        );
+    }
+
+    /// **Ground that flows away without telling anybody.**
+    ///
+    /// `is_resting_on_ground` roots a support chain on a `Powder`
+    /// underneath, on the recorded argument that "if it flows out from
+    /// underneath, that write dirties the chunk and whatever sat on it is
+    /// re-examined". It does not: waking a chunk schedules no
+    /// `StructuralCheck`, and `World::set` -- the seam every mover goes
+    /// through -- schedules none either. So the cell above read `aux 0`,
+    /// was judged "holds", stopped rescheduling itself, and was never asked
+    /// again.
+    ///
+    /// The grain is removed with a bare `set`, deliberately: that is the
+    /// *whole* claim under test. Anything that schedules a check on the way
+    /// past -- an erase through the brush, a blast, a `break_free` -- would
+    /// paper over the defect and make this pass against the broken code.
+    /// Nothing here runs the CA sweep either, for the same reason.
+    ///
+    /// See `GROUNDED_RECHECK_INTERVAL`, and note the wait: this asserts the
+    /// cell comes down *eventually*, not instantly, which is the trade that
+    /// keeps the cost off the CA hot path.
+    #[test]
+    fn a_cell_left_standing_on_nothing_is_asked_again() {
+        let mut w = test_world();
+        let sand = w.materials.id_of("sand").expect("sand.ron should be embedded");
+        let debris = stone_debris(&w);
+        // Bedrock floor well below, so the grain is genuinely the only
+        // thing under the stone and the stone is genuinely detached.
+        for x in 0..64 {
+            w.set(x, 63, Cell::new(material::BEDROCK, 0));
+        }
+        w.set(32, 33, Cell::new(sand, 0));
+        w.set(32, 32, Cell::new(material::STONE, 0));
+        compute_world_distances(&mut w);
+        w.schedule_structural_check_around(32, 32);
+        run(&mut w, 60);
+        assert_eq!(
+            w.get(32, 32).material,
+            material::STONE,
+            "the grain is still there, so the stone should still be standing on it"
+        );
+
+        // The grain goes, and nothing is told.
+        w.set(32, 33, Cell::EMPTY);
+        run(&mut w, 240);
+
+        assert_eq!(
+            w.get(32, 32).material,
+            debris,
+            "the ground went and nothing rescheduled the cell above it -- still {}",
+            w.materials.get(w.get(32, 32).material).name
+        );
     }
 
     /// **Ice participates in the load model**: freeze a bridge over open
