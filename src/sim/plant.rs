@@ -2338,7 +2338,7 @@ fn is_frontier(cell_type: CellType) -> bool {
 /// cannot touch wood. The cap is generous against the cluster size and
 /// conservative on overflow: a component too big to survey completely is
 /// left standing, not deleted.
-fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_id: u16) {
+pub(crate) fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_id: u16) {
     const COMPONENT_CAP: usize = 32;
     let mut visited: Vec<(i32, i32)> = Vec::new();
     for (sdx, sdy) in NEIGHBOURS_8 {

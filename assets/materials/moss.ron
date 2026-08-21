@@ -9,6 +9,10 @@
     name: "moss",
     display: "Moss",
     kind: Plant,
+    // Climbable. A mossy wall becomes a way up, which is a side effect
+    // rather than the point; if it reads wrong in play this line comes out
+    // and nothing else changes.
+    climbable: true,
     density: 0.3,
     colors: [
         (58, 92, 46),

@@ -571,37 +571,153 @@ const GNOME_BEARD: [u8; 4] = [226, 226, 226, 255];
 const GNOME_TUNIC: [u8; 4] = [74, 138, 70, 255];
 const GNOME_BELT: [u8; 4] = [82, 54, 34, 255];
 const GNOME_BOOT: [u8; 4] = [108, 76, 46, 255];
-const GNOME_SPRITE: [[Option<[u8; 4]>; 7]; 14] = {
-    // Local aliases, so the table below stays a picture you can read.
-    const H: Option<[u8; 4]> = Some(GNOME_HAT);
-    const F: Option<[u8; 4]> = Some(GNOME_FACE);
-    const W: Option<[u8; 4]> = Some(GNOME_BEARD);
-    const T: Option<[u8; 4]> = Some(GNOME_TUNIC);
-    const L: Option<[u8; 4]> = Some(GNOME_BELT);
-    const B: Option<[u8; 4]> = Some(GNOME_BOOT);
-    const X: Option<[u8; 4]> = None;
-    [
-        [X, X, X, H, X, X, X],
-        [X, X, H, H, H, X, X],
-        [X, H, H, H, H, H, X],
-        [H, H, H, H, H, H, H],
-        [X, X, F, F, F, X, X],
-        [X, F, F, F, F, F, X],
-        [X, F, W, W, W, F, X],
-        [X, X, W, W, W, X, X],
-        [T, T, T, T, T, T, T],
-        [T, T, T, T, T, T, T],
-        [X, T, T, L, T, T, X],
-        [X, T, T, T, T, T, X],
-        [X, B, B, X, B, B, X],
-        [B, B, B, X, B, B, B],
-    ]
-};
+/// Local aliases, so the tables below stay pictures you can read.
+const H: Option<[u8; 4]> = Some(GNOME_HAT);
+const F: Option<[u8; 4]> = Some(GNOME_FACE);
+const W: Option<[u8; 4]> = Some(GNOME_BEARD);
+const T: Option<[u8; 4]> = Some(GNOME_TUNIC);
+const L: Option<[u8; 4]> = Some(GNOME_BELT);
+const B: Option<[u8; 4]> = Some(GNOME_BOOT);
+const X: Option<[u8; 4]> = None;
+
+/// Drawn facing **right**; `draw_player` mirrors the columns when he is
+/// facing left.
+///
+/// **Deliberately asymmetric, and that is the change** — the previous
+/// table was a perfect mirror of itself, so flipping it would have been a
+/// no-op and "he faces the way he is going" would have shipped as a field
+/// nobody could see. The tells are a hand out in front (row 9) and the
+/// weight forward on the leading boot (row 13): two pixels, which is all
+/// there is room for at this size and enough to read at 1x.
+const GNOME_SPRITE: [[Option<[u8; 4]>; 7]; 14] = [
+    [X, X, X, H, X, X, X],
+    [X, X, H, H, H, X, X],
+    [X, H, H, H, H, H, X],
+    [H, H, H, H, H, H, H],
+    [X, X, F, F, F, X, X],
+    [X, F, F, F, F, F, X],
+    [X, F, W, W, W, F, X],
+    [X, X, W, W, W, X, X],
+    [T, T, T, T, T, T, T],
+    [T, T, T, T, T, T, F],
+    [X, T, T, L, T, T, X],
+    [X, T, T, T, T, T, X],
+    [X, B, B, X, B, B, X],
+    [X, B, B, X, B, B, B],
+];
+
+/// The same figure mid-swing: the arm comes up and reaches out ahead of
+/// him, and he leans into it.
+///
+/// A destructive act that looks identical to standing still is one the
+/// player cannot tell fired (`design-philosophy.md` §0a — every event owes
+/// feedback). One frame is enough at 60 Hz to read a dig or a shake as a
+/// blow rather than as a cursor effect.
+const GNOME_SWING: [[Option<[u8; 4]>; 7]; 14] = [
+    [X, X, X, H, X, X, X],
+    [X, X, H, H, H, X, X],
+    [X, H, H, H, H, H, X],
+    [H, H, H, H, H, H, H],
+    [X, X, F, F, F, X, F],
+    [X, F, F, F, F, F, F],
+    [X, F, W, W, W, F, X],
+    [X, X, W, W, W, X, X],
+    [T, T, T, T, T, T, X],
+    [T, T, T, T, T, T, X],
+    [X, T, T, L, T, T, X],
+    [X, T, T, T, T, T, X],
+    [X, B, B, X, B, B, X],
+    [B, B, B, X, B, B, X],
+];
+
+/// Whether the gnome draws over a tree, behind it, or a mix — the owner's
+/// "sometimes walking in front of trees and sometimes behind".
+///
+/// A **selector rather than a decision**, per `CLAUDE.md`: this is a
+/// does-this-look-right question, and five grain modes behind one key once
+/// settled in minutes what no amount of argument or still images had.
+///
+/// Purely graphical. Nothing about collision, light or the simulation
+/// changes with it — a tree is walk-through either way, and this only says
+/// which of the two gets the pixel where they overlap.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum TreeDepth {
+    /// Half the trees draw over him, chosen per tree and stable for its
+    /// life. The default, because it is the effect that was asked for.
+    #[default]
+    Weave,
+    /// The previous behaviour: he draws over everything.
+    Front,
+    /// Every tree draws over him — the far end, for judging how readable a
+    /// half-hidden gnome actually is before settling on the middle.
+    Behind,
+    /// `Weave`, and the trees he passes *behind* are also dimmed, so the
+    /// two layers read as layers rather than as random occlusion.
+    Haze,
+}
+
+impl TreeDepth {
+    pub fn next(self) -> Self {
+        match self {
+            TreeDepth::Weave => TreeDepth::Haze,
+            TreeDepth::Haze => TreeDepth::Front,
+            TreeDepth::Front => TreeDepth::Behind,
+            TreeDepth::Behind => TreeDepth::Weave,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TreeDepth::Weave => "WEAVE (current)",
+            TreeDepth::Haze => "WEAVE+HAZE",
+            TreeDepth::Front => "FRONT",
+            TreeDepth::Behind => "BEHIND",
+        }
+    }
+
+    /// Whether the tree owned by `organism_id` draws in front of him.
+    ///
+    /// **A hash, not `id & 1`.** Organism ids are handed out sequentially,
+    /// so parity makes consecutively-planted trees alternate — a
+    /// correlation the eye picks out at once in a row of them, and worldgen
+    /// plants a stand left to right.
+    ///
+    /// A pure function of world state and nothing else, which is what keeps
+    /// `dirty_rect_skip_is_pixel_identical_to_a_full_redraw` true: a fresh
+    /// `Renderer` and one with history agree by construction. The reverted
+    /// stateful skyline is the recorded case of getting this wrong.
+    fn in_front(self, organism_id: u16) -> bool {
+        match self {
+            TreeDepth::Front => false,
+            TreeDepth::Behind => true,
+            TreeDepth::Weave | TreeDepth::Haze => (organism_id as u32).wrapping_mul(2_654_435_761) >> 16 & 1 == 1,
+        }
+    }
+}
+
+/// How much of him still shows through a tree he is passing behind.
+///
+/// **Zero: a tree in front hides him.** This was 0.28, on my argument that
+/// a gnome who vanishes into a crown is a gnome you have lost and the
+/// picture stops being playable however good it looks. Overruled by the
+/// first playtest — "behind has too much transparency, the player
+/// character should be hidden" — so the concern was mine and not real, at
+/// least at this zoom. Kept as a named constant with the branch intact
+/// rather than deleted, because the owner flagged they may revisit it:
+/// restoring the ghost is this one number, and `blend` clamps alpha, so
+/// any value between is valid.
+const OCCLUDED_ALPHA: f32 = 0.0;
+
+/// How far a background tree is dimmed under `TreeDepth::Haze`.
+const HAZE_DIM: u16 = 168;
 
 pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
     /// Prototype switch — see the enum's own doc.
     pub grain: GrainMode,
+    /// Whether the gnome weaves through a stand or draws over it — see
+    /// `TreeDepth`. Cycled with `F10`.
+    pub tree_depth: TreeDepth,
     /// Frame counter, advanced by `draw`, read only by `GrainMode::Animated`.
     frame: u64,
     /// Screen rectangles the chunk bodies occupied on the previous `draw`.
@@ -612,12 +728,25 @@ pub struct Renderer {
     /// smear without falling back to redrawing the whole screen -- which is
     /// what this did before, for the entire duration of every collapse.
     last_body_rects: Vec<Rect>,
-    /// Screen rect the gnome occupied on the previous `draw` — the same
-    /// smear-repaint reasoning as `last_body_rects`. Kept separately, and
-    /// compared before unioning: a gnome standing still contributes
-    /// *nothing* to the dirty region, which is what keeps a settled
-    /// world's zero-cost frames zero-cost with a character idle in them.
-    last_player_rect: Option<Rect>,
+    /// Screen rect the gnome occupied on the previous `draw`, **and how he
+    /// was posed in it** — the same smear-repaint reasoning as
+    /// `last_body_rects`. Kept separately, and compared before unioning: a
+    /// gnome standing still contributes *nothing* to the dirty region,
+    /// which is what keeps a settled world's zero-cost frames zero-cost
+    /// with a character idle in them.
+    ///
+    /// The rect alone is not enough, and the gap is a real artifact:
+    /// turning on the spot, or starting a swing, changes every pixel of him
+    /// while his rectangle stays put — so a rect-keyed comparison skips the
+    /// repaint and leaves the previous pose on screen until something else
+    /// happens to dirty it.
+    ///
+    /// The rect alone is not enough and the difference is a real artifact:
+    /// turning on the spot, or starting a swing, changes every pixel of him
+    /// while his rectangle stays put — so a rect-keyed comparison skips the
+    /// repaint and leaves the previous pose on screen until something else
+    /// happens to dirty it.
+    last_player_pose: Option<(Rect, bool, bool)>,
     /// World coordinate displayed at the top-left pixel. Moved by
     /// [`Renderer::follow`] once there is a player to follow.
     pub camera_x: i32,
@@ -793,9 +922,10 @@ impl Renderer {
     pub fn new() -> Self {
         Self {
             grain: GrainMode::default(),
+            tree_depth: TreeDepth::default(),
             frame: 0,
             last_body_rects: Vec::new(),
-            last_player_rect: None,
+            last_player_pose: None,
             camera_x: 0,
             camera_y: 0,
             last_camera: None,
@@ -866,6 +996,12 @@ impl Renderer {
     /// the only way a "does this look right" question gets answered, and it
     /// stays for the same reason: the look is expected to keep being
     /// iterated on rather than settled once.
+    /// Cycle the tree-depth selector. `F10`.
+    pub fn cycle_tree_depth(&mut self) -> TreeDepth {
+        self.tree_depth = self.tree_depth.next();
+        self.tree_depth
+    }
+
     pub fn cycle_grain(&mut self) {
         self.grain = self.grain.next();
     }
@@ -1206,9 +1342,10 @@ impl Renderer {
         // frames (particles in flight, say) with the player moving would
         // leave the dirty path comparing against a rect from before the
         // run — and the sprite's last full-frame position would smear.
-        let player_rect = world.player.as_ref().and_then(|p| {
+        let player_pose = world.player.as_ref().and_then(|p| {
             let (x0, y0, x1, y1) = p.bounds();
             self.world_rect_to_screen_rect(Rect::new(x0, y0, x1, y1), width, height)
+                .map(|r| (r, p.facing_left, p.action > 0))
         });
 
         let recomputed = if full {
@@ -1219,7 +1356,7 @@ impl Renderer {
                 let colour = self.cell_colour(world, wx, wy);
                 pixel.copy_from_slice(&colour);
             }
-            self.last_player_rect = player_rect;
+            self.last_player_pose = player_pose;
             (width as usize) * (height as usize)
         } else {
             let mut dirty: Option<Rect> = None;
@@ -1244,14 +1381,14 @@ impl Renderer {
             // rect actually changed. An idle character repaints on top of
             // identical pixels for free; a moving one owes both where it
             // is and the smear where it was.
-            if player_rect != self.last_player_rect {
-                for r in player_rect.iter().chain(self.last_player_rect.iter()) {
+            if player_pose != self.last_player_pose {
+                for (r, _, _) in player_pose.iter().chain(self.last_player_pose.iter()) {
                     dirty = Some(match dirty {
                         Some(d) => d.union(*r),
                         None => *r,
                     });
                 }
-                self.last_player_rect = player_rect;
+                self.last_player_pose = player_pose;
             }
             // The moon, where it is now and where it was. A disc crossing
             // the sky is a moving sprite as far as the dirty region is
@@ -1567,15 +1704,43 @@ impl Renderer {
         let Some(player) = &world.player else { return };
         let (ox, oy) = player.rect_origin();
         let block = self.zoom.max(1);
-        for (dy, row) in GNOME_SPRITE.iter().enumerate() {
+        let table = if player.action > 0 { &GNOME_SWING } else { &GNOME_SPRITE };
+        for (dy, row) in table.iter().enumerate() {
             for (dx, colour) in row.iter().enumerate() {
                 let Some(colour) = colour else { continue };
-                let Some((sx, sy)) = self.world_to_screen(ox + dx as i32, oy + dy as i32) else {
+                // Mirrored on the *sprite* column, so the world rectangle
+                // he occupies is unchanged whichever way he faces.
+                let column = if player.facing_left { row.len() - 1 - dx } else { dx };
+                let (wx, wy) = (ox + column as i32, oy + dy as i32);
+                let Some((sx, sy)) = self.world_to_screen(wx, wy) else {
                     continue;
                 };
+                // Is a tree standing between him and the camera here?
+                //
+                // Done inside this loop rather than as a `draw_foreground`
+                // pass after it, and the cost is the argument: this loop
+                // already resolves a world coordinate per sprite pixel, so
+                // occluding here is at most 98 `World::get` calls a frame
+                // (7x14). A separate pass would have to re-run `cell_colour`
+                // over every candidate position to repaint trees *over* the
+                // sprite -- 163,840 at 512x320 -- for the same picture.
+                let cell = world.get(wx, wy);
+                let occluded = cell.organism_id() != 0
+                    && world.materials.get(cell.material).climbable
+                    && self.tree_depth.in_front(cell.organism_id());
+                // Nothing is drawn where a tree covers him: the world's
+                // own pixels, already painted by the cell pass, are what
+                // shows. `OCCLUDED_ALPHA` above records the ghost this
+                // replaced and how to get it back.
+                if occluded && OCCLUDED_ALPHA <= 0.0 {
+                    continue;
+                }
                 for by in 0..block {
                     for bx in 0..block {
-                        put(frame, width, height, sx + bx, sy + by, *colour);
+                        match occluded {
+                            true => blend(frame, width, height, sx + bx, sy + by, *colour, OCCLUDED_ALPHA),
+                            false => put(frame, width, height, sx + bx, sy + by, *colour),
+                        }
                     }
                 }
             }
@@ -1798,6 +1963,22 @@ impl Renderer {
         // Darkening rather than tinting blue: damp soil is the same soil,
         // and a blue cast reads as a different material rather than as the
         // same one being wet.
+        // A tree he passes *behind* is dimmed, so the stand reads as two
+        // layers rather than as random occlusion. `Haze` only — the plain
+        // `Weave` leaves every tree its own colour, and which of the two
+        // looks right is the question the selector exists to answer.
+        //
+        // Gated on `organism_id` first, which is a field of the `Cell`
+        // already in hand, so a world with no organisms in it pays one
+        // compare per non-empty pixel and nothing else.
+        if self.tree_depth == TreeDepth::Haze && cell.organism_id() != 0 && !self.tree_depth.in_front(cell.organism_id()) {
+            base = [
+                (base[0] as u16 * HAZE_DIM / 256) as u8,
+                (base[1] as u16 * HAZE_DIM / 256) as u8,
+                (base[2] as u16 * HAZE_DIM / 256) as u8,
+                base[3],
+            ];
+        }
         let saturation = crate::sim::update::soil_moisture(cell);
         if saturation > 0 {
             let t = saturation as u32 * (256 - DAMP_DARKEN) / material::SOIL_SATURATED.max(1) as u32;
@@ -3447,6 +3628,139 @@ mod tests {
     }
 
     // --- §11: dirty-rect render skip -----------------------------------
+
+    #[test]
+    fn weave_puts_the_gnome_behind_some_trees_and_in_front_of_others() {
+        // The owner's ask, as a property: "sometimes walking in front of
+        // trees and sometimes behind". Both answers have to occur, and a
+        // given tree has to keep its answer.
+        let mut front = 0;
+        let mut behind = 0;
+        for id in 1..200u16 {
+            match TreeDepth::Weave.in_front(id) {
+                true => behind += 1,
+                false => front += 1,
+            }
+            assert_eq!(
+                TreeDepth::Weave.in_front(id),
+                TreeDepth::Weave.in_front(id),
+                "a tree must not change which side of him it is on"
+            );
+        }
+        assert!(front > 60 && behind > 60, "expected a real mix, got {front} in front and {behind} behind");
+    }
+
+    #[test]
+    fn consecutively_planted_trees_do_not_simply_alternate() {
+        // Why this is a hash and not `id & 1`. Organism ids are handed out
+        // sequentially and worldgen plants a stand left to right, so parity
+        // would lay down front-back-front-back across the screen — a
+        // correlation the eye picks out at once.
+        let runs = (2..60u16).filter(|&id| TreeDepth::Weave.in_front(id) == TreeDepth::Weave.in_front(id - 1)).count();
+        assert!(runs > 8, "only {runs} of 58 neighbouring pairs matched, which is parity in disguise");
+    }
+
+    #[test]
+    fn a_tree_in_front_of_the_gnome_shows_through_him() {
+        use crate::sim::player::Player;
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        let wood = world.materials.id_of("wood").expect("wood is compiled in");
+        let species = world.species.id_of("tree").expect("tree is compiled in");
+        // Find an organism whose hash puts it in front of him.
+        let organism = (0..64)
+            .map(|_| world.push_organism(species))
+            .find(|&id| TreeDepth::Weave.in_front(id))
+            .expect("some organism id hashes to the front");
+        for y in 20..50 {
+            for x in 28..40 {
+                world.set(x, y, Cell::new(wood, 0).with_organism_id(organism));
+            }
+        }
+        world.end_step();
+        world.player = Some(Player::at(32, 32));
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut over = Renderer::new();
+        over.tree_depth = TreeDepth::Front;
+        let mut a = vec![0u8; (uw * uh * 4) as usize];
+        over.draw(&world, &particles, &HashSet::new(), &mut a, (uw, uh), true);
+
+        let mut through = Renderer::new();
+        through.tree_depth = TreeDepth::Weave;
+        let mut b = vec![0u8; (uw * uh * 4) as usize];
+        through.draw(&world, &particles, &HashSet::new(), &mut b, (uw, uh), true);
+
+        assert_ne!(a, b, "a tree in front of him should not draw the same as one behind him");
+    }
+
+    #[test]
+    fn an_idle_gnome_costs_a_settled_world_nothing() {
+        // The other half of the pose key. It was widened from a rect to
+        // (rect, facing, swinging) so that turning repaints — and the thing
+        // that must not break in the process is the reason it is compared
+        // at all: a character standing still in a settled world adds
+        // nothing to the dirty region, which is what keeps zero-cost frames
+        // zero-cost with him in them.
+        use crate::sim::player::Player;
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        world.end_step();
+        world.player = Some(Player::at(32, 32));
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (uw * uh * 4) as usize];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), true);
+        let recomputed = renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), false);
+        assert_eq!(recomputed, 0, "an idle gnome should recompute no pixels at all");
+    }
+
+    #[test]
+    fn turning_on_the_spot_repaints_him() {
+        // The dirty-rect trap the pose key exists for. He does not move, so
+        // his screen rectangle is identical frame to frame -- but every
+        // pixel of him is mirrored, and a rect-keyed comparison would skip
+        // the repaint and leave him facing the old way until something else
+        // happened to dirty that region.
+        use crate::sim::player::Player;
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        world.end_step();
+        let mut player = Player::at(32, 32);
+        player.facing_left = false;
+        world.player = Some(player);
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (uw * uh * 4) as usize];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), true);
+        let facing_right = frame.clone();
+
+        // Nothing in the world changes but the direction he faces.
+        world.player.as_mut().unwrap().facing_left = true;
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), false);
+
+        assert_ne!(frame, facing_right, "he turned round and nothing on screen changed");
+
+        // And the incremental result must match a full redraw exactly.
+        let mut fresh = Renderer::new();
+        let mut reference = vec![0u8; (uw * uh * 4) as usize];
+        fresh.draw(&world, &particles, &HashSet::new(), &mut reference, (uw, uh), true);
+        assert_eq!(frame, reference, "the skipped repaint left a stale pose behind");
+    }
 
     #[test]
     fn dirty_rect_skip_is_pixel_identical_to_a_full_redraw() {

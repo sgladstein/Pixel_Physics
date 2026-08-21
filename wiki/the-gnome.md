@@ -1,6 +1,12 @@
 # The Gnome
 
-*Current as of: this build.*
+*Current as of: this build. New since the last pass: living plants are
+walk-through and climbable (hold `Shift` to take hold — climbing has its
+own key now), living creatures aren't walls either, he weaves in front of
+and behind trees and a tree in front hides him, a crown breaks a fall, a
+lip at the top of a jump is mantled, the sprite faces where it's going,
+holding `W` out of water puts him on the bank, and left-clicking a plant
+shakes it. Cutting a tree down is deliberately not in yet.*
 
 The world can be inhabited. Press `U` with the cursor over an open spot
 and a small gnome — pointed red hat, green tunic — appears there; press
@@ -15,10 +21,78 @@ moments after running off an edge, and a jump pressed slightly before
 landing still fires on touchdown, so movement should feel forgiving
 rather than exacting.
 
-He treats the world the way you'd expect from standing in it. Solid rock,
-plants and creatures hold him up, shallow bumps and rubble (up to a couple
-of cells) are stepped over without jumping, and anything taller is a wall.
-The world's edge is a wall too.
+He treats the world the way you'd expect from standing in it. Solid rock
+holds him up, shallow bumps and rubble (up to a couple of cells) are
+stepped over without jumping, and anything taller is a wall. Living things
+are not walls — he walks through a tree and he walks through an ant — but
+anything a colony has *built* is as solid as rock.
+The world's edge is a wall too. A lip a little higher than a jump quite
+reaches is caught at the top of the arc and pulled up over, provided
+you're pressing into it and there's actually something up there to stand
+on — a sheer face with no top is not something he can climb.
+
+## Trees are scenery
+
+A growing plant is not a wall. He walks through trunks, branches and
+foliage the way a tree reads in a three-dimensional game — something you
+pass, not something you bump into. Before this he wedged against the first
+trunk he met with no way over, round or through, and a crown that grew
+over the spot he was standing on would bury him where he stood.
+
+**Timber someone put there is still solid.** A wall built of wood is a
+wall; only *living* tissue is scenery. So building is unchanged, and the
+distinction is one you can see: growing things are scenery, cut and placed
+things are matter.
+
+He also passes in front of some trees and behind others, which is purely a
+matter of drawing — a tree is walk-through either way. Which side a given
+tree is on is fixed for that tree's life, so a wood has a front and a back
+rather than flickering. A tree in front of him **hides** him: you see
+whatever shows through the gaps in the foliage and nothing else. `,`
+cycles between weaving through the stand, weaving with the far trees
+dimmed so the two layers read apart, always drawing over everything (what
+he used to do), and always drawing behind everything.
+
+## Climbing
+
+The trade for a tree not stopping him is that he can go up it — but only
+when you ask. **Hold `Shift` to take hold**, and while you're holding on,
+`W` climbs and `S` goes back down; with neither pressed he hangs where he
+is rather than sliding. Let go of `Shift` and he lets go of the tree.
+Walking sideways out of the tissue drops him too.
+
+Climbing needs its own key because it used to share `W` with the jump, and
+that was wrong in a way you find within a minute of playing: every trunk
+you clipped at the top of a jump grabbed you and carried on lifting, so
+jump-walking through a wood was closer to hovering than to walking.
+
+The two ways off a tree do different things. Climb off the *top* with `W`
+still held and he springs off the crown; simply let go and he drops from
+where he was, without the hop.
+
+A crown breaks a fall. Dropping into foliage takes speed off in proportion
+to how much of him is in it — clipping the top of one barely registers,
+going through the middle of one roughly halves how hard he lands — and he
+still reaches the ground. Falling into a tree and catching yourself on the
+way through is a thing you can do.
+
+## Shaking a tree
+
+Left-clicking a plant shakes it instead of cutting it, and the ring turns
+green so you know which of the two you're about to do before you press.
+Pointing at rock still digs.
+
+A shake does three things and takes nothing structural. Whatever was
+resting on the branches — snow, sand, your own spoil — comes off them.
+Leaves that were already dying come down: the shed is weighted by how
+shaded a leaf is, so a healthy sunlit crown barely gives up anything while
+a shaded, crowded one rains litter, and the litter piles up on the ground
+underneath as real fallen material rather than simply vanishing. And a
+grown tree yields seed, which falls out of the crown and can take root
+where it lands. A seedling has nothing to give — you only get seed off a
+tree that has some.
+
+Cutting a tree down is not something he can do yet.
 
 ## The view follows him
 
@@ -44,12 +118,19 @@ him where he is, and material all around him is the burial described
 below.
 
 Water he swims in. Falling in, he goes under with whatever speed he
-arrived with, the water eats that speed quickly, and he floats back up to
-the surface rather than walking along the bottom. Under water `W` is a
-stroke upward and `S` pulls him down — each a distinct pull with a beat
-between, not a continuous thrust. At the surface his head comes clear and
-ordinary rules resume, and there's a brief window in which `W` is a proper
-jump instead of a stroke, which is how he gets out onto a bank.
+arrived with, the water eats that speed quickly, and how he behaves after
+that is the water feel you've picked — by default he sinks unless you swim.
+Under water `W` is a stroke upward and `S` pulls him down — each a distinct
+pull with a beat between, not a continuous thrust.
+
+**Getting out is one continuous press.** Hold `W` to stroke up, and the
+moment his head breaks the surface that same held key becomes a hop that
+puts him on the bank — a smaller thing than a standing jump, sized to
+clear a lip rather than to launch him out of the pond. He can also pull
+himself up a low bank while still in the water, without jumping at all.
+This used not to work: holding `W` was the only way to surface and was the
+one input guaranteed to have nothing left by the time he got there, so he
+bobbed at the edge.
 
 Rock that is falling can be stood on. When a shelf gives way beneath him
 he goes down with it, riding the slab rather than being left hanging in
@@ -60,6 +141,10 @@ he comes off it like anything else would.
 
 Summoning him puts you in his dig tool, and a yellow ring shows exactly
 where the next bite will land and how big it will be. Left-click to cut.
+(Point at a living plant instead and the ring turns green — that is the
+shake, described above, on the same button.) He faces the way you send
+him, and leans into a swing when he cuts, so a blow reads as a blow rather
+than as something the cursor did.
 He works the **first rock face along the line you point at** — not the
 spot under the cursor — so pointing deep into a hillside cuts the near
 wall of it, the way swinging a pick would, and pointing past what his
@@ -111,14 +196,15 @@ no open space anywhere near, and there is nowhere for what he removes to
 go, so he stays put. Being at the bottom of a hill is genuinely bad news.
 
 He is a visitor in the simulation rather than a part of it: sand keeps
-falling as if he weren't there. Two current gaps — a plant root stops a
-tunnel, since he can't yet cut through growing things, and spoil that has
-nowhere solid to land stays in the bore rather than being thrown into the
-air.
+falling as if he weren't there. Two current gaps — a root threading a
+tunnel can't be cut out of the way (it no longer *stops* him, since he
+walks through growing things, but the pick won't take it), and spoil that
+has nowhere solid to land stays in the bore rather than being thrown into
+the air.
 
 ## Changing how he feels
 
-Three things are hard to judge except by playing, so each is a named set
+Four things are hard to judge except by playing, so each is a named set
 you can cycle mid-game, with the active one shown in the title bar:
 
 - **Jump feel** — how heavy he is in the air, from long floating hangs to
@@ -126,11 +212,18 @@ you can cycle mid-game, with the active one shown in the title bar:
 - **Water feel** — whether the water lifts him, holds him where he is, or
   lets him sink so that staying up is something you do.
 - **Spoil** — how much of the rock he cuts survives as rubble.
+- **Tree depth** — whether he weaves through a stand of trees, draws over
+  all of it, or passes behind all of it.
 
 Underneath, every individual number — run speed, jump height, fall speed,
 step height, dig reach, bite size, wade depth, buoyancy — is adjustable
 live in the tunables panel (`O`, then page to PLAYER), the same way
 explosions are tuned.
+
+Underneath that, climb speed, how far he can reach to shake something, how
+readily a shaken tree sheds and sows, how big a hop leaving the water is,
+and how high a lip he can mantle are all individual numbers in the same
+panel.
 
 One housekeeping note: the gnome took over the movement keys, so two
 older debug tools moved — dig is now `H` (it was `D`), and planting a

@@ -116,6 +116,9 @@ struct HeldKeys {
     right: bool,
     jump: bool,
     down: bool,
+    /// Shift: hold on to a tree. See `player::step`'s climb gate for why
+    /// climbing needs a key of its own rather than riding on `jump`.
+    grab: bool,
 }
 
 impl Handler {
@@ -209,6 +212,7 @@ impl Handler {
         self.app.player_input.right = self.held.right;
         self.app.player_input.jump_held = self.held.jump;
         self.app.player_input.down = self.held.down;
+        self.app.player_input.grab = self.held.grab;
         self.app.player_input.jump_pressed |= std::mem::take(&mut self.jump_pressed);
         self.app.player_input.aim = self.cursor.map(|(x, y)| self.app.renderer.screen_to_world(x, y));
 
@@ -421,6 +425,14 @@ impl Handler {
             KeyCode::F4 => self.app.cycle_water_feel(),
             KeyCode::F2 => self.app.cycle_spoil_mode(),
             KeyCode::F9 => self.app.cycle_chain_mode(),
+            // Tree depth is on a comma, not F10. Two branches independently
+            // chose F10 -- the depth light here, this there -- and the merge
+            // kept both, which the unreachable-pattern warning caught rather
+            // than any runtime symptom. F10 stays with the light because it
+            // shipped first; this takes the one remaining mac-safe key, since
+            // every letter and digit is already bound and F9-F12 are owned by
+            // macOS at the system level (see the note above).
+            KeyCode::Comma => self.app.cycle_tree_depth(),
             KeyCode::Tab => self.app.toggle_palette(),
             KeyCode::Slash => self.app.toggle_help(),
             KeyCode::KeyO => self.app.toggle_tunables(),
@@ -522,6 +534,9 @@ impl ApplicationHandler for Handler {
                             }
                         }
                         KeyCode::KeyS => self.held.down = pressed,
+                        // Either shift, so it does not matter which hand
+                        // is on the movement keys.
+                        KeyCode::ShiftLeft | KeyCode::ShiftRight => self.held.grab = pressed,
                         _ => {}
                     }
                     if pressed && !event.repeat {
