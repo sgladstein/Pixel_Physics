@@ -1335,10 +1335,14 @@ impl World {
     /// the division to cell-equivalents happens here so no caller has to
     /// remember it.
     ///
-    /// **Only `evaporation::tick` calls this**, and it is water-only by
-    /// construction: `evaporates` is set on exactly one material
-    /// (`assets/materials/water.ron`). If it is ever set on a second liquid,
-    /// this needs the density ratio the melt path already carries
+    /// **Three callers, all of them water by construction**:
+    /// `evaporation::tick` for a drying puddle, `evaporation::tick_soil` for
+    /// a drying soil surface, and `fire::try_phase_change` for steam that
+    /// condenses under open sky. `evaporates` is set on exactly one material
+    /// and `condenses_into_sky` on exactly one; soil moisture is on
+    /// `SOIL_SATURATED`'s scale, which infiltration already exchanges 1:1
+    /// with a liquid fill. If any of those is ever set on something that is
+    /// not water, this needs the density ratio the melt path already carries
     /// (`fire::melt_fill`) — a cell-equivalent is a *water* cell-equivalent,
     /// and a lighter liquid's fill is not worth the same water.
     #[inline]

@@ -341,8 +341,12 @@ pub struct MaterialDef {
     /// scope the mechanic to the material the plant work actually needs
     /// and leave the rest of the engine's mass bookkeeping untouched.
     ///
-    /// Widening it later means teaching those tallies about held water
-    /// first. Flagged rather than done.
+    /// Widening it later meant teaching those tallies about held water
+    /// first, and that is **done**: `weather::water_equivalents` counts a
+    /// water-holding powder's `aux` on the same 1:1 scale infiltration
+    /// already moves fill across at, so held water is on the books and a
+    /// second water-holding powder joins the ledger automatically rather
+    /// than silently leaking out of it.
     #[serde(default)]
     pub water_capacity: u16,
     /// Whether standing cells of this `Liquid` dry up into the air above
@@ -794,6 +798,7 @@ pub struct ReactionDef {
     /// `scene=lavapour` from ~5.5 to ~35 boil/react events a frame.
     #[serde(default)]
     pub mixes_heat: bool,
+
 }
 
 fn default_reaction_chance() -> f32 {

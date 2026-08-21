@@ -362,10 +362,18 @@ bank can afford, and `render.rs` thins the *drawn* rain by the same factor so
 a bankrupt sky cannot draw a downpour it will not land. Measured flat to
 -0.0000% across 6,000 frames spanning a storm and a drought, on both drivers.
 Judged on `filmstrip scene=stormcycle`, whose census prints the bank next to
-the standing water. **Still open:** water that infiltrates soil leaves the
-ledger and nothing credits it back, so an all-soil world's rain thins to
-about half strength over ~45,000 frames and settles there — see
-`weather::STORM_RESERVE`'s doc for the trajectory.
+the standing water. **Soil is on the books too, as of the overnight water
+pass.** Held water counts toward the ledger, the rain soak is charged for
+rather than free, and damp ground at an open surface evaporates and credits
+the bank — so infiltration is a *store* rather than a leak, and
+`water_equivalents + bank` is flat to the unit on a soil world where it
+previously was not a conservation law at all. Soil supply over 60,000 frames
+went 0.54 → **0.76**. It cost a tenfold cut to `SOIL_SOAK_PER_DROP`: soil
+storage is five times `STORM_RESERVE`, so charging for wetting it competes
+with rain directly, and the ground now takes about twice as long to reach the
+same wetness. **Still open:** `transpire` and root uptake spend soil moisture
+and credit nothing, and `STORM_RESERVE`'s own sizing wants re-deriving — see
+`Reports/weather-handoff.md`.
 
 **And the loop now runs on the day.** `filmstrip scene=watercycle` is the
 closing demonstration: the same pond and shore in a window spanning two clear

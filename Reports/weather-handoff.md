@@ -190,10 +190,50 @@ wants an opinion before it wants code.
   `evaporation::tick` and spent by `weather::step`, with `render.rs` thinning
   the drawn rain by the same supply factor the storm is throttled by.
   Measured flat to -0.0000% across 6,000 frames spanning a storm and a
-  drought, both drivers. What is *not* closed is infiltration: a landing
-  water cell's fill becomes soil wetness and nothing credits it back, so an
-  all-soil world's supply settles at about half — see
-  `weather::STORM_RESERVE`'s own doc for the sizing and the trajectory.
+  drought, both drivers.
+- ~~**Infiltration is an un-credited sink.**~~ **Closed**, in three parts
+  that only work together, and each was confirmed by breaking it:
+  `water_equivalents` counts a water-holding powder's `aux` on the same 1:1
+  scale infiltration already moves fill across at (without it the ledger
+  falls 32% as ground wets); the rain soak is charged to the bank rather
+  than written for free (without it, +7.8%); and damp soil at an open
+  surface evaporates and credits what it lost
+  (`evaporation::tick_soil`). Soil supply over 60,000 frames: **0.54 →
+  0.76**, and `water_equivalents + bank` is now flat to the unit on a soil
+  world, guarded by `the_worlds_water_is_flat_over_soil_too`.
+
+  **`SOIL_SOAK_PER_DROP` was cut tenfold to get there and that is a look
+  trade, not a free win.** Charging for wetting soil puts it in direct
+  competition with rain, and soil storage is enormous next to the reserve —
+  24 rows across a 512-wide shelf hold 12,288 cell-equivalents against a
+  `STORM_RESERVE` of 2,500. At the old soak the equilibrium was 0.09;
+  raising the soil drying rate twentyfold only reached 0.28, because the
+  reservoir and not the rate is the constraint. What the cut costs, measured
+  by `probe_ground_wetness_under_a_storm` (mean saturation of the top soil
+  row through one front):
+
+  | frames of storm | old soak | shipped |
+  |---|---|---|
+  | 500 | 0.289 | 0.119 |
+  | 1,000 | 0.546 | 0.284 |
+  | 2,000 | 0.622 | 0.495 |
+  | 3,500 | 0.623 | **0.591** |
+  | bank at 3,500 | 650 | **1,691** |
+
+  So the ground still gets just as wet; it takes about twice as long. Put in
+  front of the owner as a review card rather than decided here.
+
+  **Three soil leaks are left and are not fixed.** `plant.rs`'s `transpire`
+  destroys soil moisture and credits nothing; root uptake moves it into a
+  plant the ledger cannot see; and worldgen fills a water table before the
+  first frame, so a generated world's opening ledger now includes the whole
+  saturated zone. The soil conservation guard therefore has no plants in
+  it, deliberately — it would measure those instead.
+
+  **`STORM_RESERVE`'s own sizing moved and has not been adjusted.**
+  `probe_storm_yield`'s worst genuine front went 788 → ~1,028
+  cell-equivalents now that the soak is charged, so 2,500 is a shade over
+  2.4 storms where its doc is written for three.
 - **The rate constants are set from feel, not from anything physical.** A
   six-cell puddle four rows deep takes ~11,600 frames, a little over three
   in-game days; two rows deep, about half that. `probe_drying_curve` is the thing to re-run after touching

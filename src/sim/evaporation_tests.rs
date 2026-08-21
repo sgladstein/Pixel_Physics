@@ -169,6 +169,117 @@ fn fraction_lost_seeded(width: i32, frames: usize, seed: u64) -> f32 {
     1.0 - volume(&w, width) as f32 / before as f32
 }
 
+/// A bed of soil, saturated, open to the air.
+///
+/// **One row deep, and narrow.** Only a surface cell dries, so a deep bed
+/// spends most of a run moving water upward by capillary flow and reaches
+/// its resting state far too slowly to assert on -- written six rows deep
+/// first and it was still visibly drying after 40,000 frames, which says
+/// nothing about whether it *stops*. One row makes every cell a surface
+/// cell. Narrow for a second reason: a wide damp bed shelters itself the
+/// way a lake does, so a wide one would be measuring `shelter` instead.
+/// How long a rain-free stretch the drying guard needs, in frames.
+const DRY_WINDOW: u64 = 12_000;
+
+fn soil_bed(width: i32) -> World {
+    let mut w = World::new(Rect::new(0, 0, 255, 127));
+    w.seed = SEED;
+    // **A dry window, chosen rather than assumed.** Weather is a pure
+    // function of `(seed, frame)` and it runs inside `parallel::step`, so a
+    // long run in an arbitrary window rains. Written without this and the
+    // bed dried to 4,320 and was back up at 23,515 twenty thousand frames
+    // later -- the water cycle working correctly and making "and then it
+    // stops" unaskable.
+    w.frame = (0..crate::sim::weather::WEATHER_EPOCH_FRAMES * 64)
+        .step_by(120)
+        .find(|&f| {
+            (0..DRY_WINDOW).step_by(120).all(|d| crate::sim::weather::at(SEED, f + d).kind == crate::sim::weather::Precipitation::None)
+        })
+        .expect("this seed has a long dry spell in it");
+    let b = w.bounds().unwrap();
+    for x in b.min_x..=b.max_x {
+        for y in FLOOR_Y..=b.max_y {
+            w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+    }
+    let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+    for x in BASIN_X..(BASIN_X + width) {
+        w.set(x, FLOOR_Y - 1, Cell::new(soil, 0).with_aux(material::SOIL_SATURATED));
+        w.schedule_damp_soil_for_test(x, FLOOR_Y - 1);
+    }
+    w
+}
+
+/// **The whole world, not the basin window.** Soil is a `Powder`: an
+/// unwalled bed slumps and spreads, and a window sized to where it started
+/// reads the spreading as loss. Written that way first and it reported the
+/// bed losing 2,054 units while the sky was credited 54 -- which looks
+/// exactly like a broken credit path and was a broken ruler.
+fn soil_held(w: &World) -> u64 {
+    let b = w.bounds().unwrap();
+    let mut sum = 0u64;
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
+            let c = w.get(x, y);
+            if w.materials.get(c.material).water_capacity > 0 {
+                sum += update::soil_moisture(c) as u64;
+            }
+        }
+    }
+    sum
+}
+
+/// **Damp ground dries, banks exactly what it lost, and then stops** — the
+/// second credit path, and the shape `Reports/weather-handoff.md` insists
+/// on ("every guard tested that a mechanism fires, and none tested that it
+/// stops").
+///
+/// Stopping is the whole point here and it is not incidental: soil never
+/// becomes a different material when it dries, so unlike a puddle there is
+/// no "the cell is gone" terminal state. It has to retire on a *value* --
+/// `SOIL_DRY_FLOOR`, the permanent wilting point, which is already the
+/// engine's statement of water held too tightly for a root to take.
+///
+/// Also asserts the bank credit matches the loss to the unit, which is what
+/// makes this a transfer rather than a second place water can be invented.
+#[test]
+fn damp_soil_dries_to_the_wilting_point_banks_what_it_lost_and_retires() {
+    const WIDTH: i32 = 24;
+    let mut w = soil_bed(WIDTH);
+    let opening_held = soil_held(&w);
+    let opening_bank = w.atmospheric_bank;
+    assert!(pending_evaporation_sites(&w) > 0, "the bed was never scheduled, so this asserts nothing");
+
+    run(&mut w, (DRY_WINDOW / 2) as usize);
+
+    let held = soil_held(&w);
+    let lost = opening_held - held;
+    let banked = w.atmospheric_bank - opening_bank;
+    assert!(lost > 0, "saturated soil open to dry air lost nothing at all in half a dry spell");
+    assert!(
+        (banked - lost as f64 / material::SOIL_SATURATED as f64).abs() < 0.001,
+        "the bed lost {lost} units of moisture and the sky was credited {banked:.3} cell-equivalents"
+    );
+
+    // **And then it stops** -- and it stops *wet*, which is the same
+    // resting state a lake has and not a stall. `dryness` reads the
+    // humidity one field block up, a damp bed is a moisture source
+    // (`field.rs` builds `moisture_source` from `aux / water_capacity`),
+    // and in still air with nothing to carry it away that block reaches
+    // `HUMID_STOP`. The rate goes to zero, `STALE_LIMIT` checks later the
+    // sites retire, and the ground stays damp until the weather changes --
+    // which is exactly what damp ground under a saturated sky does.
+    //
+    // Asserted as "the number stops moving", not "the number reaches the
+    // wilting point". Written the second way first, and it failed at 23,515
+    // against a floor of 4,320 -- reading a correct resting state as a
+    // failure to finish.
+    let before = soil_held(&w);
+    run(&mut w, (DRY_WINDOW / 2) as usize);
+    assert_eq!(soil_held(&w), before, "the bed was still drying after half a dry spell of drying");
+    assert_eq!(pending_evaporation_sites(&w), 0, "sites are still queued on a bed that has stopped losing water");
+}
+
 #[test]
 fn a_puddle_dries_up_and_a_lake_does_not() {
     // The headline paired comparison. Same seed, so the same weather; same

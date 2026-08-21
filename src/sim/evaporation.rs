@@ -323,6 +323,83 @@ fn is_exposed_surface<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
 /// a *regression you are about to fix*, not only to one you are about to
 /// report — and a cheap-looking guard on a hot path has to be checked
 /// against whether the path is still reachable.
+/// How much saturation a damp soil cell gives up per due check, before the
+/// three rate factors scale it.
+///
+/// **A fifth of a liquid cell's `FILL_PER_CHECK`, and the ratio is the
+/// point.** Soil does not present a free surface: water leaves it through
+/// pore space against matric suction, which is why a damp field takes days
+/// to dry where a puddle of the same volume takes hours. Set low enough
+/// that the ground is still visibly damp long after rain has stopped --
+/// what this exists to close is a *ledger* leak measured over tens of
+/// thousands of frames, not to make puddle-drying happen on dirt.
+const SOIL_DRY_PER_CHECK: u16 = FILL_PER_CHECK;
+
+/// Saturation a drying soil cell will not go below.
+///
+/// The **permanent wilting point**, which is already the engine's stated
+/// floor for water a plant can reach (`material::SOIL_WILTING_POINT`).
+/// Below it the water is held too tightly for a root to take, and it is
+/// held too tightly for the air to take as well -- so drying to zero would
+/// be claiming that sunshine can do what a plant cannot.
+///
+/// It is also what makes this terminate: a cell at the floor retires and
+/// stops rescheduling, exactly as a drained puddle does.
+const SOIL_DRY_FLOOR: u16 = super::material::SOIL_WILTING_POINT;
+
+/// Schedule a damp soil cell to be checked for drying.
+///
+/// **Called where soil is *wetted*, not from the sweep**, and that is the
+/// whole of why it works. The sweep-hook version of liquid evaporation was
+/// built and reverted because a settled body is not swept; damp soil is
+/// worse, because a soil bed that has stopped moving water is *permanently*
+/// unswept -- `update_soil_water` returns false the moment moisture stops
+/// changing, deliberately, so that a settled damp bed sleeps like a dry one.
+/// A hook there would fire exactly never.
+///
+/// The two places soil gets wet both run while the chunk is provably awake:
+/// `weather::step`'s rain soak, and `update::update_soil_water`'s
+/// infiltration. Both go through `CellSurface::schedule_active_site`, which
+/// dedups by position -- load-bearing here for the same reason it is for
+/// liquid, since a bed under a long storm would otherwise accumulate one
+/// site per drop.
+#[cfg(test)]
+impl World {
+    /// Test-only door onto `schedule_damp_soil`, so a guard can put a
+    /// hand-built bed on the schedule without going through a storm.
+    pub(crate) fn schedule_damp_soil_for_test(&mut self, x: i32, y: i32) {
+        schedule_damp_soil(self, x, y);
+    }
+}
+
+pub(crate) fn schedule_damp_soil<S: CellSurface>(surface: &mut S, x: i32, y: i32) {
+    if !is_damp_soil_surface(surface, x, y) {
+        return;
+    }
+    let phase = (x + y).unsigned_abs() as u64 % CHECK_INTERVAL;
+    surface.schedule_active_site(ActiveSite {
+        x,
+        y,
+        kind: ActiveKind::Evaporate { stale_ticks: 0 },
+        next_frame: surface.frame() + 1 + phase,
+    });
+}
+
+/// The soil half of `is_exposed_surface`, and kept beside it for the same
+/// reason that one exists: the scheduler and the tick have to agree.
+///
+/// Air *directly above*, so only the top of a bed dries. Soil under soil
+/// keeps what it has and gives it up to the surface by capillary flow
+/// (`update.rs`), which is the mechanism that actually dries a field.
+fn is_damp_soil_surface<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
+    let cell = surface.get(x, y);
+    let m = surface.materials().get(cell.material);
+    m.water_capacity > 0
+        && m.kind == MaterialKind::Powder
+        && super::update::soil_moisture(cell) > SOIL_DRY_FLOOR
+        && surface.get(x, y - 1).is_empty()
+}
+
 pub(crate) fn schedule_from_sweep<S: CellSurface>(surface: &mut S, x: i32, y: i32) {
     if !is_exposed_surface(surface, x, y) {
         return;
@@ -334,6 +411,62 @@ pub(crate) fn schedule_from_sweep<S: CellSurface>(surface: &mut S, x: i32, y: i3
         kind: ActiveKind::Evaporate { stale_ticks: 0 },
         next_frame: surface.frame() + 1 + phase,
     });
+}
+
+/// Dry a damp soil surface cell, crediting exactly what it loses.
+///
+/// The same three factors the liquid path multiplies -- dry air, an
+/// unsheltered surface, warm air over it -- deliberately, because they are
+/// answers about *the air*, and the air over damp ground is the same air.
+/// `shelter` in particular already grades damp soil (`field.rs` builds
+/// `moisture_source` from `aux / water_capacity`), so a wide wet field
+/// shelters itself and dries slower than an isolated damp patch, which is
+/// the same behaviour a lake gets against a puddle and is right for the
+/// same reason.
+///
+/// # The second credit path, and what it does not close
+///
+/// `STORM_RESERVE`'s doc calls infiltration "an un-credited sink" and says
+/// closing it "means crediting soil drainage, which is a second credit path
+/// and a separate piece of work". This is that path, arrived at from the
+/// other end: the water goes back to the sky rather than back to a puddle,
+/// because that is what happens to water in the top inch of a field.
+///
+/// It does **not** close every soil leak. `plant.rs`'s `transpire` destroys
+/// soil moisture and credits nothing, root uptake moves it into a plant
+/// that the ledger cannot see, and worldgen fills a water table before the
+/// first frame. Those are recorded rather than fixed -- see
+/// `Reports/weather-handoff.md`.
+fn tick_soil(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSite> {
+    if !is_damp_soil_surface(world, x, y) {
+        // Dried out, buried, or no longer soil. Structurally finished, so
+        // it retires rather than rescheduling -- the same shape as a liquid
+        // cell that has drained away entirely.
+        return Vec::new();
+    }
+    let cell = world.get(x, y);
+    let reschedule =
+        ActiveSite { x, y, kind: ActiveKind::Evaporate { stale_ticks: 0 }, next_frame: world.frame + CHECK_INTERVAL };
+
+    let rate = dryness(world, x, y) * (1.0 - shelter(world, x, y)) * warmth(world, x, y);
+    let loss = (SOIL_DRY_PER_CHECK as f32 * rate) as u16;
+    if loss == 0 {
+        // Sheltered or saturated air. Still on the schedule, for the reason
+        // the liquid path gives: a rate of zero is a statement about the
+        // weather right now, and the weather changes.
+        if stale_ticks + 1 >= STALE_LIMIT {
+            return Vec::new();
+        }
+        return vec![ActiveSite { x, y, kind: ActiveKind::Evaporate { stale_ticks: stale_ticks + 1 }, next_frame: world.frame + CHECK_INTERVAL }];
+    }
+
+    let moisture = super::update::soil_moisture(cell);
+    let loss = loss.min(moisture - SOIL_DRY_FLOOR);
+    world.set(x, y, cell.with_aux(moisture - loss));
+    // Credit exactly what was removed, on the same 1:1 scale infiltration
+    // already uses to move fill into `aux`.
+    world.credit_atmosphere(loss);
+    vec![reschedule]
 }
 
 /// How dry the air above `(x, y)` is, `0.0..=1.0` — the weather half of the
@@ -516,6 +649,17 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     };
     let (x, y) = (site.x, site.y);
     let cell = world.get(x, y);
+
+    // **One `ActiveKind` for both, dispatched on what the cell is.** A
+    // second variant would need its own arm in `World::schedule_active_site`
+    // and `pop_due_active_site` or it would get no dedup at all, and that
+    // dedup is load-bearing for the *rate* and not only the frame cost
+    // (`pending_evaporation`'s own doc). One kind, keyed by position, keeps
+    // that property for free -- and a cell cannot be both a liquid surface
+    // and damp soil, so there is nothing for the two paths to fight over.
+    if world.materials.kind(cell.material) == MaterialKind::Powder {
+        return tick_soil(world, x, y, stale_ticks);
+    }
 
     // Structurally finished: whatever was here has flowed away, frozen,
     // burned off or been dug out. Nothing to reschedule — if liquid comes

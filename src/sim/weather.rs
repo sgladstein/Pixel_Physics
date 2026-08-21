@@ -257,35 +257,52 @@ const REFERENCE_WIDTH: f32 = 2048.0;
 /// it is simultaneously "how much rain a brand-new world gets before
 /// evaporation has paid anything back".
 ///
-/// # What this number cannot fix, and what will move it
+/// # Soil is on the books now, and this number wants re-deriving
 ///
-/// **Infiltration is an un-credited sink.** `update::update_soil_water`
-/// turns a landing water cell's fill into soil wetness, and nothing ever
-/// turns it back — soil moisture drains and is drunk by roots, and
-/// `evaporation` never sees it. So on a soil world the outer cycle is not
-/// closed: it is a bank with a leak, and this constant sets how long the
-/// leak takes to show. That was true before the bank existed too; the only
-/// thing that changed is that it is now *visible* (as rain thinning) rather
-/// than invisible (as water quietly appearing from nowhere to replace it).
-/// Closing it means crediting soil drainage, which is a second credit path
-/// and a separate piece of work.
+/// **Infiltration used to be an un-credited sink.** `update::
+/// update_soil_water` turns a landing water cell's fill into soil wetness,
+/// `water_equivalents` did not count soil, and nothing gave it back — so a
+/// soil world was a bank with a leak that could not even be measured.
+///
+/// Both halves are closed. The ledger counts held water (see
+/// `water_equivalents`'s soil arm), which makes infiltration
+/// **neutral** rather than a loss, since it moves `taken` units 1:1 out of
+/// a fill and into an `aux`. And damp soil at an open surface now
+/// evaporates and credits the bank (`evaporation::tick_soil`), which is
+/// the second credit path this section used to ask for. The rain soak is
+/// charged rather than free, or the first change alone would mint water on
+/// every drop.
 ///
 /// Measured (`probe_long_run_balance`, 60,000 frames, seed 12345, the same
 /// world with the two surfaces):
 ///
-/// | frame | bare rock: bank / supply | soil: bank / supply |
-/// |---|---|---|
-/// | 25,000 | 2,500 / 1.00 | 2,500 / 1.00 |
-/// | 35,000 | 2,491 / 1.00 | 1,815 / 0.73 |
-/// | 45,000 | 2,494 / 1.00 | 1,357 / 0.54 |
-/// | 60,000 | **2,500 / 1.00** | 1,360 / 0.54 |
+/// | frame | bare rock: bank / supply | soil, before | soil, now |
+/// |---|---|---|---|
+/// | 25,000 | 2,500 / 1.00 | 2,500 / 1.00 | 2,500 / 1.00 |
+/// | 45,000 | 2,494 / 1.00 | 1,357 / 0.54 | 1,823 / 0.73 |
+/// | 60,000 | **2,500 / 1.00** | 1,360 / 0.54 | **1,903 / 0.76** |
 ///
-/// Over rock the loop closes exactly: every cell the sky spends puddles,
-/// dries and comes back, and the balance returns to its opening figure to
-/// the last unit. Over soil it settles at about half supply after some
-/// sixteen minutes of play, which is the leak, drawn at the rate the leak
-/// actually runs at. That it *settles* rather than running to zero is the
-/// soil reaching capacity -- the sink has a bottom.
+/// Over rock the loop closes exactly and always did. Over soil it now
+/// settles at three-quarters supply instead of a half, and — the part that
+/// matters more than the number — `water_equivalents + bank` is flat to the
+/// unit on a soil world, where before it was not a conservation law at all.
+///
+/// **What is left, and it is a sizing question rather than a leak.** Soil
+/// storage is enormous next to this constant: 24 rows of soil across a
+/// 512-wide shelf hold **12,288** cell-equivalents against a reserve of
+/// 2,500. Charging for wetting it therefore competes directly with rain,
+/// and the equilibrium above is where that competition lands. Two knobs
+/// were swept against it and both are recorded rather than guessed at:
+/// raising the soil drying rate twentyfold only reached 0.28 (the reservoir
+/// is the constraint, not the rate), and cutting `SOIL_SOAK_PER_DROP`
+/// tenfold — which is what shipped — reached 0.76.
+///
+/// **This constant's own sizing moved with it and has not been changed.**
+/// `probe_storm_yield`'s worst *genuine* front went from 788 to ~1,028
+/// cell-equivalents now that the soak is charged, so 2,500 is a shade over
+/// **2.4** storms where the argument below is written for three. Recorded
+/// rather than adjusted: raising it also raises a fresh world's endowment,
+/// which is a feel decision about how wet a new world starts.
 pub const STORM_RESERVE: f64 = 2500.0;
 
 /// How much of a full-strength storm a bank holding `bank` cell-equivalents
@@ -333,7 +350,7 @@ const WATER_CELL_CHANCE: f32 = 0.06;
 ///
 /// A tenth of saturation, so ground darkens over a few passes of a shower
 /// rather than going instantly black under the first drop.
-const SOIL_SOAK_PER_DROP: u16 = material::SOIL_SATURATED / 10;
+const SOIL_SOAK_PER_DROP: u16 = material::SOIL_SATURATED / 100;
 
 /// Chance a landing flake becomes a snow cell, at full intensity.
 ///
@@ -852,8 +869,25 @@ pub fn step(world: &mut World) {
             }
             let share = soak / (d as u16 + 1);
             let wetter = cell.aux().saturating_add(share).min(material::SOIL_SATURATED);
-            if wetter != cell.aux() {
+            let added = wetter - cell.aux();
+            // **Charged to the bank, now that held water is on the books.**
+            // The comment above used to end "until then, pretending would be
+            // worse than not accounting" -- and this is the day it names.
+            // `water_equivalents` counts soil moisture, so a soak that wrote
+            // itself for free would mint water on every drop and the
+            // conservation law would read as growth instead of a leak.
+            //
+            // Refused rather than partially paid, on `spend_atmosphere`'s
+            // own all-or-nothing rule: there is no such thing as
+            // three-tenths of a wetted cell, and a caller that gets `false`
+            // must not write. A bankrupt sky therefore stops wetting the
+            // ground, which is the same throttle the storm as a whole is
+            // already under -- the column budget is scaled by the bank
+            // before we get here, so a refusal is the rounding at the bottom
+            // of the barrel rather than the usual path.
+            if added > 0 && world.spend_atmosphere(added as f64 / material::SOIL_SATURATED as f64) {
                 world.set(x, y, cell.with_aux(wetter));
+                super::evaporation::schedule_damp_soil(world, x, y);
             }
         }
         // **Rain does not stack on standing water.** If the topmost thing in
@@ -1036,6 +1070,30 @@ pub fn water_equivalents(w: &World) -> f64 {
                 // melts *into water*, worth its own density in water.
                 MaterialKind::Solid | MaterialKind::Powder if m.melts_into == Some(material::WATER) => {
                     total += m.density as f64 / water_density;
+                }
+                // **Water held in soil.** `update::update_soil_water`'s
+                // infiltration moves `taken` units straight from a liquid's
+                // fill into a `Powder`'s `aux`, one for one, so the two
+                // scales are the same scale and the exchange rate is not a
+                // choice anyone has to make -- it is what the code already
+                // does.
+                //
+                // This arm is what makes infiltration **ledger-neutral**.
+                // Before it, water soaking into ground simply left the
+                // books: `STORM_RESERVE`'s own doc measures a soil world
+                // settling at 0.54 of full rain supply over 45,000 frames
+                // and calls it "a bank with a leak". Half of that leak was
+                // never a leak at all, only an un-counted store; the other
+                // half is real and is what `evaporation`'s soil path gives
+                // back.
+                //
+                // `water_capacity > 0` rather than a material name, so a
+                // second water-holding powder joins automatically -- which
+                // is the prerequisite `MaterialDef::water_capacity` names
+                // ("widening it later means teaching those tallies about
+                // held water first").
+                MaterialKind::Powder if m.water_capacity > 0 => {
+                    total += crate::sim::update::soil_moisture(cell) as f64 / material::SOIL_SATURATED as f64;
                 }
                 _ => {}
             }
@@ -2148,6 +2206,37 @@ mod tests {
 
     #[test]
     #[ignore = "probe, not a guard"]
+    /// How wet rain actually makes the ground, which is the look
+    /// `SOIL_SOAK_PER_DROP` exists for and the thing charging it to the
+    /// bank puts at risk. Prints the mean saturation of the top soil row
+    /// through one front, as a fraction of `SOIL_SATURATED`.
+    fn probe_ground_wetness_under_a_storm() {
+        let seed = 12345;
+        let start = first_frame_with(seed, 0, |w| w.kind == Precipitation::Rain && w.intensity > 0.5)
+            .expect("this seed has a wet epoch in it");
+        let mut w = open_shelf_world(seed, start, Some(0));
+        let top = (0..w.bounds().unwrap().max_y)
+            .find(|&y| (0..512).any(|x| w.materials.get(w.get(x, y).material).water_capacity > 0))
+            .expect("the shelf has soil in it");
+        println!("wetness: frame  mean top-row saturation  bank");
+        for step in 0..8 {
+            advance(&mut w, 500, true);
+            let cells: Vec<u16> = (0..512)
+                .filter(|&x| w.materials.get(w.get(x, top).material).water_capacity > 0)
+                .map(|x| crate::sim::update::soil_moisture(w.get(x, top)))
+                .collect();
+            let mean = cells.iter().map(|&m| m as f64).sum::<f64>() / cells.len().max(1) as f64;
+            println!(
+                "wetness: {:6}  {:.3}  {:.0}",
+                start + (step + 1) * 500u64,
+                mean / material::SOIL_SATURATED as f64,
+                w.atmospheric_bank
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "probe, not a guard"]
     fn probe_long_run_balance() {
         // **Where the balance actually goes over a long run**, which no
         // single-storm number can answer and which is the question the
@@ -2289,6 +2378,63 @@ mod tests {
             }
         }
         w
+    }
+
+    /// The same conservation law **over soil**, which is the case the
+    /// stone basin exists to avoid.
+    ///
+    /// `walled_basin_world`'s own doc says why it is stone: infiltration
+    /// used to be a one-way sink out of the ledger, so "a conservation
+    /// guard built on soil would measure that leak instead of the thing it
+    /// is named for". Three changes closed it -- `water_equivalents` counts
+    /// held water, the rain soak is charged rather than free, and damp soil
+    /// at an open surface evaporates and credits the bank -- and this is
+    /// the test that says so.
+    ///
+    /// **Confirmed red against each of the three separately**: without the
+    /// soil arm in the census the ledger falls as ground wets; without the
+    /// soak charge it rises; without the drying path it falls and does not
+    /// come back.
+    ///
+    /// Deliberately no plants. `plant.rs`'s `transpire` destroys soil
+    /// moisture and credits nothing and root uptake moves it into a plant
+    /// the ledger cannot see, so a scene with a tree in it would measure
+    /// those instead -- they are recorded in
+    /// `Reports/weather-handoff.md` rather than fixed.
+    #[test]
+    fn the_worlds_water_is_flat_over_soil_too() {
+        for parallel_driver in [true, false] {
+            let seed = 12345;
+            let start = first_frame_with(seed, 0, |w| w.kind == Precipitation::Rain && w.intensity > 0.5)
+                .expect("this seed has a wet epoch in it");
+            let mut w = open_shelf_world(seed, start, Some(0));
+            // Settle first, so the opening reading is not taken mid-fall
+            // while worldgen's own water is still arriving somewhere.
+            advance(&mut w, 200, parallel_driver);
+
+            let opening = water_equivalents(&w) + w.atmospheric_bank;
+            let (mut wet_frames, mut dry_frames) = (0, 0);
+            for _ in 0..40 {
+                advance(&mut w, 150, parallel_driver);
+                if at(w.seed, w.frame).kind == Precipitation::Rain && at(w.seed, w.frame).intensity > 0.1 {
+                    wet_frames += 1;
+                } else {
+                    dry_frames += 1;
+                }
+            }
+            let closing = water_equivalents(&w) + w.atmospheric_bank;
+
+            assert!(
+                wet_frames > 3 && dry_frames > 3,
+                "the window has to contain both weathers or it proves nothing (wet {wet_frames}, dry {dry_frames})"
+            );
+            let drift = (closing - opening) / opening.max(1.0);
+            assert!(
+                drift.abs() < 0.001,
+                "water over soil drifted {:.4}% across a storm and a dry spell: {opening:.1} -> {closing:.1} (parallel: {parallel_driver})",
+                drift * 100.0
+            );
+        }
     }
 
     #[test]

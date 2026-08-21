@@ -429,6 +429,19 @@ fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
 
     if moisture != here {
         surface.set(x, y, cell.with_aux(moisture));
+        // **The other place soil gets wet**, and the second of the only two
+        // moments a damp cell can be put on the drying schedule -- see
+        // `evaporation::schedule_damp_soil`. It has to happen here, while
+        // the chunk is provably awake, because a settled damp bed is never
+        // swept again: the `false` return below is what lets it sleep, and
+        // a hook keyed on being visited would fire exactly never.
+        //
+        // Cheap and self-limiting: the predicate rejects anything buried or
+        // already at the dry floor before a site is built, and
+        // `World::schedule_active_site` dedups by position, so a bed under a
+        // long storm ends up with one site per surface cell rather than one
+        // per drop.
+        super::evaporation::schedule_damp_soil(surface, x, y);
         return true;
     }
     false

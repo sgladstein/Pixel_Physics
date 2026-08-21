@@ -1,8 +1,9 @@
 # Weather
 
 *Current as of: this build (the water bank — rain now comes out of what
-evaporated — and drying that follows the sun: warm afternoons take far
-more off a puddle than cold nights do).*
+evaporated, and damp ground gives its water back to the sky — plus drying
+that follows the sun: warm afternoons take far more off a puddle than cold
+nights do).*
 
 Every world has weather, and it is a property of the world rather than
 something that happens to it: the same seed gets the same weather at the
@@ -178,19 +179,25 @@ you see falling and the rain that
 actually lands are always the same rain; the sky never puts on a downpour it
 cannot pay for.
 
-Two things do *not* come out of the sky's reserve, deliberately. Damp ground
-is one: a front still darkens and wets what it passes over even when it has
-very little water left to drop, because ground being damp is a condition
-rather than a quantity of water sitting somewhere. Snow melting, water
-boiling to steam, steam condensing and ponds freezing are the other: none of
-those involve the sky at all, and each of them already gives back exactly
-what it took.
+**Wetting the ground now comes out of the sky's reserve as well**, because
+water in soil is water — it is being stored, not spent. A bankrupt sky
+therefore stops darkening the ground as well as stopping raining, which is
+the same throttle applied honestly rather than a new one.
 
-One rough edge worth knowing: water that soaks into soil is, for now, gone
-for good — it does not evaporate back out. So a world that is all soil and
-no stone will see its rain thin out over a long session and settle at
-roughly half strength, where a world with rock to puddle on holds its level
-indefinitely.
+Snow melting, water boiling to steam, steam condensing and ponds freezing
+are the exception: none of those involve the sky at all, and each gives
+back exactly what it took.
+
+**Damp ground dries out into the air, and the sky gets it back.** A rained-on
+hillside gives its water up over the following minutes the way a puddle
+does, only much more slowly and only from the surface — so a soil world's
+rain no longer thins away over a long session. It settles at about
+three-quarters strength rather than a half, the balance being water sitting
+in the ground at any moment rather than water that has been lost.
+
+Ground under a saturated sky stops drying and stays damp, exactly as a lake
+stops evaporating into air that is already full of water. It picks up again
+when the weather changes.
 
 ## What is not here yet
 
@@ -204,5 +211,6 @@ no black ice on a clear winter night.
 The sky's water is one pool for the whole world rather than clouds that
 drift: water that evaporates on one side of the map can fall on the other,
 and there is no sense in which a particular cloud is carrying a particular
-puddle. Water that has soaked into soil does not evaporate back out yet
-either — see above.
+puddle. What a soil world does *not* get back is water its plants have
+drunk or breathed out: that leaves the reserve and nothing returns it, so a
+heavily forested world still dries out slowly.
