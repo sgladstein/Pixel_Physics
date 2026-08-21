@@ -489,6 +489,84 @@ fn build(args: &Args) -> World {
                 }
             }
         }
+        // **Lava dropped into water**, which is the owner's own report
+        // verbatim ("if I drop lava into water, it boils, turns to steam,
+        // rises about 5 ft in the air and then drops back into rain").
+        //
+        // `lavapour` cannot answer it. Its ramp delivers the lava at the
+        // *shoreline*, so what happens next is dominated by a delta
+        // building at the water's edge and by a crust bridging the pond --
+        // real behaviour, and a confound when the question is what the
+        // plume over open water does. Here the lava arrives in the middle
+        // of a wide pond with nothing but water under it, which is what a
+        // player painting lava over a lake actually produces.
+        //
+        // The blob is released a few rows above the surface rather than
+        // placed in it, so the first contact is a real fall onto real
+        // water. `span=` sets the pond width (default 200).
+        "lavadrop" => {
+            stone_floor(&mut w);
+            let lava = w.materials.id_of("lava").expect("lava is a compiled-in material");
+            let half = args.span / 2;
+            let (left, right) = (256 - half, 256 + half);
+            let pond_top = 250;
+            for y in pond_top..floor_y {
+                w.set(left, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(right, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in (left + 1)..right {
+                for y in (pond_top + 2)..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            let mut blob = 0;
+            for x in 236..276 {
+                for y in 226..246 {
+                    w.set(x, y, Cell::new(lava, (rng::jitter(x, y) * 255.0) as u8));
+                    blob += 1;
+                }
+            }
+            println!(
+                "lavadrop: {blob} cells of lava released 6 rows over the middle of a {}-wide pond",
+                right - left - 1
+            );
+        }
+        // A lava *lake*, open to the sky, for the owner's report that a
+        // crust "freezes in place" instead of foundering. The pour scene
+        // above cannot answer it: everything that crusts there is either a
+        // film stranded on the ramp (correctly stuck to the ramp) or stone
+        // minted by the quench reaction inside water. This scene isolates
+        // the third case -- lava cooling into stone at the *middle top of a
+        // lake*, with the nearest anchor 90 columns away, which is far past
+        // stone.ron's `max_unsupported_span` of 16 in either direction.
+        //
+        // Deliberately wide and shallow-walled: the whole question is what
+        // happens to a plate that has no path to an anchor, so a basin
+        // narrow enough for the crust to span shore-to-shore would answer a
+        // different one. `span=` sets the width (default 200).
+        "lavalake" => {
+            stone_floor(&mut w);
+            let lava = w.materials.id_of("lava").expect("lava is a compiled-in material");
+            let half = args.span / 2;
+            let (left, right) = (256 - half, 256 + half);
+            let (lake_top, lake_bottom) = (200, floor_y);
+            for y in lake_top..floor_y {
+                w.set(left, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(right, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            let mut cells = 0;
+            for x in (left + 1)..right {
+                for y in (lake_top + 4)..lake_bottom {
+                    w.set(x, y, Cell::new(lava, (rng::jitter(x, y) * 255.0) as u8));
+                    cells += 1;
+                }
+            }
+            println!(
+                "lavalake: {cells} cells of lava in a {}x{} basin, open to the sky; nearest anchor {half} columns from mid-lake",
+                right - left - 1,
+                lake_bottom - lake_top - 4
+            );
+        }
         // The water cycle's freezing half, and the scene this milestone is
         // judged on by eye: **a pond with real shorelines under a snowstorm
         // that passes.** In one run it should show freeze-over creeping
@@ -2720,6 +2798,104 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
                     temp_sum / n as i64
                 );
             }
+        }
+        // **The plume, as a standing state rather than an event rate.**
+        // `boiled`/`condensed` above are cumulative and they run at nearly
+        // 1:1 on any scene with a live boil, which is exactly what a
+        // healthy loop looks like *and* exactly what a plume that rains
+        // straight back down looks like. The owner's report -- steam rises
+        // a few cells and drops back as rain, fast enough to read as
+        // bouncing -- is about neither count: it is about how far the
+        // plume gets and how much *water* is standing in the air inside
+        // it. `CLAUDE.md`'s "when the complaint is about something visible
+        // and persistent, measure the standing state, not the event rate".
+        //
+        // *Airborne water* is a water cell with materially-empty space
+        // directly below it. Sanity-checked against cases known to be fine
+        // before it was trusted, per `CLAUDE.md`: a settled pond
+        // (`scene=coldsnap`) reads 0, and `scene=fall` -- water genuinely
+        // falling through air -- reads in the hundreds, which is the
+        // metric working, not an artifact. On `scene=lavapour` nothing
+        // pours *water*, so every airborne water cell there is condensate
+        // that has turned around and is on its way back down.
+        let (mut steam_cells, mut steam_top, mut steam_bottom) = (0u32, i32::MAX, i32::MIN);
+        let (mut airborne, mut air_top, mut air_bottom) = (0u32, i32::MAX, i32::MIN);
+        let steam_id = world.materials.id_of("steam");
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let cell = world.get(x, y);
+                if Some(cell.material) == steam_id {
+                    steam_cells += 1;
+                    steam_top = steam_top.min(y);
+                    steam_bottom = steam_bottom.max(y);
+                }
+                if cell.material == material::WATER
+                    && y + 1 < HEIGHT
+                    && world.get(x, y + 1).material == material::EMPTY
+                {
+                    airborne += 1;
+                    air_top = air_top.min(y);
+                    air_bottom = air_bottom.max(y);
+                }
+            }
+        }
+        // **Rock standing on nothing and touching nothing.** The owner's
+        // second report ("it seems to freeze in place... it should sink")
+        // as a standing count, because the failure counters cannot answer
+        // it: `unsupported` says how many cells the model *judged* had no
+        // support, and the whole defect was cells it never judged at all,
+        // or judged and then deliberately left alone as confined. Only a
+        // census of what is still standing there separates those.
+        //
+        // Deliberately the strictest reading -- a `Solid` with no
+        // `Solid`/`Plant` neighbour in any of the 8 directions and nothing
+        // solid beneath it. That makes it blind to a *raft* (whose cells
+        // hold each other's hands) and immune to false positives on
+        // ordinary terrain, where it reads 0 on every scene that has no
+        // artifact. A looser definition was not worth the argument about
+        // what an overhang is.
+        // The load model's **own** verdict, censused: an unattached `Solid`
+        // whose support chain reaches no anchor, still standing there.
+        //
+        // Two cheaper definitions were tried and are worth recording,
+        // because both are the same mistake in different clothes. "No solid
+        // neighbour at all" is blind to a *raft*, whose cells hold each
+        // other's hands, and read 9 against 14 across a change that visibly
+        // cleared a mound off a pond. "Nothing solid in the column below"
+        // is blind to anything over water, because the pond floor is in
+        // that column. `load::evaluate` asks the question the artifact
+        // actually is, and it is the same function the `load=` probe prints
+        // -- so a number here and a probe there cannot disagree.
+        //
+        // Restricted to unattached cells, which is what bounds the cost:
+        // terrain is attached and is the overwhelming majority, and an
+        // attached cell braced by the massif is not what anyone means by
+        // rock hanging in the air.
+        let mut hanging = 0u32;
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let cell = world.get(x, y);
+                if cell.attached() || cell.organism_id() != 0 {
+                    continue;
+                }
+                if world.materials.kind(cell.material) != MaterialKind::Solid {
+                    continue;
+                }
+                if pixel_physics::sim::load::evaluate(&world, x, y).is_some_and(|l| !l.supported) {
+                    hanging += 1;
+                }
+            }
+        }
+        if hanging > 0 {
+            println!("    hanging: {hanging} unattached solid cells the load model says reach no anchor");
+        }
+        if steam_cells > 0 || airborne > 0 {
+            let span = |n: u32, a: i32, b: i32| if n == 0 { "-".to_string() } else { format!("rows {a}..{b}") };
+            println!(
+                "    plume: steam {steam_cells} cells ({}), airborne water {airborne} cells ({})",
+                span(steam_cells, steam_top, steam_bottom),
+                span(airborne, air_top, air_bottom)
+            );
         }
         // The water cycle's standing state, next to the counters above --
         // and the pair is the point. The counters say the mechanism fired;
