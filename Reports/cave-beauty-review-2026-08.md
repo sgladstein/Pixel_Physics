@@ -247,10 +247,83 @@ facet regions rather than per-cell noise, and **internal** value contrast
 those is a size question, which is why raising the heights made it worse
 rather than better.
 
-### Recommendation
+### The finding that overturns the recommendation: the cave is not enterable
 
-Merge the anatomy (tasks 1–3) — it is unambiguously better and the bars
-are real. **Respec the formation half before any of task 4b's clustering
+Owner, on the paired render, unprompted: *"It doesn't look like I could
+even enter it."* Measured, and they are exactly right.
+
+`PLAYER_WIDTH x PLAYER_HEIGHT` is **7 x 14**, and crouch is marked
+*"Reserved: crouch on ground, swim-down in water (phase 3)"* —
+unimplemented. So the character needs a clear 7x14 opening to move at
+all. `cave_probe` now reports a morphological opening: keep every
+position where the whole 7x14 box is void, then measure the void within
+one box of a kept position.
+
+| preset | reachable before round 5 | after |
+|---|---|---|
+| arid | 70% | **8%** |
+| canyon | 70% | **4%** |
+| rolling | 76% | **0%** |
+| terraced | 75% | **0%** |
+| wetland | 64% | **0%** |
+
+**The median round-5 cave is 0% reachable in three of five presets.** Not
+"cramped" — the player cannot enter it at any point.
+
+**This is my task-2 bar, and it is the boulder mistake repeated.** I set
+"median open column in 3–8" from a field dump, chose it purely to
+maximise the contrast ratio, and never once checked it against
+`PLAYER_HEIGHT`. The same error as capping a boulder at 4 cells against a
+14-cell character: a number picked in the plan's own units with no
+reference to the thing that has to walk through it. The pre-round-5 cave,
+for all its dullness, was **passable** — median open column 30, twice the
+player's height. Round 5 traded a walkable cave for a beautiful plan.
+
+It also explains the owner's other remark on the same render — *"it
+looks like a single room instead of a cave system"* — which had seemed
+inconsistent with a census showing a branching network. It is not
+inconsistent: the network exists, and the only part of it the player can
+occupy is the one chamber. From inside, a cave you cannot leave **is** a
+single room.
+
+### Recommendation (revised — the earlier one was wrong)
+
+An earlier draft of this section said "merge the anatomy (tasks 1–3), it
+is unambiguously better". That was written before the reachability
+measurement and it is **wrong**: task 2 is what made the passages 4–5
+cells, so the anatomy is not separable from the defect.
+
+The split that survives measurement:
+
+- **Task 1 (seal a breach, not a system) — merge.** Presence 3–10/16 →
+  12/16 on every preset, no effect on shape. Pure win.
+- **Task 3 (one chamber per system) — merge.** Gives the rooms; the
+  reachable maxima (54–73%) are chamber volume.
+- **Task 2 (lattice and threshold) — retune, do not revert.** The
+  mechanism is right and the constants are not: they were derived
+  against a contrast ratio instead of against the character. New bar:
+  **reachable ≥ 50% (p50 over seeds)**, set below the 64–76% the
+  pre-round world managed so there is room to also keep contrast,
+  and contrast ≥ 3.0 *subject to* it. Passages want to be walkable
+  (≥ ~16 tall) with chambers at 40–60, which is a wider spread than the
+  round-5 setting achieves by making passages tiny.
+- **Task 4 (formations) — respec.** Owner's direction, verbatim: the
+  columns *"are all 1 pixel thick. They should have a taper and be
+  thicker but fewer of them."* Plus: it is *"totally full of stuff"*.
+  So: fewer, wider, tapered — the opposite of 4b's clustering, which
+  should not ship in its current form.
+- **Task 5 (waterline) — hold**, unverified and downstream of the above.
+- **Task 6 (ceiling grain) — blocked.** Structural grain on the ceiling
+  of a cave nobody can walk into decorates the wrong problem.
+
+**And a rule for the respec, which is the real lesson**: every bar in
+this round was met, and the round failed. Bars on per-column statistics
+cannot see composition (three formation mechanisms that each passed
+alone and form a picket fence together) and cannot see the player (a
+contrast bar that maximised itself by shrinking the world below the
+character's size). The respec is judged on a **composed render** and on
+**reachability**, and the per-column statistics are diagnostics, not
+bars. **Respec the formation half before any of task 4b's clustering
 ships**, and treat task 6 (ceiling grain) as blocked behind that respec:
 adding structural grain to ceilings above a picket fence decorates the
 wrong problem. The formation respec should be judged on a composed
