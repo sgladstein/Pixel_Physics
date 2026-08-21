@@ -95,6 +95,33 @@ const DEPTH_LIGHT_FLOOR: f32 = 0.62;
 /// for a skyline highlight, not a glowing crust.
 const DEPTH_LIGHT_HIGHLIGHT: f32 = 1.12;
 
+/// How far an emitting cell is pulled back toward its own unlit palette
+/// colour, per unit of `Material::glow`.
+///
+/// **A light source has to be the brightest thing on screen, and ours was
+/// not.** Owner's report on seeing round-5 caves: the glows read as "very
+/// large uniform gray blocks with blurry light coming off". The blur is the
+/// field's resolution (see `glow_at`), but the *missing core* is this: the
+/// renderer read a glowing cell's brightness out of the light field like any
+/// other cell, so a crystal was lit by its own diffused halo — a value
+/// averaged over the 8x8 field cell it occupies one sixty-fourth of, then
+/// dimmed by depth and night along with the rock around it. The one thing
+/// emitting was no brighter than the wall it lit.
+///
+/// So an emitter is composited back toward the colour it would have in full
+/// daylight, which for crystal's pale blue palette is near-white. Not *past*
+/// it: pushing beyond the palette blows the material's hue out and a lining
+/// stops reading as crystal and starts reading as a hole. At crystal's
+/// `glow: 1.8` this restores it fully; a dimmer emitter added later gets a
+/// partial lift on the same ramp without a second constant.
+///
+/// Costs one `Vec` index and a branch that is false for every material but
+/// the emitting ones — the call site already holds the `Cell`, which is
+/// CLAUDE.md's rule for hot-path opt-ins. It is a pure function of cell data,
+/// so the dirty-rect skip is untouched, and unlike the halo it needs no
+/// neighbour reads (landmine §7.22).
+const EMISSIVE_RESTORE: f32 = 0.55;
+
 /// Fraction of `JITTER_STRENGTH` the per-pixel grain keeps at and below the
 /// bottom of the depth ramp.
 ///
@@ -2109,6 +2136,21 @@ impl Renderer {
         // vug is brighter stone, not tinted crystal — and the diffused halo
         // in the field does the spatial falloff, so a wall two blocks from
         // the lining catches less than the cell it hangs over.
+        // The emitter's own core, before the diffused halo. Reading
+        // `Material::glow` here rather than the field is the whole point: the
+        // field cannot resolve anything smaller than `FIELD_SCALE` (8 cells),
+        // so it can give a crystal a halo and can never give it a highlight.
+        let emissive = world.materials.get(cell.material).glow;
+        let rgb = if emissive > 0.0 {
+            let t = (emissive * EMISSIVE_RESTORE).clamp(0.0, 1.0);
+            [
+                (rgb[0] as f32 + (base[0] as f32 - rgb[0] as f32) * t).round() as u8,
+                (rgb[1] as f32 + (base[1] as f32 - rgb[1] as f32) * t).round() as u8,
+                (rgb[2] as f32 + (base[2] as f32 - rgb[2] as f32) * t).round() as u8,
+            ]
+        } else {
+            rgb
+        };
         let glow = self.glow_at(world, x, y);
         let rgb = if glow > 0.0 {
             let f = 1.0 + glow * GLOW_SOLID_LIFT;
