@@ -2232,7 +2232,19 @@ mod tests {
             frames += 1;
         }
         let reports = blasts.drain_finished_reports();
-        let sites: Vec<(i32, i32)> = reports.iter().map(|&(x, y, _)| (x, y)).collect();
+        // Sorted, and that is the assertion this test wants rather than a
+        // weakening of it. The queue hands reports back in **completion**
+        // order, which is not trigger order: each charge's crack star runs
+        // until its walkers spend their budget or leave the rock, and how
+        // many frames that takes is a property of the rock under that
+        // particular charge. So anything that changes how far a walker
+        // travels reorders these two without touching the claim -- W3's
+        // diagonal decomposition did exactly that, flipping (40, 64) and
+        // (96, 64) while both still reported their own site and their own
+        // cleared count. The claim is *how many came back and where from*,
+        // per this test's own doc; the arrival order never was one.
+        let mut sites: Vec<(i32, i32)> = reports.iter().map(|&(x, y, _)| (x, y)).collect();
+        sites.sort_unstable();
         assert_eq!(sites, vec![(40, 64), (96, 64)], "both charges must report, each from its own site");
         for (x, y, report) in &reports {
             assert!(report.cells_cleared > 0, "the blast at ({x}, {y}) reported clearing nothing");

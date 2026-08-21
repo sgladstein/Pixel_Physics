@@ -1301,69 +1301,194 @@ impl FissureWalks {
                 done = true;
                 break;
             }
-            let cell = world.get(next.0, next.1);
-            // A fissure runs through **rock**, not through the bookkeeping
-            // region that was judged, and it stops where the rock does --
-            // there is nothing to split at a free face.
+            // **One step can cross two cell boundaries at once**, and for a
+            // long time only one of them was scored. The path is carried at
+            // sub-cell precision (above), so a unit step near 45 degrees
+            // crosses both boundaries in the same step and lands on a
+            // *diagonal* neighbour -- and the cell between the two is never
+            // visited and never marked. The drawn crack is then
+            // 8-connected while every consumer of it walks `NEIGHBOURS_4`
+            // (`load::is_supported`, `load::detached_piece`,
+            // `rigid::take_fragment`), so support zigzags straight through
+            // the line and a fissure that visibly goes all the way round a
+            // piece cuts nothing off it. That is the owner's *"cracks that
+            // fully surround chunks of rock do not break them off"*, and it
+            // is a **drawing** bug rather than a structural one:
+            // `a_closed_crack_loop_isolates_what_it_encircles` flooded a
+            // ring drawn by this walker and escaped to the world border.
             //
-            // Confining it to `region` was tried first and was very nearly
-            // a no-op, which only a counter could show: 189 confined
-            // failures wrote **29 cells of fissure between them**, and
-            // produced bit-identical images across two complete rewrites
-            // of the crack pattern. An overload's region is the union of
-            // the *subtrees* hanging off the failing section -- a sparse,
-            // often thin set that the walker leaves on its first step --
-            // so almost every crack died where it was born. It is also the
-            // wrong picture: a crack spreading out of a boulder into the
-            // massif around it is the thing being modelled, and the massif
-            // is by definition not in the region that failed.
-            if !is_body_material(world, cell.material) {
+            // So a diagonal step is decomposed into the two axis steps it
+            // really is and **both** cells are scored, in travel order.
+            // The corner is taken **x first, arbitrarily but fixed** -- y
+            // first would draw an equally good crack and the choice is not
+            // a modelling claim, but it must not be a coin flip: a
+            // `world.rng` draw anywhere in this walker would put the blast
+            // into the replay draw order and stop a repeat charge
+            // retracing its own fissures
+            // (`a_brittle_star_is_the_same_star_every_time`).
+            //
+            // `run_left` is deliberately **not** decremented twice for a
+            // decomposed step (see below). The corner is the same unit of
+            // travel, not a further cell of fracture.
+            let mut hops = [((0, 0), false); 2];
+            let hop_count = if step.0 != 0 && step.1 != 0 {
+                hops[0] = ((next.0, pos.1), true);
+                hops[1] = (next, false);
+                2
+            } else {
+                // Which edge a fissure cuts is the one *perpendicular* to
+                // the way it travels -- get this backwards and the crack
+                // runs across itself, slicing the rock into rings rather
+                // than parting it. `rigid::score_cracks` records the same
+                // trap. A decomposed diagonal is two such steps, one on
+                // each axis, which is why the flag rides in `hops` rather
+                // than being recomputed from `step` below.
+                hops[0] = (next, step.0.abs() >= step.1.abs());
+                1
+            };
+            let mut blocked = false;
+            for &(at, horizontal) in &hops[..hop_count] {
+                let cell = world.get(at.0, at.1);
+                // A fissure runs through **rock**, not through the
+                // bookkeeping region that was judged, and it stops where
+                // the rock does -- there is nothing to split at a free
+                // face.
+                //
+                // Confining it to `region` was tried first and was very
+                // nearly a no-op, which only a counter could show: 189
+                // confined failures wrote **29 cells of fissure between
+                // them**, and produced bit-identical images across two
+                // complete rewrites of the crack pattern. An overload's
+                // region is the union of the *subtrees* hanging off the
+                // failing section -- a sparse, often thin set that the
+                // walker leaves on its first step -- so almost every crack
+                // died where it was born. It is also the wrong picture: a
+                // crack spreading out of a boulder into the massif around
+                // it is the thing being modelled, and the massif is by
+                // definition not in the region that failed.
+                if !is_body_material(world, cell.material) {
+                    blocked = true;
+                    break;
+                }
+                if self.detach && cell.cracked() && !self.scored_now.contains(&at) {
+                    budget = (budget + super::rigid::CRACK_TIP_BONUS as usize).min(ceiling);
+                }
+                let mut scored = if horizontal { cell.with_crack_down(true) } else { cell.with_crack_right(true) };
+                // Counted off the crack bit alone, and *before* any glow is
+                // written: `cells_fissured` means "rock that was not
+                // cracked here before", and a cell whose bit was already
+                // set but which this walk reheated is not new damage.
+                //
+                // Still **per visited cell**, which is the meaning the
+                // treadmill guard in `tick` reads (`crush_in_place(..) >
+                // 0`). A decomposed diagonal visits two cells and can
+                // therefore count two, which is right -- they are two cells
+                // of fresh fissure. The mirror edge written below is not
+                // counted: it is the far side of *this* cell, held by the
+                // neighbour under `FLAG_CRACK_RIGHT`'s ownership rule, and
+                // counting it would turn this into an edge count wearing a
+                // cell count's name.
+                if scored != cell {
+                    fissured += 1;
+                }
+                // The crack tip is incandescent while it races (`glow`'s
+                // own doc). Never cools a cell that is already hotter --
+                // the same one-way rule `scorch` uses, for the same reason:
+                // two overlapping blasts, or a crack crossing something on
+                // fire.
+                if self.glow > 0 && scored.temperature() < self.glow {
+                    scored.set_temperature(self.glow);
+                }
+                if scored != cell {
+                    world.set(at.0, at.1, scored);
+                }
+                // **Both** perpendicular edges, not one -- the other one
+                // belongs to the neighbour. Marking only the near edge
+                // leaves the visited cell joined to the rock on the far
+                // side of the line, so a 4-connected path threads along
+                // the crack and out at the first cell the line changes
+                // direction on.
+                //
+                // **It takes both halves of this commit to seal, and each
+                // alone is worth nothing** -- measured on
+                // `a_closed_crack_loop_isolates_what_it_encircles`, whose
+                // flood escapes the ring in three of four builds:
+                //
+                // ```text
+                // one edge, no decomposition   flood 474, escaped
+                // both edges, no decomposition flood 465, escaped
+                // one edge, decomposed         flood 426, escaped
+                // both edges, decomposed       flood 283, sealed (265 enclosed)
+                // ```
+                //
+                // Anyone tempted to back half of this out for the frame
+                // cost should read that table as saying the half left
+                // standing buys nothing at all.
+                //
+                // An edge is owned by exactly one of the two cells it
+                // separates (`FLAG_CRACK_RIGHT`), so reaching *up* or
+                // *left* means writing the **neighbour's** bit.
+                let mirror = if horizontal { (at.0, at.1 - 1) } else { (at.0 - 1, at.1) };
+                if world.in_bounds(mirror.0, mirror.1) {
+                    let neighbour = world.get(mirror.0, mirror.1);
+                    if is_body_material(world, neighbour.material) {
+                        let scored = if horizontal { neighbour.with_crack_down(true) } else { neighbour.with_crack_right(true) };
+                        if scored != neighbour {
+                            world.set(mirror.0, mirror.1, scored);
+                        }
+                    }
+                }
+                if self.detach {
+                    self.scored_now.insert(at);
+                    // A fissure is where the rock has parted company with
+                    // the mass behind the slice, so it stops claiming to be
+                    // braced by it. Done for every cell the walk crosses,
+                    // not only the ones whose bit changed: a repeat charge
+                    // has to re-loosen a rim that is already scored, or the
+                    // second shot throws nothing.
+                    //
+                    // Called for the decomposed corner as well as for the
+                    // destination, and this is the expensive half of the
+                    // decomposition rather than the crack bits:
+                    // `detach_around` is a 3x3, `attached_span_bonus` is 12
+                    // for stone, and attachment is never regained, so
+                    // visiting ~40% more cells on an oblique heading
+                    // unbraces materially more rock than the extra bits do.
+                    //
+                    // Left on for both cells because the seed sweep did not
+                    // ask for otherwise: over `strike=12` x 6 presets x 4
+                    // seeds the order statistics moved the safe way (rock
+                    // destroyed max 1,349 -> 1,123, p90 948 -> 582; cells
+                    // lost max 583 -> 267). **If that ever inverts, the
+                    // first lever is to call this on the primary cell of a
+                    // decomposed diagonal only** -- the corner still gets
+                    // its crack bit, so the sealing above is untouched and
+                    // only the unbracing halves.
+                    detach_around_crack(world, at.0, at.1);
+                    world.schedule_structural_check_around(at.0, at.1);
+                }
+                pos = at;
+            }
+            if blocked {
                 done = true;
                 break;
             }
-            if self.detach && cell.cracked() && !self.scored_now.contains(&next) {
-                budget = (budget + super::rigid::CRACK_TIP_BONUS as usize).min(ceiling);
-            }
-            // Which edge a fissure cuts is the one *perpendicular* to the
-            // way it travels -- get this backwards and the crack runs
-            // across itself, slicing the rock into rings rather than
-            // parting it. `rigid::score_cracks` records the same trap.
-            let mut scored = if step.0.abs() >= step.1.abs() { cell.with_crack_down(true) } else { cell.with_crack_right(true) };
-            // Counted off the crack bit alone, and *before* any glow is
-            // written: `cells_fissured` means "rock that was not cracked
-            // here before", and a cell whose bit was already set but which
-            // this walk reheated is not new damage.
-            if scored != cell {
-                fissured += 1;
-            }
-            // The crack tip is incandescent while it races (`glow`'s own
-            // doc). Never cools a cell that is already hotter -- the same
-            // one-way rule `scorch` uses, for the same reason: two
-            // overlapping blasts, or a crack crossing something on fire.
-            if self.glow > 0 && scored.temperature() < self.glow {
-                scored.set_temperature(self.glow);
-            }
-            if scored != cell {
-                world.set(next.0, next.1, scored);
-            }
-            if self.detach {
-                self.scored_now.insert(next);
-                // A fissure is where the rock has parted company with the
-                // mass behind the slice, so it stops claiming to be braced
-                // by it. Done for every cell the walk crosses, not only
-                // the ones whose bit changed: a repeat charge has to
-                // re-loosen a rim that is already scored, or the second
-                // shot throws nothing.
-                detach_around_crack(world, next.0, next.1);
-                world.schedule_structural_check_around(next.0, next.1);
-            }
-            pos = next;
             // The brittle style's whole shape, in three lines: the heading
             // is untouched for a run of cells, and then turns sharply. The
             // run is counted in **cells entered**, not in walker steps --
             // a step that stays inside its own cell has not advanced the
             // fracture, and counting those would make a segment's drawn
             // length depend on how obliquely the heading crosses the grid.
+            //
+            // A decomposed diagonal enters two cells and still counts
+            // **once**, for that same reason read the other way round: the
+            // corner is bookkeeping about which edges a single unit of
+            // travel cut, not a second unit of travel. Counting it would
+            // shorten every brittle segment by about 40% on an oblique
+            // heading -- retuning the archived crack shape as a side effect
+            // of a fix that is not about shape at all, and moving
+            // `a_brittle_crack_turns_rarely_and_sharply`, which is the most
+            // restrictive shape pin in this file.
             if self.style == CrackStyle::Brittle {
                 run_left = run_left.saturating_sub(1);
                 if run_left == 0 {
@@ -3566,6 +3691,129 @@ mod tests {
             cracked_cells(&one_shot),
             cracked_cells(&piecewise),
             "the staged walk drew a different crack -- sub-cell position is not surviving the resume"
+        );
+    }
+
+    /// **The severing pin: a crack that goes all the way round a piece must
+    /// actually cut it off.**
+    ///
+    /// `FLAG_CRACK_RIGHT`'s own doc is the promise this tests -- *"a crack
+    /// has gone all the way around a piece" needs no detection of its own;
+    /// the piece simply stops being able to reach an anchor* -- and until
+    /// this test existed nothing checked that the walker's output could
+    /// keep it. It could not: `step_walker` carries the path at sub-cell
+    /// precision, so a unit step near 45 degrees crosses **both** cell
+    /// boundaries at once and lands on a diagonal neighbour, leaving the
+    /// cell between unvisited and unscored. The drawn crack is 8-connected
+    /// while every consumer of it -- `load::is_supported`,
+    /// `load::detached_piece`, `rigid::take_fragment` -- walks
+    /// `NEIGHBOURS_4`, so support zigzags straight through the line.
+    ///
+    /// Measured against the one-edge-per-visited-cell walker this replaced:
+    /// the flood below escaped to the world border, and
+    /// `load::failing_region` on the enclosed rock returned `None`. Both
+    /// halves are kept, because they answer different questions -- the
+    /// flood says *the geometry does not seal*, and the load call says *the
+    /// model therefore never sees a piece*, and a fix that repaired one
+    /// without the other would be worthless.
+    ///
+    /// **Drawn by the real walker, deliberately.** Hand-placed crack bits
+    /// (which is what every other crack test in this file uses) test
+    /// `edge_is_cracked`, not the thing that is wrong. The loop is a
+    /// diamond rather than a rectangle for the same reason: an
+    /// axis-aligned box is drawn almost entirely by axis-aligned steps,
+    /// which were never the broken case. Every side of a diamond is a
+    /// staircase of diagonal steps, which is exactly the case that leaked.
+    /// Short brittle rays laid along each side, because a ray long enough
+    /// to draw a whole side wanders off it -- `CRACK_WANDER` is 0.9 rad per
+    /// cell and even `Brittle` kinks every 3 to 8 cells, so a side is drawn
+    /// as overlapping stubs whose starts are exact.
+    #[test]
+    fn a_closed_crack_loop_isolates_what_it_encircles() {
+        const C: i32 = 32;
+        const R: i32 = 12;
+        let mut w = test_world();
+        massif(&mut w);
+
+        // One stub per cell along each of the four sides, each running four
+        // steps (about two cells) in the side's own direction. `Brittle`
+        // holds its heading for at least `BRITTLE_RUN_MIN` = 3 cells, so a
+        // stub this short is dead straight and the union is the diamond.
+        let sides = [
+            ((C, C - R), (1, 1)),   // top-right side, heading +x +y
+            ((C + R, C), (-1, 1)),  // bottom-right
+            ((C, C + R), (-1, -1)), // bottom-left
+            ((C - R, C), (1, -1)),  // top-left
+        ];
+        let mut walks = FissureWalks::empty(false, CrackStyle::Brittle, 0);
+        for ((sx, sy), (dx, dy)) in sides {
+            let heading = (dy as f32).atan2(dx as f32);
+            for t in 0..R {
+                walks.add_ray((sx + dx * t, sy + dy * t), heading, 4, 0, 0);
+            }
+        }
+        let written = walks.run_to_completion(&mut w);
+        assert!(written > 20, "test setup: the ring should have scored a real crack, got {written} cells");
+
+        // The engine's own crossing rule, flooded from the middle: this is
+        // `load::is_supported`'s inner loop with the anchor test taken out,
+        // so what it measures is exactly what the load model would see.
+        let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::from([(C, C)]);
+        let mut queue = std::collections::VecDeque::from([(C, C)]);
+        let mut escaped = false;
+        while let Some((cx, cy)) = queue.pop_front() {
+            if (cx - C).abs() + (cy - C).abs() > R + 2 {
+                escaped = true;
+                break;
+            }
+            for (dx, dy) in NEIGHBOURS_4 {
+                let next = (cx + dx, cy + dy);
+                if seen.contains(&next) || edge_is_cracked(&w, cx, cy, dx, dy) {
+                    continue;
+                }
+                if !is_body_material(&w, w.get(next.0, next.1).material) {
+                    continue;
+                }
+                seen.insert(next);
+                queue.push_back(next);
+            }
+        }
+        // A diamond of radius R holds 2R(R-1)+1 cells strictly inside its
+        // perimeter. The band is wide because the ring is drawn by a walker
+        // and not by a compass: it wanders a cell or two either way, and
+        // whether a given perimeter cell ends up inside or outside the
+        // flood is not the claim. The claim is that the flood is *bounded*
+        // and is the size of the piece rather than the size of the world.
+        let inside = 2 * R * (R - 1) + 1;
+        assert!(
+            !escaped,
+            "the crack ring leaked: the flood reached {} cells and walked past the ring -- support crosses the line the walker drew",
+            seen.len()
+        );
+        assert!(
+            seen.len() as i32 > inside / 3,
+            "the flood found only {} cells inside a ring enclosing about {inside} -- the ring cut the interior up rather than round it",
+            seen.len()
+        );
+
+        // And the load model must agree, which is the half that matters on
+        // screen. Judged one cell in from the ring: `is_structurally
+        // _interesting` skips attached rock with no cracked edge and no
+        // empty neighbour, so the dead centre of the piece is a cell the
+        // model deliberately never looks at.
+        let probe = (C, C - R + 2);
+        let mut budget = u32::MAX;
+        let failure = super::super::load::failing_region(&w, probe.0, probe.1, &mut super::super::load::Cache::default(), &mut budget)
+            .expect("rock with a crack all the way round it must be judged as failing");
+        assert_eq!(
+            failure.mode,
+            super::super::load::FailureMode::Unsupported,
+            "the enclosed piece failed, but as an overload rather than for want of anything holding it up"
+        );
+        assert!(
+            failure.region.len() as i32 > inside / 3,
+            "the detached piece was {} cells inside a ring enclosing about {inside} -- the model found a crumb, not the chunk",
+            failure.region.len()
         );
     }
 
