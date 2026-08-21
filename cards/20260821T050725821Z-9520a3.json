@@ -1,0 +1,53 @@
+{
+  "id": "20260821T050725821Z-9520a3",
+  "created": "2026-08-21T05:07:26Z",
+  "board": "water",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "463142e",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Quench crust in water: does it still freeze in place?",
+  "question": "In one of these the crust the quench makes sinks instead of sitting on the pond. Does that read as rock going under, or as material vanishing?",
+  "context_md": "Your second report: \"freezing/floating in water... unsupported stone hangs in the air forever - air and water.\"\n\nReproduced minimally: a 40x2 stone raft dropped mid-pond, 45 columns from either shore, sat there unchanged for 600 frames. Three separate bugs under it, each confirmed by a paired control:\n\n1. A freed piece **cannot sink through water** - the shove that clears fluid out of its way looks for an *empty* cell within four rings, and inside a pond there is none, so water reads as a wall. Control: the identical raft on a three-row pond, where air is inside that reach, sank in one failure.\n2. A submerged piece reads as **confined rock** - \"free face\" meant an empty neighbour, so buried in granite and submerged in water were the same arrangement of not-empty cells, and the engine's answer to a confined unsupported failure is to record it and leave it exactly where it is.\n3. A body settling underwater was **silently destroyed** - 80 cells in, 9 out. It is now lossless: 80 in, 80 out, and the same raft in plain air went from 72 out to 80.\n\nBoth panes also carry the steam change from the other card, so this is not a clean isolation of the sinking alone.\n\n**What I want your eye on:** whether anything looks like it disappeared rather than sank.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - current",
+      "files": [
+        "20260821T050725821Z-9520a3/000-drop_sink_before.png"
+      ],
+      "caption": "crust sits on the surface unchanged for the whole run",
+      "meta": {
+        "awake chunks at frame 1400": 7,
+        "overload failures": 231,
+        "unsupported failures": 1159,
+        "unattached solids reaching no anchor": 54
+      }
+    },
+    {
+      "label": "B - with the three fixes",
+      "files": [
+        "20260821T050725821Z-9520a3/001-drop_sink_v2.png"
+      ],
+      "caption": "the crust founders and goes under",
+      "meta": {
+        "awake chunks at frame 1400": 0,
+        "overload failures": 2,
+        "unsupported failures": 638,
+        "unattached solids reaching no anchor": 23
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
