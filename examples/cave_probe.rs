@@ -295,7 +295,7 @@ fn census(world: &World, forms: &mut Formations, vugs: &mut Vec<System>) -> Vec<
             if cells.len() < 80 {
                 continue;
             }
-            let sh = shape(&cells);
+            let sh = shape(world, &cells);
             // A geode vug is a single ellipse at most ~40 cells across; a
             // cave system's envelope is 180. Counting the two together
             // averages a jewel and a gallery into a number describing
@@ -312,7 +312,7 @@ fn census(world: &World, forms: &mut Formations, vugs: &mut Vec<System>) -> Vec<
     out
 }
 
-fn shape(cells: &[(i32, i32)]) -> System {
+fn shape(world: &World, cells: &[(i32, i32)]) -> System {
     let (x0, x1) = (cells.iter().map(|c| c.0).min().unwrap(), cells.iter().map(|c| c.0).max().unwrap());
     let (y0, y1) = (cells.iter().map(|c| c.1).min().unwrap(), cells.iter().map(|c| c.1).max().unwrap());
     let (cw, ch) = ((x1 - x0 + 1) as usize, (y1 - y0 + 1) as usize);
@@ -357,11 +357,31 @@ fn shape(cells: &[(i32, i32)]) -> System {
         pixel_physics::sim::player::PLAYER_WIDTH as usize,
         pixel_physics::sim::player::PLAYER_HEIGHT as usize,
     );
+    // **Passable is not the same as void, and conflating them made this
+    // number wrong.** `grid` holds the carved void. The player also walks
+    // straight through anything whose material carries `Material::scenery`
+    // -- `flowstone` and `spar`, i.e. every speleothem -- so a formation
+    // standing in a passage is not an obstruction to him even though it is
+    // solid rock to the CA.
+    //
+    // Measuring the box against `grid` alone therefore counted a decorated
+    // cave as impassable: with the shipped lattice, zeroing speleothem
+    // density alone moved this metric 0-8% -> 32-42% with the void shape
+    // completely unchanged, which is the control that proved formations,
+    // not passage geometry, were what the old number was reading. Found by
+    // the round-6 cave track (finding A1-1); the bug is this file's, and it
+    // arrived when `Material::scenery` shipped and only the *material
+    // names* here were updated.
+    let passable = |wx: i32, wy: i32| -> bool {
+        let cxi = (wx - x0) as usize;
+        let cyi = (wy - y0) as usize;
+        grid[cyi * cw + cxi] || world.materials.get(world.get(wx, wy).material).scenery
+    };
     let mut fits = vec![false; cw * ch];
     if cw >= pw && ch >= ph {
         for cy in 0..=(ch - ph) {
             for cx in 0..=(cw - pw) {
-                if (0..ph).all(|dy| (0..pw).all(|dx| grid[(cy + dy) * cw + cx + dx])) {
+                if (0..ph).all(|dy| (0..pw).all(|dx| passable(x0 + (cx + dx) as i32, y0 + (cy + dy) as i32))) {
                     fits[cy * cw + cx] = true;
                 }
             }
@@ -381,7 +401,13 @@ fn shape(cells: &[(i32, i32)]) -> System {
             }
         }
     }
-    let reachable_pct = (100 * reached.iter().filter(|&&r| r).count() / cells.len().max(1)) as i32;
+    // Numerator is reached **void**, not reached cells: now that the box may
+    // sit over scenery, `reached` covers cells that are not in `cells` at all,
+    // and dividing those by the void count would report more than 100% of a
+    // cave as walkable. The question is still "how much of this cave's open
+    // space can he get into".
+    let reachable = (0..cw * ch).filter(|&i| reached[i] && grid[i]).count();
+    let reachable_pct = (100 * reachable / cells.len().max(1)) as i32;
 
     col_runs.sort_unstable();
     let pick = |q: f32| col_runs[((col_runs.len() as f32 - 1.0) * q) as usize];
