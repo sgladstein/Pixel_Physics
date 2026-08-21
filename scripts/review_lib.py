@@ -346,3 +346,252 @@ def wait_for_response(root: Path, card_id: str, timeout: float, interval: float 
         if time.monotonic() >= deadline:
             return None
         time.sleep(min(interval, max(0.05, deadline - time.monotonic())))
+
+
+# --------------------------------------------------------------------------
+# Cross-machine transport
+# --------------------------------------------------------------------------
+#
+# The queue above is a directory, which makes it shared by every worktree of a
+# clone -- and invisible to a session running on a different machine. A Claude
+# Code web session has its own clone in its own container, so its cards were
+# written to a disk the owner could never read. That was not a bug in the
+# storage; it was the storage being the wrong shape for where agents actually
+# run.
+#
+# The one thing every clone already shares is the git remote, so that is the
+# transport. An orphan branch `review-queue` carries the same cards/, media/
+# and responses/ layout, sharing no history with main -- so it never shows up
+# in a log, diff or merge of the project, and can be squashed or reset when it
+# grows without touching project history.
+#
+# The property that made the local queue loss-proof does the work again here:
+# one file per card, one writer per file. Two agents pushing different cards
+# touch disjoint paths, so a concurrent push is a fast-forward or a trivially
+# auto-resolving merge. No lock, no coordination.
+
+SYNC_BRANCH = "review-queue"
+NO_SYNC_ENV = "PIXEL_PHYSICS_REVIEW_NO_SYNC"
+
+
+class SyncError(RuntimeError):
+    """Transport failed. Never fatal to a post -- the card is already on disk."""
+
+
+def sync_disabled() -> bool:
+    return os.environ.get(NO_SYNC_ENV, "").strip() not in ("", "0", "false", "no")
+
+
+def _git(args, cwd, check=True, timeout=120):
+    proc = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
+                          text=True, timeout=timeout)
+    if check and proc.returncode != 0:
+        raise SyncError("git %s failed: %s" % (" ".join(args),
+                                               (proc.stderr or proc.stdout).strip()[:300]))
+    return proc
+
+
+def remote_url(cwd=None):
+    """The push URL of the clone this agent is working in, or None."""
+    try:
+        proc = subprocess.run(["git", "remote", "get-url", "origin"],
+                              cwd=str(cwd) if cwd else None,
+                              capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else None
+
+
+def sync_dir(root: Path) -> Path:
+    return root / "sync"
+
+
+def sync_state(root: Path) -> dict:
+    return read_json(root / "sync-state.json") or {"last_ok": None, "last_error": None,
+                                                   "last_attempt": None}
+
+
+def _record_sync(root: Path, ok: bool, detail: dict) -> None:
+    state = sync_state(root)
+    state["last_attempt"] = utc_now()
+    if ok:
+        state["last_ok"] = utc_now()
+        state["last_error"] = None
+    else:
+        state["last_error"] = detail.get("error")
+    state.update({k: v for k, v in detail.items() if k != "error"})
+    write_json_atomic(root / "sync-state.json", state)
+
+
+def _ensure_sync_repo(root: Path, url: str) -> Path:
+    """A standalone one-branch repo used only as a staging area.
+
+    Deliberately *not* a `git worktree` of the session's clone: a worktree
+    would appear in `git worktree list`, and this directory lives inside
+    `.git/`, which is no place to register one. A standalone repo also cannot
+    touch the session's real working tree no matter what it does -- which
+    matters, because sync runs on a timer in the background.
+    """
+    d = sync_dir(root)
+    if not (d / ".git").is_dir():
+        d.mkdir(parents=True, exist_ok=True)
+        _git(["init", "-q"], d)
+        _git(["config", "user.email", "review-queue@localhost"], d)
+        _git(["config", "user.name", "Pixel Physics review queue"], d)
+        # Nothing here is ever hand-edited, so line-ending rewriting could only
+        # corrupt a PNG. Off explicitly rather than trusting the global config.
+        _git(["config", "core.autocrlf", "false"], d)
+    existing = _git(["remote"], d).stdout.split()
+    if "origin" in existing:
+        _git(["remote", "set-url", "origin", url], d)
+    else:
+        _git(["remote", "add", "origin", url], d)
+    return d
+
+
+def _remote_branch_head(d: Path):
+    """Prove the remote is reachable, and say whether the branch exists yet.
+
+    These are two different things and a plain `git fetch` conflates them: it
+    fails identically for "no such branch" and "no such remote". Conflating
+    them made sync claim success against a remote that did not exist -- it took
+    the first-sync path, rebuilt a tree identical to the last commit, saw
+    nothing to push and reported ok. A card posted from an offline agent was
+    then reported as delivered, which is the exact failure this whole change
+    set out to fix, reappearing one layer down.
+
+    `ls-remote` separates them: a non-zero exit is an unreachable remote, empty
+    output is a reachable remote with no such branch.
+    """
+    proc = _git(["ls-remote", "--heads", "origin", SYNC_BRANCH], d, check=False)
+    if proc.returncode != 0:
+        raise SyncError("remote unreachable: %s"
+                        % (proc.stderr or proc.stdout).strip()[:200])
+    out = proc.stdout.strip()
+    return out.split()[0] if out else None
+
+
+def _reset_to_remote(d: Path) -> bool:
+    """Point the staging tree at the branch's current remote tip.
+
+    Returns False when the branch does not exist yet (first ever sync), in
+    which case the tree is emptied and the first commit creates it. Raises if
+    the remote cannot be reached at all -- never silently treats that as a
+    first sync.
+    """
+    if _remote_branch_head(d) is None:
+        _git(["checkout", "-q", "--orphan", SYNC_BRANCH], d, check=False)
+        _git(["rm", "-rq", "--cached", "."], d, check=False)
+        for entry in d.iterdir():
+            if entry.name != ".git":
+                shutil.rmtree(entry, ignore_errors=True) if entry.is_dir() else entry.unlink()
+        return False
+    _git(["fetch", "-q", "origin", SYNC_BRANCH], d)
+    _git(["checkout", "-q", "-B", SYNC_BRANCH, "FETCH_HEAD"], d)
+    _git(["reset", "-q", "--hard", "FETCH_HEAD"], d)
+    return True
+
+
+def _newer_response(a: dict, b: dict) -> dict:
+    """Later `answered_at` wins when both sides hold a response for one card.
+
+    Reopen-and-reanswer is the only way two responses exist for one id, and the
+    later answer is by definition the owner's current view.
+    """
+    if not a:
+        return b
+    if not b:
+        return a
+    return a if (a.get("answered_at") or "") >= (b.get("answered_at") or "") else b
+
+
+def _merge_dirs(src: Path, dst: Path, kind: str) -> list:
+    """Copy what the destination is missing. Returns the names copied.
+
+    Cards and media are immutable once written -- ids are unique and nothing
+    rewrites them -- so "copy if absent" is exactly right and costs one stat
+    per file. Responses are the one mutable thing, and go through
+    `_newer_response`.
+    """
+    moved = []
+    if not src.is_dir():
+        return moved
+    dst.mkdir(parents=True, exist_ok=True)
+    for entry in sorted(src.iterdir()):
+        target = dst / entry.name
+        if kind == "responses":
+            incoming = read_json(entry)
+            current = read_json(target)
+            winner = _newer_response(incoming, current)
+            if winner is not incoming or current is None:
+                if current is None or winner != current:
+                    write_json_atomic(target, winner)
+                    moved.append(entry.name)
+            continue
+        if target.exists():
+            continue
+        if entry.is_dir():
+            shutil.copytree(entry, target)
+        else:
+            shutil.copyfile(entry, target)
+        moved.append(entry.name)
+    return moved
+
+
+def sync_now(root: Path, cwd=None, attempts: int = 4) -> dict:
+    """Exchange cards and verdicts with the remote. Best effort, never fatal.
+
+    Each attempt re-applies our local files on top of the branch's *current*
+    tip rather than trying to merge diverged trees. With one file per card that
+    converges: whatever another agent pushed in the meantime is imported first,
+    ours is layered on, and the push is a fast-forward.
+    """
+    if sync_disabled():
+        return {"ok": False, "skipped": "disabled via %s" % NO_SYNC_ENV,
+                "pulled": [], "pushed": []}
+    url = remote_url(cwd)
+    if not url:
+        return {"ok": False, "skipped": "no git remote 'origin' — local-only queue",
+                "pulled": [], "pushed": []}
+
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            d = _ensure_sync_repo(root, url)
+            _reset_to_remote(d)
+
+            # Remote -> local. This is the half that makes a cloud agent's card
+            # show up in the owner's page.
+            pulled = []
+            for kind in ("cards", "media", "responses"):
+                pulled += _merge_dirs(d / kind, root / kind, kind)
+
+            # Local -> remote.
+            pushed = []
+            for kind in ("cards", "media", "responses"):
+                pushed += _merge_dirs(root / kind, d / kind, kind)
+
+            _git(["add", "-A"], d)
+            if not _git(["status", "--porcelain"], d).stdout.strip():
+                result = {"ok": True, "pulled": pulled, "pushed": [], "branch": SYNC_BRANCH}
+                _record_sync(root, True, dict(result))
+                return result
+
+            _git(["commit", "-q", "-m",
+                  "queue sync: %d card/response files" % len(pushed)], d)
+            proc = _git(["push", "-q", "origin", "%s:%s" % (SYNC_BRANCH, SYNC_BRANCH)],
+                        d, check=False)
+            if proc.returncode == 0:
+                result = {"ok": True, "pulled": pulled, "pushed": pushed,
+                          "branch": SYNC_BRANCH}
+                _record_sync(root, True, dict(result))
+                return result
+            # Someone else pushed between our fetch and our push. Loop: their
+            # cards get imported on the next pass and ours re-applied on top.
+            last_error = (proc.stderr or proc.stdout).strip()[:300]
+        except (SyncError, OSError, subprocess.SubprocessError) as exc:
+            last_error = str(exc)[:300]
+
+    result = {"ok": False, "error": last_error or "sync failed", "pulled": [], "pushed": []}
+    _record_sync(root, False, dict(result))
+    return result

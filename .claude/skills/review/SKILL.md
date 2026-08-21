@@ -95,6 +95,42 @@ EOF
   distribution. Two runs side by side cancel everything the question is not
   about.
 
+## If you are not on the owner's machine
+
+**Read this before your first card if you are a cloud or web session.**
+
+The queue is a directory shared by every worktree of one clone. Your clone is in
+your own container, on a disk the owner cannot read, so a card written there and
+nothing else reaches nobody. This is not hypothetical: three cards were posted
+that way and the owner's page said "Nothing queued here."
+
+Cards therefore travel over the git remote, on an orphan branch `review-queue`:
+
+```
+python3 scripts/review.py sync     # exchange cards and verdicts with origin
+```
+
+`post` runs this for you, and `inbox` and `wait` run it before they read. You
+normally do not have to call it. What you *do* have to do is **read what `post`
+tells you**:
+
+```json
+"owner_can_see_it": true,
+"sync": { "ok": true, "branch": "review-queue", "pushed": 2 }
+```
+
+If that says `false`, the card is on your local disk only and the owner will
+never see it. The output carries the reason and a `warning`. Fix the cause or
+re-run `sync`; do not report the card as posted.
+
+**A printed URL is not proof of arrival.** `post` prints a `127.0.0.1` link by
+formatting a string — it never contacts a server, and it cannot tell whether the
+owner is running one. `owner_can_see_it` is the field that means something.
+
+Use `--no-sync` (or `PIXEL_PHYSICS_REVIEW_NO_SYNC=1`) only when you deliberately
+want a local-only queue. Sync failure is never fatal: the card is written to disk
+first, so it survives and goes out on the next sync.
+
 ## Getting the verdict back
 
 Posting is **fire-and-forget**. Carry on with other work; the answer keeps.
@@ -148,6 +184,16 @@ python3 scripts/review_selftest.py
 
 Covers what can actually break: concurrent posts from several worktrees, a post
 killed mid-write, media outliving its worktree, a blind verdict resolving to the
-real label, and a `--wait` timeout leaving the card intact. The visual half —
-pixelated upscale, the scrubber, the blind reveal — has to be judged by eye in
-the page.
+real label, a `--wait` timeout leaving the card intact, and the cross-machine
+transport — two real clones sharing only a remote, a verdict travelling back, a
+concurrent push from both, and an offline post reporting itself as undelivered.
+
+Two clones, not two worktrees: worktrees share a queue directory, so a
+worktree-only check passes while the case that actually broke still fails.
+
+The suite forces `PIXEL_PHYSICS_REVIEW_NO_SYNC=1` for everything except its own
+throwaway remote. Without that it pushed 108 fixture cards to the project's real
+GitHub remote — a test harness must not be able to reach production.
+
+The visual half — pixelated upscale, the scrubber, the blind reveal — still has
+to be judged by eye in the page.

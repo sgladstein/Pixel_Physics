@@ -101,6 +101,11 @@
   .hint { color: var(--dim); font-size: 12px; }
   kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px;
         border-radius: 4px; padding: 0 5px; font-size: 11px; font-family: ui-monospace, monospace; }
+  .syncbox { margin-top: 14px; font-size: 12px; color: var(--dim);
+             border-top: 1px solid var(--line); padding-top: 10px; }
+  .syncbox.bad { color: var(--bad); }
+  .syncbox .err { display: block; margin-top: 4px; word-break: break-word;
+                  font-family: ui-monospace, monospace; font-size: 11px; }
   #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
            background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px;
            padding: 8px 16px; opacity: 0; transition: opacity .2s; pointer-events: none; }
@@ -124,6 +129,7 @@
       <kbd>e</kbd> archive
     </div>
     <div class="hint" id="rootpath" style="margin-top:18px; word-break:break-all"></div>
+    <div class="syncbox" id="syncbox"></div>
   </div>
   <div id="feed"></div>
 </div>
@@ -134,7 +140,7 @@
 
 const state = {
   cards: [], boards: [], counts: {}, rev: null,
-  board: null, status: "open", active: 0,
+  board: null, status: "open", active: 0, sync: null,
   drafts: new Map(),   // card id -> {choice, rating, comment, annotations}
   view: new Map(),     // card id -> {frame, playing, zoom, timer, rating_arm}
 };
@@ -262,6 +268,7 @@ async function load() {
   state.boards = data.boards;
   state.counts = data.counts;
   state.rev = data.rev;
+  state.sync = data.sync || null;
   document.getElementById("rootpath").textContent = data.root;
   // Blocking cards first: a session is actually parked on those.
   state.cards.sort((a, b) =>
@@ -274,8 +281,9 @@ async function load() {
 // agent posts appears while the owner is looking at the page.
 async function poll() {
   try {
-    const { rev } = await (await fetch("/api/rev")).json();
-    if (rev !== state.rev) await load();
+    const info = await (await fetch("/api/rev")).json();
+    state.sync = info.sync || state.sync;
+    if (info.rev !== state.rev) await load(); else renderSync();
   } catch (_) { /* server restarted mid-session; next tick retries */ }
 }
 setInterval(poll, 2000);
@@ -284,7 +292,36 @@ setInterval(poll, 2000);
 
 function render() {
   renderRail();
+  renderSync();
   renderFeed();
+}
+
+// A transport that has quietly stopped looks exactly like nobody having posted
+// anything, so it gets said out loud rather than inferred from an empty queue.
+function renderSync() {
+  const el = document.getElementById("syncbox");
+  if (!el) return;
+  const s = state.sync;
+  if (!s) { el.className = "syncbox"; el.textContent = ""; return; }
+  if (s.last_error) {
+    el.className = "syncbox bad";
+    el.innerHTML = "<strong>Sync is failing.</strong> Cards posted from other "
+      + "machines are probably missing.<span class=\"err\">"
+      + esc(s.last_error) + "</span>";
+  } else if (s.last_ok) {
+    el.className = "syncbox";
+    el.textContent = "synced " + ago(s.last_ok);
+  } else {
+    el.className = "syncbox";
+    el.textContent = "no remote sync yet — local cards only";
+  }
+}
+
+function ago(iso) {
+  const secs = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  if (secs < 90) return Math.round(secs) + "s ago";
+  if (secs < 5400) return Math.round(secs / 60) + " min ago";
+  return Math.round(secs / 3600) + " h ago";
 }
 
 function renderRail() {
@@ -309,9 +346,17 @@ function renderRail() {
 function renderFeed() {
   const feed = document.getElementById("feed");
   if (!state.cards.length) {
-    feed.innerHTML = `<div id="empty">Nothing queued here.<br><br>
-      <span class="hint">Agents post with
-      <code>python3 scripts/review.py post …</code></span></div>`;
+    const s = state.sync || {};
+    const unsure = s.last_error || !s.last_ok;
+    feed.innerHTML = `<div id="empty">${unsure
+        ? `Nothing queued <em>that this machine can see</em>.<br><br>
+           <span class="hint">${s.last_error
+             ? "Sync is failing, so cards from other machines are not arriving."
+             : "No remote sync yet — a card posted from a cloud session would not be here."}
+           </span>`
+        : `Nothing queued here.<br><br>
+           <span class="hint">Agents post with
+           <code>python3 scripts/review.py post …</code></span>`}</div>`;
     return;
   }
   feed.innerHTML = state.cards.map((c, i) => renderCard(c, i)).join("");

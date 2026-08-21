@@ -79,7 +79,11 @@ class ReviewHandler(BaseHTTPRequestHandler):
             if path in ("/", "/index.html"):
                 return self._send(200, self.page_path.read_bytes(), "text/html; charset=utf-8")
             if path == "/api/rev":
-                return self._json({"rev": rl.queue_revision(self.root)})
+                # Sync state rides along on the poll the page already makes, so
+                # a transport that has quietly stopped working becomes visible
+                # without the page asking a second question.
+                return self._json({"rev": rl.queue_revision(self.root),
+                                   "sync": rl.sync_state(self.root)})
             if path == "/api/cards":
                 return self._cards(parse_qs(url.query))
             if path.startswith("/media/"):
@@ -121,6 +125,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
         return self._json({
             "rev": rl.queue_revision(self.root),
             "root": str(self.root),
+            "sync": rl.sync_state(self.root),
             "boards": rl.load_boards(cards),
             "cards": filtered,
             "counts": {
@@ -204,7 +209,25 @@ def _safe_id(card_id: str) -> bool:
     return bool(card_id) and all(ch.isalnum() or ch in "-_" for ch in card_id)
 
 
-def serve(root: Path, port: int, open_browser: bool = False) -> int:
+def _sync_loop(root: Path, interval: float, stop: threading.Event) -> None:
+    """Pull cloud agents' cards in and push the owner's verdicts back out.
+
+    On a timer because the owner should not have to run anything: a card posted
+    from a Claude Code web session lands on the remote, and appears in the page
+    on its own within one interval. Failures are recorded rather than raised --
+    `sync_now` never throws -- and the page surfaces them, because a transport
+    that silently stopped looks exactly like nobody having posted anything.
+    """
+    while not stop.is_set():
+        try:
+            rl.sync_now(root)
+        except Exception:
+            pass  # sync_now records its own failure; the loop must not die
+        stop.wait(interval)
+
+
+def serve(root: Path, port: int, open_browser: bool = False,
+          sync_interval: float = 60.0) -> int:
     page = Path(__file__).resolve().parent / "review_page.html"
     if not page.is_file():
         page = root / "bin" / "review_page.html"
@@ -222,8 +245,15 @@ def serve(root: Path, port: int, open_browser: bool = False) -> int:
         )
     httpd.daemon_threads = True
 
+    stop = threading.Event()
+    if sync_interval > 0 and not rl.sync_disabled():
+        threading.Thread(target=_sync_loop, args=(root, sync_interval, stop),
+                         daemon=True).start()
+
     url = "http://127.0.0.1:%d/" % port
     print("review queue: %s" % root)
+    if sync_interval > 0 and not rl.sync_disabled():
+        print("syncing with origin/%s every %ds" % (rl.SYNC_BRANCH, int(sync_interval)))
     print("open %s" % url, flush=True)
     if open_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
@@ -232,6 +262,7 @@ def serve(root: Path, port: int, open_browser: bool = False) -> int:
     except KeyboardInterrupt:
         print("\nstopped")
     finally:
+        stop.set()
         httpd.server_close()
     return 0
 
@@ -241,5 +272,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--port", type=int, default=rl.DEFAULT_PORT)
     ap.add_argument("--open", action="store_true")
+    ap.add_argument("--sync-interval", type=float, default=60.0)
     a = ap.parse_args()
-    sys.exit(serve(rl.review_root(), a.port, a.open))
+    sys.exit(serve(rl.review_root(), a.port, a.open, a.sync_interval))

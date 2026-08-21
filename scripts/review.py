@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import shutil
 import sys
 from pathlib import Path
@@ -154,10 +155,41 @@ def parse_item_flag(value: str) -> dict:
 # Commands
 # --------------------------------------------------------------------------
 
-def emit(card: dict, root: Path, port: int) -> None:
-    url = "http://127.0.0.1:%d/#%s" % (port, card["id"])
-    print(json.dumps({"id": card["id"], "url": url, "board": card["board"],
-                      "root": str(root)}, indent=2))
+def emit(card: dict, root: Path, port: int, sync: dict = None) -> None:
+    """Report what is actually true, not what is merely formatted.
+
+    The old version printed a 127.0.0.1 URL unconditionally, by string
+    formatting -- it never contacted a server. So a card posted from a cloud
+    session into a queue on a disk the owner cannot read still printed a
+    plausible, clickable link, and the agent reported success in good faith.
+    The owner saw "Nothing queued here." Whether the card can actually reach a
+    human is the one thing this output has to get right.
+    """
+    out = {
+        "id": card["id"],
+        "board": card["board"],
+        "queue": str(root),
+        "url": "http://127.0.0.1:%d/#%s" % (port, card["id"]),
+        "url_note": "opens the owner's page if they are serving; not checked from here",
+    }
+    if sync is None:
+        out["sync"] = "not attempted"
+        out["owner_can_see_it"] = "only if you are on the owner's machine"
+    elif sync.get("ok"):
+        out["sync"] = {"ok": True, "branch": sync.get("branch"),
+                       "pushed": len(sync.get("pushed") or []),
+                       "pulled": len(sync.get("pulled") or [])}
+        out["owner_can_see_it"] = True
+    else:
+        out["sync"] = {"ok": False,
+                       "reason": sync.get("error") or sync.get("skipped")}
+        out["owner_can_see_it"] = False
+        out["warning"] = (
+            "This card is on local disk only. If you are not running on the "
+            "owner's machine they cannot see it. Re-run `review.py sync` once "
+            "the remote is reachable."
+        )
+    print(json.dumps(out, indent=2))
 
 
 def cmd_post(args) -> int:
@@ -194,7 +226,9 @@ def cmd_post(args) -> int:
 
     card = build_card(root, spec)
     rl.save_card(root, card)
-    emit(card, root, args.port)
+    # The card is on disk before sync runs, so a transport failure costs
+    # delivery time and never the question itself.
+    emit(card, root, args.port, maybe_sync(args))
 
     if args.wait:
         return do_wait(root, card["id"], args.timeout)
@@ -225,10 +259,28 @@ def cmd_ab(args) -> int:
         spec["kind"] = "frames"
     card = build_card(root, spec)
     rl.save_card(root, card)
-    emit(card, root, args.port)
+    emit(card, root, args.port, maybe_sync(args))
     if args.wait:
         return do_wait(root, card["id"], args.timeout)
     return 0
+
+
+def maybe_sync(args, root: Path = None) -> dict:
+    """Best-effort transport. Returns None when the caller opted out."""
+    if getattr(args, "no_sync", False):
+        return None
+    result = rl.sync_now(root or rl.review_root())
+    if not result.get("ok") and result.get("error"):
+        print("review: sync failed (%s) — card is queued locally and will go "
+              "out on the next sync" % result["error"], file=sys.stderr)
+    return result
+
+
+def cmd_sync(args) -> int:
+    root = rl.review_root()
+    result = rl.sync_now(root)
+    print(json.dumps(result, indent=2))
+    return 0 if result.get("ok") else 1
 
 
 def cmd_list(args) -> int:
@@ -265,6 +317,9 @@ def cmd_inbox(args) -> int:
     its own questions came back.
     """
     root = rl.review_root()
+    # Pull first: the verdict was given on the owner's machine, so without this
+    # `inbox` reports "nothing answered" while the answer sits on the remote.
+    maybe_sync(args, root)
     me = rl.origin_info()
     cards = [
         c for c in rl.load_cards(root)
@@ -288,10 +343,12 @@ def cmd_inbox(args) -> int:
 
 
 def cmd_wait(args) -> int:
-    return do_wait(rl.review_root(), args.id, args.timeout)
+    root = rl.review_root()
+    maybe_sync(args, root)
+    return do_wait(root, args.id, args.timeout, sync=not args.no_sync)
 
 
-def do_wait(root: Path, card_id: str, timeout: float) -> int:
+def do_wait(root: Path, card_id: str, timeout: float, sync: bool = True) -> int:
     """Block until answered; exit 2 on timeout.
 
     Blocking is never load-bearing: a wait that times out leaves exactly the
@@ -302,7 +359,17 @@ def do_wait(root: Path, card_id: str, timeout: float) -> int:
     The card is written before the wait starts, so an agent killed while parked
     here still leaves its question behind.
     """
-    resp = rl.wait_for_response(root, card_id, timeout)
+    # Poll the remote as well as the disk, or a cloud agent waits forever on an
+    # answer that was given on a machine it cannot see.
+    deadline = time.monotonic() + timeout
+    resp = None
+    while resp is None:
+        slice_s = min(30.0, max(1.0, deadline - time.monotonic()))
+        resp = rl.wait_for_response(root, card_id, slice_s)
+        if resp is not None or time.monotonic() >= deadline:
+            break
+        if sync:
+            rl.sync_now(root)
     if resp is None:
         print(json.dumps({"id": card_id, "status": "timeout",
                           "note": "still queued; retrieve later with `review.py inbox`"}),
@@ -317,7 +384,8 @@ def cmd_serve(args) -> int:
     root = rl.review_root()
     refresh_bin(root)
     import review_server
-    return review_server.serve(root, args.port, open_browser=args.open)
+    return review_server.serve(root, args.port, open_browser=args.open,
+                               sync_interval=args.sync_interval)
 
 
 def cmd_gc(args) -> int:
@@ -385,6 +453,10 @@ def main(argv=None) -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    def add_no_sync(sp):
+        sp.add_argument("--no-sync", action="store_true",
+                        help="skip the git transport (offline, or a local-only queue)")
+
     def add_port(sp):
         # Attached per-subcommand rather than to the top-level parser: a
         # top-level --port only parses *before* the subcommand, and
@@ -395,6 +467,8 @@ def main(argv=None) -> int:
 
     sp = sub.add_parser("serve", help="serve the review page")
     sp.add_argument("--open", action="store_true", help="open a browser at the page")
+    sp.add_argument("--sync-interval", type=float, default=60.0,
+                    help="seconds between remote syncs; 0 disables (default 60)")
     add_port(sp)
     sp.set_defaults(func=cmd_serve)
 
@@ -416,6 +490,7 @@ def main(argv=None) -> int:
                     help="block until answered (only when the answer truly blocks you)")
     sp.add_argument("--timeout", type=float, default=1800)
     add_port(sp)
+    add_no_sync(sp)
     sp.set_defaults(func=cmd_post)
 
     sp = sub.add_parser("ab", help="post an A/B comparison")
@@ -432,6 +507,7 @@ def main(argv=None) -> int:
     sp.add_argument("--wait", action="store_true")
     sp.add_argument("--timeout", type=float, default=1800)
     add_port(sp)
+    add_no_sync(sp)
     sp.set_defaults(func=cmd_ab)
 
     sp = sub.add_parser("list", help="list cards")
@@ -448,12 +524,17 @@ def main(argv=None) -> int:
     sp = sub.add_parser("inbox", help="answered cards I posted and have not read")
     sp.add_argument("--all", action="store_true", help="not just mine")
     sp.add_argument("--mark-seen", action="store_true")
+    add_no_sync(sp)
     sp.set_defaults(func=cmd_inbox)
 
     sp = sub.add_parser("wait", help="block until a card is answered")
     sp.add_argument("id")
     sp.add_argument("--timeout", type=float, default=1800)
+    add_no_sync(sp)
     sp.set_defaults(func=cmd_wait)
+
+    sp = sub.add_parser("sync", help="exchange cards and verdicts with the remote")
+    sp.set_defaults(func=cmd_sync)
 
     sp = sub.add_parser("gc", help="remove media left behind by a killed post")
     sp.set_defaults(func=cmd_gc)
