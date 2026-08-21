@@ -560,11 +560,16 @@ impl TreeDepth {
 
 /// How much of him still shows through a tree he is passing behind.
 ///
-/// Not zero, and that is the whole of "he stays findable": a gnome who
-/// vanishes into a crown is a gnome you have lost, and the picture stops
-/// being playable however good it looks. Low enough to read as *behind*
-/// rather than as in front of a translucent tree.
-const OCCLUDED_ALPHA: f32 = 0.28;
+/// **Zero: a tree in front hides him.** This was 0.28, on my argument that
+/// a gnome who vanishes into a crown is a gnome you have lost and the
+/// picture stops being playable however good it looks. Overruled by the
+/// first playtest — "behind has too much transparency, the player
+/// character should be hidden" — so the concern was mine and not real, at
+/// least at this zoom. Kept as a named constant with the branch intact
+/// rather than deleted, because the owner flagged they may revisit it:
+/// restoring the ghost is this one number, and `blend` clamps alpha, so
+/// any value between is valid.
+const OCCLUDED_ALPHA: f32 = 0.0;
 
 /// How far a background tree is dimmed under `TreeDepth::Haze`.
 const HAZE_DIM: u16 = 168;
@@ -1470,13 +1475,16 @@ impl Renderer {
                 let occluded = cell.organism_id() != 0
                     && world.materials.get(cell.material).climbable
                     && self.tree_depth.in_front(cell.organism_id());
+                // Nothing is drawn where a tree covers him: the world's
+                // own pixels, already painted by the cell pass, are what
+                // shows. `OCCLUDED_ALPHA` above records the ghost this
+                // replaced and how to get it back.
+                if occluded && OCCLUDED_ALPHA <= 0.0 {
+                    continue;
+                }
                 for by in 0..block {
                     for bx in 0..block {
                         match occluded {
-                            // Blended, not skipped. A gnome who disappears
-                            // into a crown is a gnome you have lost; a
-                            // shape showing through the leaves still reads
-                            // as *behind* them.
                             true => blend(frame, width, height, sx + bx, sy + by, *colour, OCCLUDED_ALPHA),
                             false => put(frame, width, height, sx + bx, sy + by, *colour),
                         }

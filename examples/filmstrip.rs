@@ -1654,7 +1654,7 @@ impl Gnome {
             // with the trees still a hundred cells away. The number was
             // real and meant nothing, which is the exact trap `CLAUDE.md`
             // opens by warning about; the picture is what caught it.
-            Script::Climb if self.grabbed => PlayerInput { jump_held: true, ..Default::default() },
+            Script::Climb if self.grabbed => PlayerInput { grab: true, jump_held: true, ..Default::default() },
             // Same walk-first delay `Script::Climb` needed, and for the
             // same reason: the first thing in reach of the spawn point is a
             // creeping twig, not a tree.
@@ -1666,6 +1666,9 @@ impl Gnome {
                 right: step_no >= WOOD_WALK_FROM,
                 // Reaching only starts once he is clear of the twig — walk
                 // first, then walk *and* reach until something takes.
+                // `grab` is the reach: climbing has its own key now, so
+                // holding `W` alone takes hold of nothing.
+                grab: step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS,
                 jump_held: step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS,
                 ..Default::default()
             },

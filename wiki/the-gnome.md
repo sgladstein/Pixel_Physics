@@ -1,11 +1,12 @@
 # The Gnome
 
 *Current as of: this build. New since the last pass: living plants are
-walk-through and climbable, he weaves in front of and behind trees, a
-crown breaks a fall, a lip at the top of a jump is mantled, the sprite
-faces where it's going, holding `W` out of water puts him on the bank, and
-left-clicking a plant shakes it. Cutting a tree down is deliberately not
-in yet.*
+walk-through and climbable (hold `Shift` to take hold — climbing has its
+own key now), living creatures aren't walls either, he weaves in front of
+and behind trees and a tree in front hides him, a crown breaks a fall, a
+lip at the top of a jump is mantled, the sprite faces where it's going,
+holding `W` out of water puts him on the bank, and left-clicking a plant
+shakes it. Cutting a tree down is deliberately not in yet.*
 
 The world can be inhabited. Press `U` with the cursor over an open spot
 and a small gnome — pointed red hat, green tunic — appears there; press
@@ -46,23 +47,28 @@ things are matter.
 He also passes in front of some trees and behind others, which is purely a
 matter of drawing — a tree is walk-through either way. Which side a given
 tree is on is fixed for that tree's life, so a wood has a front and a back
-rather than flickering. When he's behind one he shows through it faintly
-rather than disappearing. If you don't like it, `F10` cycles between
-weaving through the stand, weaving with the far trees dimmed so the two
-layers read apart, always drawing over everything (what he used to do),
-and always drawing behind everything.
+rather than flickering. A tree in front of him **hides** him: you see
+whatever shows through the gaps in the foliage and nothing else. `F10`
+cycles between weaving through the stand, weaving with the far trees
+dimmed so the two layers read apart, always drawing over everything (what
+he used to do), and always drawing behind everything.
 
 ## Climbing
 
-The trade for a tree not stopping him is that he can go up it. Hold `W`
-against a trunk, a branch or a spray of leaves and he climbs; `S` goes
-back down; let go of both and he grips where he is rather than sliding.
-Walking sideways out of the tissue drops him. Reaching for a hold is what
-starts it, so falling *past* a tree doesn't snag him on it, and standing
-on ground laced with roots still jumps like anywhere else.
+The trade for a tree not stopping him is that he can go up it — but only
+when you ask. **Hold `Shift` to take hold**, and while you're holding on,
+`W` climbs and `S` goes back down; with neither pressed he hangs where he
+is rather than sliding. Let go of `Shift` and he lets go of the tree.
+Walking sideways out of the tissue drops him too.
 
-Climbing off the top of a trunk with `W` still held launches him off the
-crown rather than stepping him into a fall.
+Climbing needs its own key because it used to share `W` with the jump, and
+that was wrong in a way you find within a minute of playing: every trunk
+you clipped at the top of a jump grabbed you and carried on lifting, so
+jump-walking through a wood was closer to hovering than to walking.
+
+The two ways off a tree do different things. Climb off the *top* with `W`
+still held and he springs off the crown; simply let go and he drops from
+where he was, without the hop.
 
 A crown breaks a fall. Dropping into foliage takes speed off in proportion
 to how much of him is in it — clipping the top of one barely registers,

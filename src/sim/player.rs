@@ -491,6 +491,10 @@ pub struct PlayerInput {
     pub jump_pressed: bool,
     /// Reserved: crouch on ground, swim-down in water (phase 3).
     pub down: bool,
+    /// Shift: hold on to a plant. Climbing needs an input of its own —
+    /// riding on `jump_held` meant jumping through a wood grabbed every
+    /// trunk it touched. See `step`'s climb gate.
+    pub grab: bool,
     /// Cursor in world coordinates, for the phase-2 dig aim. Plumbed now
     /// so the input path doesn't need reworking then.
     pub aim: Option<(i32, i32)>,
@@ -528,6 +532,10 @@ pub struct Player {
     /// told from every other tick. That one tick is where the exit hop is
     /// sized (`Tuning::surface_hop`).
     was_swimming: bool,
+    /// Last tick's `climbing`, so *how* he came off a tree can be told:
+    /// climbing off the top launches him, letting go of the grab key
+    /// drops him. Same shape as `was_swimming`, same reason.
+    was_climbing: bool,
     /// Loose powder overlaps him: slowed, and sunk into it.
     pub wading: bool,
     /// Gripping living plant tissue: gravity is off and `W`/`S` drive him
@@ -574,6 +582,7 @@ impl Player {
             dig_cooldown: 0,
             swimming: false,
             was_swimming: false,
+            was_climbing: false,
             wading: false,
             climbing: false,
             facing_left: false,
@@ -897,25 +906,54 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         .sum::<f32>()
         / PLAYER_HEIGHT as f32;
 
-    // **Reaching for it is what starts it, and that is the whole of "no new
-    // key".** `W` or `S` against a handhold climbs; everything else about
-    // those keys is unchanged. Once gripped he stays gripped until the
-    // tissue runs out, so letting go of the keys hangs rather than drops.
+    // **You are on the tree only while you are holding on.** Shift grabs,
+    // `W`/`S` climb, no vertical input hangs, releasing lets go.
     //
-    // Two rejected alternatives, both tried here and both wrong:
+    // This shipped keyed on `W` instead, on the argument that the keyboard
+    // was full and climbing could ride the jump key for free. **Overturned
+    // by play, and the failure is worth keeping**: `W` is jump *and* climb,
+    // so jump-walking through a wood grabbed every trunk he clipped
+    // mid-arc and kept lifting him -- reported as "if I am just jump
+    // walking in a forest, I can basically fly/hover". The trade that
+    // reasoning made was "no new key" over "no accidental grab", and it
+    // picked wrong: a verb that fires when you did not ask for it is worse
+    // than a verb that costs a key.
     //
-    // - **Engage on contact alone.** A gnome falling *past* a tree with no
-    //   input caught himself on it, which is not a climb, it is flypaper.
-    //   `a_branch_is_never_a_floor` measured him arriving at row 48 instead
-    //   of the floor at 88.
-    // - **Require `!grounded`, so that feet-on-ground always jumps.** It
-    //   reads well and cannot be entered: `jump_pressed` is an edge, so
-    //   walking up to a trunk with `W` held offers no second press to hop
-    //   with, and he simply stood at the base of a tree he was inside.
-    //   The root problem it was guarding against is already handled by
-    //   `GRIP_ROWS` -- roots sit at boot height and a handhold is chest and
-    //   above -- so it was a second lock on a door that was already shut.
-    p.climbing = grip && !p.swimming && (p.climbing || input.jump_held || input.down);
+    // Two *earlier* rejections still stand, and both are now moot rather
+    // than wrong -- an explicit grab key subsumes them, and they are kept
+    // because either would come back the moment someone tried to make the
+    // grab implicit again:
+    //
+    // - **Engage on contact alone** made a tree flypaper: a gnome falling
+    //   *past* one caught himself on it, measured arriving at row 48
+    //   against a floor at 88.
+    // - **Require `!grounded`** read well and could not be entered:
+    //   `jump_pressed` is an edge, so walking up to a trunk with `W` held
+    //   offered no second press to hop with.
+    //
+    // `GRIP_ROWS` still matters and is not made redundant by the key: it
+    // is what stops Shift near a root system grabbing at boot height.
+    p.was_climbing = p.climbing;
+    p.climbing = grip && !p.swimming && input.grab;
+    // **Letting go drops him; running out of tree launches him.** The
+    // climb branch keeps the coyote window and jump buffer warm so that
+    // climbing off the crown with `W` still held springs him off it, which
+    // is worth keeping. With a grab key that same armed jump would fire
+    // when you simply released Shift — being flung upward for letting go,
+    // which is the opposite of what the input says. The two exits are told
+    // apart by whether there is still tissue in reach: tissue gone means
+    // he climbed off the end of it, tissue still there means he chose to
+    // drop.
+    if p.was_climbing && !p.climbing && grip {
+        p.jump_buffer = 0;
+        p.coyote = 0;
+        // And the climb's own upward velocity goes with them. A climb sets
+        // `vy` directly, so without this he coasts up on the momentum of
+        // the last stroke and decelerates under gravity -- measured at 3.6
+        // cells, which reads as a small hop for releasing a key. Letting go
+        // drops him from rest.
+        p.vy = 0.0;
+    }
 
     // --- intent to velocity ---
     let accel = if p.grounded { tuning.run_accel } else { tuning.run_accel * tuning.air_control };
@@ -2298,7 +2336,7 @@ mod tests {
     /// which is correct (that is how you leave a tree) and is not what
     /// these tests are about.
     fn grab_the_trunk(world: &mut World) {
-        let mut input = PlayerInput { right: true, jump_held: true, jump_pressed: true, ..Default::default() };
+        let mut input = PlayerInput { right: true, grab: true, jump_pressed: true, ..Default::default() };
         for _ in 0..60 {
             tick(world, input);
             input.jump_pressed = false;
@@ -2310,13 +2348,72 @@ mod tests {
     }
 
     #[test]
+    fn jump_walking_through_a_wood_grabs_nothing() {
+        // **The bug, stated.** Reported from the first playtest: "if I am
+        // just jump walking in a forest, I can basically fly/hover."
+        // Climbing keyed on `W`, which is also jump, so every trunk he
+        // clipped at the top of an arc grabbed him and kept lifting --
+        // land, jump, grab, rise, repeat, indefinitely upward.
+        //
+        // A tall stand of tissue he runs through with `W` held and no grab
+        // key. He must never climb, and must never end up above the height
+        // one jump can reach from the floor.
+        let mut world = world_with_tree(50, 60, 20);
+        world.player = Some(Player::at(20, 80));
+        let floor_y = 88.0 - PLAYER_HEIGHT as f32;
+        let mut highest = floor_y;
+        let mut input = PlayerInput { right: true, jump_held: true, jump_pressed: true, ..Default::default() };
+        for i in 0..600 {
+            tick(&mut world, input);
+            // Re-press regularly: this is someone jumping their way across
+            // a wood, not one jump held forever.
+            input.jump_pressed = i % 25 == 0;
+            let p = world.player.as_ref().unwrap();
+            assert!(!p.climbing, "he grabbed a tree without asking to, at tick {i}");
+            highest = highest.min(p.y);
+        }
+        // One jump from the floor rises ~22 cells at the default feel. A
+        // hover shows up as *repeated* gain, so anything much past a single
+        // jump is the bug.
+        assert!(
+            floor_y - highest < 30.0,
+            "he climbed the wood by jumping through it: floor {floor_y:.1}, reached {highest:.1}"
+        );
+    }
+
+    #[test]
+    fn letting_go_drops_him_rather_than_launching_him() {
+        // The two exits from a tree have to differ. Climbing off the top
+        // with `W` held springs him off the crown, which is worth keeping;
+        // releasing the grab key with `W` still held must not fire that
+        // same jump, or letting go flings you upward.
+        let mut world = world_with_tree(64, 5, 20);
+        world.player = Some(Player::at(60, 80));
+        grab_the_trunk(&mut world);
+        for _ in 0..40 {
+            tick(&mut world, PlayerInput { grab: true, jump_held: true, ..Default::default() });
+        }
+        let let_go_at = world.player.as_ref().unwrap().y;
+        // Shift released, `W` still down.
+        let mut highest = let_go_at;
+        for _ in 0..20 {
+            tick(&mut world, PlayerInput { jump_held: true, ..Default::default() });
+            highest = highest.min(world.player.as_ref().unwrap().y);
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(!p.climbing, "releasing the grab key should let go");
+        assert!(highest >= let_go_at - 0.5, "letting go flung him upward: {let_go_at:.1} -> apex {highest:.1}");
+        assert!(p.y > let_go_at, "letting go should drop him: {let_go_at:.1} -> {:.1}", p.y);
+    }
+
+    #[test]
     fn holding_up_against_a_trunk_climbs_it() {
         let mut world = world_with_tree(64, 5, 20);
         world.player = Some(Player::at(60, 80));
         grab_the_trunk(&mut world);
         let start = world.player.as_ref().unwrap().y;
         for _ in 0..40 {
-            tick(&mut world, PlayerInput { jump_held: true, ..Default::default() });
+            tick(&mut world, PlayerInput { grab: true, jump_held: true, ..Default::default() });
         }
         let p = world.player.as_ref().unwrap();
         assert!(p.climbing, "he should still be on the trunk, at y={:.1}", p.y);
@@ -2331,14 +2428,15 @@ mod tests {
         world.player = Some(Player::at(60, 80));
         grab_the_trunk(&mut world);
         for _ in 0..20 {
-            tick(&mut world, PlayerInput { jump_held: true, ..Default::default() });
+            tick(&mut world, PlayerInput { grab: true, jump_held: true, ..Default::default() });
         }
         let held = world.player.as_ref().unwrap().y;
+        // Still holding on, just not climbing: the grip.
         for _ in 0..120 {
-            tick(&mut world, PlayerInput::default());
+            tick(&mut world, PlayerInput { grab: true, ..Default::default() });
         }
         let p = world.player.as_ref().unwrap();
-        assert!(p.climbing, "no input should hold him, not drop him");
+        assert!(p.climbing, "holding on with no vertical input should hang him, not drop him");
         assert!((p.y - held).abs() < 1.0, "he should hang where he was left: {held:.1} -> {:.1}", p.y);
     }
 
@@ -2397,12 +2495,12 @@ mod tests {
         world.player = Some(Player::at(60, 80));
         grab_the_trunk(&mut world);
         for _ in 0..30 {
-            tick(&mut world, PlayerInput { jump_held: true, ..Default::default() });
+            tick(&mut world, PlayerInput { grab: true, jump_held: true, ..Default::default() });
         }
-        // Sideways, with nothing held on the vertical axis: he shimmies out
-        // of the tissue and gravity takes over again.
+        // Sideways, still holding on, nothing on the vertical axis: he
+        // shimmies out of the tissue and gravity takes over again.
         for _ in 0..300 {
-            tick(&mut world, PlayerInput { right: true, ..Default::default() });
+            tick(&mut world, PlayerInput { grab: true, right: true, ..Default::default() });
         }
         let p = world.player.as_ref().unwrap();
         assert!(!p.climbing, "he walked out of the tissue and should have let go");
