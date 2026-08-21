@@ -180,9 +180,9 @@ cannot compile is the window you created.
 
 If you find yourself needing to commit while a contested file holds
 somebody else's unfinished work, do **not** try to stage around it. Add a
-worktree at `origin/master`, re-apply your own change there, verify, commit
+worktree at `origin/main`, re-apply your own change there, verify, commit
 and push from it, then bring the main tree's branch pointer forward with
-`git reset --mixed origin/master` — which moves the branch and leaves their
+`git reset --mixed origin/main` — which moves the branch and leaves their
 working tree untouched.
 
 **That reset strands stale files whenever the main tree was *behind*.** It
