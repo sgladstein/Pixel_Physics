@@ -1,0 +1,53 @@
+{
+  "id": "20260821T064730179Z-76250e",
+  "created": "2026-08-21T06:47:30Z",
+  "board": "water",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "c826141",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Lava down a ramp into a pond: where the quenched rock ends up",
+  "question": "In one of these the rock the quench makes goes to the bottom of the pond. Does that read right, or does the pond floor now look like it is collecting junk?",
+  "context_md": "`filmstrip scene=lavapour` -- the pre-existing scene, lava down a ramp into a walled pond. Frames 200, 500, 800 / 1100, 1400, 1700 (the last four are dusk and night, hence the colour).\n\nThis is the same set of changes as the other two cards, on a geometry neither of them covers: the lava arrives at the *shoreline*, so a crust bridges the pond rather than forming mid-water.\n\nNumbers at frame 1400, against the pre-change baseline measured in the same session:\n\n| | before | after |\n|---|---|---|\n| unattached solids reaching no anchor | 154 | **47** |\n| overload failures | 69 | 12 |\n| unsupported failures | 1,047 | 326 |\n| standing water | 10,720 | 9,803 |\n\n**Two things I want your eye on rather than my opinion of.** The pond now ends ~900 cell-equivalents lower, because steam that reaches open sky goes to the atmospheric bank instead of raining straight back -- it comes back as weather later, but the level visibly drops. And 47 specks of rock still hang mid-water rather than the 0 I would like; that is down from 154 but it is not gone.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260821T064730179Z-76250e/000-lp_base2.png"
+      ],
+      "caption": "current",
+      "meta": {
+        "unattached solids reaching no anchor": 154,
+        "overload failures": 69,
+        "unsupported failures": 1047,
+        "standing water at frame 1400": 10720
+      }
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260821T064730179Z-76250e/001-lp_now2.png"
+      ],
+      "caption": "quenched rock sinks; open-sky steam banks",
+      "meta": {
+        "unattached solids reaching no anchor": 47,
+        "overload failures": 12,
+        "unsupported failures": 326,
+        "standing water at frame 1400": 9803
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
