@@ -390,6 +390,46 @@ presence cost *before* A3 lands, the aggressive-retune row above
 understanding that it reproduces round 3's flooded-room failure and
 roughly doubles the no-cave-world rate.
 
+**Erratum (same session, before A3): the diagnosis stood, the prescription
+did not.** `cave_probe`'s own formation test was blind to `Material::scenery`
+in a second, worse way than this finding already named: not only did
+`SPELEO_DENSITY=0` prove formations were the dominant occluder, the box-fit
+test itself counted every speleothem cell as solid, full stop, rather than
+walking through it the way the player actually does. Fixed at the ruler
+(`examples/cave_probe.rs`: `shape()` now tests a `passable` closure -- void
+OR `material.scenery` -- and gained a second measure, `largest walkable %`
++ `walkable regions`, because "can he reach 35% of the void somewhere" and
+"can he reach it all without leaving the box's own freedom" are different
+questions and the first one cannot answer the owner's "it doesn't look like
+I could even enter it"). Re-measured on the *unretuned* round-5 lattice
+(22.0 / 1.2 / 0.09): **reachable/largest-walkable 33-37% median, walkable
+regions == 1 (p90) on every preset.** The cave was already traversable
+end to end; the 63-67% the player cannot occupy is thin lattice fringe
+(the spiky branches off each chamber), not blockage.
+
+Re-measured against that corrected ruler, the shipped 62.0/0.55/0.22 retune
+reaches 95-96% reachable, but by dissolving the network into one rounded
+bubble (span across 136 -> 70 cells, contrast 5.4x -> 2.1x) -- reproducing
+the exact "looks like a single room" failure it existed to fix, now with a
+ruler that can actually see the trade being made. **The retune is reverted.**
+`CAVE_CELL`/`CAVE_SQUASH`/`CAVE_THRESHOLD` are back to round 5's 22.0 /
+1.2 / 0.09; their doc comments record why in both directions rather than
+erasing the round-6 attempt. The `>= 50%` bar this finding was written
+against is retired with it -- it was set against the broken ruler's 0-8%
+and was never the quantity that mattered. Replacement bar, met by the
+unretuned lattice already: **walkable regions == 1 at p90, largest walkable
+>= 30% median.** What actually made round 5 unenterable *to look at* was
+the picket fence of formations Phase 0 had already made walk-through --
+which is exactly what A3, next, rebuilds as fewer and thicker.
+
+This is kept rather than rewritten because the diagnosis half of this
+finding is still exactly right and still cost real effort to find (the
+`SPELEO_DENSITY=0` control, the tradeoff-surface table): the ruler was
+broken, formations were the dominant occluder either way, and pushing the
+lattice past what the corrected numbers ask for buys nothing real. Only the
+prescription -- retune the lattice to chase the broken number -- did not
+survive contact with the fixed one.
+
 ---
 
 ## Reviewer's verdict on the first run (2026-08-21)
