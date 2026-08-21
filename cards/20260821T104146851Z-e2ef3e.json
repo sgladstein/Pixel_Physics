@@ -1,0 +1,43 @@
+{
+  "id": "20260821T104146851Z-e2ef3e",
+  "created": "2026-08-21T10:41:46Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/game-world-gen-planning-h12713",
+    "commit": "4ace7b6",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Cave sizes: a small one and a big one",
+  "question": "Is the range right — is the big one big enough, and does the small one still read as worth finding? And see the last paragraph about the vertical banding.",
+  "context_md": "Your ask: *\"Caves should be bigger or at least the upper limit should be\nbigger, then should have a variety of sizes.\"*\n\nBoth of these are canyon, same build, different seeds, same zoom. A is a\nsmall one, B is near the top of the range. Flat lighting so the shape\nreads.\n\nThe envelope used to be one fixed size — 181 x 71 — for every cave in\nevery world. It is now drawn per system, heavy-tailed and weighted small,\nup to 401 x 161. Over 16 seeds x 5 presets:\n\n|                     | before | now |\n|---|---|---|\n| span across         | always 181 | median 73-157, max 368 |\n| span down           | always 71  | median 57-83, max 148 |\n| tallest open column | max 56     | max 117 |\n\nThe part that took measuring: **growing the envelope alone does not make a\nbigger cave.** The lattice that carves the rooms is a density, so a\ndouble-size box just gets twice as many rooms of the same size — and the\nextra space went into cracks the gnome can't fit in (walkable fell 38% to\n23%). The lattice, the edge fades and the big chamber all scale with the\nenvelope now, so a large cave is a scaled-up small one rather than a bigger\nbox with the same furniture.\n\nTwo things I did not smooth over:\n\n1. **Contrast** — how much bigger a chamber is than the passages feeding\n   it — misses its bar in canyon: 4.83x against 5.0. The other presets\n   make it. That bar came from a population where every cave was the same\n   size, so it may simply be the wrong bar now, but I would rather show\n   you the gap than move it.\n2. **Slightly fewer caves.** 5-6 of 16 worlds have none, against 4-5\n   before. A big envelope near a world edge gets shrunk to fit rather than\n   thrown away, which recovered most of that but not all.\n\n**Separate question while you are looking:** the broad vertical light and\ndark swathes running the full height of both shots. I checked and they are\nnot from tonight's lighting work — identical with the new glow term and\nthe old one — so they are either the rock's own regional variation working\nas intended, or something nobody has looked at. Is that what you meant by\n\"pale vertical banding\", or was that only the one-pixel formations inside\nthe cave?\n",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "small (seed 3)",
+      "files": [
+        "20260821T104146851Z-e2ef3e/000-A2_seed3.png"
+      ],
+      "caption": "",
+      "meta": {}
+    },
+    {
+      "label": "large (seed 11)",
+      "files": [
+        "20260821T104146851Z-e2ef3e/001-A2_seed11.png"
+      ],
+      "caption": "",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
