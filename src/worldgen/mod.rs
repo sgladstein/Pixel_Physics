@@ -129,13 +129,21 @@ const PASSES: &[Pass] = &[
     // world rather than something this pass has to look sideways for.
     Pass { name: "boulders", margin: 0, run: passes::boulders },
     // Finite, and derived rather than guessed: a cave system is placed at a
-    // column and reaches at most `CAVE_HALF_W` (90) either side of it, plus
-    // `VAULT_RIND` (2) of stone that must be checked; the geode vug's
-    // `MAX_VAULT_EXTENT` (30) + rind sits well inside that. 92 rounded up to
-    // 96 for headroom, which is the honest number rather than the tight one
-    // -- an understated margin is a promise to produce different cells at a
-    // chunk edge.
-    Pass { name: "vaults", margin: 96, run: passes::vaults },
+    // column and reaches at most `MAX_CAVE_HALF_W` either side of it, plus
+    // `VAULT_RIND` of stone that must be checked; the geode vug's
+    // `MAX_VAULT_EXTENT` (30) + rind sits well inside that. An understated
+    // margin is a promise to produce different cells at a chunk edge.
+    //
+    // **Was 96, derived from a fixed 90-cell half-width.** Round 6's A2
+    // made the envelope a per-system draw reaching `MAX_CAVE_HALF_W` = 200,
+    // so the true reach became 202 and this number was silently wrong --
+    // silently because nothing checks it at runtime: `pass_summary()`'s only
+    // consumer looks at the GLOBAL list, not at the numbers.
+    // `a_cave_cannot_reach_past_its_declared_margin` in `tests/worldgen.rs`
+    // is what catches it now, and it asserts against the constants rather
+    // than against a literal so raising the cap fails the test instead of
+    // the world.
+    Pass { name: "vaults", margin: 224, run: passes::vaults },
     // The two water passes read the whole world: where water stands depends
     // on the lowest rim enclosing a hollow, which can be any distance away.
     // They are the first honest `GLOBAL` entries in this table and the debt

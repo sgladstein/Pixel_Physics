@@ -2038,17 +2038,38 @@ fn speleothems_never_bridge_a_passage() {
                     comp.iter().map(|c| c.1).min().unwrap(),
                     comp.iter().map(|c| c.1).max().unwrap(),
                 );
-                // A formation cell, exactly as `cave_probe` reads one:
-                // solid, and free-standing -- void on both flanks at the
-                // same row. `void_here.contains` on both sides is what
-                // keeps this from also matching the massif's own wall.
+                // A formation cell is one made of **formation material**.
+                //
+                // This used to say "solid, and free-standing -- void on both
+                // flanks at the same row", copied from `cave_probe`'s old
+                // test, and it is the same defect that instrument was
+                // rewritten to remove: a formation with a taper has a
+                // neighbour beside its base rows, so those rows fail a
+                // both-flanks test and the formation goes unseen. It broke
+                // here as a **vacuity failure** -- "the fused column never
+                // appeared across 14 systems" -- while a probe at the write
+                // site showed task 4c placing one in every system with a
+                // chamber. The mechanism was fine and the ruler was blind.
+                //
+                // `flowstone`/`spar` are their own materials since Phase 0,
+                // so the question needs no shape heuristic. Restricting to
+                // those two also keeps the original intent that made the
+                // flank test necessary in the first place: not matching the
+                // massif's own wall, which is `stone`.
+                let flowstone = world.materials.id_of("flowstone");
+                let spar = world.materials.id_of("spar");
                 let is_form = |x: i32, y: i32| {
                     let m = world.get(x, y).material;
-                    world.materials.kind(m) == material::MaterialKind::Solid
-                        && !void_here.contains(&(x, y))
-                        && void_here.contains(&(x - 1, y))
-                        && void_here.contains(&(x + 1, y))
+                    Some(m) == flowstone || Some(m) == spar
                 };
+                // Bridged **columns**, collected rather than counted, and
+                // merged into formations below. A3's taper makes one true
+                // column 3-8 cells wide at its base, so every bridged
+                // formation now contributes several adjacent bridged
+                // columns -- the cap was tripping at 9 on what is three
+                // objects. Which object does this rule evaluate: a cell, a
+                // column, or a formation? A formation.
+                let mut bridged_x: Vec<i32> = Vec::new();
                 let mut fused_here = 0usize;
                 for x in x0b..=x1b {
                     // A column can carry more than one *run* -- round-5
@@ -2093,6 +2114,7 @@ fn speleothems_never_bridge_a_passage() {
                         // else in that column, is not a closed passage --
                         // it is a formation touching a wall.
                         if run.len() >= 5 && run.iter().all(|&(_, s)| s) {
+                            bridged_x.push(x);
                             fused_here += 1;
                             println!(
                                 "seed {seed}: fused run at x = {x}, y {}..={} ({solids} solid rows)",
@@ -2122,12 +2144,24 @@ fn speleothems_never_bridge_a_passage() {
                 // but "did the taper mechanism run away and turn the cave
                 // into a wall of pillars", which a per-system cap well
                 // above the measured rate still catches.
+                bridged_x.sort_unstable();
+
+                bridged_x.dedup();
+                let bridged_formations =
+                    bridged_x.windows(2).filter(|w| w[1] - w[0] > 1).count() + usize::from(!bridged_x.is_empty());
+                // Cap set from measurement with headroom, in the units of the
+                // object it evaluates. Distribution over this suite's seeds,
+                // bridged formations per system: eight systems at 0, then
+                // 1, 3, 4, 5, 7, 8. Fourteen is comfortably clear of the
+                // measured maximum and still far below "a wall of pillars"
+                // in a system that can now be 300 cells across.
                 assert!(
-                    fused_here <= 6,
-                    "seed {seed}: {fused_here} columns bridged floor-to-ceiling in one cave system -- \
-                     that is the picket-fence failure A3 exists to avoid, not the occasional true column it allows"
+                    bridged_formations <= 14,
+                    "seed {seed}: {bridged_formations} formations bridged floor-to-ceiling in one cave \
+                     system ({fused_here} columns) -- that is the picket-fence failure A3 exists to \
+                     avoid, not the occasional true column it allows"
                 );
-                fused_columns_total += fused_here;
+                fused_columns_total += bridged_formations;
             }
         }
     }
@@ -2494,3 +2528,35 @@ fn probe_r4t4_valley_floor_retarget_diff() {
     }
 }
 
+
+/// The `vaults` pass may not reach further than the column margin it
+/// declares.
+///
+/// **Nothing checked this before, and it had already gone wrong.** The
+/// margin was 96, derived by hand from a fixed 90-cell half-width plus the
+/// rind. Round 6's A2 made the envelope a per-system draw reaching
+/// `MAX_CAVE_HALF_W`, and the declared number did not move with it -- a
+/// silent break of the streaming contract, silent because `pass_summary()`'s
+/// only consumer inspects the GLOBAL list and never the numbers. A pass that
+/// reads further than it declares produces different cells depending on
+/// which chunk the streamer happened to build first, which is the one class
+/// of worldgen bug that cannot be reproduced from a seed.
+///
+/// Asserted against the constants rather than a literal, so raising the cap
+/// fails here -- loudly, at `cargo test` -- instead of failing in a world
+/// nobody can regenerate.
+#[test]
+fn a_cave_cannot_reach_past_its_declared_margin() {
+    let reach = worldgen::passes::MAX_CAVE_HALF_W + worldgen::passes::VAULT_RIND;
+    let margin = worldgen::pass_summary()
+        .into_iter()
+        .find(|(name, _)| *name == "vaults")
+        .expect("the vaults pass is in the table")
+        .1;
+    assert!(margin >= 0, "vaults declares GLOBAL; it is a local pass and must state a number");
+    assert!(
+        margin >= reach,
+        "vaults declares a margin of {margin} and reaches {reach} \
+         (MAX_CAVE_HALF_W + VAULT_RIND)"
+    );
+}

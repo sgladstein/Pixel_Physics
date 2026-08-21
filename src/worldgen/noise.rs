@@ -159,11 +159,23 @@ pub enum Purpose {
     /// own shapes, the correlation every purpose tag exists to prevent.
     /// 27 (`CeilingGrain`) is still reserved and unclaimed, for task 6.
     Drip = 26,
-    // 27 is reserved for `CeilingGrain` (round-5 task 6) and 28-29 for the
-    // round-6 cave track's `CaveSize`/`CaveVariety`. Reserved in advance and
-    // deliberately left as a gap rather than filled from below: two tracks
-    // ran concurrently on this enum, and a discriminant that moves once it
-    // has been written into a world is a different world. Append only.
+    // 27 is reserved for `CeilingGrain` (round-5 task 6). Reserved in
+    // advance and deliberately left as a gap rather than filled from below:
+    // two tracks ran concurrently on this enum, and a discriminant that
+    // moves once it has been written into a world is a different world.
+    // Append only.
+    /// Round 6's A2: the per-system cave envelope size draw, heavy-tailed
+    /// and weighted small, keyed on the placement index and column.
+    ///
+    /// Its own stream rather than sharing `Vault` (which draws whether a
+    /// system is a vug, and where in the depth band it sits) because the
+    /// depth `Vault` picks is chosen *from* the band this draw defines --
+    /// sharing would make a system's size and its depth the same coin.
+    CaveSize = 28,
+    /// Reserved: per-system shape variation on top of the size draw.
+    /// Claimed here so the number cannot be taken by another track while
+    /// A2's own follow-up is unwritten.
+    CaveVariety = 29,
     /// Residual landform placement: where a tor/stack/pinnacle site sits
     /// along x, keyed on the candidate's region cell.
     ///

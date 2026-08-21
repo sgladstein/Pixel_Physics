@@ -728,21 +728,128 @@ const MAX_VAULT_EXTENT: i32 = 30;
 /// an unsupported span and its floor is loose material over a void -- a
 /// single stray cell of air on the far side of a one-cell rind would put a
 /// hole through into whatever is next door and let the floor run out of it.
-const VAULT_RIND: i32 = 2;
+pub const VAULT_RIND: i32 = 2;
 
-/// Half-extents of a cave system's envelope, in cells. ~180x70, per the
-/// round-3 spec; constants tuned by eye against the ASCII probe.
-const CAVE_HALF_W: i32 = 90;
-const CAVE_HALF_H: i32 = 35;
-/// Envelope-local grid dimensions for the collect phase.
-const CAVE_GRID_W: i32 = 2 * CAVE_HALF_W + 1;
-const CAVE_GRID_H: i32 = 2 * CAVE_HALF_H + 1;
+/// Half-extents of a cave system's envelope, in cells -- **drawn per
+/// system since round 6's A2**, not fixed.
+///
+/// Round 3 shipped a single ~180x70 envelope for every system in every
+/// world, tuned by eye against the ASCII probe. The owner's ask: *"Caves
+/// should be bigger or at least the upper limit should be bigger, then
+/// should have a variety of sizes."* Both halves matter and the second is
+/// the harder one -- an envelope that is always maximal is the same
+/// failure as one that is always 180 wide, just louder.
+///
+/// So the draw is heavy-tailed and weighted small: most systems stay near
+/// the round-3 size, which is what a world full of them should look like,
+/// and the tail reaches [`MAX_CAVE_HALF_W`]x[`MAX_CAVE_HALF_H`]. The
+/// exponent is the knob; see [`CaveEnv::draw`].
+/// The half-width every lattice constant in this file was tuned against,
+/// and the reference `CaveEnv::cell` scales from. Round 3's fixed envelope.
+const ROUND_3_HALF_W: i32 = 90;
+const MIN_CAVE_HALF_W: i32 = 55;
+const MIN_CAVE_HALF_H: i32 = 22;
+/// The upper limit, and the number `vaults`' declared column margin has to
+/// cover. **Raising either of these without raising `Pass::margin` in
+/// `worldgen/mod.rs` breaks the streaming contract silently** -- nothing
+/// checks it at runtime, because `pass_summary()`'s only consumer looks at
+/// the GLOBAL list and not at the numbers. `a_cave_cannot_reach_past_its_
+/// declared_margin` in `tests/worldgen.rs` is what catches it instead.
+pub const MAX_CAVE_HALF_W: i32 = 200;
+const MAX_CAVE_HALF_H: i32 = 80;
+
+/// One system's envelope: its half-extents, and the local grid arithmetic
+/// that used to be `const`.
+///
+/// Passed by value (it is two `i32`s) rather than threaded as two
+/// arguments, so the grid arithmetic stays in one place and a function
+/// cannot accidentally index one system's array with another's stride --
+/// which is the whole failure mode of turning a compile-time grid into a
+/// runtime one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CaveEnv {
+    half_w: i32,
+    half_h: i32,
+}
+
+impl CaveEnv {
+    /// The heavy-tailed size draw, weighted small.
+    ///
+    /// `u^EXP` with `EXP > 1` pushes the mass toward the minimum: at 3.0
+    /// the median system sits at about 1/8 of the way up the range and
+    /// only the top few percent of draws get near the cap. Width and
+    /// height are drawn from the *same* unit sample deliberately -- a
+    /// system that is 400 wide and 44 tall is a crack, not a cave, and the
+    /// aspect ratio is the round-3 spec's, kept.
+    fn draw(seed: u64, k: i32, cx: i32) -> Self {
+        const EXP: f32 = 3.0;
+        let u = noise::unit(seed, Purpose::CaveSize, k, cx).powf(EXP);
+        CaveEnv {
+            half_w: MIN_CAVE_HALF_W + (u * (MAX_CAVE_HALF_W - MIN_CAVE_HALF_W) as f32) as i32,
+            half_h: MIN_CAVE_HALF_H + (u * (MAX_CAVE_HALF_H - MIN_CAVE_HALF_H) as f32) as i32,
+        }
+    }
+
+    #[inline]
+    fn grid_w(self) -> i32 {
+        2 * self.half_w + 1
+    }
+
+    #[inline]
+    fn grid_h(self) -> i32 {
+        2 * self.half_h + 1
+    }
+
+    /// The Worley lattice cell size for *this* envelope.
+    ///
+    /// **Scaled with the envelope, not held fixed**, and measuring the
+    /// difference is what made A2 work. Growing the envelope with
+    /// [`CAVE_CELL`] left constant does not make a bigger cave: it makes a
+    /// cave with *more rooms of the same size*, because the lattice is a
+    /// density and the envelope only says how much of it to cut. Measured
+    /// on canyon over 16 seeds with the cell fixed: span across went to
+    /// max 372 as intended, and largest-walkable fell 38% -> 23% with
+    /// contrast 5.5x -> 4.5x -- both bars missed, because the extra area
+    /// went into finer structure the player cannot occupy.
+    ///
+    /// Scaling by the linear size ratio makes a large system a *scaled-up*
+    /// version of a small one: same topology, same chamber-to-passage
+    /// contrast, chambers 2x bigger in a 2x envelope. That is the thing the
+    /// owner asked for -- *"caves should be bigger"* -- rather than a
+    /// bigger box with the same furniture in it.
+    #[inline]
+    fn cell(self) -> f32 {
+        CAVE_CELL * self.half_w as f32 / ROUND_3_HALF_W as f32
+    }
+
+    #[inline]
+    fn area(self) -> usize {
+        (self.grid_w() * self.grid_h()) as usize
+    }
+
+    #[inline]
+    fn idx(self, dx: i32, dy: i32) -> usize {
+        ((dy + self.half_h) * self.grid_w() + dx + self.half_w) as usize
+    }
+
+    /// Smallest void component this envelope will call a system.
+    ///
+    /// Was a flat `MIN_SYSTEM_CELLS = 80`, which is 0.62% of the round-3
+    /// grid and would be 0.12% of a maximal one -- at which point it has
+    /// stopped meaning "is this a system at all" and started meaning
+    /// "is this more than nothing". Scaled to the envelope so it keeps its
+    /// original meaning at every size.
+    #[inline]
+    fn min_system_cells(self) -> usize {
+        (self.area() / 160).max(MIN_SYSTEM_CELLS)
+    }
+}
 
 /// Size of one Worley lattice cell, in *sheared* cave-space cells.
 ///
 /// Together with [`CAVE_SQUASH`] this sets how many lattice cells the
-/// envelope holds: `(2 * CAVE_HALF_W / CAVE_CELL)` across and
-/// `(2 * CAVE_HALF_H * CAVE_SQUASH / CAVE_CELL)` down. Round 3 shipped 52,
+/// envelope holds: `(2 * env.half_w / CAVE_CELL)` across and
+/// `(2 * env.half_h * CAVE_SQUASH / CAVE_CELL)` down. Round 3 shipped 52,
 /// which gives ~3.5 x 2.7 = 9 -- and round 5 measured what that actually
 /// means: the whole envelope is one open lens with the ceiling guard's
 /// stone teeth in it read as pillars, median open column 30 in a 69-tall
@@ -1022,6 +1129,11 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
         // Which shape. A draw per system, on its own coordinate so the
         // choice is not correlated with where it landed.
         let vug = noise::unit(seed, Purpose::Vault, k, 2) < VUG_CHANCE;
+        // Drawn before the depth-band test, which needs `half_h`, and keyed
+        // on the placement rather than on `cy` -- `cy` is chosen *from* the
+        // band that `half_h` defines, so keying the size on it would be
+        // circular.
+        let env = CaveEnv::draw(seed, k, cx);
 
         if !vug {
             // The envelope must sit entirely inside the depth band and, with
@@ -1032,13 +1144,37 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
             // world, not a failure to handle: such a world has no system and
             // the pass counter reports zero rather than the pass quietly
             // relaxing its own depth rule to produce one.
-            let lo = top + CAVE_HALF_H + VAULT_RIND;
-            let hi = bottom - CAVE_HALF_H - VAULT_RIND;
-            if hi < lo || cx - CAVE_HALF_W - VAULT_RIND < 0 || cx + CAVE_HALF_W + VAULT_RIND >= w {
+            // **Shrunk to fit, not rejected for being big.** The draw is
+            // heavy-tailed, so a large envelope near a world edge or in a
+            // shallow depth band would simply be lost -- and measured at
+            // half-width 200 that is a rejection rate near 20% of draws
+            // against 9% before, which would eat round 5's presence win
+            // whole. Clamping the *size* is not the same as moving the
+            // system: the comment above forbids relocating a rejected
+            // placement, because that puts every world's secret in the same
+            // kind of place. A cave that is smaller because there is less
+            // room for it is the opposite -- it stays exactly where the
+            // draw put it.
+            //
+            // Rejected only when even the minimum envelope does not fit,
+            // which is the round-3 behaviour for a world too shallow to
+            // hold a cave at all.
+            let room_w = cx.min(w - 1 - cx) - VAULT_RIND;
+            let room_h = (bottom - top) / 2 - VAULT_RIND;
+            let env = CaveEnv {
+                half_w: env.half_w.min(room_w),
+                half_h: env.half_h.min(room_h),
+            };
+            if env.half_w < MIN_CAVE_HALF_W || env.half_h < MIN_CAVE_HALF_H {
+                continue;
+            }
+            let lo = top + env.half_h + VAULT_RIND;
+            let hi = bottom - env.half_h - VAULT_RIND;
+            if hi < lo {
                 continue;
             }
             let cy = lo + (noise::unit(seed, Purpose::Vault, k, 1) * (hi - lo + 1) as f32) as i32;
-            let r = cave_system(ctx, world, k, cx, cy);
+            let r = cave_system(ctx, env, world, k, cx, cy);
             written += r.cells;
             report.cells += r.cells;
             report.systems += r.systems;
@@ -1273,34 +1409,29 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
     written
 }
 
-/// Envelope-local index into a cave grid. `(0, 0)` is the placement draw.
-fn cave_idx(dx: i32, dy: i32) -> usize {
-    ((dy + CAVE_HALF_H) * CAVE_GRID_W + dx + CAVE_HALF_W) as usize
-}
-
 /// Whether the cave plan leaves something solid at `(dx, dy)`: undisturbed
 /// rock (anything outside the kept void, including outside the envelope),
 /// or planned floor gravel. What the floor verifier leans on.
-fn planned_solid(void: &[bool], floor: &[Option<(i32, i32, i32)>], dx: i32, dy: i32) -> bool {
-    if dx.abs() > CAVE_HALF_W || dy.abs() > CAVE_HALF_H {
+fn planned_solid(env: CaveEnv, void: &[bool], floor: &[Option<(i32, i32, i32)>], dx: i32, dy: i32) -> bool {
+    if dx.abs() > env.half_w || dy.abs() > env.half_h {
         return true;
     }
-    if !void[cave_idx(dx, dy)] {
+    if !void[env.idx(dx, dy)] {
         return true;
     }
-    matches!(floor[(dx + CAVE_HALF_W) as usize], Some((_, b, h)) if h > 0 && dy > b - h)
+    matches!(floor[(dx + env.half_w) as usize], Some((_, b, h)) if h > 0 && dy > b - h)
 }
 
 /// Keep only the connected component containing the seed point -- the void
 /// cell nearest the envelope centre, ties broken in raster order -- over a
 /// 4-neighbour flood. A disconnected satellite chamber is a second system
 /// nobody can reach from the first, so it goes back to being stone.
-fn keep_seed_component(void: &mut [bool]) {
+fn keep_seed_component(env: CaveEnv, void: &mut [bool]) {
     let mut seed = None;
     let mut best = i64::MAX;
-    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
-        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
-            if void[cave_idx(dx, dy)] {
+    for dy in -env.half_h..=env.half_h {
+        for dx in -env.half_w..=env.half_w {
+            if void[env.idx(dx, dy)] {
                 let d = (dx as i64).pow(2) + (dy as i64).pow(2);
                 if d < best {
                     best = d;
@@ -1311,16 +1442,16 @@ fn keep_seed_component(void: &mut [bool]) {
     }
     let Some(seed) = seed else { return };
     let mut kept = vec![false; void.len()];
-    kept[cave_idx(seed.0, seed.1)] = true;
+    kept[env.idx(seed.0, seed.1)] = true;
     let mut stack = vec![seed];
     while let Some((x, y)) = stack.pop() {
         for (nx, ny) in [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)] {
-            if nx.abs() <= CAVE_HALF_W
-                && ny.abs() <= CAVE_HALF_H
-                && void[cave_idx(nx, ny)]
-                && !kept[cave_idx(nx, ny)]
+            if nx.abs() <= env.half_w
+                && ny.abs() <= env.half_h
+                && void[env.idx(nx, ny)]
+                && !kept[env.idx(nx, ny)]
             {
-                kept[cave_idx(nx, ny)] = true;
+                kept[env.idx(nx, ny)] = true;
                 stack.push((nx, ny));
             }
         }
@@ -1347,14 +1478,14 @@ fn keep_seed_component(void: &mut [bool]) {
 /// other's midpoints in practice (each is >36 cells and the gap between
 /// them is itself non-void), so applying every tooth from one scan before
 /// rescanning does not clip a compliant neighbour.
-fn all_long_ceiling_runs(void: &[bool]) -> Vec<(i32, i32, i32)> {
+fn all_long_ceiling_runs(env: CaveEnv, void: &[bool]) -> Vec<(i32, i32, i32)> {
     let mut runs = Vec::new();
-    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
+    for dy in -env.half_h..=env.half_h {
         let mut run = 0;
-        for dx in -CAVE_HALF_W..=CAVE_HALF_W + 1 {
-            let ceiling = dx <= CAVE_HALF_W
-                && void[cave_idx(dx, dy)]
-                && (dy == -CAVE_HALF_H || !void[cave_idx(dx, dy - 1)]);
+        for dx in -env.half_w..=env.half_w + 1 {
+            let ceiling = dx <= env.half_w
+                && void[env.idx(dx, dy)]
+                && (dy == -env.half_h || !void[env.idx(dx, dy - 1)]);
             if ceiling {
                 run += 1;
             } else {
@@ -1399,12 +1530,12 @@ fn all_long_ceiling_runs(void: &[bool]) -> Vec<(i32, i32, i32)> {
 /// lengthen a roof run enough to cross [`MAX_CEILING_SPAN`]. Looping until
 /// none of the three changes anything terminates because each one that
 /// fires removes at least one void cell from a finite grid.
-fn carve_cave_void(ctx: &Ctx, world: &World, k: i32, cx: i32, cy: i32) -> Option<Vec<bool>> {
+fn carve_cave_void(ctx: &Ctx, env: CaveEnv, world: &World, k: i32, cx: i32, cy: i32) -> Option<Vec<bool>> {
     // A per-system field seed derived from the placement stream: two systems
     // in one world must not share a Worley lattice, or a pair placed near
     // each other would carve correlated shapes.
     let sys = noise::hash(ctx.terrain.seed, Purpose::Vault, k, 97);
-    let mut void = vec![false; (CAVE_GRID_W * CAVE_GRID_H) as usize];
+    let mut void = vec![false; env.area()];
     // Bedding shear: the field's vertical coordinate is measured against the
     // local strata surface -- the same `y + strata_offset(x)` locus the shade
     // pass bands the rock with, the benches snap to and the lenses lie in --
@@ -1412,23 +1543,30 @@ fn carve_cave_void(ctx: &Ctx, world: &World, k: i32, cx: i32, cy: i32) -> Option
     // and a cave reads as geology rather than as noise. Fourth consumer of
     // that one pure function; it has to agree with the other three.
     let base_off = ctx.terrain.strata_offset(cx);
-    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
-        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+    let cell = env.cell();
+    // The edge fades scale with the envelope for the same reason the lattice
+    // cell does: a 14-cell fade is a quarter of a lattice cell at the round-3
+    // size and a ninth of one at the cap, so held fixed it would pinch a
+    // large system's passages shut over a shorter and shorter fraction of
+    // their own width.
+    let fade_scale = cell / CAVE_CELL;
+    for dy in -env.half_h..=env.half_h {
+        for dx in -env.half_w..=env.half_w {
             let v = (dy as f32 + ctx.terrain.strata_offset(cx + dx) - base_off) * CAVE_SQUASH;
             let (f1, f2) =
-                noise::worley_f2_f1(sys, Purpose::Cave, dx as f32 / CAVE_CELL, v / CAVE_CELL);
+                noise::worley_f2_f1(sys, Purpose::Cave, dx as f32 / cell, v / cell);
             // Threshold fades to zero at the envelope edge -- see
             // `CAVE_EDGE_FADE_X` for the sawn-off face it removes.
-            let fade = ((CAVE_HALF_W - dx.abs()) as f32 / CAVE_EDGE_FADE_X)
-                .min((CAVE_HALF_H - dy.abs()) as f32 / CAVE_EDGE_FADE_Y)
+            let fade = ((env.half_w - dx.abs()) as f32 / (CAVE_EDGE_FADE_X * fade_scale))
+                .min((env.half_h - dy.abs()) as f32 / (CAVE_EDGE_FADE_Y * fade_scale))
                 .clamp(0.0, 1.0);
             if f2 - f1 < CAVE_THRESHOLD * fade {
-                void[cave_idx(dx, dy)] = true;
+                void[env.idx(dx, dy)] = true;
             }
         }
     }
 
-    settle_cave_void(ctx, world, cx, cy, &mut void);
+    settle_cave_void(ctx, env, world, cx, cy, &mut void);
 
     // Round-5 task 3: one monumental chamber, grown around the point of
     // greatest clearance in the settled void, then the whole settle runs
@@ -1437,9 +1575,9 @@ fn carve_cave_void(ctx: &Ctx, world: &World, k: i32, cx: i32, cy: i32) -> Option
     // two, and re-settling is what turns "grew into a lens" or "grew a roof
     // too wide" back into a system that still satisfies every earlier
     // guarantee.
-    let (requested, added) = grow_monumental_chamber(ctx, k, cx, &mut void);
+    let (requested, added) = grow_monumental_chamber(ctx, env, k, cx, &mut void);
     if requested > 0 {
-        settle_cave_void(ctx, world, cx, cy, &mut void);
+        settle_cave_void(ctx, env, world, cx, cy, &mut void);
         // Reported unconditionally, including the zero case: a chamber
         // eaten down to nothing by a nearby breach is exactly the "size cap
         // gates whether it happens" landmine in a new shape if it goes
@@ -1449,7 +1587,11 @@ fn carve_cave_void(ctx: &Ctx, world: &World, k: i32, cx: i32, cy: i32) -> Option
     }
 
     let count = void.iter().filter(|&&v| v).count();
-    (count >= MIN_SYSTEM_CELLS).then_some(void)
+    // Scaled to the envelope (round 6, A2): a flat 80 was 0.62% of the
+    // round-3 grid and would be 0.12% of a maximal one, at which point it
+    // stops asking "is this a system" and starts asking "is this more than
+    // nothing".
+    (count >= env.min_system_cells()).then_some(void)
 }
 
 /// Component keep, ceiling guard and breach erosion, alternated to a
@@ -1458,16 +1600,16 @@ fn carve_cave_void(ctx: &Ctx, world: &World, k: i32, cx: i32, cy: i32) -> Option
 /// fixed order). Factored out because round-5 task 3 has to run it twice:
 /// once on the raw carved field, and again after the monumental chamber's
 /// growth, which can breach or over-lengthen a span but never disconnect.
-fn settle_cave_void(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool]) {
+fn settle_cave_void(ctx: &Ctx, env: CaveEnv, world: &World, cx: i32, cy: i32, void: &mut [bool]) {
     loop {
-        keep_seed_component(void);
+        keep_seed_component(env, void);
         // Every violation this round, not just the first (round-6 A0). The
         // O(area) `keep_seed_component` flood used to run once per *tooth*;
         // it now runs once per *round*, and a round only repeats when a
         // dropped tooth severs a passage and exposes a new violation beyond
         // the cut. Each round still removes at least one void cell, so this
         // terminates on the same argument as before.
-        let runs = all_long_ceiling_runs(void);
+        let runs = all_long_ceiling_runs(env, void);
         for &(y, x0, len) in &runs {
             // A stone tooth hung from the run's middle: three rows deep,
             // tapering 5-3-1 wide, so the splitter reads as rock coming down
@@ -1477,13 +1619,13 @@ fn settle_cave_void(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool
             for j in 0..3 {
                 let half = 2 - j;
                 for x in mx - half..=mx + half {
-                    if x.abs() <= CAVE_HALF_W && (y + j).abs() <= CAVE_HALF_H {
-                        void[cave_idx(x, y + j)] = false;
+                    if x.abs() <= env.half_w && (y + j).abs() <= env.half_h {
+                        void[env.idx(x, y + j)] = false;
                     }
                 }
             }
         }
-        let eroded = erode_breaches(ctx, world, cx, cy, void);
+        let eroded = erode_breaches(ctx, env, world, cx, cy, void);
         if runs.is_empty() && !eroded {
             break;
         }
@@ -1515,23 +1657,23 @@ fn settle_cave_void(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool
 /// nonzero request is exactly the silently-skipped case that report exists
 /// to catch) and the indices added, so the caller can measure how many
 /// survive the following settle.
-fn grow_monumental_chamber(ctx: &Ctx, k: i32, cx: i32, void: &mut [bool]) -> (usize, Vec<usize>) {
-    let n = (CAVE_GRID_W * CAVE_GRID_H) as usize;
+fn grow_monumental_chamber(ctx: &Ctx, env: CaveEnv, k: i32, cx: i32, void: &mut [bool]) -> (usize, Vec<usize>) {
+    let n = (env.grid_w() * env.grid_h()) as usize;
     let mut dist = vec![0i32; n];
-    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
-        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
-            let idx = cave_idx(dx, dy);
+    for dy in -env.half_h..=env.half_h {
+        for dx in -env.half_w..=env.half_w {
+            let idx = env.idx(dx, dy);
             dist[idx] = if void[idx] { i32::MAX / 4 } else { 0 };
         }
     }
     let get = |dist: &[i32], dx: i32, dy: i32| {
-        if dx.abs() > CAVE_HALF_W || dy.abs() > CAVE_HALF_H { 0 } else { dist[cave_idx(dx, dy)] }
+        if dx.abs() > env.half_w || dy.abs() > env.half_h { 0 } else { dist[env.idx(dx, dy)] }
     };
     // Forward pass (top-left to bottom-right), then backward -- together
     // exact for Chebyshev distance, where a single pass is not.
-    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
-        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
-            let idx = cave_idx(dx, dy);
+    for dy in -env.half_h..=env.half_h {
+        for dx in -env.half_w..=env.half_w {
+            let idx = env.idx(dx, dy);
             if dist[idx] == 0 {
                 continue;
             }
@@ -1542,9 +1684,9 @@ fn grow_monumental_chamber(ctx: &Ctx, k: i32, cx: i32, void: &mut [bool]) -> (us
             dist[idx] = d;
         }
     }
-    for dy in (-CAVE_HALF_H..=CAVE_HALF_H).rev() {
-        for dx in (-CAVE_HALF_W..=CAVE_HALF_W).rev() {
-            let idx = cave_idx(dx, dy);
+    for dy in (-env.half_h..=env.half_h).rev() {
+        for dx in (-env.half_w..=env.half_w).rev() {
+            let idx = env.idx(dx, dy);
             if dist[idx] == 0 {
                 continue;
             }
@@ -1558,9 +1700,9 @@ fn grow_monumental_chamber(ctx: &Ctx, k: i32, cx: i32, void: &mut [bool]) -> (us
 
     // The greatest clearance value anywhere in the void, first.
     let mut max_clear = 0i32;
-    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
-        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
-            let idx = cave_idx(dx, dy);
+    for dy in -env.half_h..=env.half_h {
+        for dx in -env.half_w..=env.half_w {
+            let idx = env.idx(dx, dy);
             if void[idx] {
                 max_clear = max_clear.max(dist[idx]);
             }
@@ -1592,11 +1734,11 @@ fn grow_monumental_chamber(ctx: &Ctx, k: i32, cx: i32, void: &mut [bool]) -> (us
     // greatest clearance, not an arbitrary central point): p50 rose to
     // 45-48 across every preset, comfortably clearing the bar.
     let mut best = (0i32, 0i32, 0i32); // (room, dx, dy)
-    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
-        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
-            let idx = cave_idx(dx, dy);
+    for dy in -env.half_h..=env.half_h {
+        for dx in -env.half_w..=env.half_w {
+            let idx = env.idx(dx, dy);
             if void[idx] && dist[idx] >= max_clear - 1 {
-                let room = (CAVE_HALF_H - dy.abs()).min(CAVE_HALF_W - dx.abs());
+                let room = (env.half_h - dy.abs()).min(env.half_w - dx.abs());
                 if room > best.0 {
                     best = (room, dx, dy);
                 }
@@ -1606,14 +1748,22 @@ fn grow_monumental_chamber(ctx: &Ctx, k: i32, cx: i32, void: &mut [bool]) -> (us
     let (_, bx, by) = best;
 
     let seed = ctx.terrain.seed;
-    let rv_draw = 12.0 + noise::unit(seed, Purpose::CaveChamber, cx + bx, k) * 12.0;
+    // Scaled with the envelope, for the same reason `CaveEnv::cell` is
+    // (round 6, A2): a fixed 12-24 half-height is a *room* in a round-3
+    // envelope and an alcove in a maximal one, so held constant it makes
+    // large systems read as all passage and no release. Measured on canyon
+    // over 16 seeds, chamber fixed while the lattice scaled: contrast
+    // p95/median 4.55x against the 5.0x bar, recovered by this line.
+    let chamber_scale = env.half_w as f32 / ROUND_3_HALF_W as f32;
+    let rv_draw =
+        (12.0 + noise::unit(seed, Purpose::CaveChamber, cx + bx, k) * 12.0) * chamber_scale;
     let rh_draw = rv_draw * 1.4;
     // The cap: shrink to whatever room the envelope has left from this
     // centre. Never to less than 2 -- a system whose clearance point sits
     // hard against the envelope edge still gets *a* chamber, a small one,
     // not none.
-    let rv = rv_draw.min((CAVE_HALF_H - by.abs()) as f32).max(2.0);
-    let rh = rh_draw.min((CAVE_HALF_W - bx.abs()) as f32).max(2.0);
+    let rv = rv_draw.min((env.half_h - by.abs()) as f32).max(2.0);
+    let rh = rh_draw.min((env.half_w - bx.abs()) as f32).max(2.0);
 
     let mut added = Vec::new();
     let (rv_i, rh_i) = (rv.ceil() as i32, rh.ceil() as i32);
@@ -1623,10 +1773,10 @@ fn grow_monumental_chamber(ctx: &Ctx, k: i32, cx: i32, void: &mut [bool]) -> (us
                 continue;
             }
             let (ex, ey) = (bx + dx, by + dy);
-            if ex.abs() > CAVE_HALF_W || ey.abs() > CAVE_HALF_H {
+            if ex.abs() > env.half_w || ey.abs() > env.half_h {
                 continue;
             }
-            let idx = cave_idx(ex, ey);
+            let idx = env.idx(ex, ey);
             if !void[idx] {
                 void[idx] = true;
                 added.push(idx);
@@ -1653,14 +1803,14 @@ fn grow_monumental_chamber(ctx: &Ctx, k: i32, cx: i32, void: &mut [bool]) -> (us
 ///
 /// Returns whether anything was removed, so the caller's outer fixpoint
 /// (component keep, ceiling guard, this) knows whether to loop again.
-fn erode_breaches(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool]) -> bool {
+fn erode_breaches(ctx: &Ctx, env: CaveEnv, world: &World, cx: i32, cy: i32, void: &mut [bool]) -> bool {
     let is_stone = |px: i32, py: i32| world.get(px, py).material == ctx.stone;
     let mut any = false;
     loop {
         let mut to_remove = Vec::new();
-        for dy in -CAVE_HALF_H..=CAVE_HALF_H {
-            for dx in -CAVE_HALF_W..=CAVE_HALF_W {
-                if !void[cave_idx(dx, dy)] {
+        for dy in -env.half_h..=env.half_h {
+            for dx in -env.half_w..=env.half_w {
+                if !void[env.idx(dx, dy)] {
                     continue;
                 }
                 let mut breached = !is_stone(cx + dx, cy + dy);
@@ -1671,9 +1821,9 @@ fn erode_breaches(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool])
                                 continue; // the cell itself, checked above
                             }
                             let (nx, ny) = (dx + rx, dy + ry);
-                            let still_void = nx.abs() <= CAVE_HALF_W
-                                && ny.abs() <= CAVE_HALF_H
-                                && void[cave_idx(nx, ny)];
+                            let still_void = nx.abs() <= env.half_w
+                                && ny.abs() <= env.half_h
+                                && void[env.idx(nx, ny)];
                             if still_void {
                                 continue;
                             }
@@ -1685,7 +1835,7 @@ fn erode_breaches(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool])
                     }
                 }
                 if breached {
-                    to_remove.push(cave_idx(dx, dy));
+                    to_remove.push(env.idx(dx, dy));
                 }
             }
         }
@@ -1711,8 +1861,8 @@ fn erode_breaches(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool])
 /// rather than a silent reject -- a failure here is a bug in the erosion
 /// step, not a normal outcome, and the test suite has to be able to see it
 /// fail for that reason.
-fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultReport {
-    let Some(void) = carve_cave_void(ctx, world, k, cx, cy) else { return VaultReport::default() };
+fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultReport {
+    let Some(void) = carve_cave_void(ctx, env, world, k, cx, cy) else { return VaultReport::default() };
 
     // The seal, kept as an assertion rather than a silent reject (round-5
     // task 1). Every cell within the rind of the kept component -- a 2-cell
@@ -1732,14 +1882,14 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     // regression in that erosion into a loud, attributable failure instead
     // of a silent drop back to the old "one grain deletes the system"
     // behaviour wearing a passing test.
-    for dy in -(CAVE_HALF_H + VAULT_RIND)..=(CAVE_HALF_H + VAULT_RIND) {
-        for dx in -(CAVE_HALF_W + VAULT_RIND)..=(CAVE_HALF_W + VAULT_RIND) {
-            let in_grid = dx.abs() <= CAVE_HALF_W && dy.abs() <= CAVE_HALF_H;
+    for dy in -(env.half_h + VAULT_RIND)..=(env.half_h + VAULT_RIND) {
+        for dx in -(env.half_w + VAULT_RIND)..=(env.half_w + VAULT_RIND) {
+            let in_grid = dx.abs() <= env.half_w && dy.abs() <= env.half_h;
             // The void cells themselves first: they are the envelope's
             // interior and must be stone like everything else -- a lens cell
             // *inside* the would-be void is just as much a breach as one in
             // the rind.
-            if in_grid && void[cave_idx(dx, dy)] {
+            if in_grid && void[env.idx(dx, dy)] {
                 assert_eq!(
                     world.get(cx + dx, cy + dy).material,
                     ctx.stone,
@@ -1750,9 +1900,9 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             let near_void = (-VAULT_RIND..=VAULT_RIND).any(|ry| {
                 (-VAULT_RIND..=VAULT_RIND).any(|rx| {
                     let (nx, ny) = (dx + rx, dy + ry);
-                    nx.abs() <= CAVE_HALF_W
-                        && ny.abs() <= CAVE_HALF_H
-                        && void[cave_idx(nx, ny)]
+                    nx.abs() <= env.half_w
+                        && ny.abs() <= env.half_h
+                        && void[env.idx(nx, ny)]
                 })
             });
             if near_void {
@@ -1774,12 +1924,12 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     // two-sweep taper `talus` uses -- so whatever the floor under it steps,
     // what gets written is a surface that cannot avalanche, a property of
     // the sweep rather than of any case analysis.
-    let mut floor: Vec<Option<(i32, i32, i32)>> = vec![None; CAVE_GRID_W as usize];
-    for dx in -CAVE_HALF_W..=CAVE_HALF_W {
+    let mut floor: Vec<Option<(i32, i32, i32)>> = vec![None; env.grid_w() as usize];
+    for dx in -env.half_w..=env.half_w {
         let mut bot = None;
         let mut top = 0;
-        for dy in (-CAVE_HALF_H..=CAVE_HALF_H).rev() {
-            if void[cave_idx(dx, dy)] {
+        for dy in (-env.half_h..=env.half_h).rev() {
+            if void[env.idx(dx, dy)] {
                 if bot.is_none() {
                     bot = Some(dy);
                 }
@@ -1789,7 +1939,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             }
         }
         if let Some(b) = bot {
-            floor[(dx + CAVE_HALF_W) as usize] = Some((top, b, 0));
+            floor[(dx + env.half_w) as usize] = Some((top, b, 0));
         }
     }
     let seed = ctx.terrain.seed;
@@ -1890,12 +2040,12 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             if h == 0 {
                 continue;
             }
-            let dx = i as i32 - CAVE_HALF_W;
+            let dx = i as i32 - env.half_w;
             let mut new_h = h;
             // Shallowest gravel cell with an open diagonal-down neighbour,
             // scanning down -- the flank itself need not be open too.
             for y in (b - h + 1)..=b {
-                let exposed = [-1, 1].iter().any(|&s| !planned_solid(&void, &floor, dx + s, y + 1));
+                let exposed = [-1, 1].iter().any(|&s| !planned_solid(env, &void, &floor, dx + s, y + 1));
                 if exposed {
                     // Drop this cell and everything stacked on it.
                     new_h = b - y;
@@ -1923,7 +2073,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     // void above any gravel stands at least twelve cells tall; a chamber is
     // a run of at least six such columns; its floor is the deepest finished
     // gravel surface under it.
-    let mut chamber_col = vec![false; CAVE_GRID_W as usize];
+    let mut chamber_col = vec![false; env.grid_w() as usize];
     let mut chambers = 0usize;
     let mut chamber_floors: Vec<i32> = Vec::new();
     // Round-5 task 4c needs the run bounds themselves, not only which
@@ -1931,14 +2081,14 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     // run, and "largest" is not recoverable from `chamber_col` alone.
     let mut chamber_runs: Vec<(usize, usize)> = Vec::new();
     {
-        let fs = |i: usize| floor[i].map(|(_, b, h)| b - h).unwrap_or(CAVE_HALF_H);
-        let tall: Vec<bool> = (0..CAVE_GRID_W)
+        let fs = |i: usize| floor[i].map(|(_, b, h)| b - h).unwrap_or(env.half_h);
+        let tall: Vec<bool> = (0..env.grid_w())
             .map(|i| {
-                let dx = i - CAVE_HALF_W;
+                let dx = i - env.half_w;
                 let mut best = 0;
                 let mut run = 0;
-                for dy in -CAVE_HALF_H..=CAVE_HALF_H {
-                    if void[cave_idx(dx, dy)] && dy <= fs(i as usize) {
+                for dy in -env.half_h..=env.half_h {
+                    if void[env.idx(dx, dy)] && dy <= fs(i as usize) {
                         run += 1;
                         best = best.max(run);
                     } else {
@@ -2041,7 +2191,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     // draw takes it there, which is the one shape a cave photograph is
     // built on. The only remaining constraint on any half's length is
     // physical -- it cannot exceed the open span it is drawn into.
-    let mut speleo = vec![0u8; (CAVE_GRID_W * CAVE_GRID_H) as usize]; // 0 none, 1 stone, 2 crystal
+    let mut speleo = vec![0u8; env.area()]; // 0 none, 1 stone, 2 crystal
     let mut speleo_cells = 0usize;
     // Base-width census for `VaultReport` below. `cave_probe` has no width
     // instrument of its own -- its formation silhouette test only ever
@@ -2059,7 +2209,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
         // would bind an item nothing reads.
         #[allow(clippy::needless_range_loop)]
         for i in 0..floor.len() {
-            let dx = i as i32 - CAVE_HALF_W;
+            let dx = i as i32 - env.half_w;
             let px = cx + dx;
 
             // Round-5 task 4b: `SPELEO_SPACING = 4` enforced *even* spacing
@@ -2099,8 +2249,8 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             // uses, just not discarded for every run but one.
             let mut runs: Vec<(i32, i32)> = Vec::new();
             let mut open_top: Option<i32> = None;
-            for dy in -CAVE_HALF_H..=CAVE_HALF_H {
-                if void[cave_idx(dx, dy)] {
+            for dy in -env.half_h..=env.half_h {
+                if void[env.idx(dx, dy)] {
                     if open_top.is_none() {
                         open_top = Some(dy);
                     }
@@ -2109,7 +2259,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                 }
             }
             if let Some(top) = open_top {
-                runs.push((top, CAVE_HALF_H));
+                runs.push((top, env.half_h));
             }
 
             let mut placed_here = false;
@@ -2213,8 +2363,8 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                 }
                 let mat = if crystal { 2u8 } else { 1u8 };
                 let mut put = |gx: i32, gy: i32| {
-                    if gx.abs() <= CAVE_HALF_W && gy.abs() <= CAVE_HALF_H && void[cave_idx(gx, gy)] {
-                        speleo[cave_idx(gx, gy)] = mat;
+                    if gx.abs() <= env.half_w && gy.abs() <= env.half_h && void[env.idx(gx, gy)] {
+                        speleo[env.idx(gx, gy)] = mat;
                     }
                 };
                 for y in t..t + lt {
@@ -2322,7 +2472,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                             continue;
                         }
                         let solid = |gx: i32, gy: i32| {
-                            gx.abs() > CAVE_HALF_W || gy.abs() > CAVE_HALF_H || !void[cave_idx(gx, gy)]
+                            gx.abs() > env.half_w || gy.abs() > env.half_h || !void[env.idx(gx, gy)]
                         };
                         // **Each offset starts at its own ceiling, not at
                         // the trunk's.** Starting every column of the cone
@@ -2400,7 +2550,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
         let mut last_wl: Option<i32> = None;
         for (i, slot) in floor.iter().enumerate() {
             let Some((t, b, h)) = *slot else { continue };
-            let dx = i as i32 - CAVE_HALF_W;
+            let dx = i as i32 - env.half_w;
             let fs = b - h;
             if fs < water_line || fs - water_line > WATERLINE_FLOOR_REACH {
                 continue;
@@ -2429,7 +2579,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             let crystal = noise::unit(seed, Purpose::Speleothem, px, 201) < WATERLINE_CRYSTAL;
             let mat = if crystal { 2u8 } else { 1u8 };
             for y in (fs - lg + 1)..=b {
-                let idx = cave_idx(dx, y);
+                let idx = env.idx(dx, y);
                 if void[idx] && speleo[idx] == 0 {
                     speleo[idx] = mat;
                 }
@@ -2483,12 +2633,12 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
         let offset = ((width as f32 * frac) as usize).clamp(1, width.saturating_sub(1).max(1));
         let i = if side { start + offset } else { end - 1 - offset };
         if let Some((t, b, _)) = floor[i] {
-            let dx = i as i32 - CAVE_HALF_W;
+            let dx = i as i32 - env.half_w;
             let crystal = noise::unit(seed, Purpose::Speleothem, cx, -5) < SPELEO_CRYSTAL;
             let mat = if crystal { 2u8 } else { 1u8 };
             for y in t..=b {
-                if void[cave_idx(dx, y)] {
-                    speleo[cave_idx(dx, y)] = mat;
+                if void[env.idx(dx, y)] {
+                    speleo[env.idx(dx, y)] = mat;
                 }
             }
         }
@@ -2497,15 +2647,15 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     let mut written = 0;
     let mut water_cells = 0usize;
     let mut passage_cells = 0usize;
-    for dy in -CAVE_HALF_H..=CAVE_HALF_H {
-        for dx in -CAVE_HALF_W..=CAVE_HALF_W {
-            if !void[cave_idx(dx, dy)] {
+    for dy in -env.half_h..=env.half_h {
+        for dx in -env.half_w..=env.half_w {
+            if !void[env.idx(dx, dy)] {
                 continue;
             }
             let (px, py) = (cx + dx, cy + dy);
-            let formation = speleo[cave_idx(dx, dy)];
+            let formation = speleo[env.idx(dx, dy)];
             let gravel =
-                matches!(floor[(dx + CAVE_HALF_W) as usize], Some((_, b, h)) if h > 0 && dy > b - h);
+                matches!(floor[(dx + env.half_w) as usize], Some((_, b, h)) if h > 0 && dy > b - h);
             let cell = if formation == 2 {
                 // The crystal minority: the same material as a vug lining,
                 // attached like the rock it grows from.
@@ -2533,7 +2683,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                 water_cells += 1;
                 Cell::new(ctx.water, loose_shade(ctx, Purpose::Shade, px, py))
             } else {
-                if !chamber_col[(dx + CAVE_HALF_W) as usize] {
+                if !chamber_col[(dx + env.half_w) as usize] {
                     passage_cells += 1;
                 }
                 Cell::EMPTY
