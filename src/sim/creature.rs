@@ -2934,6 +2934,71 @@ mod tests {
     /// a corpse cell can produce meat worth nothing, and a second such route
     /// (an explosion, the brush, a future decay path) would be caught by the
     /// same assertion without anyone remembering to extend it.
+    /// **A body that arrives without a stamp must not look like a rich one.**
+    ///
+    /// The companion to `a_corpse_that_arrived_without_a_stamp_is_still_food`,
+    /// and it exists because widening the corpse ramp created the bug it
+    /// guards. `fire.rs`'s burnout draws a *random* shade, which is right for
+    /// ash and decoration and wrong for the one material whose shade is
+    /// derived: `creature_dies` ramps corpse brightness over what the animal
+    /// was worth. While the palette was three near-identical browns nobody
+    /// could have seen it; the moment the ramp spans something legible, a
+    /// random draw renders a burnt ant as a prime kill one time in five.
+    ///
+    /// **Drives the real burnout**, and the first version of this test did
+    /// not — it built `Cell::new(corpse, 0)` by hand and asserted the shade
+    /// was 0, which is a test of its own literal. It passed with `fire.rs`
+    /// reverted to the random draw, i.e. it would have shipped the bug it was
+    /// written for. `CLAUDE.md` twice: a green suite does not prove a test
+    /// ran, and deliberately break the replacement to confirm the guard bites.
+    ///
+    /// Ants burn over many frames, so the shade is checked over enough
+    /// independent burnouts that a random draw could not miss the light end
+    /// by luck: with five palette entries, twenty bodies all landing dark is
+    /// a 1-in-5^20 coincidence.
+    #[test]
+    fn a_burnt_body_is_shaded_as_the_poor_meat_it_is() {
+        let mut w = test_world();
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        let ant_material = w.materials.id_of("ant").expect("ant");
+        let shades = w.materials.get(corpse).palette.len();
+        assert!(shades >= 3, "test setup: a one-entry palette cannot express rich or poor, so this would pass without meaning it");
+        assert_eq!(
+            w.materials.get(ant_material).burns_into,
+            Some(corpse),
+            "test setup: this test is about the path where an ant burns into a corpse, and that is not what the data says"
+        );
+
+        for i in 0..20 {
+            let (x, y) = (20 + i * 3, 40);
+            let mut cell = Cell::new(ant_material, 0);
+            cell.ignite(1); // ticks to 0 and burns out on the next update
+            w.set(x, y, cell);
+            crate::sim::fire::update(&mut w, x, y);
+            let left = w.get(x, y);
+            assert_eq!(left.material, corpse, "test setup: the ant did not burn out into a corpse at all ({i})");
+            assert_eq!(left.aux(), 0, "a burnout cannot stamp a worth; if this is nonzero the fallback path is no longer the one under test");
+            assert_eq!(
+                left.shade, 0,
+                "a burnt body carries no stamp, so it is worth the material fallback -- the poorest a body can be -- and must be                 drawn at the dark end of the ramp. Body {i} came out at shade {} of {}, which reads as a fresh kill",
+                left.shade,
+                shades - 1
+            );
+        }
+
+        // And the ramp has to actually go somewhere, or "poor" and "rich" are
+        // the same pixel and none of this matters. 60 is comfortably above the
+        // ~20 the narrow palette spanned, which a blind A/B at 10x zoom showed
+        // was one colour.
+        let pal = &w.materials.get(corpse).palette;
+        let (poor, rich) = (pal[0], pal[pal.len() - 1]);
+        let span = rich[0] as i32 - poor[0] as i32;
+        assert!(
+            span >= 60,
+            "the corpse ramp spans {span} of 255 in red: the order of difference the canopy-density sheet read as blank,             so worth is not being communicated at all (poor {poor:?}, rich {rich:?})"
+        );
+    }
+
     #[test]
     fn a_corpse_that_arrived_without_a_stamp_is_still_food() {
         let w = test_world();

@@ -292,8 +292,18 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
             // surface` and would otherwise have to coexist with the `&
             // surface` borrow computing its own argument — see the note atop
             // `update`.
+            // **A random shade is decoration on most materials and a lie on
+            // one.** `worth_in_aux` marks a material whose shade is *derived*
+            // -- corpse, whose brightness is ramped from what the animal was
+            // worth by `creature::creature_dies`. A burnout cannot stamp that
+            // worth: this path is generic over every flammable material and
+            // knows nothing about creatures, so it writes `aux` 0 and the cell
+            // is priced by the material fallback (the poorest a body can be).
+            // Drawing a random shade for it would render a burnt ant as a
+            // prime kill one time in five once that ramp is wide enough to
+            // read -- so take the dark end, which is what it is.
             let shades = surface.materials().get(into).palette.len().max(1) as u32;
-            let shade = surface.rng().below(shades) as u8;
+            let shade = if surface.materials().get(into).worth_in_aux { 0 } else { surface.rng().below(shades) as u8 };
             *cell = Cell::new(into, shade).with_temperature(cell.temperature());
 
             // Architecture §5f: a burnout that produces ash specifically

@@ -400,12 +400,14 @@ fn build(args: &Args) -> World {
                     w.set(x + dx, floor - 1, Cell::new(corpse, shade).with_aux(worth));
                 }
             }
-            // And the burnt one, which arrives with no stamp at all --
-            // `fire.rs` writes a random shade and `aux` 0. It is priced by
-            // the material fallback, and it should not be the brightest
-            // thing on the row.
+            // And the burnt one, which arrives with no stamp at all. Shade 0
+            // and `aux` 0 is exactly what `fire.rs`'s burnout now writes for
+            // a material whose shade is derived -- it used to draw at random,
+            // which put a burnt ant at the bright end one time in five once
+            // this ramp was wide enough to read. Priced by the material
+            // fallback, so it belongs at the dark end beside the starved one.
             for dx in 0..2 {
-                w.set(24 + 5 * 24 + dx, floor - 1, Cell::new(corpse, 1));
+                w.set(24 + 5 * 24 + dx, floor - 1, Cell::new(corpse, 0));
             }
         }
         "colony" => {

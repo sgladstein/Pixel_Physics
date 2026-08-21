@@ -20,14 +20,27 @@
     // starved one worth 120 -- non-monotone, and the doc comment in
     // `creature.rs` confidently described the opposite of what shipped.
     //
-    // The span is deliberately narrow (84..104 in red, ~8% of range) and is
-    // very likely too narrow to read at play scale -- see
-    // `Reports/creature-evolution-plan.md` S3b. Widening it is an
-    // appearance call for the owner, not one to make from a diff.
+    // **Five entries spanning 52..152 in red, not three spanning 84..104.**
+    // The narrow version was correct and unreadable: a blind A/B at 10x zoom
+    // put six corpses worth 120..1020 side by side and they were one colour.
+    // The owner's verdict on the widened ramp -- "I can tell there is a
+    // slightly different color, but that is pretty minor. Not much you can do
+    // if it is only two pixels though" -- is the reason this is as far as
+    // colour goes here. It is taken because more legible beats less at no
+    // cost, not because it makes the mechanic readable; a corpse is one or
+    // two cells and `OrganismOverlay::FoodValue` is the readout that can
+    // actually answer "how much".
+    //
+    // Order is load-bearing: `creature_dies` ramps worth over this list, so
+    // dark is a starved animal and light is one killed with a full bank. It
+    // shipped mid/dark/light once, which made a corpse worth 760 render
+    // *darker* than a starved one worth 120.
     colors: [
-        (84, 63, 54),
-        (94, 72, 62),
-        (104, 80, 69),
+        (52, 39, 33),
+        (74, 56, 48),
+        (96, 73, 63),
+        (124, 95, 81),
+        (152, 117, 100),
     ],
     flammability: 0.15,
     burn_temperature: 450.0,

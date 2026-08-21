@@ -457,10 +457,36 @@ Legibility is a separate question and the answer looks like *no*: the span is
 84..104 in red, ~8% of range, and a `scene=carrion` sheet at **10× zoom** shows
 six corpses spanning 120→1020 that are indistinguishable — the same order of
 colour difference as the canopy-density sheet that read as blank. A widened
-5-entry ramp (span 52..152) is plainly legible in the same scene. **Posted as a
-blind A/B to the review queue (board `creatures`,
-`20260821T221001395Z-ed6b59`); the palette in the tree is the narrow one until
-that comes back.** `OrganismOverlay::FoodValue` remains the readout that can
+5-entry ramp (span 52..152) is plainly legible in the same scene.
+
+**Owner's verdict on the blind A/B** (board `creatures`,
+`20260821T221001395Z-ed6b59`): *"I can tell there is a slightly different
+color, but that is pretty minor. Not much you can do if it is only two pixels
+though."* The widened ramp ships — more legible beats less at no cost — but the
+second half of that is the durable finding and it closes the question rather
+than inviting more work: **a corpse is one or two cells, so colour cannot carry
+this quantity no matter what the palette does.**
+`OrganismOverlay::FoodValue` is the readout for "how much", and any future
+attempt to make richness *felt* needs a channel with more presence than two
+pixels of hue.
+
+**Widening it broke something, which is the reason it needed a guard.**
+`fire.rs`'s burnout draws a **random** shade — correct for ash and decoration,
+wrong for the one material whose shade is *derived*. Invisible across three
+near-identical browns; across a ramp wide enough to read, a burnt ant rendered
+as a prime kill one time in five (measured: the first body out came at shade 3
+of 4). The burnout now takes the dark end for any material flagged
+`worth_in_aux`, which is the existing "this shade means something" predicate
+rather than a new field or a name check.
+
+**And the first guard written for it was worthless.** It built
+`Cell::new(corpse, 0)` by hand and asserted the shade was 0 — a test of its own
+literal, which passed with `fire.rs` reverted to the random draw. It would have
+shipped the bug it was written for. The replacement drives twenty real
+burnouts through `fire::update`; twenty bodies all landing dark is 1-in-5^20 if
+the draw were still random. Two `CLAUDE.md` rules in one mistake: a green suite
+does not prove a test ran, and break the replacement to confirm the guard
+bites. `OrganismOverlay::FoodValue` remains the readout that can
 answer "how much"; this byte is only meant to say "not all the same".
 
 #### What S3b cost

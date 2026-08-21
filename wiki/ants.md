@@ -78,8 +78,10 @@ cinder is worth the least of all, because nothing was left to record what it
 had been.
 
 You can see a little of this — corpses are shaded by what they are worth,
-dark for a starved one and pale for a fresh kill — but the difference is
-slight, and the honest way to read it is the **food-value overlay**, which
+dark for a starved one and pale for a fresh kill, and a body burnt to a
+cinder is drawn at the poor end because that is what it is. But a corpse is
+one or two pixels, so the difference is slight however the colours are
+chosen; the honest way to read it is the **food-value overlay**, which
 draws every edible cell on a dark-to-bright ramp by what it is actually
 worth. That is also the quickest way to see the thing the numbers say is
 true and the picture does not: most of a forest's food is up in the canopy
