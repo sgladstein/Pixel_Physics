@@ -1,0 +1,56 @@
+{
+  "id": "20260821T191900460Z-ede6fc",
+  "created": "2026-08-21T19:19:00Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-mechanic-stone-review-yksmi8",
+    "commit": "d5cb19a",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The joint fabric: rock breaks along its own grain",
+  "question": "Does this read as the craquelure you asked for - and is the density right, or still too much?",
+  "context_md": "You asked three times for the Voronoi pattern from your worldgen image. This is it. Rock now has a latent **grain** everywhere - a Worley cell structure - and a blast reveals the joints near it instead of drawing a star across the stone. An edge is a joint when its two cells belong to different cells of that grain, which is a zero-width closed curve, so the polygons are sealed by construction and the edges are straight because Voronoi boundaries are straight. The scribble is gone structurally, not tuned away.\n\n**Scrub the sequence.** It is one buried charge, every 4th frame. The bang is at frame 60: the rock is intact at 59 and the seam web is already open at 63. That is the other half of your last verdict - breakage used to arrive 7 to 15 seconds late because it waited on a structural wavefront. Seams now open at detonation. The GIF of the same run is in the chat if you want to feel the pace.\n\n**Two things I did deliberately against the reference.**\n\nYou said of that worldgen image *\"the voronoi pattern is too much. I like a little of it, but there is too much.\"* So this ships sparser than it, on purpose, and the number agrees: total cracked cells in the world went **down** 45%, 6,185 to 3,368, against the build you just rejected. Less ink, more structure. And the seams near the crater are **opened** into real voids with grit in them - your reference's black lines are carved void, not darkened rock, which is why nothing I drew could ever look like it.\n\n**The honest cost, and the thing to tell me if it bothers you:** a charge now eats about twice the rock - 4,136 cells to 8,472 on the worst seed. That is the price of opening seams. `joint_open_fraction` is the lever and it is already turned down from 0.45 to 0.30; say the word and it goes lower.\n\nAlready measured, don't spend attention on it: nothing moves in sand or in air (zero joints), the chisel and strike paths are bit-identical, and the frame cost went *down* (59.9ms to 49.2ms worst frame). Ignore the trees.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "one buried charge, every 4th frame",
+      "files": [
+        "20260821T191900460Z-ede6fc/000-seq_00.png",
+        "20260821T191900460Z-ede6fc/001-seq_01.png",
+        "20260821T191900460Z-ede6fc/002-seq_02.png",
+        "20260821T191900460Z-ede6fc/003-seq_03.png",
+        "20260821T191900460Z-ede6fc/004-seq_04.png",
+        "20260821T191900460Z-ede6fc/005-seq_05.png",
+        "20260821T191900460Z-ede6fc/006-seq_06.png",
+        "20260821T191900460Z-ede6fc/007-seq_07.png",
+        "20260821T191900460Z-ede6fc/008-seq_08.png",
+        "20260821T191900460Z-ede6fc/009-seq_09.png",
+        "20260821T191900460Z-ede6fc/010-seq_10.png",
+        "20260821T191900460Z-ede6fc/011-seq_11.png",
+        "20260821T191900460Z-ede6fc/012-seq_12.png",
+        "20260821T191900460Z-ede6fc/013-seq_13.png",
+        "20260821T191900460Z-ede6fc/014-seq_14.png"
+      ],
+      "caption": "bang at frame 60; intact at 59, seams open at 63",
+      "meta": {
+        "cracked cells in world (was 6,185)": 3368,
+        "cells promoted, worst seed (was 654)": 6043,
+        "bodies, seed 1 (was 77)": 559,
+        "rock destroyed, worst seed (was 4,136)": 8472,
+        "worst frame ms (was 59.9)": 49.2,
+        "frames from bang to open seams": 3
+      }
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
