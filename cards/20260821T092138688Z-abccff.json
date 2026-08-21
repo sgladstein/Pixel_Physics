@@ -1,0 +1,43 @@
+{
+  "id": "20260821T092138688Z-abccff",
+  "created": "2026-08-21T09:21:38Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/caves-r6b",
+    "branch": "claude/worldgen-caves-r6b",
+    "commit": "6ee416d",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/caves-r6b"
+  },
+  "title": "Cave formations: round 5 vs A3 taper",
+  "question": "Do the A3 formations read as fewer, thicker, tapered columns -- and does the cave still look enterable -- compared to round 5?",
+  "context_md": "",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "round 5 (1-2 wide, 29-36/system)",
+      "files": [
+        "20260821T092138688Z-abccff/000-r6b-before-a3-canyon-s1.png"
+      ],
+      "caption": "",
+      "meta": {}
+    },
+    {
+      "label": "A3 (cone taper, 3-8 wide, 12-20/system)",
+      "files": [
+        "20260821T092138688Z-abccff/001-r6b-a3-canyon-s1.png"
+      ],
+      "caption": "",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
