@@ -84,6 +84,17 @@ struct Formations {
     cells: usize,
     crystal: usize,
     heights: Vec<i32>,
+    /// Widest single row of each formation -- the "how thick is it" number
+    /// the owner asked for (*"they should have a taper and be thicker"*),
+    /// and one this instrument simply did not have until round 6. The pass
+    /// reported its own *drawn* base width for a while instead, which
+    /// flattered it: it recorded the width the draw intended, not the width
+    /// that reached the world.
+    widths: Vec<i32>,
+    /// Bodies attached at both ceiling and floor -- true columns. Legal
+    /// since Phase 0 made formations walk-through, so this is a feature
+    /// count, not a defect count.
+    columns: usize,
     /// Formations whose foot is within one cell of standing water.
     at_waterline: usize,
     /// Stalactite/stalagmite pairs whose tips end within 3 cells of each
@@ -229,6 +240,8 @@ fn main() {
         );
         if !forms.heights.is_empty() {
             stat("  formation height   ", forms.heights.clone());
+            stat("  formation base width", forms.widths.clone());
+            println!("  true columns (floor to ceiling): {}", forms.columns);
         }
         println!(
             "  near-pairs: {} (tallest combined {} cells); formations at a waterline: {}",
@@ -496,92 +509,115 @@ fn shape(world: &World, cells: &[(i32, i32)]) -> System {
 /// Speleothems, read back off the world rather than counted at write time:
 /// what matters is the silhouette a player sees, and a formation buried in
 /// its own breakdown floor is not one however many cells the pass wrote.
+///
+/// **Rewritten in round 6, because the old test could not see a wide
+/// formation at all.** It walked a column and required void on *both*
+/// immediate flanks at every row -- a "free-standing" test, which is a
+/// reasonable definition of a formation while every formation is one cell
+/// wide, and is exactly wrong once they taper. A cone's own base rows have
+/// a neighbour on one side, so they failed the test, and the measured
+/// height truncated to whatever stuck out above the widest part. Landing
+/// the cone drove measured height p90 from 18-19 down to 4-6 **while the
+/// formations got bigger**, and an earlier version of the pass had already
+/// been shaped around that -- its flare deliberately confined to the
+/// bottom fifth of each trunk to keep this number readable. Shaping the
+/// rock to please the ruler; the ruler was wrong.
+///
+/// Formations are their own materials since Phase 0 (`flowstone`, `spar`),
+/// so the honest definition is available directly and needs no shape
+/// heuristic at all: a formation is a **connected body of formation
+/// material**. Flood it 8-connected -- the neighbourhood the writer uses --
+/// and its height is its bounding box, its base width the widest row it
+/// has. `stone` is deliberately *not* included: the ceiling guard's teeth
+/// and the fused column are massif rock, and lumping wall in with
+/// decoration is how this instrument lied the first time.
 fn measure_formations(world: &World, cells: &[(i32, i32)], forms: &mut Formations) {
-    // **Formations are their own materials now, and this instrument has to
-    // know.** They used to be written as `stone`/`crystal` with a distinct
-    // palette shade; they are `flowstone`/`spar` since the scenery split. A
-    // probe still looking for the old pair would report **zero formations**
-    // on a world full of them -- the ruler changing meaning under the
-    // measurement, which is exactly the failure this file exists to catch.
-    // `stone` stays in the list because the ceiling guard's teeth and the
-    // fused columns are massif stone, and both are formations to the eye.
-    let stone = world.materials.id_of("stone");
-    let crystal = world.materials.id_of("flowstone");
+    let flowstone = world.materials.id_of("flowstone");
     let spar = world.materials.id_of("spar");
+    let is_form_mat = |m| Some(m) == flowstone || Some(m) == spar;
     let (w, h) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
     let bbox = (
-        cells.iter().map(|c| c.0).min().unwrap(),
-        cells.iter().map(|c| c.0).max().unwrap(),
-        cells.iter().map(|c| c.1).min().unwrap(),
-        cells.iter().map(|c| c.1).max().unwrap(),
+        cells.iter().map(|c| c.0).min().unwrap() - 1,
+        cells.iter().map(|c| c.0).max().unwrap() + 1,
+        cells.iter().map(|c| c.1).min().unwrap() - 1,
+        cells.iter().map(|c| c.1).max().unwrap() + 1,
     );
     let void_here: std::collections::HashSet<(i32, i32)> = cells.iter().copied().collect();
-    // A formation *cell*: rock or crystal that is free-standing at that row —
-    // void immediately on both sides. Applying the left/right test per row,
-    // rather than once at a seed cell and then walking the column, is the
-    // whole difference between measuring a stalagmite and measuring the
-    // massif: the first version of this probe walked out of the cave into
-    // solid rock and reported formations 437 cells tall inside a 70-cell
-    // system. A number that cannot fit inside the thing it describes is the
-    // tell.
-    let is_form = |x: i32, y: i32| {
-        let m = world.get(x, y).material;
-        (Some(m) == stone || Some(m) == crystal || Some(m) == spar)
-            && !void_here.contains(&(x, y))
-            && void_here.contains(&(x - 1, y))
-            && void_here.contains(&(x + 1, y))
-    };
-    // A formation is a column of stone/crystal one-or-two cells wide with
-    // void on both sides — the silhouette test, walked from its attachment.
-    let mut counted: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
-    let mut tips_down: Vec<(i32, i32, i32)> = Vec::new(); // stalactite tip (x, y, height)
+    let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    let mut tips_down: Vec<(i32, i32, i32)> = Vec::new(); // (x, tip row, height)
     let mut tips_up: Vec<(i32, i32, i32)> = Vec::new();
-    for x in bbox.0..=bbox.1 {
-        for y in bbox.2..=bbox.3 {
-            if !is_form(x, y) || counted.contains(&(x, y)) {
+    for x in bbox.0.max(0)..=bbox.1.min(w - 1) {
+        for y in bbox.2.max(0)..=bbox.3.min(h - 1) {
+            if seen.contains(&(x, y)) || !is_form_mat(world.get(x, y).material) {
                 continue;
             }
-            // Walk up and down while every row stays free-standing.
-            let mut top = y;
-            while top > 0 && is_form(x, top - 1) {
-                top -= 1;
-            }
-            let mut bot = y;
-            while bot + 1 < h && is_form(x, bot + 1) {
-                bot += 1;
-            }
-            let height = bot - top + 1;
-            for yy in top..=bot {
-                counted.insert((x, yy));
-            }
-            forms.count += 1;
-            forms.cells += height as usize;
-            forms.heights.push(height);
-            if Some(world.get(x, (top + bot) / 2).material) == spar {
-                forms.crystal += 1;
-            }
-            // Hanging (attached above, free below) vs standing.
-            let hanging = top > 0 && !void_here.contains(&(x, top - 1));
-            if hanging {
-                tips_down.push((x, bot, height));
-            } else {
-                tips_up.push((x, top, height));
-            }
-            // At a waterline: any liquid within one cell of the foot. A
-            // hanging formation's foot is its tip, a standing one's is its
-            // base -- both are `bot`, which is why there is no branch here.
-            let foot = bot;
-            for dx in -1..=1 {
+            // 8-connected, because `carve_cave_void` writes a cone whose
+            // outermost column can meet the trunk only at a corner.
+            let mut stack = vec![(x, y)];
+            let mut body: Vec<(i32, i32)> = Vec::new();
+            seen.insert((x, y));
+            while let Some((px, py)) = stack.pop() {
+                body.push((px, py));
                 for dy in -1..=1 {
-                    let (nx, ny) = (x + dx, foot + dy);
-                    if nx < 0 || nx >= w || ny < 0 || ny >= h {
-                        continue;
-                    }
-                    if world.materials.kind(world.get(nx, ny).material) == MaterialKind::Liquid {
-                        forms.at_waterline += 1;
-                        break;
+                    for dx in -1..=1 {
+                        let (nx, ny) = (px + dx, py + dy);
+                        if nx < 0 || ny < 0 || nx >= w || ny >= h || seen.contains(&(nx, ny)) {
+                            continue;
+                        }
+                        if is_form_mat(world.get(nx, ny).material) {
+                            seen.insert((nx, ny));
+                            stack.push((nx, ny));
+                        }
                     }
                 }
+            }
+            let (top, bot) = (
+                body.iter().map(|c| c.1).min().unwrap(),
+                body.iter().map(|c| c.1).max().unwrap(),
+            );
+            // Widest single row, which is what "how thick is it at the
+            // base" means to the eye. Counted as occupied cells in the row
+            // rather than the row's span, so a body with a gap in it is not
+            // credited with the gap.
+            let mut per_row = std::collections::HashMap::new();
+            for &(_, cy) in &body {
+                *per_row.entry(cy).or_insert(0i32) += 1;
+            }
+            let base_width = *per_row.values().max().unwrap();
+            forms.count += 1;
+            forms.cells += body.len();
+            forms.heights.push(bot - top + 1);
+            forms.widths.push(base_width);
+            if body.iter().any(|&(cx, cy)| Some(world.get(cx, cy).material) == spar) {
+                forms.crystal += 1;
+            }
+            // Hanging (rock above its top) vs standing (rock below its
+            // base). A body attached at both ends is a true column and
+            // counts as neither -- it is not a tip.
+            let cx = body.iter().map(|c| c.0).sum::<i32>() / body.len() as i32;
+            let hanging = !void_here.contains(&(cx, top - 1));
+            let standing = !void_here.contains(&(cx, bot + 1));
+            let height = bot - top + 1;
+            match (hanging, standing) {
+                (true, false) => tips_down.push((cx, bot, height)),
+                (false, true) => tips_up.push((cx, top, height)),
+                (true, true) => forms.columns += 1,
+                (false, false) => {}
+            }
+            // At a waterline: any liquid within one cell of the body.
+            if body.iter().any(|&(fx, fy)| {
+                (-1..=1).any(|dx| {
+                    (-1..=1).any(|dy| {
+                        let (nx, ny) = (fx + dx, fy + dy);
+                        nx >= 0
+                            && nx < w
+                            && ny >= 0
+                            && ny < h
+                            && world.materials.kind(world.get(nx, ny).material) == MaterialKind::Liquid
+                    })
+                })
+            }) {
+                forms.at_waterline += 1;
             }
         }
     }

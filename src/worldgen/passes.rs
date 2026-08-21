@@ -889,6 +889,13 @@ const DRIP_SCALE: f32 = 40.0;
 /// foot and narrowing to the ordinary 1-wide trunk at the tip. Clamped
 /// against [`SPELEO_SPACING_MIN`]/`MAX` at the write site so no footprint
 /// can ever reach a neighbour's.
+/// How far a cone column may look for its own ceiling or floor before
+/// giving up, in rows. A ceiling that drops more than this across a single
+/// column is not the same ceiling, and a cone that followed it there would
+/// be drawing into a different cavity rather than thickening this
+/// formation's root.
+const CONE_ANCHOR_SEARCH: i32 = 3;
+
 const SPELEO_WIDTH_MIN: i32 = 3;
 const SPELEO_WIDTH_MAX: i32 = 8;
 
@@ -2041,6 +2048,12 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
     let mut widths: Vec<i32> = Vec::new();
     {
         let mut last: Option<i32> = None;
+        // Indexed rather than iterated: `floor[i]` is only one of the things
+        // this body needs `i` for -- `dx` and `px` are derived from it, and
+        // the neighbour lookups that once justified the index are gone (the
+        // cone draws against `void` now). Clippy's `enumerate()` suggestion
+        // would bind an item nothing reads.
+        #[allow(clippy::needless_range_loop)]
         for i in 0..floor.len() {
             let dx = i as i32 - CAVE_HALF_W;
             let px = cx + dx;
@@ -2235,11 +2248,19 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                 // survives a future change to either spacing bound without
                 // silently losing the guarantee.
                 //
-                // Bottommost gallery only, same reason round 5 gave: the
-                // neighbour-alignment comparison is against `floor[j]`,
-                // the neighbour's own *bottommost* run, which is not a
-                // meaningful comparison for an upper gallery.
-                if is_bottom {
+                // **Every gallery, not just the bottommost one.** Round 5
+                // confined the secondary column to `is_bottom` because its
+                // alignment test looked the neighbour up in `floor[]`, which
+                // holds each column's *bottommost* run and says nothing
+                // about an upper one. A3 inherited the gate along with the
+                // lookup. Neither survives drawing against the void
+                // directly (see the cone's own comment below), and the gate
+                // was excluding the formations that matter most: probing one
+                // wetland system, only 7 of ~20 placements were `is_bottom`,
+                // and every trunk over 8 cells long -- the ones that carry
+                // the silhouette -- was in the excluded class, left one
+                // pixel wide.
+                {
                     let half_cap = ((min_spacing - 1) / 2).clamp(1, SPELEO_WIDTH_MAX / 2);
                     let bw = (SPELEO_WIDTH_MIN
                         + (noise::unit(seed, Purpose::Speleothem, px, ry + 6).powf(1.5)
@@ -2249,80 +2270,96 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                     let half_r = (bw - 1 - bw / 2).min(half_cap);
                     widths.push(half_l + half_r + 1);
                     let reach = half_l.max(half_r) as f32 + 1.0;
-                    // The cone's vertical reach is capped to a *fraction*
-                    // of the trunk's own height, not the full height --
-                    // this is what keeps `cave_probe`'s formation-height
-                    // stat honest. Its silhouette test only recognises a
-                    // column with void on *both* immediate flanks, so any
-                    // row where a neighbour offset is also present is
-                    // invisible to it (see the A3-1 finding); a cone
-                    // reaching all the way to the tip would truncate the
-                    // *measured* height to whatever is left above the
-                    // widest neighbour's own reach, which measured p90 9-12
-                    // against round 5's 18-19 -- a real regression the
-                    // render would not show (the true silhouette is
-                    // unaffected) but the bar would fail. Confining the
-                    // flare to the bottom third leaves the top two-thirds
-                    // of every trunk 1-wide and fully visible, which is
-                    // also the more natural shape: a real stalactite's
-                    // root is wide where it meets the rock and slender
-                    // for the rest of its length, not a uniform taper
-                    // start-to-tip.
-                    let skirt_max = ((lt.max(lg) as f32) * 0.22).max(2.0);
+                    // **The cone runs the full length of the trunk, and it
+                    // is drawn against the void, not against a neighbour's
+                    // bookkeeping.**
+                    //
+                    // A3 as first written capped the flare to 22% of trunk
+                    // height and only ran it for `is_bottom` placements,
+                    // looking each neighbour column up in `floor[]` -- the
+                    // *bottommost* run -- and requiring its ceiling to sit
+                    // within one cell of this one. Three gates, and between
+                    // them the mechanism almost never fired: probing every
+                    // placement in one wetland system, only 7 of ~20 were
+                    // `is_bottom` at all, and the tall visible ones (trunks
+                    // of 16, 14 and 8 cells) were every one of them in the
+                    // excluded class. Taking the flare from 22% to 100% of
+                    // trunk height moved the whole system by **28 cells**,
+                    // which is the tell: the cone was being gated off, not
+                    // scaled down. Meanwhile `widths` recorded the *drawn*
+                    // base width, so `vaults detail` reported a median of 5
+                    // for formations that were one pixel wide on screen --
+                    // a ruler measuring the intention instead of the
+                    // artifact.
+                    //
+                    // None of those gates has a reason left. `put` already
+                    // refuses any cell that is not void, so drawing an
+                    // offset column straight down from the trunk's own
+                    // ceiling row and letting it clip against the rock
+                    // *is* the neighbour-alignment rule, exactly, for every
+                    // gallery rather than the bottom one -- with the break
+                    // below stopping the run at the first solid row so a
+                    // cone can never jump a rock band into the cavity
+                    // beneath. The old comment argued the flare should stay
+                    // short to keep `cave_probe`'s formation-height stat
+                    // readable, since a cone's flanking rows are invisible
+                    // to a silhouette test that wants void on both sides.
+                    // That is shaping the rock to please the ruler, which
+                    // is the wrong way round; the height stat is fixed
+                    // separately and the measured p90 drop it predicts is
+                    // an artifact of the probe, not of the cave.
+                    let cone = |l: f32, frac: f32| ((l * frac) as i32).max(1);
                     for o in -half_l..=half_r {
                         if o == 0 {
-                            continue;
-                        }
-                        let j = i as i32 + o;
-                        if j < 0 || (j as usize) >= floor.len() {
-                            continue;
-                        }
-                        let Some((t2, b2, h2)) = floor[j as usize] else { continue };
-                        let fs2 = b2 - h2;
-                        let span2 = fs2 - t2 + 1;
-                        // A two-row slot has no room for a taper cell at
-                        // all, and `clamp(1, 0)` panics -- found by the
-                        // debug suite on a world the release sweep never
-                        // built (round 5's own note, still true here).
-                        if span2 < 3 {
                             continue;
                         }
                         let frac = 1.0 - (o.unsigned_abs() as f32) / reach;
                         if frac <= 0.0 {
                             continue;
                         }
-                        // Only where the neighbouring column's run lines up
-                        // with this one -- round 5's own alignment check,
-                        // generalised from a fixed +-1 offset to any
-                        // offset inside the drawn width.
-                        let mut lt2 = if lt > 0 && (t2 - t).abs() <= 1 {
-                            ((skirt_max * frac) as i32).clamp(1, span2 - 1)
-                        } else {
-                            0
+                        let solid = |gx: i32, gy: i32| {
+                            gx.abs() > CAVE_HALF_W || gy.abs() > CAVE_HALF_H || !void[cave_idx(gx, gy)]
                         };
-                        let mut lg2 = if lg > 0 && (fs2 - fs).abs() <= 1 {
-                            ((skirt_max * frac) as i32).clamp(1, span2 - 1)
-                        } else {
-                            0
+                        // **Each offset starts at its own ceiling, not at
+                        // the trunk's.** Starting every column of the cone
+                        // at the trunk's own top row `t` reproduced the
+                        // alignment gate it replaced, in a quieter costume:
+                        // a real ceiling slopes, so one column over the rock
+                        // often sits a row lower, `solid` was true at `t`,
+                        // and the run broke before writing a cell. Measured
+                        // at the render: the flare appeared on the two or
+                        // three formations whose ceiling happened to be
+                        // level and on none of the rest.
+                        //
+                        // So walk down (up) a few rows to find where this
+                        // column's own rock actually is, and hang from
+                        // there. The search is bounded by the slope a
+                        // ceiling can plausibly have across one column;
+                        // finding nothing means this column is not part of
+                        // the same cavity and the offset is skipped.
+                        let anchor = |from: i32, step: i32| -> Option<i32> {
+                            (0..=CONE_ANCHOR_SEARCH)
+                                .map(|d| from + d * step)
+                                .find(|&y| !solid(dx + o, y))
                         };
-                        // A true column is legal here too (A3), but the
-                        // two halves still cannot exceed what this
-                        // neighbour column physically holds.
-                        while lt2 + lg2 > span2 && (lt2 > 0 || lg2 > 0) {
-                            if lt2 >= lg2 {
-                                lt2 -= 1;
-                            } else {
-                                lg2 -= 1;
+                        if lt > 0 {
+                            if let Some(y0) = anchor(t, 1) {
+                                for y in y0..y0 + cone(lt as f32, frac) {
+                                    if solid(dx + o, y) {
+                                        break;
+                                    }
+                                    put(dx + o, y);
+                                }
                             }
                         }
-                        if lt2 > 0 {
-                            for y in t2..t2 + lt2 {
-                                put(dx + o, y);
-                            }
-                        }
-                        if lg2 > 0 {
-                            for y in (fs2 - lg2 + 1)..=b2 {
-                                put(dx + o, y);
+                        if lg > 0 {
+                            if let Some(y0) = anchor(b, -1) {
+                                for y in ((y0 - cone(lg as f32, frac) + 1)..=y0).rev() {
+                                    if solid(dx + o, y) {
+                                        break;
+                                    }
+                                    put(dx + o, y);
+                                }
                             }
                         }
                     }
