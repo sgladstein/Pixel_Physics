@@ -61,6 +61,35 @@
 // Below 1 the crust stipples in over a few frames, which is the same
 // argument `fire::PHASE_CHANGE_CHANCE` makes for a boiling surface.
 //
+// # Tried and reverted: a minimum fill on the reactant
+//
+// The reaction converts a *whole* neighbour cell, and a flow splits into
+// partial-fill cells on the way down, so the obvious reading is that a
+// thinned-out flow quenches more water than it is worth: an 800-cell blob
+// dropped into a pond fires ~944 reactions. A `min_fill` gate on the
+// reactant was built, swept at 250 / 500 / 750 on `filmstrip
+// scene=lavadrop` (rebuilding between points), and **it does not reduce
+// the water loss at all** -- it only moves it between mechanisms:
+//
+// | min_fill | reacted | boiled | froze | standing water |
+// |---|---|---|---|---|
+// | 0 | 944 | 33 | 5 | 11,021 |
+// | 250 | 820 | 181 | 122 | 10,988 |
+// | 500 | 810 | 193 | 131 | 10,983 |
+// | 750 | 781 | 208 | 152 | 10,995 |
+//
+// The thin lava that no longer quenches crusts instead, and the water it
+// would have flashed boils a moment later off the hot stone. Reverted, and
+// recorded here because the reasoning that motivates it is sound and will
+// occur to someone again.
+//
+// The premise was also weaker than it looked once measured: 944 reactions
+// for 800 cells of lava is 1.18 water per lava, and the whole event banks
+// 924 cell-equivalents -- close to one cell of water per cell of lava,
+// which is the ratio that was wanted. What made it *look* like four times
+// that was a separate bug: the quench crust used to lid the pond instead
+// of sinking, and the boil/condense loop churned underneath it.
+//
 // # Stone does not melt back
 //
 // **Deliberately off**: `stone.ron` has no `melting_point`/`melts_into`,

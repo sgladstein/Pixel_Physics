@@ -545,7 +545,7 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
         // `PHASE_CHANGE_CHANCE`. A cell that fails the roll is off-ambient
         // and therefore revisited next frame by `must_stay_dirty`.
         if let Some(into) = boils_into {
-            if surface.rng().chance(PHASE_CHANGE_CHANCE) {
+            if surface.rng().chance(PHASE_CHANGE_CHANCE) && pay_latent_heat(surface, x, y) {
                 transform(surface, x, y, cell, into);
                 surface.count_phase_event(PhaseEvent::Boiled);
             }
@@ -624,6 +624,98 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
             }
         }
     }
+}
+
+/// Degrees of stored heat, taken out of the neighbourhood, that boiling one
+/// cell costs.
+///
+/// # Why the cost is charged to the *source* and not to the product
+///
+/// Boiling was very nearly free. `transform` copies the cell's temperature
+/// across, so a boil removed only the steam's own sensible heat -- about 80
+/// degrees above ambient -- and none of the latent heat that vaporising
+/// actually takes. Reported as a consequence rather than as itself: with
+/// condensate no longer raining back into the pond it came from, an
+/// 800-cell lava blob was measured boiling **~3,200 cells** out of a 12,000
+/// cell pond, where the physics of basalt cooling 1000 -> 700C allows about
+/// 240. The recycling had been hiding it.
+///
+/// **The obvious place to put the cost is on the product, and it cannot go
+/// there.** Water boils at 100 and steam condenses at 45, so a birth
+/// temperature more than ~55 degrees down puts the steam below its own
+/// condensation point and it flashes straight back on its next visit -- an
+/// in-place churn with no plume. A previous session built exactly that at
+/// 40 degrees while hunting a different bug, measured it, and removed it
+/// for minimality (`Reports/open-bugs-handoff.md` 0b item 3); it was never
+/// rejected on the merits, but it cannot reach this magnitude.
+///
+/// Charged to the neighbours there is no such ceiling, and it states the
+/// right thing: a lava cell can boil only what its own stored heat pays
+/// for. That also patches, at the one place it does visible damage, a
+/// deeper defect left open on purpose -- `diffuse_heat` relaxes each cell
+/// toward its neighbour average using *its own* conductivity and never
+/// debits the giver, so water (0.08) pulls forty times harder off lava
+/// (0.002) than lava pushes into it. `lava.ron` documents that asymmetry as
+/// intended. It makes a hot cell an amplifier rather than a finite
+/// reservoir, and it is written up rather than rewritten here.
+///
+/// # The number
+///
+/// Water's latent heat of vaporisation is about 540 times its specific
+/// heat, so in a model whose only thermal currency is degrees, 540 is the
+/// physical figure. Swept on `scene=lavadrop` -- see the commit that set
+/// it for the table.
+const LATENT_HEAT_DEGREES: i32 = 540;
+
+/// Take `LATENT_HEAT_DEGREES` of stored heat out of the four neighbours,
+/// or refuse and take nothing.
+///
+/// All-or-nothing, on `World::spend_atmosphere`'s precedent and for the
+/// same reason: a caller that gets `true` has been charged and must go
+/// ahead, and a partial payment would be a boil that happened for less than
+/// it cost. Only heat *above ambient* counts as available -- ambient is the
+/// floor everything relaxes to and is not a reservoir anything can draw
+/// down.
+///
+/// Deducted in proportion to what each neighbour holds, so a boil beside
+/// one searing lava cell and three cold ones takes it out of the lava.
+fn pay_latent_heat<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
+    let ambient = AMBIENT_TEMPERATURE as i32;
+    let mut available = 0i32;
+    let mut spare = [0i32; 4];
+    for (i, (dx, dy)) in [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().enumerate() {
+        let n = surface.get(x + dx, y + dy);
+        // Empty air reads ambient and is never written, so it is an
+        // unbounded source; drawing on it would make the cost free wherever
+        // the pool is open, which is everywhere that matters.
+        if n.material == material::EMPTY {
+            continue;
+        }
+        spare[i] = (n.temperature() as i32 - ambient).max(0);
+        available += spare[i];
+    }
+    if available < LATENT_HEAT_DEGREES {
+        return false;
+    }
+    let mut owed = LATENT_HEAT_DEGREES;
+    for (i, (dx, dy)) in [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().enumerate() {
+        if spare[i] == 0 {
+            continue;
+        }
+        // Integer arithmetic throughout, so the same neighbourhood always
+        // pays the same bill -- determinism is same-build and a float split
+        // here would be one more thing to reason about.
+        let share = ((spare[i] as i64 * LATENT_HEAT_DEGREES as i64) / available as i64) as i32;
+        let share = share.min(owed).min(spare[i]);
+        if share == 0 {
+            continue;
+        }
+        owed -= share;
+        let mut n = surface.get(x + dx, y + dy);
+        n.set_temperature((n.temperature() as i32 - share) as i16);
+        surface.set(x + dx, y + dy, n);
+    }
+    true
 }
 
 /// The `aux` a melt writes into its liquid product.
@@ -1053,6 +1145,17 @@ mod tests {
         let mut w = test_world();
         let steam = w.materials.id_of("steam").expect("steam.ron should be embedded");
 
+        // **A hot neighbour, because boiling now costs the neighbourhood
+        // something.** `LATENT_HEAT_DEGREES` is charged to the surrounding
+        // cells' stored heat, and this cell used to sit alone in a vacuum
+        // where every neighbour is `Cell::EMPTY` at ambient -- nothing to
+        // draw on, so it never boiled and this test went red. That is the
+        // rule working: a lone cell of water in empty space has no heat
+        // source, and superheating it by hand does not conjure one.
+        //
+        // Stone rather than more water, so the count below still reads 1:
+        // a `Solid` conducts its heat away but cannot boil itself.
+        w.set(30, 31, Cell::new(material::STONE, 0).with_temperature(1000));
         w.set(30, 30, Cell::new(material::WATER, 0).with_aux(650).with_temperature(150));
         assert!(update_until_changed(&mut w, 30, 30, 100), "water at 150C never boiled");
         let boiled = w.get(30, 30);
@@ -1063,6 +1166,12 @@ mod tests {
         // Cool the same cell below steam's condensation point and it gives
         // the fill back. Set directly rather than waiting out diffusion —
         // the cooling curve is diffuse_heat's own tested property.
+        //
+        // The heat source has to go first, or `diffuse_heat` pulls the
+        // steam straight back over its 45C threshold from the 1000C stone
+        // and nothing ever condenses. Written without this and it failed
+        // exactly that way.
+        w.set(30, 31, Cell::EMPTY);
         w.set(30, 30, boiled.with_temperature(30));
         assert!(update_until_changed(&mut w, 30, 30, 3), "steam at 30C never condensed");
         let condensed = w.get(30, 30);
@@ -1730,6 +1839,74 @@ mod tests {
                  it vanished by some other path than the cooling transition (parallel: {parallel_driver})"
             );
         }
+    }
+
+    /// The **quantitative** question the finite-inventory control below
+    /// cannot ask: not "does boiling stop" but "does it stop where the
+    /// energy runs out".
+    ///
+    /// Termination alone was never the gap. `filmstrip scene=simmer`
+    /// terminated perfectly well while boiling **1,941** cells off a hearth
+    /// holding roughly 547 boils' worth of heat, because `diffuse_heat`
+    /// relaxes each cell toward its neighbour average using its own
+    /// conductivity and never debits the giver -- so a hot cell is an
+    /// amplifier, and a count that merely stops says nothing about how much
+    /// it invented on the way. `LATENT_HEAT_DEGREES` is the charge that
+    /// bounds it.
+    ///
+    /// **A pan over a hearth, not the sealed basin below**, and that is the
+    /// difference between a guard and a decoration. Written first on the
+    /// basin's one 700C row it passed with the charge switched off, because
+    /// that scene has so little stored heat that even unbounded
+    /// amplification only reaches thirty-odd boils. The scene has to hold
+    /// enough heat for the defect to show.
+    #[test]
+    fn boiling_stops_where_the_stored_heat_runs_out() {
+        let mut w = test_world();
+        let (left, right, floor, hearth_rows) = (4, 59, 60, 3);
+        let hearth_top = floor - hearth_rows;
+        for y in 20..=floor {
+            w.set(left, y, Cell::new(material::STONE, 0).with_attached(true));
+            w.set(right, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        let mut inventory = 0i32;
+        for x in left..=right {
+            for y in hearth_top..=floor {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true).with_temperature(900));
+                inventory += 900 - AMBIENT_TEMPERATURE as i32;
+            }
+        }
+        for x in (left + 1)..right {
+            for y in (hearth_top - 14)..hearth_top {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+
+        for _ in 0..4000 {
+            crate::sim::parallel::step(&mut w);
+            if w.active_chunk_count() == 0 {
+                break;
+            }
+        }
+        // **The divisor is written out, not read from the constant.** Read
+        // from it, the bar moves with the thing under test: switching the
+        // charge off to red-check also sends the bound to the whole
+        // inventory, which nothing can exceed. Caught by red-checking, and
+        // that is the only reason it is spelled like this.
+        //
+        // Doubled for headroom -- the hearth also loses heat downward and
+        // sideways into its own stone, and the pool's warmth is a second
+        // small reservoir, so the exact figure is not something to pin.
+        let affordable = (inventory / 540) as u32;
+        assert!(
+            w.phase_changes.boiled > 0,
+            "nothing boiled at all, so this bounds nothing -- the scene has stopped containing the situation it is for"
+        );
+        assert!(
+            w.phase_changes.boiled <= affordable * 2,
+            "{} cells boiled off an inventory that can pay for {affordable}; heat is being manufactured somewhere",
+            w.phase_changes.boiled
+        );
     }
 
     #[test]
