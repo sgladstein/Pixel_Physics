@@ -1279,7 +1279,10 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // sets where a population starts and mutation decides where
                 // it goes. An unmutated stand behaves exactly as authored.
                 sympodial: _,
-                tropism: _,
+                // Bound, not discarded, since order 0 reads the species
+                // value directly -- see `plagiotropic_here`. Orders above 0
+                // still read only the allele, exactly as the note above says.
+                tropism,
                 branch_angle,
                 internode,
             } => {
@@ -1324,7 +1327,22 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // mechanism (Leeuwenberg) that the species file, not a
                 // point mutation, should be choosing.
                 let sympodial_here = order > 0 && alleles[organism::LOCUS_SYMPODIAL] != 0;
-                let plagiotropic_here = order > 0 && alleles[organism::LOCUS_TROPISM] != 0;
+                // **Order 0 answers to the species file, and only to it.**
+                // The rule above stands unchanged -- no point mutation can
+                // lay a trunk over, because the allele is not consulted here
+                // at all. What this adds is the case that rule had no room
+                // for: a species whose *whole habit* is prostrate (a ground
+                // mat, a runner, turf) has no order above 0 to say it with,
+                // so if order 0 cannot be plagiotropic the form is
+                // unreachable by any data. That is a species-file decision
+                // by exactly the argument the note above makes for sympody.
+                // Every shipped species declares `Orthotropic` at order 0,
+                // so all four read bit-identically to before.
+                let plagiotropic_here = if order > 0 {
+                    alleles[organism::LOCUS_TROPISM] != 0
+                } else {
+                    tropism.at(0) == organism::Tropism::Plagiotropic
+                };
 
                 // This cell's own distance from the collar, read once:
                 // the turgor gate below reads it, and every child
@@ -4840,6 +4858,45 @@ mod tests {
     /// exactly what happened to `thicken()` in the first draft of this
     /// change, where secondary growth — the majority of all wood — kept
     /// the uniform draw while the shoot was banded.
+    /// **The precondition that makes order-0 tropism a no-op for everything
+    /// already shipped.** `plagiotropic_here` used to be `order > 0 &&
+    /// allele`, so an order-0 axis was orthotropic by construction; it now
+    /// reads the species file at order 0 (and *only* the species file --
+    /// the allele still cannot lay a trunk over). That change is
+    /// behaviour-free for a species exactly while it declares
+    /// `Orthotropic` at order 0, which is the thing asserted here.
+    ///
+    /// It is written as a loop over the registry rather than over a list of
+    /// four names on purpose: the risk it guards is a *future* species file
+    /// quietly declaring order-0 plagiotropy and silently changing what the
+    /// shipped stands look like. `prostrate` is the deliberate exception
+    /// and is named as one -- it is a form probe (WP-C) and order-0
+    /// plagiotropy is the entire thing it exists to test, so if it is ever
+    /// retired this list shrinks rather than the assertion weakening.
+    #[test]
+    fn only_a_species_that_means_to_declares_order_zero_plagiotropy() {
+        let w = test_world();
+        const DELIBERATE: [&str; 1] = ["prostrate"];
+        let mut checked = 0;
+        for name in ["tree", "conifer", "shrub", "moss", "creeper", "weeping", "prostrate"] {
+            let Some(id) = w.species.id_of(name) else { continue };
+            for behavior in w.species.get(id).behaviors(CellType::GrowingTip) {
+                if let organism::Behavior::Grow { tropism, .. } = behavior {
+                    checked += 1;
+                    let plagiotropic = tropism.at(0) == organism::Tropism::Plagiotropic;
+                    assert_eq!(
+                        plagiotropic,
+                        DELIBERATE.contains(&name),
+                        "{name} declares order-0 tropism {:?}; every species outside {DELIBERATE:?} must be Orthotropic at order 0, \
+                         or the order-0 tropism read silently changes how it grows",
+                        tropism.at(0)
+                    );
+                }
+            }
+        }
+        assert!(checked >= 4, "expected to have checked the shipped Grow species, checked {checked}");
+    }
+
     #[test]
     fn every_cell_a_species_grows_lands_in_the_band_range_it_declared() {
         for (species, cell_type) in [("tree", CellType::Leaf), ("conifer", CellType::Leaf)] {

@@ -1,0 +1,118 @@
+// **A form probe, not a shipped species** (WP-C, `Reports/plant-
+// implementation-plan.md`). One question: is a *prostrate mat* -- a cushion
+// or turf that hugs the ground, a form class nothing in this engine has
+// ever grown -- reachable now that order 0 can read its own tropism?
+//
+// **This probe is the one of the three that needed a code change**, and the
+// change is four lines in `plant.rs`'s Grow arm. Before it,
+// `plagiotropic_here` was `order > 0 && allele != 0`, so the order-0 axis
+// was orthotropic by construction for every species that could ever exist.
+// The comment guarding that gate is right and is untouched: no *point
+// mutation* may lay a trunk over, because that is a species-file decision
+// and not a mutation's. What the gate had no room for is a species whose
+// whole habit is prostrate -- it has no order above 0 to say it with, so the
+// form was unreachable by any data at all. Order 0 now reads the species
+// file, and only the species file; the allele is not consulted there.
+//
+// Every shipped species declares `Orthotropic` at order 0, so all four are
+// bit-identical across the change -- asserted, not assumed.
+//
+// A plagiotropic axis holds the horizontal sense of its own heading with a
+// slight droop ((+-0.912, 0.410), the fir-tier reference), so an order-0
+// plagiotropic plant has *outward* as its fundamental direction rather than
+// up. Paired with a turgor budget of 5 rows and a near-zero heading
+// inertia, the claim is a mat that spreads rather than a stem that leans.
+//
+// Judged against the four-axes bar in `Reports/plant-evolution-design.md`
+// §4a. A verdict of "another small tree" is a deliverable.
+(
+    name: "prostrate",
+    foliage_bands: (first: 4, count: 2),
+    bark_bands: (first: 2, count: 2),
+    stomatal_reserve: 0.2,
+    cell_types: [
+        (Seed, [
+            Germinate(
+                light_threshold: 0.1,
+                moisture_threshold: 0.0,
+                instant: false,
+            ),
+        ]),
+        (GrowingTip, [
+            Grow(
+                cost: 0.2,
+                branch_chance: [0.3, 0.35],
+                continuation_weight: 0.7,
+                light_weight: [0.05, 0.05],
+                wind_weight: 0.1,
+                // Positive, and it is an *outward* weight here, not an
+                // upward one -- `Tropism`'s own doc says so ("for a
+                // plagiotropic tier it is an outward weight, the name
+                // notwithstanding"). This is what presses the mat flat and
+                // outward instead of leaving it to wander.
+                upward_weight: [0.7, 0.6],
+                crowding_weight: 30.0,
+                max_active_tips: 14,
+                plastochron: [2, 2],
+                penetration_force: 0.0,
+                // h_max = (0.135 - 0.1) / 0.0075 = 4.7 rows. The tightest
+                // budget of the three probes: a cushion is ankle-high.
+                turgor_source: 0.135,
+                turgor_yield: 0.1,
+                turgor_per_cell: 0.0075,
+                turgor_taper: 0.35,
+                heading_inertia: 0.1,
+                // Tiny internodes: a mat turns constantly and never holds a
+                // straight run.
+                branch_angle: [75.0, 70.0],
+                internode: [1, 1],
+                leaf_cluster: 8,
+                juvenile_size: 15,
+                juvenile_plastochron: 0.5,
+                juvenile_branch: 1.2,
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0),
+                sympodial: [false],
+                // **The line the code change exists for.** Order 0
+                // plagiotropic: the plant's founding axis grows outward,
+                // not up.
+                tropism: [Plagiotropic, Plagiotropic],
+            ),
+            Photosynthesize(rate: 0.5, shade_death: 0.0, transpiration: 0.05, drought_death: 0.0),
+        ]),
+        (RootTip, [
+            Absorb(rate: 1.5),
+            Grow(
+                cost: 0.25,
+                branch_chance: [0.05],
+                continuation_weight: 0.7,
+                light_weight: [0.0],
+                wind_weight: 0.0,
+                upward_weight: [0.6],
+                crowding_weight: 0.0,
+                max_active_tips: 8,
+                plastochron: [0],
+                heading_inertia: 0.75,
+                penetration_force: 1.2,
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25),
+            ),
+        ]),
+        (MatureBody, [
+            Reproduce(seed_cost: 0.25, seed_chance: 6e-05, seed_maturity: 250),
+            SecondaryThicken(pipe_ratio: 5.5),
+            StructuralAnchor,
+            Absorb(rate: 1.5),
+        ]),
+        (DormantBud, [
+            BudBreak(
+                cost: 0.2,
+                thickening_survival: 0.5,
+                acrotony: 0.0,
+            ),
+            StructuralAnchor,
+            SecondaryThicken(pipe_ratio: 5.5),
+        ]),
+        (Leaf, [
+            Photosynthesize(rate: 0.35, shade_death: 0.003, transpiration: 0.05, drought_death: 0.003),
+        ]),
+    ],
+)

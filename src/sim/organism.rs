@@ -1332,6 +1332,17 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/species/tree.ron"),
     include_str!("../../assets/species/conifer.ron"),
     include_str!("../../assets/species/shrub.ron"),
+    // **Form probes, not shipped species** -- WP-C of `Reports/plant-
+    // implementation-plan.md`. Each asks whether one corner of the Grow
+    // envelope is a real form *class* or just another small tree, and each
+    // is one file plus one contact sheet. They are embedded because a
+    // headless harness reads only this list (P-7), not the assets
+    // directory. Retire any that the sheets condemn -- the dead-end
+    // register in `Reports/plant-evolution-design.md` §4a is where the
+    // verdict goes, and a condemned probe should not outlive it here.
+    include_str!("../../assets/species/creeper.ron"),
+    include_str!("../../assets/species/weeping.ron"),
+    include_str!("../../assets/species/prostrate.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working
