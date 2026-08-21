@@ -730,8 +730,6 @@ pub struct CreatureDef {
     /// because `start_energy` becomes a function of the body then and an
     /// absolute tax would quietly re-price thinking for every size.
     pub synapse_fraction: f32,
-    /// Gained by eating one food cell.
-    pub eat_energy: f32,
     /// **What one cell of this animal's body is worth as meat**, granted at
     /// spawn alongside `start_energy` and stamped into its corpse cells when
     /// it dies.
@@ -833,6 +831,36 @@ impl From<SpeciesDef> for Species {
 /// cross-registry mixup.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct SpeciesId(pub u16);
+
+/// One mouthful in transit: what it is, what it is worth, and what it
+/// looked like.
+///
+/// **Not a `MaterialId` alone, which is what this was.** Both drop sites
+/// wrote `Cell::new(held, 0)`, so a corpse worth 640 came back down worth
+/// whatever its `.ron` says (zero) and its shade reset to the darkest
+/// entry in the palette. That was harmless while nutrition was a constant
+/// of the *eater*; the moment food carries its own value it is a material
+/// sink sitting on the one path a colony is built around — carrying
+/// something home.
+///
+/// **Not a whole `Cell` either**, which would preserve all of this for
+/// free and is the tempting version. `Cell::aux` is a tagged union and a
+/// live creature cell packs its organism id in there, so storing the cell
+/// verbatim and putting it back down re-creates a cell claiming to belong
+/// to an organism that has since been freed — the aliasing failure
+/// `eating_one_leaf_does_not_kill_the_tree_that_grew_it` was written for,
+/// re-entered through the carry path. Naming the three fields that
+/// actually travel makes that unrepresentable.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Carried {
+    pub material: super::material::MaterialId,
+    /// Energy worth, in the same 1:1 units `Cell::aux` uses for a corpse.
+    /// Written back into `aux` **only** if the material says
+    /// `worth_in_aux`: on a `Powder` that does not, `aux` means soil water,
+    /// and a leaf put down holding 120 would be a leaf holding water.
+    pub worth: u16,
+    pub shade: u8,
+}
 
 /// Per-organism state too large (or too semantically distinct) to fit in
 /// `Cell::aux` — mirrors `plant::TreeState`/`creature::CreatureState`'s
@@ -996,7 +1024,7 @@ pub struct OrganismState {
     /// carried grain a chain cell doubles every movement edge case (what
     /// happens when the cell it wants to move into is the thing it is
     /// holding?) for no payoff at all at the zoom a creature is seen at.
-    pub carrying: Option<super::material::MaterialId>,
+    pub carrying: Option<Carried>,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where

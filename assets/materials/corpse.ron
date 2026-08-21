@@ -12,9 +12,21 @@
     kind: Powder,
     density: 1.2,
     friction_angle: 30.0,
+    // **Ordered darkest to lightest, and the order is load-bearing.**
+    // `creature_dies` picks the shade by ramping a corpse's worth over this
+    // list, so index order *is* the meaning: dark is a starved animal, light
+    // is one killed with energy still in the bank. Written the other way
+    // round at first, which made a corpse worth 760 render darker than a
+    // starved one worth 120 -- non-monotone, and the doc comment in
+    // `creature.rs` confidently described the opposite of what shipped.
+    //
+    // The span is deliberately narrow (84..104 in red, ~8% of range) and is
+    // very likely too narrow to read at play scale -- see
+    // `Reports/creature-evolution-plan.md` S3b. Widening it is an
+    // appearance call for the owner, not one to make from a diff.
     colors: [
-        (94, 72, 62),
         (84, 63, 54),
+        (94, 72, 62),
         (104, 80, 69),
     ],
     flammability: 0.15,
@@ -23,13 +35,22 @@
     burns_into: "ash",
     heat_conductivity: 0.1,
 
-    // **0 is deliberate, and is not "a corpse is worthless".** A
-    // corpse carries what the animal was actually made of in `Cell::aux`,
-    // written at death by `creature_dies`; this static value is only the
-    // fallback for a corpse cell that arrived some other way, and there is
-    // no such path today. Reading 0 here in a probe means the stamp did not
-    // land, which is exactly the signal wanted.
-    food_energy: 0.0,
+    // **The fallback for a corpse that arrived without a stamp**, which the
+    // first version of this comment claimed could not happen. It can:
+    // `ant.ron` sets `burns_into: "corpse"` and `fire.rs`'s burnout is
+    // generic, so it writes a corpse cell with `aux` 0. At 0 that made a
+    // burnt ant worth nothing to eat, against `wiki/ants.md`'s promise that
+    // "ants that die in a fire become the next colony's dinner" -- a
+    // player-visible mechanic silently deleted by an accounting change.
+    //
+    // 120 is one ant body cell (`ant.ron`'s `body_energy`), the smallest
+    // real stamp in the game, so a body of unknown provenance is priced as
+    // the cheapest thing it could have been rather than as the richest. A
+    // burnt *beetle* is therefore under-priced at 120 against its own 200,
+    // which is deliberate: fire destroying some of a carcass's worth is the
+    // reading that costs nothing to believe, and the alternative is teaching
+    // a generic burnout path about creature species.
+    food_energy: 120.0,
     food_class: 1.0,
     // Every corpse cell carries its own worth, stamped by `creature_dies`.
     worth_in_aux: true,

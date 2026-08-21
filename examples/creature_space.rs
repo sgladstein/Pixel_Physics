@@ -331,8 +331,13 @@ fn economy_sweep(seeds: u64, frames: usize) {
     // four hours to re-derive that would be re-deriving a known result.
     // What is open is whether ground-level food changes the sign, so `moss`
     // is the arm and everything else is held at two levels -- including
-    // `eat_energy` at its extremes, which doubles as the connectivity
+    // `food_energy` at its extremes, which doubles as the connectivity
     // check: with nothing eating, 120 and 700 came out bit-identical.
+    // **Re-read that check after S3b**: it now reprices four materials and
+    // the corpse stamp rather than one field on the eater, so identical
+    // columns here mean something different than they did -- either still
+    // nothing is eating, or the repricing loop is naming materials that do
+    // not exist. `eats` beside the outcome tells those apart.
     // Held fixed, and each for a measured reason rather than by default:
     // `trees` because §13n's census found the canopy is out of reach at
     // every density; `move_cost` because §13k already mapped it and it is
@@ -341,9 +346,9 @@ fn economy_sweep(seeds: u64, frames: usize) {
     // yet part of the loop (§13o).
     let (trees, move_cost, beetles) = (2i32, 0.08f32, BEETLES);
     for &moss in &[false, true] {
-        for &eat_energy in &[120.0f32, 700.0] {
+        for &food_energy in &[120.0f32, 700.0] {
             {
-                let econ = Economy { eat_energy, move_cost, trees, moss, preset: PRESET, beetles };
+                let econ = Economy { food_energy, move_cost, trees, moss, preset: PRESET, beetles };
                 let fs = mean_of((0..seeds).map(|s| run_one(&authored, frames, 0xC0DE + s, econ)).collect());
                 let f = fs.survival;
                 let z = mean_of((0..seeds).map(|s| run_one(&zero, frames, 0xC0DE + s, econ)).collect()).survival;
@@ -354,11 +359,11 @@ fn economy_sweep(seeds: u64, frames: usize) {
                 // as a column of identical numbers; a count of actual
                 // meals says which of the two is happening, and it is what
                 // makes `eat_energy` falsifiable as a knob at all.
-                println!("{beetles:<8} {:<6} {eat_energy:<8.0} {move_cost:>10.2} {f:>10.3} {z:>9.3} {adv:>11.3} {:>11.2}   placed {:.0}", if moss { "yes" } else { "no" }, fs.eats, fs.placed);
+                println!("{beetles:<8} {:<6} {food_energy:<8.0} {move_cost:>10.2} {f:>10.3} {z:>9.3} {adv:>11.3} {:>11.2}   placed {:.0}", if moss { "yes" } else { "no" }, fs.eats, fs.placed);
                 // Scarcity guard: an advantage bought by making food
                 // abundant is not the band we are looking for.
                 if f < 0.9 && best.as_ref().is_none_or(|(b, _)| adv > *b) {
-                    best = Some((adv, format!("moss {moss}, eat {eat_energy:.0}, move {move_cost:.2} (forager {f:.3})")));
+                    best = Some((adv, format!("moss {moss}, eat {food_energy:.0}, move {move_cost:.2} (forager {f:.3})")));
                 }
             }
         }
@@ -659,7 +664,7 @@ fn authored_genome() -> Vec<f32> {
     reg.get(reg.id_of("ant").expect("ant species")).genome.clone()
 }
 
-const DEFAULT_ECONOMY: Economy = Economy { eat_energy: 120.0, move_cost: 0.25, trees: 2, moss: true, preset: "wetland", beetles: BEETLES };
+const DEFAULT_ECONOMY: Economy = Economy { food_energy: 120.0, move_cost: 0.25, trees: 2, moss: true, preset: "wetland", beetles: BEETLES };
 
 /// Named because the "did this ant ever eat" detector reads against it.
 const START_ENERGY: f32 = 90.0;
@@ -684,7 +689,7 @@ const BEETLES: usize = 9;
 /// `CLAUDE.md` says not to compare against.
 #[derive(Clone, Copy)]
 struct Economy {
-    eat_energy: f32,
+    food_energy: f32,
     move_cost: f32,
     trees: i32,
     moss: bool,
@@ -708,7 +713,7 @@ struct Economy {
     /// eats well and is eaten anyway scores exactly like a forager that
     /// never found anything, and the food knobs cannot tell those apart --
     /// which is consistent with survival coming out bit-identical at
-    /// `eat_energy` 120 and 700 while `move_cost` moved it freely. Zero
+    /// `food_energy` 120 and 700 while `move_cost` moved it freely. Zero
     /// beetles is the control that isolates it.
     beetles: usize,
 }
@@ -745,7 +750,22 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
     // which is the one worth asking.
     let mut def = world.species.get(species).creature.as_ref().expect("ant is a creature").clone();
     def.start_energy = START_ENERGY;
-    def.eat_energy = econ.eat_energy;
+    // **The nutrition knob moved off the eater and onto the food (S3b), and
+    // so did this line.** `def.eat_energy` used to pay the same number for
+    // any mouthful; there is no such field now, and a sweep that kept
+    // setting one would have been a knob connected to nothing -- the exact
+    // failure this arm was added to detect. Every material the ant eats is
+    // repriced together, plus `body_energy`, because a corpse carries its
+    // worth per cell from the animal's own stamp rather than from its
+    // `.ron`. Holding those equal is what `ant.ron` does deliberately
+    // (`food_energy: 120.0` against `body_energy: 120.0`), so scaling them
+    // together keeps a scavenged mouthful worth a foraged one.
+    for name in ["leaf", "moss", "seed"] {
+        if let Some(id) = world.materials.id_of(name) {
+            world.materials.get_mut(id).food_energy = econ.food_energy;
+        }
+    }
+    def.body_energy = econ.food_energy;
     def.move_cost = econ.move_cost;
     // **Scale the synapse tax with the budget, or the control is not a
     // control.** `ant.ron` sets 0.002 per active synapse against a starting

@@ -1,8 +1,9 @@
 # Ants
 
-*Fresh as of the first ant milestone. The colony forages, digs, builds and
-carries food home; it is not good at finding food far away — see "What is
-not finished" at the bottom.*
+*Fresh as of the food-value work (S3). The colony forages, digs, builds and
+carries food home, and food is now worth what it is rather than a flat rate
+to whatever eats it; the colony is still not good at finding food far away —
+see "What is not finished" at the bottom.*
 
 An ant is a small dark creature, one or two cells long, that walks on
 surfaces. Ants come in colonies: fifty of them looks like a colony, five
@@ -33,7 +34,10 @@ of where ants have been.
 **They eat, and they carry.** A hungry ant eats what it finds. An ant that
 is not hungry picks the food up instead and tries to take it home, which is
 the difference between an animal feeding itself and a colony feeding
-itself. Ants eat dead things — corpses and seeds — and they eat leaves off
+itself. An ant that goes hungry while it is still holding something eats
+that instead of dying with it — which sounds obvious, and was not: for a
+while a laden ant simply had no way back to feeding, and would starve to
+death with a mouthful of food. Ants eat dead things — corpses and seeds — and they eat leaves off
 living trees, which is what makes a stand of trees a food supply rather
 than a pile that runs out. A tree finds out it has lost a leaf the same way
 it would if the wind took it.
@@ -63,6 +67,23 @@ stuff as everything else: set one alight and it burns, and what is left is a
 corpse. A corpse is food. Ants that die in a fire become the next colony's
 dinner, and none of that needed to be written down anywhere — it falls out
 of ants being ordinary matter.
+
+**Food is worth different amounts, and a body is worth what it was made
+of.** This is new, and it is the thing most likely to change how a colony
+behaves over a long run. A corpse is no longer worth a flat amount to
+whatever eats it: it carries the value of the animal it came from, so an ant
+killed with energy still in the bank is better eating than one that starved,
+and a bigger animal is worth more than a smaller one. A body burnt to a
+cinder is worth the least of all, because nothing was left to record what it
+had been.
+
+You can see a little of this — corpses are shaded by what they are worth,
+dark for a starved one and pale for a fresh kill — but the difference is
+slight, and the honest way to read it is the **food-value overlay**, which
+draws every edible cell on a dark-to-bright ramp by what it is actually
+worth. That is also the quickest way to see the thing the numbers say is
+true and the picture does not: most of a forest's food is up in the canopy
+where no ant can reach it.
 
 ## Placing a colony, and watching what they smell
 

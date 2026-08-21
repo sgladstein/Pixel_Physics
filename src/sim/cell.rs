@@ -181,17 +181,36 @@ pub struct Cell {
     /// - `Solid` / `Plant` → distance to the nearest anchor (M17 structural
     ///   integrity, extended to `Plant` by architecture item 9).
     /// - `Creature` → owning creature id (M18).
-    /// - `Powder` / `Gas` → unused, always 0.
+    /// - `Powder` with `water_capacity > 0` → held water
+    ///   (`material::SOIL_SATURATED` scale). **`0` means dry here**, which
+    ///   is the exact opposite of the `Liquid` reading below, and both
+    ///   defaults are deliberate: liquids are created full, soil is created
+    ///   dry. Getting either backwards manufactures water out of nothing.
+    /// - Any material flagged `worth_in_aux` — today `corpse`, and nothing
+    ///   else → **what this cell is worth to eat**, in energy units, 1:1
+    ///   (M18/S3). A corpse is worth what the animal was made of, so it is
+    ///   the one food whose value cannot live on the material.
+    /// - `Gas`, and any `Powder` that is neither of the two above → unused,
+    ///   always 0.
     /// - `Liquid` → compressible-volume fill amount, on the
     ///   `material::LIQUID_FULL` scale (`update.rs`'s module doc has the
     ///   full model) — the reason this field's independence from
     ///   `burn_timer` mattered enough to widen `Cell` over, since oil is
-    ///   both `Liquid` and flammable.
+    ///   both `Liquid` and flammable. **`aux == 0` means *full*.**
     ///
     /// A tagged union rather than several parallel side tables. Less
     /// elegant, but honest about what these engines actually do, and every
     /// interpretation is written down here rather than scattered across call
     /// sites.
+    ///
+    /// **The readings are keyed on material data, not on `MaterialKind`,
+    /// and that is not a stylistic choice.** Two of the five above are
+    /// `Powder`, so a `kind == Powder` test cannot tell held water from food
+    /// worth. `render.rs`'s soil-moisture overlay was gated exactly that way
+    /// and drew a valued corpse as saturated soil — a debug readout lying
+    /// about which channel it is showing, which is how a fix gets sent at
+    /// working code. Ask the material (`water_capacity`, `worth_in_aux`),
+    /// never the kind.
     aux: u16,
     /// Which organism this cell belongs to; 0 means "no organism," matching
     /// the zero-is-empty/inert convention everywhere else in `Cell`. Reserved

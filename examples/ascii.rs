@@ -1265,15 +1265,32 @@ fn forage_loop_scene() {
     // once stage 4 turns mutation on.
     let live = world.live_creature_energy();
     let expected = world.energy_ledger.expected_live_total();
+    let led = world.energy_ledger;
     println!(
-        "energy census: live {live:.2} vs ledger {expected:.2} (delta {:.4}); granted {:.0} eaten {:.0} metabolized {:.0} moved {:.0} synapses {:.2} died-holding {:.0}",
+        "energy census: live {live:.2} vs ledger {expected:.2} (delta {:.4}); granted {:.0} plant {:.0} corpse {:.0} metabolized {:.0} moved {:.0} synapses {:.2} stored-in-meat {:.0} dissipated {:.0}",
         live - expected,
-        world.energy_ledger.granted,
-        world.energy_ledger.eaten,
-        world.energy_ledger.metabolized,
-        world.energy_ledger.moved,
-        world.energy_ledger.synapse_tax,
-        world.energy_ledger.died_holding
+        led.granted,
+        led.harvested_plant,
+        led.harvested_corpse,
+        led.metabolized,
+        led.moved,
+        led.synapse_tax,
+        led.stored_in_meat,
+        led.dissipated
+    );
+    // **The other stock, and the bound it has to sit under.** The live
+    // identity above only says the charges landed; it cannot say whether
+    // value was created, because `granted` and `harvested_plant` are free
+    // by construction. `harvested_corpse` is not free -- every joule of it
+    // came out of meat that was booked when a body was built or when one
+    // died -- so this line is the one that would show §13l's pump running
+    // again. `<=` rather than `==` on purpose; see `standing_meat`.
+    let meat = pixel_physics::sim::creature::standing_meat(&world, Rect::new(0, 0, w - 1, h - 1)) + pixel_physics::sim::creature::carried_meat(&world);
+    println!(
+        "meat census: standing {meat:.0} vs ceiling {:.0} (headroom {:.0}); stamped {:.0}",
+        led.max_standing_meat(),
+        led.max_standing_meat() - meat,
+        led.stamped
     );
 }
 

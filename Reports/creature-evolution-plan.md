@@ -359,6 +359,162 @@ material (each with an obvious direction) plus `structural_fraction`, which is
 tunable both ways with a real cost each way — raise it and scavenging becomes
 viable, lower it and starvation is terminal.
 
+#### As built (S3b)
+
+S3a made value exist, be stamped and be visible, with nothing reading it. S3b
+is the half that makes the eat verb read it. Seven things came out of building
+it that the plan above did not anticipate, and six of them are findings rather
+than adjustments. **Three were defects S3a had already shipped**, all invisible
+until something read the value for a decision.
+
+**1. §13l's pump is closed.** `a_sealed_world_with_no_food_source_runs_down` is
+un-`#[ignore]`d and passes.
+
+**2. Test (a) is the weak instrument and test (b) is the strong one — measured,
+not argued.** Deliberately restoring the pump (crediting the eater a constant
+120 regardless of what the cell held) leaves (a) **still passing**, because in
+a box of starved ants the constant and the stamp happen to be the same number.
+Crediting *twice* what the cell held fails (b) at window 17 (biomass 3187.65 →
+3768.07) while (a) still passes. `CLAUDE.md`'s "prefer a continuous quantity
+over a count", with a worked example: keep (a) for its name and its history,
+but (b) is the guard.
+
+**3. The biomass metric needs a term the plan did not name.** "Live energy +
+corpse worth" is *not* monotone: a body's stamp is booked at spawn but does not
+become standing meat until the animal dies, so the total jumps upward by
+`body_energy × cells` at every death — a metric that reports a death as energy
+creation. `creature::creature_biomass` adds the unrealised stamp of every live
+body, and only then is it monotone.
+
+**4. Two accounting holes, found the moment the identity was asserted rather
+than printed.**
+
+| Hole | Size | Cause |
+|---|---|---|
+| S3a's own grant | **−12,238.13** in `ascii` | `granted` booked `start_energy + body_energy × cells`, but only `start_energy` ever reached a creature. Now two accounts, and `stamped` is not part of the live identity at all. |
+| Overdrawn charges | 2.16 over 12 ants / 40,000 frames | A creature is declared dead at or below zero, and the tick that killed it debited a full charge against an empty bank. Booked as `overdrawn` rather than clamped at the charge sites — a creature overshooting zero by a tick is honest behaviour, and pretending otherwise is how a counterweight constant gets born. |
+
+The residue after both is **f32 rounding and nothing else**, measured rather
+than asserted away: 0.298 at 10,000 frames **with zero deaths and zero eats in
+them**, 0.286 at 40,000 frames after twelve deaths and eleven meals. So the
+guard is written against the run's own pre-death baseline, not a fixed epsilon
+— a fixed bar cannot tell a rounding residue from a leak, because it never
+looks at the same world twice.
+
+**5. The sessile-grazer probe found a bug in `act`, not a fact about moss.**
+The first version read 2 eats and an intake of exactly 0.0 over 20,000 frames,
+which looks like a clean pass. **An unlimited static wall of leaf produced the
+identical 2 eats and the identical death** — the control that said the scene
+could not feed anything. Cause: `act` gates the eat branch on
+`carrying.is_none()` and the drop branch returns unconditionally, so **a laden
+animal could never eat again**. A lone ant ate until one meal carried it back
+over `hunger_fraction`, picked the next cell up instead, and starved holding
+food. Fixed: a *hungry* carrier eats its load.
+
+With that fixed the probe is a **paired** comparison and says something:
+renewable lawn **0.71** of an animal's whole cost of living, and it dies;
+unlimited larder **0.95**, and it survives with 217 in the bank. **Moss at
+`food_energy: 120` is not a pump.** The bar asserted is the pump line itself
+(ratio < 1.0), not anything fitted to the 0.71, so it does not need re-blessing
+on every retune. Priced at 1200 the probe fires at 1.549.
+
+**5b. And then test (a) went red for an *improvement*, which is the same
+lesson from the other side.** With the carrier fix in, the sealed box no longer
+emptied inside 40,000 frames — 12 alive at 15,000, 3 at 20,000, 2 at 40,000, 1
+at 45,000, **0 at 50,000**. Nothing created energy: the ledger closed exactly
+(2,880 stamped, 1,680 eaten, 720 standing, 480 still inside the two survivors).
+A colony that no longer starves holding food simply recovers more of its own
+dead, so the same finite budget lasts longer. The horizon is now 80,000 —
+the measured 50,000 with 60% headroom — and it is written down in the test
+that it was measured rather than chosen. **`a_sealed_colony_never_grows_its_own_biomass`
+stayed green throughout**, which is the whole argument for preferring it: an
+outcome count says nothing about how far below 1.0 the loop's gain is, so it
+can go red for a change that made things better.
+
+**6. A burnt ant left meat worth nothing, against a promise `wiki/ants.md`
+makes in as many words.** `corpse.ron` said `food_energy: 0.0` on the stated
+grounds that a corpse always carries its stamp and "there is no such path
+today" for one to arrive unstamped. There is: `ant.ron` sets
+`burns_into: "corpse"`, and `fire.rs`'s burnout is generic over every flammable
+material, so it writes `Cell::new(into, shade)` with `aux` 0. `food_value` also
+short-circuited on the `worth_in_aux` flag, so the fallback the comment
+described did not exist in code either. Both fixed; the fallback is 120 (one
+ant body cell — the smallest real stamp in the game), so a burnt *beetle* is
+deliberately under-priced against its own 200, on the reading that fire
+destroys some of a carcass's worth. Guarded by
+`a_corpse_that_arrived_without_a_stamp_is_still_food`, written against the
+material data rather than against `fire.rs` so a second such route is caught
+without anyone remembering to extend it.
+
+**7. The corpse shade ramp was non-monotone, and is still not legible.**
+`corpse.ron` listed its three browns **mid, dark, light**, and `creature_dies`
+ramps worth over the index — so a corpse worth 760 rendered *darker* than a
+starved one worth 120, while the code comment confidently described the
+opposite. Reordered dark→light, which is a correctness fix with no aesthetic
+content.
+
+Legibility is a separate question and the answer looks like *no*: the span is
+84..104 in red, ~8% of range, and a `scene=carrion` sheet at **10× zoom** shows
+six corpses spanning 120→1020 that are indistinguishable — the same order of
+colour difference as the canopy-density sheet that read as blank. A widened
+5-entry ramp (span 52..152) is plainly legible in the same scene. **Posted as a
+blind A/B to the review queue (board `creatures`,
+`20260821T221001395Z-ed6b59`); the palette in the tree is the narrow one until
+that comes back.** `OrganismOverlay::FoodValue` remains the readout that can
+answer "how much"; this byte is only meant to say "not all the same".
+
+#### What S3b cost
+
+Paired `ascii` at 12,000 frames, same machine, same session, alternating runs
+(a third round was discarded — concurrent builds, and it read 2.86 against
+2.03 for a diff that provably does nothing per-frame):
+
+| | S3a (8390580) | S3b |
+|---|---|---|
+| pickups | 264 | **264** |
+| deliveries | 238 | **238** |
+| eats | 2 | 3 |
+| moves | 27,294 | 27,390 |
+| food stock | 417,000 | 417,000 |
+| energy identity | **−12,238.13** | **+1.87** |
+| frame cost, mean | 1.810 / 1.816 ms | 1.798 / 1.817 ms |
+| frame cost, worst | 27.1 / 20.4 ms | 20.2 / 19.6 ms |
+
+The carrier fix costs the colony nothing measurable: a colony ant only reaches
+that branch under half its budget with a full mandible, which is rare when a
+nest is close.
+
+#### Deviations from the plan, and their reasons
+
+* `carrying` is `Option<Carried { material, worth, shade }>`, not the planned
+  `Option<(MaterialId, u16)>`. Shade has to travel, or a corpse worth 640
+  picked up and put down comes back looking picked-over while the FoodValue
+  overlay reads it bright — a readout disagreeing with its own mechanism. A
+  whole `Cell` was rejected: `aux` is a tagged union and a live creature cell
+  packs its organism id there, so storing one verbatim and putting it down
+  re-creates a cell claiming an organism that has since been freed.
+* **`CreatureDef::food` still survives** (S5, not S3), per S3a's note: "edible =
+  `food_energy > 0`" makes every ant a cannibal, and §13i measured that a
+  colony eating its own dead sustains itself without foraging at all. So the
+  ~32 string hashes per creature-tick are still there and the predicted
+  hot-path *saving* has not been banked.
+* `creature_space`'s nutrition arm no longer sets `def.eat_energy` — there is
+  no such field. It reprices `leaf`/`moss`/`seed` plus `body_energy` together,
+  and the sweep's own "identical columns mean the knob is disconnected" note
+  now has a second reading, recorded in the file.
+
+#### One seam left open, named rather than papered over
+
+Flesh bitten off a *living* animal is priced by its material (`ant.ron`'s
+`food_energy: 120.0`) and books to `harvested_plant` as though free, while the
+stamp that body was granted stays in `stamped` and never becomes standing meat.
+The two cancel today because `ant.ron` sets `food_energy` equal to
+`body_energy` — **that equality is load-bearing, not a coincidence** — but the
+ledger does not know they cancel, so predation loosens `max_standing_meat`. The
+sealed-box guards run on an ant-only colony, where ants do not eat ants, so the
+bound is tight there. Closing it means a sink for a stamp destroyed without
+becoming a corpse, and it belongs with S6, when a parent starts paying stamps.
+
 ### 2.4 S4 — Litter: the canopy's production falls to where ants walk
 
 **The binding quantity is the fraction of animals that find food** (§13o's

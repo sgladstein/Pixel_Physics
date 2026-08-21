@@ -118,55 +118,114 @@ pub struct CreatureStats {
 
 /// Where every joule went. See `World::energy_ledger`.
 ///
-/// The invariant, asserted in the ascii scenes:
-/// `sum(live creature energy) == granted + eaten - metabolized - moved
-/// - synapse_tax - died_holding`.
+/// Two stocks, not one. **Live** is the energy inside creatures; **meat**
+/// is the energy standing in the world as corpse cells (and in whatever a
+/// carrier is holding). Every account below is a monotone counter, and each
+/// one is labelled as a *source* (value created out of nothing), a *sink*
+/// (value destroyed) or a *transfer* (value moved between the two stocks).
+///
+/// ```text
+/// live = granted + harvested_plant + harvested_corpse + overdrawn
+///        - metabolized - moved - synapse_tax - stored_in_meat - dissipated
+///
+/// meat = stamped + stored_in_meat - harvested_corpse - meat_lost
+/// ```
 ///
 /// # What this can and cannot catch, because the difference has been
 /// # misread once
 ///
 /// It catches **charges that do not land**: a cost debited from the ledger
 /// but never taken off a creature, or vice versa. That is a real class of
-/// bug and the identity finds it immediately.
+/// bug and the first identity finds it immediately.
 ///
-/// It **cannot catch energy creation**, and reading a balanced census as
-/// "energy is conserved" is a mistake. `granted`, `eaten` and
-/// `died_holding` are all *free terms defined as whatever happened*, so
-/// they move the two sides of the identity together by construction. When
-/// a beetle bites an ant, `eaten` grows by the **eater's** `eat_energy` --
-/// a constant with no relationship to what the victim had -- and
-/// `died_holding` deletes the victim's remainder; both are booked, the
-/// identity holds, and 300 joules were conjured. If the bite only takes a
-/// trailing segment there is no sink at all and the identity still holds.
+/// It **cannot be a conservation law**, and reading a balanced census as
+/// "energy is conserved" is a mistake. `granted`, `stamped` and
+/// `harvested_plant` are genuinely free — the sun is the largest source in
+/// the world by far and lives entirely outside these numbers, and nothing
+/// books photosynthesis yet.
 ///
-/// So this is an *accounting* ledger, not a conservation law. The property
-/// evolution actually needs (P-20) is weaker and different: **no lineage
-/// may extract unbounded energy from a cycle it controls.** That is what
-/// `creature::tests::a_sealed_world_with_no_food_source_runs_down` tests,
-/// and it does not pass today -- see its doc for the pump it reproduces.
-/// A closed ledger is only reachable once plants book photosynthesis into
-/// the same accounts, since the sun is the largest free source in the
-/// world by far and lives entirely outside these numbers.
+/// **What changed at S3, and why it matters more than the tidiness.** The
+/// old ledger had one `eaten` account and it was a free term *defined as
+/// whatever happened*: `eat_energy` was a constant of the **eater**, so
+/// when a beetle bit an ant, `eaten` grew by the beetle's number, the
+/// victim's remainder was written off, both were booked, the identity held,
+/// and 300 joules were conjured (§13l). `harvested_corpse` is not free: it
+/// is matched, joule for joule, by meat that was booked into `stamped` when
+/// the animal was built or into `stored_in_meat` when it died. That is what
+/// makes the second identity above worth asserting, and it is the property
+/// evolution actually needs (P-20): **no lineage may extract unbounded
+/// energy from a cycle it controls.**
+///
+/// `meat_lost` is not an account here, because nothing hooks the seam a
+/// corpse is destroyed through (decay, fire, an explosion, the brush).
+/// The meat identity is therefore an **upper bound**, not an equality, and
+/// `creature::tests::the_standing_meat_never_exceeds_what_was_put_into_it`
+/// asserts it as one. In a sealed box where nothing eats corpses but the
+/// ants, it is tight.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct EnergyLedger {
-    /// Energy created out of nothing, at spawn. The only source besides
-    /// eating, and the one that has to be counted or nothing balances.
+    /// **Source.** Metabolic energy created at spawn — a creature's
+    /// `start_energy`, the pool it can actually spend.
     pub granted: f64,
-    /// **Also created out of nothing** -- `eat_energy` is a property of the
-    /// eater, not of the food, and no food cell has an energy account for
-    /// it to come out of. Counted so the identity closes, not because
-    /// anything was transferred. See the type doc.
-    pub eaten: f64,
+    /// **Source.** Structural energy created at spawn: `body_energy` for
+    /// every cell of the body. The animal can never spend this; it exists
+    /// so that a *starved* creature, dead at exactly 0, still leaves food
+    /// behind. Booked separately from `granted` because it is never part of
+    /// the live stock — it goes straight into meat when the animal dies.
+    pub stamped: f64,
+    /// **Source.** Eating something whose worth comes from its material:
+    /// leaf, moss, seed, a live animal's flesh. Free until plants book
+    /// photosynthesis into the same accounts.
+    pub harvested_plant: f64,
+    /// **Transfer**, out of the meat stock and into the live one. Eating a
+    /// cell that carries its own worth in `Cell::aux`.
+    pub harvested_corpse: f64,
     pub metabolized: f64,
     pub moved: f64,
     pub synapse_tax: f64,
-    pub died_holding: f64,
+    /// **Transfer**, out of the live stock and into meat: what a creature
+    /// still had in the bank when it died, written into its corpse cells
+    /// alongside the stamp. Was `died_holding`, and the rename is the
+    /// point — it is not destroyed, it is what makes a fresh kill better
+    /// eating than carrion.
+    pub stored_in_meat: f64,
+    /// **Sink.** Leftover energy with nowhere to go: a creature died in a
+    /// world with no `corpse` material compiled in, so there was nothing to
+    /// write the worth into. Should read 0 in every real scene; it is here
+    /// so that the case does not silently unbalance the live identity.
+    pub dissipated: f64,
+    /// **A correction, and the only term that adds back.** Charges that
+    /// landed on a creature which could not pay them: an animal dies *at*
+    /// zero in the accounting but arrives there having been debited past
+    /// it, so its last tick of metabolism came out of an empty bank.
+    ///
+    /// Found by `the_standing_meat_never_exceeds_what_was_put_into_it` the
+    /// first time the live identity was ever asserted rather than printed
+    /// — 2.16 joules across twelve ants over 40,000 frames, which is small,
+    /// real, and exactly the kind of free term that becomes an attractor
+    /// the moment something can select on it. Booked rather than clamped
+    /// away at the charge sites, because a creature that overshoots zero
+    /// by a tick is honest behaviour and pretending it did not is how a
+    /// counterweight constant gets born.
+    pub overdrawn: f64,
 }
 
 impl EnergyLedger {
     /// What the live population's total energy should equal.
     pub fn expected_live_total(&self) -> f64 {
-        self.granted + self.eaten - self.metabolized - self.moved - self.synapse_tax - self.died_holding
+        self.granted + self.harvested_plant + self.harvested_corpse
+            - self.metabolized
+            - self.moved
+            - self.synapse_tax
+            - self.stored_in_meat
+            - self.dissipated
+            + self.overdrawn
+    }
+
+    /// The most meat that can be standing in the world. An **upper bound**,
+    /// not an equality — see the type doc on `meat_lost`.
+    pub fn max_standing_meat(&self) -> f64 {
+        self.stamped + self.stored_in_meat - self.harvested_corpse
     }
 }
 
