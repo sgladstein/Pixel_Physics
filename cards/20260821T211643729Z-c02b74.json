@@ -1,0 +1,45 @@
+{
+  "id": "20260821T211643729Z-c02b74",
+  "created": "2026-08-21T21:16:43Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-genome",
+    "branch": "plant-genome",
+    "commit": "9fe9bb6",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-genome"
+  },
+  "title": "Root branching repair: does the genome span two architectures?",
+  "question": "Do these read as two different root architectures, or as more of the same thing? (Left is a low draw, right a high draw, same plant genome otherwise.)",
+  "context_md": "Genotype **slot 1 (root branch chance)** shipped in the genome re-map wired\ncorrectly and produced a **bit-identical stand at every draw** — 352 root\ncells at −1, 0 and +1 alike. Its consumer sat behind a gate that demanded a\n*second* step's carbon in the same tick the first was paid: 351 root growth\nsteps in 12,000 frames, **2** could afford it, the 0.04 roll fired **0**\ntimes.\n\nThe owner's call was that the allowance economy is intended and the\ndouble-affordance gate is the accident. This is the primed-site repair from\nPLAN.md's M16 note: a root tip **marks** a site every N steps for free, and\nthe site buys its lateral later, funded by the plant, when it can be paid\nfor. Slot 1 divides N, so a strong draw primes more densely.\n\nBoth images are the same scene, same seed, same frame (noon), 8 trees /\n30,000 frames — **only the slot-1 draw differs**.\n\n| | draw −1 | draw +1 |\n|---|---|---|\n| root cells, median | 251 | **776** |\n| root cells with 3+ root neighbours | 57% | **78%** |\n| lateral spread | 50 | 74 |\n| whole-plant cells | 26,620 | **32,819** |\n\nThe question is whether these read as **two different root architectures**\nor as more-of-the-same. A one-cell-wide run scores ~0 on the neighbour\nmetric whichever way it points, so that number is the architecture\ndiscriminator — but it cannot tell you whether the difference is legible.\n",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "slot1 draw -1",
+      "files": [
+        "20260821T211643729Z-c02b74/000-wpa-roots-sparse.png"
+      ],
+      "caption": "sparse strands - 251 root cells median, 57% with 3+ root neighbours",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "slot1 draw +1",
+      "files": [
+        "20260821T211643729Z-c02b74/001-wpa-roots-dense.png"
+      ],
+      "caption": "fibrous mat - 776 root cells median, 78% with 3+ root neighbours",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
