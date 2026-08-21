@@ -21,8 +21,10 @@ landing still fires on touchdown, so movement should feel forgiving
 rather than exacting.
 
 He treats the world the way you'd expect from standing in it. Solid rock
-and creatures hold him up, shallow bumps and rubble (up to a couple of
-cells) are stepped over without jumping, and anything taller is a wall.
+holds him up, shallow bumps and rubble (up to a couple of cells) are
+stepped over without jumping, and anything taller is a wall. Living things
+are not walls — he walks through a tree and he walks through an ant — but
+anything a colony has *built* is as solid as rock.
 The world's edge is a wall too. A lip a little higher than a jump quite
 reaches is caught at the top of the arc and pulled up over, provided
 you're pressing into it and there's actually something up there to stand

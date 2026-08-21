@@ -724,8 +724,23 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
         return Footing::Climb;
     }
     match material.kind {
-        MaterialKind::Solid | MaterialKind::Plant | MaterialKind::Creature => Footing::Hard,
+        MaterialKind::Solid | MaterialKind::Plant => Footing::Hard,
         MaterialKind::Powder => Footing::Soft,
+        // `Creature` falls through to `Free`, and used to be `Hard`.
+        //
+        // A single ant was a wall. That was defensible while a *tree* was
+        // one too, and stopped being the moment living plants became
+        // scenery he walks through: an ant is one cell and a worm is a
+        // few, and being brought to a halt by one while strolling through
+        // a trunk reads as a bug rather than as a rule. Nothing else has
+        // to change for it -- a nest is `kind: Solid` and still blocks, so
+        // what a colony *builds* is as solid as it ever was.
+        //
+        // One-way, deliberately: `creature::move_cost` is untouched, so
+        // ants still cannot walk into plants or each other and still walk
+        // *along* branches. Passability is a property of the character,
+        // not of the world -- the same line `Material::climbable`'s own
+        // doc draws.
         _ => Footing::Free,
     }
 }
@@ -2623,6 +2638,46 @@ mod tests {
         let tuning = Tuning::default();
         assert!(shake_target(&world, p, (127, 87), &tuning).is_some(), "pointing at the trunk should shake");
         assert!(shake_target(&world, p, (64, 92), &tuning).is_none(), "pointing at the floor should dig");
+    }
+
+    #[test]
+    fn an_ant_does_not_stop_him() {
+        // A single creature cell used to be a wall, which was defensible
+        // only while a whole tree was one as well.
+        let mut world = world_with_floor();
+        let ant = world.materials.id_of("ant").expect("ant is compiled in");
+        let species = world.species.id_of("ant").expect("ant is compiled in");
+        let organism = world.push_organism(species);
+        let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::Head);
+        for y in 74..88 {
+            world.set(70, y, Cell::new(ant, 0).with_organism_id(organism).with_aux(aux));
+        }
+        world.player = Some(Player::at(30, 80));
+        for _ in 0..300 {
+            tick(&mut world, PlayerInput { right: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.x > 90.0, "a column of ants should not be a wall, he stopped at x={:.1}", p.x);
+    }
+
+    #[test]
+    fn a_nest_still_stops_him() {
+        // The other half: what a colony *builds* is `kind: Solid` and is as
+        // solid as it ever was. Without this the change reads as "creature
+        // things are passable", which is not what it says.
+        let mut world = world_with_floor();
+        let nest = world.materials.id_of("nest").expect("nest is compiled in");
+        for y in 60..88 {
+            for x in 70..74 {
+                world.set(x, y, Cell::new(nest, 0));
+            }
+        }
+        world.player = Some(Player::at(30, 80));
+        for _ in 0..300 {
+            tick(&mut world, PlayerInput { right: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().unwrap();
+        assert!(p.x < 70.0, "a nest wall must still be a wall, but he reached x={:.1}", p.x);
     }
 
     #[test]

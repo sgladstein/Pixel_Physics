@@ -2065,6 +2065,62 @@ mod tests {
         assert_ne!(app.tool, Tool::Dig, "Z must get the player out of the dig tool");
     }
 
+    /// A click on a living plant must reach the *shake*, through the
+    /// function the mouse actually calls.
+    ///
+    /// Written because the shake shipped without it. Every test of that
+    /// verb called `player::shake_target`/`player::shake` directly, which
+    /// is precisely the hole the test above records for the dig — "a test
+    /// called `player::dig` directly and so proved nothing about the path
+    /// a player actually uses" — reproduced one verb later.
+    ///
+    /// The discriminator is **dislodged material**, because it is the one
+    /// effect only a shake has and the only one with no RNG in it. Shed
+    /// leaves are a weighted roll and seed needs a grown tree; a dig
+    /// cannot touch organism cells at all, so "the wood is still there"
+    /// would pass whichever verb fired.
+    #[test]
+    fn a_click_on_a_tree_shakes_it_rather_than_cutting_or_painting() {
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        let wood = id(&app, "wood");
+        let sand = id(&app, "sand");
+        for y in 40..70 {
+            for x in 0..120 {
+                app.world.set(x, y, Cell::EMPTY);
+            }
+        }
+        for x in 0..120 {
+            app.world.set(x, 70, Cell::new(stone, 0).with_attached(true));
+        }
+        // A living trunk within `shake_reach`, with open air either side of
+        // it so the dislodge has somewhere to drop from.
+        let species = app.world.species.id_of("tree").expect("tree is compiled in");
+        let organism = app.world.push_organism(species);
+        let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
+        for y in 55..70 {
+            app.world.set(40, y, Cell::new(wood, 0).with_organism_id(organism).with_aux(aux));
+        }
+        // One grain resting on the top of it.
+        app.world.set(40, 54, Cell::new(sand, 0));
+
+        app.summon_player(30, 64);
+        assert_eq!(app.tool, Tool::Dig, "summoning must arrive in the dig tool");
+
+        app.paint_stroke((60, 64), (60, 64), false);
+
+        assert_ne!(
+            app.world.get(40, 54).material,
+            sand,
+            "the grain resting on the trunk should have been shaken off it"
+        );
+        assert_eq!(
+            app.world.get(40, 60).material,
+            wood,
+            "and the trunk itself is not something a click may cut or paint over"
+        );
+    }
+
     /// The help panel is the only place several keys are documented, and
     /// it drifts silently: the line describing the gnome's dig outlived
     /// the mechanism it described by two commits, still telling players
