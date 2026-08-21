@@ -1,0 +1,147 @@
+{
+  "id": "20260821T230047065Z-6b1334",
+  "created": "2026-08-21T23:00:47Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-mechanic-stone-review-yksmi8",
+    "commit": "d5cb19a",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ten explosions, animated - which size is right?",
+  "question": "Which of these reads best, and when you said 'bigger', did you mean the charge, the grain, or the halo?",
+  "context_md": "Ten animated, as asked. Same world and seed throughout, so the only thing changing is the label. All at noon so nothing is hidden by nightfall.\n\n**Your \"maybe bigger would be better\" could mean three different things, so all three are here** and I would rather you tell me which you meant than have me guess:\n\n- **#5** is a bigger *charge* (r32 vs r20)\n- **#8** is a bigger *grain* - fewer, larger blocks\n- **#10** is a bigger *halo* - the pattern spread further out for the same crater\n\n**#1 is what currently ships.** #7 and #8 replace the two-frame density card you could not judge - same question, animated. #9 is how bold the near seams are.\n\n**Something to look at that I am not sure about:** #2 and #3, the shallow and surface shots, get very little pattern - 144 and 105 joints against 606 for the buried one. That is the confinement model working as designed (an unconfined charge vents rather than cracking), but it may just read as \"surface blasts are boring\". Worth your eye.\n\n**You can also drive these yourself in the app** - `joint_reach`, `joint_open_fraction` and `joint_density` are all live on the tuning panel, so you can turn them while watching. Grain spacing is per-material in `stone.ron` (`joint_spacing`, currently 13) and takes an F5 reload.\n\nCounters are under each one: *activated* is joints the blast woke, *opened* became real seams with grit in them, *scored* are cracks that removed nothing.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "1. deep, standard (what ships)",
+      "files": [
+        "20260821T230047065Z-6b1334/000-01-deep-standard-lite.gif"
+      ],
+      "caption": "r20, 45 cells down",
+      "meta": {
+        "joints activated": 606,
+        "opened": 373,
+        "scored": 227
+      }
+    },
+    {
+      "label": "2. shallow crater",
+      "files": [
+        "20260821T230047065Z-6b1334/001-02-shallow-crater-lite.gif"
+      ],
+      "caption": "r20, 6 cells down",
+      "meta": {
+        "joints activated": 144,
+        "opened": 71,
+        "scored": 69
+      }
+    },
+    {
+      "label": "3. surface burst",
+      "files": [
+        "20260821T230047065Z-6b1334/002-03-surface-burst-lite.gif"
+      ],
+      "caption": "r20, at the surface",
+      "meta": {
+        "joints activated": 105,
+        "opened": 37,
+        "scored": 68
+      }
+    },
+    {
+      "label": "4. seabed, water overhead",
+      "files": [
+        "20260821T230047065Z-6b1334/003-04-seabed-water-lite.gif"
+      ],
+      "caption": "r20, 8 cells into the seabed",
+      "meta": {
+        "joints activated": 376,
+        "opened": 292,
+        "scored": 84
+      }
+    },
+    {
+      "label": "5. BIGGER CHARGE",
+      "files": [
+        "20260821T230047065Z-6b1334/004-05-big-charge-lite.gif"
+      ],
+      "caption": "r32 instead of r20, same depth",
+      "meta": {
+        "joints activated": 1318,
+        "opened": 935,
+        "scored": 373
+      }
+    },
+    {
+      "label": "6. small charge",
+      "files": [
+        "20260821T230047065Z-6b1334/005-06-small-charge-lite.gif"
+      ],
+      "caption": "r12 instead of r20",
+      "meta": {
+        "joints activated": 222,
+        "opened": 151,
+        "scored": 60
+      }
+    },
+    {
+      "label": "7. FINER GRAIN",
+      "files": [
+        "20260821T230047065Z-6b1334/006-07-fine-grain-lite.gif"
+      ],
+      "caption": "joint spacing 9 (ships at 13)",
+      "meta": {
+        "joints activated": 950,
+        "opened": 592,
+        "scored": 349
+      }
+    },
+    {
+      "label": "8. COARSER GRAIN",
+      "files": [
+        "20260821T230047065Z-6b1334/007-08-coarse-grain-lite.gif"
+      ],
+      "caption": "joint spacing 20 (ships at 13)",
+      "meta": {
+        "joints activated": 341,
+        "opened": 263,
+        "scored": 59
+      }
+    },
+    {
+      "label": "9. bolder seams",
+      "files": [
+        "20260821T230047065Z-6b1334/008-09-bolder-seams-lite.gif"
+      ],
+      "caption": "open fraction 0.45 (ships at 0.30)",
+      "meta": {
+        "joints activated": 606,
+        "opened": 476,
+        "scored": 123
+      }
+    },
+    {
+      "label": "10. WIDER HALO",
+      "files": [
+        "20260821T230047065Z-6b1334/009-10-wider-halo-lite.gif"
+      ],
+      "caption": "joint reach 4.0 radii (ships at ~2.5)",
+      "meta": {
+        "joints activated": 1154,
+        "opened": 637,
+        "scored": 507
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
