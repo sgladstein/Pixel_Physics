@@ -34,6 +34,13 @@ use pixel_physics::sim::{field, parallel, structural};
 use pixel_physics::worldgen::{self, Spec, WorldgenPresets};
 use std::time::Instant;
 
+/// How still counts as still, and for how long. The pressure epsilon is the
+/// engine's own notion of "not changing"; `QUIET_RUN` frames of it in a row
+/// is what makes the verdict robust to a field that is only stepped on some
+/// frames.
+const QUIET_MS: f64 = 1.0;
+const QUIET_RUN: usize = 120;
+
 /// The shipped size every multiplier is taken against.
 const BASE_W: i32 = 2048;
 const BASE_H: i32 = 640;
@@ -107,19 +114,54 @@ fn main() {
         structural::compute_world_distances(&mut world);
         let structural_ms = t.elapsed().as_secs_f64() * 1000.0;
 
-        // Worst frame, not mean: a mean hides the frame that drops the
-        // player's input, and the worst is what `ascii` already gates on.
-        // Sweep and field are timed apart because they scale differently --
-        // the sweep is proportional to *awake* chunks and the field's sky
-        // walk is proportional to the whole world.
-        let (mut worst_sweep, mut worst_field) = (0.0f64, 0.0f64);
-        for _ in 0..frames {
+        // **Step until the world is genuinely quiet, and report how long that
+        // took**, rather than stepping a fixed count and calling the result
+        // "settled".
+        //
+        // The first version of this probe did the latter and got it badly
+        // wrong: it ran 400 frames, reported 8.26 ms as the settled field
+        // cost at the shipped size, and that number went into a report as a
+        // standing defect. It was the *transient*. A generated world's field
+        // takes thousands of frames to converge -- pressure decays cleanly
+        // but slowly -- and 400 frames is nowhere near it. `frames` is now a
+        // cap, not a target, and `to_quiet` is the headline number: it is how
+        // long a player waits before the world stops costing what it costs
+        // here.
+        let (mut still, mut worst_sweep, mut worst_field) = (0usize, 0.0f64, 0.0f64);
+        let mut to_quiet: Option<usize> = None;
+        for i in 0..frames {
             let t = Instant::now();
             parallel::step(&mut world);
             worst_sweep = worst_sweep.max(t.elapsed().as_secs_f64() * 1000.0);
             let t = Instant::now();
             field::step(&mut world);
-            worst_field = worst_field.max(t.elapsed().as_secs_f64() * 1000.0);
+            let field_ms = t.elapsed().as_secs_f64() * 1000.0;
+            worst_field = worst_field.max(field_ms);
+            // **Quiet is measured by the cost itself, after two other
+            // definitions of it turned out to be blind.**
+            //
+            // `world.fields_settled()` latched true at frame 47 while the
+            // field was demonstrably still churning -- it is a verdict over
+            // the tiles actually solved that frame, so an empty or lucky
+            // solve set reads as "everything settled". And a lattice of
+            // `field_at_bilinear` probe points reported quiet at frame 0,
+            // because points spread evenly over a world mostly land in solid
+            // rock where the pressure never moves at all. Both were asking a
+            // question that can be answered vacuously.
+            //
+            // The wall time cannot be. Measured, the two states are 40x
+            // apart -- 42 ms/frame while converging against 0.01 ms once
+            // converged -- so a 1 ms threshold separates them at every world
+            // size, and `QUIET_RUN` consecutive frames under it is robust to
+            // a field that only steps on some frames.
+            if field_ms < QUIET_MS {
+                still += 1;
+            } else {
+                still = 0;
+            }
+            if to_quiet.is_none() && still >= QUIET_RUN {
+                to_quiet = Some(i + 1 - QUIET_RUN);
+            }
         }
 
         // Then the state the optimisation exists for: nothing moving. A
@@ -148,10 +190,14 @@ fn main() {
             sum_sf += d;
         }
         let awake = world.active_chunk_count();
+        let quiet = match to_quiet {
+            Some(f) => format!("{f}"),
+            None => format!(">{frames}"),
+        };
 
         println!(
             "{:>11} {:>10} {:>8.0}ms {:>9.0}ms {:>8.0}ms {:>7.0}MiB {:>7.2}ms {:>7.2}ms | \
-             sweep {:>6.2}/{:<6.2} field {:>6.2}/{:<6.2} awake {}",
+             sweep {:>6.2}/{:<6.2} field {:>6.2}/{:<6.2} awake {} quiet@{}",
             format!("{w}x{h}"),
             w as i64 * h as i64,
             place_ms,
@@ -165,6 +211,7 @@ fn main() {
             sum_sf / 60.0,
             worst_sf,
             awake,
+            quiet,
         );
     }
 

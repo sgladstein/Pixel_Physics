@@ -930,12 +930,18 @@ pub fn step(world: &mut World) {
     // repair). Correcting the subset to "solved OR drifted" made it cover
     // the whole world anyway and cost 8.26 -> 9.06 ms.
     //
-    // The reason it cannot pay is upstream and is written up in
-    // `Reports/field-settling-2026-08.md`: on a completely quiet world --
-    // zero awake chunks, 3000 frames in -- the solve set plateaus at ~37% of
-    // all tiles and never reaches zero, because the *pressure* channel never
-    // converges. Until that is fixed there is no small set here to subset
-    // to. Do not re-attempt this without checking that number first.
+    // **Both of those measurements were taken inside the transient, and that
+    // is the thing to know before retrying.** A generated world's field takes
+    // ~4500 frames to converge (pressure churns and then decays cleanly);
+    // during it the solve set is most of the world and there is nothing to
+    // subset to. The *steady state* is a different regime: the sky is
+    // quantised, so a full solve runs only on the ~760 frames in 3600 where
+    // the sky steps, and on those the only tiles needing work are the sky-lit
+    // ones. Measured settled at 8192x2560: 4.87 ms mean, 10.72 ms worst.
+    // Retry this against those numbers rather than the transient ones -- and
+    // keep the light-erasure trap above in mind, because it is what made the
+    // first attempt look like a win.
+    // `Reports/field-settling-2026-08.md` has the full measurement.
     let _lit = apply_sky_to(amplitude, &coords, world.fields_ref(), &mut next);
     apply_moisture_sources(&solve, &mut next);
 

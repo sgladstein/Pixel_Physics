@@ -1449,7 +1449,16 @@ impl World {
 
     // --- crate-internal seams used only by `field::step` -------------------
 
-    pub(crate) fn fields_settled(&self) -> bool {
+    /// Whether every field tile reached its channel epsilons on the last
+    /// solve — the field's own "nothing is changing any more".
+    ///
+    /// `pub` rather than `pub(crate)` so a harness can wait for a world to go
+    /// genuinely quiet instead of stepping a fixed number of frames and
+    /// hoping. `examples/scale_probe.rs` needs exactly that: the field takes
+    /// thousands of frames to converge after generation, and a settled-cost
+    /// figure taken before then is measuring the transient. Read-only, so it
+    /// widens nothing.
+    pub fn fields_settled(&self) -> bool {
         self.fields_settled
     }
 
