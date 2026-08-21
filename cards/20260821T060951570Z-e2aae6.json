@@ -1,0 +1,59 @@
+{
+  "id": "20260821T060951570Z-e2aae6",
+  "created": "2026-08-21T06:09:51Z",
+  "board": "camera",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/map-scrolling-no-gnome-4c5up6",
+    "commit": "c020609",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "WASD scrolls the map when no gnome is deployed",
+  "question": "Holding one key crosses the whole world in two seconds. Is that the right speed to fling the view around while testing, or do you want it faster?",
+  "context_md": "You can now scroll the view with `A`/`D`/`W`/`S` whenever no gnome is summoned — the same keys that run him, because the two can never both be live. Summon him and the view goes back to being his.\n\nBoth clips are the same held key for two seconds, on the same seed and frame. **The rate is in screenfuls per second, not cells**, so the picture is meant to slide at the same speed however far in or out you are zoomed — that is what the pair is for. Zoom 1 covers 768 cells/s, zoom 4 covers 192, and both measure at exactly 1.50 screens/s.\n\nWhat I have already checked, so you can ignore it:\n\n- the view stops at the edges of the world rather than showing the void (that is why the clip stops moving at the end — it has arrived)\n- no smearing: every scrolling frame fully redraws, 0 of 120 skipped in both runs\n- the step is quantised to the zoom-out sample stride, without which a zoomed-out view re-samples instead of translating\n\nWhat I cannot check without you: **whether 1.5 screens/s feels right in the hand.** It is one constant if it does not. A hold-to-accelerate ramp was considered and left out, on the grounds that the longest journey here is two seconds — say if you want it.\n\nOne known cost, stated: a scrolling frame is a full redraw, measured this session at **15.5 ms against 0.00 ms once the view is still**. That is the same price the camera already paid whenever the gnome walked, and it ends when you let go of the key.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "zoom 1 (default)",
+      "files": [
+        "20260821T060951570Z-e2aae6/000-pan-zoom1.gif"
+      ],
+      "caption": "the whole world, end to end, in one 2-second hold",
+      "meta": {
+        "cells travelled": 1536,
+        "cells per second": 768,
+        "screens per second": 1.5,
+        "moving frames": 120,
+        "frames not fully redrawn": 0,
+        "worst render frame ms (scrolling)": 15.53,
+        "worst render frame ms (still)": 0.0
+      }
+    },
+    {
+      "label": "zoom 4",
+      "files": [
+        "20260821T060951570Z-e2aae6/001-pan-zoom4.gif"
+      ],
+      "caption": "same key, same two seconds — should read as the same speed",
+      "meta": {
+        "cells travelled": 384,
+        "cells per second": 192,
+        "screens per second": 1.5,
+        "moving frames": 120,
+        "frames not fully redrawn": 0,
+        "worst render frame ms (scrolling)": 18.55,
+        "worst render frame ms (still)": 0.0
+      }
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
