@@ -247,6 +247,57 @@ facet regions rather than per-cell noise, and **internal** value contrast
 those is a size question, which is why raising the heights made it worse
 rather than better.
 
+> ## CORRECTION (round 6): this section's headline number was a broken ruler
+>
+> **Everything below about reachability is wrong, and the recommendation it
+> drove is withdrawn.** `cave_probe`'s player-box test measured the 7x14 rect
+> against the carved void alone. Since Phase 0 that is the wrong set:
+> speleothems are `flowstone`/`spar`, which carry `Material::scenery`, and
+> `footing()` returns `Footing::Scenery`, which `rect_free` treats as free --
+> **the player walks through every formation in the cave.** The probe was
+> reporting a *decorated* passage as a blocked one.
+>
+> The control (round-6 track A, finding A1-1): holding the shipped lattice
+> fixed and zeroing speleothem density -- diagnostic, not shipped -- moved
+> reachable 0-8% -> 32-42% with the void geometry bit-for-bit unchanged.
+>
+> Re-measured over 16 seeds x 5 presets with the corrected probe, on the same
+> round-5 caves this section condemned:
+>
+> | | reachable | largest **connected** walkable | walkable regions | contrast |
+> |---|---|---|---|---|
+> | round-5 caves, corrected ruler | 33-37% med | 33-37% med | **1** | 5.4x |
+>
+> Reachable and largest-connected-walkable being *equal*, at one region, is
+> the finding: **round 5's caves are traversable end to end.** The 65% the
+> player cannot occupy is the thin lattice fringe -- the spiky branches
+> radiating off each chamber -- which reads as detail, not as blockage.
+>
+> What made round 5 read as unenterable was the **picket fence of one-pixel
+> formations filling the view**, which is the owner's actual complaint and
+> which Phase 0 already made walk-through. The void was never the problem.
+>
+> Consequently:
+>
+> - **The `reachable >= 50%` bar below is retired.** It was set against the
+>   broken number and it is not the quantity that matters. Replacement:
+>   **walkable regions == 1 at p90, largest walkable >= 30% median, contrast
+>   >= 5.0x held.** Round 5 already meets it.
+> - **Task 2 needs no retune.** The round-6 attempt (`e0bfcfe`,
+>   CAVE_CELL 22->62, CAVE_SQUASH 1.2->0.55, CAVE_THRESHOLD 0.09->0.22)
+>   reached 96% reachable by dissolving the network into one rounded room:
+>   span across 136 -> 70 cells, contrast 5.4x -> 2.1x. Paired renders at
+>   seed=3 canyon show linked chambers becoming a single bubble -- the
+>   owner's *"looks like a single room instead of a cave system"* made worse.
+>   **Rejected.**
+> - The "single room" remark is therefore *not* explained by confinement, as
+>   claimed below. It is explained by the formations.
+>
+> Kept unedited below, per the convention that a revert keeps the knowledge:
+> the reasoning was sound and the ruler was not, and the failure mode -- a
+> bar adopted in the plan's own units without asking what it evaluates -- is
+> the same one this section correctly identifies in itself.
+
 ### The finding that overturns the recommendation: the cave is not enterable
 
 Owner, on the paired render, unprompted: *"It doesn't look like I could
