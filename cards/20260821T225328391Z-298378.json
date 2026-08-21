@@ -1,0 +1,83 @@
+{
+  "id": "20260821T225328391Z-298378",
+  "created": "2026-08-21T22:53:28Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-ecology",
+    "branch": "plant-ecology-design",
+    "commit": "1bb4c4b",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-ecology"
+  },
+  "title": "Form probes: do creeper, weeping or prostrate read as a new KIND of plant?",
+  "question": "Ignoring size for a moment -- which of these, if any, reads as a different kind of plant from the tree, rather than a tree that grew differently?",
+  "context_md": "WP-C. Three probes against the four-axes bar in `plant-evolution-design.md` §4a. Same scene, same seed, same 3 noon frames (10,800 / 18,000 / 25,200), `tree` re-rendered in the same batch as the control.\n\n**What I already think, so you can disagree with it:** creeper reads as a new class to me; prostrate reads as the same thing creeper is; weeping reads as a shaggier, lower tree rather than a new class. That is 1 against a bar of 2, so on my reading this round does *not* validate the \"envelope is wide\" claim -- which is the claim you already pushed back on.\n\n**What I want you to ignore:** absolute plant size. Creeper and prostrate are deliberately tiny (5-8 row turgor budget). The question is whether they are a different *kind of object*, not whether they are smaller.\n\n**What I have not measured:** no cell census. The size-class claim is read off these sheets, which is exactly the quantity a picture cannot give. Say the word and I will run one.\n\n`sites` below is scheduled growth sites at frame 25,200 -- 0 means the plant has finished growing and gone quiet.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "tree (control)",
+      "files": [
+        "20260821T225328391Z-298378/000-wpc-tree.png"
+      ],
+      "caption": "shipped species, unchanged",
+      "meta": {
+        "growth sites @f25200": 111,
+        "awake chunks": "7/40",
+        "code cost": "none",
+        "turgor_source": 1.0
+      },
+      "focus": null
+    },
+    {
+      "label": "creeper",
+      "files": [
+        "20260821T225328391Z-298378/001-wpc-creeper.png"
+      ],
+      "caption": "values only -- low heading inertia, 8-row turgor budget",
+      "meta": {
+        "growth sites @f25200": 0,
+        "awake chunks": "2/40",
+        "code cost": "none",
+        "turgor_source": 0.16
+      },
+      "focus": null
+    },
+    {
+      "label": "prostrate",
+      "files": [
+        "20260821T225328391Z-298378/002-wpc-prostrate.png"
+      ],
+      "caption": "order-0 Plagiotropic (needed a 4-line plant.rs change), 4.7-row budget",
+      "meta": {
+        "growth sites @f25200": 0,
+        "awake chunks": "2/40",
+        "code cost": "4 lines in plant.rs",
+        "turgor_source": 0.135
+      },
+      "focus": null
+    },
+    {
+      "label": "weeping",
+      "files": [
+        "20260821T225328391Z-298378/003-wpc-weeping.png"
+      ],
+      "caption": "tree.ron with ONE line changed: upward_weight negative on orders >= 1",
+      "meta": {
+        "growth sites @f25200": 124,
+        "awake chunks": "7/40",
+        "code cost": "none",
+        "turgor_source": 1.0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
