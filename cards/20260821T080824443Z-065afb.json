@@ -1,0 +1,42 @@
+{
+  "id": "20260821T080824443Z-065afb",
+  "created": "2026-08-21T08:08:24Z",
+  "board": "weather",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "54ca725",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Rain now pays for wetting the ground — is it wetting it fast enough?",
+  "question": "Ground reaches the same wetness but takes about twice as long. Judge it in the app next time it rains: does a passing front still darken the hillside quickly enough to read as rain?",
+  "context_md": "**The change.** Water that soaks into soil used to leave the books entirely -- a soil world's rain thinned to 0.54 of full strength over 60,000 frames and stayed there. Held water is now counted, the soak is charged to the sky's reserve, and damp ground evaporates back into it. Soil supply **0.54 -> 0.76**, and `water_equivalents + bank` is flat to the unit on a soil world where before it was not a conservation law at all.\n\n**The cost, and why it was unavoidable.** Charging for wetting soil puts it in direct competition with rain, and soil storage is huge next to the reserve: 24 rows across a 512-wide shelf hold **12,288** cell-equivalents against a `STORM_RESERVE` of 2,500. At the old soak the equilibrium was **0.09** -- worse than the leak it replaced. Raising the drying rate twentyfold only reached 0.28, because the reservoir and not the rate is the constraint. Cutting `SOIL_SOAK_PER_DROP` tenfold is what reached 0.76.\n\nThe chart is the trade: same destination, roughly twice the time, and more than twice the water left in the sky at the end.\n\n**I cannot judge this from a contact sheet and am not going to pretend otherwise** -- it is about how quickly the ground responds while you are standing in the rain. If it reads as too slow, the honest alternative is to raise `STORM_RESERVE` (which also decides how wet a brand-new world starts) rather than to put the soak back, because putting it back returns the 0.09.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "wetness against time",
+      "files": [
+        "20260821T080824443Z-065afb/000-wetness.png"
+      ],
+      "caption": "mean saturation of the top soil row through one front",
+      "meta": {
+        "soil supply at 60,000 frames, before": 0.54,
+        "soil supply at 60,000 frames, now": 0.76,
+        "ledger drift on a soil world, before": "unmeasurable (soil not counted)",
+        "ledger drift on a soil world, now": "< 0.1%",
+        "frames to reach 0.59 saturation, before": 1200,
+        "frames to reach 0.59 saturation, now": 3500
+      }
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
