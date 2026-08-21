@@ -1,0 +1,57 @@
+{
+  "id": "20260821T065645436Z-6a5eea",
+  "created": "2026-08-21T06:56:45Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "8b96a81",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Splash: how much should a handful of sand into a pond throw?",
+  "question": "Which of these reads as water being hit, rather than as grit with some blue pixels near it?",
+  "context_md": "`filmstrip scene=splash` -- loose sand grains falling into an open pool 271 wide, frames 60/105/150/195. Three settings of the two knobs together (droplets per site, and how fast they leave).\n\nEach droplet is a **whole cell taken out of the pool**, not extra water, so this is a bound on how much water is in the air at once as much as it is a look. The droplet counts in `meta` are cumulative over the run.\n\nWhat I cannot judge from here and you can: whether the current setting reads as too *timid*. `SPLASH_UP` is deliberately modest against the engine's max speed of 8 -- the note at the site says a droplet that clears a pool by twenty cells is an eruption, not a splash -- but nobody has watched all three moving.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260821T065645436Z-6a5eea/000-spl_current.png"
+      ],
+      "caption": "3 droplets, up 2.2, out 1.1",
+      "meta": {
+        "droplets thrown over the run": 58
+      }
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260821T065645436Z-6a5eea/001-spl_livelier.png"
+      ],
+      "caption": "5 droplets, up 3.2, out 1.6",
+      "meta": {
+        "droplets thrown over the run": 82
+      }
+    },
+    {
+      "label": "C",
+      "files": [
+        "20260821T065645436Z-6a5eea/002-spl_restrained.png"
+      ],
+      "caption": "2 droplets, up 1.6, out 0.8",
+      "meta": {
+        "droplets thrown over the run": 56
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
