@@ -401,8 +401,17 @@ fn shape(cells: &[(i32, i32)]) -> System {
 /// what matters is the silhouette a player sees, and a formation buried in
 /// its own breakdown floor is not one however many cells the pass wrote.
 fn measure_formations(world: &World, cells: &[(i32, i32)], forms: &mut Formations) {
+    // **Formations are their own materials now, and this instrument has to
+    // know.** They used to be written as `stone`/`crystal` with a distinct
+    // palette shade; they are `flowstone`/`spar` since the scenery split. A
+    // probe still looking for the old pair would report **zero formations**
+    // on a world full of them -- the ruler changing meaning under the
+    // measurement, which is exactly the failure this file exists to catch.
+    // `stone` stays in the list because the ceiling guard's teeth and the
+    // fused columns are massif stone, and both are formations to the eye.
     let stone = world.materials.id_of("stone");
-    let crystal = world.materials.id_of("crystal");
+    let crystal = world.materials.id_of("flowstone");
+    let spar = world.materials.id_of("spar");
     let (w, h) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
     let bbox = (
         cells.iter().map(|c| c.0).min().unwrap(),
@@ -421,7 +430,7 @@ fn measure_formations(world: &World, cells: &[(i32, i32)], forms: &mut Formation
     // tell.
     let is_form = |x: i32, y: i32| {
         let m = world.get(x, y).material;
-        (Some(m) == stone || Some(m) == crystal)
+        (Some(m) == stone || Some(m) == crystal || Some(m) == spar)
             && !void_here.contains(&(x, y))
             && void_here.contains(&(x - 1, y))
             && void_here.contains(&(x + 1, y))
@@ -452,7 +461,7 @@ fn measure_formations(world: &World, cells: &[(i32, i32)], forms: &mut Formation
             forms.count += 1;
             forms.cells += height as usize;
             forms.heights.push(height);
-            if Some(world.get(x, (top + bot) / 2).material) == crystal {
+            if Some(world.get(x, (top + bot) / 2).material) == spar {
                 forms.crystal += 1;
             }
             // Hanging (attached above, free below) vs standing.

@@ -156,6 +156,14 @@ pub struct Ctx<'a> {
     /// writes it, it exists as crystal's `breaks_into` for when a player
     /// mines one out.
     pub crystal: MaterialId,
+    /// The two *formation* materials — stalagmites, stalactites, columns.
+    ///
+    /// Distinct from `stone`/`crystal`, which is what lets a formation be
+    /// walk-through scenery while the cave wall stays a wall: the flag lives
+    /// on the material, so sharing an id with the massif would make the
+    /// massif walk-through too. See `Material::scenery`.
+    pub flowstone: MaterialId,
+    pub spar: MaterialId,
     /// Tangent of gravel's angle of repose, for the scree pass.
     pub gravel_tan: f32,
     /// Cover cells `soil_blanket` recoloured as talus (round-4 task 5's
@@ -182,6 +190,7 @@ impl<'a> Ctx<'a> {
         let (stone, soil, sand, gravel, water) =
             (id("stone"), id("soil"), id("sand"), id("gravel"), id("water"));
         let crystal = id("crystal");
+        let (flowstone, spar) = (id("flowstone"), id("spar"));
         // Read soil's angle of repose from the material data rather than
         // assuming it: the generator's whole at-rest guarantee is that it
         // never places soil steeper than this, and an edit to `soil.ron` that
@@ -202,6 +211,8 @@ impl<'a> Ctx<'a> {
             gravel,
             water,
             crystal,
+            flowstone,
+            spar,
             gravel_tan,
             talus_recolored: std::cell::Cell::new(0),
             boulders_seated: std::cell::Cell::new(0),

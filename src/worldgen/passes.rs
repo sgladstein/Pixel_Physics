@@ -893,6 +893,19 @@ struct VaultReport {
     passage_cells: usize,
     speleothem_cells: usize,
     water_cells: usize,
+    /// Wall time of the whole `vaults` pass, in milliseconds (round 6, A0).
+    ///
+    /// Nothing measured this before: the pass table's cell count says
+    /// whether something placed, never what it cost, and the cave path is
+    /// the one pass in this file whose cost is **quadratic in envelope
+    /// area** (the ceiling-settle fixpoint re-floods the whole envelope
+    /// once per tooth dropped, and a wide roof run needs several). A2's
+    /// planned size growth is a live threat to the ~800ms regen budget and
+    /// there was no number to size it against -- this is that number,
+    /// printed unconditionally whenever the pass actually iterates, so a
+    /// world where every draw is rejected still reports what the rejections
+    /// cost.
+    build_ms: f64,
 }
 
 /// Sealed cave systems and geode vugs, buried far below the surface: the
@@ -935,6 +948,7 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
     // draw would put one in every 64-cell block.
     let whole = p.vault_density.floor() as i32;
     let extra = i32::from(noise::unit(seed, Purpose::Vault, -1, -1) < p.vault_density.fract());
+    let t0 = std::time::Instant::now();
     let mut written = 0;
     let mut report = VaultReport::default();
     for k in 0..whole + extra {
@@ -1161,19 +1175,27 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
         }
         report.cells += hollow.len() + lining.len();
     }
-    // The counters next to the picture, printed only when something placed:
-    // the pass-table row alone cannot say whether the anatomy stages fired,
-    // and a cave is invisible in any render until someone digs to it. The
-    // format deliberately does not match the table's `name N cells` rows, so
-    // the sweep's parser never mistakes it for one.
-    if report.systems > 0 {
+    // The counters next to the picture, printed whenever the pass actually
+    // iterated: the pass-table row alone cannot say whether the anatomy
+    // stages fired, and a cave is invisible in any render until someone digs
+    // to it. The format deliberately does not match the table's `name N
+    // cells` rows, so the sweep's parser never mistakes it for one.
+    //
+    // Timing is printed even when `report.systems == 0` (round 6, A0): a
+    // world where every draw got rejected at the seal check still paid the
+    // full envelope scan for each one, and that cost was previously
+    // invisible -- the old gate (`report.systems > 0`) hid exactly the
+    // rejection-heavy worlds this number exists to catch.
+    report.build_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    if whole + extra > 0 {
         println!(
-            "  vaults detail: systems {} chambers {} passages {} speleothems {} water {}",
+            "  vaults detail: systems {} chambers {} passages {} speleothems {} water {} | {:.1}ms",
             report.systems,
             report.chambers,
             report.passage_cells,
             report.speleothem_cells,
-            report.water_cells
+            report.water_cells,
+            report.build_ms
         );
     }
     written
@@ -1234,12 +1256,27 @@ fn keep_seed_component(void: &mut [bool]) {
     void.copy_from_slice(&kept);
 }
 
-/// The first ceiling run longer than [`MAX_CEILING_SPAN`], as
-/// `(row, start, len)`, topmost-leftmost first so the guard is
-/// deterministic. A ceiling run is a maximal horizontal run of void cells
-/// each with non-void directly above -- which, once the seal has passed, is
-/// stone: the unsupported roof span the guard bounds.
-fn first_long_ceiling_run(void: &[bool]) -> Option<(i32, i32, i32)> {
+/// Every ceiling run longer than [`MAX_CEILING_SPAN`], as `(row, start,
+/// len)`, topmost-leftmost first so the guard is deterministic. A ceiling
+/// run is a maximal horizontal run of void cells each with non-void
+/// directly above -- which, once the seal has passed, is stone: the
+/// unsupported roof span the guard bounds.
+///
+/// **Returns every violation in one scan, not just the first** (round 6,
+/// A0). The settle loop below used to call this once per tooth and
+/// re-flood the whole envelope (`keep_seed_component`) between every single
+/// one -- O(area) per tooth, and a system with a 176-cell widest span
+/// (measured, `cave_probe`) needs about five. Collecting every run first and
+/// dropping all their teeth before the next flood collapses that to one
+/// flood per *round*, and a round only repeats at all when a dropped tooth
+/// severs a passage and exposes a new violation on the far side of the cut
+/// -- rare, and never more than a handful of rounds in the measured sweep.
+/// Two long runs on the same row are never within tooth-width (5) of each
+/// other's midpoints in practice (each is >36 cells and the gap between
+/// them is itself non-void), so applying every tooth from one scan before
+/// rescanning does not clip a compliant neighbour.
+fn all_long_ceiling_runs(void: &[bool]) -> Vec<(i32, i32, i32)> {
+    let mut runs = Vec::new();
     for dy in -CAVE_HALF_H..=CAVE_HALF_H {
         let mut run = 0;
         for dx in -CAVE_HALF_W..=CAVE_HALF_W + 1 {
@@ -1250,13 +1287,13 @@ fn first_long_ceiling_run(void: &[bool]) -> Option<(i32, i32, i32)> {
                 run += 1;
             } else {
                 if run > MAX_CEILING_SPAN {
-                    return Some((dy, dx - run, run));
+                    runs.push((dy, dx - run, run));
                 }
                 run = 0;
             }
         }
     }
-    None
+    runs
 }
 
 /// Collect a cave system's void as a boolean grid over the envelope.
@@ -1352,8 +1389,14 @@ fn carve_cave_void(ctx: &Ctx, world: &World, k: i32, cx: i32, cy: i32) -> Option
 fn settle_cave_void(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool]) {
     loop {
         keep_seed_component(void);
-        let ceiling = first_long_ceiling_run(void);
-        if let Some((y, x0, len)) = ceiling {
+        // Every violation this round, not just the first (round-6 A0). The
+        // O(area) `keep_seed_component` flood used to run once per *tooth*;
+        // it now runs once per *round*, and a round only repeats when a
+        // dropped tooth severs a passage and exposes a new violation beyond
+        // the cut. Each round still removes at least one void cell, so this
+        // terminates on the same argument as before.
+        let runs = all_long_ceiling_runs(void);
+        for &(y, x0, len) in &runs {
             // A stone tooth hung from the run's middle: three rows deep,
             // tapering 5-3-1 wide, so the splitter reads as rock coming down
             // from the roof rather than as a one-cell film. It splits the
@@ -1369,7 +1412,7 @@ fn settle_cave_void(ctx: &Ctx, world: &World, cx: i32, cy: i32, void: &mut [bool
             }
         }
         let eroded = erode_breaches(ctx, world, cx, cy, void);
-        if ceiling.is_none() && !eroded {
+        if runs.is_empty() && !eroded {
             break;
         }
     }
@@ -2295,7 +2338,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
             let cell = if formation == 2 {
                 // The crystal minority: the same material as a vug lining,
                 // attached like the rock it grows from.
-                Cell::new(ctx.crystal, loose_shade(ctx, Purpose::Vault, px, py)).with_attached(true)
+                Cell::new(ctx.spar, loose_shade(ctx, Purpose::Vault, px, py)).with_attached(true)
             } else if formation == 1 {
                 // Flowstone: stone, but *pale* stone -- the cap-rock family
                 // with its own per-cell tone rather than the wall's banding.
@@ -2306,8 +2349,7 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
                 // diff every round-3 guard relies on can *see* it -- written
                 // with the wall's own shade it is byte-identical to the
                 // control world and vanishes from every test.
-                Cell::new(ctx.stone, FAMILY_RESISTANT * TONES + loose_shade(ctx, Purpose::Speleothem, px, py))
-                    .with_attached(true)
+                Cell::new(ctx.flowstone, loose_shade(ctx, Purpose::Speleothem, px, py)).with_attached(true)
             } else if gravel {
                 // Buried gravel's family, same as a lens and the vug floor:
                 // read against solid stone and nothing else.
@@ -2339,6 +2381,9 @@ fn cave_system(ctx: &Ctx, world: &mut World, k: i32, cx: i32, cy: i32) -> VaultR
         passage_cells,
         speleothem_cells: speleo_cells,
         water_cells,
+        // Set by the caller (`vaults`), which times the whole pass rather
+        // than any one system.
+        build_ms: 0.0,
     }
 }
 

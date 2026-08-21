@@ -155,6 +155,28 @@ run caveshallow scene=worldcrack preset=flat seed=7 dig=4 tunnel=35 depth=6 star
 #    same material came away in. Measure what the scene is about.
 run strike   scene=strike   start=2 every=60 count=4 crop=200,90,120,120 zoom=3 min_bodies=2 repeat=2 max_frame_ms=$BUDGET_MS
 
+# 8. The gnome gets through a wood.
+#
+#    The character path had no gated case at all before this, which is how
+#    a gnome who could be *walled in by a tree* went unnoticed until it was
+#    played: on this very scene he travelled 0 cells and spent the run
+#    BURIED, having been entombed by a crown that grew over the spot he was
+#    standing on.
+#
+#    Distance, not a picture, for the same reason `min_overloaded` is a
+#    count rather than a screenshot: a gnome stopped against a trunk and a
+#    gnome standing inside one are the same few pixels at any zoom a sheet
+#    is read at.
+#
+#    Measured 362 cells over the 600 ticks after he sets off, past six of
+#    the eight trees; the bar is set below that with headroom, and the
+#    failure it guards is 0. No frame-cost bar: this scene's worst frame is
+#    six thousand frames of tree *growth* before he takes a step, which is
+#    nothing to do with the gnome and sits close enough to the budget to
+#    flake on other hardware. `repeat=1` for the same reason -- there is no
+#    timing claim here to stabilise, and the run is 26 s.
+run wood     scene=wood     start=6600 every=1 count=1 crop=0,140,512,180 zoom=2 min_travelled=200 repeat=1
+
 echo
 if [ "$fails" -gt 0 ]; then
   echo "acceptance: $fails case(s) FAILED -- images in $OUT"

@@ -1,0 +1,41 @@
+// The crystal minority among cave formations — the ones that glow.
+//
+// Split from `crystal` deliberately: a vug *lining* is wall, and must keep
+// blocking the player, while a crystal *formation* standing in a chamber is
+// scenery he walks past. Same substance, different role, and the role is
+// what the two materials record. `crystal` stays exactly as it was.
+//
+// See `flowstone` for why formations are their own materials at all, and
+// `Material::scenery` for what the flag does and does not reach.
+(
+    name: "spar",
+    display: "Crystal Spar",
+    kind: Solid,
+    scenery: true,
+    glow: 1.8,
+    density: 2.65,
+    // **A facet palette, not four near-whites.** `crystal`'s four tones are
+    // luma ~205/224/240/250 — all inside the top fifth of the range — which
+    // is why a spar drawn in them reads as a white stick with noise on it
+    // however it is shaped. These keep the cold blue-white identity but span
+    // 84..252, so a facet has a lit face *and* a shadowed one and the edge
+    // between them is visible at 1:1.
+    //
+    // The dark end is well below the surrounding rock on purpose. A crystal
+    // is not uniformly bright; it is bright *in places*, and the places are
+    // what say "faceted" rather than "painted".
+    colors: [
+        (186, 214, 236),
+        (108, 138, 166),
+        (238, 248, 255),
+        (84, 104, 128),
+    ],
+    base_colors: 4,
+    max_unsupported_span: 8,
+    attached_span_bonus: 12,
+    breaks_into: "shard",
+    fragment_rungs: 4,
+    support_cost_below: 1,
+    support_cost_beside: 2,
+    support_cost_above: 5,
+)

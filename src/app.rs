@@ -446,6 +446,13 @@ impl App {
     /// fields it owns, and says so: the two are the coarse and fine
     /// halves of the same job, and silently keeping a hand-swept value
     /// while announcing a preset name would make the label a lie.
+    /// Cycle whether the gnome weaves through a stand of trees or draws
+    /// over it. `,`.
+    pub fn cycle_tree_depth(&mut self) {
+        let mode = self.renderer.cycle_tree_depth();
+        self.show_toast(format!("TREE DEPTH: {}", mode.label()));
+    }
+
     pub fn cycle_movement_feel(&mut self) {
         self.movement_feel = (self.movement_feel + 1) % player::MOVEMENT_FEELS.len();
         let feel = &player::MOVEMENT_FEELS[self.movement_feel];
@@ -1017,6 +1024,10 @@ impl App {
     fn draw_hud(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
         const WHITE: [u8; 4] = [255, 255, 255, 255];
         const YELLOW: [u8; 4] = [255, 240, 120, 255];
+        /// The shake ring. Green rather than a second yellow, because the
+        /// point is that two verbs live on one button and you can tell
+        /// which you are about to use before you press it.
+        const GREEN: [u8; 4] = [130, 240, 140, 255];
 
         // Brush label -- always on, bottom-left, the data `status()` above
         // already computes just shown persistently instead of only in the
@@ -1096,11 +1107,22 @@ impl App {
             // `player::bite_point`, the same function `dig` aims with, so
             // the marker cannot drift from the cut. Sized to
             // `dig_radius`, so the ring also says how big a bite is.
+            // Two verbs on one button, so the ring has to say which. A cut
+            // is a yellow disc the size of the bite; a shake is a green
+            // ring at the plant, sized to nothing in particular because
+            // what it shakes is the plant, not a radius.
+            let mut shaking = false;
             let dig_marker = match (self.tool, &self.world.player) {
                 (Tool::Dig, Some(p)) => {
                     let aim = self.renderer.screen_to_world(sx, sy);
-                    let at = player::bite_point(&self.world, p, aim, &self.player_tuning);
-                    self.renderer.world_to_screen(at.0, at.1).map(|s| (s, self.player_tuning.dig_radius as i32))
+                    let (at, radius) = match player::shake_target(&self.world, p, aim, &self.player_tuning) {
+                        Some(at) => {
+                            shaking = true;
+                            (at, 3)
+                        }
+                        None => (player::bite_point(&self.world, p, aim, &self.player_tuning), self.player_tuning.dig_radius as i32),
+                    };
+                    self.renderer.world_to_screen(at.0, at.1).map(|s| (s, radius))
                 }
                 _ => None,
             };
@@ -1114,7 +1136,11 @@ impl App {
             } else {
                 (radius / self.renderer.zoom_out_stride.max(1)).max(1)
             };
-            let ring = if dig_marker.is_some() { YELLOW } else { WHITE };
+            let ring = match (dig_marker.is_some(), shaking) {
+                (_, true) => GREEN,
+                (true, false) => YELLOW,
+                (false, false) => WHITE,
+            };
             render::draw_circle_outline(frame, WIDTH, HEIGHT, cx, cy, screen_radius, ring);
 
             if self.show_hover_inspector {
@@ -1455,7 +1481,7 @@ impl App {
     /// silently — the line describing the gnome's dig outlived the
     /// mechanism it described by two commits, still telling players to
     /// click *near him* long after proximity meant anything.
-    fn help_lines() -> [&'static str; 27] {
+    fn help_lines() -> [&'static str; 30] {
         [
             "LEFT CLICK PAINT    RIGHT CLICK ERASE",
             "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
@@ -1465,7 +1491,10 @@ impl App {
             "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
             "  SUMMONING ARMS HIS DIG: LMB CUTS AT THE YELLOW RING, RMB ERASES",
             "  IN WATER: W STROKE UP    S SWIM DOWN",
+            "  IN A TREE: HOLD SHIFT TO HOLD ON, THEN W UP / S DOWN",
+            "  LMB ON A TREE (GREEN RING) SHAKES IT INSTEAD OF CUTTING",
             "  F3 JUMP FEEL  F4 WATER FEEL  F2 SPOIL (CYCLE, SAY WHICH IS BEST)",
+            ", TREES IN FRONT OF HIM / BEHIND HIM (CYCLE)",
             "C STRIKE ROCK    H DIG (PRECISE CUT)",
             "F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    J PLANT WORM",
@@ -1595,7 +1624,26 @@ impl App {
         // reason that function's own comment gives: one gate on the
         // operation, three call sites.
         if !erase && self.tool == Tool::Dig && self.world.player.is_some() {
-            player::dig(&mut self.world, to, &self.player_tuning);
+            // One button, and what it does is decided by what he is
+            // pointing at: rock is cut, a living plant is shaken. Same
+            // reasoning as the tool gate itself -- adding a second key for
+            // the second verb, on a keyboard with nothing left on it,
+            // would make the verb invisible in exactly the way proximity
+            // gating did. The ring says which one you will get before you
+            // click.
+            let shake_at = self
+                .world
+                .player
+                .as_ref()
+                .and_then(|p| player::shake_target(&self.world, p, to, &self.player_tuning));
+            match shake_at {
+                Some(at) => {
+                    player::shake(&mut self.world, at, &self.player_tuning);
+                }
+                None => {
+                    player::dig(&mut self.world, to, &self.player_tuning);
+                }
+            }
             return;
         }
         let m = if erase {
@@ -1780,7 +1828,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1829,6 +1877,14 @@ impl App {
                 String::new()
             } else {
                 format!(" — spoil {}", player::SPOIL_MODES[self.spoil_mode].name)
+            },
+            // Same rule again: silent at the default, named the moment it
+            // is not, so a screenshot of a stand can be reported as having
+            // been taken in a particular mode.
+            if self.renderer.tree_depth == render::TreeDepth::default() {
+                String::new()
+            } else {
+                format!(" — trees {}", self.renderer.tree_depth.label())
             },
             // Same "only once turned on" rule as spoil: silent at the
             // default, named on screen the moment it is not, because a
@@ -2022,6 +2078,62 @@ mod tests {
         // And the brush is still reachable: `Z` off the dig tool paints.
         app.cycle_tool();
         assert_ne!(app.tool, Tool::Dig, "Z must get the player out of the dig tool");
+    }
+
+    /// A click on a living plant must reach the *shake*, through the
+    /// function the mouse actually calls.
+    ///
+    /// Written because the shake shipped without it. Every test of that
+    /// verb called `player::shake_target`/`player::shake` directly, which
+    /// is precisely the hole the test above records for the dig — "a test
+    /// called `player::dig` directly and so proved nothing about the path
+    /// a player actually uses" — reproduced one verb later.
+    ///
+    /// The discriminator is **dislodged material**, because it is the one
+    /// effect only a shake has and the only one with no RNG in it. Shed
+    /// leaves are a weighted roll and seed needs a grown tree; a dig
+    /// cannot touch organism cells at all, so "the wood is still there"
+    /// would pass whichever verb fired.
+    #[test]
+    fn a_click_on_a_tree_shakes_it_rather_than_cutting_or_painting() {
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        let wood = id(&app, "wood");
+        let sand = id(&app, "sand");
+        for y in 40..70 {
+            for x in 0..120 {
+                app.world.set(x, y, Cell::EMPTY);
+            }
+        }
+        for x in 0..120 {
+            app.world.set(x, 70, Cell::new(stone, 0).with_attached(true));
+        }
+        // A living trunk within `shake_reach`, with open air either side of
+        // it so the dislodge has somewhere to drop from.
+        let species = app.world.species.id_of("tree").expect("tree is compiled in");
+        let organism = app.world.push_organism(species);
+        let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
+        for y in 55..70 {
+            app.world.set(40, y, Cell::new(wood, 0).with_organism_id(organism).with_aux(aux));
+        }
+        // One grain resting on the top of it.
+        app.world.set(40, 54, Cell::new(sand, 0));
+
+        app.summon_player(30, 64);
+        assert_eq!(app.tool, Tool::Dig, "summoning must arrive in the dig tool");
+
+        app.paint_stroke((60, 64), (60, 64), false);
+
+        assert_ne!(
+            app.world.get(40, 54).material,
+            sand,
+            "the grain resting on the trunk should have been shaken off it"
+        );
+        assert_eq!(
+            app.world.get(40, 60).material,
+            wood,
+            "and the trunk itself is not something a click may cut or paint over"
+        );
     }
 
     /// The help panel is the only place several keys are documented, and
