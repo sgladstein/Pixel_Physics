@@ -29,7 +29,42 @@ seed sweep, not another guard clause. Do not widen the two named tests'
 seed lists as a "fix" — they would go red on the standing defect.
 
 
-### 0b. The deep massif reads as television static, and it is a per-cell palette dither (worldgen)
+### 0b. The deep massif reads as television static, and it is a per-cell palette dither (worldgen) — **FIXED**
+
+> **Fixed 2026-08-21**, along the direction this entry names.
+> `palette_family` now compares against fBm on the same `Purpose::Palette`
+> stream instead of a per-cell `noise::unit` draw, so the boundary wanders
+> because the field does. Measured, canyon seed 1, deep-rock crop, paired
+> in one tree: **luma MAD 5.612 -> 2.216 (-61%), chroma MAD 1.775 -> 0.318
+> (-82%)**.
+>
+> `FAMILY_DITHER_WAVELENGTH` = 40, chosen by eye from a three-point sweep:
+> 14 reads as camouflage blotches, 96 as a bare curve, 40 as a coastline.
+>
+> **`FAMILY_DITHER_CONTRAST` is the part that would have been missed.**
+> `noise::unit` is uniform on 0..1; a normalised three-octave fBm spans
+> roughly 0.30..0.60, so thresholds tuned for the tails of a uniform draw
+> stopped firing and `wetland` seed 1 came out with every rock cell in one
+> family. Caught by `a_varied_world_uses_more_than_one_rock_family`, not by
+> the author. Re-deriving the constants that read a changed quantity is
+> part of the fix.
+>
+> **Still open, deliberately:** `strata_shade`'s separate "12% of cells jump
+> a tone" rule, which this entry asks to be re-judged in the same pass. It
+> is the same shape at much smaller amplitude -- brightness only, no hue --
+> and now reads as rock texture rather than noise. Left rather than change
+> two things at once; it is a one-line follow-up if the owner disagrees.
+>
+> **Measurement note, because it cost three invalid readings:** piping a
+> render into `grep -q` closes the pipe on the first match and can kill the
+> producer before it writes its PNG, leaving the previous run's file on
+> disk. That produced a byte-identical image across three wavelengths --
+> which reads exactly like "the knob was never connected" -- and a
+> cross-worktree baseline no clean build could reproduce. Redirect, never
+> pipe, and prefer a paired `git stash` comparison inside one tree.
+
+The original entry, kept for the diagnosis and the mis-attribution:
+
 
 Every cave render at 4x zoom shows the surrounding rock as full-contrast
 salt-and-pepper speckle — louder than any cave feature in the frame, and
