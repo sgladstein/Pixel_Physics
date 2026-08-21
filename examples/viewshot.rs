@@ -33,6 +33,7 @@ use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::world::World;
+use pixel_physics::worldgen::WorldgenParams;
 
 struct Args {
     seed: u32,
@@ -47,6 +48,7 @@ struct Args {
     reveal: bool,
     light: pixel_physics::render::TerrainLight,
     spring: i32,
+    age: Option<f32>,
     zoom: usize,
     crop: Option<(usize, usize, usize, usize)>,
     out: String,
@@ -69,6 +71,7 @@ fn main() {
         reveal: false,
         light: pixel_physics::render::TerrainLight::default(),
         spring: 0,
+        age: None,
         zoom: 1,
         crop: None,
         out: "target/filmstrips/viewshot.png".to_string(),
@@ -130,6 +133,14 @@ fn main() {
             // seep, `spring=4` a waterfall. The ledger prints beside the
             // image so "did it fire" is a number, not a reading of pixels.
             "spring" => a.spring = v.parse().expect("spring=N columns"),
+            // `age=N` overrides the preset's `world_age` for one render.
+            // The erosion design promises hoodoos and spires as a side
+            // effect of the differential rates; the prominence table says
+            // the shipped ages produce none. Whether *any* age produces
+            // them is the question that separates "tune the rates" from
+            // "the mechanism is missing", and it is answerable without
+            // touching `erosion.rs` -- which the data track owns.
+            "age" => a.age = Some(v.parse().expect("age=N")),
             // `zoom=K` and `crop=x,y,w,h` exist because a cave is judged at
             // the scale its formations are *drawn* at, and a 512x320 viewport
             // tile reduced onto a contact sheet is not that scale: a
@@ -158,6 +169,14 @@ fn main() {
     }
     let name = if a.preset.is_empty() { presets.default_name() } else { a.preset.clone() };
     let Some(params) = presets.get(&name) else { panic!("unknown preset {name:?}") };
+    let aged;
+    let params = match a.age {
+        Some(age) => {
+            aged = WorldgenParams { world_age: age, ..params.clone() };
+            &aged
+        }
+        None => params,
+    };
     let build = std::time::Instant::now();
     pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: a.seed as u64 });
     let build_ms = build.elapsed().as_secs_f64() * 1000.0;
@@ -377,8 +396,43 @@ fn main() {
         let mut all: Vec<i32> = (5..WORLD_WIDTH as i32 - 5).map(prom).collect();
         all.sort_unstable();
         let q = |f: f32| all[((all.len() as f32 - 1.0) * f) as usize];
+        // **Prominence at several reaches, because the reach is a scale and
+        // a single one cannot see past it.** Measured at 5 columns only, a
+        // 40-cell hoodoo 12 columns wide scores *zero* -- both sample points
+        // land on top of the formation itself -- so "max prominence in the
+        // world is 2" would have read as "there are no standing residuals
+        // anywhere" when it really meant "none narrower than 10 columns".
+        // The erosion design promises hoodoos as a side effect of the
+        // differential rates; whether it delivers them is exactly this
+        // question, and it is unanswerable at one reach.
+        for reach in [5i32, 15, 30, 60] {
+            let pr = |x: i32| -> i32 {
+                let l = tops[(x - reach).max(0) as usize];
+                let r = tops[(x + reach).min(WORLD_WIDTH as i32 - 1) as usize];
+                (l - tops[x as usize]).min(r - tops[x as usize])
+            };
+            let mut v: Vec<i32> = (reach..WORLD_WIDTH as i32 - reach).map(pr).collect();
+            v.sort_unstable();
+            let qq = |f: f32| v[((v.len() as f32 - 1.0) * f) as usize];
+            println!(
+                "  prominence at reach {reach:>2}: med {:>3} p90 {:>3} p99 {:>3} max {:>3}",
+                qq(0.5),
+                qq(0.9),
+                qq(0.99),
+                v[v.len() - 1]
+            );
+        }
+        // Headroom: how much sky a formation could rise into, and how much
+        // relief the terrain already has, so a proposed size can be judged
+        // against the world rather than against a wish.
+        let hi = *tops.iter().min().expect("non-empty");
+        let lo = *tops.iter().max().expect("non-empty");
         println!(
-            "  surface prominence over the whole world: med {} p90 {} p99 {} max {}",
+            "  surface runs y {hi}..{lo} ({} cells of relief); sky above the highest ground: {hi} rows",
+            lo - hi
+        );
+        println!(
+            "  surface prominence at reach 5: med {} p90 {} p99 {} max {}",
             q(0.5),
             q(0.9),
             q(0.99),

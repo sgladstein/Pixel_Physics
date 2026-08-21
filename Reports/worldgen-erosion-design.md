@@ -280,20 +280,139 @@ the ordering of the fix: **frequency is the third problem, not the
 first.** Making a two-cell pimple eight times more common produces
 eight pimples.
 
-**So the fix is, in order**: (1) size — a boulder comparable to the
-player, 6-12 cells across and standing 4-8 proud, which means seating it
-in a socket rather than displacing a couple of cells of cover, and
-re-deriving the height clamp from the real 3x rule; (2) frequency —
-R4-1's footprint/ordering against `brows`; (3) nothing else. Contrast is
-already handled. **Do not reach for the erosion rates** — none of this
-is about where a socket forms, and the rates were set by eye across a
-whole session.
+### The scale band between texture and landform is empty
 
-At the new size the structural claim stops being free and has to be
-tested rather than argued: a 12x8 attached dome resting on cover is
-still `Solid` and has no movement rule, but it is also the first object
-in the world that a player can plausibly undermine, so it wants a test
-that digs the cover out from under one and asserts what happens.
+Owner's push-back, 2026-08-20: *"maybe boulder was just not the right
+term — rock formations can easily be 5, 10, 20, 40 ft tall or larger,
+and they have many shapes, smooth and round, sharp and jagged."* Right,
+and a first answer to it (6-12 cells) was still anchored on the existing
+mechanism rather than on what rock does. The measurement below is the
+honest version.
+
+**Prominence at four reaches**, because a reach is a scale and one reach
+cannot see past it. A 40-cell hoodoo twelve columns wide scores **zero**
+at reach 5 — both sample points land on top of the formation — so the
+"max prominence is 2" figure above means "nothing narrower than ten
+columns", not "nothing at all". Measured over the whole world:
+
+| preset / seed | reach 5 max | reach 15 max | reach 30 max | reach 60 max | relief | sky above the highest ground |
+|---|---|---|---|---|---|---|
+| canyon s7 | 3 | 8 | 8 | **39** | 136 | 86 |
+| canyon s6 | 2 | 10 | 10 | 19 | 97 | 104 |
+| rolling s1 | 2 | 4 | 8 | 18 | 65 | 87 |
+| terraced s1 | 1 | 4 | 6 | 19 | 73 | 88 |
+
+Read across a row: the world has **landforms** (reach 60 — canyon s7's
+mesa at 39 cells, which is the one landscape the review called the best
+yet generated) and it has **texture** (reach 5, 1-3 cells). Between them,
+**at reaches 15 and 30 — exactly the scale a rock formation occupies —
+the tallest thing in the entire world is 4 to 10 cells.** Not rare:
+absent. There is no tor, no stack, no pinnacle, no standing residual
+anywhere in any of these worlds.
+
+**In the player's units.** `PLAYER_HEIGHT` is 14 cells, so a cell is
+roughly four to five inches and the owner's range converts as:
+
+| | cells |
+|---|---|
+| 5 ft | ~12-15 |
+| 10 ft | ~25-30 |
+| 20 ft | ~50-60 |
+| 40 ft | ~100-120 |
+
+Against 86-104 rows of sky above the highest ground and 65-136 cells of
+relief, a 20 ft formation is a landmark that fits comfortably and a
+40 ft one is comparable to a rolling world's entire relief. The world
+can host the whole range the owner named; it currently hosts none of it.
+
+**Why it is empty, and it is not one reason.**
+
+1. **The mechanism was scoped as debris, not as landform.** A
+   `Deposits::boulder` marker records where a hard band shed enough to
+   leave a socket, and the realise pass drops a small dome there. That
+   is a rock that *came off* something. A tor or a hoodoo is the
+   opposite object: what was left standing when everything around it
+   retreated. Nothing in the pipeline produces residuals.
+2. **This design says residuals should fall out of the rates, and they
+   do not.** The opening paragraph promises "hoodoos,
+   undercut-then-softened profiles, valley fills, and boulder sockets
+   all fall out of the differential rates". Valley fills and sockets
+   arrived; hoodoos did not, and the reach 15/30 column is the
+   measurement that says so. Suspect the **stable-angle rule**: a tall
+   narrow residual presents a near-vertical face to its neighbour, which
+   is steeper than any stable angle, so thermal shed knocks it down on
+   the iteration after it forms unless the hardness contrast there is
+   large enough to protect it.
+
+   **Tested, and the answer is "missing mechanism", not "tuning".**
+   `viewshot age=N` overrides `world_age` for one render, so the
+   question is answerable without touching `erosion.rs`. Maximum
+   prominence at reach 15 (the formation band), by age:
+
+   | | age 0 | age 0.8 (shipped) | age 2-3 | age 4 | age 8 |
+   |---|---|---|---|---|---|
+   | canyon s7 | **10** | 5 | 4 | 3 | 5 |
+   | canyon s1 | **10** | 3 | 3 | — | — |
+   | rolling s1 | **8** | 4 | 5 | — | — |
+   | terraced s7 | **8** | 4 | 3 | — | — |
+
+   **Erosion does not create formation-scale relief; it removes it.**
+   Age 0 — no erosion at all — has two to three times more prominence in
+   the formation band than the shipped age does, in every preset and
+   seed tried, and raising the age drives it down further. The one
+   recovery is canyon s7 at reach *30* climbing to 21 by age 8, which is
+   hydraulic incision cutting channels (the same non-monotonicity
+   round-4's finding R4-2 measured in roughness) — canyons, not residual
+   spires, and at an age no preset ships.
+
+   This is consistent with the stable-angle hypothesis: whatever the raw
+   heightfield offered at this scale, thermal shed flattens, and nothing
+   in the pass ever builds it back. The "hoodoos/spires" bullet in *What
+   emerges* above, with its lateral-coherence floor, describes a
+   mechanism the shipped rates do not produce at any age. It was
+   specified and it is not there — which is a different and more
+   actionable finding than "the rates need tuning".
+3. **A heightfield cannot represent half of the shapes asked for.** The
+   erosion plan is one `h[x]` per column, so it can express a tall
+   narrow column (a tor, a pinnacle, a stack) and **cannot** express an
+   undercut — the mushroom cap on a thin stem that makes a hoodoo read
+   as a hoodoo, or a balanced rock. Those have to be realise-pass work,
+   the way `brows` already hangs an overhang the plan cannot hold. Any
+   spec that promises hoodoos purely from plan-space erosion is
+   promising something the representation forbids.
+4. **The authored numbers, compounding.** Round-4's task file read
+   "height ≤ 3x width" as "2-5 wide, 2-4 tall"; the implementation
+   clamped to `height.min(width)`, a 1x ratio; and only the top half of
+   the ellipse is drawn. Three independent shrinks, none of them
+   required.
+
+**On shape variety**, the other half of the push-back: there is one
+shape today, an ellipse. The variety should come from where the sizes
+come from — the process and the rock. The `HardnessField` already knows
+which band is hard, which is exactly the input separating a flat-capped
+stepped residual (hard cap over soft) from a rounded dome (long
+weathering, uniform rock) from an angular blocky pile (frost shatter
+along bedding). Shape as a side effect of which band survived, per this
+design's own test that the shape is never authored.
+
+**So the fix, in order**: (1) run the stable-angle probe in 2 — it
+decides tuning vs. new mechanism and it is the cheapest thing here;
+(2) residual landforms in the 12-60 cell band, shaped by which band
+survived, with undercuts as realise-pass work per 3; (3) size and shape
+variety at the small end, re-derived from the real 3x rule rather than
+from round 4's reading of it; (4) frequency last — R4-1's
+footprint/ordering against `brows`. Contrast is already handled. **Do
+not reach for the erosion rates as a first move**: they were set by eye
+across a whole session against the *landform* scale, which the table
+above says is the one scale that already works.
+
+At these sizes the structural claim stops being free and has to be
+tested rather than argued. A 50-cell residual is attached `Solid`, so it
+has no movement rule and holds by construction at genesis — but it is
+also the first object in the world a player can plausibly undermine, and
+the 3x aspect rule was written "until measured otherwise" and has never
+been measured. A test that digs the base out from under one is part of
+the work, not a follow-up.
 
 Scheduled for round 6 with the palette-dither fix (open bug 0b), both
 being `passes.rs` work, held off while round 5 is mid-flight in that
