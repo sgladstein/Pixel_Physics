@@ -273,9 +273,35 @@ pub fn generate_reported(world: &mut World, spec: Spec) -> Vec<(&'static str, us
             // worlds grown from different seeds must not produce the same
             // individual at the same coordinate.
             world.seed = seed;
+            // The plan phase is inside `Ctx::new` -- erosion included -- and
+            // it is not a row in `PASSES`, so it has to be timed here or it
+            // is invisible to any per-pass accounting.
+            let plan_started = std::time::Instant::now();
             let ctx = Ctx::new(world, params, seed);
-            let report: Vec<(&'static str, usize)> =
-                PASSES.iter().map(|pass| (pass.name, (pass.run)(&ctx, world))).collect();
+            let plan_ms = plan_started.elapsed().as_secs_f64() * 1000.0;
+            // `PASS_TIMING=1` prints wall time per pass. Gated behind an env
+            // var rather than always on, for the same reason `vaults detail`
+            // is gated inside its own pass: this runs in every test that
+            // builds a world, and the pass table is long.
+            let timing = std::env::var("PASS_TIMING").is_ok();
+            let report: Vec<(&'static str, usize)> = PASSES
+                .iter()
+                .map(|pass| {
+                    let started = std::time::Instant::now();
+                    let written = (pass.run)(&ctx, world);
+                    if timing {
+                        println!(
+                            "  pass {:>14}: {:>8.1}ms  {written} cells",
+                            pass.name,
+                            started.elapsed().as_secs_f64() * 1000.0
+                        );
+                    }
+                    (pass.name, written)
+                })
+                .collect();
+            if timing {
+                println!("  pass {:>14}: {plan_ms:>8.1}ms  (plans + erosion, inside Ctx::new)", "[plan phase]");
+            }
             // Erosion runs in the plan phase (`Terrain::plan_all_with_
             // deposits`, inside `Ctx::new` above), so it has no row of its
             // own in `PASSES` -- there is nowhere in the pass loop to

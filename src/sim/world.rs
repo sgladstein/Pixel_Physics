@@ -1625,6 +1625,81 @@ impl World {
 
     /// Writes outside the world are silently dropped — the caller is usually a
     /// movement rule that already checked, or a brush clipped by the edge.
+    /// Fill a vertical run in one column, resolving the chunk and the
+    /// material's sweep properties once per chunk-row instead of once per
+    /// cell.
+    ///
+    /// **A worldgen seam, and it exists because generation writes the whole
+    /// world through `set`.** `stone_massif` alone writes 19.7 M cells at
+    /// 8192x2560 and measured **4302 ms** doing it -- 69% of the entire pass
+    /// table -- at ~219 ns a cell. Almost none of that is the write: it is
+    /// `set` paying, per cell, a `ChunkCoord::containing`, a `HashMap` entry
+    /// lookup, two `materials` lookups (`sweep_reach` and `kind`), and
+    /// `touch_neighbours`, for a run of cells that share a column, a chunk
+    /// and a material.
+    ///
+    /// Every one of those is loop-invariant over a run. This hoists them:
+    /// the chunk is resolved once per 64-row segment, the material once for
+    /// the whole run.
+    ///
+    /// **It is not a bypass of the write seam's bookkeeping.** `set`'s
+    /// `managed()` demotion and organism reindexing are still done, per
+    /// cell, against the old value -- see `set` for why hooking the write
+    /// rather than enumerating callers is load-bearing. What is skipped is
+    /// only the repeated *lookup* of things that cannot change within a run.
+    /// `every_cell_of_a_filled_run_matches_set` pins the equivalence, and
+    /// `scale_probe`'s `WORLD_HASH=1` mode checks it end to end on a
+    /// generated world.
+    ///
+    /// All cells in the run must share `material`; debug builds assert it,
+    /// since a caller that varied it would silently get the first cell's
+    /// sweep reach applied to the rest.
+    pub fn fill_run(&mut self, x: i32, y0: i32, y1: i32, material: MaterialId, mut make: impl FnMut(i32) -> Cell) -> usize {
+        let Some(bounds) = self.bounds else { return 0 };
+        if x < bounds.min_x || x > bounds.max_x {
+            return 0;
+        }
+        let (lo, hi) = (y0.max(bounds.min_y), y1.min(bounds.max_y));
+        if lo > hi {
+            return 0;
+        }
+        let reach = self.materials.get(material).sweep_reach();
+        let is_liquid = self.materials.kind(material) == MaterialKind::Liquid;
+        let mut written = 0;
+        let mut y = lo;
+        while y <= hi {
+            let coord = ChunkCoord::containing(x, y);
+            // The last row of this chunk, or the end of the run.
+            let seg_end = hi.min(coord.origin().1 + CHUNK_SIZE - 1);
+            let chunk = self.chunks.entry(coord).or_insert_with(|| Chunk::new(coord));
+            let mut pending: Vec<(i32, Cell, Cell)> = Vec::new();
+            for cy in y..=seg_end {
+                let cell = make(cy);
+                debug_assert_eq!(cell.material, material, "fill_run cells must share a material");
+                let old = chunk.get_world(x, cy);
+                chunk.set_world(x, cy, cell, reach, is_liquid);
+                written += 1;
+                if old.managed() || old.organism_id() != 0 || cell.organism_id() != 0 {
+                    pending.push((cy, old, cell));
+                }
+            }
+            // Deferred out of the borrow above, and rare: on generated
+            // terrain nothing being overwritten is managed or organism-owned,
+            // so this is normally empty.
+            for (cy, old, cell) in pending {
+                if old.managed() {
+                    self.demote_body_at(x, cy);
+                }
+                self.reindex_organism_cell(x, cy, old.organism_id(), cell.organism_id());
+            }
+            for cy in y..=seg_end {
+                self.touch_neighbours(x, cy, coord);
+            }
+            y = seg_end + 1;
+        }
+        written
+    }
+
     pub fn set(&mut self, x: i32, y: i32, cell: Cell) {
         let old = self.write_cell(x, y, cell);
         // Disturbance detection at the one write seam every caller already

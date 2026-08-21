@@ -129,6 +129,17 @@ const BURIED_FAMILY: u8 = 1;
 /// through that field, so a family boundary is ragged in both directions
 /// rather than being a column of one colour beside a column of another.
 fn palette_family(ctx: &Ctx, x: i32, y: i32, cap_rock: bool) -> u8 {
+    palette_family_for(ctx, ctx.terrain.character(x), x, y, cap_rock)
+}
+
+/// [`palette_family`] with the column's `Character` already in hand.
+///
+/// `Terrain::character` is a per-*column* sample, so calling it once per cell
+/// down a run is pure repetition. Split out rather than inlined into the
+/// caller because the family rule is subtle enough that it must exist in
+/// exactly one place; `column_shade_matches_the_per_cell_version` pins the
+/// two entry points together.
+fn palette_family_for(ctx: &Ctx, ch: crate::worldgen::region::Character, x: i32, y: i32, cap_rock: bool) -> u8 {
     // A preset that asked for no regional variation gets none, including no
     // palette shift. `flat` is the structural test bed and its whole point
     // is that nothing about it wanders; it is also the control render the
@@ -137,7 +148,6 @@ fn palette_family(ctx: &Ctx, x: i32, y: i32, cap_rock: bool) -> u8 {
     if ctx.terrain.params.region_variation <= 0.0 {
         return FAMILY_NEUTRAL;
     }
-    let ch = ctx.terrain.character(x);
     // **A *field*, not a per-cell coin** (open bug 0b).
     //
     // This was `noise::unit(.., x, y)` -- an independent draw per cell.
@@ -233,6 +243,67 @@ fn palette_family(ctx: &Ctx, x: i32, y: i32, cap_rock: bool) -> u8 {
 /// `pub(crate)` so `residual.rs` can paint a tor or stack with the same
 /// banding the massif around it carries, rather than inventing a second
 /// shading rule that would disagree with it at the seam.
+/// The per-column invariants of [`strata_shade`], computed once.
+///
+/// **Built because `stone_massif` is the most expensive pass in the
+/// generator by a wide margin** -- 4302 ms of a 6.2 s pass table at
+/// 8192x2560, writing 19.7 M cells at ~209 ns each. Almost none of that is
+/// the write. It is `strata_shade`, which per cell evaluates
+/// `strata_offset` (two fBm octaves, a function of `x` alone),
+/// `Terrain::character` (a per-column sample), a band tone draw (a function
+/// of the band index, so constant for `strata_thickness` consecutive rows),
+/// and `palette_family`'s two 2-D fBm samples.
+///
+/// Only the last of those genuinely varies per cell. This holds the rest:
+/// the column offset and character once, and the band draw memoised as the
+/// walk crosses into a new band. Output is identical by construction, and
+/// `column_shade_matches_the_per_cell_version` asserts it cell for cell.
+pub(crate) struct ColumnShade {
+    offset: f32,
+    thickness: f32,
+    character: crate::worldgen::region::Character,
+    band: i32,
+    base: u8,
+}
+
+impl ColumnShade {
+    pub(crate) fn new(ctx: &Ctx, x: i32) -> Self {
+        ColumnShade {
+            offset: ctx.terrain.strata_offset(x),
+            thickness: ctx.terrain.params.strata_thickness.max(1.0),
+            character: ctx.terrain.character(x),
+            // No band sampled yet. `i32::MIN` cannot collide with a real
+            // band index for any world this engine can address, so the first
+            // `shade` call always takes the miss path.
+            band: i32::MIN,
+            base: 0,
+        }
+    }
+
+    pub(crate) fn shade(&mut self, ctx: &Ctx, x: i32, y: i32) -> u8 {
+        let band = ((y as f32 + self.offset) / self.thickness).floor() as i32;
+        if band != self.band {
+            self.band = band;
+            let r = noise::unit(ctx.terrain.seed, Purpose::Strata, band, 0);
+            self.base = if r < 0.30 {
+                3
+            } else if r < 0.55 {
+                1
+            } else if r < 0.80 {
+                0
+            } else {
+                2
+            };
+        }
+        let tone = if noise::unit(ctx.terrain.seed, Purpose::Shade, x, y) < 0.12 {
+            (self.base + 1).min(TONES - 1)
+        } else {
+            self.base
+        };
+        palette_family_for(ctx, self.character, x, y, true) * TONES + tone
+    }
+}
+
 pub(crate) fn strata_shade(ctx: &Ctx, x: i32, y: i32) -> u8 {
     let p = ctx.terrain.params;
     let thickness = p.strata_thickness.max(1.0);
@@ -350,10 +421,14 @@ pub fn stone_massif(ctx: &Ctx, world: &mut World) -> usize {
     let mut n = 0;
     for x in 0..ctx.terrain.w {
         let c = ctx.plans[x as usize];
-        for y in (c.surface_y + c.soil_depth).max(0)..c.bedrock_top_y {
-            world.set(x, y, Cell::new(ctx.stone, strata_shade(ctx, x, y)).with_attached(true));
-            n += 1;
-        }
+        // `fill_run` rather than `set` per cell: this pass writes essentially
+        // the whole world (19.7 M cells at 8192x2560) and the chunk, the
+        // material and its sweep properties are all constant down a run. See
+        // `World::fill_run`, which exists for this measurement.
+        let mut shade = ColumnShade::new(ctx, x);
+        n += world.fill_run(x, (c.surface_y + c.soil_depth).max(0), c.bedrock_top_y - 1, ctx.stone, |y| {
+            Cell::new(ctx.stone, shade.shade(ctx, x, y)).with_attached(true)
+        });
     }
     n
 }
@@ -365,10 +440,9 @@ pub fn bedrock_floor(ctx: &Ctx, world: &mut World) -> usize {
     let mut n = 0;
     for x in 0..ctx.terrain.w {
         let c = ctx.plans[x as usize];
-        for y in c.bedrock_top_y..ctx.terrain.h {
-            world.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
-            n += 1;
-        }
+        n += world.fill_run(x, c.bedrock_top_y, ctx.terrain.h - 1, material::BEDROCK, |_| {
+            Cell::new(material::BEDROCK, 0).with_attached(true)
+        });
     }
     n
 }
@@ -2943,12 +3017,52 @@ pub fn soil_moisture(ctx: &Ctx, world: &mut World) -> usize {
     if w == 0 {
         return 0;
     }
+    // **A one-byte classification mirror, because this pass reads the world
+    // more times than any other and writes almost nothing.**
+    //
+    // Measured at 8192x2560: 1876 ms to write 37 k cells -- 30% of the whole
+    // pass table for 0.2% of its output. The cost was never the writing. The
+    // scans below asked `World::get` per cell, and one of them four more
+    // times for the neighbours, so a 21 M-cell world paid ~105 M
+    // bounds-checked `HashMap<ChunkCoord, Chunk>` lookups with a material
+    // registry lookup on each.
+    //
+    // Everything they ask is a property of the *material*: is it a liquid,
+    // and does it hold water. Two bits, resolved once per cell by walking
+    // chunks directly -- the same shape `structural::compute_world_distances`
+    // uses, and for the same reason.
+    const IS_LIQUID: u8 = 1;
+    const HOLDS_WATER: u8 = 2;
+    let hh = ctx.terrain.h as usize;
+    let cls = |x: usize, y: usize| y * w + x;
+    let mut class = vec![0u8; w * hh];
+    for chunk in world.chunks() {
+        let (ox, oy) = chunk.coord.origin();
+        for ly in 0..crate::sim::chunk::CHUNK_SIZE {
+            for lx in 0..crate::sim::chunk::CHUNK_SIZE {
+                let (x, y) = (ox + lx, oy + ly);
+                if x < 0 || y < 0 || x >= ctx.terrain.w || y >= ctx.terrain.h {
+                    continue;
+                }
+                let m = chunk.get_world(x, y).material;
+                let mut bits = 0;
+                if world.materials.kind(m) == material::MaterialKind::Liquid {
+                    bits |= IS_LIQUID;
+                }
+                if world.materials.get(m).water_capacity > 0 {
+                    bits |= HOLDS_WATER;
+                }
+                class[cls(x as usize, y as usize)] = bits;
+            }
+        }
+    }
+
     // Standing water outranks the smoothed table locally: the bed of the
     // lowest water cell caps the effective table from above.
     let mut table: Vec<i32> = (0..w).map(|x| ctx.plans[x].table_y).collect();
     for (x, t) in table.iter_mut().enumerate() {
         for y in 0..ctx.terrain.h {
-            if world.materials.kind(world.get(x as i32, y).material) == material::MaterialKind::Liquid {
+            if class[cls(x, y as usize)] & IS_LIQUID != 0 {
                 *t = (*t).min(y + 1);
             }
         }
@@ -2967,15 +3081,21 @@ pub fn soil_moisture(ctx: &Ctx, world: &mut World) -> usize {
     let far = i32::MAX / 2;
     let idx = |x: usize, y: usize| y * w + x;
     let mut d = vec![far; w * h];
+    // Out of bounds is not liquid, which is what `World::get` answered before
+    // (`Cell::OUT_OF_BOUNDS` is bedrock); this keeps that reading rather than
+    // letting an edge cell wrap to the far side of the world.
+    let liquid_at = |x: i64, y: i64| {
+        x >= 0 && y >= 0 && x < w as i64 && y < hh as i64 && class[cls(x as usize, y as usize)] & IS_LIQUID != 0
+    };
     for y in 0..h {
         for x in 0..w {
-            let cell = world.get(x as i32, y as i32);
-            if world.materials.kind(cell.material) == material::MaterialKind::Liquid {
+            let bits = class[cls(x, y)];
+            if bits & IS_LIQUID != 0 {
                 d[idx(x, y)] = -1;
-            } else if world.materials.get(cell.material).water_capacity > 0 {
+            } else if bits & HOLDS_WATER != 0 {
                 let wetted = [(0, -1), (-1, 0), (1, 0), (0, 1)]
                     .iter()
-                    .any(|&(dx, dy)| world.materials.kind(world.get(x as i32 + dx, y as i32 + dy).material) == material::MaterialKind::Liquid);
+                    .any(|&(dx, dy)| liquid_at(x as i64 + dx, y as i64 + dy));
                 if wetted || (y as i32) >= table[x] {
                     d[idx(x, y)] = 0;
                 }
@@ -2993,7 +3113,7 @@ pub fn soil_moisture(ctx: &Ctx, world: &mut World) -> usize {
     // (sand, stone) ends the chain and seals it.
     for x in 0..w {
         for y in 1..h {
-            if d[idx(x, y)] > 0 && d[idx(x, y - 1)] <= 0 && world.materials.get(world.get(x as i32, y as i32).material).water_capacity > 0 {
+            if d[idx(x, y)] > 0 && d[idx(x, y - 1)] <= 0 && class[cls(x, y)] & HOLDS_WATER != 0 {
                 d[idx(x, y)] = 0;
             }
         }
@@ -3027,6 +3147,12 @@ pub fn soil_moisture(ctx: &Ctx, world: &mut World) -> usize {
     let mut n = 0;
     for y in 0..h {
         for x in 0..w {
+            // Gate on the mirror before touching the world: only ~0.2% of
+            // cells hold water, and this loop used to pay a `World::get` and
+            // a registry lookup for every one of the other 99.8%.
+            if class[cls(x, y)] & HOLDS_WATER == 0 {
+                continue;
+            }
             let cell = world.get(x as i32, y as i32);
             let capacity = world.materials.get(cell.material).water_capacity;
             if capacity == 0 {
