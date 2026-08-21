@@ -45,6 +45,23 @@ struct System {
     /// Widest uninterrupted horizontal run — the ceiling-span bound's own
     /// quantity, kept because it is what `MAX_CEILING_SPAN` gates.
     widest: i32,
+    /// Percent of this system's void the player can actually reach.
+    ///
+    /// **The question every other number here fails to ask.** Contrast,
+    /// chamber height and formation counts all improved in round 5 while the
+    /// owner's reaction to the render was "it doesn't look like I could even
+    /// enter it" — because the median open column went to 4-5 cells and
+    /// `PLAYER_WIDTH x PLAYER_HEIGHT` is **7 x 14**, with crouch marked
+    /// "Reserved ... (phase 3)" and unimplemented. A cave tuned for
+    /// compression-and-release on a per-column statistic can be a beautiful
+    /// plan and a solid wall to the character walking it.
+    ///
+    /// Computed as a morphological opening: keep every position where the
+    /// whole 7x14 box is void, flood those, then measure the void within one
+    /// box of a kept position. Reported per system so a network of tight
+    /// tubes joining two big rooms scores low even though both rooms are
+    /// enormous.
+    reachable_pct: i32,
 }
 
 /// Formations, measured as what the eye reads: a silhouette's height.
@@ -175,6 +192,7 @@ fn main() {
         stat("  median open column ", systems.iter().map(|s| s.col_median).collect());
         stat("  p95 open column    ", systems.iter().map(|s| s.col_p95).collect());
         stat("  widest ceiling span", systems.iter().map(|s| s.widest).collect());
+        stat("  reachable by player %", systems.iter().map(|s| s.reachable_pct).collect());
         // The compression/release ratio, per system: what a photograph of a
         // cave is composed on. 1.0 is a tube of constant bore.
         let contrast: Vec<i32> = systems
@@ -334,6 +352,37 @@ fn shape(cells: &[(i32, i32)]) -> System {
             }
         }
     }
+    // --- how much of this can the player stand in and walk through ---
+    let (pw, ph) = (
+        pixel_physics::sim::player::PLAYER_WIDTH as usize,
+        pixel_physics::sim::player::PLAYER_HEIGHT as usize,
+    );
+    let mut fits = vec![false; cw * ch];
+    if cw >= pw && ch >= ph {
+        for cy in 0..=(ch - ph) {
+            for cx in 0..=(cw - pw) {
+                if (0..ph).all(|dy| (0..pw).all(|dx| grid[(cy + dy) * cw + cx + dx])) {
+                    fits[cy * cw + cx] = true;
+                }
+            }
+        }
+    }
+    // Every void cell the player's box covers from some standable position.
+    let mut reached = vec![false; cw * ch];
+    for cy in 0..ch {
+        for cx in 0..cw {
+            if !fits[cy * cw + cx] {
+                continue;
+            }
+            for dy in 0..ph {
+                for dx in 0..pw {
+                    reached[(cy + dy) * cw + cx + dx] = true;
+                }
+            }
+        }
+    }
+    let reachable_pct = (100 * reached.iter().filter(|&&r| r).count() / cells.len().max(1)) as i32;
+
     col_runs.sort_unstable();
     let pick = |q: f32| col_runs[((col_runs.len() as f32 - 1.0) * q) as usize];
     System {
@@ -344,6 +393,7 @@ fn shape(cells: &[(i32, i32)]) -> System {
         col_median: pick(0.5),
         col_p95: pick(0.95),
         widest,
+        reachable_pct,
     }
 }
 

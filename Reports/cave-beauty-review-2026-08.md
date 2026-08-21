@@ -164,3 +164,94 @@ downstream of the three causes: decorating a 179x69 lens that exists in
 a third of worlds, with formations capped at 7 cells, is redecoration.
 The corrected scope is in
 `Reports/worldgen-implementation-tasks-round5-2026-08.md`.
+
+---
+
+## Round-5 verdict, 2026-08-21 — the bars were met and the cave got worse
+
+Round 5 landed tasks 1–5 (task 6, ceiling grain, never started — the
+implementation agent stopped). Reviewed line-by-line and empirically:
+merged into a review worktree, `cave_probe` over 16 seeds × 7 presets,
+and a paired render against the pre-round strip **through the same
+renderer**, so only worldgen differs.
+
+### The structural half worked
+
+| | before | after | bar | |
+|---|---|---|---|---|
+| worlds with a cave | arid 3/16, canyon 5/16, wetland 10/16 | **12/16 every preset** | ≥12/16 | met |
+| median open column | 30 | **4–5** | 3–8 | met |
+| contrast p95/median | 2.0x | **5.2–5.8x** | ≥3.0 | far exceeded |
+| tallest chamber, per-seed p50 | 64 (the envelope) | **44–47** | ≥40 | met |
+| formation height | med 3, max 7 | med 2–3, p90 18, **max 43** | p90 ≥10, max ≥25 | met |
+| near-pairs / 16 seeds | 0–2, tallest 7 | **45–53, tallest 44** | ≥1/world | met |
+
+Three missed: formations/system **29–36** against 60; `wetland` contrast
+p10 **2.43x** against 3.0; waterline formations ~1.5/system against 8
+(and *unverified* — the agent stopped before writing that finding, though
+its code comment already refers to one).
+
+**A metric-definition trap, resolved rather than adjudicated.** The
+agent reported tallest-open-column p50 45–48; `cave_probe` reports
+median 35–41. Both are right: theirs is the **per-seed** maximum, mine
+the **per-system** median, and the spec's "p50 over 16 seeds" supports
+theirs. Recomputed per seed: **44–47**, matching. The bar is met. Worth
+recording because the two numbers differ by a third and either could be
+quoted as "the" chamber height. Note also n=12, not 16 — the p50 is over
+the worlds that *have* a system — and the per-seed minimum is 24–30, so
+roughly a third of worlds have no room taller than 40.
+
+### The decoration half is a regression
+
+The passage network is a real improvement — corridors, junctions, two
+systems in a frame that used to hold one lens. But the chamber now reads
+as a **picket fence**: many adjacent tall pale columns of similar width
+and height. The owner reported it independently before this review ran
+("large uniform gray blocks"), and the paired render confirms it.
+
+**The cause is this document's own round-5 scope, not the
+implementation.** It asked for heavy-tailed heights (4a) *and* clustering
+(4b) *and* a minimum spacing of "1–2 columns" — and tall formations at
+1–2 spacing are a wall. Each task hit its own bar; the composition was
+never checked. That is the same shape as the landmine CLAUDE.md records
+about sweeps: *anything that rode along with the mechanism is part of
+every data point* — here, three mechanisms that were each verified alone
+and never verified together.
+
+### "Nothing here looks like a crystal" — and why
+
+Owner's verdict when asked which half of the complaint was the block:
+*the light and the block, the shape and the flatness. Nothing here looks
+like a crystal.* All four, plus an identity failure nobody had named.
+
+Crystal's four palette tones are luma ≈ 205, 224, 240, 250 — **all four
+in the top fifth of the range**, so there is no dark inside the object to
+read a facet against — and they are assigned **randomly per cell**
+(`loose_shade`). A crystal is therefore a 1–2 cell white bar with noise
+sprinkled on it. Nothing in that says crystal.
+
+**The general rule this exposes, which is bigger than crystal**: a
+*shape* needs **coherent** shading, and this codebase assigns per-cell
+random tone almost everywhere. That is correct for bulk material — it is
+the Sandspiel trick, and it is why rock reads as rock — and it destroys
+every object that has a silhouette, because a facet is a contiguous
+region and noise is not. The same root cause is already recorded twice
+elsewhere under different names: open bug **0b** (`palette_family`'s
+per-cell coin flip dithering two rock families) and the flowstone blocks
+above. Three symptoms, one rule.
+
+So a crystal wants: an **angular** silhouette (chisel tip, wider base, a
+small cluster at differing angles rather than one bar), **contiguous**
+facet regions rather than per-cell noise, and **internal** value contrast
+— its darkest facet below the surrounding rock, not above it. None of
+those is a size question, which is why raising the heights made it worse
+rather than better.
+
+### Recommendation
+
+Merge the anatomy (tasks 1–3) — it is unambiguously better and the bars
+are real. **Respec the formation half before any of task 4b's clustering
+ships**, and treat task 6 (ceiling grain) as blocked behind that respec:
+adding structural grain to ceilings above a picket fence decorates the
+wrong problem. The formation respec should be judged on a composed
+render, never on three separately-verified bars.

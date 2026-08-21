@@ -88,6 +88,18 @@ gives it without spraying the interior. Note `strata_shade`'s separate
 (brightness only, inside one family) and should be re-judged in the same
 pass.
 
+**Owner's verdict, 2026-08-21, on a blind A/B of the grain grade**: *"I
+see no difference. The problem is the big sharp squares that look like
+giant white gray pixels."* Two things follow. The grain grade was
+**reverted** — it measured a real 23% cut in luma speckle and bought
+nothing anyone can see, which is the outcome the card was posted to test
+(`DEEP_GRAIN_FLOOR`, reverted in the same session it landed; do not
+re-attempt it as a standalone change). And the deep-rock texture
+complaint is now **two** defects, not one: this per-cell palette dither,
+*and* the light field's 8-cell quantisation (see 0c below), which is what
+"giant white gray pixels" names. Fix 0c first — it was picked out by
+name, unprompted, on a card that was not about it.
+
 **Owned by the worldgen data track** (`passes.rs`), which is why this is
 recorded rather than fixed: round 5 is mid-flight in that file. Do not
 race it. **Scheduled: round 6, immediately after round 5 merges**
@@ -102,6 +114,52 @@ absolute deviation from the 3x3 neighbourhood mean, not variance, so a
 smooth large-scale gradient (a strata band, the depth ramp) scores near
 zero and only per-pixel departure counts. Check it against a region you
 know is clean before trusting it about one you don't.
+
+
+### 0c. Cave light is quantised to 8-cell squares (render)
+
+`FIELD_SCALE = 8`: the light channel holds one value per 8x8 cells and
+`field_at_bilinear` smooths between those. So a glow's smallest possible
+feature is **8 cells**, its gradient is smeared over ~16, and it aligns
+to the field lattice rather than to the emitter. A 1-2 cell crystal
+therefore lights a **rectangle** of rock, offset to one side, with hard
+vertical edges.
+
+Named independently by the owner on two different cards: *"The
+rectangular lighting looks bad"* and — on a card about something else
+entirely — *"the problem is the big sharp squares that look like giant
+white gray pixels"*. That is the strongest signal in the session: it was
+volunteered against the question being asked.
+
+**An earlier note in this repo called this "glow halo block-edge
+softening, low priority" and was aimed at the wrong thing.** The halo is
+not too hard-edged for want of smoothing; it is too *coarse* to have a
+shape at all. Smoothing a 16-cell-wide blob harder makes it a vaguer
+16-cell-wide blob.
+
+**Do not fix by raising `FIELD_SCALE`** — the field is deliberately
+coarse because pressure and light are low-frequency, and a finer grid is
+64x the work for detail nothing else reads. The fix is a **short-range
+term computed from the emitting cells themselves**, evaluated only in
+chunks that contain one (`Renderer::glow_tiles` already gates exactly
+this), with the coarse field left to carry the far falloff. That reads
+neighbour cells, so it inherits landmine §7.22 — touched-chunk screen
+rects must widen by one cell or it ships a stale-pixel class — and it is
+not free; price it before building it.
+
+**Also reverted here, so it is not retried**: an emissive-core term
+(`EMISSIVE_RESTORE`) that drew a cell with `Material::glow > 0` at its
+own unlit palette brightness. It gave the crystal a bright core and the
+owner chose *against* it in a blind A/B, correctly: crystal's four tones
+are luma ~205/224/240/250, all in the top fifth of the range, so pulling
+them toward full brightness **collapses them into one white** and removes
+the only facet variation the object had. Their words on the pane they
+preferred: *"mostly the texture on the crystal."* A brightness lift for
+an emitter has to preserve the tone spread, not compress it — and
+crystal's spread is too narrow and too pale to survive one. See the
+cave beauty review's round-5 verdict for the general rule (a shape needs
+coherent shading; this codebase assigns per-cell random tone almost
+everywhere).
 
 
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
