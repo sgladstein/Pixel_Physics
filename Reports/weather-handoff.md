@@ -348,6 +348,51 @@ without changing the total. The table is in `lava.ron`.
 convert, the way the boil is now bounded. The quench happens to be roughly
 1:1 by construction; a future reaction need not be.
 
+### 1f. Wet ground: what to look for in a playtest
+
+The owner's verdict on the wet-ground card was *"I have no idea from this
+graph what would be right in play. Keep on the to do list. And let me know
+what I need to look for in a playtest."* Fair — a chart of soil moisture
+against frame cannot answer a question about how something feels. Here is
+the recipe instead. The sizing stays on the to-do; this is how to judge it.
+
+**What changed.** Rain used to wet soil for free — the drop soaked in and
+the sky was not charged for it, so the world's water ledger leaked upward
+every storm. Soil is now on the books: a drop that soaks in is paid for out
+of the atmospheric bank, soil moisture counts as water in the total, and
+ground gives it back to the sky as it dries. `SOIL_SOAK_PER_DROP` also went
+from a tenth of a drop to a hundredth, because at a tenth a storm emptied
+the sky into the topsoil in seconds.
+
+**How to set it up.** Start the app, press `F6` for a fresh world (or `F8`
+for one with more surface soil), then hold `.` to run time forward until a
+front arrives — rain is a pure function of seed and frame, so it will come.
+`V` cycles the field overlays; the moisture channel is the one to watch. `I`
+hovers a readout over the cell under the cursor.
+
+**Four things, in the order they matter:**
+
+1. **Does the ground darken where it rains, and only there?** A storm should
+   wet the strip it is over, not the whole map. If the moisture overlay lights
+   up across the world the moment a front starts, the soak is reaching too far.
+2. **Does the wet band persist after the rain stops, and then fade?** Minutes,
+   not seconds and not forever. Soil drying back to the sky is the return
+   half of the cycle and it is the half nobody has watched in play.
+3. **Do puddles behave differently on wet ground than on dry?** Rain landing
+   on already-saturated soil should pool on top instead of vanishing into it.
+   If puddles never form no matter how long it rains, the soak is too greedy;
+   if they form immediately on dry ground, it is too stingy.
+4. **Does it ever *run out*?** Watch the sky's own supply across two or three
+   storms. If the second storm is visibly weaker than the first and the third
+   barely rains, the ground is holding water the sky needs — that is the
+   sizing question, and it is the one the chart was trying and failing to ask.
+
+**What would say it is wrong, quantitatively**, if a number is wanted after
+looking: `filmstrip scene=storm` prints `water + sky` under every tile, and
+the two halves must sum flat. A total that drifts is a leak; a bank that
+falls monotonically across storms while soil moisture climbs is the sizing
+problem in (4).
+
 ### 2. Thunder
 
 Lightning flashes and forks; the world is silent. The engine has no audio at

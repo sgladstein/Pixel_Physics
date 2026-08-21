@@ -373,7 +373,12 @@ storage is five times `STORM_RESERVE`, so charging for wetting it competes
 with rain directly, and the ground now takes about twice as long to reach the
 same wetness. **Still open:** `transpire` and root uptake spend soil moisture
 and credit nothing, and `STORM_RESERVE`'s own sizing wants re-deriving — see
-`Reports/weather-handoff.md`.
+`Reports/weather-handoff.md`. **The sizing is a playtest question, not a
+chart question**, and the owner has asked for it to stay on the list: a
+graph of moisture against frame cannot say whether a storm feels like it
+wets the ground. `Reports/weather-handoff.md` §1f is the recipe — what to
+press, what to watch, and which of the four things going wrong means the
+soak is too greedy rather than too stingy.
 
 **And the loop now runs on the day.** `filmstrip scene=watercycle` is the
 closing demonstration: the same pond and shore in a window spanning two clear
