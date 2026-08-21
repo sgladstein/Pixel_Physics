@@ -371,3 +371,104 @@ coarse region read as tor country" — without being sunk by the smooth
 regions the owner explicitly wants to keep. That is a different metric
 than the one written into this task file, so re-deriving it is a decision
 for whoever reads this next, not something to have swapped in unasked.
+
+### B2/B3 — a seated feature on soil can be structurally solid and still float
+
+`tests/worldgen.rs::every_solid_is_anchored_and_no_liquid_carries_a_stale_
+fill` failed on the default preset (rolling, seed 3) once B2 shipped: one
+stone cell at (90, 113) had `aux == u16::MAX` -- present, attached, and
+reading as ordinary massif, but with no path to any anchor at all.
+Flood-filling the connected stone at that point found a 611-cell island,
+bbox 13 columns by 46 rows, touching neither bedrock nor the world edge:
+one entire residual, floating.
+
+**The mechanism**: converting the single seat row (the column's own
+topmost soil/sand/gravel cell) to attached stone is not the same as
+*connecting* to the massif. `structural::compute_world_distances`'s
+relaxation only walks *relaxable* (body) material -- ordinary soil is not
+one -- so a residual's new stone layer sitting on top of an unconverted
+soil blanket has no route down through that soil to the bedrock-connected
+rock underneath it, however solid it looks. A residual wide enough that
+every column of its footprint happens to sit over deep cover, with no
+column's edge close enough to outcropping bare rock, floats entirely.
+
+**This is not unique to residuals.** `boulders`' own socket had the
+identical shape of bug, just harder to trigger at a boulder's smaller
+footprint: it converted a *fixed fraction* of the visible height's worth
+of rows below grade (`~30%`), which on a soil blanket deeper than that
+fraction leaves exactly the same gap. Neither the boulder nor the
+residual acceptance tests (`a_forced_boulder_world_seats_stone_and_
+arrives_at_rest`, `a_forced_residual_world_arrives_at_rest`) catch this
+class of bug at all -- both only check that nothing *moves*, and a
+floating `Solid` never does, by construction. Only checking `aux !=
+u16::MAX` (equivalently, that every solid reached an anchor) catches it,
+which is exactly what `every_solid_is_anchored_and_no_liquid_carries_a_
+stale_fill` already existed to do -- it is a pre-existing, general-purpose
+gate that a new pass has to run under, not something either new pass came
+with its own copy of.
+
+**The fix, same shape in both files**: seat by walking down from grade
+through consecutive soil/sand/gravel, converting each cell, until hitting
+real (`ctx.stone`) rock -- not a fixed row count. A shape is contiguous by
+construction, so any *one* column of the footprint threading all the way
+to bare rock is enough to anchor the whole feature; the walk is bounded
+(`MAX_SOCKET_DEPTH = 80`, generous headroom over every shipped
+`soil_depth`) so a column whose cover is pathologically deep or that has
+wandered into something unexpected still rejects the site rather than
+looping. Landed in both `residual.rs` and `passes.rs::boulders` -- the
+second before it could ever ship, since nothing had yet measured it there.
+
+**Method note**: this was caught by re-running the *existing* test suite
+gate after a change that looked, by every metric this track had built for
+itself, complete -- prominence bar met on max, at-rest held, pass_ablation
+clean. `cargo test --lib`'s full run is not optional scaffolding around the
+task-specific tests; it is where a cross-cutting invariant like "every
+solid reaches an anchor" actually lives, and it found a bug none of B2's
+or B3's own measurements were shaped to see.
+
+### B3 — size re-derived; the instrument named in this task file cannot show the fix
+
+`boulders`' three shrinks are fixed: width redrawn 3-13 (from 2-5), height
+drawn independently up to a real `3x` ceiling (from `height.min(width)`,
+1x), and `b` used directly as the visible semi-axis instead of halved by
+the dome-writes-only-the-top-half arithmetic. Both draws are skewed toward
+their own top half (`sqrt` of the unit draw) after measuring that a
+uniform draw put p50 at 4 against the bar of 6: a marker is a steep-drop
+site by construction, so the tallest attempts are also the ones least
+likely to find enough open air to seat in, and a uniform draw's
+successfully-*seated* population skews small for exactly that reason
+(confirmed directly, `BOULDER_PROBE=1`, reverted before this commit --
+e.g. a width-7/height-19 draw at one site and a width-6/height-15 draw at
+another both came back `sealed=false` the same run a width-5/height-14
+one seated).
+
+**Measured** (canyon, age 1.0, seeds 1..=600, 13 boulders seated):
+**visible height p50 12, max 30** -- both bars (6 / 20) cleared with
+headroom.
+
+**The instrument this task named cannot demonstrate the second bar.**
+`viewshot boulder=1`'s height print is `(1..=6).take_while(...)` --
+capped at exactly 6 rows, the p50 floor this task set, so it can report
+"at least 6" but never "20". `examples/*` is off limits to this track, so
+`tests/worldgen.rs::a_seated_boulder_stands_at_a_believable_height` is the
+uncapped measurement instead, and it needed one more fix on the way: a
+naive version credited each raw shed-marker run's own centre column with
+whatever resistant-family stone stood there, which double-counted --
+a *rejected* run's centre can sit inside a wider *accepted* neighbour's
+own footprint (up to its own half-width away, and width now reaches 13),
+reading back that neighbour's tapered edge as if it were this run's own
+short boulder. Confirmed by cross-checking every suspiciously short
+reading against `BOULDER_PROBE=1`: the short readings' own draws were all
+`sealed=false`, never written at all. Fixed by requiring every column of
+a run's own raw marker range to show seated stone before trusting its
+peak, and by measuring with `residual_density: 0.0` for this test
+specifically -- `residual.rs` shares `strata_shade` with the ordinary
+massif, so a residual's own family-3 cells are naturally speckled, not a
+guaranteed run, and without isolating it a residual sitting near a boulder
+site could contaminate the same scan.
+
+**Frequency untouched**, per the task's own ordering: `boulders`' marker
+rejection rate (still dominated by `brows`) was not touched, and
+`pass_ablation`/`scripts/worldgen_sweep.sh compare` both show boulder
+counts moving only within ordinary seed-to-seed noise, no counter past
++/-30%.

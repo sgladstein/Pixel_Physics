@@ -2267,6 +2267,12 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
     n
 }
 
+/// How far a boulder's socket is allowed to dig through loose cover
+/// looking for the real massif before giving up on the whole boulder. A
+/// safety bound on the walk, not a behaviour knob -- see `residual.rs`'s
+/// constant of the same name and purpose, added for the identical reason.
+const MAX_SOCKET_DEPTH: i32 = 80;
+
 /// Rounded attached-stone clusters seated where a hard band shed enough to
 /// leave a boulder socket (`erosion::Deposits::boulder`).
 ///
@@ -2314,28 +2320,59 @@ pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
         }
         let cx = (start + x - 1) / 2;
 
-        // Shape, from a stream keyed on the run's centre column: 2-5 cells
-        // wide, 2-4 tall, and clamped to never taller than it is wide --
-        // stricter than (and so still honours) the erosion design's
-        // structural non-negotiable #3, "never taller than 3x its base
-        // width", which a boulder toppling over its own footprint the
-        // moment structural distances are computed would violate outright.
-        let width = 2 + (noise::unit(seed, Purpose::Boulder, cx, 0) * 4.0) as i32;
-        let height = (2 + (noise::unit(seed, Purpose::Boulder, cx, 1) * 3.0) as i32).min(width);
+        // Shape, from a stream keyed on the run's centre column.
+        //
+        // Round 6 Track B, B3: re-derived from the *real* 3x rule after
+        // measuring what round 4 actually shipped
+        // (`Reports/worldgen-erosion-design.md`'s 2026-08-20 addendum).
+        // Three shrinks had compounded, none of them structural: the design
+        // says only `height <= 3x base width`; round 4's task file read
+        // that as "2-5 wide, 2-4 tall"; and this clamped tighter still with
+        // `height.min(width)`, a 1x ratio where 3x was allowed -- a 12x8
+        // boulder is 0.67x and satisfies the real rule with room to spare.
+        // Width widened from 2-5 to 3-13 so the 3x ceiling has a base worth
+        // multiplying; height now drawn independently up to that ceiling
+        // rather than clamped to width. Both draws are skewed toward their
+        // own top half (`sqrt`, not a straight `unit`): a marker is a
+        // steep-drop site by construction, so the tallest draws are also
+        // the ones least likely to find enough open air to seat in --
+        // measured directly (`BOULDER_PROBE=1`, reverted before this
+        // commit): a uniform draw put visible-height p50 at 4 against a
+        // bar of 6, because narrow/short attempts seat far more often than
+        // wide/tall ones and dominate the successfully-seated population.
+        // Skewing the draw upward is what a uniform draw cannot do on its
+        // own reach; the skew is on the *attempt*, not an override of which
+        // ones survive collect-verify-write.
+        let width = 3 + (noise::unit(seed, Purpose::Boulder, cx, 0).sqrt() * 10.0) as i32;
+        let max_height = ((width as f32) * 3.0).round() as i32;
+        let height = 2 + (noise::unit(seed, Purpose::Boulder, cx, 1).sqrt() * (max_height - 2).max(1) as f32) as i32;
         let a = width as f32 / 2.0;
-        let b = height as f32 / 2.0;
+        // `b` is the *visible standing height* directly, not halved. Round
+        // 4's dome was a full-height ellipse with only the rows *above*
+        // `ground_y` written, so a "4 tall" boulder rose `round(4/2)` = 2
+        // rows -- arithmetic, not a design choice, and the addendum's
+        // measured consequence: seating in 3 of 24 worlds, visible height
+        // 1-2 against a 14-cell player. Using `height` as the semi-axis
+        // outright means the drawn number is the number a player sees.
+        let b = height as f32;
         let reach = (a.ceil() as i32).max(1);
+        // How many further rows of *already-bare* rock get recoloured
+        // once the socket reaches it, purely for the visual blend -- "a
+        // boulder reads as embedded in the rock it seated in, not merely
+        // touching it". Proportional to the visible height, floored at 1.
+        // This is decoration, not the connectivity fix below: recolouring
+        // stone that was already attached and already reachable cannot
+        // itself create or break a path to an anchor.
+        let visual_blend = ((b * 0.3).ceil() as i32).max(1);
 
         // Collect first, write only if every proposed cell is a safe
         // target: open air or loose cover (soil/sand/gravel) for the dome,
         // which is displaced rather than skipped -- a boulder resting on
         // top of an untouched talus apron would look like it was dropped
-        // there, not eroded out of the rock beneath it. The seat row (the
-        // column's own topmost solid cell) additionally accepts bare stone
-        // without writing it: "sits on rock" needs no displacement, only
-        // contact. Anything else -- the permanent massif reached early,
-        // bedrock, water, a vault lining -- rejects the whole boulder,
-        // never just the one cell, matching `pockets`' all-or-nothing seal.
+        // there, not eroded out of the rock beneath it. Anything else --
+        // the permanent massif reached early, bedrock, water, a vault
+        // lining -- rejects the whole boulder, never just the one column,
+        // matching `pockets`' all-or-nothing seal.
         let mut cells: Vec<(i32, i32)> = Vec::new();
         let mut sealed = true;
         'run: for dx in -reach..=reach {
@@ -2364,12 +2401,44 @@ pub fn boulders(ctx: &Ctx, world: &mut World) -> usize {
                     break 'run;
                 }
             }
-            let seat = world.get(lx, ground_y).material;
-            if seat == ctx.soil || seat == ctx.sand || seat == ctx.gravel {
-                cells.push((lx, ground_y));
-            } else if seat != ctx.stone {
-                sealed = false;
-                break 'run;
+            // Socketed, not perched: dig down through loose cover until
+            // this column threads real rock, not a fixed fraction of the
+            // dome's own height. A fixed depth was the first version, and
+            // it could leave a boulder floating -- on a soil blanket
+            // deeper than the fixed socket, the newly-attached seat layer
+            // has no *relaxable* path down through the (non-solid) soil to
+            // the massif underneath, so it reads solid while never
+            // actually reaching an anchor
+            // (`Reports/worldgen-implementation-tasks-round6-formations.md`'s
+            // B2 finding measured the identical bug in `residual.rs` --
+            // same fix, same reasoning, here before it could recur).
+            let mut py = ground_y;
+            loop {
+                let mat = world.get(lx, py).material;
+                if mat == ctx.stone {
+                    break;
+                }
+                if mat != ctx.soil && mat != ctx.sand && mat != ctx.gravel {
+                    sealed = false;
+                    break 'run;
+                }
+                cells.push((lx, py));
+                py += 1;
+                if py - ground_y > MAX_SOCKET_DEPTH {
+                    sealed = false;
+                    break 'run;
+                }
+            }
+            // Past the real rock: a few more rows purely for the visual
+            // blend, already-attached and already-reachable so recolouring
+            // them cannot change what is or is not anchored.
+            for row in 0..visual_blend {
+                let bpy = py + row;
+                if world.get(lx, bpy).material == ctx.stone {
+                    cells.push((lx, bpy));
+                } else {
+                    break;
+                }
             }
         }
         if !sealed {

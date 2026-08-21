@@ -57,6 +57,14 @@ use crate::sim::Cell;
 /// site would compete for the same footprint.
 const REGION: i32 = 256;
 
+/// How far a column's seat is allowed to dig through loose cover looking
+/// for the real massif before giving up on the whole site. A safety bound
+/// on the walk, not a behaviour knob: ordinary `soil_depth` presets top out
+/// well under this, so it only ever bites on a column whose cover is
+/// pathologically deep or whose walk has wandered into something that is
+/// never going to be bare stone.
+const MAX_SOCKET_DEPTH: i32 = 80;
+
 /// Smallest and largest a residual's *visible standing height* can draw, in
 /// cells. The owner's directive, converted from feet via `PLAYER_HEIGHT`
 /// (14 cells): roughly 5 ft to 100+ ft, one continuous draw across the
@@ -262,12 +270,37 @@ pub fn residuals(ctx: &Ctx, world: &mut World) -> usize {
                         break 'site;
                     }
                 }
-                let seat = world.get(lx, ground_y).material;
-                if seat == ctx.soil || seat == ctx.sand || seat == ctx.gravel {
-                    cells.push((lx, ground_y));
-                } else if seat != ctx.stone {
-                    sealed = false;
-                    break 'site;
+                // Socket through the loose cover down to real rock, not
+                // just the single seat row. Converting only the top soil
+                // cell was the first version, and it could leave a
+                // residual floating: if its whole footprint happens to
+                // sit over a soil blanket thick enough that no column's
+                // edge reaches bare stone, the newly-attached seat layer
+                // has no *relaxable* path down through the (non-solid)
+                // soil to the massif underneath it, so it reads solid
+                // forever while never actually anchoring to anything --
+                // caught by `tests/worldgen.rs::every_solid_is_anchored_
+                // and_no_liquid_carries_a_stale_fill`: a 13x46 residual
+                // island, 611 cells, with no route to bedrock or the
+                // world edge. Walking down until this column threads real
+                // rock is enough: the shape is contiguous, so one column
+                // reaching an anchor anchors the whole residual.
+                let mut py = ground_y;
+                loop {
+                    let mat = world.get(lx, py).material;
+                    if mat == ctx.stone {
+                        break;
+                    }
+                    if mat != ctx.soil && mat != ctx.sand && mat != ctx.gravel {
+                        sealed = false;
+                        break 'site;
+                    }
+                    cells.push((lx, py));
+                    py += 1;
+                    if py - ground_y > MAX_SOCKET_DEPTH {
+                        sealed = false;
+                        break 'site;
+                    }
                 }
             }
             if !sealed {
