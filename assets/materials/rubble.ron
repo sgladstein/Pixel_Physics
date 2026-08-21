@@ -27,7 +27,7 @@
     name: "rubble",
     display: "Rubble",
     kind: Powder,
-    density: 2.0,
+    density: 2.8,
     friction_angle: 55.0,
     max_stability_angle: 65.0,
     // Mandatory, by README's own rule for every `breaks_into` target
