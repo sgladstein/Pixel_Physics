@@ -464,15 +464,28 @@ fn main() {
                 let y = tops[cx as usize];
                 let p = prom(cx);
                 let pct = 100.0 * all.iter().filter(|&&v| v < p).count() as f32 / all.len() as f32;
-                let height = (1..=6)
-                    .take_while(|&row| {
-                        let c = world.get(cx, plans[cx as usize].surface_y - row);
-                        Some(c.material) == world.materials.id_of("stone") && c.shade / 4 == 3
-                    })
-                    .count();
+                // **No height printed here, deliberately.** Three versions
+                // of that number have been wrong, and the third failure is
+                // the instructive one: the test was "is this cell cap-rock
+                // family", and the *surrounding wall* is already about half
+                // cap-rock family, because `palette_family` dithers the two
+                // per cell (open bug 0b). So the family cannot separate a
+                // boulder from the rock it stands on, and never could --
+                // earlier versions only looked right because they also
+                // capped at 6 rows and walked from the plan surface, and the
+                // three errors masked each other.
+                //
+                // A wrong number is worse than no number, which is the whole
+                // lesson of the night that found this. Height is measured by
+                // `tests/worldgen.rs::a_seated_boulder_stands_at_a_believable_
+                // height`, which counts the pass's own written cells over a
+                // 600-seed sweep and is uncapped. This print keeps only what
+                // is material-independent: where the boulder is, and how it
+                // compares with ordinary hillside.
                 println!(
-                    "  boulder at ({cx}, {y}): {height} cells tall, stands {p} proud -- \
-                     the {pct:.0}th percentile of ordinary hillside (player is 14 tall)"
+                    "  boulder at ({cx}, {y}): stands {p} proud -- the {pct:.0}th \
+                     percentile of ordinary hillside (player is 14 tall). Height: see \
+                     `cargo test --test worldgen a_seated_boulder_stands_at_a_believable_height`"
                 );
                 Some((cx, y))
             }
