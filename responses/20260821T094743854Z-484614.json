@@ -1,0 +1,14 @@
+{
+  "card_id": "20260821T094743854Z-484614",
+  "answered_at": "2026-08-21T15:53:57Z",
+  "choice": -1,
+  "choice_label": null,
+  "rating": null,
+  "comment": "Both images show stalagmite and stalactites still as single pixels and look bad. One of the other tests you gave me of large vs small caves had much better looking stalagmite and stalactites. Theses both also look tiny and have too much voroni patterns.",
+  "annotations": [],
+  "archived": false,
+  "blind_was": [
+    1,
+    0
+  ]
+}
