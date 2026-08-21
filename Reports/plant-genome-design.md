@@ -708,7 +708,7 @@ its place. What to do about it is a §9-shaped call and is not decided
 here: §8's own rule ("a locus that moves nothing does not keep its slot")
 points one way, and the fact that the block is a *cost gate on a fully
 plumbed consumer* rather than a dead trait points another. **§8c settles
-which of the two it is: repair, not retirement.** It is the same shape as
+which of the two it is: repair, not retirement, and §8g is the repair.** It is the same shape as
 the granular-capacity divisor, where the lever was fine and the condition
 it was tested through was degenerate.
 
@@ -955,6 +955,133 @@ all three — the composition is near-identical because it must be. Every
 `wood`/`rootwood` and the `Grow` arm hardcodes `leaf`; a species cannot
 declare what it is made of. That is a materials question and belongs to
 its own design pass, not to this document.
+
+### 8g. WP-A: the primed-site repair — slot 1 reaches the world
+
+The owner's call (`plant-work-split.md` §6.6): the allowance economy is
+**intended** — a root tip cannot photosynthesise, lives on
+functional-balance allocation and spends at first affordance — and the
+**double-affordance branch gate is the accident**. Repair the shape of the
+purchase, not the price of the economy. Shape taken from `PLAN.md`'s own
+M16 research note: a tip primes a site every N steps; the site branches
+later, when the branch can be paid for.
+
+**What landed.** `Behavior::Grow::branch_priming` (steps between primed
+sites, `0` keeps the old in-tick roll), `OrganismCell::primed` (sidecar,
+never a `Cell` bit — all sixteen aux bits are spoken for), and the
+conversion folded into `organism_upkeep`'s existing per-cell walk so it
+costs no traversal of its own. Slot 1 divides the interval, so a strong
+draw primes more densely — a consumer re-pointing; **nothing in the slot
+map renumbers**. All four invariants hold: no tick requires the tip to
+hold two steps' carbon; the branch still costs a step, charged when taken;
+slot 1 multiplies the priming rate; prime state is in the sidecar.
+
+**A wrong first implementation, caught by measuring it.** The site was
+funded from its *own* carbon, reasoned from §8a's finding that 18% of
+mature root cells hold at least a step's cost. It converted **zero**
+laterals: 35 primed sites visited 2,976 times over 12,000 frames produced
+nothing, because priming marks exactly the cells a tip has just retired —
+the newest, poorest tissue at the frontier — while the cells that hold a
+step's cost sit inboard where carbon transits from the shoot. The site is
+the right place to *decide* and was never the right place to *pay from*.
+Funding it from the plant's richest cell, as `break_root_tips` and
+`break_buds` both already do, is what made it work.
+
+**The sweep** (`branch_priming`, rebuilt per point, single tree, 12,000
+frames — `branch_chance: 0.04` was calibrated against a gate that opened
+twice in twelve thousand frames and is a different quantity now, so it is
+retired to `0.0` rather than left reading as a live knob):
+
+| interval | primed | converted | root cells | root share |
+|---|---|---|---|---|
+| 1 | 754 | 183 | 755 | 0.209 |
+| 2 | 163 | 91 | 448 | 0.156 |
+| 3 | 72 | 54 | 386 | 0.140 |
+| 6 | 27 | 21 | 336 | 0.122 |
+| 12 | 9 | 8 | 434 | 0.152 |
+| 24 | 8 | 6 | 392 | 0.138 |
+
+Root mass falls monotonically as the interval widens from 1 to 6: a
+sparser mark leaves the conversion with nothing available to pick on most
+ticks. **3 is the landed value** — 1 stops being an oscillator (it primes
+every cell, and the walk then re-scanned 82,487 primed cells over a run
+against 1,160 at 3), and 3 puts slot 1 on the responsive part of the
+curve, which is what lets the trait order an outcome at all.
+
+**Slot 1 finally orders, which is the success bar.** Before the repair the
+stand was *bit-identical* at every draw — 352 root cells at −1, 0 and +1
+alike. After:
+
+| draw | interval | primed | converted | root | shoot |
+|---|---|---|---|---|---|
+| −1.0 | 6 | 27 | 21 | **336** | 2418 |
+| 0.0 | 3 | 72 | 54 | **386** | 2380 |
+| +1.0 | 2 | 163 | 91 | **448** | 2432 |
+
+Monotone in the draw, with the shoot flat inside 2% — the second half of
+the claim, and the one that makes slot 1 a *root* slot rather than a
+second slot 0. `root_and_shoot_branching_read_different_slots` is written
+against this with bars at 10% and 20% (measured effect 33%, measured noise
+2%), and the repair was **deliberately broken** — slot 1 disconnected from
+the priming rate — to confirm the guard fails: both draws collapsed to 386
+and it caught them. `print_root_branch_slot_pairing` keeps the
+reproduction.
+
+At stand scale (8 trees, 30,000 frames, `worldseed=1`, slot 1 pinned):
+
+| | draw −1 | draw +1 |
+|---|---|---|
+| root cells, median | 251 | **776** |
+| root cells with 3+ root neighbours | 57% | **78%** |
+| lateral spread | 50 | 74 |
+| whole-plant cells | 26,620 | **32,819** |
+
+More roots buy more water buy more plant: the whole organism is 23%
+larger at the high draw, not just its root system.
+
+**`MAX_ROOT_FRACTION` does not bind, and that is the answer to acceptance
+step 1.** At the most extreme setting — priming every step, 754 sites, 183
+conversions — root share reaches **0.209** against a cap of 0.5. The
+carbon allowance binds first, so priming cannot run away. §8c's runaway
+had root `Grow.cost` pinned to a fifth of authored; at the real price the
+economy self-limits well below the guard.
+
+**Frame cost: free, after a fix the first measurement forced.**
+`ascii`'s `plant_scene` reported no timing at all, so a change to the
+organism passes had no standing number to be paired against — it now
+reports a worst frame for a growing half and a settled half, and CI
+carries it. First paired measurement showed the settled worst frame going
+**0.251 → 0.329 ms (+31%)**: a primed site walled in by its own roots can
+never convert but was re-scanned every upkeep tick forever. Un-priming
+those turns a permanent per-tick cost into a one-off — wasted scans fell
+roughly 90% (542 → 54 on the low-draw run) with **identical** conversion
+counts — and the paired minima are then 0.440 → 0.440 ms growing,
+0.263 → **0.232** ms settled. Minima rather than medians because both arms
+threw 22 ms outliers under machine load: noise can only inflate a frame
+time, so the floor is the honest estimator.
+
+**§8d re-measured, not carried — and it moved.** Root mass moving moves
+water capacity (∝ `root_cells`), so the wet/dry 2×2 was re-run in the same
+session:
+
+| | WET (soil 34) | DRY (soil 6) |
+|---|---|---|
+| acquisitive | 32,476 cells, 9,376 leaf, 98 seed | 21,227 cells, 4,712 leaf, 60 seed |
+| conservative | 30,931 cells, 9,199 leaf, 100 seed | **26,005** cells, **7,106** leaf, 66 seed |
+
+The crossover survives and **re-shapes**: the dry advantage of the cheap
+leaf grew from +4% to **+22%** in mass and from +43% to **+51%** in
+foliage, while the wet advantage of the expensive leaf shrank from +21% to
++5%. Both directions are consistent with the same cause — a bigger root
+system makes the wet scene less water-limited for everybody, which narrows
+what an expensive leaf can win there, and gives the thrifty plant a real
+buffer to be thrifty *with* in the dry one. Stomatal terms moved with it
+(wet acquisitive mean 0.97 → 0.91, dry conservative 0.63 → 0.50): the
+plants are bigger, so they are thirstier at the same soil.
+
+Root neighbour density is now 74–89% across all four arms — the fibrous
+mat is the normal architecture, where §8c had to force it with a pinned
+cost.
 
 **Not yet measured** — every remaining §4 row, held with the above:
 slot 5's depth histogram, slot 8 penetration (needs the sand-bank scene

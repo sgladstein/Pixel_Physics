@@ -303,6 +303,32 @@ pub enum Behavior {
         /// non-programmer would plausibly tune it, and it is one of the
         /// clearest silhouette levers a species file has.
         plastochron: ByOrder<u8>,
+        /// **Steps between primed lateral sites** — the branching
+        /// oscillator, `0` disables it.
+        ///
+        /// The sibling of `plastochron` and deliberately a second field
+        /// rather than a reuse of it: a root must never leaf underground,
+        /// so `plastochron: 0` is load-bearing there, and folding priming
+        /// into the same counter would make one number mean "place a leaf"
+        /// and "mark a branch site" at once.
+        ///
+        /// **`0` keeps the in-tick branch roll; non-zero replaces it.** A
+        /// shoot tip photosynthesises, so it can genuinely hold two steps'
+        /// carbon in one tick and its `branch_chance` roll works as
+        /// written. A root tip cannot, and measured, that gate opened twice
+        /// in twelve thousand frames — see `OrganismCell::primed` for the
+        /// measurement and `PLAN.md`'s M16 note for why periodic priming is
+        /// also the better model. Set this on the cell type whose economy
+        /// cannot fund a same-tick second purchase; leave it `0` where the
+        /// existing roll already works.
+        ///
+        /// Multiplied per individual by genotype slot 1, as a *rate* — a
+        /// high draw shortens the interval and primes more densely, so the
+        /// slot keeps the direction its name has always implied (`Reports/
+        /// plant-genome-design.md` §5). The slot is re-pointed, not
+        /// renumbered.
+        #[serde(default)]
+        branch_priming: ByOrder<u8>,
         /// How strongly a shoot keeps its existing heading, `0.0`..`1.0`.
         ///
         /// The child's heading is `normalize(parent * inertia + step *
@@ -1823,6 +1849,29 @@ pub struct OrganismCell {
     /// stops) — height is recomputed against a collar that can move, and
     /// this never changes at all.
     pub path_len: u16,
+    /// **A primed lateral site** — this cell has been marked by the tip
+    /// that grew past it as a place a branch may later start.
+    ///
+    /// The repair for a gate that could not open. Root branching used to be
+    /// a second `Grow` in the *same tick* as the primary step, so a tip had
+    /// to hold two steps' carbon at once; measured, it cleared that bar
+    /// twice in twelve thousand frames and the 0.04 roll fired zero times
+    /// (`Reports/plant-genome-design.md` §8a). The economy is not the
+    /// defect — a root tip cannot photosynthesise, lives on allocation and
+    /// spends at first affordance, which is intended — the *shape of the
+    /// purchase* was. Priming splits the decision from the bill: the tip
+    /// marks a site for free as it passes, and the site buys its own
+    /// lateral later, out of the carbon that reaches it, whenever that
+    /// clears a step's cost.
+    ///
+    /// `PLAN.md`'s own M16 research note prescribes exactly this and says
+    /// why it is also the better biology: real laterals are primed by an
+    /// oscillator in the tip that marks roughly evenly spaced sites, and
+    /// only later does local resource decide which ones actually branch —
+    /// so spacing comes out regular instead of noisy.
+    ///
+    /// Sidecar, not a `Cell` bit: all sixteen aux bits are spoken for.
+    pub primed: bool,
 }
 
 impl Default for OrganismCell {
@@ -1863,6 +1912,7 @@ impl Default for OrganismCell {
             q_peak: 0.0,
             heading: (0.0, 0.0),
             path_len: 0,
+            primed: false,
         }
     }
 }

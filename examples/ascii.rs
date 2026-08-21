@@ -753,19 +753,39 @@ fn plant_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&m
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     setup(&mut world);
 
-    for _ in 0..frames {
+    // **Timed, because a plant scene is where per-organism work shows up
+    // and nothing else here measures it.** Every other helper reports a
+    // worst frame; this one did not, so a change to the organism passes
+    // (upkeep walks, root branching, abscission) had no standing number to
+    // be paired against and CI carried none. The settled half is the one
+    // that matters for the same reason the animated-grain measurement did:
+    // a mature stand is exactly where the dirty-rect skip earns its keep.
+    let mut worst_growing = std::time::Duration::ZERO;
+    let mut worst_settled = std::time::Duration::ZERO;
+    for frame in 0..frames {
+        let started = std::time::Instant::now();
         parallel::step(&mut world);
         world.step_active_sites();
         world.step_fields();
+        let elapsed = started.elapsed();
+        // The first half is a plant establishing and extending; the second
+        // is what the player actually looks at for most of a session.
+        if frame * 2 < frames {
+            worst_growing = worst_growing.max(elapsed);
+        } else {
+            worst_settled = worst_settled.max(elapsed);
+        }
     }
 
     let wood = world.materials.id_of("wood");
     let moss = world.materials.id_of("moss");
     let water_left = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| world.get(x, y).material == material::WATER).count();
     println!(
-        "after {frames} frames: {} active chunks, {} active sites, {water_left} water cells remaining",
+        "after {frames} frames: {} active chunks, {} active sites, {water_left} water cells remaining; worst frame growing {:.4} ms, settled {:.4} ms",
         world.active_chunk_count(),
         world.active_site_count(),
+        worst_growing.as_secs_f64() * 1000.0,
+        worst_settled.as_secs_f64() * 1000.0,
     );
 
     for y in 0..h {

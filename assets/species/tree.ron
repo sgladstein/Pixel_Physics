@@ -323,7 +323,14 @@
 
             Grow(
                 cost: 0.25,
-                branch_chance: [0.04],
+                // **Superseded by `branch_priming` below.** A root tip's
+                // in-tick branch roll demanded a second step's carbon in
+                // the tick the first was paid; it cleared that twice in
+                // twelve thousand frames and fired zero times. Zero here
+                // rather than left at its old value so nothing reads as a
+                // live knob that no longer runs -- see
+                // `Behavior::Grow::branch_priming`.
+                branch_chance: [0.0],
                 continuation_weight: 0.7,
                 light_weight: [0.0],
                 wind_weight: 0.0,
@@ -350,6 +357,18 @@
                 // Roots grow by the same rule and must never leaf
                 // underground. One value, so every order agrees.
                 plastochron: [0],
+                // Steps between primed lateral sites, swept at landing over
+                // 1/2/3/6/12/24: root mass falls monotonically as the
+                // interval widens (755 cells at 1, 336 at 6) because a
+                // sparser mark leaves the conversion with nothing available
+                // to pick most ticks. 3 rather than 1 because 1 stops being
+                // an oscillator -- it primes every cell, and the walk then
+                // re-scans 82,487 primed cells over a run against 1,160 at
+                // 3, for a stand-scale cost the mechanism does not need.
+                // 3 also puts genotype slot 1 on the responsive part of the
+                // curve, which is what lets the trait order an outcome at
+                // all.
+                branch_priming: [3],
                 // **Roots read as small balls without this.** They run the
                 // same Grow as a shoot, so they had the same one-cell
                 // heading read and the same wandering -- but underground,

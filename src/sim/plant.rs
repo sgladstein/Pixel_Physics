@@ -403,6 +403,14 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
     credit_water(world, organism_id, water - stock);
 }
 
+/// Mark (or clear) a cell as a primed lateral site — see
+/// `OrganismCell::primed`.
+fn write_primed(world: &mut World, x: i32, y: i32, primed: bool) {
+    if let Some(slot) = world.organism_cell_mut(x, y) {
+        slot.primed = primed;
+    }
+}
+
 fn write_carbon(world: &mut World, x: i32, y: i32, carbon: f32) {
     if let Some(slot) = world.organism_cell_mut(x, y) {
         slot.carbon = carbon;
@@ -1262,6 +1270,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 crowding_weight,
                 max_active_tips,
                 plastochron: plastochron_interval,
+                branch_priming,
                 penetration_force,
                 turgor_source,
                 turgor_yield,
@@ -1738,6 +1747,20 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // Shinozaki's pipe model actually specifies.
                 let lineage_step = plastochron.saturating_add(1);
                 let leaf_due = plastochron_interval > 0 && lineage_step.is_multiple_of(plastochron_interval);
+                // **The branching oscillator.** Slot 1 multiplies the
+                // priming *rate*, so the interval divides by the draw: a
+                // high draw primes more densely, which is the direction
+                // "root branch chance" has always meant. Floored at 1 so a
+                // strong draw cannot collapse the interval to zero and
+                // prime every single cell.
+                let priming_interval = branch_priming.at(order);
+                let priming_interval = if priming_interval == 0 {
+                    0
+                } else {
+                    let rate = genotype(world, organism_id, 1, genotype_variance[1]).max(0.05);
+                    ((priming_interval as f32 / rate).round() as u8).max(1)
+                };
+                let prime_due = priming_interval > 0 && lineage_step.is_multiple_of(priming_interval);
                 // **The retiring parent always becomes `MatureBody`; a leaf
                 // is spawned *beside* the stem instead** (below, once the
                 // child and any branch child exist so their cells can be
@@ -1877,6 +1900,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 resource -= step_cost;
                 world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                 write_carbon(world, x, y, resource);
+                // **Priming costs nothing and buys nothing yet.** The mark
+                // is the whole point: the tip records a site as it passes
+                // and moves on, and the site buys its own lateral later out
+                // of whatever carbon reaches it. Splitting the decision from
+                // the bill is what makes the purchase affordable at all --
+                // see `OrganismCell::primed`.
+                if prime_due {
+                    write_primed(world, x, y, true);
+                }
                 next.push(reschedule_organism(tx, ty, organism_id, 0, lineage_step, world.frame + ORGANISM_TICK_INTERVAL));
 
                 // §3's branching: a second successful `Grow`, in a
@@ -1892,7 +1924,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // checked once, before the primary child, which let a
                 // single tick's branch roll overshoot it by one right at
                 // the cap.
-                if resource >= cost
+                // **`priming_interval == 0` keeps this roll; non-zero
+                // replaces it.** Both would be two mechanisms competing for
+                // one pool, and this is the one that could not open: it
+                // demands a *second* step's carbon in the same tick the
+                // first was just paid for. A shoot tip photosynthesises and
+                // can meet that; a root tip met it twice in twelve thousand
+                // frames. See `Behavior::Grow::branch_priming`.
+                if priming_interval == 0
+                    && resource >= cost
                     && rng.chance(branch_chance)
                     && world.organism_active_tip_count(organism_id, cell_type) + 1 < max_active_tips as usize
                 {
@@ -3346,6 +3386,17 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         .unwrap_or(([0.0; organism::GENOTYPE_TRAITS], 1));
     let pipe_variance = shoot_variance[4];
 
+    // **What a primed lateral has to be able to afford**: one root growth
+    // step, in the individual's own currency (density scales the price of
+    // every cell it builds). `None` for a species whose roots do not grow,
+    // which switches the whole primed path off rather than defaulting it.
+    let root_grow = world.species.get(species_id).behaviors(CellType::RootTip).iter().find_map(|b| match b {
+        Behavior::Grow { cost, max_active_tips, .. } => Some((*cost, *max_active_tips)),
+        _ => None,
+    });
+    let density = wood_density_mult(world, organism_id);
+    let (root_step_cost, root_max_tips) = root_grow.map_or((f32::INFINITY, 0), |(c, m)| (c * density, m as usize));
+
     let bud_survival = world
         .species
         .get(species_id)
@@ -3366,6 +3417,12 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     let mut leaves_in_row: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let (mut root_cells, mut shoot_cells) = (0u32, 0u32);
     let mut demand = 0.0f32;
+    // Primed lateral sites that can afford themselves this tick, and the
+    // root tips already standing -- both gathered in the walk below so the
+    // branching decision costs no traversal of its own.
+    let mut primed_ready: Vec<(i32, i32, f32)> = Vec::new();
+    let mut root_tips = 0usize;
+    let mut richest_cell: Option<(i32, i32, f32)> = None;
     let mut collar_y: Option<i32> = None;
     let mut shoot_top_y: Option<i32> = None;
     let mut min_y = i32::MAX;
@@ -3403,11 +3460,73 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 }
             }
         }
+        // The cell to fund a lateral from -- the trunk sits near the carbon
+        // cap while the frontier starves, which is why both sibling
+        // mechanisms pay from here rather than from the site.
+        {
+            let held = world.carbon_at(cx, cy);
+            if richest_cell.is_none_or(|(_, _, best)| held > best) {
+                richest_cell = Some((cx, cy, held));
+            }
+        }
         // Root or shoot, tallied in the walk that is already happening.
         // `rootwood` is the discriminator rather than cell type, because a
         // retired root and a retired branch are both `MatureBody`.
         if world.materials.get(c.material).reinforces_powder || ty == Some(CellType::RootTip) {
             root_cells += 1;
+            // **The primed site's own affordability check**, in the walk
+            // that is already happening rather than in a traversal of its
+            // own. A site marked by a passing tip becomes a lateral once
+            // the carbon reaching it clears a step's cost -- the bill the
+            // tip could never meet twice in one tick, met later by the
+            // cell that will actually spend it. See `OrganismCell::primed`.
+            if ty == Some(CellType::RootTip) {
+                root_tips += 1;
+            } else if world.organism_cell(cx, cy).is_some_and(|o| o.primed) {
+                // **Scored by the water around it, and funded from the
+                // plant** -- the same shape `break_root_tips` and
+                // `break_buds` both already use, and the correction to a
+                // first attempt that failed by measurement.
+                //
+                // That attempt required the site to hold a step's cost in
+                // its *own* carbon. It converted essentially nothing: 35
+                // primed sites visited 2,976 times over 12,000 frames
+                // produced **zero** laterals, because priming marks exactly
+                // the cells a tip has just retired -- the newest, poorest
+                // tissue at the frontier -- while the 18% of root cells
+                // that do hold a step's cost sit inboard, where carbon
+                // transits from the shoot. The site is the right place to
+                // decide; it was never the right place to pay from.
+                let mut wet = 0.0f32;
+                let mut open = false;
+                for (dx, dy) in NEIGHBOURS_4 {
+                    let n = world.get(cx + dx, cy + dy);
+                    if world.materials.get(n.material).water_capacity > 0 {
+                        wet += update::plant_available_fraction(n);
+                        open = true;
+                    }
+                }
+                // Only tissue with soil left to grow into: a site walled in
+                // by its own root system spends the cost on a tip that ages
+                // straight back out.
+                //
+                // **A walled site is un-primed rather than re-scanned
+                // forever**, and that is a frame-cost fix with a measured
+                // number behind it. Primed sites that can never convert
+                // accumulate as a stand matures, and each one paid a
+                // four-neighbour scan every upkeep tick: on the `ascii`
+                // tree scene, paired and alternating over 8 runs each, the
+                // settled worst frame went 0.251 ms to 0.329 ms (+31%) with
+                // them left in. Clearing turns a permanent per-tick cost
+                // into a one-off. A tip passing again re-primes, which is
+                // the right trigger: if the soil around a buried site opens
+                // up, it takes new growth to notice.
+                if open {
+                    primed_ready.push((cx, cy, wet));
+                } else {
+                    write_primed(world, cx, cy, false);
+                }
+            }
         } else {
             shoot_cells += 1;
             // The collar is the *lowest* shoot cell -- where the shoot
@@ -3615,6 +3734,46 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // that has since changed hands would credit the wrong organism.
         if world.get(cx, cy).organism_id() == organism_id {
             write_carbon(world, cx, cy, resource);
+        }
+    }
+
+    // **Primed sites become laterals, richest first, up to the tip cap.**
+    //
+    // After the walk rather than inside it: the cap is a whole-plant
+    // quantity and converting mid-walk would let the count the decision
+    // reads drift as the walk proceeded. Richest-first because a site
+    // holding more carbon can take more steps before it starves, and
+    // deterministic on ties (`cells` is a `HashMap` underneath, so an
+    // unstable order would make root architecture a property of the
+    // hasher's seed).
+    //
+    // **One lateral per tick at most, and the plant pays for it.** The
+    // bill is a step's carbon, charged when the branch is actually taken
+    // -- the tip never had to hold it, which is the whole repair. Capped
+    // at one per tick for the same reason `break_root_tips` and
+    // `break_buds` are: converting every affordable site at once would
+    // spend the plant's whole stock on frontier in a single tick.
+    if let Some((bx, by)) = primed_ready
+        .iter()
+        .max_by(|a, b| a.2.total_cmp(&b.2).then((b.1, b.0).cmp(&(a.1, a.0))))
+        .map(|&(x, y, _)| (x, y))
+        .filter(|_| root_tips < root_max_tips)
+    {
+        if let Some((rx, ry, held)) = richest_cell.filter(|&(_, _, held)| held >= root_step_cost) {
+            let cell = world.get(bx, by);
+            if cell.organism_id() == organism_id {
+                world.set(bx, by, cell.with_aux(organism::pack_cell_type(CellType::RootTip)));
+                write_primed(world, bx, by, false);
+                write_carbon(world, rx, ry, held - root_step_cost);
+                // Staked so the new tip's first `Grow` check is not
+                // guaranteed to fail -- the same courtesy `break_root_tips`
+                // and `break_buds` both extend, and for the same reason: a
+                // fresh frontier cell reads its carbon before any income.
+                let stake = world.carbon_at(bx, by).max(root_step_cost);
+                write_carbon(world, bx, by, stake);
+                let site = reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL);
+                world.schedule_active_site(site);
+            }
         }
     }
 
@@ -6656,6 +6815,139 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             (ratio - expected).abs() < 0.01,
             "the expensive leaf must spend its allele's share more water: demand {dark} against {pale} is {ratio}x, expected {expected}x"
         );
+    }
+
+    /// Scratch for WP-A: what carbon does a cell actually hold, by class?
+    ///
+    /// The primed-site repair has a choice of funding source -- the primed
+    /// site's own local carbon, or the plant's richest cell the way
+    /// `break_root_tips` and `break_buds` both already do. Choosing the
+    /// first without measuring would risk rebuilding the starved gate one
+    /// cell over, which is the whole defect being repaired.
+    ///
+    /// ```text
+    /// cargo test --lib print_carbon_by_cell_class -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn print_carbon_by_cell_class() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        const HALF: i32 = 30;
+        const ROWS: i32 = 30;
+        let (px, py) = (100, 40);
+        for fx in (px - HALF - 1)..=(px + HALF + 1) {
+            w.set(fx, py + ROWS + 1, Cell::new(material::STONE, 0));
+        }
+        for dy in 1..=ROWS {
+            w.set(px - HALF - 1, py + dy, Cell::new(material::STONE, 0));
+            w.set(px + HALF + 1, py + dy, Cell::new(material::STONE, 0));
+            for fx in (px - HALF)..=(px + HALF) {
+                w.set(fx, py + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        w.plant_tree(px, py);
+        run_with_fields(&mut w, 12_000);
+
+        let b = w.bounds().unwrap();
+        let mut root_mature: Vec<f32> = Vec::new();
+        let mut shoot_mature: Vec<f32> = Vec::new();
+        let mut root_tips: Vec<f32> = Vec::new();
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let c = w.get(x, y);
+                if c.organism_id() == 0 {
+                    continue;
+                }
+                let carbon = w.carbon_at(x, y);
+                let is_root = w.materials.get(c.material).reinforces_powder;
+                match organism::cell_type(c.aux()) {
+                    Some(CellType::RootTip) => root_tips.push(carbon),
+                    Some(CellType::MatureBody) if is_root => root_mature.push(carbon),
+                    Some(CellType::MatureBody) => shoot_mature.push(carbon),
+                    _ => {}
+                }
+            }
+        }
+        let stat = |name: &str, v: &mut Vec<f32>| {
+            if v.is_empty() {
+                println!("  {name:>14}: none");
+                return;
+            }
+            v.sort_by(f32::total_cmp);
+            let pick = |q: f32| v[((v.len() - 1) as f32 * q) as usize];
+            println!(
+                "  {name:>14}: n {:>5}  min {:.3}  p50 {:.3}  p90 {:.3}  max {:.3}  >=0.25: {:.0}%",
+                v.len(),
+                v[0],
+                pick(0.5),
+                pick(0.9),
+                v[v.len() - 1],
+                100.0 * v.iter().filter(|&&c| c >= 0.25).count() as f32 / v.len() as f32
+            );
+        };
+        println!("carbon by cell class (root Grow.cost is 0.25):");
+        stat("root tips", &mut root_tips);
+        stat("root mature", &mut root_mature);
+        stat("shoot mature", &mut shoot_mature);
+    }
+
+    /// **Root and shoot branching read different slots, and slot 1 finally
+    /// reaches the world.**
+    ///
+    /// The guard the genome re-map promised and could not write. Slot 1 was
+    /// wired correctly from the day it landed and produced a *bit-identical*
+    /// stand at every draw, because its consumer sat behind a gate that
+    /// demanded a second step's carbon in the tick the first was paid: 351
+    /// root growth steps, 2 affordable, 0 fired
+    /// (`Reports/plant-genome-design.md` §8a). The economy was not the
+    /// defect and was not changed; the shape of the purchase was
+    /// (`OrganismCell::primed`).
+    ///
+    /// Both halves of the claim are asserted. **Root mass must order with
+    /// the draw** — that is the lever working. **Shoot mass must not** —
+    /// that is the lever being a *root* lever, which is the whole point of
+    /// slot 1 existing separately from slot 0.
+    ///
+    /// Bars are set from the measured pairing with headroom, per house
+    /// convention, never sitting on it: measured 336 / 386 / 448 root cells
+    /// at draws −1 / 0 / +1 (a 33% spread) against shoot 2418 / 2380 / 2432
+    /// (2%). The bars below are 10% and 20% — comfortably inside the
+    /// measured effect and comfortably outside the measured noise, so the
+    /// test fails on the mechanism dying rather than on a re-tune.
+    ///
+    /// Two runs rather than three: the endpoints carry the claim and the
+    /// midpoint costs another 12,000 frames.
+    /// `print_root_branch_slot_pairing` keeps the full reproduction.
+    #[test]
+    fn root_and_shoot_branching_read_different_slots() {
+        let (root_low, shoot_low) = root_slot_run(1, 1, -1.0, 12_000);
+        let (root_high, shoot_high) = root_slot_run(1, 1, 1.0, 12_000);
+
+        assert!(
+            root_high as f32 > root_low as f32 * 1.10,
+            "slot 1 must order root mass: draw -1 grew {root_low} root cells, draw +1 grew {root_high}              (measured 336 against 448; before the primed-site repair both were 352, bit-identical)"
+        );
+        let shoot_spread = (shoot_high as f32 - shoot_low as f32).abs() / shoot_low.max(1) as f32;
+        assert!(
+            shoot_spread < 0.20,
+            "slot 1 is a ROOT slot and must not move the shoot: {shoot_low} against {shoot_high} is {:.0}%              (measured 2%). A shoot moving with it means the draw is reaching slot 0's consumer.",
+            shoot_spread * 100.0
+        );
+    }
+
+    /// Scratch for WP-A: one run, for sweeping `branch_priming` and for
+    /// confirming `MAX_ROOT_FRACTION` still binds at an extreme setting.
+    ///
+    /// ```text
+    /// cargo test --lib print_priming_point -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn print_priming_point() {
+        let (root, shoot) = root_slot_run(1, 1, 0.0, 12_000);
+        let total = (root + shoot).max(1) as f32;
+        println!("  ROOT {root}  SHOOT {shoot}  root-share {:.3}  (MAX_ROOT_FRACTION is 0.5)", root as f32 / total);
     }
 
     /// **The reproduction for the root slots, and for the one of them
