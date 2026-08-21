@@ -1,0 +1,43 @@
+{
+  "id": "20260821T083709615Z-a0645f",
+  "created": "2026-08-21T08:37:09Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/game-world-gen-planning-h12713",
+    "commit": "f14c9fa",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Cave carving: the network, or the room",
+  "question": "Which one reads as a cave system you would want to walk into? You said of round 5 that it 'looks like a single room instead of a cave system' — does either of these still do that?",
+  "context_md": "Same seed (3, canyon), same camera, same crop — only the cave-carving\nconstants differ. Both have a shaft mined down from the surface so the\nchamber can be photographed at all.\n\nI have already ruled against one of these on measurement and told the\nimplementation agent to revert it, so this is posted blind as a check on\nme rather than as an open question. If your eye disagrees with the\nnumbers, the numbers lose.\n\nWhat the corrected census says over 16 seeds x 5 presets:\n\n|                       | one | other |\n|---|---|---|\n| span across (cells)   | 136 | 70    |\n| tallest open column   | 41  | 63    |\n| chamber/passage contrast | 5.4x | 2.1x |\n| walkable regions      | 1   | 1     |\n| of the void he can walk | 33-37% | 96% |\n\nBackground you should have, because it reverses something I told you\nearlier: the \"round-5 caves are 0% reachable, you cannot enter them at\nany point\" finding was **wrong**. The probe that produced it counted\nstalactites and stalagmites as walls — but since the scenery change they\nare walk-through, so it was measuring the decoration, not the passage.\nCorrected, round 5's caves are one connected walkable region you can\ntraverse end to end. What made them read as unenterable was the picket\nfence of one-pixel formations filling the view, which is being rebuilt\nnow as fewer and thicker.\n\nFormations in both shots are still round 5's one-pixel ones; that work is\nin flight and is not what this card is about.\n",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "network",
+      "files": [
+        "20260821T083709615Z-a0645f/000-base_canyon3.png"
+      ],
+      "caption": "",
+      "meta": {}
+    },
+    {
+      "label": "room",
+      "files": [
+        "20260821T083709615Z-a0645f/001-a1_canyon3.png"
+      ],
+      "caption": "",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
