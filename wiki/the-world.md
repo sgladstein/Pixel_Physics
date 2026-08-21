@@ -155,10 +155,13 @@ drowned wing and a dry one, which is the picture worth digging for.
 
 The **geode** survives as the rare jewel variant: a single hollow ringed
 with pale crystal, its lining now uneven — thick here, thin there — rather
-than a drawn ring. **Crystal glows.** A geode, or a crystal formation deep
+than a drawn ring. **Crystal glows.** A geode, or a spar formation deep
 in a cave, casts its own soft light — the game's only local light source
 so far — so the air around it holds a pale warm pool, the rock catches the
-spill, and the find stays gently lit at any hour. Mine the crystal out and
+spill, and the find stays gently lit at any hour. The pool is round and
+centred on the stone that makes it, and a small crystal makes a small one:
+what you are looking at is a light with a shape, not a lit rectangle. (If
+you want to see what that replaced, `'` switches between the two.) Mine the crystal out and
 the dark comes back. Caves are rare on purpose: finding one is meant to be
 an event.
 
