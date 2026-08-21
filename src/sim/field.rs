@@ -761,7 +761,14 @@ pub fn step(world: &mut World) {
     // `u64::MAX % DAY_NIGHT_PERIOD_FRAMES` rather than anything meaningful.
     // Saturating at 0 instead means "no time has passed since frame 0" reads
     // as exactly zero change, which is the actually correct answer.
-    let amplitude_changed = (sky_light_amplitude(world.frame) - sky_light_amplitude(world.frame.saturating_sub(1))).abs() > SETTLE_EPSILON_LIGHT;
+    // Exact inequality, not an epsilon: `sky_light_amplitude` is quantised to
+    // `SKY_LIGHT_STEP`, so consecutive frames either hold the identical value
+    // or differ by a whole step. An epsilon here would be asking whether a
+    // discrete value changed by more than a fraction of its own step, which
+    // it cannot -- and the old epsilon test is precisely why this flag never
+    // fired and the sky had to be driven by tiles that never slept.
+    let amplitude_changed =
+        sky_light_amplitude(world.frame) != sky_light_amplitude(world.frame.saturating_sub(1));
     if world.active_chunk_count() == 0 && world.fields_settled() && !amplitude_changed {
         return;
     }
@@ -910,6 +917,25 @@ pub fn step(world: &mut World) {
     // The consequence is honest and worth stating: sky-lit tiles never sleep,
     // because the sun really is always moving. What sleeps is everything the
     // light does not reach, which on a large world is most of it.
+    //
+    // **Subsetting this by column was tried in the round-7 scale work and
+    // reverted.** Gating each column on `sky_drifted` -- now a discrete
+    // event, since `sky_light_amplitude` is quantised -- looked like the
+    // obvious win and measured 8.26 -> 6.55 ms at 2048x640. It was measuring
+    // a bug: a tile in the solve set is rebuilt from a fresh `FieldTile` at
+    // the top of this function, so a skipped column does not keep stale
+    // light, it *loses* it (measured, mid-air cells going 2.43 -> 0.0 and
+    // staying there, because the fresh tile also takes
+    // `sky_amplitude = amplitude` and so reports no drift to ask for a
+    // repair). Correcting the subset to "solved OR drifted" made it cover
+    // the whole world anyway and cost 8.26 -> 9.06 ms.
+    //
+    // The reason it cannot pay is upstream and is written up in
+    // `Reports/field-settling-2026-08.md`: on a completely quiet world --
+    // zero awake chunks, 3000 frames in -- the solve set plateaus at ~37% of
+    // all tiles and never reaches zero, because the *pressure* channel never
+    // converges. Until that is fixed there is no small set here to subset
+    // to. Do not re-attempt this without checking that number first.
     let _lit = apply_sky_to(amplitude, &coords, world.fields_ref(), &mut next);
     apply_moisture_sources(&solve, &mut next);
 
@@ -1036,8 +1062,75 @@ const NIGHT_LIGHT_FLOOR: f32 = 0.2;
 /// until the next sunrise — not a pure sinusoid with no true night.
 fn sky_light_amplitude(frame: u64) -> f32 {
     let daylight = sun_elevation(frame).max(0.0);
+    // Quantised on the 0..1 *daylight fraction* rather than on the amplitude
+    // it scales to, so the two endpoints survive exactly: `daylight == 0`
+    // rounds to 0 and `daylight == 1` rounds to the top step, giving
+    // `NIGHT_LIGHT_FLOOR` and `MAX_LIGHT` bit-for-bit.
+    // `sky_light_amplitude_cycles_between_the_night_floor_and_max_light`
+    // asserts both with `assert_eq!`, and quantising the amplitude directly
+    // moved the night floor to 0.19999999 -- a float artifact of the
+    // rounding, not a behaviour change, but the test is right to be exact
+    // and weakening it to fit an implementation detail would be the wrong
+    // way round.
+    let steps = (MAX_LIGHT - NIGHT_LIGHT_FLOOR) / SKY_LIGHT_STEP;
+    let daylight = (daylight * steps).round() / steps;
     NIGHT_LIGHT_FLOOR + daylight * (MAX_LIGHT - NIGHT_LIGHT_FLOOR)
+    // **Quantised, and that is what lets a quiet world stop solving.**
+    //
+    // Measured on a settled world with *zero* awake chunks: `field::step`
+    // cost 8.26 ms/frame at the shipped 2048x640 and 42.37 ms at 8192x2560.
+    // Not the CA sweep -- that measured 0.00 and 0.08 ms respectively, so
+    // chunk sleeping was doing its job perfectly. All of it was this
+    // function moving.
+    //
+    // The old comment above `apply_sky_to` described the mechanism and read
+    // it as a necessary cost: the sun's amplitude changes by less than
+    // `SETTLE_EPSILON_LIGHT` per frame, so the `amplitude_changed` early-out
+    // "is essentially never true", and the sky advanced instead because the
+    // pass wrote a slightly different value every frame and the tile
+    // therefore never converged. That is the clock running on an accident --
+    // the flag written to drive it could not, and permanently-awake tiles
+    // did it instead, at the price of a full five-pass solve every frame
+    // forever.
+    //
+    // Rounding the amplitude to `SKY_LIGHT_STEP` makes it *piecewise
+    // constant*: on the frames within a step the sky writes exactly the same
+    // value, tiles converge, `fields_settled()` goes true and the early-out
+    // finally fires. On the frame it steps, the value differs and the solve
+    // runs -- so the clock is driven by `amplitude_changed` again, which is
+    // what it was written for.
+    //
+    // Quantising the *amplitude* rather than the phase is deliberate:
+    // `sun_elevation` is shared with the renderer's sky, and this file warns
+    // that the painted sky and the light channel must not drift. The sky's
+    // colour stays exactly as smooth as before; only the scalar the light
+    // channel is driven by is stepped. `noon_equivalent_light` divides by
+    // this same function, so every economic light read stays consistent for
+    // free.
 }
+
+/// Step size for [`sky_light_amplitude`], in the same units as
+/// [`MAX_LIGHT`].
+///
+/// Bounded on both sides, and the window is wide:
+///
+/// - It must be **larger than `SETTLE_EPSILON_LIGHT`** (0.005), or a step
+///   would not register as a change and the field would settle at a stale
+///   brightness -- the exact freeze that
+///   `the_sky_keeps_cycling_through_day_and_night_even_after_the_field_goes_
+///   quiet` was written to catch.
+/// - It must be **small enough to be invisible**. The amplitude spans
+///   `NIGHT_LIGHT_FLOOR`..`MAX_LIGHT` = 3.8, so 0.01 is 0.26% of the range
+///   -- far below one step of the 8-bit colour the light is eventually
+///   drawn through.
+///
+/// How often that leaves the field solving: total variation over a day is
+/// `2 x 3.8`, so `2 x 3.8 / 0.01` = 760 steps per `DAY_NIGHT_PERIOD_FRAMES`
+/// = 3600 frames, or roughly one frame in five -- and the steps place
+/// themselves where the light is actually moving, densely at dawn and dusk
+/// and hardly at all around noon and midnight, which is the right
+/// distribution rather than a uniform one.
+const SKY_LIGHT_STEP: f32 = 0.01;
 
 /// How high the sun stands, as `-1.0` (deep night) through `0.0` (exactly
 /// sunrise or sunset) to `1.0` (noon).
