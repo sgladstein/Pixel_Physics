@@ -225,6 +225,15 @@ readily a shaken tree sheds and sows, how big a hop leaving the water is,
 and how high a lip he can mantle are all individual numbers in the same
 panel.
 
+**Cave formations are walk-through too**, on the same principle as the
+trees and for the same reason: a gallery hung with stalactites should read
+as somewhere you can go, not as a portcullis. He weaves in front of some
+and behind others, and the side a given formation puts him on is fixed for
+that formation, so it does not flicker as he walks. Unlike a tree they are
+not climbable — there is nothing to take hold of on wet stone — and unlike
+a tree they mine: the pick takes a stalagmite the same as it takes the wall
+behind it.
+
 One housekeeping note: the gnome took over the movement keys, so two
 older debug tools moved — dig is now `H` (it was `D`), and planting a
 worm is now `J` (it was `W`).

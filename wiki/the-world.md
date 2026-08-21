@@ -81,10 +81,27 @@ simulated history before you arrive: soft rock has cut back where hard
 bands stand proud, crests are rounded, valley floors carry washed-in fill,
 and the shed rock of ages mantles the slopes as gravel over the soil. How
 weathered varies by landscape — canyon country is the most worked-over,
-deserts wear slowly. Rarely, where a hard cap shed heavily, a rounded
-**boulder** of pale resistant stone sits on the surface where it came to
-rest — an event, not a decoration, and it holds itself up (or fails to)
+deserts wear slowly. Where a hard cap shed heavily, a rounded **boulder**
+of pale resistant stone sits on the surface where it came to rest, seated
+into the ground rather than perched on it, and standing well over head
+height — an event, not a decoration, and it holds itself up (or fails to)
 like any other rock.
+
+**Rock stands at your own scale.** Weathering wears the country down
+evenly; what it leaves behind is the hard parts. So some rock does not wear
+away: **tors, stacks and pinnacles** stand where the band they were cut
+from resisted while everything around them retreated. They run from
+knee-height lumps to monuments several times the gnome's height, with the
+small ones far commoner than the large — you will pass a dozen boulders for
+every spire. Their shape is inherited from the rock that made them: a
+resistant band gives blocky, square-shouldered stone, a softer one gives
+rounded whalebacks.
+
+**And which kind of rock country you are in changes as you walk.** One
+stretch is strewn with boulders, the next carries two or three monuments
+over otherwise bare ground, another is smoothed down to nothing much at
+all. This is a property of the region, not a single world-wide setting, so
+a long walk crosses several kinds of country rather than more of one.
 
 **Soil** lies over the rock wherever the ground is gentle enough to hold it,
 thinning as the ground steepens and giving out entirely on steep faces, which
@@ -123,7 +140,15 @@ banding you can see in every cut face, with stone pillars holding the
 galleries apart. The floors are rubble — gravel banked into uneven mounds,
 not tile — and stalactites hang from the high ceilings with stalagmites
 rising to meet them, a pale fringe of flowstone with the occasional pair
-almost touching. A few formations are crystal. Each system has its own
+almost touching. A few formations are of **spar**, which glows.
+
+**You walk through the formations.** A stalactite, a stalagmite or a full
+floor-to-ceiling column is scenery, not wall: the gnome passes through it
+the same way he passes through a tree, and passes in front of some and
+behind others, so a decorated gallery reads as deep rather than as a
+thicket. They are still rock — point the pick at one and it breaks like
+anything else, and what comes off it falls. The cave you can see into is
+the cave you can walk into. Each system has its own
 water: some are dry throughout, some pond in their lowest rooms, and some
 are flooded through most of their galleries — one system can hold both a
 drowned wing and a dry one, which is the picture worth digging for.
