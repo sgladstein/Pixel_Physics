@@ -2423,6 +2423,28 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // what several independent failures look like, and a contact sheet
         // cannot tell them apart at all. The count says which it was.
         println!("    of those, paced across ticks: {} slice(s), {} cells", f.staged_slices, f.staged_cells);
+        // The only line in this block that counts a *displacement*. Every
+        // number above it -- `failures`, the reach, the paced slices -- is
+        // recorded at `structural.rs`'s `record` call, which runs before
+        // the free-face test, the boundary erosion, the slicing and the
+        // fracture. So "unsupported 400 (12,000 cells)" is entirely
+        // consistent with not one cell having moved, and that is not a
+        // hypothetical: it is the exact shape of the owner's "no pieces
+        // move, ever, not even chunks well over 8 cells, and nothing turns
+        // to dust either" against a harness reporting hundreds of
+        // failures. The census line below closes the gap one step further
+        // along for *material*; this closes it for *motion*, and the two
+        // are different questions -- rubble standing where it fell is a
+        // loss to neither.
+        //
+        // Both halves are printed, never one: their ratio is the block-
+        // size distribution the ethos is about, and a run that promotes
+        // nothing and a run that shatters nothing are two different bugs
+        // that either number alone reads as the same.
+        println!(
+            "    of those, actually moved: {} bodies ({} cells promoted), {} cells shattered to rubble",
+            f.promoted_bodies, f.promoted_cells, f.shattered_cells
+        );
         // How much of the damage happened to rock with nowhere to go --
         // the mid-mountain collapse the owner reports as looking fake.
         // A picture cannot answer this: a collapse at a cliff edge and one

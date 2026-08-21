@@ -723,6 +723,21 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
         stalled: 0,
         peak_speed: 0.0,
     });
+    // Counted here, on the line after the push, and not at any call site:
+    // this is the only place in the engine where rock leaves the grid as a
+    // moving piece, so it is the only place the count cannot drift out of
+    // step with what happened. `fracture_with_impulse` (collapse),
+    // `calve_collar` and `fracture_shell` (blast) all arrive through this
+    // door, and so will whatever is added next.
+    //
+    // It is also the *only* field of `FailureCounts` that measures a
+    // displacement. Everything else is recorded at `structural.rs`'s
+    // `record`, which runs before the free-face test, the erosion, the
+    // slicing and the fracture -- so `unsupported: 400` is entirely
+    // consistent with nothing at all having moved, which is exactly the
+    // shape of the owner's "no pieces move, ever" against a harness
+    // reporting hundreds of failures.
+    world.structural_failures.record_promoted(cells.len());
 }
 
 /// Convert one cell to its material's `breaks_into`, losing attachment —
@@ -736,6 +751,13 @@ fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
     let shade = world.rng.below(shades) as u8;
     let temp = cell.temperature();
     world.set(x, y, Cell::new(into, shade).with_temperature(temp));
+    // After the conversion, never before the `breaks_into` check above:
+    // the decline leaves the cell exactly as it was, and counting a
+    // decline would make grit look like it happened. Grit is half of the
+    // "a few blocks, more cobbles, a lot of grit" distribution and its
+    // pair, `promoted_cells`, is the other -- neither number says anything
+    // about the shape of a break on its own.
+    world.structural_failures.record_shattered(1);
     world.schedule_structural_check_around(x, y);
 }
 

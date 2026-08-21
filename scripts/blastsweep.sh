@@ -144,6 +144,7 @@ check() {
 
 losses=""
 rocks=""
+promoted=""
 reaches=""
 sites_all=""
 awakes=""
@@ -186,6 +187,18 @@ for seed in $SEEDS; do
   unsup=$(echo "$fail_line" | sed -nE 's/.*unsupported ([0-9]+) .*/\1/p')
   reach=$(echo "$out" | grep -E 'furthest a failure landed' | tail -1 | sed -nE 's/.*trigger: ([0-9]+) cells.*/\1/p')
   paced=$(echo "$out" | grep -E 'paced across ticks' | tail -1 | sed -nE 's/.*ticks: ([0-9]+) slice.*/\1/p')
+  # The only parsed field that is a *displacement* rather than a judgement.
+  # `over`/`unsup` above are recorded before the free-face test, the
+  # erosion, the slicing and the fracture, so they can both be in the
+  # hundreds on a run where nothing whatsoever moved -- which is exactly
+  # the shape of "no pieces move, ever" against this sweep's own numbers.
+  # All three parts are kept: bodies and cells promoted are the blocks,
+  # cells shattered is the grit, and the sweep is here to find out whether
+  # either of them is zero.
+  moved_line=$(echo "$out" | grep -E 'of those, actually moved' | tail -1)
+  moved_bodies=$(echo "$moved_line" | sed -nE 's/.*moved: ([0-9]+) bodies.*/\1/p')
+  moved_cells=$(echo "$moved_line" | sed -nE 's/.*\(([0-9]+) cells promoted\).*/\1/p')
+  grit=$(echo "$moved_line" | sed -nE 's/.*, ([0-9]+) cells shattered.*/\1/p')
   census=$(echo "$out" | grep -E 'cells lost since the cut' | tail -1)
   lost=$(echo "$census" | sed -nE 's/.*cut: (-?[0-9]+) .*/\1/p')
   rock=$(echo "$census" | sed -nE 's/.*rock (-?\+?[0-9]+),.*/\1/p' | tr -d '+')
@@ -198,6 +211,7 @@ for seed in $SEEDS; do
   check "failures" "$over" "$unsup"
   check "furthest a failure landed from its trigger" "$reach"
   check "paced across ticks" "$paced"
+  check "of those, actually moved" "$moved_bodies" "$moved_cells" "$grit"
   check "cells lost since the cut" "$lost" "$rock"
   check "cracked cells in the world" "$cracked"
   check "awake / sites at the last tile" "$awake" "$awake_of" "$sites"
@@ -209,6 +223,7 @@ for seed in $SEEDS; do
   echo "    failures: overloaded ${over:-PARSE?} / unsupported ${unsup:-PARSE?}"
   echo "    furthest a failure landed from its trigger: ${reach:-PARSE?} cells"
   echo "    paced across ticks: ${paced:-PARSE?} slice(s)"
+  echo "    actually moved: ${moved_bodies:-PARSE?} bodies (${moved_cells:-PARSE?} cells promoted), ${grit:-PARSE?} cells shattered"
   echo "    cells lost since the cut: ${lost:-PARSE?} (rock ${rock:-PARSE?})"
   echo "    cracked cells in the world: ${cracked:-PARSE?}"
   echo "    awake ${awake:-PARSE?}/${awake_of:-PARSE?}, sites ${sites:-PARSE?}"
@@ -218,6 +233,7 @@ for seed in $SEEDS; do
 
   losses="$losses ${lost:-}"
   rocks="$rocks ${rock:-}"
+  promoted="$promoted ${moved_cells:-}"
   reaches="$reaches ${reach:-}"
   sites_all="$sites_all ${sites:-}"
   awakes="$awakes ${awake:-}"
@@ -250,6 +266,14 @@ stats() {
 }
 stats "cells lost" "$losses"
 stats "rock destroyed" "$(echo "$rocks" | tr ' ' '\n' | awk 'NF { print -$1 }')"
+# Read this one from the *bottom*. Every other statistic here is worst at
+# its max -- more rock eaten, a failure landing further out, a slower
+# frame. This one is worst at its **min**: a seed that promoted nothing is
+# a seed where nine charges produced no moving rock at all, and the max
+# cannot see it. `stats` prints min alongside max for exactly this reason,
+# and the sign is not flipped on the way in because both ends are worth
+# reading -- an enormous max is its own kind of report.
+stats "promoted cells" "$promoted"
 # The containment statistic: how far from its own trigger a failure was
 # still landing. A blast that takes the mountain apart at range reads here
 # and nowhere else.

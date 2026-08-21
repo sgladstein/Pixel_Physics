@@ -586,6 +586,48 @@ pub struct FailureCounts {
     /// of this.
     pub staged_slices: u32,
     pub staged_cells: u32,
+    /// Cells lifted out of the grid into a tumbling `ChunkBody`, and how
+    /// many bodies they became.
+    ///
+    /// **The only counter here that measures a displacement rather than a
+    /// judgement.** Every field above it is recorded at `structural.rs`'s
+    /// `record` call, which runs before the free-face test, the boundary
+    /// erosion, the slicing and the fracture -- so all of them can be large
+    /// on a run where nothing whatsoever moved. That is not hypothetical:
+    /// it is the exact shape of the owner's *"no pieces move, ever"*
+    /// against a harness reporting hundreds of unsupported failures.
+    ///
+    /// Recorded inside `rigid::promote`, at the line that actually pushes
+    /// the body, rather than at any call site -- `fracture_with_impulse`,
+    /// `calve_collar` and `fracture_shell` all reach it through the same
+    /// door, and so does anything added later.
+    pub promoted_bodies: u32,
+    pub promoted_cells: u32,
+    /// Cells converted in place to `breaks_into` rubble -- the other half
+    /// of a fracture's output, and the one the ethos calls grit.
+    ///
+    /// Paired with `promoted_cells` deliberately: the ratio between them is
+    /// the block-size distribution the owner's *"a few blocks, more
+    /// cobbles, a lot of grit"* is about, and either number alone cannot
+    /// show it.
+    ///
+    /// Two code paths write the identical conversion and both are counted:
+    /// `rigid::shatter_to_rubble`, which takes the fragments that came out
+    /// below `MIN_BODY_CELLS`, and `structural::break_free`, which is the
+    /// fallback when a region was too small to fracture at all. Neither
+    /// counts a cell whose material has no `breaks_into` -- both decline
+    /// and leave it standing, and counting a decline would make grit look
+    /// like it happened.
+    ///
+    /// **`break_free`'s organism path is deliberately *not* counted.** The
+    /// third caller is `structural.rs`'s plant-support check turning a
+    /// limb that lost its anchor into deadwood: the same conversion, an
+    /// entirely different event, and one that fires on its own schedule
+    /// all through any world with vegetation in it. Folding it in here
+    /// would put tree death into the number that is supposed to say how
+    /// rock came apart, and swamp it on exactly the generated worlds this
+    /// counter exists to judge.
+    pub shattered_cells: u32,
 }
 
 impl FailureCounts {
@@ -602,6 +644,25 @@ impl FailureCounts {
     pub fn record_staged(&mut self, cells: usize) {
         self.staged_slices += 1;
         self.staged_cells += cells as u32;
+    }
+
+    /// One body, `cells` cells, actually lifted off the grid. See
+    /// `promoted_bodies`.
+    ///
+    /// `saturating_add` rather than the `+=` its neighbours use, and that
+    /// is not a style slip: the fields above it count discrete failure
+    /// events and this one counts *cells*, over runs that go to 5,000
+    /// frames and nine charges. A wrap here would read as a collapse in
+    /// the one counter the night's work is judged by.
+    pub fn record_promoted(&mut self, cells: usize) {
+        self.promoted_bodies = self.promoted_bodies.saturating_add(1);
+        self.promoted_cells = self.promoted_cells.saturating_add(cells as u32);
+    }
+
+    /// `cells` cells converted where they stood. See `shattered_cells` for
+    /// which paths count and which one deliberately does not.
+    pub fn record_shattered(&mut self, cells: usize) {
+        self.shattered_cells = self.shattered_cells.saturating_add(cells as u32);
     }
 
     pub fn record(&mut self, mode: crate::sim::load::FailureMode, cells: usize) {

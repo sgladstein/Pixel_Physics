@@ -506,9 +506,16 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // the chain walk found over its limit, which may be many cells from
         // the one this tick was checking. It is where the impulse belongs.
         if !super::rigid::fracture_failing_region(world, &region, failure.at) {
+            // The region was under `MIN_FRACTURE_CELLS`, so nothing here
+            // will ever fly -- this whole branch is grit by construction,
+            // and it is the branch that makes `promoted_cells: 0` next to
+            // a large `unsupported` mean something specific rather than
+            // "the counter is broken".
+            let mut grit = 0usize;
             for &(fx, fy) in &region {
-                break_free(world, fx, fy);
+                grit += usize::from(break_free(world, fx, fy));
             }
+            world.structural_failures.record_shattered(grit);
         }
         // The neighbours that were relying on this as a stepping stone need
         // to recompute too -- this is what turns a break into a *cascade*
@@ -597,7 +604,11 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
         // above uses for the identical case.
         return Vec::new();
     }
-    break_free(world, x, y);
+    // Deliberately dropped rather than recorded: this is a limb losing its
+    // anchor and becoming deadwood, not rock coming apart, and
+    // `shattered_cells` is paired with `promoted_cells` to describe the
+    // latter. See `break_free`'s own doc.
+    let _ = break_free(world, x, y);
     schedule_organism_neighbours(world, x, y, organism_id)
 }
 
@@ -1788,9 +1799,12 @@ pub fn advance_staged_fractures(world: &mut World) {
     world.structural_failures.record_staged(region.len().min(FRACTURE_CELLS_PER_TICK));
     let Sliced { slice, remainder } = slice_failing_region(region, staged.at);
     if !super::rigid::fracture_failing_region(world, &slice, staged.at) {
+        // Same grit-by-construction branch as `tick`'s, one tick later.
+        let mut grit = 0usize;
         for &(fx, fy) in &slice {
-            break_free(world, fx, fy);
+            grit += usize::from(break_free(world, fx, fy));
         }
+        world.structural_failures.record_shattered(grit);
     }
     if !remainder.is_empty() {
         world.staged_fractures.push_front(StagedFracture { region: remainder, at: staged.at, next_frame: world.frame + STRUCTURAL_TICK_INTERVAL });
@@ -1803,7 +1817,26 @@ pub fn advance_staged_fractures(world: &mut World) {
 /// diamond, not enough to let the slice grow holes.
 const JITTER_STEPS: u32 = 16;
 
-fn break_free(world: &mut World, x: i32, y: i32) {
+/// Convert one cell to its material's `breaks_into`, returning whether it
+/// actually converted.
+///
+/// The return value is the grit half of the "did anything move" pair, and
+/// it is a return value rather than a `record_shattered` call in here for
+/// one reason: **two of this function's three callers are destruction and
+/// the third is a tree dying.** The conversion is identical in all three --
+/// same `breaks_into` lookup, same unattached result -- but a limb that
+/// lost its anchor becoming deadwood is not rock coming apart, and it fires
+/// on its own schedule all through any world with vegetation in it. Counted
+/// here it would swamp the number on exactly the generated worlds the
+/// counter exists to judge. So the two destruction callers record what this
+/// tells them and the organism path deliberately drops it; see
+/// `FailureCounts::shattered_cells`.
+///
+/// A cell whose material has no configured debris is left alone rather than
+/// deleted, and reports `false`: counting a decline would make grit look
+/// like it happened.
+#[must_use]
+fn break_free(world: &mut World, x: i32, y: i32) -> bool {
     // Resolved per cell rather than passed in by the caller, because a
     // failing region is no longer one cell and need not be one material --
     // a shelf can be part stone and part whatever was built onto it. A cell
@@ -1811,7 +1844,7 @@ fn break_free(world: &mut World, x: i32, y: i32) {
     // deleted: "not actually participating" beats silently destroying
     // content an author forgot to pair `breaks_into` with.
     let Some(into) = world.materials.get(world.get(x, y).material).breaks_into else {
-        return;
+        return false;
     };
     let shades = world.materials.get(into).palette.len().max(1) as u32;
     let shade = world.rng.below(shades) as u8;
@@ -1823,6 +1856,7 @@ fn break_free(world: &mut World, x: i32, y: i32) {
     // debris that actually falls.
     world.set(x, y, Cell::new(into, shade).with_temperature(temp));
     world.add_pressure_impulse(x, y, COLLAPSE_IMPULSE_RADIUS, COLLAPSE_IMPULSE_STRENGTH);
+    true
 }
 
 fn schedule_solid_neighbours(world: &World, x: i32, y: i32) -> Vec<ActiveSite> {
