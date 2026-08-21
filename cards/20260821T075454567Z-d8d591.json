@@ -1,0 +1,54 @@
+{
+  "id": "20260821T075454567Z-d8d591",
+  "created": "2026-08-21T07:54:54Z",
+  "board": "worldgen-formations",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/game-world-gen-planning-h12713",
+    "commit": "5d46da8",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Rock formations: the empty 12-60 cell band, filled",
+  "question": "One of these has the new residual pass. Do the tall spires read to you as rock that survived while the land around it wore away — or as slabs pasted onto the skyline? And is the SIZE right now, independent of the shape?",
+  "context_md": "Canyon seed 7, same world, four-shot traverse across 2048 columns. This is the band you named when you said rock formations are 5/10/20/40 ft: the player is 14 cells, so your range is 12–120 cells, and that band was **completely empty** before — the tallest thing in the whole world at reach 15 was 4–10 cells.\n\n**Measured, same seed:**\n\n| prominence | before | after |\n|---|---|---|\n| reach 15 max | 8–10 | **25–73** |\n| reach 15 p99 | ~4 | **18–26** |\n| reach 30 max | 8–10 | **69–71** |\n\nThe agent also proved the diagnosis before building: it instrumented erosion's loop and found max prominence **monotonically decreasing from iteration 0**, with **0 of 2048 columns** ever peaking above 15 and later falling. So erosion never creates a residual to protect — no rate retune could have produced one, and it had to be constructed directly. That is a real finding and it closes a question I had left open.\n\n**My own read, which I would rather you overrule than agree with politely:** the scale is right and the shape is not. To me they read as flat vertical slabs — straight sides, uniform width, flat top — rising abruptly from flat ground with no talus at the foot and no broken profile. The pair at the far left looks like two fence posts. It is the *same* failure as the cave formations you called 'all 1 pixel thick': the shape is authored as extents rather than as a profile, so it comes out a rectangle at every scale.\n\n**Also in:** boulders re-derived to the real 3x structural rule — visible height p50 **16**, max **30** over 600 seeds, against 1–2 cells before.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - before (no residual pass)",
+      "files": [
+        "20260821T075454567Z-d8d591/000-r6b_before_canyon_s7.png"
+      ],
+      "caption": "mesas and texture, nothing between",
+      "meta": {
+        "reach 15 max": "8-10",
+        "reach 15 p99": 4,
+        "reach 30 max": "8-10",
+        "boulder visible height p50": "1-2"
+      }
+    },
+    {
+      "label": "B - residual pass",
+      "files": [
+        "20260821T075454567Z-d8d591/001-r6b_residual_canyon_s7.png"
+      ],
+      "caption": "tors/stacks/pinnacles, size from region character",
+      "meta": {
+        "reach 15 max": 73,
+        "reach 15 p99": 26,
+        "reach 30 max": 69,
+        "boulder visible height p50": 16,
+        "cargo test": "679 passed"
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
