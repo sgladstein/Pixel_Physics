@@ -128,6 +128,38 @@ python3 scripts/review.py post --json - <<'EOF'
 EOF
 ```
 
+## Framing: render wide, declare tight
+
+**Render about twice the area you think you need, then declare the part you
+actually want judged.** The page frames your declared region by default, and one
+zoom step out reveals the margin you rendered around it.
+
+This exists because the alternative costs a round trip. A crop that turns out too
+tight cannot be recovered in the viewer — those pixels were never in the file —
+so the owner has to ask for a re-render and the question waits. Margin captured
+up front costs a few kilobytes and nothing else.
+
+For a region of interest `x,y,w,h`, render the doubled box centred on it:
+
+```
+cargo run --release --example filmstrip -- scene=fall \
+    crop=<x-w/2>,<y-h/2>,<2w>,<2h> out=/tmp/a.png
+python3 scripts/review.py post --image /tmp/a.png --focus center …
+```
+
+`--focus center` is the middle half by area, which is exactly your region of
+interest when you doubled it — so the usual case needs no arithmetic. Use
+`--focus x,y,w,h` (in the *rendered image's* pixels, not world coordinates) when
+the interesting part is off-centre. An out-of-bounds rect is rejected at post
+time rather than reaching the owner as a blank pane.
+
+The owner sees `Focus 6× · 128×80 of 256×160`, can press `z` to see the whole
+frame, and can drag inside the margin without leaving focus mode.
+
+Not a licence to render the whole world every time: doubling a crop roughly
+quadruples the pixels, and these ride in git on `review-queue`. Double the
+region of interest, not the world.
+
 ## House rules for a card
 
 - **Put the counter in `meta`.** If the change adds a discrete "this happened"

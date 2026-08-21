@@ -339,6 +339,43 @@ def test_concurrent_push(base: Path, art: Path) -> None:
           "%d vs %d" % tuple(counts))
 
 
+def test_focus_is_validated_at_post_time(root: Path, art: Path) -> None:
+    """A focus rect the page cannot satisfy must fail where it is still fixable.
+
+    The rect is in the rendered image's pixels, which is easy to confuse with
+    world coordinates -- and a wrong one renders as a blank or clipped viewport,
+    reading as a broken tool rather than a bad argument.
+    """
+    print("\nfocus validation")
+    size = rl.image_size(art)
+    check(size is not None, "image_size reads a PNG header", str(size))
+    w, h = size
+
+    out = json.loads(run("post", "--title", "t", "--question", "q", "--image", str(art),
+                         "--focus", "center", root=root).stdout)
+    card = rl.load_card(root, out["id"])
+    check(card["items"][0]["focus"] == "center", "center shorthand is stored verbatim")
+
+    rect = [w // 4, h // 4, w // 2, h // 2]
+    out = json.loads(run("post", "--title", "t", "--question", "q", "--image", str(art),
+                         "--focus", ",".join(str(n) for n in rect), root=root).stdout)
+    check(rl.load_card(root, out["id"])["items"][0]["focus"] == rect,
+          "an explicit rect round-trips")
+
+    for bad, why in ((f"{w-2},{h-2},40,40", "outside the image"),
+                     ("1,2,3", "wrong arity"),
+                     ("1,2,0,4", "zero width"),
+                     ("-5,0,10,10", "negative origin")):
+        proc = run("post", "--title", "t", "--question", "q", "--image", str(art),
+                   "--focus", bad, root=root, expect=None)
+        check(proc.returncode != 0, "rejects %s (%s)" % (bad, why))
+
+    out = json.loads(run("post", "--title", "t", "--question", "q",
+                         "--image", str(art), root=root).stdout)
+    check(rl.load_card(root, out["id"])["items"][0]["focus"] is None,
+          "a card with no --focus stores none, so its zoom cycle is unchanged")
+
+
 def test_root_is_shared_across_worktrees() -> None:
     """The one hard requirement: every worktree of a clone resolves to one queue."""
     print("\ncross-worktree root")
@@ -395,6 +432,7 @@ def main() -> int:
         test_blind_resolves_to_real_label(base / "q4", art_a, art_b)
         test_wait_degrades(base / "q5", art_a)
         test_inbox_is_never_silently_empty(base / "q4", art_a)
+        test_focus_is_validated_at_post_time(base / "q6", art_a)
         test_root_is_shared_across_worktrees()
         transport = Path(tempfile.mkdtemp(prefix="review-transport-"))
         try:

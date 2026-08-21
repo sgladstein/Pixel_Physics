@@ -200,6 +200,25 @@ def copy_media(root: Path, card_id: str, src: str, index: int) -> str:
     return "%s/%s" % (card_id, dest_name)
 
 
+def image_size(path: Path):
+    """(width, height) from a PNG or GIF header, or None if it is neither.
+
+    Header bytes only -- no decode, no dependency. Enough to bounds-check a
+    declared focus rectangle at post time, where the agent can still fix it,
+    rather than letting a bad rect reach the page as a blank viewport.
+    """
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(32)
+    except OSError:
+        return None
+    if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+        return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return int.from_bytes(head[6:8], "little"), int.from_bytes(head[8:10], "little")
+    return None
+
+
 # --------------------------------------------------------------------------
 # Queue reads
 # --------------------------------------------------------------------------

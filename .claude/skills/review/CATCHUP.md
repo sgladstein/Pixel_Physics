@@ -89,6 +89,11 @@ Post when:
   contact sheet. `filmstrip` encodes a GIF headlessly (`gif=1 out=x.gif`) and
   `post --gif` attaches it.
 
+Crop generously and declare the part that matters: render roughly double the
+region of interest and pass `--focus center`. The owner sees your framing by
+default and can zoom out into the margin, so a too-tight crop no longer costs a
+re-render.
+
 Two house rules, both from failures already paid for here:
 
 - **Put the discrete event count in the card's `meta`.** The page renders it
