@@ -1,0 +1,43 @@
+{
+  "id": "20260821T100724109Z-8a49a8",
+  "created": "2026-08-21T10:07:24Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/game-world-gen-planning-h12713",
+    "commit": "7d6599c",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The grey light blocks in caves",
+  "question": "Is the light coming off the crystals now the right shape? And does the faint blocking further out from the big halo still bother you?",
+  "context_md": "This is the thing you picked out twice without being asked — \"very large\nuniform gray blocks with blurry light coming off it\", and on a different\ncard, \"the problem is the big sharp squares that look like giant white\ngray pixels\".\n\nSame cave, same seed, same camera. Only the glow term differs.\n\nIt was not a smoothing problem. The light field stores one value per 8x8\ncells, and — worse — it quantises the *emitter* to that grid before any\ndiffusion runs: a two-cell crystal becomes a filled 8x8 square first, then\ngets smeared over about sixteen cells, aligned to the field's lattice\ninstead of to the crystal. Smoothing that harder just gives a vaguer\nsixteen-cell blob, which is why the older note in the bug file (\"halo\nblock-edge softening, low priority\") was aimed at the wrong thing.\n\nThe fix gives each glowing *cell* its own short-range falloff and leaves\nthe coarse field to carry the far tail. It is gated so it can only sharpen\nlight that is already there — otherwise a crystal would shine through a\nwall.\n\nCosts nothing per frame on a settled world: the splat is rebuilt only when\na cell in a glowing chunk actually changes. Worst frame across the ascii\nscenes is unchanged at 0.33-2.15 ms.\n\nIt is a selector — `'` in the app, and the status line names it when you\nswitch back. I have defaulted it to the new one rather than leaving it to\nyou, because you had already called the old one bad twice; say the word if\nyou would rather it were the other way.\n\nOne thing I did **not** chase, and you can see it: further out from a big\nhalo the coarse field's blocks are still faintly there. Growing the radius\nuntil they leave the screen would cost the whole point of a short-range\nterm. Tell me if it still reads wrong at that distance.\n",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before (8-cell field only)",
+      "files": [
+        "20260821T100724109Z-8a49a8/000-GLOW_field.png"
+      ],
+      "caption": "",
+      "meta": {}
+    },
+    {
+      "label": "after (near-field term)",
+      "files": [
+        "20260821T100724109Z-8a49a8/001-GLOW_near.png"
+      ],
+      "caption": "",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
