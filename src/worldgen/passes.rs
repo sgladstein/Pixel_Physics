@@ -744,21 +744,22 @@ const CAVE_GRID_H: i32 = 2 * CAVE_HALF_H + 1;
 /// stone teeth in it read as pillars, median open column 30 in a 69-tall
 /// box (`Reports/cave-beauty-review-2026-08.md`'s measured addendum). Round
 /// 5 dropped it to 22.0 (~8.2 x 3.8 = 31 lattice cells) to buy back
-/// anatomy, and that shrunk `reachable by player %` to 0-8% (round 6's A1
-/// motivation) -- median open column fell to 4-6 in a box the 14-tall
-/// player needs whole.
+/// anatomy.
 ///
-/// Round 6 lands on 62.0 (~2.9 x 1.6 = ~4.6 lattice cells, between round
-/// 3's single-lens 9 and round 5's networked 31), landed together with
-/// [`CAVE_SQUASH`] and [`CAVE_THRESHOLD`] below because the three only
-/// mean anything as a set. Measured (`cave_probe`, 16 seeds, every caved
-/// preset): reachable 0-8% -> 29-31%, median open column 4-6 -> 23-26,
-/// contrast p95/med 5.2-5.8x -> 2.1-2.3x (the 3.0 bar was being
-/// overshot, not undershot -- this pulls it back toward, not past, the
-/// target). **This does not clear the round's own reachable >= 50% p50
-/// bar** -- see the A1-1 finding below for the full tradeoff surface and
-/// why the remaining gap belongs to speleothem density (A3), not this
-/// constant.
+/// **Round 6's A1 retuned this to 62.0, then reverted it.** The retune was
+/// built against a broken ruler: `cave_probe`'s "reachable by player %"
+/// counted every speleothem cell as solid, when Phase 0 made `flowstone`/
+/// `spar` scenery the player walks through, so the metric was measuring
+/// formation density, not passage geometry (finding A1-1, still on record
+/// below). Once the ruler was fixed to know about `Material::scenery`,
+/// round 5's shipped 22.0 measured **reachable/largest-walkable 33-37%,
+/// one connected region** -- the cave was already traversable end to end;
+/// the un-reached 65% is thin lattice fringe, not blockage. The 62.0 retune
+/// measured 95-96% reachable at the *cost* of collapsing to one rounded
+/// bubble (contrast 5.4x -> 2.1x, span across 136 -> 70) -- reproducing
+/// the "looks like a single room" complaint it existed to fix. Reverted;
+/// A1-1's diagnosis (the ruler) stood, its prescription (retune the
+/// lattice) did not survive the corrected measurement.
 const CAVE_CELL: f32 = 22.0;
 
 /// Vertical compression applied before the field is sampled, so everything
@@ -767,15 +768,12 @@ const CAVE_CELL: f32 = 22.0;
 ///
 /// Round 3 shipped 2.0; round 5 dropped it to 1.2, landed together with
 /// [`CAVE_CELL`] and [`CAVE_THRESHOLD`] because the three only mean
-/// anything as a set. Round 6's A1 drops it further, to 0.55 --
-/// *inverting* the compression from round 5's "shorter than wide" to
-/// "taller than wide", because a 14-cell-tall player box was the thing
-/// round 5's passages could not fit, not their width. This is still the
-/// anisotropy of the *lattice*, not of the bedding dip -- that is
-/// `strata_offset`'s shear, applied separately below, and unaffected by
-/// this constant; a strip has to confirm by eye that systems still lie
-/// along the visible dip after the drop, and if they stop, that is a
-/// finding, not a reason to put the squash back.
+/// anything as a set. Round 6's A1 inverted it to 0.55 (taller-than-wide)
+/// and reverted it along with the other two once the corrected `cave_probe`
+/// showed round 5's 1.2 was already traversable -- see [`CAVE_CELL`]'s
+/// comment for the numbers. This is still the anisotropy of the *lattice*,
+/// not of the bedding dip -- that is `strata_offset`'s shear, applied
+/// separately below, and unaffected by this constant.
 const CAVE_SQUASH: f32 = 1.2;
 
 /// Cells over which the threshold fades to nothing at the envelope edge,
@@ -784,15 +782,12 @@ const CAVE_SQUASH: f32 = 1.2;
 /// scan-cap lesson arriving at envelope scale, seen in the first ASCII dump
 /// as a 70-row straight wall at the bbox edge. Fading the threshold pinches
 /// every void shut before it reaches the wall, so the system ends in
-/// naturally narrowing passages instead of a cut. The vertical fade was
-/// set to half the horizontal one back when [`CAVE_SQUASH`] was 2 (round
-/// 3) and still was at round 5's 1.2: a fade that reads as the same
-/// *shape* on both axes has to match the anisotropy. Round 6's A1 flips
-/// squash to 0.55 -- taller-than-wide, the opposite anisotropy -- and did
-/// not re-derive this pair; a 2:1 fade tuned for a wider-than-tall lattice
-/// is now fighting the lattice's own shape rather than matching it. Not
-/// touched here (out of A1's three named constants), left as a landmine
-/// for whoever tunes the envelope edge next -- see the A1-1 finding.
+/// naturally narrowing passages instead of a cut. The vertical fade is half
+/// the horizontal one for the same reason [`CAVE_SQUASH`] is 1.2 (round 3's
+/// 2, before it): a fade that reads as the same *shape* on both axes has to
+/// match the anisotropy. (Round 6's A1 inverted `CAVE_SQUASH` to 0.55 and
+/// left this pair unmatched, which would have been a landmine for the next
+/// session to inherit; moot now that A1 reverted.)
 const CAVE_EDGE_FADE_X: f32 = 14.0;
 const CAVE_EDGE_FADE_Y: f32 = 7.0;
 
@@ -813,9 +808,8 @@ const CAVE_EDGE_FADE_Y: f32 = 7.0;
 /// Round 3 shipped 0.34, which at the round-3 [`CAVE_CELL`] opened ~53% of
 /// a 9-lattice-cell envelope -- one flooded room, not a network. Round 5
 /// dropped it to 0.09 alongside the smaller lattice cell above; the two
-/// changes are not independent -- see [`CAVE_CELL`] for the measured
-/// numbers each pairing produces, including round 6's A1 retune to 0.22
-/// alongside 62.0 / 0.55.
+/// changes are not independent. Round 6's A1 raised it to 0.22 alongside
+/// 62.0 / 0.55 and reverted it with them -- see [`CAVE_CELL`]'s comment.
 const CAVE_THRESHOLD: f32 = 0.09;
 
 /// Longest horizontal run of void with stone directly above it that a

@@ -1946,25 +1946,22 @@ fn a_forced_cave_world_is_deterministic() {
     assert!(placed > 0, "vacuous: neither forced world placed a system");
 }
 
-/// Round-3 guard, amended by round-5 task 4c: a speleothem may narrow a
-/// passage, never close it -- with exactly one deliberate exception per
-/// system.
+/// Round-3 guard (a speleothem may narrow a passage, never close it),
+/// relaxed twice since: round 5's task 4c carved out one guaranteed
+/// exception per system, and round 6's A3 makes bridging a legitimate,
+/// occasional outcome of the ordinary mechanism generally -- see this
+/// test's own assertion for why, and `carve_cave_void`'s speleothem block
+/// for the mechanism (Phase 0's `Material::scenery` is what makes a
+/// bridged column harmless: the player walks through it).
 ///
-/// A column of rock from floor to ceiling splits the passage the player
-/// walks, so the pass promises every column it decorates keeps at least one
-/// open cell (a pair closes to a one-or-two-cell gap on purpose, which
-/// still satisfies this) -- **except the single fused column task 4c
-/// places inside the largest chamber run, which is deliberately solid
-/// floor-to-ceiling** because a chamber is not a passage and blocks no
-/// route through it. The guard now allows *at most one* fully-solid column
-/// per system rather than none; a second one, or one outside a chamber,
-/// would be the bridging bug this test was written to catch, wearing task
-/// 4c's exception as cover, so the bound stays tight rather than being
-/// dropped. Attribution is the paired build again: in a cave system's
-/// diff, the only *solid* carved cells are speleothems -- the ceiling
-/// guard's teeth are never written, so they never enter the diff -- and
-/// vugs are excluded by component size, because a vug's crystal ring
-/// legitimately fills its rim columns.
+/// This guard no longer claims bridging cannot happen; it claims the
+/// *rate* stays what A3 measured (occasional, well under the picket-fence
+/// failure the round exists to avoid), both per system and summed over the
+/// suite. Attribution is the paired build again: in a cave system's diff,
+/// the only *solid* carved cells are speleothems -- the ceiling guard's
+/// teeth are never written, so they never enter the diff -- and vugs are
+/// excluded by component size, because a vug's crystal ring legitimately
+/// fills its rim columns.
 #[test]
 fn speleothems_never_bridge_a_passage() {
     // **Diff-free, unlike every other round-2/3 vault guard**, and that
@@ -2105,14 +2102,30 @@ fn speleothems_never_bridge_a_passage() {
                         }
                     }
                 }
-                // Round-5 task 4c allows *exactly one* fused (fully solid)
-                // column per system, inside its largest chamber -- a
-                // second one, anywhere, is the bridging bug this test
-                // exists to catch wearing task 4c's exception as cover.
+                // **Round 6's A3 relaxes this.** A bridged column used to
+                // split the passage the player walks, so round 3 forbade it
+                // outright and round 5's task 4c carved out exactly one
+                // guaranteed exception, inside the largest chamber. Neither
+                // reason survives Phase 0's `Material::scenery`: the player
+                // walks straight through `flowstone`/`spar`, so a bridged
+                // column blocks nothing, anywhere, and A3 removed
+                // `SPELEO_PAIR`'s forced gap that was the general
+                // mechanism's own enforcement of the old rule. Task 4c's
+                // guaranteed column still exists (it is a deliberate
+                // flourish, not a workaround), but it is no longer the
+                // *only* one legal -- an ordinary pair now closes fully
+                // whenever its own heavy-tailed draw takes it there.
+                //
+                // What this guard still exists to catch is not "did a
+                // column bridge" (now a legitimate, if occasional, outcome
+                // -- measured at 0-1 per system over this suite's 5 seeds)
+                // but "did the taper mechanism run away and turn the cave
+                // into a wall of pillars", which a per-system cap well
+                // above the measured rate still catches.
                 assert!(
-                    fused_here <= 1,
+                    fused_here <= 6,
                     "seed {seed}: {fused_here} columns bridged floor-to-ceiling in one cave system -- \
-                     task 4c allows at most one"
+                     that is the picket-fence failure A3 exists to avoid, not the occasional true column it allows"
                 );
                 fused_columns_total += fused_here;
             }
