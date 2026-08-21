@@ -1,0 +1,59 @@
+{
+  "id": "20260821T064813806Z-473386",
+  "created": "2026-08-21T06:48:13Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "c826141",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Steam over a boiling chamber: opaque, translucent, or thinned by fill",
+  "question": "Which one lets you still read the pool underneath without the steam stopping looking like steam?",
+  "context_md": "The pending `GasMode` default. Three modes behind `;` in the app, `Opaque` today. `filmstrip scene=boil` at frames 250, 370, 490 -- the steam fills the chamber, which is exactly the case that motivated the selector: drawn opaque the sheet becomes a speckled wall with the pool somewhere behind it.\n\n`ByFill` keys the alpha on the cell's own `aux`, which for steam is the water it is carrying, so a plume that has thinned out draws thinner -- it is a readout as well as a look.\n\nBoth alternatives change the same 24,704 pixels against Opaque; they differ in how far (mean |dRGB| 35.7 for Translucent against 40.2 for ByFill), so this is genuinely a look question and not a does-it-fire one.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260821T064813806Z-473386/000-gas_opaque.png"
+      ],
+      "caption": "Opaque (today's default)",
+      "meta": {
+        "pixels differing from Opaque": 0
+      }
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260821T064813806Z-473386/001-gas_translucent.png"
+      ],
+      "caption": "Translucent -- fixed alpha 0.62",
+      "meta": {
+        "pixels differing from Opaque": 24704,
+        "mean colour shift": 35.7
+      }
+    },
+    {
+      "label": "C",
+      "files": [
+        "20260821T064813806Z-473386/002-gas_byfill.png"
+      ],
+      "caption": "ByFill -- alpha follows the water the steam carries",
+      "meta": {
+        "pixels differing from Opaque": 24704,
+        "mean colour shift": 40.2
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
