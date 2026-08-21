@@ -1,0 +1,43 @@
+{
+  "id": "20260821T065659535Z-48272a",
+  "created": "2026-08-21T06:56:59Z",
+  "board": "worldgen-formations",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/form-r6",
+    "branch": "claude/worldgen-formations-r6",
+    "commit": "9e3c2ac",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/form-r6"
+  },
+  "title": "Round 6 B2: residual tors and stacks",
+  "question": "Do the standing pillars read as real rock formations at player scale (not boulders, not the mesa behind them)? Anything that reads as a rendering glitch rather than geology?",
+  "context_md": "New pass `residual.rs`: tors/stacks/pinnacles authored directly, since B1 measured plan-space erosion never produces a residual-scale candidate on its own (max prominence at reach 15 peaked at 8.34/5.00 across a full erosion run, never near the 12-120 cell band a residual occupies).\n\n- canyon seed 7, world 2048x640, `residual_density: 1.4` (region `Character::formation` scales it further per-place)\n- Shape (flat-capped / rounded dome / angular blocky) is read from `HardnessField`, never authored\n- Prominence bar: max met at every density tried (73-95 vs a 60 floor); **p90 is not met** (stays at 0-2 vs a 20 floor even at 4x density) -- diagnosed as regions staying deliberately smooth plus wide residuals reading as a plateau to the reach-based probe, not a frequency problem. Full numbers in the task file's Findings section.\n- Second image is a smooth stretch of the same world, for the 'regions visibly differ' claim.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Standing stacks",
+      "files": [
+        "20260821T065659535Z-48272a/000-residual_canyon7_spires_crop.png"
+      ],
+      "caption": "canyon seed 7, world x ~768-1288: three residuals in view, heights ~35-95 cells, next to the shipped mesa landform",
+      "meta": {}
+    },
+    {
+      "label": "Smooth stretch, same world",
+      "files": [
+        "20260821T065659535Z-48272a/001-residual_canyon7_smooth_crop.png"
+      ],
+      "caption": "canyon seed 7, world x ~1536-2048: no residuals -- this region's Character::formation drew low",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
