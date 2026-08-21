@@ -1,0 +1,55 @@
+{
+  "id": "20260821T044617542Z-4ac01b",
+  "created": "2026-08-21T04:46:17Z",
+  "board": "water",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "463142e",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Lava dropped into a pond: what the plume is made of",
+  "question": "Which one reads as a steam plume rather than something bouncing up and down?",
+  "context_md": "Your report: lava into water \"rises about 5 ft in the air and then drops back into rain... it almost looks like bouncing because it goes up and down so fast.\"\n\nNew scene `filmstrip scene=lavadrop` — an 800-cell lava blob released over the middle of a 199-wide pond, which is your report literally. Read left to right, top row then bottom row: frames 40, 100, 160, 220 / 280, 340, 400, 460.\n\nWhat I measured, and it was not rate or height: the plume held **421 water cells standing in the air** at peak, spread through its whole 40-row height rather than pooled at the top. Those are condensate falling back *through* the steam still rising — and a falling liquid displaces a gas, so each droplet shoves steam cells downward as it goes. That is the bouncing itself, which is why it reads as the steam going up and down when a gas has no downward move at all.\n\nThe change: steam condensing **with open sky above it** hands its water to the atmospheric bank instead of leaving a cell. Sealed pockets and roofed chambers are untouched. Conservation holds to 0.1 of a cell-equivalent.\n\n**What I am unsure of and want your eye on:** the plume still tops out ~30-40 rows and then stops at 45C rather than fading. You said to look at height in the app yourself — this is the artifact to look at it on.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — current",
+      "files": [
+        "20260821T044617542Z-4ac01b/000-drop_nosky.png"
+      ],
+      "caption": "steam condenses in the air and the water falls back",
+      "meta": {
+        "airborne water cells at peak": 421,
+        "airborne water at frame 460": 37,
+        "steam cells at frame 460": 254,
+        "boiled": 1527,
+        "condensed": 2343
+      }
+    },
+    {
+      "label": "B — condensate joins the sky",
+      "files": [
+        "20260821T044617542Z-4ac01b/001-drop_sky.png"
+      ],
+      "caption": "open-sky condensation credits the atmospheric bank",
+      "meta": {
+        "airborne water cells at peak": 0,
+        "airborne water at frame 460": 0,
+        "steam cells at frame 460": 7,
+        "boiled": 1061,
+        "condensed": 2320
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
