@@ -515,6 +515,34 @@ reach-15 p99 moved from ~4 to **18–26**, reach-30 max from 8–10 to **69–71
 correctly and the acceptance test is left failing against the wrong number;
 **re-derive it to p99 before anyone reads that failure as a defect.**
 
+**Done (reviewer, same night).** Re-measured at the shipped 2048x640,
+canyon, 16 seeds, whole quantile table printed so the next reader can see
+where each statistic sits:
+
+```text
+reach15: p50 -2  p90 1  p99 29  p99.9 60  max 76
+reach30: p50 -5  p90 2  p99 49  p99.9 87  max 91
+```
+
+Bars re-set with headroom below the measurement: reach-15 p99 >= 20,
+reach-30 p99 >= 35, max >= 60 at both. And because an absolute floor would
+pass on whatever erosion leaves behind — it would keep passing if the module
+stopped writing a single cell — the test is now **paired** against the same
+16 worlds at `residual_density: 0.0`:
+
+```text
+residuals off: reach15 p99 3  max 11 | reach30 p99 5
+residuals on : reach15 p99 29 max 76 | reach30 p99 49
+```
+
+Bar is a paired +15 against a measured +26 and +44. That control restates B1
+above in one line: strip this pass and the world's 99th-percentile relief at
+a 15-cell reach is **3 cells**, against a 14-cell character.
+
+This is the third bar of the night that was set in an aggregate's own units
+without asking which object it evaluates — after the >=50% cave reachability
+bar and the 4-cell boulder cap, both also mine.
+
 ### The floating-island bug is a real find, in two places
 
 A residual seated entirely over soil converted only the *top* soil cell,
