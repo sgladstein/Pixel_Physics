@@ -1,0 +1,51 @@
+{
+  "id": "20260822T102823856Z-7dae69",
+  "created": "2026-08-22T10:28:23Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "dcbdf7f",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The pond freezes over now, and it takes a minute",
+  "question": "Is this the order of magnitude you meant, and does the sheet read as ice rather than as slush? The still sheet is the whole arc if the clips are too short to judge.",
+  "context_md": "*\"I see no difference in the time here and the freezing effects look worse. In the new one it never really freezes and has snow accumulate on top. The pixels seem to be constantly shifting.\"*\n\nYou were right on every count, and one of the three things wrong was my measurement rather than the engine.\n\n**First, the thing I got wrong.** When I said the pond \"freezes over\", I was reading a number that counted the topmost water cell. On a settled pond that cell is a part-full fringe the engine refuses to freeze *by design* — so the readout said **0 of 60 columns frozen on a pond holding 900 cells of ice**. I fixed the readout before I touched anything else, and only then did the real fault show.\n\n**The real fault was churn.** Cold reached water only under a landing snowflake, one column at a time, three cells deep. A cell that did not happen to freeze before its column warmed back up never froze; a cell of ice whose column had moved on melted. The pond sat in a standing equilibrium forever:\n\n| | before | now |\n|---|---|---|\n| surface frozen | 3 of 60 columns | **60 of 60** |\n| freezes that stuck | 491 froze, 510 melted, **net minus nineteen** | every one — 1.0 per cell of ice |\n| freeze-over takes | never finishes | **1 to 2 minutes** |\n| the sheet then | churns | holds for about five minutes |\n| thaw takes | 8 s | **20 s** |\n| ice at the peak | ~300 cells, shimmering | 450, with 588 of water still under it |\n\n**And the weather cycle did not need lengthening after all** — the other thing you asked for, and I owe you the measurement rather than the argument. A genuinely cold air mass already lasts a **mean of 140 seconds, median 115, up to twelve minutes**, and the world is in one about a quarter of the time. What was missing is that *nothing acted on it*: the code returned early whenever nothing was falling, so a pond only had the overlap of \"snowing hard\" and \"cold\" to freeze in. **Cold now bites whether or not anything is falling** — a clear freezing night ices a pond — at the same bar snow needs to lie, so there is one rule: it freezes when it is cold enough to snow.\n\nThree smaller things, each measured on the way: a *light* snowfall used to cancel the frost (it bit less hard than the clear sky either side of it, and a pond under six thousand frames of unbroken cold froze **zero** cells); water froze at 0 and ice melted at 1, which on a whole-degree temperature is no gap at all, so a boundary cell flipped on ordinary noise; and left unbounded the fix freezes a pond solid to its bed, so the sheet is capped and there is water underneath.\n\n**Both clips are true speed.** The before is twelve seconds. The after is twenty seconds taken from the middle of the freeze — the whole arc is six minutes and will not fit in a clip, so the still sheet below it is the whole thing, eight samples across six minutes.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260822T102823856Z-7dae69/000-card_ice_before.gif"
+      ],
+      "caption": "12 s, true speed. A band that never closes, and every pixel in it flickering.",
+      "meta": {}
+    },
+    {
+      "label": "now",
+      "files": [
+        "20260822T102823856Z-7dae69/001-card_ice_after.gif"
+      ],
+      "caption": "20 s, true speed, from the middle of the freeze. The sheet only grows.",
+      "meta": {}
+    },
+    {
+      "label": "the whole arc",
+      "files": [
+        "20260822T102823856Z-7dae69/002-card_ice_arc.png"
+      ],
+      "caption": "Eight samples over six minutes: freeze, hold, thaw.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
