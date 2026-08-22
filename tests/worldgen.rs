@@ -3416,6 +3416,10 @@ fn probe_p1_where_can_a_spring_go() {
 /// `drained 0` after 1400 frames.
 #[test]
 fn a_generated_world_grows_a_spring_that_actually_runs() {
+    /// Rows of standing water the plunge pool must reach. `SPRING_POOL_DEPTH`
+    /// is 10; the bar is set below it with headroom, since the drain sits at
+    /// that height and the surface ripples around it.
+    const POOL_ROWS: usize = 6;
     let presets = presets();
     // `canyon` is the preset with the faces: measured 1.0 springs per world
     // over six seeds, against 0.8 rolling, 0.5 terraced and 0.0 wetland (which
@@ -3428,6 +3432,7 @@ fn a_generated_world_grows_a_spring_that_actually_runs() {
     for seed in [1u64, 7, 42] {
         let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
         worldgen::generate_only(&mut world, Spec::Generated { params, seed });
+        let water_id = world.materials.id_of("water").expect("water");
         if world.springs.is_empty() {
             report.push_str(&format!("seed {seed}: no spring placed\n"));
             continue;
@@ -3458,6 +3463,27 @@ fn a_generated_world_grows_a_spring_that_actually_runs() {
         // about the same three worlds, and building an 8192x2560 world costs
         // ~5.5 s -- a separate test would pay that again to assert one more
         // field of the same ledger.
+        // **A pool stands at the foot**, which is the half of the verdict a
+        // ledger cannot see. `drained > 0` was true of the version the owner
+        // rejected as ending "nowhere" -- water reaching a drain says the
+        // plumbing works, not that anything is standing there to look at. So
+        // census the deepest column of standing water anywhere near a drain
+        // and require a real depth.
+        //
+        // Depth, not a cell count: `render.rs` dims a liquid toward black by
+        // fill, so a wide film of half-empty cells is both a large count and
+        // invisible, which is exactly the artifact this is guarding against.
+        let deepest = world
+            .drains
+            .iter()
+            .map(|&(dx, _)| (0..h).filter(|&dy| world.get(dx, dy).material == water_id).count())
+            .max()
+            .unwrap_or(0);
+        assert!(
+            deepest >= POOL_ROWS,
+            "seed {seed}: deepest standing water at a drain is {deepest} rows, under the {POOL_ROWS} bar -- \
+             the fall ends in a damp patch rather than a pool\n{report}"
+        );
         let firings = 900 * world.springs.iter().map(|s| s.span).sum::<i32>() as u64;
         let ratio = l.throttled as f64 / firings as f64;
         assert!(
