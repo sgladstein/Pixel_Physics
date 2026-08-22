@@ -34,8 +34,18 @@ jobs:
       # so it "works over a remote shell and in CI" (its own module doc) --
       # this is the same worst-frame-timing scene suite used to judge
       # performance regressions locally, run headless here as a smoke test.
+      # PIXEL_PHYSICS_NO_PERF_LOCK because the runner is alone on its box, so
+      # the machine-wide timing lock (src/perf.rs) buys nothing here and only
+      # risks a wait if a temp dir is ever cached between jobs. It exists for
+      # the development machine, which several agents share four cores of --
+      # and where two runs of this same binary on bit-identical work have
+      # disagreed by 2.4x. Nothing this step *asserts* is wall-clock, so the
+      # gate itself is load-independent either way; the timings it prints are
+      # for a human to read.
       - name: cargo run --example ascii
         run: cargo run --release --example ascii --locked
+        env:
+          PIXEL_PHYSICS_NO_PERF_LOCK: "1"
 
       # The structural acceptance cases, run rather than remembered. Each
       # asserts the *mechanism* as well as the outcome -- a scene that

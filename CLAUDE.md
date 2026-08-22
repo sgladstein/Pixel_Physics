@@ -56,7 +56,11 @@ already changed decisions:
   improvement that costs the dirty-rect render skip, keeps chunks awake, or
   slows the sweep is not automatically worth it — say what it costs when
   proposing it. `examples/ascii.rs` reports worst-frame timings and CI runs
-  it; that is the number to quote. The corollary cuts the other way too:
+  it; that is the number to quote — but quote it from a run under
+  `scripts/perf.sh`, with the `machine:` banner beside it. Unlocked on this
+  box the same figure swings 2.4x on identical work, and it is not a number
+  until it is quiet (see "A timing number is only as trustworthy as the box
+  was quiet" below). The corollary cuts the other way too:
   because exactness is not wanted, *stopping work early* is a legitimate
   optimisation. A pool that is visually flat but still shuffling fill for
   another quarter of an hour is a real cost buying nothing.
@@ -73,6 +77,7 @@ already changed decisions:
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
 | `Reports/fracture-mechanics-design.md` | Why rock breaks the way it does, and why three earlier support models were wrong |
 | `Reports/load-model-handoff.md` | **The next step on destruction**, written up to be picked up cold |
+| `Reports/measurement-under-contention.md` | **Why a timing number here needs a `TRUSTED` stamp**: how busy this box actually is, three detectors that were wrong first, and the one mechanism deliberately left unbuilt |
 
 **Source comments are load-bearing.** They record *why*, including approaches
 that were tried and reverted and must not be retried. Do not strip them when
@@ -86,6 +91,8 @@ cargo test                                       # unit + integration
 cargo clippy --all-targets -- -D warnings        # CI gates this
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
+scripts/perf.sh                                  # ascii, but built outside the machine-wide timing lock and measured inside it
+scripts/perf.sh filmstrip scene=strike count=4   # same, for any other example
 ```
 
 `filmstrip` writes a contact-sheet PNG — several frames of one run in a grid —
@@ -129,6 +136,131 @@ worktree at `origin/master`, re-apply your own change there, verify, commit
 and push from it, then bring the main tree's branch pointer forward with
 `git reset --mixed origin/master` — which moves the branch and leaves their
 working tree untouched.
+
+**That reset strands stale files whenever the main tree was *behind*.** It
+moves the pointer and deliberately does not touch the working tree, so every
+file the main tree had not yet updated now differs from `HEAD` and appears in
+`git status` as a modification — one that is really a **revert of the upstream
+commit it missed**. Nobody will recognise it as theirs, because it is not
+anyone's edit, and the next session to commit that file silently undoes the
+change. This is not specific to `CLAUDE.md`-style contested files; it hits any
+file the branch skipped over. Seen for real on `src/sim/structural.rs`, which
+came back as the exact inverse of the commit that had just landed it.
+
+So: **note which files are genuinely dirty *before* the reset**, because
+afterwards a stale file and an edited one look identical. After it, diff
+anything newly modified against the commits you were behind by; if it is their
+exact inverse and the file was clean beforehand, `git checkout --` it.
+
+**An empty worktree is not an unclaimed one.** `.claude/worktrees/perf-audit`
+was clean, at `master`, with a warm `target/` — and another session started
+writing into it twenty minutes later. Their half-written example broke
+`cargo clippy --all-targets` for work that had nothing to do with it, which
+is the documented failure arriving exactly as documented. Take a *fresh*
+worktree on your own branch rather than adopting a tidy one, and if you find
+someone has moved in, copy your files out and `git checkout --` what you
+touched rather than leaving two sessions' work interleaved.
+
+**And do not *build* in someone else's worktree, which reverting your source
+edits does not undo.** The rule above says use your own worktree; it needs
+this second half, because the artifact outlives the edit. A session that
+built `examples/ascii` in `perf-audit`, then tidily reverted every source
+file it had touched, left its **binary** sitting in that tree's `target/`.
+The next session ran it, got numbers from code that was not in its checkout,
+and discarded a whole profiling run once it worked out why. Reverting
+sources is not cleaning up: `cargo build` in a tree you do not own is the
+act, and the exe is what does the damage. If you have built somewhere you
+should not have, say so and delete the artifact.
+
+**`strings` does not exist in this Git Bash**, and its absence is silent —
+`strings x.exe | grep -c foo` prints `0` for every input, including inputs
+that certainly match. That false negative nearly closed the investigation
+above with the wrong answer. Point `grep -c` straight at the binary instead,
+and **run a positive control** on a file you know contains the string before
+believing a zero.
+
+### A timing number is only as trustworthy as the box was quiet
+
+**Four logical cores, and any other session's `cargo build --release` takes
+all of them.** Two runs of a *byte-identical* `examples/ascii`, doing
+bit-identical deterministic work, reported:
+
+| scene | run A | run B |
+|---|---|---|
+| water round a pillar | 0.373 ms | 0.904 ms (**2.4x**) |
+| stress, parallel | 196.8 ms | 122.4 ms (**0.62x**) |
+| stress + field, parallel | 102.1 ms | 146.7 ms (1.44x) |
+| ants, *mean* | 3.939 ms | 4.152 ms (1.05x) |
+
+Run A had the *parallel* stress scene slower than the serial one — backwards
+from M5's entire purpose — and run B reversed it. Nothing in the simulation
+changed. A worst-frame figure off a contended box cannot support a claim in
+either direction below about 2.5x, and the max is the statistic most exposed
+to this: one preemption in ten thousand frames sets it.
+
+**And the box is essentially never quiet.** `examples/quiet_probe` sampled it
+for 45 minutes: **8% of samples quiet, median factor 1.99x, p90 9.13x, max
+15.09x, longest quiet spell 40 s, longest busy spell 920 s.** Plan around
+that rather than hoping. Two consequences that decide how to measure:
+
+- **Measure one scene, not the suite.** A scene is 7-11 s and fits in a 40 s
+  window; the full suite is ~143 s and never will. `scene=<substring>` in
+  `examples/ascii.rs` exists for this and nothing else. Run the whole suite
+  for the counter gates, where load is irrelevant — and one scene when the
+  question is milliseconds.
+- **Do not wait for quiet for long.** The gate waits 60 s and then measures
+  anyway, stamping the run `UNTRUSTED`. A budget long enough to outlast a bad
+  spell would be fifteen minutes; a run that never happened is worth less
+  than one that is honestly labelled.
+- **Re-run until it says `TRUSTED`, and quote nothing else.** That is the
+  whole workflow, and it works: three back-to-back attempts at one scene gave
+  UNTRUSTED, UNTRUSTED, **TRUSTED**, at about a minute each. What the label
+  is worth, on bit-identical work:
+
+  | attempt | verdict | worst | median | over budget |
+  |---|---|---|---|---|
+  | 1 | UNTRUSTED (load arrived) | 45.868 ms | 3.621 ms | 1 |
+  | 2 | UNTRUSTED (busy throughout) | 38.532 ms | 3.700 ms | 1 |
+  | 3 | **TRUSTED** | **7.624 ms** | **2.833 ms** | **0** |
+
+  The worst frame moves **6x** with machine state and the median barely
+  moves — so an untrusted *median* is worth something and an untrusted
+  *worst* is worth nothing at all. Expect roughly one attempt in three to
+  land.
+
+- **Run timings through `scripts/perf.sh`.** It builds *outside* a
+  machine-wide lock and runs the prebuilt binary *inside* it. `cargo run
+  --example ascii` still takes the lock, it just holds it across its own
+  compile — which is a lock everyone will route around.
+- **The lock does not cover compilation, and compilation is the interferer.**
+  Nine `cargo` and four `rustc` processes were live in a single sample. Only
+  a harness takes the timing lock; nothing stops another session's build. If
+  `TRUSTED` runs ever need to be routinely obtainable, this is the gap to
+  close — builds would have to take the lock as readers — and it was left
+  open deliberately, because its failure mode blocks other people's builds
+  rather than merely degrading a measurement.
+- **Read the `machine:` banner before the numbers.** A self-calibrating
+  factor against the fastest this box has been seen to go, printed at the
+  start *and* the end, because the case a single probe misses is another
+  session's build starting halfway through. It also names the competing
+  processes, and treats a live `rustc` as busy outright — a direct
+  observation beats an inference. Its calibration burst runs on **all
+  cores**: the single-threaded version it started as reported a serene
+  **1.00x while four `cargo` processes and a `rustc` were running**, because
+  a 3 ms single-threaded burst on a four-core box just gets handed a free
+  core. It was answering "is *my* core stolen", not "is this machine busy".
+- **Gate on counters, never on wall clock.** Everything `examples/ascii.rs`
+  now asserts is a deterministic count — settled chunks, unsupported cells,
+  tiles processed, chunks redrawn — identical under any load. The one
+  wall-clock assertion the repo had (settled pheromone pass under 0.5 ms) is
+  gone: the counter immediately above it already proved the pass did *no
+  work at all*, which is strictly stronger and cannot flake. A time-based
+  restatement of a claim a counter already makes exactly can only fail for
+  reasons that are not about the code.
+- **Report worst beside p99 and median** (`perf::FrameTimer` does it, and
+  flags a worst more than 10x the median in the line itself). The ants scene
+  reads worst 72.6 against median 3.9; only one of those is about the
+  simulation.
 
 ## Method
 

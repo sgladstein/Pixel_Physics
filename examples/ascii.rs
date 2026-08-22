@@ -9,8 +9,25 @@
 //!
 //! `X` marks sand the movement rules say should still be falling. A settled
 //! world must show none; any that appear are cells the sweep stopped examining.
+//!
+//! # Reading the timings
+//!
+//! Several agents work this machine at once and it has four cores, so a
+//! worst-frame number here is only as trustworthy as the box was quiet. Two
+//! runs of this binary, byte-identical and doing bit-identical deterministic
+//! work, disagreed by **2.4x** on one scene and reversed the serial/parallel
+//! ordering on another. Nothing in the simulation changed between them.
+//!
+//! So: run this through `scripts/perf.sh`, which builds outside a machine-wide
+//! lock and runs inside it, and read the `machine:` banner before the numbers.
+//! Everything the *asserts* here gate on is a deterministic counter — settled
+//! chunks, unsupported cells, tiles processed — which is identical under any
+//! load. Wall-clock is printed for a human and gates nothing. See
+//! `src/perf.rs` for why.
 
+use pixel_physics::perf::{self, FrameTimer, Machine};
 use pixel_physics::render::Renderer;
+use std::sync::OnceLock;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::field::FIELD_SCALE;
 use pixel_physics::sim::material::{self, MaterialId};
@@ -18,7 +35,55 @@ use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::pheromone::{Channel, DECAY_RHO, DEPOSIT, DIFFUSE, PHEROMONE_INTERVAL};
 use pixel_physics::sim::{parallel, update, Cell, World};
 
+/// `scene=<substring>`, matched case-insensitively against a scene's title.
+///
+/// Exists because of a measurement, not for convenience. `examples/quiet_probe`
+/// sampled this machine and found quiet windows never lasting more than about
+/// 40 s, against busy spells of up to 180 s -- while the full suite takes
+/// ~143 s. So a wait-for-quiet gate can reliably buy a quiet *start* and can
+/// never buy a quiet *run*: a verification run caught a clean window at 1.00x
+/// and still finished UNTRUSTED because the window closed underneath it. That
+/// was structural, not bad luck.
+///
+/// A single scene is seconds, which fits. So the harness splits along the seam
+/// it already had: **the whole suite is the counter check**, where load is
+/// irrelevant because counters are load-invariant, and **one scene is the
+/// timing measurement**, small enough that a quiet window can contain it.
+///
+/// No filter means everything, so the default and CI are unchanged.
+static SCENE_FILTER: OnceLock<Option<String>> = OnceLock::new();
+
+fn selected(title: &str) -> bool {
+    match SCENE_FILTER.get().and_then(Option::as_ref) {
+        None => true,
+        Some(want) => title.to_ascii_lowercase().contains(want.as_str()),
+    }
+}
+
 fn main() {
+    let filter = std::env::args()
+        .skip(1)
+        .find_map(|a| a.strip_prefix("scene=").map(|s| s.to_ascii_lowercase()))
+        .filter(|s| !s.is_empty());
+    if let Some(want) = &filter {
+        println!("scene filter: only scenes whose title contains `{want}`");
+    }
+    SCENE_FILTER.set(filter).expect("set exactly once, here");
+
+    // Held for the whole run, released on drop. The build happened before
+    // this point (`scripts/perf.sh` runs the prebuilt binary), so the hold is
+    // the ~143 s of the run rather than the several minutes of a compile --
+    // which is the difference between a lock other sessions tolerate and one
+    // they set PIXEL_PHYSICS_NO_PERF_LOCK to escape.
+    let _lock = perf::lock("examples/ascii");
+    // Wait for a quiet window, but never refuse to run. The lock only holds
+    // off other *harnesses*; the thing that actually competes for these four
+    // cores is another session's `cargo build`, which will never take it. So
+    // the wait is what creates a clean window and the verdict at the end is
+    // what admits when it did not.
+    let (before, waited) = perf::wait_for_quiet(perf::wait_budget());
+    println!("{}", before.banner());
+
     scene("sand piling on a floor", 78, 30, 400, |w| {
         w.paint_circle(39, 2, 4, material::SAND);
     });
@@ -213,7 +278,9 @@ fn main() {
     // again.
     structural_scene("M17: cutting a bridge's far support collapses the far span", 30, 15);
 
-    terrain_generation_cost();
+    if selected("terrain") {
+        terrain_generation_cost();
+    }
 
     // M18: a worm burrows through a sand field (should visibly relocate from
     // its seed position over the run), then a fire is lit nearby partway
@@ -251,19 +318,43 @@ fn main() {
     // be dramatically cheaper than the worst frame measured while it's
     // still actively propagating -- the actual, measurable claim the issue
     // asked for, not just a passing unit test.
-    field_sleep_scene();
-    field_scaling_scene();
+    if selected("field: sleeping") {
+        field_sleep_scene();
+    }
+    if selected("field: cost vs world size") {
+        field_scaling_scene();
+    }
 
     // Stage 2 of the creature milestone: the stigmergy substrate, rendered
     // and measured before anything reads it.
-    pheromone_decay_scene();
-    trail_follow_scene();
+    if selected("pheromone: a blob") {
+        pheromone_decay_scene();
+    }
+    if selected("pheromone: a follower") {
+        trail_follow_scene();
+    }
 
     // Stage 3: the colony.
-    forage_loop_scene();
-    double_bridge_scene();
-    nest_dig_scene();
-    construction_scene();
+    if selected("ants: the foraging loop") {
+        forage_loop_scene();
+    }
+    if selected("ants: a double bridge") {
+        double_bridge_scene();
+    }
+    if selected("ants: excavating") {
+        nest_dig_scene();
+    }
+    if selected("ants: deposition") {
+        construction_scene();
+    }
+
+    // Probed again at the end, not only at the start. A run takes minutes,
+    // and the failure this catches is another session's build *starting*
+    // halfway through -- which a single probe at frame zero reports as a
+    // quiet machine, over the top of numbers half of which are inflated.
+    let after = Machine::probe();
+    println!("\n{}", after.banner());
+    println!("{}", perf::trust_verdict(&before, &after, waited));
 }
 
 /// A painted blob must **spread, fade and disappear**, and the plane must
@@ -318,7 +409,7 @@ fn pheromone_decay_scene() {
     };
 
     print_plane(&world, "at deposit");
-    let mut worst_active = std::time::Duration::ZERO;
+    let mut spreading = FrameTimer::new();
     let mut previous_max = world.pheromones.plane(Channel::A).max();
     // Long enough for the deposit to actually drain: `build_decay_lut`
     // forces at least -1 per *pass*, and a pass is one frame in
@@ -328,9 +419,7 @@ fn pheromone_decay_scene() {
     // together, and the first version of this scene broke the moment the
     // interval moved.
     for frame in 0..4000 {
-        let started = std::time::Instant::now();
-        world.step_pheromones();
-        worst_active = worst_active.max(started.elapsed());
+        spreading.time(|| world.step_pheromones());
         world.frame += 1;
         let now = world.pheromones.plane(Channel::A).max();
         assert!(now <= previous_max, "frame {frame}: plane max rose from {previous_max} to {now} with nothing depositing");
@@ -348,11 +437,9 @@ fn pheromone_decay_scene() {
 
     // The settled cost, which is what the hard gate is on.
     let tiles_before = world.pheromones.stats.tiles_processed;
-    let mut worst_settled = std::time::Duration::ZERO;
+    let mut settled = FrameTimer::new();
     for _ in 0..300 {
-        let started = std::time::Instant::now();
-        world.step_pheromones();
-        worst_settled = worst_settled.max(started.elapsed());
+        settled.time(|| world.step_pheromones());
         world.frame += 1;
     }
     println!(
@@ -361,19 +448,22 @@ fn pheromone_decay_scene() {
         tiles_before,
         world.pheromones.stats.tiles_processed - tiles_before
     );
-    println!(
-        "worst pass while spreading: {:.4} ms; worst pass once settled: {:.4} ms (hard gate: settled < 0.5 ms)",
-        worst_active.as_secs_f64() * 1000.0,
-        worst_settled.as_secs_f64() * 1000.0,
-    );
+    println!("pass while spreading: {}", spreading.report());
+    println!("pass once settled:    {}", settled.report());
+    // The gate, and the only one this scene needs.
+    //
+    // There used to be a second assert here on the settled pass costing under
+    // 0.5 ms of wall clock -- the only wall-clock assertion anywhere in the
+    // repo. It was redundant on a quiet machine and a flake generator on a
+    // busy one: `tiles_processed == tiles_before` already proves the pass did
+    // *no work at all*, which is a strictly stronger claim than "it did the
+    // work quickly", and it says the same thing whether or not another
+    // session is compiling. A time-based restatement of a claim a counter
+    // already makes exactly can only ever fail for reasons that are not about
+    // this code. The timings above are printed for a human to read.
     assert_eq!(
         world.pheromones.stats.tiles_processed, tiles_before,
         "a drained plane must process zero tiles -- pheromone sleep is what keeps the pass off a settled world"
-    );
-    assert!(
-        worst_settled.as_secs_f64() * 1000.0 < 0.5,
-        "settled pheromone pass cost {:.4} ms, over the 0.5 ms gate",
-        worst_settled.as_secs_f64() * 1000.0
     );
 }
 
@@ -491,26 +581,23 @@ fn field_sleep_scene() {
     world.end_step(); // clears the "freshly created, everything dirty" CA state without needing a real sweep -- nothing was painted, so there is genuinely nothing for it to do
     world.add_pressure_impulse(256, 160, 10, 150.0);
 
-    let mut worst_active = std::time::Duration::ZERO;
+    let mut active = FrameTimer::new();
     for _ in 0..300 {
-        let started = std::time::Instant::now();
-        world.step_fields();
-        worst_active = worst_active.max(started.elapsed());
+        active.time(|| world.step_fields());
     }
     // 300 more frames with nothing further disturbing it -- comfortably past
     // convergence for an impulse this size (see field.rs's own settle-epsilon
     // tests, which converge within a couple hundred steps at similar scale).
-    let mut worst_settled = std::time::Duration::ZERO;
+    let mut settled = FrameTimer::new();
     for _ in 0..300 {
-        let started = std::time::Instant::now();
-        world.step_fields();
-        worst_settled = worst_settled.max(started.elapsed());
+        settled.time(|| world.step_fields());
     }
-    println!(
-        "worst frame while the impulse was active: {:.4} ms; worst frame once settled: {:.4} ms",
-        worst_active.as_secs_f64() * 1000.0,
-        worst_settled.as_secs_f64() * 1000.0,
-    );
+    println!("while the impulse was active: {}", active.report());
+    println!("once settled:                 {}", settled.report());
+    // Worth reading twice: on the run that prompted `src/perf.rs`, the
+    // settled *worst* frame was 33.2 ms against an active worst of 34.3 --
+    // which reads as "sleeping buys nothing at all". The medians told the
+    // real story, and only because they were finally printed.
 }
 
 /// How the field grid's cost scales with world size, and — the number that
@@ -584,6 +671,9 @@ fn field_scaling_scene() {
 /// `FIELD_SCALE` times for no extra information. `#` marks a field cell
 /// blocked by CA-solid material, so walls are visible against the pressure.
 fn field_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&mut World)) {
+    if !selected(title) {
+        return;
+    }
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     setup(&mut world);
@@ -632,6 +722,9 @@ fn scene_with(
     step_fn: fn(&mut World),
     setup: impl FnOnce(&mut World),
 ) {
+    if !selected(title) {
+        return;
+    }
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     for x in 0..w {
@@ -640,21 +733,23 @@ fn scene_with(
     setup(&mut world);
 
     // The worst frame is what has to fit in the budget; the average is
-    // meaningless once the world settles and most frames cost nothing.
-    let mut worst = std::time::Duration::ZERO;
+    // meaningless once the world settles and most frames cost nothing. But
+    // the worst frame is also the one statistic a competing process can set
+    // by itself, so it is reported beside the p99 and the median rather than
+    // alone -- see `perf::FrameTimer`.
+    let mut timer = FrameTimer::new();
     for _ in 0..frames {
-        let started = std::time::Instant::now();
-        step_fn(&mut world);
-        worst = worst.max(started.elapsed());
+        timer.time(|| step_fn(&mut world));
     }
 
     let bad = unstable(&world, w, h);
+    let awake = world.active_chunk_count();
     println!(
-        "after {frames} frames: {}/{} chunks awake, {} unsupported cells, worst frame {:.3} ms",
-        world.active_chunk_count(),
+        "after {frames} frames: {}/{} chunks awake, {} unsupported cells, {}",
+        awake,
         world.chunk_count(),
         bad.len(),
-        worst.as_secs_f64() * 1000.0,
+        timer.report(),
     );
 
     // Skip empty rows at the top so tall worlds stay readable.
@@ -673,6 +768,27 @@ fn scene_with(
             .collect();
         println!("|{row}|");
     }
+
+    // Gated *after* the picture is printed, so a failure can be looked at
+    // rather than only read about -- the same reason `scripts/acceptance.sh`
+    // writes its images before it checks anything.
+    //
+    // These are the assertions this harness has always described itself as
+    // making ("a settled world must show none", in the module doc above) and
+    // never actually made. They are deterministic counters, not wall clock:
+    // identical on a loaded machine and an idle one, which is exactly what a
+    // gate on a four-core box shared by several agents has to be. Every scene
+    // here measured 0 and 0 across two independent runs, so the bar is not a
+    // sample from a distribution -- it is the value the mechanism produces.
+    assert!(
+        bad.is_empty(),
+        "{title}: {} sand cells could still fall after {frames} frames -- the sweep stopped examining them (marked X above)",
+        bad.len()
+    );
+    assert_eq!(
+        awake, 0,
+        "{title}: {awake} chunks still awake after {frames} frames -- a world that never sleeps never lets the render skip fire"
+    );
 }
 
 /// Sand with empty space below, below-left or below-right — it should have moved.
@@ -705,6 +821,9 @@ fn field_stress_scene(
     step_fn: fn(&mut World),
     setup: impl FnOnce(&mut World),
 ) {
+    if !selected(title) {
+        return;
+    }
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     for x in 0..w {
@@ -712,18 +831,22 @@ fn field_stress_scene(
     }
     setup(&mut world);
 
-    let mut worst = std::time::Duration::ZERO;
+    let mut timer = FrameTimer::new();
     for _ in 0..frames {
-        let started = std::time::Instant::now();
-        step_fn(&mut world);
-        world.step_fields();
-        worst = worst.max(started.elapsed());
+        timer.time(|| {
+            step_fn(&mut world);
+            world.step_fields();
+        });
     }
+    let awake = world.active_chunk_count();
     println!(
-        "after {frames} frames: {}/{} chunks awake, worst frame {:.3} ms (CA + field combined)",
-        world.active_chunk_count(),
+        "after {frames} frames: {awake}/{} chunks awake, {} (CA + field combined)",
         world.chunk_count(),
-        worst.as_secs_f64() * 1000.0,
+        timer.report(),
+    );
+    assert_eq!(
+        awake, 0,
+        "{title}: {awake} chunks still awake after {frames} frames with the field stepping too"
     );
 }
 
@@ -743,6 +866,9 @@ fn field_stress_scene(
 /// calls here, not the one call that would leave every chunk permanently
 /// re-dirtying itself against its own initial paint.
 fn render_stress_scene(title: &str, w: i32, h: i32, setup: impl FnOnce(&mut World)) {
+    if !selected(title) {
+        return;
+    }
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     setup(&mut world);
@@ -754,14 +880,38 @@ fn render_stress_scene(title: &str, w: i32, h: i32, setup: impl FnOnce(&mut Worl
 
     let warm_up_touched = world.take_touched_chunks();
     renderer.draw(&world, &particles, &warm_up_touched, &mut frame, (w as u32, h as u32), true); // warm up
-    let mut worst = std::time::Duration::ZERO;
+    let mut timer = FrameTimer::new();
+    let mut touched_chunks_total = 0usize;
+    let mut pixels_total = 0usize;
     for _ in 0..30 {
         let touched = world.take_touched_chunks();
-        let started = std::time::Instant::now();
-        renderer.draw(&world, &particles, &touched, &mut frame, (w as u32, h as u32), false);
-        worst = worst.max(started.elapsed());
+        touched_chunks_total += touched.len();
+        pixels_total += timer.time(|| renderer.draw(&world, &particles, &touched, &mut frame, (w as u32, h as u32), false));
     }
-    println!("worst render frame: {:.3} ms", worst.as_secs_f64() * 1000.0);
+    println!("render frame: {} | {touched_chunks_total} chunks dirtied, {pixels_total} px recomputed over 30 frames", timer.report());
+
+    // The load-invariant statement of the same claim the 0.0 ms above makes.
+    // "Costs no time" is a wall-clock reading and drifts with the machine;
+    // "recomputes nothing" is what the dirty-rect skip actually does, and it
+    // is the same number on a busy box as an idle one.
+    //
+    // **Gated on chunks, with pixels printed beside it rather than asserted**,
+    // on advice from the performance-audit session. `draw`'s return value is
+    // the finer claim -- it has always been there and `App::draw` discards it
+    // -- but it is finer in both directions: it also counts full repaints
+    // that `touched` never sees (the moon rect, chunk-body rects, animated
+    // grain, weather). They measured rain forcing a full 163,840 px repaint
+    // on 595 of 600 frames at the default seed, so a naked `pixels == 0` bar
+    // here would flake on nothing but the weather. Printing it costs nothing
+    // and makes the day it stops being zero visible.
+    //
+    // This tightens to `pixels == 0` plus `renderer.last_full_reason.is_none()`
+    // -- which names the culprit instead of just failing -- once their
+    // `src/render.rs` change lands.
+    assert_eq!(
+        touched_chunks_total, 0,
+        "{title}: a static world dirtied {touched_chunks_total} chunks across 30 frames -- §11's render skip is not firing"
+    );
 }
 
 /// M17: builds a stone bridge exactly `w` cells wide, so its two end cells
@@ -881,6 +1031,9 @@ fn terrain_generation_cost() {
 }
 
 fn structural_scene(title: &str, w: i32, h: i32) {
+    if !selected(title) {
+        return;
+    }
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let bridge_y = h / 2;
@@ -919,6 +1072,9 @@ fn structural_scene(title: &str, w: i32, h: i32) {
 /// existing smoke/fire-agnostic mapping would hide the fire itself, so
 /// burning cells get their own marker here regardless of material).
 fn creature_scene(title: &str, w: i32, h: i32, frames: usize) {
+    if !selected(title) {
+        return;
+    }
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     for x in 0..w {
@@ -997,6 +1153,9 @@ fn creature_scene(title: &str, w: i32, h: i32, frames: usize) {
 /// this one cannot skip `step_fields`, since ash decay is moisture-gated
 /// and moisture only ever gets written during that phase.
 fn regrowth_scene(title: &str, w: i32, h: i32) {
+    if !selected(title) {
+        return;
+    }
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     for x in 0..w {
@@ -1081,6 +1240,9 @@ fn glyph(id: MaterialId) -> char {
 /// together (what the live app actually does), and prints growth stats
 /// alongside the usual ASCII view — `Y` for wood, `,` for moss.
 fn plant_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&mut World)) {
+    if !selected(title) {
+        return;
+    }
     println!("\n=== {title} ===");
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     setup(&mut world);
@@ -1286,32 +1448,27 @@ fn forage_loop_scene() {
     // gives the mean beside it because a single worst frame is a sample
     // from a wide distribution (`CLAUDE.md`: compare two runs, not one run
     // against a remembered number) and the mean is what a player feels.
-    let mut worst = std::time::Duration::ZERO;
-    let mut sum = std::time::Duration::ZERO;
-    let mut frames_run = 0usize;
+    let mut timer = FrameTimer::new();
     let mut run = |world: &mut World, frames: usize| {
         for _ in 0..frames {
-            let started = std::time::Instant::now();
-            parallel::step(world);
-            world.step_active_sites();
-            world.step_fields();
-            world.step_pheromones();
-            let took = started.elapsed();
-            worst = worst.max(took);
-            sum += took;
-            frames_run += 1;
+            timer.time(|| {
+                parallel::step(world);
+                world.step_active_sites();
+                world.step_fields();
+                world.step_pheromones();
+            });
         }
     };
     run(&mut world, 2000);
     print_state(&world, "after 2000 frames");
     run(&mut world, 10000);
     print_state(&world, "after 12000 frames");
-    println!(
-        "  frame cost with {} live organisms: worst {:.3} ms, mean {:.3} ms over {frames_run} frames",
-        world.live_organism_count(),
-        worst.as_secs_f64() * 1000.0,
-        sum.as_secs_f64() * 1000.0 / frames_run as f64
-    );
+    // This scene is where the case for `perf::FrameTimer` is clearest: it
+    // measured worst 72.6 ms against a mean of 3.9 over 12,000 frames, and
+    // an identical re-run moved the worst to 80.1 while the mean went to
+    // 4.15. The worst frame moved 7.6 ms on work that was bit-identical; the
+    // mean moved 0.2. Only one of those two numbers is about the simulation.
+    println!("  frame cost with {} live organisms: {}", world.live_organism_count(), timer.report());
 
     // **What holds, and what does not.** The outbound half of the loop is
     // real and asserted; the return half is not, and is printed with the
