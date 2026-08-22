@@ -1,12 +1,13 @@
 # The Gnome
 
-*Current as of: this build. New since the last pass: living plants are
+*Current as of: 2026-08-22. New since the last pass: living plants are
 walk-through and climbable (hold `Shift` to take hold — climbing has its
 own key now), living creatures aren't walls either, he weaves in front of
 and behind trees and a tree in front hides him, a crown breaks a fall, a
 lip at the top of a jump is mantled, the sprite faces where it's going,
-holding `W` out of water puts him on the bank, and left-clicking a plant
-shakes it. Cutting a tree down is deliberately not in yet.*
+holding `W` out of water puts him on the bank, left-clicking a plant
+shakes it, and with nobody summoned WASD scrolls the map instead. Cutting
+a tree down is deliberately not in yet.*
 
 The world can be inhabited. Press `U` with the cursor over an open spot
 and a small gnome — pointed red hat, green tunic — appears there; press
@@ -94,7 +95,7 @@ tree that has some.
 
 Cutting a tree down is not something he can do yet.
 
-## The view follows him
+## The view
 
 The world is bigger than the screen, and while the gnome is in it the view
 is his. Run far enough toward the edge of the picture and it begins to
@@ -104,9 +105,25 @@ right up to the wall while the view stays over solid ground.
 
 Small movements do not shift it — the picture holds still while he shuffles
 about and only moves once he is genuinely going somewhere, which is what
-keeps a walk from feeling like the world sliding underneath him. With no
-gnome in the world, the view stays where it is and the mouse works on
-whatever is under it.
+keeps a walk from feeling like the world sliding underneath him.
+
+With no gnome in the world the view is **yours** instead. The same four keys
+that run him — `A`, `D`, `W` and `S` — scroll the map around, stopping at the
+edges of the world just as they do for him, and a readout in the corner says
+where you are looking. It is measured in screenfuls rather than in cells, so
+the picture slides past at the same speed however far in or out you are
+zoomed.
+
+It also **starts gently and speeds up**. A tap nudges the view a little, which
+is what you want when you are lining something up; keep the key down and it
+picks up over about a second, so holding it carries you from one end of the
+world to the other in roughly six seconds. Let go, or change your mind and
+press the opposite key, and it starts gently again — so correcting an
+overshoot is a nudge rather than a lurch back the other way.
+
+There is nothing to switch between. Summon him and the view is his again;
+dismiss him and it comes back to you. The two can never both have it, which
+is why the keys can be the same ones.
 
 ## Sand, water, and falling rock
 
@@ -236,4 +253,5 @@ behind it.
 
 One housekeeping note: the gnome took over the movement keys, so two
 older debug tools moved — dig is now `H` (it was `D`), and planting a
-worm is now `J` (it was `W`).
+worm is now `J` (it was `W`). Those same keys now also scroll the map
+whenever he is not in the world — see *The view* above.

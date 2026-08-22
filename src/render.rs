@@ -532,6 +532,54 @@ const MAX_ZOOM: i32 = 8;
 /// "the same kind of picture, zoomed out" rather than aliasing into noise.
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
+/// How fast the `WASD` map scroll travels, in **viewport-fuls per second**.
+///
+/// In screens, deliberately, never in cells: what has to feel the same at
+/// every zoom is how fast the *picture* slides, and a screens-per-second rate
+/// makes screen-pixels-per-second invariant by construction rather than by
+/// three numbers being tuned to agree. `Renderer::pan` multiplies it by
+/// `visible_span`, which already knows what a screenful is at the current
+/// scale.
+///
+/// This is the **sustained** rate, reached after `PAN_RAMP_SECONDS` of holding
+/// a key; the scroll opens at `PAN_START_FRACTION` of it. `0.5` is 256 cells/s,
+/// about 2.8x the gnome's own run (`run_max` 1.5 cells/tick = 90 cells/s), and
+/// puts the 1536-cell pannable width — the world less one viewport — about six
+/// seconds end to end, or two and a half for the world's one-screen depth.
+///
+/// **`1.5` shipped here first and was rejected by playtest: "way too fast."**
+/// Keep the number, because the way it was arrived at is the useful part. The
+/// brief was *"I want to be able to scroll around when the gnome isn't
+/// deployed"* — a complaint about **needing a gnome**, not about pace. It got
+/// read as a speed requirement, justified against the seventeen seconds it
+/// takes the gnome to run the same distance, and landed at 8.5x his run. No
+/// one had asked for that. When a rate is chosen against a goal the brief does
+/// not state, it is worth checking the brief actually states it.
+///
+/// A hold-to-accelerate ramp was also rejected at the time, on the grounds
+/// that "the longest haul here is two seconds" — which was true *only because
+/// the base rate was too high*, so that argument fell with the rate it was
+/// derived from. The owner's verdict was that the scroll both overshot and was
+/// too twitchy to nudge, which is precisely the pair a ramp answers. See
+/// `PAN_START_FRACTION`.
+const PAN_SCREENS_PER_SECOND: f32 = 0.5;
+
+/// What fraction of the sustained rate the scroll opens at, before the ramp.
+///
+/// `0.4` is 102 cells/s at 1:1 — near enough the gnome's own running pace, and
+/// a tenth-of-a-second tap moves the view about ten cells. That is the answer
+/// to "too twitchy": a tap should nudge the view, not throw it.
+///
+/// The ramp is what keeps that from also making travel a chore. Opening at the
+/// sustained rate is the twitchy version; opening slow *without* a ramp turns
+/// the six-second traverse into fifteen. Neither complaint can be fixed
+/// without the other, which is why one constant could not do it.
+const PAN_START_FRACTION: f32 = 0.4;
+/// How long a held key takes to reach the full rate, ramping linearly from
+/// `PAN_START_FRACTION`. Short enough that travelling does not feel gated,
+/// long enough that a deliberate nudge stays inside the slow part.
+const PAN_RAMP_SECONDS: f32 = 0.8;
+
 /// How far a fractured cell is darkened, out of 256. Dark enough to read as
 /// a break at a glance, light enough that a scored face is still obviously
 /// rock rather than a hole.
@@ -817,6 +865,16 @@ pub struct Renderer {
     /// The camera as last painted, so a move can force a full redraw. Same
     /// role as `last_zoom_state`, and for the same reason.
     last_camera: Option<(i32, i32)>,
+    /// Sub-cell scroll carried between frames by `pan`. See that method for
+    /// why truncating it instead would make one held key feel like a
+    /// different speed at every zoom level.
+    pan_residual: (f32, f32),
+    /// Seconds the current scroll gesture has been held, for the ramp in
+    /// `pan`. Cleared by `end_pan`, so a tap is always a tap.
+    pan_held_for: f32,
+    /// The direction the current gesture is going, so reversing it can restart
+    /// the ramp rather than inherit full speed — see `pan`.
+    pan_dir: (i32, i32),
     /// Draws chunk boundaries tinted by whether the chunk will be swept next
     /// frame. This is the primary way to confirm sleeping actually works.
     pub show_chunk_overlay: bool,
@@ -1008,6 +1066,9 @@ impl Renderer {
             last_player_pose: None,
             camera_x: 0,
             camera_y: 0,
+            pan_residual: (0.0, 0.0),
+            pan_held_for: 0.0,
+            pan_dir: (0, 0),
             last_camera: None,
             show_chunk_overlay: false,
             zoom: 1,
@@ -1165,6 +1226,20 @@ impl Renderer {
             cam_y = target.1 - span_y / 2;
         }
 
+        self.set_camera(cam_x, cam_y, viewport, bounds);
+    }
+
+    /// Put the camera at `(x, y)`, clamped so the viewport stays inside
+    /// `bounds` and never shows the void beyond the world.
+    ///
+    /// The clamp lived inside `follow` while `follow` was the only thing that
+    /// ever moved the camera. It is not any more — `pan` writes it too — and a
+    /// clamp only one of two writers goes through is a clamp that is not
+    /// there. `camera_x`/`camera_y` being `pub` makes that a live hazard
+    /// rather than a theoretical one.
+    pub fn set_camera(&mut self, x: i32, y: i32, viewport: (u32, u32), bounds: Option<Rect>) {
+        let (span_x, span_y) = self.visible_span(viewport);
+        let (mut cam_x, mut cam_y) = (x, y);
         if let Some(b) = bounds {
             // `max` before `min` so a world narrower than the viewport pins to
             // its own origin rather than to a negative coordinate.
@@ -1173,6 +1248,101 @@ impl Renderer {
         }
         self.camera_x = cam_x;
         self.camera_y = cam_y;
+    }
+
+    /// Scroll the view. `dir` is -1/0/+1 per axis, `seconds` is real elapsed
+    /// time — the `WASD` map scroll with no gnome in the world, driven through
+    /// `App::pan_camera`.
+    ///
+    /// The counterpart to `follow`, for a view with nothing to follow, and
+    /// deliberately **without** a dead zone: `follow`'s exists because a
+    /// walking character would otherwise drag the camera every frame for
+    /// nothing, whereas here the delta *is* the request, and damping the input
+    /// against itself would only make the scroll feel like it was fighting
+    /// you.
+    ///
+    /// **Accelerates while held**, from `PAN_START_FRACTION` of the rate to
+    /// all of it over `PAN_RAMP_SECONDS`. A tap therefore moves the view by a
+    /// nudge and a sustained hold still crosses the world in about six
+    /// seconds — the two halves of the playtest verdict that killed the flat
+    /// 1.5 screens/s this shipped with.
+    ///
+    /// The sub-cell remainder is **carried, not truncated**. At `zoom` 8 the
+    /// viewport is 64 cells wide, so the rate above is about 1.6 cells a
+    /// frame; truncating each frame independently emits 1 and scrolls at 0.94
+    /// screens a second instead of 1.5 — visibly a different feel from the
+    /// same key at 1:1, which is the exact thing a screens-per-second rate
+    /// exists to make impossible.
+    ///
+    /// **Quantised to `zoom_out_stride`, and this one is not obvious.** A
+    /// zoomed-out view samples every `stride`-th cell (`screen_to_world` is
+    /// `camera + sx * stride` there), so a camera step that is *not* a whole
+    /// number of strides does not translate the picture at all — it resamples
+    /// the same view against a different lattice, the odd columns instead of
+    /// the even ones at stride 2, and reads as the screen hissing rather than
+    /// scrolling. Whole strides move it by exactly one screen pixel each, so
+    /// that is the unit; anything less waits in the residual until it is one.
+    ///
+    /// Diagonals are deliberately not normalised — holding two keys is
+    /// sqrt(2) faster, as in every map editor, and correcting it would make
+    /// two held keys slower than the sum of one.
+    ///
+    /// Costs a full redraw on every frame it actually moves the camera (see
+    /// `draw`'s `camera_moved`). That is the same price `follow` already pays
+    /// whenever the gnome walks, and unlike an animated grain it ends when the
+    /// key comes up — bounded by the gesture rather than permanent.
+    pub fn pan(&mut self, dir: (i32, i32), seconds: f32, viewport: (u32, u32), bounds: Option<Rect>) {
+        let (span_x, span_y) = self.visible_span(viewport);
+
+        // **Reversing restarts the ramp.** Overshooting and tapping back is
+        // exactly the correction a slow start exists to make possible, and
+        // carrying full speed into it would fling the view the other way just
+        // as hard — turning one overshoot into two. A reversal is a new
+        // gesture, so it begins like one. Reset here rather than in `main.rs`
+        // for the same reason the rate lives here: `main.rs` reports which way
+        // the keys are pointing and nothing else.
+        // A **sign flip on either axis**, not merely a different `dir`. Adding
+        // a second direction to a scroll already under way — pressing `S`
+        // while travelling right — is not a reversal and must not drop you
+        // back to walking pace mid-journey; releasing one of two is not one
+        // either. Only actually turning round is.
+        let reversed = dir.0 * self.pan_dir.0 < 0 || dir.1 * self.pan_dir.1 < 0;
+        if reversed {
+            self.pan_held_for = 0.0;
+            self.pan_residual = (0.0, 0.0);
+        }
+        self.pan_dir = dir;
+        self.pan_held_for += seconds;
+
+        // Linear from `PAN_START_FRACTION` of the rate to all of it across
+        // `PAN_RAMP_SECONDS`, then flat. Applied to the *rate*, not to the
+        // distance, so the ramp is a speed curve and the carry below stays a
+        // plain remainder.
+        let ramp = (self.pan_held_for / PAN_RAMP_SECONDS).clamp(0.0, 1.0);
+        let rate = PAN_SCREENS_PER_SECOND * (PAN_START_FRACTION + (1.0 - PAN_START_FRACTION) * ramp);
+        let travel = rate * seconds;
+        self.pan_residual.0 += dir.0 as f32 * span_x as f32 * travel;
+        self.pan_residual.1 += dir.1 as f32 * span_y as f32 * travel;
+
+        // Truncation toward zero, so the leftover keeps the sign of the
+        // direction being travelled and is carried rather than rounded away.
+        // (This used to be justified by reversals not having to unwind a debt
+        // first; they no longer can, because a reversal clears the residual
+        // outright above.)
+        let step = self.zoom_out_stride.max(1);
+        let dx = self.pan_residual.0 as i32 / step * step;
+        let dy = self.pan_residual.1 as i32 / step * step;
+        self.pan_residual.0 -= dx as f32;
+        self.pan_residual.1 -= dy as f32;
+        self.set_camera(self.camera_x + dx, self.camera_y + dy, viewport, bounds);
+    }
+
+    /// Drop any carried sub-cell scroll, so a fresh gesture starts clean
+    /// rather than inheriting a fraction of a cell from the last one.
+    pub fn end_pan(&mut self) {
+        self.pan_residual = (0.0, 0.0);
+        self.pan_held_for = 0.0;
+        self.pan_dir = (0, 0);
     }
 
     /// reads as a single "more/less zoom" control, not two separate ones a
@@ -4307,6 +4477,313 @@ mod tests {
         let touched = world.take_touched_chunks();
         let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
         assert_eq!(recomputed, (w * h) as usize, "a zoom change invalidates the whole buffer, settled or not");
+    }
+
+    #[test]
+    fn panning_between_draws_forces_one_more_full_redraw() {
+        // `camera_moved` has fed the `full` predicate since the camera could
+        // move at all, and nothing asserted it until the map scroll made it a
+        // path taken every frame someone is looking around. Sibling of
+        // `changing_zoom_between_draws_forces_one_more_full_redraw`, and for
+        // the identical reason: every pixel in the buffer now shows a
+        // different world cell. Without it the regression is a frozen, smeared
+        // world scrolling past the handful of chunks that happened to be
+        // dirty — which is precisely what `draw`'s own comment says this
+        // guards.
+        let mut world = World::new(Rect::new(0, 0, 255, 255));
+        world.end_step();
+        let (w, h) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let warm_up_touched = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &warm_up_touched, &mut frame, (w, h), true); // warm up
+
+        // Half a second of held key, mid-world so the clamp is not what
+        // decides the answer.
+        renderer.set_camera(64, 64, (w, h), world.bounds());
+        let settled = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &settled, &mut frame, (w, h), true);
+        let before = renderer.camera_x;
+        for _ in 0..30 {
+            renderer.pan((1, 0), 1.0 / 60.0, (w, h), world.bounds());
+        }
+        assert_ne!(renderer.camera_x, before, "half a second of pan moved nothing, so the redraw claim below is vacuous");
+
+        let touched = world.take_touched_chunks();
+        let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
+        assert_eq!(recomputed, (w * h) as usize, "a camera move invalidates the whole buffer, settled or not");
+    }
+
+    #[test]
+    fn a_pan_cannot_escape_the_world_at_any_scale() {
+        let world = Rect::new(0, 0, 2047, 639);
+        let viewport = (512u32, 320u32);
+
+        // Scroll until the camera is genuinely stuck, rather than for a fixed
+        // duration. **A fixed duration silently stopped guarding anything when
+        // the rate came down**: 300 frames covered 7.5 screens at the old 1.5
+        // screens/s and covers about 2.4 at the new one — less than the 3
+        // screens of travel at 1:1, and far less than the 31 screens at zoom
+        // 8, which needs a full minute of held key to cross. The bounds
+        // assertions would all still have passed, on a camera that never once
+        // reached an edge. That is the vacuity trap `CLAUDE.md` keeps
+        // recording, and this shape is immune to it: it ends when the clamp
+        // stops the camera, whatever the rate.
+        //
+        // "Stuck" is a whole second of no movement, not one still frame: the
+        // sub-cell carry means a legitimately-moving camera sits out
+        // individual frames whenever its per-frame share is under a cell,
+        // which at zoom 8 is most of them.
+        fn scroll_to_the_edge(r: &mut Renderer, dir: (i32, i32), viewport: (u32, u32), world: Rect) {
+            let (mut still, mut frames) = (0, 0);
+            while still < 60 {
+                let was = (r.camera_x, r.camera_y);
+                r.pan(dir, 1.0 / 60.0, viewport, Some(world));
+                still = if (r.camera_x, r.camera_y) == was { still + 1 } else { 0 };
+                frames += 1;
+                assert!(frames < 100_000, "the camera never settled against the world edge going {dir:?}");
+            }
+        }
+
+        // Stride 4 is left out on purpose: its x span is the whole 2048-cell
+        // world, so there is exactly one legal camera and every claim below is
+        // true by construction rather than by the clamp.
+        for (zoom, stride) in [(1, 1), (2, 1), (8, 1), (1, 2)] {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.zoom_out_stride = stride;
+            let (span_x, span_y) = r.visible_span(viewport);
+            let scale = format!("zoom {zoom} stride {stride}");
+
+            // Hard into the bottom-right corner, then the top-left one.
+            // Asserted as the *exact* clamp limit, not merely "inside the
+            // world" — that is what proves the clamp stopped it rather than
+            // the scroll happening to run out.
+            scroll_to_the_edge(&mut r, (1, 1), viewport, world);
+            assert_eq!(
+                (r.camera_x, r.camera_y),
+                (world.max_x - span_x + 1, world.max_y - span_y + 1),
+                "{scale}: scrolling down-right did not pin at the far corner"
+            );
+
+            scroll_to_the_edge(&mut r, (-1, -1), viewport, world);
+            assert_eq!(
+                (r.camera_x, r.camera_y),
+                (world.min_x, world.min_y),
+                "{scale}: scrolling up-left did not pin at the origin"
+            );
+
+            // And the far corner really was somewhere else, so the pair above
+            // is not two readings of a camera that never moved.
+            assert!(span_x < world.max_x + 1, "{scale}: the viewport spans the whole world; nothing to travel");
+        }
+    }
+
+    #[test]
+    fn a_pan_moves_the_cell_under_a_pixel_by_exactly_the_camera_delta() {
+        // The property a player actually sees: the picture *translates*.
+        // Asserted through `screen_to_world`, because that is the mapping
+        // every pixel of `draw` is painted through — a pan that moved
+        // `camera_x` and disagreed with it would scroll the world past a
+        // cursor that lands somewhere else entirely.
+        let world = Rect::new(0, 0, 2047, 639);
+        let viewport = (512u32, 320u32);
+        for (zoom, stride) in [(1, 1), (2, 1), (4, 1), (1, 2)] {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.zoom_out_stride = stride;
+            // Mid-world, away from every clamp — and away from the origin,
+            // where world and screen coordinates are the same numbers and
+            // this would hold for the wrong reason.
+            r.set_camera(700, 200, viewport, Some(world));
+            let probe = (137, 91);
+            let before = r.screen_to_world(probe.0, probe.1);
+            let cam_before = r.camera_x;
+            for _ in 0..30 {
+                r.pan((1, 0), 1.0 / 60.0, viewport, Some(world));
+            }
+            let moved = r.camera_x - cam_before;
+            assert!(moved > 0, "zoom {zoom} stride {stride}: half a second of pan moved nothing");
+            assert_eq!(
+                r.screen_to_world(probe.0, probe.1),
+                (before.0 + moved, before.1),
+                "zoom {zoom} stride {stride}: the view did not translate by the camera delta"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pan_at_a_stride_steps_whole_strides_only() {
+        // A camera step that is not a whole number of strides re-samples the
+        // view against a different lattice instead of translating it, and the
+        // screen hisses rather than scrolling. Only catchable as an assertion
+        // about the *step*: both cases move `camera_x`, so any before/after
+        // comparison of the camera alone passes either way.
+        //
+        // **Unbounded on purpose**, which is the isolation this needs rather
+        // than a shortcut. The clamp in `set_camera` lands the camera wherever
+        // the world's edge is, which is not on the stride lattice in general —
+        // at stride 3 on a 2048-cell world the far stop is x=512, and 512 is
+        // not a multiple of 3. That is a *single* frame's lattice shift as the
+        // camera pins, not the repeated per-frame alternation this is about,
+        // and once pinned the view is static and cannot hiss at all. Including
+        // it would make the test fail for a reason it is not named for; the
+        // clamp is `a_pan_cannot_escape_the_world_at_any_scale`'s subject.
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        r.zoom_out_stride = 3;
+        let mut last = r.camera_x;
+        let mut moves = 0;
+        for _ in 0..120 {
+            r.pan((1, 0), 1.0 / 60.0, viewport, None);
+            let step = r.camera_x - last;
+            assert_eq!(step % 3, 0, "camera stepped {step} at stride 3, which does not translate the picture");
+            if step != 0 {
+                moves += 1;
+            }
+            last = r.camera_x;
+        }
+        assert!(moves > 0, "two seconds of pan produced no camera step at all");
+    }
+
+    /// Scroll one direction for `secs` and report how far the camera moved.
+    /// Mid-world and unbounded, so the clamp never truncates a measurement.
+    fn scrolled(r: &mut Renderer, dir: (i32, i32), secs: f32, viewport: (u32, u32)) -> i32 {
+        let before = r.camera_x;
+        for _ in 0..(secs * 60.0) as i32 {
+            r.pan(dir, 1.0 / 60.0, viewport, None);
+        }
+        r.camera_x - before
+    }
+
+    #[test]
+    fn a_held_scroll_accelerates() {
+        // Half the playtest verdict on the flat 1.5 screens/s: it was both too
+        // fast to aim and, once slowed, would have been too slow to travel.
+        // Only a ramp answers both, so it needs a test that a ramp is actually
+        // happening rather than a rate that merely got smaller.
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        let first = scrolled(&mut r, (1, 0), 1.0, viewport);
+        let second = scrolled(&mut r, (1, 0), 1.0, viewport);
+        assert!(
+            second > first,
+            "a held scroll must speed up: first second {first} cells, second {second}"
+        );
+
+        // And a tap is always a tap: `end_pan` puts the next gesture back at
+        // the start of the ramp, so two taps in a row cover the same ground.
+        // Without this the test passes against a ramp that never resets, which
+        // would make the second nudge of any correction twice the first.
+        let mut r = Renderer::new();
+        let tap_a = scrolled(&mut r, (1, 0), 0.2, viewport);
+        r.end_pan();
+        let tap_b = scrolled(&mut r, (1, 0), 0.2, viewport);
+        assert_eq!(tap_a, tap_b, "two separate taps must move the same distance");
+        assert!(tap_a > 0, "a 200 ms tap moved nothing at all");
+    }
+
+    #[test]
+    fn reversing_direction_restarts_the_ramp() {
+        // The overshoot correction. At full speed after a long hold, a tap
+        // back the other way has to be a nudge — inheriting the ramp would
+        // turn one overshoot into two, which is the twitchiness complaint
+        // reappearing at the moment it matters most.
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        scrolled(&mut r, (1, 0), 3.0, viewport); // wound fully up
+        let back = scrolled(&mut r, (-1, 0), 0.2, viewport).abs();
+
+        let mut fresh = Renderer::new();
+        let cold = scrolled(&mut fresh, (-1, 0), 0.2, viewport).abs();
+        assert_eq!(back, cold, "a reversal after a long hold must nudge like a fresh tap: {back} vs {cold}");
+
+        // But **adding** an axis is not reversing. Pressing `S` while already
+        // travelling right must not drop the scroll back to walking pace in
+        // the middle of a journey — only turning round does that. Guarded
+        // because the obvious spelling of the rule (`dir != last_dir`) gets
+        // this wrong, and gets it wrong invisibly: it still scrolls, just
+        // sluggishly, every time you adjust your heading.
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        scrolled(&mut r, (1, 0), 3.0, viewport); // wound fully up
+        let after_adding_an_axis = scrolled(&mut r, (1, 1), 0.2, viewport);
+        let mut still_straight = Renderer::new();
+        scrolled(&mut still_straight, (1, 0), 3.0, viewport);
+        let uninterrupted = scrolled(&mut still_straight, (1, 0), 0.2, viewport);
+        assert_eq!(
+            after_adding_an_axis, uninterrupted,
+            "adding a second direction restarted the ramp: {after_adding_an_axis} vs {uninterrupted}"
+        );
+    }
+
+    #[test]
+    fn a_sustained_scroll_crosses_the_world_in_about_six_seconds() {
+        // The figure the owner actually chose, and the one that was wrong
+        // before — so it is the one that earns a guard. Held to the real
+        // world's proportions rather than an abstract rate: 1536 cells of
+        // pannable width at 1:1, which is what "across the world" means here.
+        let world = Rect::new(0, 0, 2047, 639);
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        let mut frames = 0;
+        while r.camera_x < world.max_x - 512 + 1 {
+            r.pan((1, 0), 1.0 / 60.0, viewport, Some(world));
+            frames += 1;
+            assert!(frames < 60 * 60, "the scroll never crossed the world at all");
+        }
+        let secs = frames as f32 / 60.0;
+        // Wide enough that retuning the ramp's shape does not trip it, tight
+        // enough that the rejected 2.0 s and a sluggish 12 s both fail.
+        assert!(
+            (4.5..8.0).contains(&secs),
+            "a held scroll crossed the world in {secs:.1}s; the target is about six"
+        );
+    }
+
+    #[test]
+    fn the_pan_covers_the_same_fraction_of_a_screen_at_every_zoom() {
+        // The whole reason the rate is in screens rather than cells. Compared
+        // as a fraction of a viewport, which is the quantity the eye judges;
+        // the cell counts differ by 8x across these and are not the claim.
+        //
+        // This is also the residual-carry test in disguise: drop the carry and
+        // the tightest zoom falls well short of the others, because its
+        // per-frame share is the one small enough to round away.
+        //
+        // Asserted **against the other zooms, not against a constant.** It
+        // used to compare one second of scroll to `PAN_SCREENS_PER_SECOND`,
+        // which stopped being the distance covered the moment the rate ramped
+        // — and the invariant this test is named for never mentioned the rate
+        // at all. Pinning the absolute figure is
+        // `a_sustained_scroll_crosses_the_world_in_about_six_seconds`'s job.
+        let world = Rect::new(0, 0, 2047, 639);
+        let viewport = (512u32, 320u32);
+        let mut travelled = Vec::new();
+        for zoom in [1, 2, 4, 8] {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.set_camera(700, 200, viewport, Some(world));
+            let before = r.camera_x;
+            for _ in 0..60 {
+                r.pan((1, 0), 1.0 / 60.0, viewport, Some(world));
+            }
+            let (span_x, _) = r.visible_span(viewport);
+            travelled.push((zoom, (r.camera_x - before) as f32 / span_x as f32));
+        }
+        // Non-zero first, or "all equal" is satisfied by a pan that never
+        // moves anything.
+        for (zoom, screens) in &travelled {
+            assert!(*screens > 0.05, "zoom {zoom} barely moved: {screens:.3} screens in a second");
+        }
+        let (_, reference) = travelled[0];
+        for (zoom, screens) in &travelled {
+            assert!(
+                (screens - reference).abs() < 0.03,
+                "zoom {zoom} covered {screens:.3} of a screen against zoom 1's {reference:.3}: {travelled:?}"
+            );
+        }
     }
 
     #[test]

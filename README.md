@@ -11,6 +11,19 @@ cargo run --example ascii   # headless terminal view, no GPU needed
 cargo test
 ```
 
+## Finding things
+
+What each mechanic *does* in play — materials, fire, collapse, weather, the
+gnome, the ant colony — is written up in plain language in
+[`wiki/`](wiki/README.md). *Why* it is built that way lives in
+[`Reports/`](Reports/README.md), which is indexed. How to *work* here —
+method, conventions, gotchas — is `CLAUDE.md`. This file holds the
+architecture and the per-milestone build status. Milestone sections are
+titled `M<n> status` and sit in the order they were written, not numeric
+order — find them by search: M5, M6, M7, M8, M9, M10 (worldgen), M12/M13,
+M14, M15, M16, M17, M18, M19, plus sections for weather and the ant colony
+and three overnight-run sections (§9 UI, §10 tunables, §11 rendering).
+
 ## Controls
 
 | Input | Action |
@@ -30,9 +43,15 @@ cargo test
 | `T` | Plant a tree seed under the brush (M16 debug tool) |
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `J` | Plant a worm under the brush (M18 debug tool; was `W` before the gnome claimed WASD) |
-| `U` | Summon the gnome at the cursor, or dismiss him (M9). Arrives in `Tool::Dig`, where left-click cuts the near rock face along the aim (the yellow ring shows where the bite lands and how big it is) and right-click still erases; `Z` cycles back to the brush. `A`/`D` run, `W` jump (tap for a hop, hold for full height), and a lip a little above a jump's apex is caught and mantled. He wades knee-deep in powder — slowed in proportion to how deep — swims in liquid (`W` strokes up, `S` down, and holding `W` through the surface hops him onto the bank), and rides a falling chunk body rather than being left behind by it. **A living plant is scenery he walks through, not a wall**: hold `Shift` to take hold of one, then `W`/`S` climb it and no vertical input hangs him there; releasing `Shift` lets go. Climbing has its own key because riding on `W` meant jump-walking through a wood grabbed every trunk it touched and let you hover — and falling through a crown is broken by the foliage. Left-clicking a plant **shakes** it rather than cutting it (the ring turns green): loose material comes off the branches, the shaded leaves that were already dying come down as litter, and a grown tree yields seed |
+| `U` | Summon the gnome at the cursor, or dismiss him (M9). Arrives in `Tool::Dig`, where left-click cuts the near rock face along the aim (the yellow ring shows where the bite lands and how big it is) and right-click still erases; `Z` cycles back to the brush. `A`/`D` run, `W` jump (tap for a hop, hold for full height) — the same four keys scroll the map while nobody is summoned, see the row below. He wades knee-deep in powder — slowed in proportion to how deep — swims in liquid (`W` strokes up, `S` down, and breaking the surface leaves a window to jump out), and rides a falling chunk body rather than being left behind by it. **A living plant is scenery he walks through, not a wall**: hold `Shift` to take hold of one, then `W`/`S` climb it and no vertical input hangs him there; releasing `Shift` lets go. Climbing has its own key because riding on `W` meant jump-walking through a wood grabbed every trunk it touched and let you hover — and falling through a crown is broken by the foliage. Left-clicking a plant **shakes** it rather than cutting it (the ring turns green): loose material comes off the branches, the shaded leaves that were already dying come down as litter, and a grown tree yields seed |
+| `A` `D` `W` `S` (with no gnome) | **Scroll the map.** With nobody summoned the view is yours: the same keys that run him pan the camera instead, and the moment one is summoned it goes back to being his. No mode to toggle — the two readings can never both be live, because `App::draw` re-centres on a gnome every frame, so a camera the player set would simply be pulled back on the next one. The rate is *screens per second*, not cells, so the picture slides at one speed however far in or out you are zoomed; the step is quantised to the zoom-out sample stride, without which a zoomed-out view re-samples rather than translating. It **opens at about the gnome's own running pace and accelerates over ~0.8 s** to 0.5 screens/s, crossing the world in about six seconds — a tap nudges, a hold travels, and reversing restarts the ramp so correcting an overshoot does not fling the view back. It shipped as a flat 1.5 screens/s and was rejected by playtest as "way too fast"; see `render::PAN_SCREENS_PER_SECOND`. The world is four screens wide and two deep, so there is a good deal to see — the bottom-left readout shows where the view is |
 | `F10` | Cycle **tree depth** — whether the gnome draws over a stand of trees, weaves through it (the default: half of them draw over him, chosen per tree and stable for its life), or passes behind all of it. Purely graphical; a living plant is walk-through in every mode |
-| `F2` `F3` `F4` | Cycle the gnome's **jump feel**, **water feel** and **spoil mode** — named runtime selectors for the three things only play can settle. The active one is shown in the title bar once it differs from the default. Every underlying number is also sweepable under `O` -> PLAYER |
+| `F3` `F4` `F2` | Cycle the gnome's **movement feel**, **water feel** and **spoil mode**, in that order — named runtime selectors for the three things only play can settle. (An earlier version of this row had the keys scrambled; the binding is F3 = movement, F4 = water, F2 = spoil.) The active one is shown in the title bar once it differs from the default. Every underlying number is also sweepable under `O` -> PLAYER |
+| `Y` | Found an **ant colony** at the cursor — the whole colony feature hangs off this key; see [`wiki/ants.md`](wiki/ants.md) |
+| `F6` / `F8` | New world from a fresh seed / back to the previous seed |
+| `F7` | Cycle the worldgen preset, keeping the seed — rolling → terraced → canyon → wetland → arid → legacy → flat (the structural test bed) |
+| `F9` | Cycle how far structural damage may travel from a blow: SPREAD → LOCAL → TIGHT → NONE; named in the title bar off the default. See [`wiki/structural-collapse.md`](wiki/structural-collapse.md) |
+| `L` | Cycle the organism overlay — per-cell organism channels on a fixed dark→bright ramp |
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
 | `N` | Toggle the structural stress view — every load-bearing cell tinted green at rest through red at its limit |
 | `H` | Dig — a precise cut that loosens and cracks the rock around it, unlike the eraser (was `D`, which now runs the gnome right) |
@@ -46,8 +65,9 @@ cargo test
 | `O` | Toggle the live tunables panel (§10 — browse/adjust/save material fields at runtime) |
 | `PageUp` / `PageDown` | Switch which tunables menu is shown (PHYSICS / VISUAL / EXPLOSION / PLAYER), while the panel is open. Split because a dozen materials times ten fields is one scroll of well over a hundred rows. |
 | `↑` / `↓` | Move the tunables selection (only while the panel is open) |
-| `←` / `→` | Adjust the selected tunable's live value by its own step (only while the panel is open) |
-| `Enter` | Save the selected tunable back to its `.ron` file, preserving comments (only while the panel is open) |
+| `←` / `→` | Adjust the selected tunable's live value by its own step while the panel is open — and with it closed, adjust the **pinned** tunable, so a value under evaluation is one keypress away mid-play |
+| `Enter` | **Pin** the selected tunable for those panel-closed arrow keys (only while the panel is open) |
+| `S` | Save the selected tunable back to its `.ron` file, preserving comments (only while the panel is open; this moved off `Enter` when pinning claimed it) |
 | `F1` | Chunk overlay — green borders are awake, grey are asleep |
 | `F5` | Reload materials and species by hand |
 | `R` | Reset |
@@ -70,7 +90,7 @@ are also compiled into the binary, so the engine still works without them.
 ```ron
 (
     name: "sand",
-    kind: Powder,          // Solid | Powder | Liquid | Gas
+    kind: Powder,          // Solid | Powder | Liquid | Gas | Plant | Creature
     density: 1.6,          // heavier sinks through lighter
     friction_angle: 34.0,  // powders: angle of repose, 45 is steepest
     dispersion: 5,         // liquids and gases: sideways travel per step
@@ -80,6 +100,13 @@ are also compiled into the binary, so the engine still works without them.
 
 Ids are keyed by name and never reassigned, so editing a file changes material
 already in the world rather than replacing it. Renaming adds a new material.
+
+`Plant` and `Creature` are the two kinds the CA sweep never moves — an
+organism cell is relocated by its own tick through `World::get`/`set`, never
+by falling or flowing. That single fact drives most of how organisms are
+built; [`wood.ron`](assets/materials/wood.ron) and
+[`worm.ron`](assets/materials/worm.ron) carry the load-bearing comments on
+why each is its kind and not `Solid`.
 
 **`friction_angle` is the parameter worth playing with.** A pile rests where a
 grain can no longer see anywhere to fall within its reach, which makes the
@@ -93,9 +120,12 @@ That draw is keyed on **position, not the random generator**, and it has to
 stay that way. Drawing fresh each call lets a chunk fall asleep on a frame the
 dice said no, freezing grains that should have kept rolling.
 
-**The M14 schema** (combustion, phase change, reactions) is defined and
-loadable — see [`oil.ron`](assets/materials/oil.ron) for the first material
-using it — but nothing reads it yet; that is the update logic M14 adds. All
+**The M14 schema** (combustion, phase change, reactions) — see
+[`oil.ron`](assets/materials/oil.ron) for the first material that used it —
+has been read by `fire.rs` since M14 landed (see the M14 status section
+below). This paragraph used to say "nothing reads it yet" and kept saying it
+for three milestones after that stopped being true, which is its own small
+lesson in where status claims belong. All
 of its temperatures are Celsius, the same unit `Cell` and the field grid both
 already use:
 
@@ -118,8 +148,8 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                an organism-ownership id
   material.rs  materials as data, not code
   chunk.rs     64x64 tiles, coordinate maths, dirty rectangles
-  field.rs     the coarse pressure/velocity/temperature/light grid,
-               one tile per chunk, its own frame phase
+  field.rs     the coarse pressure/velocity/temperature/light/moisture
+               grid, one tile per chunk, its own frame phase
   fire.rs      heat, ignition, burnout, phase change, reactions
   particle.rs  free (off-grid) particles for explosions and splashes
   explosion.rs pressure impulse + heat spike + debris, built from the above
@@ -129,16 +159,53 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                World (serial) or parallel::ChunkView (multithreaded)
   parallel.rs  M5: the multithreaded checkerboard sweep -- an alternative
                driver for update.rs's rules, not a second copy of them
-  scheduler.rs M16: the active-site list -- growing plant tips, checked
-               once per frame in their own phase, cost proportional to
-               how much is growing rather than to world size
-  plant.rs     M16: moss and tree/root growth, dispatched from scheduler.rs
+  scheduler.rs M16: the active-site list -- everything that must happen to
+               a world the sweep has stopped visiting, checked in its own
+               phase at cost proportional to how much is happening
+  plant.rs     M16: plant growth -- germination, moss, tree and root
+               growth, dispatched from scheduler.rs
+  organism.rs  the shared cell-typed organism substrate: species as data
+               (assets/species/*.ron), one organism state per individual
+               -- what retired TreeState and CreatureState
+  creature.rs  creatures on that substrate: the worm, the ants, the beetle
+  brain.rs     the creature brain, behind its deliberate sense/act cage
+  pheromone.rs the ant colony's two trail channels: deposit, diffuse,
+               decay, follow
   evaporation.rs standing water drying up, dispatched from scheduler.rs --
                a puddle goes and a lake does not, with nothing measuring
-               the size of a body of water
-src/render.rs  cells to pixels
-src/app.rs     sandbox state: brush, picker, terrain
+               the size of a body of water (tests in evaporation_tests.rs)
+  decay.rs     ash weathering into soil, moisture-gated -- the regrow half
+               of "a forest burns and regrows"
+  weather.rs   fronts, rain, snow, wind and gusts, lightning -- weather as
+               a deterministic property of the world, not an event roll
+  structural.rs M17: anchor distance, confinement, the structural check --
+               what decides a cell is no longer held up
+  load.rs      the load/torque failure criterion on top of it: who carries
+               what, and where it breaks -- fissures, strike damage
+  rigid.rs     M8: chunk bodies -- component labeling, contour tracing,
+               and detached pieces falling as one coherent thing
+  liquid.rs    heightfield liquid bodies -- test-only today: promotion was
+               implemented and reverted, so its bugs are latent until it
+               lands (Reports/liquid-heightfield-design.md)
+  player.rs    M9: the gnome -- running, jumping, digging, burial, swimming
+  rng.rs       position-keyed jitter and per-chunk streams -- deterministic
+               randomness that survives chunk sleep
+src/worldgen/  M10's worldgen half: a playable 2D slice cut from coarse 3D
+               worldgen -- params.rs (the knobs, from assets/worldgen.ron),
+               noise.rs, region.rs (the 2-5 regions across a world's
+               width), column.rs (per-column shaping), passes.rs (the pass
+               pipeline), erosion.rs (plan-space erosion, which is what
+               makes the mesas and benches), residual.rs (tors and stacks),
+               spring.rs (spring placement), legacy.rs (the old hand-built
+               practice terrain)
+src/render.rs  cells to pixels; dirty-region skipping, overlays, grain
+src/sky.rs     the sky: day/night gradient, dawn and dusk, stars, the moon,
+               storm dimming -- and the ground lit by time of day
+src/hud.rs     the 5x7 bitmap-text primitive every on-screen readout uses
+src/tunables.rs the live tunables registry behind the O panel
+src/app.rs     sandbox state: brush, picker, tools, terrain, experiments
 src/main.rs    window, input, fixed 60 Hz timestep
+src/lib.rs     the crate root that wires the above together
 ```
 
 ### Invariants
@@ -220,6 +287,8 @@ new one every pass instead (Jacobi) — slightly more memory, but every pass is
 order-independent and parallelizable later, which matters once the CA sweep
 threads the same way.
 
+### Wall boundary conditions
+
 **Wall boundary conditions went through three attempts, and the reasoning for
 landing on the third is worth knowing before touching that code again.**
 Zeroing a cell's whole velocity whenever it touched *any* blocked neighbour,
@@ -245,6 +314,8 @@ cell's full 8-cell width, `step_pressure` checked wall occupancy against the
 and `step_diffusion` had no wall awareness at all, so heat and light diffused
 straight through solid stone. All three are fixed, and each has a named
 regression test in `field.rs`.
+
+### The light channel
 
 **The light channel had two readers from the start (`plant.rs`'s moss
 `shade_factor` and tree phototropism) and no writer until `Reports/emergent-
@@ -278,6 +349,8 @@ regression test (`open_sky_reads_brighter_than_a_directly_blocked_cell`)
 still only probes one field row down — that's checking the sky boundary
 condition itself, not the full depth range.
 
+### Sampling: block-nearest broke every gradient-follower
+
 **`World::field_at` is block-nearest** — any two positions inside the same
 8x8 field block read byte-identical values, which quietly broke every
 short-range gradient-follower built against it: a worm's thermotaxis
@@ -290,6 +363,8 @@ used internally, and both consumers now read through it instead. Left
 alone, deliberately: trail *width* (a one-cell-wide pheromone trail smeared
 across an 8-cell field block stays smeared no matter how it's sampled) —
 that's a future moisture/pheromone channel-resolution question, not this one.
+
+### The moisture channel
 
 **A fifth channel, moisture, closes architecture §4** — `Liquid` CA cells now
 push ambient humidity into the field (`apply_moisture_sources`, same shape as
@@ -309,6 +384,8 @@ regression** — 28.0 ms serial / 8.3 ms parallel, statistically the same as
 the ~28 ms/~9 ms already on record. The scan itself was never the bottleneck
 in a scene this CA-heavy; if a future scene turns out to actually feel this
 cost, it's the first place to look.
+
+### Evaporation rides the scheduler
 
 **Standing water dries up, and the moisture channel is what makes a lake
 different from a puddle** (`src/sim/evaporation.rs`). Water already
@@ -330,6 +407,8 @@ three rows, for a body 240 cells wide. Moisture, and only moisture, now reads
 through a blocked neighbour that is itself a source; heat and light keep the
 strict wall rule the sealed-room guards depend on.
 
+### Organism feedback loops
+
 **Both channels plants read are now also channels they write** (architecture
 §5g), which is what turns "moss reads shade" and "roots read moisture" from
 one-way sensing into an actual feedback loop between organisms. Light
@@ -342,6 +421,8 @@ water-drink sites: a root draining a small, contained puddle now leaves it
 measurably drier, which a second root's own `moisture_pull` gradient read
 can notice and steer away from — resource competition mediated entirely
 through the world, with no code anywhere that knows two roots are competing.
+
+### The day/night cycle
 
 **A day/night cycle now drives the sky** (architecture §5h) — the same
 `apply_sky` writer from §2, given a time-varying amplitude instead of a flat
@@ -359,6 +440,8 @@ which — since the oscillator's rate of change is genuinely near zero at
 noon and midnight — still lets a scene sleep through the steady parts of
 day and night exactly as before, only staying awake through the actual
 dawn/dusk transition.
+
+### Decay and regrowth
 
 **Ash decays into soil, moisture-gated, and soil sometimes reseeds plant
 growth** (architecture §5f/§5e) — closing M16's own verify criterion, "a
@@ -386,6 +469,8 @@ uniformly dry, since the field was never actually being solved. Fixed, and
 a new `regrowth_scene` demoes the whole ash → soil → (sometimes) regrowth
 path end to end.
 
+### Wind lean, and structural cover for plants
+
 **Two of the plan's "lower priority" extras are done too.** A tree's growth
 direction now leans downwind of a real pressure-field breeze — the same
 additive formula phototropism already uses, given a fixed-magnitude,
@@ -403,6 +488,8 @@ broken trunk falls as a new `deadwood` material rather than vanishing. The
 `Cell::aux` slot this needed was reserved for a per-cell growth stage that
 was never actually built — real per-tip state lives in `TreeState` instead
 — so extending the slot's meaning was a resolution, not a workaround.
+
+### Playtest-driven changes
 
 **Playtest feedback drove two more changes.** Running the actual GUI (not
 just the ascii harness) surfaced that explosions vaporized almost everything
@@ -628,15 +715,16 @@ the clearing radius instead of a smaller circle within it — which is also the
 more sensible design regardless of the bug, since a fireball inside a hole
 has nothing left to burn.
 
-**Known simplification, left as such rather than fixed tonight**: the
-fireball reuses `World::ignite_circle`, the M14 debug force-ignite tool,
-which sets *any* material burning regardless of its `flammability` — a stone
-wall next to a blast currently gets the same fire tint oil would, rather than
-being immune the way `flammability: 0.0` says it should be. Visually this
-reads as "the blast leaves the surroundings glowing hot," which is not
-unreasonable for a first cut; a version that actually checks flammability
-(closer to `fire::try_ignite`'s temperature-driven path) would be the more
-correct fix.
+**A simplification this section used to carry is gone**: the first cut's
+fireball reused `World::ignite_circle`, the M14 debug force-ignite tool,
+which sets *any* material burning regardless of its `flammability` — stone
+next to a blast glowed like oil. The rebuild described at the top of this
+section replaced that with a real per-cell `flammability` roll
+(`explosion.rs`'s ignition step documents the replacement as the point), so
+stone is now immune the way `flammability: 0.0` says it should be. This
+paragraph described the old behaviour for some time after the rebuild
+landed — the two halves of one section disagreeing is exactly the failure
+`scripts/docscheck.sh` cannot catch and a read-through can.
 
 **Debris realism, added later (overnight run §6).** The corner-aware
 gradient above was right about *direction* but every cell within roughly
@@ -1042,9 +1130,13 @@ structural check on a burning cell defers (reschedules itself) rather than
 touching `aux`, and picks the distance question back up once the fire
 either goes out or the cell is consumed.
 
-Known simplification: `MaterialKind::Plant` (trees, moss) is explicitly out
-of scope for this milestone — it has its own M16 growth-based model, and
-`structural::tick` only ever activates for `MaterialKind::Solid`.
+`Plant` was originally out of scope for this milestone, and this section
+went on saying so after it stopped being true. Structural integrity now
+covers `Plant` as well as `Solid` (`is_structurally_interesting` matches
+both): `wood.ron` carries real span/`breaks_into` numbers, and a burnt-away
+trunk base brings the rest of the tree down the same way cutting a stone
+bridge's support does — see the field-grid section above for how that
+landed.
 
 Independent review (the same standing per-milestone practice as M5/M13/M16)
 found one real bug before commit: the neighbour-scanning loop that computes
@@ -1391,6 +1483,86 @@ requirement `PLAN.md` reversed to *required*; and §3's resistive-force
 coupling and §5's buoyancy both remain unbuilt, so a body currently sits on
 sand as though it were stone.
 
+## M9 status — the gnome
+
+Built: a summonable character (`U`), in `src/sim/player.rs` — a kinematic
+body over the cell grid, not a rigid-body import. He runs (`A`/`D`), jumps
+with tap-for-hop, hold-for-height (`W`), wades powder slowed in proportion
+to how deep he is in it, swims with a surface-exit window, is buried and
+digs out, rides a falling chunk body rather than being left behind by it,
+and digs an aimed bite along the cursor (`Tool::Dig`, the yellow ring).
+
+The feel is data, not code: `player::Tuning` behind `O` -> PLAYER
+(persisted to `assets/player.ron`), with the three whole-feel families that
+only play can settle behind named runtime selectors (`F3` movement, `F4`
+water, `F2` spoil) — the "ship a runtime selector rather than choosing"
+convention applied to a character. What he is like to play is
+[`wiki/the-gnome.md`](wiki/the-gnome.md); the build plan he followed is
+`Reports/m9-gnome-character-plan.md`.
+
+## M10 status — the worldgen half
+
+M10 as planned is the infinite streaming world. What has landed is its
+worldgen redesign (`Reports/worldgen-design.md`): `src/worldgen/` builds a
+bounded-but-large world as a 2D playable slice through coarse 3D worldgen —
+two to five regions across the width, each with its own height, ruggedness
+and dryness; escarpments where they meet; layered, gently folded rock; soil
+with a real vertical profile that thins with slope; a water table with
+standing pools where the land dips below it; buried pockets, scree,
+overhangs; seeded plant cover, clustered rather than scattered. Worlds
+arrive settled and structurally real — nothing moves until something moves
+it. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
+rebuild the same world within one build. `tests/worldgen.rs` guards it;
+[`wiki/the-world.md`](wiki/the-world.md) describes what a player sees.
+
+Streaming itself — chunks loading and unloading past the bounds — has not
+started; `ChunkCoord`'s reserved slice-identifier (issue #11) is the one
+piece of it already spoken for, and it must land before the save format.
+
+## Weather status
+
+Built (`src/sim/weather.rs`): weather as a seeded property of the world —
+the same seed gets the same weather at the same moment, whether or not
+anyone watched the hours between. Fronts gather and fade over days rather
+than switching on; roughly one part in seven is wet. Rain falls where the
+sky can reach, soaks into what can hold it (the moisture the plants read),
+and puddles and runs off on what cannot. A cold front's precipitation is
+snow, which banks steeper than sand and thaws to meltwater when the front
+moves on (`snow.ron` melts at 2 °C — the one shipped material that melts).
+Wind slants precipitation, arrives in gusts that shove smoke and lean
+trees, and takes a visible slice off exposed water; the heaviest storms
+throw lightning, and the storm sky is the clear sky drained and darkened
+(`sky.rs`). The play-facing description, including what is deliberately
+absent (thunder, erosion, seasons, a closed water cycle), is
+[`wiki/weather.md`](wiki/weather.md).
+
+## The ant colony — status
+
+Built (`Reports/creature-direction.md`'s cell-chain direction): `Y` founds
+a colony. Ants live on the organism substrate like everything else —
+species data in `assets/species/ant.ron`, behaviour behind the deliberate
+sense/act cage in `brain.rs` — and coordinate through the world rather than
+each other: two pheromone channels (`pheromone.rs`, the stigmergy
+deposit → diffuse → decay → follow primitive from
+`Reports/stigmergy-research.md`) are what make them forage, dig and build
+without ever being told to. Fire kills an ant the ordinary M14 way, into a
+corpse. No queens, eggs or new ants yet — the ants you place are the ants
+you get. A beetle species landed alongside as data
+(`assets/species/beetle.ron`). Play-facing: [`wiki/ants.md`](wiki/ants.md).
+
+## M19 status — started
+
+The visual-polish milestone (`PLAN.md`'s M19 section;
+`research/m19-visual-polish.md` is the source material). Landed so far: the
+sky (`src/sky.rs`) — a day/night gradient on the same clock the plants
+read, dawn and dusk as watchable colour events, stars that come out as dusk
+deepens, a moon with a halo that climbs through the night, storm skies as
+the clear sky drained of colour; the whole ground tinted by time of day;
+underground darkness fixed at worldgen time with a gradual cave-mouth
+falloff (`Reports/underground-definition.md`); per-cell liquid grain behind
+the `G` selector and the continuous zoom (§9). The remaining tiers stay in
+`PLAN.md`. Play-facing: [`wiki/world-cycles.md`](wiki/world-cycles.md).
+
 ## Performance
 
 Measured by `cargo run --release --example ascii`, which reports the worst
@@ -1521,7 +1693,7 @@ compiling — concurrent cargo processes skew the figure badly.
 ## Status
 
 Working: the cellular automaton core, chunked world with dirty-rectangle
-sleeping, seven materials loaded from data with hot reload, angle of repose
+sleeping, twenty-one materials loaded from data with hot reload, angle of repose
 from a friction angle, density-driven displacement and layering, a
 capsule-swept brush that emits loose material as a stream, the coarse
 pressure/velocity/temperature/light field grid, heat diffusion,
@@ -1547,24 +1719,32 @@ As of M18, a burrowing worm creature moves on its own schedule, eating
 through powder at a cost tied to the target's density, fleeing heat sensed
 through the M13 field, and dying (to fire, via M14's existing mechanism
 unmodified, or to starvation) into a destructible corpse — see M18 status
-above; `J` plants a worm at the brush.
+above; `J` plants a worm at the brush. Since then: the gnome (M9), the
+worldgen redesign (M10's worldgen half), weather, the ant colony, and
+M19's sky and lighting have each landed — each has its own status section
+above rather than another clause here.
 
 Known limitations:
 
 - **Repose angles come out a few degrees shallower than requested** — roughly
   39/30/18 against 45/34/22 — because reach is a whole number of cells. Fine as
   a tuning knob, not a physical measurement.
-- **Only oil, ash, wood and moss have real thermal numbers.** Every other
-  shipped material defaults to non-flammable, non-meltable,
-  `heat_conductivity: 0.0` — correct for sand/water/stone/gravel/smoke, which
-  have no business catching fire. Lava, steam and richer reactions are
-  natural additions once there is a design reason to want them.
-- **Plants don't reseed, and a burned forest doesn't regrow on its own** —
-  the plan's M16 verify criterion "a forest burns and regrows" only got the
-  "burns" half; there's no mechanic yet for a burned-out patch to spawn a
-  new seed. Growth also has no seasonal or long-term dormancy — a tree
-  either keeps growing until it exhausts its attractors/energy, or it
-  doesn't grow at all.
+- **Real combustion numbers now cover the living world too** — leaf (at
+  0.75, the most flammable material in the game), moss, wood, rootwood,
+  deadwood, seed, corpse, and the creatures (worm, ant, beetle), alongside
+  the original oil and ash; snow is the one material that melts.
+  Sand/water/stone/gravel/smoke stay inert deliberately — they have no
+  business catching fire. Lava, steam and richer reactions are natural
+  additions once there is a design reason to want them. (An earlier version
+  of this bullet said only four materials had real numbers; it lagged the
+  organism work by several milestones.)
+- **A burned forest can regrow now** — ash weathers into soil
+  (moisture-gated, `decay.rs`) and fresh soil occasionally reseeds moss or
+  a tree, which closed the M16 verify criterion's "regrows" half; see the
+  field-grid section's decay-and-regrowth heading. (This bullet used to say
+  the opposite, and outlived the fix.) What remains true: growth has no
+  seasonal or long-term dormancy — a tree either keeps growing until it
+  exhausts its attractors/energy, or it doesn't grow at all.
 - **Canopy light competition doesn't cast real shadows.** A tree tip leans
   gently toward brighter nearby cells, but branches don't occlude the M13
   light field for each other the way Palubicki et al.'s full model does —
@@ -1586,10 +1766,11 @@ toppling is deliberately not planned at all** (that report found real
 sandpile avalanches don't follow BTW's power-law prediction, so the
 two-angle model above replaces it rather than sitting alongside it) —
 hole-propagation granular flow is likewise on hold pending an actual
-hopper/silo use case, per the same report; rigid bodies past
-connected-component labeling (see M8 status above), character physics, the
-streaming world, M18 Phase 2 (Reynolds-steering entities, after M8),
-multi-creature-kind predator/prey dynamics, and Lua scripting.
+hopper/silo use case, per the same report; rigid bodies past chunk bodies
+(Douglas-Peucker → triangulation → a real `rapier2d` collider and
+continuous rotation — see M8 status above); the streaming world (M10's
+unstarted half); multi-creature-kind predator/prey dynamics; and Lua
+scripting. Character physics shipped as M9.
 
 ## License
 

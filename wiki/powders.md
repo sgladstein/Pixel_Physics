@@ -1,6 +1,6 @@
 # Powders
 
-*Current as of: this build.*
+*Current as of: 2026-08-21.*
 
 Sand, gravel, ash, soil, and a handful of debris materials all behave the
 same basic way: they fall under gravity, and instead of spreading out flat
@@ -31,6 +31,11 @@ than being something you'd paint on purpose:
 - **Deadwood** is a broken branch or fallen trunk. Being dry and cut off
   from a living tree's own moisture, it catches fire more readily than
   living wood does.
+
+Two members of the family live on other pages: **snow**, which falls from
+weather, banks steeper than sand and melts when the cold passes (see
+[Weather](weather.md)), and a plant's **seed**, which falls and lodges like
+any other grain until it germinates.
 
 A third material outside this list, **rubble**, is what broken stone
 becomes when a structure fails — see [Structural Collapse](structural-collapse.md)

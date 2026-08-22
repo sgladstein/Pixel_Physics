@@ -50,8 +50,18 @@ struct Args {
     glow: pixel_physics::render::GlowShape,
     spring: i32,
     age: Option<f32>,
+    /// **Post-render magnify of the sheet tile** — not the camera. See the
+    /// `zoom`/`scale` note in the parser below; the two arrived from
+    /// different branches meaning different things and the merge nearly
+    /// conflated them.
     zoom: usize,
     crop: Option<(usize, usize, usize, usize)>,
+    gif: bool,
+    every: usize,
+    pan: f32,
+    /// **Camera magnification** (`Renderer::zoom`), applied while drawing.
+    scale: i32,
+    stride: i32,
     out: String,
 }
 
@@ -76,6 +86,11 @@ fn main() {
         age: None,
         zoom: 1,
         crop: None,
+        gif: false,
+        every: 1,
+        pan: 0.0,
+        scale: 1,
+        stride: 1,
         out: "target/filmstrips/viewshot.png".to_string(),
     };
     for arg in std::env::args().skip(1) {
@@ -167,6 +182,57 @@ fn main() {
                 assert_eq!(n.len(), 4, "crop=x,y,w,h");
                 a.crop = Some((n[0], n[1], n[2], n[3]));
             }
+            // `pan=SECONDS` holds the scroll key for that long between shots,
+            // through **`Renderer::pan` itself** rather than `follow`.
+            //
+            // Driving it with `follow` and captioning the sheet "panning"
+            // would be exactly the failure `CLAUDE.md` records twice: four
+            // camera positions look identical whichever function put the
+            // camera there, so the picture would be evidence about nothing.
+            //
+            // Sixty small calls a second rather than one big one, because the
+            // residual carry and the stride quantisation are per-call
+            // behaviour and a single call with a large `seconds` steps clean
+            // over both.
+            "pan" => a.pan = v.parse().expect("pan=SECONDS_PER_SHOT"),
+            // **`zoom` and `scale` are different magnifications, and this
+            // pair arrived from two branches each calling its own one
+            // `zoom`.** `zoom=K` magnifies the finished tile as it is laid
+            // into the sheet -- nearest-neighbour, after rendering, so the
+            // same world crop simply gets bigger pixels. `scale=N` is
+            // `Renderer::zoom`, applied while drawing, so a larger value
+            // puts *less world* in the frame at full fidelity. Merging
+            // them onto one name would have silently changed what three
+            // recorded `viewshot ... zoom=` command lines in `Reports/`
+            // produce.
+            //
+            // `scale` is the scale a pan is judged at: the pan's whole
+            // claim is that the picture slides at the same rate however
+            // far in or out you are, and one row at one scale cannot show
+            // that.
+            "scale" => a.scale = v.parse().expect("scale=N"),
+            "stride" => a.stride = v.parse().expect("stride=N"),
+            // `gif=1` writes one frame per simulated frame of the scroll
+            // instead of a contact sheet. `CLAUDE.md`: reach for the
+            // animation "when the question is whether something *moves*
+            // right, which a grid of stills cannot answer" -- and whether a
+            // scroll rate feels right is exactly that question. A sheet can
+            // show that the camera reached six different places; only this
+            // can show how it got there.
+            "gif" => a.gif = v != "0",
+            // Encode every Nth simulated frame. The scroll still *runs* at 60
+            // Hz — only the sampling thins — and the gif's frame delay is set
+            // from this, so a sampled animation plays back at the true rate
+            // and only looks choppier.
+            //
+            // That trade is the right one here and cropping is not, which is
+            // worth stating because cropping is what the review skill
+            // recommends in general: apparent scroll speed is measured
+            // *against the viewport*, so a half-width crop would read as twice
+            // the speed — it would distort the exact quantity the card is
+            // asking about. A scrolling world is also the worst case for
+            // inter-frame compression, since no pixel holds still.
+            "every" => a.every = v.parse::<usize>().expect("every=N").max(1),
             "out" => a.out = v.to_string(),
             _ => panic!("unknown argument {arg:?}"),
         }
@@ -326,6 +392,8 @@ fn main() {
     renderer.glow_shape = a.glow;
     renderer.terrain_light = a.light;
     renderer.reveal_voids = a.reveal;
+    renderer.zoom = a.scale;
+    renderer.zoom_out_stride = a.stride;
     let particles = ParticleSystem::new();
     let (vw, vh) = (WIDTH as usize, HEIGHT as usize);
     // The tile written into the sheet: the crop window magnified, or the
@@ -545,6 +613,112 @@ fn main() {
     // cannot show *where* it was taken and four pictures of the same hill
     // look exactly like four different hills.
     println!("world {}x{} ({name}, seed {}), built in {build_ms:.0} ms", WORLD_WIDTH, WORLD_HEIGHT, a.seed);
+
+    // The animation branch: one encoded frame per simulated frame of a held
+    // scroll key, driven through the same `Renderer::pan` the app calls at the
+    // same 60 Hz. `shots` is the number of *seconds* of held key here rather
+    // than a number of tiles.
+    //
+    // Separate from the contact-sheet loop below rather than folded into it,
+    // because the two answer different questions and want different sampling:
+    // a sheet wants a handful of far-apart positions, and this wants every
+    // intermediate one. Reports the worst frame and the recomputed count for
+    // the same reason the sheet does -- a scroll that looks smooth because the
+    // dirty-rect skip froze it would look smooth in a gif too.
+    if a.gif {
+        let ground = (0..WORLD_HEIGHT as i32)
+            .find(|&y| world.get(0, y).material != material::EMPTY)
+            .unwrap_or(WORLD_HEIGHT as i32 / 2);
+        renderer.set_camera(0, ground - HEIGHT as i32 / 2, (WIDTH, HEIGHT), world.bounds());
+        let total = a.shots * 60;
+        let mut frames = Vec::with_capacity(total);
+        // Split by whether the camera moved this frame, because that split is
+        // the whole cost question: a moving camera invalidates the buffer and
+        // pays a full redraw, a pinned one keeps the dirty-rect skip. Measured
+        // as a pair in one run, on one machine, in one scene -- `CLAUDE.md`
+        // records a 25-50% "regression" that turned out to be a baseline
+        // remembered from a different session on a machine that had since
+        // slowed down.
+        let (mut worst_moving, mut worst_pinned) = (0.0f64, 0.0f64);
+        let mut skipped = 0usize;
+        let start_x = renderer.camera_x;
+        // Frames on which the camera actually moved, so the rate below is the
+        // scroll's own speed rather than an average diluted by however long
+        // the run sat pinned at the world's edge afterwards. The first
+        // measurement of this read 0.75 screens/s for a scroll running at
+        // exactly 1.5, purely because half the run had already arrived.
+        let mut moving_frames = 0usize;
+        for i in 0..total {
+            let was = renderer.camera_x;
+            renderer.pan((1, 0), 1.0 / 60.0, (WIDTH, HEIGHT), world.bounds());
+            let moved = renderer.camera_x != was;
+            if moved {
+                moving_frames += 1;
+            }
+            pixel_physics::sim::parallel::step(&mut world);
+            let touched = world.take_touched_chunks();
+            let started = std::time::Instant::now();
+            let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH, HEIGHT), i == 0);
+            let ms = started.elapsed().as_secs_f64() * 1000.0;
+            if moved {
+                worst_moving = worst_moving.max(ms);
+            } else {
+                worst_pinned = worst_pinned.max(ms);
+            }
+            if recomputed < vw * vh {
+                skipped += 1;
+            }
+            if i % a.every == 0 {
+                frames.push(frame.clone());
+            }
+        }
+        let travelled = renderer.camera_x - start_x;
+        let moving_secs = (moving_frames as f32 / 60.0).max(1.0 / 60.0);
+        println!(
+            "  scrolled world x {start_x} -> {} ({travelled} cells over {moving_frames} moving frames \
+             = {:.0} cells/s, {:.2} screens/s averaged across the ramp; {} s of key held in total)",
+            renderer.camera_x,
+            travelled as f32 / moving_secs,
+            // Divided by the **visible span**, not by `WIDTH`. A screenful is
+            // 128 cells at zoom 4 and 1024 at stride 2, so dividing by the
+            // framebuffer width reported a scroll running at one rate as three
+            // different ones -- wrong at every scale but 1:1, which is
+            // precisely the claim it exists to check.
+            //
+            // An **average** over the moving frames, not the instantaneous
+            // rate: the scroll ramps up from `PAN_START_FRACTION`, so a short
+            // run reads below `PAN_SCREENS_PER_SECOND` and a long one
+            // approaches it. Comparing this against the constant is only
+            // meaningful once the run is much longer than `PAN_RAMP_SECONDS`.
+            travelled as f32 / moving_secs / renderer.visible_span((WIDTH, HEIGHT)).0 as f32,
+            a.shots
+        );
+        // A frame that recomputed less than the whole buffer is one the camera
+        // did not move on -- at the world's edge that is correct and expected,
+        // anywhere else it is the smear this harness exists to catch.
+        println!("  {total} frames, {skipped} not fully redrawn (expected once the camera clamps at the world edge)");
+        println!("  worst render frame: {worst_moving:.2} ms scrolling, {worst_pinned:.2} ms once pinned at the edge");
+
+        // Delay follows the sampling, so a thinned animation still plays back
+        // at the speed the scroll actually runs at.
+        let delay_ms = ((a.every as u64 * 1000) / 60).max(16);
+        let delay = image::Delay::from_saturating_duration(std::time::Duration::from_millis(delay_ms));
+        let encoded = frames.len();
+        let file = std::fs::File::create(&a.out).expect("creating the gif");
+        let mut encoder = image::codecs::gif::GifEncoder::new(file);
+        encoder.set_repeat(image::codecs::gif::Repeat::Infinite).expect("gif repeat");
+        for f in frames {
+            let buf = image::RgbaImage::from_raw(WIDTH, HEIGHT, f).expect("gif frame");
+            encoder.encode_frame(image::Frame::from_parts(buf, 0, 0, delay)).expect("gif frame");
+        }
+        drop(encoder);
+        println!(
+            "animated gif ({}x{}, {encoded} of {total} frames at {delay_ms} ms): {}",
+            WIDTH, HEIGHT, a.out
+        );
+        return;
+    }
+
     for shot in 0..a.shots {
         // Aimed at the strike when there is one: a bolt lands anywhere in a
         // world four screens wide, so a shot framed anywhere else is a render
@@ -568,7 +742,26 @@ fn main() {
                 .find(|&y| world.get(x, y).material != material::EMPTY)
                 .unwrap_or(WORLD_HEIGHT as i32 / 2),
         };
-        renderer.follow((x, ground), (WIDTH, HEIGHT), world.bounds());
+        // `pan=` scrolls with the real map-scroll rate between shots instead
+        // of teleporting to a target, so consecutive tiles are what a player
+        // holding `D` actually sees -- including the ramp, since the camera is
+        // driven by `Renderer::pan` at 60 Hz rather than teleported.
+        //
+        // The first tile therefore covers less ground than later ones, which
+        // is the ramp and not a bug. **Uneven tile spacing is otherwise the
+        // dropped-residual bug made visible in a still image**, which is
+        // unusual enough to be worth exploiting -- so read the spacing from
+        // the second tile on, once the rate is flat.
+        if a.pan > 0.0 {
+            if shot == 0 {
+                renderer.set_camera(0, ground - HEIGHT as i32 / 2, (WIDTH, HEIGHT), world.bounds());
+            }
+            for _ in 0..(a.pan * 60.0) as u32 {
+                renderer.pan((1, 0), 1.0 / 60.0, (WIDTH, HEIGHT), world.bounds());
+            }
+        } else {
+            renderer.follow((x, ground), (WIDTH, HEIGHT), world.bounds());
+        }
         let (cam_x, cam_y) = (renderer.camera_x, renderer.camera_y);
         // Clamped hard against an edge is legitimate at the ends of the
         // world and a bug in the middle, so print the camera rather than
@@ -588,7 +781,20 @@ fn main() {
         // invisible in any single image, and the one thing most likely to go
         // wrong when a viewport starts moving.
         let touched = world.take_touched_chunks();
-        renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH, HEIGHT), shot == 0);
+        let started = std::time::Instant::now();
+        let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH, HEIGHT), shot == 0);
+        // The discrete "did it fire" number, printed next to the picture
+        // because the picture cannot show it. `WIDTH * HEIGHT` means the
+        // camera move forced the full redraw; anything less means the
+        // dirty-rect skip kept the previous shot's pixels and the sheet is
+        // several copies of one view wearing different captions. Also the
+        // frame cost, measured here rather than remembered from another
+        // session on another machine.
+        println!(
+            "    {recomputed} px recomputed ({} = full) in {:.2} ms",
+            vw * vh,
+            started.elapsed().as_secs_f64() * 1000.0
+        );
 
         // Mined *between* draws, which is the sequence a player performs and
         // the only one that reproduces the bug. Doing it before the first

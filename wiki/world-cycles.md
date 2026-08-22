@@ -1,6 +1,6 @@
 # Day, Night, and Decay
 
-*Current as of: this build.*
+*Current as of: 2026-08-21.*
 
 ## The sky
 
@@ -71,7 +71,7 @@ night sky. It is a whole-world effect rather than a local one: the underground
 is not separately dark, and a torch does not light its surroundings. Making
 depth and light sources matter is a different feature, and a much bigger one.
 
-*Current as of: this build.*
+## Day, night, and decay
 
 The world moves through a full day and night, with light rising and
 falling smoothly rather than switching between two fixed states — a

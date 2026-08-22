@@ -1,6 +1,6 @@
 # The World
 
-*Current as of: this build.*
+*Current as of: 2026-08-21.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -244,19 +244,23 @@ genuinely different places.
 
 ## What is not here yet
 
-Rivers and springs in generated worlds — the water machinery exists (rain
-falls, puddles dry, moving water runs white), but no world yet generates a
-spring or a flowing course, and what evaporates does not come back as rain
-somewhere else. Plant cover that arrives with the world grown rather than
-as seeds. And worlds are still a fixed size — a large one, but bounded —
-rather than continuing indefinitely as you travel.
+Rivers and springs — the water machinery exists (rain falls, puddles dry,
+moving water runs white), but no world generates a spring or a flowing
+course, and what evaporates does not come back as rain somewhere else.
+(Rain, evaporation and starting plant cover all exist now — see
+[Weather](weather.md) for the first two; an earlier version of this list
+predated them, and a later one still listed caves, which generated worlds
+have had since round 5.) Worlds are also still a fixed size — a large one,
+but bounded — rather than continuing indefinitely as you travel.
 
 ## How big a world is
 
 A world is several screens across and about twice a screen deep, so most of
 it is somewhere you have to go rather than somewhere you can see. What is
 on screen is a **view** of it, not the whole of it: walk to the edge of
-the picture and the view travels with you.
+the picture and the view travels with you — and with nobody in the world,
+you can scroll it around yourself with `A`, `D`, `W` and `S`, which is much
+the faster way to see what a seed actually generated.
 
 Landscape is composed to a fixed scale rather than stretched to fit, so a
 bigger world is *more places*, not the same places drawn larger. Roughly
