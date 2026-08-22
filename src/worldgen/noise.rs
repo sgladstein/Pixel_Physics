@@ -192,6 +192,14 @@ pub enum Purpose {
     /// whether it happened to get placed at all, the correlation every
     /// purpose tag exists to prevent.
     ResidualShape = 31,
+    /// The outline of a `pockets` lens: its lobing and its edge grain.
+    ///
+    /// Its own stream rather than more coordinates on `Pocket`, for the
+    /// reason every purpose tag exists -- sharing would tie how ragged a
+    /// lens is to where it was placed and how big it drew, so a big lens
+    /// would always be ragged the same way, which is the correlation that
+    /// makes a generator legible.
+    PocketEdge = 32,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

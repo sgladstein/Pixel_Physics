@@ -119,6 +119,25 @@ pub struct WorldgenParams {
     /// Expected sand/gravel lenses per 64x64 region. Fractional values mean
     /// "sometimes one".
     pub pocket_density: f32,
+    /// How far a lens's outline departs from the ellipse it is built on,
+    /// as a multiplier on `LENS_LOBE` and `LENS_GRAIN` in `passes.rs`.
+    ///
+    /// **`0.0` is the pre-review behaviour** -- an exact rotated ellipse --
+    /// kept reachable so the change can be judged by eye rather than argued
+    /// about, which is this repo's convention for a look-at-it question.
+    ///
+    /// Here because the owner has an opinion about it and it is a `.ron`
+    /// field away from being tunable with F5 in the running app: *"The ovals
+    /// of sand throughout the stone looks bad and should be fixed. It should
+    /// be a more natural shape than perfect ovals."* `Reports/design-
+    /// philosophy.md` §2a says a constant graduates to hot-reloadable data
+    /// the moment a non-programmer might plausibly want to tune it, and
+    /// *before* heavy tuning starts rather than after.
+    ///
+    /// Above about 1.5 the outline starts pinching lenses into disconnected
+    /// lobes -- which real lenses do at their ends, so it is not a bug, but
+    /// it stops reading as one body.
+    pub lens_roughness: f32,
     /// Tallest gravel apron heaped at the base of a cliff. Zero disables.
     pub talus_max_height: f32,
     /// Chance that a given cliff edge grows an overhanging lip, 0..1. Zero
@@ -308,6 +327,7 @@ impl Default for WorldgenParams {
             strata_tilt: 0.06,
             strata_fold: 6.0,
             pocket_density: 0.6,
+            lens_roughness: 1.0,
             talus_max_height: 12.0,
             brow_chance: 0.8,
             table_damping: 0.35,

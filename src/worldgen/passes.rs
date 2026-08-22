@@ -3455,6 +3455,33 @@ const TREE_SPACING: i32 = 7;
 /// between "a lens in the rock" and "a spot".
 const LENS_STRETCH: (f32, f32) = (2.0, 4.0);
 
+/// How far a lens's outline departs from the ellipse it is built on, as a
+/// fraction of its own radius: a few low harmonics that make it lumpy, and a
+/// finer field that roughens the edge cell by cell.
+///
+/// **The owner's words: *"The ovals of sand throughout the stone looks bad
+/// and should be fixed. It should be a more natural shape than perfect
+/// ovals."*** An exact rotated ellipse is a *drawn primitive*, and the round-6
+/// review rejected the drawn things by name while leaving alone the ones that
+/// come out of a process. At the sizes these draw -- a semi-major axis of 8
+/// to 60 cells -- the long arc is smooth over tens of cells, and nothing else
+/// in the rock has an edge like that.
+///
+/// Three harmonics rather than one, at 3/5/8, because a single sine is an egg
+/// and two is a peanut; odd, non-multiple frequencies stop the outline
+/// closing back on any symmetry. Phases are drawn per lens.
+///
+/// The lobe term is a fraction of *radius*, so it is worth 2-17 cells along
+/// the long axis and well under a cell across the short one -- which is the
+/// right asymmetry: a lens is 2-12 cells thick, so there is no room for
+/// shape across it, and the long smooth arc is the part that reads as drawn.
+/// Where the two combine to pull the boundary inside its own centre the lens
+/// simply pinches out, which is what a real lens does at its ends.
+const LENS_LOBE: f32 = 0.30;
+const LENS_GRAIN: f32 = 0.12;
+/// Cells per cycle of the edge-grain field.
+const LENS_GRAIN_SCALE: f32 = 7.0;
+
 /// Sand and gravel lenses sealed inside the rock.
 ///
 /// Loose material the player only finds by digging, and which behaves the
@@ -3482,6 +3509,11 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
         return n;
     }
     const REGION: i32 = 64;
+    // Clamped at the read rather than trusted from the file: a negative
+    // roughness would invert the bound the scan box and the early-out are
+    // both derived from, and a lens could then be written outside the region
+    // that was seal-checked.
+    let rough = p.lens_roughness.max(0.0);
     let seed = ctx.terrain.seed;
     let w = ctx.terrain.w;
     for ry in 0..ctx.terrain.h.div_euclid(REGION) + 1 {
@@ -3552,8 +3584,22 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                 // The rotated ellipse's bounding box, so the scan still
                 // covers the whole shape once the long axis is no longer
                 // along x. Same +1 margin the rind always had.
-                let ext_x = ((a * cos_t).abs() + (b * sin_t).abs()).ceil() as i32 + 1;
-                let ext_y = ((a * sin_t).abs() + (b * cos_t).abs()).ceil() as i32 + 1;
+                // Grown by the most the outline can bulge, or the scan would
+                // clip a lobe -- and a clipped lobe is not merely a smaller
+                // lens: its cells would be written without ever being
+                // seal-checked, which is the sawn-off-face bug the vault
+                // pass records under its own cap.
+                let bulge = 1.0 + rough * (LENS_LOBE + LENS_GRAIN);
+                let (ea, eb) = ((a + 1.0) * bulge, (b + 1.0) * bulge);
+                let ext_x = ((ea * cos_t).abs() + (eb * sin_t).abs()).ceil() as i32 + 1;
+                let ext_y = ((ea * sin_t).abs() + (eb * cos_t).abs()).ceil() as i32 + 1;
+                // The lens's own outline, drawn once per lens rather than per
+                // cell: three seeded phases for the lobes.
+                let phase = |k: i32| {
+                    noise::unit(seed, Purpose::PocketEdge, cx.wrapping_mul(13).wrapping_add(k), cy.wrapping_mul(7))
+                        * std::f32::consts::TAU
+                };
+                let (p1, p2, p3) = (phase(0), phase(1), phase(2));
                 'lens: for dy in -ext_y..=ext_y {
                     for dx in -ext_x..=ext_x {
                         let (px, py) = (cx + dx, cy + dy);
@@ -3561,11 +3607,53 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                         // `v` across it.
                         let u = dx as f32 * cos_t + dy as f32 * sin_t;
                         let v = -(dx as f32) * sin_t + dy as f32 * cos_t;
-                        let d = (u / a).powi(2) + (v / b).powi(2);
+                        // The outline, in the ellipse's own normalised frame:
+                        // radius 1.0 is the ellipse, and `wobble` moves it.
+                        // **The same `wobble` is applied to the lens and to
+                        // its rind**, and the rind is the same shape built on
+                        // the grown axes -- which is what keeps the seal
+                        // sound. For any cell `d_out <= d_in` because
+                        // `a + 1 > a`, so every cell inside the lens is
+                        // inside the rind by construction, whatever the
+                        // outline does. Perturbing the two independently
+                        // would let a lobe push the lens through its own
+                        // rind and outcrop on a free face, which is the one
+                        // failure this pass exists to prevent.
+                        // **Reject on the cheap bound before paying for the
+                        // outline.** The scan box is 1.42x the ellipse in
+                        // each axis now, so most of what it visits is outside
+                        // the shape entirely -- and the outline costs an
+                        // `atan2`, three `sin`s and a two-octave fBm per
+                        // cell. Computing it for cells that cannot possibly
+                        // be inside took the pass from 45.9 ms to 244.4 ms.
+                        //
+                        // Safe because `wobble` is bounded by construction:
+                        // the harmonics are normalised to +-1 and scaled by
+                        // `LENS_LOBE`, the grain to +-1 by `LENS_GRAIN`, so
+                        // nothing can be inside a radius past
+                        // `1 + LENS_LOBE + LENS_GRAIN`. A cell rejected here
+                        // would have been rejected by the full test.
+                        let (nu, nv) = (u / a, v / b);
+                        let outer = ((u / (a + 1.0)).powi(2) + (v / (b + 1.0)).powi(2)).sqrt();
+                        if outer > 1.0 + rough * (LENS_LOBE + LENS_GRAIN) {
+                            continue;
+                        }
+                        let theta = nv.atan2(nu);
+                        let lobe = (0.60 * (3.0 * theta + p1).sin()
+                            + 0.30 * (5.0 * theta + p2).sin()
+                            + 0.25 * (8.0 * theta + p3).sin())
+                            / 1.15;
+                        let grain = noise::value_2d(
+                            seed,
+                            Purpose::PocketEdge,
+                            (cx + dx) as f32 / LENS_GRAIN_SCALE,
+                            (cy + dy) as f32 / LENS_GRAIN_SCALE,
+                        ) - 0.5;
+                        let wobble = rough * (LENS_LOBE * lobe + LENS_GRAIN * 2.0 * grain);
+                        let d = (nu * nu + nv * nv).sqrt();
                         // The rind: one cell beyond the lens must also be
                         // stone, so the lens is never flush with a free face.
-                        let rind = (u / (a + 1.0)).powi(2) + (v / (b + 1.0)).powi(2);
-                        if rind > 1.0 {
+                        if outer > 1.0 + wobble {
                             continue;
                         }
                         if px < 0 || px >= w || py < 0 || py >= ctx.terrain.h {
@@ -3576,7 +3664,7 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                             sealed = false;
                             break 'lens;
                         }
-                        if d <= 1.0 {
+                        if d <= 1.0 + wobble {
                             lens.push((px, py));
                         }
                     }
