@@ -3774,6 +3774,16 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             if cell.organism_id() == organism_id {
                 world.set(bx, by, cell.with_aux(organism::pack_cell_type(CellType::RootTip)));
                 write_primed(world, bx, by, false);
+                // **A lateral starts the next tier**, exactly as a flushed
+                // bud does and for the same reason. Without it every root
+                // cell stays at order 0, so the root `Grow`'s `ByOrder`
+                // fields cannot differentiate a primary axis from a fine
+                // lateral -- `.at(order)` reads the same entry for both --
+                // and the root system can only ever vary in *density*.
+                // That is exactly how it read on a sheet: "more vs less
+                // roots instead of fully different morphology".
+                let order = world.organism_cell(bx, by).map_or(0, |c| c.order);
+                write_order(world, bx, by, order.saturating_add(1));
                 write_carbon(world, rx, ry, held - root_step_cost);
                 // Staked so the new tip's first `Grow` check is not
                 // guaranteed to fail -- the same courtesy `break_root_tips`
