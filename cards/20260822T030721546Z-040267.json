@@ -1,0 +1,43 @@
+{
+  "id": "20260822T030721546Z-040267",
+  "created": "2026-08-22T03:07:21Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "ba72691",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Bubbles rounded off, and switched on by default",
+  "question": "Do these read as bubbles now rather than as blocks? They are on by default from this build - say if that is a step too far and I will put it back behind the key.",
+  "context_md": "*\"Off (current) and rising look best. I wish the bigger bubbles weren't so blocky.\"*\n\nBoth halves acted on. **RISING is the default now**, and it no longer draws squares.\n\nA 2x2 bubble cannot be anything but a square -- every pixel of it is a corner. The site is 3x3 with the four corners left dark, which is the smallest mark on a square grid that reads as a disc.\n\n**The shape change quietly cut the effect to a third, which is worth telling you because nothing about it was meant to touch strength.** The density knob was being applied per *site*, so a 5-of-9 disc covered 5/9 of what a 4-of-4 square did: 3,250 lit pixels became 1,125 on the same scene. It is normalised per pixel now and reads 3,200 -- same amount of boil, different shape. COLUMNS is deliberately untouched: it is a stream leaving a nucleation site rather than a bubble, and rounding it would collapse the difference between the two looks.\n\nCosts nothing measurable: a forced full-screen redraw of this pan is 14.11 ms with them off and 14.26 with them on, against a run-to-run spread wider than that.\n\n`H` still cycles all four, and OFF is still there as the way back.\n\nZoomed 6x and slowed, because rounded and square are four pixels apart -- at normal zoom you would be judging a guess.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260822T030721546Z-040267/000-bub_square.gif"
+      ],
+      "caption": "2x2 sites: every bubble is a square",
+      "meta": {}
+    },
+    {
+      "label": "now",
+      "files": [
+        "20260822T030721546Z-040267/001-bub_round.gif"
+      ],
+      "caption": "3x3 sites with dark corners, same density by pixel count",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
