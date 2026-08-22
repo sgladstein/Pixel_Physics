@@ -637,6 +637,112 @@ baseline re-measured in the same session. Mitigations in order if it costs:
 shorter litter lifetime; emit litter only where there is a clear fall path;
 and last, litter that never falls, which loses the point.
 
+#### As built (S4) — litter feeds ants, and does not yet rot
+
+**The case for the stage, re-measured before building anything**, because S3
+changed what "edible" means. The census (`CENSUS=1`, now sweeping seeds with
+`CENSUS_SEEDS`) was also rewritten to count **food energy within three rows of
+the local surface** through `creature::food_value`, rather than counting cells
+of two named materials. Two reasons, both from `CLAUDE.md`: a named column is
+blind by construction to any food invented later — it would have gone on
+printing leaf and moss while litter grew a canopy's worth of ground food — and
+a *count* of edible cells is what rose steadily all through the run in which
+one bite was killing whole trees (§13m).
+
+Pre-S4, colony-band food energy at +6,000 frames, 8 seeds:
+
+| preset | min | median | max |
+|---|---|---|---|
+| rolling | **0** | 480 | 1,320 |
+| wetland | 360 | 11,160 | 21,720 |
+| terraced | **0** | 480 | 840 |
+| canyon | **0** | 240 | 360 |
+
+Three of four presets have seeds that end with *literally zero* reachable food,
+and medians of 240–480 against fifty-two ants each needing 900 to live. That is
+§13k/§13n stated as a quantity instead of a cell count, and it is a stronger
+claim than the plan recorded: it is not that leaves are never near the ground,
+it is that they *leave*. Young stands have 51–80 surface leaves; by +6,000 it
+is 0–11 while total foliage nearly doubles.
+
+**What was built.** A `litter` material (`Powder`, light, flammable, food);
+both abscission sites — `Photosynthesize`'s `shade_death` and
+`shed_stranded_leaves` — write it through one `shed_as_litter` helper instead
+of `Cell::EMPTY`; and `decay.rs` generalised from a hardcoded pair of name
+lookups (`id_of("ash")` → `id_of("soil")`) to material data: `decays_into`,
+plus a per-material `reseed_chance` because ash's global 0.15 across 11,478
+litter cells would have turned a stand into a mat of seedlings.
+
+**It works.** Paired `ascii` at 12,000 frames, same session, where the control
+keeps abscission firing identically and only changes what it writes — so it
+reproduces the pre-S4 numbers exactly and litter is the sole difference:
+
+| | litter off | litter on |
+|---|---|---|
+| deliveries | 238 | **313** (+31%) |
+| pickups | 264 | 344 |
+| falls | 1,066 | 1,747 |
+| mean frame | 1.875 ms | **2.714 ms** (+45%) |
+| worst frame | 38.8 ms | 85.5 ms |
+
+The stage's falsifier — "litter piles visibly and `ants fed` does not move" —
+did **not** fire.
+
+**The plan's own sanity check is half wrong, and measuring it said so.**
+`shade_death: 0.0` does give exactly 0 litter, so the did-it-fire counter is
+honest. But the plan also predicted surface-edible would "return to 0–11"; it
+reads **117**, because `shade_death` is also what *prunes* the canopy. Switch
+it off and the forest triples its foliage (5,341 → 17,894 leaves) and keeps it
+low. That is a different forest, not a litter-off control — the same shape as
+the abscission sweep that read as "the approach is wrong" through eight
+settings while a rider rode along with the knob.
+
+#### The thing S4 does not do: litter does not rot
+
+**Position-keyed decay cannot follow a material that moves**, and this is a
+general gap rather than a litter bug. `fire.rs` schedules a decay check where a
+cell burned to ash, and ash stays put. `shed_as_litter` schedules one where the
+*leaf* was — up in the canopy. Two hundred frames later the litter is on the
+ground, the check finds air, and the site is dropped for good. Litter piled on
+the ground has no site at all, because no leaf was ever shed down there.
+
+Two routes were tried and the measurements are the point:
+
+| route | effect on standing litter |
+|---|---|
+| raise litter's rate 50x above ash's (per-material `decay_chance_*`) | 11,478 → 7,830, **−32%** |
+| additionally rot inside `update_powder`, where the material is in hand | → 6,374, a further −19% and no more |
+
+A 50x rate change removing 32% is the tell: that is roughly the fraction of
+litter that never moved from where it was shed. The second route was **built
+and reverted** — it stalls almost certainly because a settled chunk sleeps and
+the powder update stops running on exactly the litter that matters, and a knob
+whose strength depends on an unrelated optimisation is worse than no knob. The
+`decay_chance_*` fields are kept, with that written on them, because a revert
+keeps the knowledge.
+
+**The fix, specified rather than rushed:** schedule the decay site when a
+mobile material comes to **rest**. That needs `ActiveKind::Decay` deduped by
+position the way `StructuralCheck` already is (`World::schedule_active_site`
+dedupes only that kind today), or resting litter re-schedules every frame. It
+is a scheduler change with a hot-path cost, and it should be measured against
+the sand-and-water stress scene the way the soil-water opt-in was.
+
+#### Three coupled calls for the owner
+
+1. **Spend the scheduler change now?** Until it lands, litter accumulates
+   without bound over a long run — which matters more for a world meant to run
+   indefinitely than the frame cost does.
+2. **Is +31% deliveries worth +45% mean frame cost**, if rot does not recover
+   it? The plan's remaining mitigations (emit only where there is a clear fall
+   path; litter that never falls) each cost something real.
+3. **Is this the intended abundance?** Colony-band food goes 600 → ~47,000–58,000
+   on one seed, roughly fifty ant-lifetimes. It makes food non-scarce, which
+   invalidates the band `creature_space` was calibrated for — §13o's "an
+   advantage bought by making food abundant is not the band we are looking
+   for". Re-deriving that scarcity is legitimately part of this change; the
+   *target* is a game-feel call, so it is not one to make from a diff.
+
 ### 2.5 S5 — Diet as one heritable number
 
 **Perfect per-cell energy with a `Vec<String>` food list still diverges into

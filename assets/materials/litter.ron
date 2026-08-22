@@ -1,0 +1,94 @@
+// Fallen foliage: what a leaf becomes when the tree lets go of it, instead
+// of the `Cell::EMPTY` that abscission used to write.
+//
+// **Why this material exists at all.** The census in `creature_space`
+// (CENSUS=1) measures the food an ant could reach -- everything within three
+// rows of the local surface -- and in three of four presets it *falls* over a
+// run, ending at 360..600 energy for the whole colony band while total
+// foliage nearly doubles. Fifty-two ants share less than one ant-lifetime of
+// food, because the canopy grows away from the ground and its production
+// never comes down. `plant.rs` already conceded the gap in a comment: shed
+// foliage should be falling detritus and was instead overwritten.
+// `Reports/creature-evolution-plan.md` S4.
+//
+// `Powder`, so it falls and slumps like the detritus it is, and so it piles
+// against trunks and in hollows rather than lying in a perfect one-cell film.
+(
+    name: "litter",
+    display: "Leaf litter",
+    kind: Powder,
+    // Lighter than ash (1.1) and far lighter than soil: dry leaves. Low
+    // enough that it sits *on* soil rather than sinking through it, which is
+    // the whole point -- litter that sank would be invisible to a walking ant
+    // and this material would do nothing.
+    density: 0.4,
+    // Steeper than ash's 22: leaf litter mats together and holds a slope
+    // where fine ash slumps flat. This is what makes a drift against a trunk
+    // read as a drift rather than as a puddle.
+    friction_angle: 38.0,
+    // Between leaf (0.75) and ash. Dry litter is the classic ground fuel that
+    // carries a fire between trees without the trunks going up, which is the
+    // behaviour the existing Drossel-Schwabl loop already expresses for
+    // canopy leaves -- this gives it a floor as well as a ceiling.
+    flammability: 0.6,
+    burn_temperature: 500.0,
+    burn_duration: 25,
+    burns_into: "ash",
+    // Mandatory for anything that can be a `burns_into` target or inherit
+    // heat, per `ash.ron`'s note -- and litter can, from a canopy fire above
+    // it. Without a real value the heat has nowhere to go and the chunk never
+    // sleeps.
+    heat_conductivity: 0.15,
+    colors: [
+        (96, 84, 46),
+        (112, 96, 52),
+        (84, 72, 40),
+        (104, 88, 58),
+    ],
+    // **Weathering, and the reason litter does not pile up forever.** Same
+    // channel ash uses; `decays_into` is what makes that path generic rather
+    // than a hardcoded name test.
+    decays_into: "soil",
+    // **Zero, and deliberately not ash's 0.15.** A decaying soil cell gets
+    // one roll to reseed a plant above it. Ash cells are rare -- something
+    // has to burn first -- so 0.15 reads as succession after a fire. Litter
+    // cells are produced by every shading leaf in a growing forest, in the
+    // thousands, and giving each one a 15% chance to plant a tree is a
+    // feedback loop that turns one stand into a solid mat of them. Left at 0
+    // until there is a measurement asking for it.
+    reseed_chance: 0.0,
+    // **Litter does not actually rot yet, and the two numbers below are
+    // very nearly a knob wired to nothing.** Kept, with the reason, because
+    // `CLAUDE.md` says a revert keeps the knowledge.
+    //
+    // `decay.rs` keys its checks on a *position*: `fire.rs` schedules one
+    // where a cell burned to ash, and ash does not move. Litter is the first
+    // decaying material that falls, and `shed_as_litter` schedules its check
+    // where the *leaf* was -- up in the canopy. Two hundred frames later the
+    // litter is on the ground, the check finds air and the site is dropped
+    // for good; litter piled on the ground has no site at all, because no
+    // leaf was ever shed down there. Measured: raising the rate fifty times
+    // above ash's removed only 32% of the litter, which is roughly the
+    // fraction that never moved.
+    //
+    // A second route -- rotting in `update_powder`, where the material is
+    // already in hand -- was built and reverted. It removed a further 19%
+    // and no more, almost certainly because a settled chunk sleeps and the
+    // powder update never runs on the litter that matters. A knob whose
+    // strength depends on an unrelated optimisation is worse than no knob.
+    //
+    // The fix is to schedule the decay site when a mobile material comes to
+    // *rest*, which needs `ActiveKind::Decay` deduped by position the way
+    // `StructuralCheck` already is -- otherwise resting litter re-schedules
+    // every frame. That is a scheduler change with a hot-path cost, written
+    // up in `Reports/creature-evolution-plan.md` S4 rather than rushed.
+    // Until then litter accumulates, which is the honest state of it.
+    decay_chance_damp: 0.5,
+    decay_chance_dry: 0.1,
+    // Food, and this is the point of the material. Same value as the leaf it
+    // fell from: nothing about hitting the ground makes a leaf more or less
+    // nutritious, and pricing it differently would be a knob nobody could
+    // justify in either direction. Plant matter on the diet axis.
+    food_energy: 120.0,
+    food_class: -1.0,
+)

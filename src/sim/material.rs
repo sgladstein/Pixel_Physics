@@ -389,6 +389,41 @@ pub struct MaterialDef {
     /// the dispatch site a `Vec` index rather than a string hash.
     #[serde(default)]
     pub worth_in_aux: bool,
+    /// What this material weathers into, slowly, via `decay.rs`. Empty (the
+    /// default) means it never decays.
+    ///
+    /// **Data rather than the name test this replaced.** `decay::tick` read
+    /// `id_of("ash")` and wrote `id_of("soil")`, which was honest while ash
+    /// was the only thing that weathered and became a wall the moment a
+    /// second material needed the same channel. The *scheduling* side was
+    /// already generic (`ActiveKind::Decay`); only the transformation was
+    /// hardcoded.
+    #[serde(default)]
+    pub decays_into: String,
+    /// Chance that a cell formed by this material's decay reseeds a plant in
+    /// the empty cell above it, rolled once at the moment of decay.
+    ///
+    /// **Per material, because the right value differs by two orders of
+    /// magnitude.** Ash is rare -- something has to burn first -- so 0.15
+    /// reads as succession after a fire. Litter is produced by every shading
+    /// leaf in a growing forest, in the thousands, and the same 0.15 is a
+    /// feedback loop that turns one stand into a mat of them.
+    #[serde(default)]
+    pub reseed_chance: f32,
+    /// Per-decay-check chance this weathers away, damp and dry. `0.0` (the
+    /// default) means "use `decay.rs`'s shared rate", which is what ash has
+    /// always used.
+    ///
+    /// **Per material because the materials are not alike.** Ash is mineral
+    /// and weathers on a geological-feeling schedule; leaf litter *rots*.
+    /// Sharing one rate gave litter a ~100,000-frame lifetime inside a
+    /// 6,000-frame run, so it never reached equilibrium -- it only integrated
+    /// the canopy's shedding, which is both the abundance and most of the
+    /// frame cost.
+    #[serde(default)]
+    pub decay_chance_damp: f32,
+    #[serde(default)]
+    pub decay_chance_dry: f32,
     /// Whether this material reinforces a `Powder` it is embedded in, so
     /// that grain no longer falls — the Wu-Waldron apparent-cohesion effect
     /// roots have on soil (`update.rs`'s `root_reinforced`).
@@ -731,6 +766,7 @@ pub struct Material {
     boils_into_name: String,
     burns_into_name: String,
     breaks_into_name: String,
+    decays_into_name: String,
     reactions_raw: Vec<ReactionDef>,
 
     /// Resolved by `resolve_references`. Unset (or naming something that
@@ -742,6 +778,12 @@ pub struct Material {
     pub boils_into: Option<MaterialId>,
     pub burns_into: Option<MaterialId>,
     pub breaks_into: Option<MaterialId>,
+    pub decays_into: Option<MaterialId>,
+    /// See `MaterialDef::reseed_chance`.
+    pub reseed_chance: f32,
+    /// See `MaterialDef::decay_chance_damp`. Zero means "use the shared rate".
+    pub decay_chance_damp: f32,
+    pub decay_chance_dry: f32,
     pub reactions: Vec<Reaction>,
 }
 
@@ -985,12 +1027,17 @@ impl From<MaterialDef> for Material {
             boils_into_name: def.boils_into,
             burns_into_name: def.burns_into,
             breaks_into_name: def.breaks_into,
+            decays_into_name: def.decays_into,
+            reseed_chance: def.reseed_chance,
+            decay_chance_damp: def.decay_chance_damp,
+            decay_chance_dry: def.decay_chance_dry,
             reactions_raw: def.reactions,
             // Left unresolved until `resolve_references` runs.
             melts_into: None,
             boils_into: None,
             burns_into: None,
             breaks_into: None,
+            decays_into: None,
             reactions: Vec::new(),
         }
     }
@@ -1046,6 +1093,11 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/ant.ron"),
     include_str!("../../assets/materials/nest.ron"),
     include_str!("../../assets/materials/beetle.ron"),
+    // Appended, never inserted -- see the comments above; the well-known id
+    // constants are positions in this array. S4's fallen foliage: what
+    // abscission writes instead of `Cell::EMPTY`, and the first material to
+    // use the now-generic `decays_into` channel alongside ash.
+    include_str!("../../assets/materials/litter.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -1111,6 +1163,10 @@ impl MaterialRegistry {
             boiling_point: f32::INFINITY,
             boils_into: String::new(),
             burns_into: String::new(),
+            decays_into: String::new(),
+            reseed_chance: 0.0,
+            decay_chance_damp: 0.0,
+            decay_chance_dry: 0.0,
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
             breaks_into: String::new(),
@@ -1148,6 +1204,10 @@ impl MaterialRegistry {
             boiling_point: f32::INFINITY,
             boils_into: String::new(),
             burns_into: String::new(),
+            decays_into: String::new(),
+            reseed_chance: 0.0,
+            decay_chance_damp: 0.0,
+            decay_chance_dry: 0.0,
             reactions: Vec::new(),
             // Bedrock is the anchor itself — it must never be the thing
             // that breaks free, so this stays unset regardless of what any
@@ -1252,6 +1312,7 @@ impl MaterialRegistry {
             material.boils_into = resolve_if_set(&material.boils_into_name);
             material.burns_into = resolve_if_set(&material.burns_into_name);
             material.breaks_into = resolve_if_set(&material.breaks_into_name);
+            material.decays_into = resolve_if_set(&material.decays_into_name);
             material.reactions = material
                 .reactions_raw
                 .iter()

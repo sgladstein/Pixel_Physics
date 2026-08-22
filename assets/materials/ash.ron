@@ -23,4 +23,13 @@
         (74, 71, 69),
         (92, 87, 84),
     ],
+    // Ash weathers to soil, which is what closes M16's "a forest burns and
+    // regrows". Was hardcoded in `decay.rs` as a pair of name lookups until
+    // litter needed the same channel; the behaviour is unchanged.
+    decays_into: "soil",
+    // `decay.rs`'s old global `RESEED_CHANCE`, moved onto the material that
+    // was the only one using it. Ash is rare -- something has to burn first
+    // -- so a 15% chance for a fresh soil cell to sprout reads as succession
+    // after a fire rather than as a population explosion.
+    reseed_chance: 0.15,
 )

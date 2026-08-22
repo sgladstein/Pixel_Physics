@@ -1,9 +1,10 @@
 # Ants
 
-*Fresh as of the food-value work (S3). The colony forages, digs, builds and
-carries food home, and food is now worth what it is rather than a flat rate
-to whatever eats it; the colony is still not good at finding food far away —
-see "What is not finished" at the bottom.*
+*Fresh as of the leaf-litter work (S4). The colony forages, digs, builds and
+carries food home; food is worth what it is rather than a flat rate to
+whatever eats it, and a wood now drops food onto its own floor. The colony is
+still not good at finding food far away — see "What is not finished" at the
+bottom.*
 
 An ant is a small dark creature, one or two cells long, that walks on
 surfaces. Ants come in colonies: fifty of them looks like a colony, five
@@ -42,11 +43,26 @@ living trees, which is what makes a stand of trees a food supply rather
 than a pile that runs out. A tree finds out it has lost a leaf the same way
 it would if the wind took it.
 
-Whether they can *reach* the leaves is a different question, and mostly
-they cannot: leaves grow in the canopy and ants walk on the ground. What
-they can reach is **moss**, which grows on damp stone at exactly ant
-height and spreads on its own, so a wet map feeds a colony and a dry one
-does not. On dry ground moss sits where it is and never spreads, and a
+Whether they can *reach* the leaves is a different question, and it used to
+be the thing a colony lived or died on: leaves grow in the canopy and ants
+walk on the ground. What they could reach was **moss**, which grows on damp
+stone at exactly ant height and spreads on its own, so a wet map fed a
+colony and a dry one did not.
+
+**Now the canopy drops its own food.** A leaf a tree gives up on — because
+it has been shaded out by the branches above it, which is the ordinary fate
+of a leaf in a growing wood — no longer vanishes. It falls, and it piles up
+on the forest floor as **leaf litter**, which is food and which ants carry
+home like anything else. A mature stand builds a litter mat under itself,
+drifted against trunks and deeper in hollows, and that is where a colony
+under trees now does most of its foraging. Measured against the same colony
+with the same trees and no litter, ants get about a third more food home.
+
+One thing to know, because it is visible over a long game: litter does not
+yet rot away. Real leaf litter breaks down into the soil beneath it, and the
+machinery for that exists — burnt ash already turns back into soil the same
+way — but it does not reach litter properly yet, so a very old forest will
+sit under a deeper mat than it should. On dry ground moss sits where it is and never spreads, and a
 colony there lives much closer to the edge.
 
 **They dig.** Ants chew through soil and stop at anything harder. This is
