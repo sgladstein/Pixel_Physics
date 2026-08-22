@@ -1,0 +1,43 @@
+{
+  "id": "20260822T173832067Z-c7aadd",
+  "created": "2026-08-22T17:38:32Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "68c1fee",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A boulder plummets and grit drifts — they used to do neither",
+  "question": "Does the descent read at the right pace now? And is 'big pieces lead, grit trails' better or worse than everything arriving together?",
+  "context_md": "*\"Still reads as too fast.\"* — and you asked what is realistic. Here is what physics says, and it turned out to name a specific missing thing rather than a number to lower.\n\n**Nothing in the model knew how big a piece was.** The speed limit I added scaled with density only, so a boulder and a grain of grit sank at exactly the same speed. The readout that says so is new, and it is blunt: on the same drop, *\"smallest piece 4 cells across at 1.76, largest 17 across at 1.75\"*.\n\nReal terminal velocity balances weight-minus-buoyancy against drag, and works out to **the square root of the body's size**. Measured in a deep tank:\n\n| body, cells across | 3 | 8 | 16 |\n|---|---|---|---|\n| before | 1.75 | 1.75 | 1.75 |\n| **now** | **0.82** | **1.34** | **1.90** |\n\nThose three numbers are the closed-form answer to two decimal places — nothing fitted. A typical piece in this drop is 4 to 8 cells across, so the pieces that dominate what you see slow by **30 to 45%**.\n\n**This deliberately un-does part of what you asked for last time**, and I want to be straight about it. You said pieces arrived at different times; I made them all arrive together. That was over-correcting. What was actually wrong then was a **43x** spread caused by nothing braking a body at all — pieces ordered by how long they had been falling, which means nothing. This is a **2.6x** spread ordered by *size*: the slab leads, the grit trails. If it now reads as strung out again rather than as heavy-things-first, say so and I will pull the coefficient.\n\n**What it costs.** Paired across four drop heights, stone converted to rubble: three of four unchanged or better, one clearly worse (-286 against -172). Total material lost from the world is lower at all four. Reported as measured rather than averaged into something flattering.\n\nTwo measurement traps on the way, both of which made a working fix look broken: peak speed over a body's whole life is its *entry* speed, not its sink speed — and filtering on \"is it under water\" is not enough either, because the harness looks after the body has moved, so a piece that entered this frame was in mid-air when the brake ran.\n\nBoth clips are the same drop at true speed.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260822T173832067Z-c7aadd/000-card_sink_before.gif"
+      ],
+      "caption": "Every piece at 1.75 cells a frame, whatever its size.",
+      "meta": {}
+    },
+    {
+      "label": "now",
+      "files": [
+        "20260822T173832067Z-c7aadd/001-card_sink_after.gif"
+      ],
+      "caption": "0.82 for a 3-across fragment, 1.90 for a 16-across block.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
