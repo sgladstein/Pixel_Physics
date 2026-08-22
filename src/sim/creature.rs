@@ -3372,6 +3372,103 @@ mod tests {
         );
     }
 
+    /// **Can an ant climb a tree, and does it?**
+    ///
+    /// A measurement, not a guard. The whole case for S4 (litter) rests on
+    /// §13k/§13n's "ants cannot reach the canopy", and reading `step_chain`
+    /// says that is not what the rules do: support is 8-neighbour and
+    /// includes `MaterialKind::Plant`, with a comment saying in as many words
+    /// that ants climb walls and ceilings. So the barrier may be motivation
+    /// rather than ability -- nothing points up, `FoodAdjacent` sees one
+    /// cell, and no pheromone trail leads up a tree nobody has climbed.
+    ///
+    /// This asks the question directly: put ants at the foot of a grown tree
+    /// and see how high they get, against the same ants on bare ground. The
+    /// bare-ground arm is the control that separates "climbs the tree" from
+    /// "wanders upward anyway" -- on flat ground the answer should be ~0, and
+    /// if it is not, height above spawn is measuring something else.
+    #[test]
+    #[ignore = "a measurement, not a guard -- prints numbers, asserts nothing"]
+    fn how_high_does_an_ant_climb() {
+        // **The full frame order the app runs, not this module's `run`.**
+        // `run` steps only the scheduler, so a tree gets no light and never
+        // grows: the first version of this experiment reported `tree height
+        // 0` and 1-3 cells of "climbing" identical to bare ground, because
+        // there was no tree in the scene at all. `creature_space`'s census
+        // carries a comment about being caught by the same omission.
+        fn live(w: &mut World, frames: usize) {
+            for _ in 0..frames {
+                crate::sim::parallel::step(w);
+                w.step_active_sites();
+                w.step_fields();
+                w.step_pheromones();
+            }
+        }
+        fn trial(with_tree: bool, seed: u64) -> (i32, i32, u64) {
+            let mut w = test_world();
+            w.seed = seed;
+            let soil = w.materials.id_of("soil").expect("soil");
+            let floor = 150;
+            for x in 40..160 {
+                for y in floor..(floor + 10) {
+                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
+                }
+            }
+            if with_tree {
+                w.plant_tree(100, floor - 1);
+                // Let it become a tree before anyone tries to climb it: a
+                // seedling is not a canopy, and an ant at the foot of a
+                // two-cell sprout would be measuring nothing.
+                live(&mut w, 8_000);
+            }
+            let trunk_top = (0..floor)
+                .find(|&y| w.materials.kind(w.get(100, y).material) == MaterialKind::Plant)
+                .unwrap_or(floor);
+
+            // **Clear the spawn row first.** Eight thousand frames of a
+            // growing tree carpet the floor in litter (S4), so the cells the
+            // ants want are taken and `plant_creature_seed` correctly refuses
+            // the whole body -- which is how the first run of this experiment
+            // died, in `spawn`, looking like an engine fault. Spaced 6 apart
+            // as well: a `Chain(2)` needs the cell behind its head free.
+            for i in 0..8 {
+                for dx in -1..=1 {
+                    let (cx, cy) = (70 + i * 6 + dx, floor - 1);
+                    if w.get(cx, cy).material != material::EMPTY {
+                        w.set(cx, cy, Cell::EMPTY);
+                    }
+                }
+            }
+            let ants: Vec<u16> = (0..8).map(|i| spawn(&mut w, "ant", 70 + i * 6, floor - 1)).collect();
+            assert!(ants.iter().all(|&a| a != 0), "test setup: the ants were not placed");
+
+            let mut highest = floor;
+            for _ in 0..40 {
+                live(&mut w, 250);
+                for x in 40..160 {
+                    for y in 0..floor {
+                        let c = w.get(x, y);
+                        if c.material == w.materials.id_of("ant").expect("ant") && y < highest {
+                            highest = y;
+                        }
+                    }
+                }
+            }
+            // Height climbed above the ground they started on, and how tall
+            // the thing they could have climbed was.
+            (floor - highest, floor - trunk_top, w.creature_stats.falls)
+        }
+
+        println!("\nHOW HIGH DOES AN ANT CLIMB -- 8 ants, 10,000 frames, height in cells above spawn");
+        println!("{:<10} {:>8} {:>12} {:>12} {:>8}", "seed", "tree", "climbed", "tree height", "falls");
+        for seed in 0..4u64 {
+            let (bare, _, bare_falls) = trial(false, 0xC0DE + seed);
+            let (treed, tall, treed_falls) = trial(true, 0xC0DE + seed);
+            println!("{:<10} {:>8} {:>12} {:>12} {:>8}", format!("{seed:#x}"), "no", bare, "-", bare_falls);
+            println!("{:<10} {:>8} {:>12} {:>12} {:>8}", "", "yes", treed, tall, treed_falls);
+        }
+    }
+
     #[test]
     fn eating_one_leaf_does_not_kill_the_tree_that_grew_it() {
         // **The bug that made renewable food not renewable.** `act`'s eat

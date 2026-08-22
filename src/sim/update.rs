@@ -519,6 +519,43 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     let cell = surface.get(x, y);
     if cell.flowing() {
         surface.set(x, y, cell.with_flowing(false));
+
+        // **A material that rots schedules its decay check here: on the one
+        // frame it stops moving.**
+        //
+        // `decay.rs` keys checks on a position, which was free while ash --
+        // the only decaying material -- never moved. Litter falls, so a check
+        // scheduled where the *leaf* was finds air 200 frames later and dies,
+        // and litter piled on the ground had no check at all. Measured:
+        // raising litter's rate fifty times above ash's removed 32% of it,
+        // about the fraction that never moved. Rotting inline here instead
+        // was built and reverted -- a settled chunk sleeps, so per-frame work
+        // stops on exactly the cells that need it. Only a *scheduled* site
+        // reaches a cell in a sleeping chunk, which is what the scheduler is
+        // for.
+        //
+        // **Inside the `flowing` branch, not beside it.** `flowing` is set by
+        // the shared move helper for any powder that moves, so this branch is
+        // the settle *transition*: it fires once per landing, and is already
+        // skipped for a cell merely sitting there -- the same guard the note
+        // above credits for not waking a chunk for nothing. An earlier
+        // version scheduled one line lower, on every resting frame, costing a
+        // dedup hash probe per settled litter cell per frame for as long as
+        // its chunk stayed awake: `ascii` mean 1.794 -> 2.285 ms, and the
+        // litter itself was not what cost it.
+        //
+        // If the check fires and the litter is still here, `decay::tick`
+        // re-schedules itself, so the chain continues without this path
+        // running again. If the litter is later disturbed and re-settles it
+        // lands here again, which is correct.
+        if surface.materials().get(cell.material).decays_into.is_some() {
+            surface.schedule_active_site(crate::sim::scheduler::ActiveSite {
+                x,
+                y,
+                kind: crate::sim::scheduler::ActiveKind::Decay,
+                next_frame: surface.frame() + crate::sim::decay::DECAY_TICK_INTERVAL,
+            });
+        }
     }
     // A cell that only moved *water* has not moved, but it has written, so
     // its chunk must stay awake long enough for the wetting front to keep

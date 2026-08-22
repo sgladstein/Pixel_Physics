@@ -283,6 +283,16 @@ pub struct World {
     /// re-schedules itself or a neighbour while running is a fresh
     /// request, not a stale one being silently dropped.
     pending_structural_checks: std::collections::HashSet<(i32, i32)>,
+    /// The same dedup, for `ActiveKind::Decay`.
+    ///
+    /// **Needed the moment a decaying material could move.** Ash never does,
+    /// so `fire.rs` could schedule one check per burnout and be done. Litter
+    /// falls, and a check keyed to where the *leaf* was finds air 200 frames
+    /// later and dies -- so the site has to be scheduled where the litter
+    /// comes to *rest*, which `update_powder` can only detect by noticing it
+    /// failed to move, every frame, for as long as it sits there. Without
+    /// this set that is one heap push per settled litter cell per frame.
+    pending_decay_checks: std::collections::HashSet<(i32, i32)>,
     /// Backing storage for promoted `liquid::LiquidBody` bodies (`Reports/
     /// liquid-heightfield-design.md` §9a) — the `World::organisms` /
     /// `OrganismSlot` generational-slot pattern, reused rather than
@@ -512,6 +522,7 @@ impl World {
             player: None,
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
+            pending_decay_checks: std::collections::HashSet::new(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
             body_index: HashMap::new(),
@@ -721,6 +732,9 @@ impl World {
             }
             self.mark_structural_check_pending(site.x, site.y);
         }
+        if matches!(site.kind, scheduler::ActiveKind::Decay) && !self.pending_decay_checks.insert((site.x, site.y)) {
+            return;
+        }
         self.active_sites.push(Reverse(site));
     }
 
@@ -801,8 +815,12 @@ impl World {
             return None;
         }
         self.active_sites.pop();
-        if let scheduler::ActiveKind::StructuralCheck = site.kind {
-            self.clear_structural_check_pending(site.x, site.y);
+        match site.kind {
+            scheduler::ActiveKind::StructuralCheck => self.clear_structural_check_pending(site.x, site.y),
+            scheduler::ActiveKind::Decay => {
+                self.pending_decay_checks.remove(&(site.x, site.y));
+            }
+            _ => {}
         }
         Some(site)
     }

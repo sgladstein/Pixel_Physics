@@ -2359,11 +2359,71 @@ fn is_frontier(cell_type: CellType) -> bool {
 ///
 /// Falls back to erasing if `litter` is not loaded, so a stripped asset set
 /// keeps the old behaviour instead of leaving foliage stuck to a dead branch.
+/// How far down a shed leaf will look for somewhere to land.
+///
+/// **97% of litter was coming to rest in the crown it fell from.** Measured
+/// on the forest scene: 3,545 litter cells standing, 114 of them within three
+/// rows of the local surface. Nearly all of it sat on a branch, costing sweep
+/// time and feeding nobody -- and a canopy that catches its own leaf fall is
+/// not what a wood looks like either.
+///
+/// Requiring *clear air* below instead was tried and reverted: at eight cells
+/// almost no leaf in a dense crown qualifies, litter fell to 157 cells and
+/// the mat disappeared from the picture entirely. The filter removed the
+/// mechanic rather than its waste.
+///
+/// So the leaf is carried down to the first place it could rest instead. A
+/// bounded scan, and generous: a crown sits well above the ground and the
+/// scan has to cross it.
+const LITTER_FALL_REACH: i32 = 64;
+
 fn shed_as_litter(world: &mut World, x: i32, y: i32) {
     let Some(litter) = world.materials.id_of("litter") else {
         world.set(x, y, Cell::EMPTY);
         return;
     };
+    // **Where it lands, not where it hung.** The leaf's own cell is always
+    // cleared; the litter appears at the first empty cell that has something
+    // under it, which is where a falling powder would have come to rest
+    // anyway. Skipping the fall costs the sight of leaves drifting down and
+    // buys the whole of the canopy-accumulation problem: every litter cell is
+    // then one an ant can reach, and it settles immediately instead of
+    // bouncing down through a crown for hundreds of frames.
+    world.set(x, y, Cell::EMPTY);
+    // **Falls through its own crown, and rests on the floor.** The scan does
+    // not stop at the first thing it meets -- inside a canopy that is another
+    // leaf, and a version that broke there put the litter straight back where
+    // the problem was. It looks for the first empty cell standing on
+    // something that is *not* plant material: soil, stone, or litter already
+    // lying there. Branches are passed through, which is what makes this a
+    // forest floor rather than a canopy full of debris.
+    // Walk down through air and foliage; stop at the first thing that is
+    // neither, and rest on top of it.
+    //
+    // **The version that skipped every non-empty cell buried the litter.**
+    // `continue`ing past anything solid meant the scan went through the
+    // ground and landed in the first cave under it: 1,437 litter cells with
+    // 79 of them near the surface, most of it underground where nothing could
+    // eat it and the picture showed no mat at all. The counter found that;
+    // the render only showed an absence.
+    let mut landing = None;
+    let mut last_empty = None;
+    for d in 1..=LITTER_FALL_REACH {
+        let (lx, ly) = (x, y + d);
+        let here = world.get(lx, ly);
+        if here.material == material::EMPTY {
+            last_empty = Some((lx, ly));
+            continue;
+        }
+        if world.materials.kind(here.material) == MaterialKind::Plant {
+            continue; // through its own crown
+        }
+        landing = last_empty;
+        break;
+    }
+    // Nothing to land on within reach -- over a pit, or off the bottom of the
+    // world. The leaf is simply gone, as it was before S4.
+    let Some((x, y)) = landing else { return };
     let shades = world.materials.get(litter).palette.len().max(1) as u32;
     let shade = world.rng.below(shades) as u8;
     world.set(x, y, Cell::new(litter, shade));
@@ -2924,6 +2984,12 @@ mod tests {
 
         // A spray of leaves attached to nothing: no wood, no tip, no bud, so
         // `shed_stranded_leaves` sees an unanchored component and drops it.
+        // A floor for it to land on. Without one the litter has nowhere to
+        // come to rest and is simply dropped -- correct behaviour over a pit,
+        // and a scene that would test nothing.
+        for x in 40..70 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
         let spray = [(50, 50), (51, 50), (52, 50)];
         for &pos in &spray {
             place(&mut w, pos, leaf, organism, CellType::Leaf, (0.0, 0.0));
@@ -2936,10 +3002,23 @@ mod tests {
 
         shed_stranded_leaves(&mut w, 49, 50, organism);
 
-        let left_as_litter = spray.iter().filter(|&&(x, y)| w.get(x, y).material == litter).count();
-        assert_eq!(left_as_litter, spray.len(), "a shed spray must become litter, not vanish -- {left_as_litter} of {} did", spray.len());
+        // **Counted where it lands, not where it hung**, which is the whole
+        // of the change this assertion had to be rewritten for: a leaf falls
+        // through its own crown and comes to rest on the floor, so the cells
+        // it used to occupy are empty and the litter is on the ground below.
+        // The earlier version looked only at the spray's own positions and
+        // went red for the fix rather than for a fault.
         for &(x, y) in &spray {
+            assert_eq!(w.get(x, y).material, material::EMPTY, "the leaf itself is gone from where it hung");
+        }
+        let landed: Vec<(i32, i32)> = (45..60)
+            .flat_map(|x| (40..100).map(move |y| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == litter)
+            .collect();
+        assert_eq!(landed.len(), spray.len(), "a shed spray must become litter somewhere, not vanish -- {} of {} did", landed.len(), spray.len());
+        for &(x, y) in &landed {
             assert_eq!(w.get(x, y).organism_id(), 0, "litter belongs to nobody; leaving the tree's id on it makes a falling powder part of an organism");
+            assert!(y > 50, "litter must end up *below* the leaf it fell from, and this landed at {y} against a shed height of 50");
         }
     }
 
@@ -2962,6 +3041,9 @@ mod tests {
         let mut w = test_world();
         let leaf = w.materials.id_of("leaf").expect("leaf");
         let organism = 9u16;
+        for x in 40..70 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
         let spray = [(50, 50), (51, 50)];
         for &pos in &spray {
             place(&mut w, pos, leaf, organism, CellType::Leaf, (0.0, 0.0));

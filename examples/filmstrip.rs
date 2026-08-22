@@ -1165,6 +1165,11 @@ fn parse() -> Args {
                 "canopy" => a.organism_overlay = OrganismOverlay::CanopyDensity,
                 "vein" => a.organism_overlay = OrganismOverlay::VeinConductance,
                 "soil" => a.organism_overlay = OrganismOverlay::SoilMoisture,
+                // S3 built `OrganismOverlay::FoodValue` and specified this
+                // switch alongside it; only the render half landed, so the
+                // one readout that can answer "where is the food" was
+                // unreachable from the harness that judges by eye.
+                "foodvalue" => a.organism_overlay = OrganismOverlay::FoodValue,
                 "light" => a.field_overlay = FieldOverlay::Light,
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
@@ -1172,7 +1177,7 @@ fn parse() -> Args {
                 "pheromone_a" => a.field_overlay = FieldOverlay::PheromoneA,
                 "pheromone_b" => a.field_overlay = FieldOverlay::PheromoneB,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure, pheromone_a, pheromone_b"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, foodvalue, light, moisture, temperature, pressure, pheromone_a, pheromone_b"
                 ),
             },
             "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),
