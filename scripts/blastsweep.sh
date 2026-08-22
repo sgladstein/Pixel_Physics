@@ -147,6 +147,8 @@ rocks=""
 promoted=""
 reaches=""
 damages=""
+confineds=""
+honests=""
 sites_all=""
 awakes=""
 frames_ms=""
@@ -220,6 +222,21 @@ for seed in $SEEDS; do
   ms=$(echo "$out" | grep -E 'worst frame so far' | tail -1 | sed -nE 's/.*so far: ([0-9.]+) ms.*/\1/p')
   bodies=$(echo "$out" | grep -E 'peak chunk bodies in flight' | tail -1 | sed -nE 's/.*at once: ([0-9]+).*/\1/p')
   cracked=$(echo "$out" | grep -E 'cracked cells in the world' | tail -1 | sed -nE 's/.*world: ([0-9]+).*/\1/p')
+  # **The counter `structural.rs` names and this script has never printed.**
+  # Its confined branch says outright: "The number to watch is
+  # `FailureCounts::confined` in `scripts/blastsweep.sh`: it climbing without
+  # bound is the treadmill." It was never in the parse set -- `filmstrip`
+  # printed it and this script discarded the tile it was on. It is also the
+  # counter the licence clip moves *most*: clipping a region only removes
+  # cells, and removed cells are solid rock, so it can only cost free-face
+  # witnesses and `confined` can only move up.
+  confined=$(echo "$out" | grep -E 'of those, confined \(no free face' | tail -1 | sed -nE 's/.*anywhere\): ([0-9]+) .*/\1/p')
+  # The containment measure that is **not** the gate restated -- see
+  # `filmstrip::damage_radius`. `max_damage_reach` is recorded only at sites
+  # downstream of the licence clip, so it is `<= chain_reach` by arithmetic
+  # and cannot report a containment failure at all. This one compares two
+  # material grids and measures a distance, so it can.
+  honest=$(echo "$out" | grep -E 'furthest cell this run actually changed' | tail -1 | sed -nE 's/.*made it: (-?[0-9]+) cells.*/\1/p')
 
   panels_line=$(echo "$outp" | grep -E '^panels sheet' | sed -E 's/.*: //')
 
@@ -230,6 +247,8 @@ for seed in $SEEDS; do
   check "of those, actually moved" "$moved_bodies" "$moved_cells" "$grit"
   check "cells lost since the cut" "$lost" "$rock"
   check "cracked cells in the world" "$cracked"
+  check "of those, confined (no free face" "$confined"
+  check "furthest cell this run actually changed" "$honest"
   check "awake / sites at the last tile" "$awake" "$awake_of" "$sites"
   check "worst frame" "$ms"
   check "peak chunk bodies" "$bodies"
@@ -243,6 +262,8 @@ for seed in $SEEDS; do
   echo "    actually moved: ${moved_bodies:-PARSE?} bodies (${moved_cells:-PARSE?} cells promoted), ${grit:-PARSE?} cells shattered"
   echo "    cells lost since the cut: ${lost:-PARSE?} (rock ${rock:-PARSE?})"
   echo "    cracked cells in the world: ${cracked:-PARSE?}"
+  echo "    confined failures (no free face anywhere): ${confined:-PARSE?}"
+  echo "    furthest rock this run actually lost, from its charge: ${honest:-PARSE?} cells"
   echo "    awake ${awake:-PARSE?}/${awake_of:-PARSE?}, sites ${sites:-PARSE?}"
   echo "    worst frame: ${ms:-PARSE?} ms, peak chunk bodies ${bodies:-PARSE?}"
   echo "  sheets: $sheet"
@@ -253,6 +274,8 @@ for seed in $SEEDS; do
   promoted="$promoted ${moved_cells:-}"
   reaches="$reaches ${reach:-}"
   damages="$damages ${damage:-}"
+  confineds="$confineds ${confined:-}"
+  honests="$honests ${honest:-}"
   sites_all="$sites_all ${sites:-}"
   awakes="$awakes ${awake:-}"
   # `stats` takes integers (see its own note); the worst frame is the only
@@ -296,7 +319,21 @@ stats "promoted cells" "$promoted"
 # damage was still landing, in the units `chain_reach` is set in -- so at
 # `CHAIN=chain_reach=48` a max of 200 here says the leash is not holding,
 # and there is no other number in this sweep that can say it.
-stats "furthest damage landed from a live disturbance" "$damages"
+# **Read this one knowing what it cannot say.** It is `max_damage_reach`,
+# recorded only downstream of `clip_region_to_licence`, and for any cell that
+# clip retains `within_disturbance` guarantees a live disturbance within
+# `chain_reach + extent` while `distance_to_live_disturbance` takes the *min*
+# over disturbances of `distance - extent`. So it is `<= chain_reach` by
+# arithmetic at every site: a run reading exactly the leash is a saturated
+# ceiling, not a measurement. Kept beside the honest one so the pair reads.
+stats "furthest damage landed from a live disturbance (CEILING)" "$damages"
+# The containment statistic that can actually go wrong: rock that stopped
+# being rock, measured from the charge that made it, reading none of the
+# licence machinery. This is the one to compare against CHAIN.
+stats "furthest rock lost, from its charge" "$honests"
+# The treadmill reading. Climbing without bound across a change is the
+# re-crush treadmill coming back.
+stats "confined failures" "$confineds"
 # Kept, demoted: this is `max_chain_reach`, how far rootward the chain walk
 # had to go to find the cell that gave way. A real question, and not the
 # containment one -- it is bounded to `ROOTWARD_CHECK_STEPS` by construction

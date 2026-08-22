@@ -404,14 +404,35 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // re-judged; what reaches it is already inside the licence.
         let region = clip_region_to_licence(world, failure.region);
         if region.is_empty() {
-            // **Not `Vec::new()`.** Control only reaches here when
-            // `worsened` is true, so `propagate` already holds this cell's
-            // reschedule and its neighbour fan-out, and the new `aux` has
-            // been written. The old veto returned an empty vector and
-            // dropped both -- a fourth early return that did not carry the
-            // wavefront the block above says every early return must carry,
-            // and it dropped it specifically for *rising* distances, which
-            // is the direction that propagates collapse.
+            // **Not `Vec::new()`.** The old veto returned an empty vector
+            // -- a fourth early return that did not carry the wavefront the
+            // block above says every early return must carry.
+            //
+            // **Two paths reach here and they carry different things**, and
+            // an earlier version of this comment claimed only one of them
+            // existed ("control only reaches here when `worsened` is true").
+            // That was false, and false about the *primary* path: `worsened`
+            // gates only the `moved` branch (`if !worsened { return
+            // propagate; }`), so a cell whose distance has **settled** --
+            // `moved == false`, which is exactly the state the block at
+            // :303 says a cell is judged in -- falls through to here with
+            // `propagate` empty. On the rising path `propagate` already
+            // holds this cell's reschedule and its neighbour fan-out and the
+            // new `aux` has been written; on the settled path this returns
+            // nothing, which is what the veto did.
+            //
+            // **The veto's own argument is restored rather than dropped**,
+            // because it was never answered: "a refused cell stops being
+            // rescheduled rather than spinning: it will be looked at again
+            // when something disturbs it, and that something is exactly what
+            // would license it to fail." That is still true of the settled
+            // path. What it did not cover is the rising one, where the cell
+            // has just been told its distance grew and the neighbours that
+            // told it have not yet been informed -- and a piece with no
+            // anchor never settles (see the module doc at :267), so on that
+            // path "wait to be disturbed" means waiting for a disturbance
+            // that the cell itself is generating. Hence: carry the wavefront
+            // when it exists, and keep the veto's silence when it does not.
             return propagate;
         }
         // The forest this describes is about to change out from under it.
@@ -665,7 +686,15 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             if object == CrushedObject::SeveredPiece && region.len() < super::rigid::MIN_FRACTURE_CELLS {
                 return Vec::new();
             }
-            if crush_in_place(world, &region, failure.at, object) > 0 {
+            let crush = crush_in_place(world, &region, failure.at, object);
+            if crush.fresh > 0 {
+                return propagate;
+            }
+            // **A crush the leash refused is not a crush that had nothing
+            // left to do**, and only the second may drop the wavefront. See
+            // `Crush` for why they are indistinguishable by `fresh` alone
+            // and what it costs to conflate them.
+            if crush.leashed {
                 return propagate;
             }
             return Vec::new();
@@ -1205,11 +1234,11 @@ impl CrushedObject {
 /// a failure that creates no loose material cannot undermine its
 /// neighbours, which is the positive feedback `Reports/next-session-
 /// handoff.md` §1b traces every cascade to.
-fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32), object: CrushedObject) -> u32 {
+fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32), object: CrushedObject) -> Crush {
     // **The damage still scales with the piece, and it is still two
     // objects and two rules** -- what changed is what gets drawn. See
     // `reveal_joints` for the mechanism and `CrushedObject` for the split.
-    let fresh = reveal_joints(world, region, at, object);
+    let crush = reveal_joints(world, region, at, object);
     // Counted here rather than inside the reveal, so `FailureCounts`
     // keeps meaning exactly what it did: damage a *confined failure*
     // wrote where it stood. A blast's own joints are the blast report's
@@ -1222,8 +1251,48 @@ fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32), obje
     // is for is unchanged: `crush_in_place(..) > 0` is the treadmill
     // guard, and "fresh" has to keep meaning "damage that was not already
     // there" or the guard stops guarding.
-    world.structural_failures.crushed_cells += fresh;
-    fresh
+    world.structural_failures.crushed_cells += crush.fresh;
+    crush
+}
+
+/// What a confined crush did, and -- when it did nothing -- which of the two
+/// opposite reasons applied.
+///
+/// # Why "wrote nothing" is not one outcome
+///
+/// `tick`'s confined branch returns `Vec::new()` when the crush writes
+/// nothing, and that is deliberate: a crush over rock it has *already*
+/// cracked writes nothing, has nothing to propagate, and re-queueing it is
+/// the re-crush treadmill measured at 1,120 confined failures per 400 frames
+/// on dead-still material.
+///
+/// But `reveal_joints`' `Section` arm clamps its disc by
+/// `World::licence_headroom`, and that clamp defeats
+/// `CrushedObject::min_joint_reach`'s floor of ten. Stone's grain is
+/// thirteen cells, so a disc shrunk under that floor can sit inside a single
+/// domain, contain no joint at all, and write nothing -- for a reason that
+/// has nothing to do with the rock already being cracked. Treating that as
+/// idempotence drops `propagate`, and `propagate` carries the distance
+/// wavefront that the block at the top of `tick` says **every** early return
+/// must carry. That is the exact artifact the empty-region return was
+/// changed to fix, reintroduced two hundred lines further down, and it is an
+/// annulus around every licence boundary rather than a knife edge at it.
+///
+/// Found by adversarial review rather than by a sweep, and the reason no
+/// sweep could see it is worth recording: every statistic
+/// `scripts/seedsweep.sh` gates is a *damage* count, and this artifact
+/// **reduces** damage, so it reads as the leash working.
+///
+/// SPREAD is untouched -- `licence_headroom` is `None` there, so `leashed`
+/// is never set and the arithmetic is bit-identical.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Crush {
+    /// Newly severed edges. `fresh == 0 && !leashed` is the idempotent case
+    /// the treadmill guard exists for.
+    fresh: u32,
+    /// The licence shrank the disc below what the region asked for. The rock
+    /// had more to give and the leash is what stopped it.
+    leashed: bool,
 }
 
 /// A confined failure **reveals the rock's own joints** inside the object
@@ -1340,7 +1409,7 @@ fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32), obje
 /// confined failures per 400 frames with the world's material dead still);
 /// and opening removes cells, which is the one thing rock with nowhere to
 /// go must not do. Nothing below writes anything but a crack bit.
-fn reveal_joints(world: &mut World, region: &[(i32, i32)], at: (i32, i32), object: CrushedObject) -> u32 {
+fn reveal_joints(world: &mut World, region: &[(i32, i32)], at: (i32, i32), object: CrushedObject) -> Crush {
     match object {
         // An over-capacity **section** is still attached to the world and
         // is cracking *into* it: the fissure spreading out of a failing
@@ -1363,10 +1432,18 @@ fn reveal_joints(world: &mut World, region: &[(i32, i32)], at: (i32, i32), objec
             // cracked rock carries less, so it is a delayed failure the
             // player was promised would not happen. `None` at SPREAD, where
             // nothing bounds it and the arithmetic is untouched.
+            //
+            // **Whether the leash shrank it is remembered**, because the
+            // two ways this disc can write nothing are opposites and `tick`
+            // has to tell them apart. See `Crush`.
+            let mut leashed = false;
             if let Some(headroom) = world.licence_headroom(at.0, at.1) {
+                if (headroom as f32) < reach {
+                    leashed = true;
+                }
                 reach = reach.min(headroom as f32);
             }
-            reveal_in_disc(world, at, reach)
+            Crush { fresh: reveal_in_disc(world, at, reach), leashed }
         }
         // A **severed piece** has no claim on the rock outside it. Its
         // damage has to scale from zero, and with a fabric it does so
@@ -1377,7 +1454,7 @@ fn reveal_joints(world: &mut World, region: &[(i32, i32)], at: (i32, i32), objec
         // `CRACK_MIN_LENGTH` from this arm, arrived at from the geometry
         // instead of from a constant -- and it is strictly tighter, because
         // a zero-length star still marked the cell it started on.
-        CrushedObject::SeveredPiece => reveal_inside_region(world, region),
+        CrushedObject::SeveredPiece => Crush { fresh: reveal_inside_region(world, region), leashed: false },
     }
 }
 
@@ -4738,13 +4815,53 @@ mod tests {
     /// `schedule_structural_check_around`, and reaching for it here is the
     /// obvious way to get this wrong, so the assertion now sits on the
     /// function that would.
+    /// A crush the leash squeezed must say so, not look idempotent.
+    ///
+    /// The two ways a `Section` crush writes nothing are opposites:
+    /// idempotent re-crushing of rock already cracked (which must **not**
+    /// propagate, or it is the 1,120-per-400-frames treadmill), and a disc
+    /// the licence shrank below the grain (which **must** propagate, or the
+    /// distance wavefront is dropped). `Crush::leashed` is what tells them
+    /// apart; before it existed both returned `0` and `tick` treated them
+    /// identically.
+    ///
+    /// Paired against SPREAD, where `licence_headroom` is `None` and the
+    /// arithmetic is untouched -- without that arm "leashed is false" also
+    /// passes against a build where the clamp never runs.
+    #[test]
+    fn a_crush_the_leash_shrank_is_not_a_crush_that_had_nothing_to_do() {
+        fn crush(reach: i32, disturbance: (i32, i32)) -> Crush {
+            let mut w = test_world();
+            massif(&mut w);
+            compute_world_distances(&mut w);
+            w.chain_reach = reach;
+            w.record_disturbance(disturbance.0, disturbance.1, 0);
+            crush_in_place(&mut w, &block_region((32, 32), 8), (32, 32), CrushedObject::Section)
+        }
+
+        let free = crush(i32::MAX, (32, 32));
+        assert!(free.fresh > 0, "test setup: at SPREAD this crush must write something, it wrote {}", free.fresh);
+        assert!(!free.leashed, "SPREAD has no licence to be squeezed by, yet the crush reported one");
+
+        // 10 cells away at TIGHT (16): the cell is comfortably licensed, so
+        // the region survives the clip -- but the headroom left for a
+        // *radius* is 6, under `CrushedObject::min_joint_reach`'s floor of
+        // 10. That is the annulus around every licence boundary, not a
+        // knife edge on it.
+        let squeezed = crush(16, (42, 32));
+        assert!(
+            squeezed.leashed,
+            "the licence shrank the disc from 10 to 6 and the crush did not report it, so `tick` cannot tell this from idempotence"
+        );
+    }
+
     #[test]
     fn a_crush_neither_unbraces_the_rock_nor_reschedules_it() {
         let mut w = test_world();
         massif(&mut w);
         let scheduled_before = w.active_site_count();
         let region = block_region((32, 32), 8);
-        let written = crush_in_place(&mut w, &region, (32, 32), CrushedObject::Section);
+        let written = crush_in_place(&mut w, &region, (32, 32), CrushedObject::Section).fresh;
 
         assert!(written > 0, "test setup: the crush should have severed something");
         assert_eq!(w.active_site_count(), scheduled_before, "a confined crush must schedule no structural checks");
@@ -4791,8 +4908,8 @@ mod tests {
         let mut w = test_world();
         massif(&mut w);
         let region = block_region((32, 32), 8);
-        let first = crush_in_place(&mut w, &region, (32, 32), CrushedObject::Section);
-        let second = crush_in_place(&mut w, &region, (32, 32), CrushedObject::Section);
+        let first = crush_in_place(&mut w, &region, (32, 32), CrushedObject::Section).fresh;
+        let second = crush_in_place(&mut w, &region, (32, 32), CrushedObject::Section).fresh;
         assert!(first > 0, "test setup: the first crush should have severed something");
         assert_eq!(second, 0, "a re-crush wrote {second} fresh edges; confined damage must not accumulate");
         // And the property that bounds a cascade rather than one repeat:
@@ -4807,7 +4924,7 @@ mod tests {
             for dy in -2..=2 {
                 for dx in -2..=2 {
                     let at = (32 + dx * 3, 32 + dy * 3);
-                    total += crush_in_place(w, &block_region(at, 8), at, CrushedObject::Section);
+                    total += crush_in_place(w, &block_region(at, 8), at, CrushedObject::Section).fresh;
                 }
             }
             total
@@ -5621,8 +5738,11 @@ mod tests {
         let (x, y) = (45, 63);
         assert!(!w.within_disturbance(x, y), "test setup: the cell under test must be outside the licence");
         let cell = w.get(x, y);
-        // Knocked back to zero so this tick sees the distance **rise**,
-        // which is the only path that reaches the clip at all.
+        // Knocked back to zero so this tick sees the distance **rise**.
+        // That is the path this guard is about -- the one where `propagate`
+        // is non-empty and dropping it loses a fan-out. The settled path
+        // reaches the same return with `propagate` already empty, where
+        // there is nothing to lose and nothing to guard.
         w.set(x, y, cell.with_aux(0));
 
         // ...and it really is a failing cell, or the refusal never happens
@@ -5730,6 +5850,52 @@ mod tests {
     /// it also makes the second half of the assertion mean what it says --
     /// nothing else in the world can newly fail either, so anything that
     /// comes down after the switch came off the queue.
+    /// Relicensing **keeps the licensed half** of a staged region, and that
+    /// is the half no existing guard could see.
+    ///
+    /// Its sibling below tightens a queue with an *empty* disturbance ring,
+    /// so every cell is unlicensed and the entry is dropped whole. So does
+    /// the `App` guard. Both therefore pass unchanged against
+    /// `fn relicense_staged_fractures(&mut self) { self.staged_fractures.clear(); }`
+    /// -- they cannot tell "drop what is unlicensed" from "drop everything",
+    /// which is the only property the function is named for.
+    ///
+    /// This one puts a real disturbance in the ring and stages a region that
+    /// straddles its edge, so a `clear()` fails it and a `retain` passes.
+    /// Built by hand rather than by running a collapse, deliberately: the
+    /// point is the predicate, and driving it through a scene would make the
+    /// test depend on which cells that scene happened to stage.
+    #[test]
+    fn relicensing_keeps_the_part_of_a_staged_region_that_is_still_licensed() {
+        let mut w = World::new(Rect::new(0, 0, 255, 159));
+        // Extent 10, so the licence at LOCAL reaches 48 + 10 = 58 cells.
+        w.record_disturbance(60, 60, 10);
+        let licensed = (60, 60);
+        let outside = (60 + 58 + 20, 60);
+        assert!(w.chain_reach == i32::MAX, "test setup: a new world starts at SPREAD");
+
+        w.staged_fractures.push_back(StagedFracture { region: vec![licensed, outside], at: licensed, next_frame: w.frame });
+
+        let local = CHAIN_MODES.iter().find(|m| m.name == "LOCAL").expect("a LOCAL chain mode").reach;
+        w.chain_reach = local;
+        assert!(w.within_disturbance(licensed.0, licensed.1), "test setup: the near cell must still be licensed at LOCAL");
+        assert!(!w.within_disturbance(outside.0, outside.1), "test setup: the far cell must not be");
+
+        w.relicense_staged_fractures();
+
+        assert_eq!(
+            w.staged_fractures.len(),
+            1,
+            "the whole entry was dropped although half of it was still licensed -- this is `clear()` wearing a `retain`'s name"
+        );
+        assert_eq!(
+            w.staged_fractures[0].region,
+            vec![licensed],
+            "relicensing kept {:?}, wanted only the licensed cell",
+            w.staged_fractures[0].region
+        );
+    }
+
     #[test]
     fn tightening_the_chain_mode_drops_staged_work_it_no_longer_licenses() {
         let mut w = World::new(Rect::new(0, 0, 255, 159));
