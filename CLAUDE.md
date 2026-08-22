@@ -285,6 +285,17 @@ and the mechanisms that were wrong first are in
   Nine `cargo` and four `rustc` were live in one sample. Closing that gap is
   the open decision in the report's section 6; it was left open because its
   failure mode blocks other people's builds.
+- **`sccache` is installed on this machine and cuts that load at the source.**
+  A cleaned-crate release rebuild — what a fresh worktree at the same commit
+  pays — went **17.74 s to 0.81 s** on a cache hit. It is wired up as a *user
+  environment variable* (`RUSTC_WRAPPER=sccache`), deliberately **not** in
+  `.cargo/config.toml`: that file is committed and CI has no `sccache`, so it
+  would fail every build on the runner. Two consequences worth knowing: it
+  only reaches shells started *after* the install, so a long-running session
+  is still building uncached; and it cannot cache incremental compilation, so
+  it helps `--release` (the harnesses, acceptance, CI-equivalent runs) and not
+  iterative debug builds. If `cargo` ever reports it cannot run `sccache`,
+  that is this — `unset RUSTC_WRAPPER`.
 
 ## Method
 
