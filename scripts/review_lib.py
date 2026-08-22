@@ -219,6 +219,45 @@ def image_size(path: Path):
     return None
 
 
+def gif_frames(path: Path):
+    """Number of frames in a GIF, or None if it is not one.
+
+    Exists because a single-frame GIF is indistinguishable from an animation by
+    name, size or header, and is exactly what you get from
+    `filmstrip out=x.gif` *without* `gif=1`: the contact-sheet branch calls
+    `image::save_buffer`, which picks its encoder from the file extension and
+    writes the whole sheet as one still frame. No error, a plausible .gif, and
+    an agent reporting that it posted an animation.
+    """
+    try:
+        d = path.read_bytes()
+    except OSError:
+        return None
+    if d[:6] not in (b"GIF87a", b"GIF89a"):
+        return None
+    gct = 3 * (2 ** ((d[10] & 7) + 1)) if d[10] & 0x80 else 0
+    i, n = 13 + gct, 0
+    while i < len(d):
+        b = d[i]
+        if b == 0x3B:
+            break
+        if b == 0x21:                       # extension block
+            i += 2
+            while i < len(d) and d[i]:
+                i += d[i] + 1
+            i += 1
+        elif b == 0x2C:                     # image descriptor -- one per frame
+            n += 1
+            lf = d[i + 9]
+            i += 10 + (3 * (2 ** ((lf & 7) + 1)) if lf & 0x80 else 0) + 1
+            while i < len(d) and d[i]:
+                i += d[i] + 1
+            i += 1
+        else:
+            break
+    return n
+
+
 # --------------------------------------------------------------------------
 # Queue reads
 # --------------------------------------------------------------------------

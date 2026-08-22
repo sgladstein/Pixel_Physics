@@ -2126,6 +2126,21 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     // frozen because its grain is nailed to the screen) simply do not survive
     // being sampled into stills. Consecutive frames, real playback speed, and
     // a NETSCAPE loop -- the same reasoning `main.rs`'s capture hook records.
+    // `image::save_buffer` below picks its encoder from the file extension, so
+    // `out=x.gif` without `gif=1` silently writes the whole contact sheet as a
+    // ONE-FRAME gif. It is a valid file, it is named like an animation, and it
+    // cannot move -- which is exactly how two review cards shipped as stills
+    // while the agent reported posting an animation. Refuse the combination
+    // rather than producing the thing nobody wanted.
+    if !args.gif && args.out.to_ascii_lowercase().ends_with(".gif") {
+        panic!(
+            "out={} ends in .gif but gif=1 was not passed. The contact sheet \
+             would be written as a single-frame gif that cannot animate. \
+             Add gif=1 for an animation, or use a .png name for a sheet.",
+            args.out
+        );
+    }
+
     if args.gif {
         let mut frames = Vec::with_capacity(args.count);
         let mut step_no = 0usize;
