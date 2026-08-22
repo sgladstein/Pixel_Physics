@@ -1,0 +1,53 @@
+{
+  "id": "20260822T043758278Z-018304",
+  "created": "2026-08-22T04:37:58Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-handoff-phase-2-scsenh",
+    "commit": "699bbdf",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Strata band thickness in the 4x world: which rock reads as geology?",
+  "question": "Which one reads as deposited rock rather than as a texture — and which gives the standing spires a better silhouette?",
+  "context_md": "`canyon` seed 3, three viewport shots across the 8192x2560 world, night so the surface reads against the sky. **The only difference is `strata_thickness`** — one pane is the shipped 12, the other 48 (4x, matching what Phase 2 did to the caves).\n\nI left this one alone in the code and am asking instead, because it is genuinely two questions at once and I could not settle it from the diff:\n\n1. **It is an underground quantity.** A 4x cave shears along the bedding, and at 12-row bands the bedding is now four times finer relative to the cave than it was designed to be.\n2. **It is also a surface quantity.** `strata_thickness` feeds `HardnessField`, which drives plan-space erosion, which makes the mesas and benches the round-7 handoff singles out as the part that is *working*. So changing it changes the thing nobody has complained about.\n\n**What I did not expect, and the reason this is worth your eye rather than a coin flip:** it also changes the standing spires. `residual.rs` stacks a tor out of `height / band_thickness` shelves clamped to 3-8, so thicker bands mean fewer, chunkier rings. In one pane the spires are the thin poles you rejected in round 6 (\"a residual spire ~6 [cells wide]\"); in the other they have a taper and a cap. That is a Phase 4 problem I was not trying to solve here, and one of these panes appears to solve some of it for free.\n\n**A note on cost, since it is a hard constraint here:** `strata_thickness` is a `.ron` field, so this is F5 in the running app, not a rebuild, and it costs nothing per frame either way.\n\n**Please ignore** the lens blobs and the overall darkness — same in both, and not what this is about.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "strata_thickness 12 (shipped)",
+      "files": [
+        "20260822T043758278Z-018304/000-strata-09.png"
+      ],
+      "caption": "canyon's current value",
+      "meta": {
+        "strata_thickness": 12,
+        "shelves per residual (height/band, clamped 3-8)": "8 for anything over 96 tall",
+        "rows per band on screen at 1:1": 12
+      },
+      "focus": null
+    },
+    {
+      "label": "strata_thickness 48 (4x)",
+      "files": [
+        "20260822T043758278Z-018304/001-strata-48.png"
+      ],
+      "caption": "scaled with the caves",
+      "meta": {
+        "strata_thickness": 48,
+        "shelves per residual (height/band, clamped 3-8)": "3 for anything under 144 tall",
+        "rows per band on screen at 1:1": 48
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
