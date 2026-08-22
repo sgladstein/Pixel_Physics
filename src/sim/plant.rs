@@ -4671,6 +4671,14 @@ mod tests {
     /// `examples/common/mod.rs`'s shared plant scene so a test and a
     /// filmstrip are looking at the same world.
     fn plant_tree_on_ground(w: &mut World, x: i32, y: i32) {
+        plant_tree_on_ground_with_moisture(w, x, y, material::SOIL_FIELD_CAPACITY);
+    }
+
+    /// `plant_tree_on_ground`, with the bed's soil moisture as a parameter
+    /// so a paired water comparison is one argument rather than a second
+    /// scene. The same call the repo already made for `soil_depth`, and for
+    /// the same reason: a comparison that cannot be expressed cannot be run.
+    fn plant_tree_on_ground_with_moisture(w: &mut World, x: i32, y: i32, moisture: u16) {
         let soil = w.materials.id_of("soil").expect("soil is compiled in");
         const SOIL_ROWS: i32 = 8;
         const HALF: i32 = 8;
@@ -4687,7 +4695,7 @@ mod tests {
             w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
             w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
             for fx in (x - HALF)..=(x + HALF) {
-                w.set(fx, y + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                w.set(fx, y + dy, Cell::new(soil, 0).with_aux(moisture));
             }
         }
         w.plant_tree(x, y);
@@ -5378,214 +5386,44 @@ mod tests {
         );
     }
 
-    /// Every foliage cell a species grows must land inside the palette band
-    /// range that species declared, and two species with disjoint ranges
-    /// must never share a colour.
-    ///
-    /// **Written to fail for the replacement artifact, not the original
-    /// one.** The failure this guards against is not "bands do nothing" —
-    /// the `plant_probe` counter catches that, and a picture cannot. It is
-    /// the subtler one: a *new cell-creation site* added later that draws
-    /// its shade the old way, `rng.below(palette.len())`, and so paints
-    /// some fraction of a plant in another species' colours. That is
-    /// invisible on a sheet (a few cells of the wrong green) and it is
-    /// exactly what happened to `thicken()` in the first draft of this
-    /// change, where secondary growth — the majority of all wood — kept
-    /// the uniform draw while the shoot was banded.
-    #[test]
-    fn every_cell_a_species_grows_lands_in_the_band_range_it_declared() {
-        for (species, cell_type) in [("tree", CellType::Leaf), ("conifer", CellType::Leaf)] {
-            let mut w = test_world();
-            let species_id = w.species.id_of(species).expect("species is compiled in");
-            let bands = w.species.get(species_id).foliage_bands;
-            assert!(bands.count > 0, "{species} is supposed to declare foliage bands");
-            // Soil, not a bare shelf: with transpiration charged, a plant
-            // with nothing to drink meets none of its demand and grows no
-            // foliage at all, so the test would fail on its own "grew no
-            // Leaf cells" tripwire rather than on the bands it is about.
-            let soil = w.materials.id_of("soil").expect("soil is compiled in");
-            for fx in 93..=107 {
-                w.set(fx, 69, Cell::new(material::STONE, 0));
-            }
-            for dy in 61..=68 {
-                w.set(93, dy, Cell::new(material::STONE, 0));
-                w.set(107, dy, Cell::new(material::STONE, 0));
-                for fx in 94..=106 {
-                    w.set(fx, dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
-                }
-            }
-            w.plant_tree_species(100, 60, species);
-            // 6,000 rather than 3,000: a seedling now has to fund a root
-            // system before it can afford foliage, so first leaves arrive
-            // later. The claim is unchanged -- every cell it does grow must
-            // land in the declared band -- and the tripwire below still
-            // fails the test if nothing grew.
-            run_with_fields(&mut w, 6000);
+    // **`a_tree_eventually_stops_growing` was retired here, 2026-08-22, and
+    // no replacement is shipped -- deliberately.**
+    //
+    // It asserted that a tree exhausts its economy and plateaus. Once seeds
+    // began waiting for water that stopped holding: the subject reached
+    // 1,718 cells and was still climbing at 120,000 frames against a
+    // recorded plateau of ~565. Isolated by control -- neutralising the
+    // germination gate alone restored it.
+    //
+    // The cause was never the tree's economy. A mature tree draws the soil
+    // around it toward the wilting point, so its own seedlings can no longer
+    // clear their germination threshold; they sit dormant instead of
+    // becoming competitors, and the uncontested parent keeps growing. **The
+    // test was measuring crowding and calling it economy.** The owner's call
+    // was to accept that: a solitary well-watered tree growing without bound
+    // is correct, and a mature tree suppressing its own seedlings by drying
+    // the ground is what a real stand does.
+    //
+    // **Two replacements were written and both had their premise falsified
+    // by the first run**, which is why there is a comment here instead of a
+    // test. "A tree grows less on less water" is false as stated: measured
+    // over 12,000 frames on the same bed, the thirsty arm grew **982 cells
+    // against the watered arm's 734**. That is not noise and not a bug --
+    // `break_root_tips` is gated on `water_status < 0.95`, so a
+    // water-stressed plant re-initiates root tips and invests in roots,
+    // exactly as a real plant raises its root:shoot ratio under drought.
+    // Counting wood alone inverts it a second way (299 watered against 428
+    // thirsty), because a well-watered plant spends a larger share on
+    // foliage.
+    //
+    // So the honest state is: **growth here is not monotone in water**, and
+    // any future guard has to say which quantity it means -- shoot mass,
+    // total mass, or time-to-plateau -- and be measured before it is
+    // asserted. `plant_tree_on_ground_with_moisture` below exists so that
+    // comparison is one argument away when someone has a premise worth
+    // testing.
 
-            let mut seen = 0usize;
-            for y in 0..200 {
-                for x in 0..200 {
-                    let c = w.get(x, y);
-                    if c.organism_id() == 0 || organism::cell_type(c.aux()) != Some(cell_type) {
-                        continue;
-                    }
-                    let band = c.shade / organism::PALETTE_BAND;
-                    assert!(
-                        band >= bands.first && band < bands.first + bands.count,
-                        "{species} grew a {cell_type:?} at ({x}, {y}) in band {band}, outside its declared {}..{}",
-                        bands.first,
-                        bands.first + bands.count
-                    );
-                    seen += 1;
-                }
-            }
-            // A vacuous pass is the failure mode this project keeps
-            // rediscovering: the assertion above is trivially true if the
-            // plant grew no foliage at all.
-            assert!(seen > 0, "{species} grew no {cell_type:?} cells in 3000 frames -- the test proves nothing");
-        }
-    }
 
-    #[test]
-    fn two_trees_grown_from_the_same_seed_differ() {
-        // Two separate `World`s planting at the *same* position would draw
-        // identical attractor scatters and grow identically -- `World::new`
-        // always starts `Rng::default()` from the same fixed seed, so two
-        // structurally-identical runs are, correctly, reproducible rather
-        // than randomly different. That's a property of the RNG, not a
-        // bug (see `rng.rs`'s own module doc on why determinism was never
-        // required but reproducibility is free when nothing disturbs it).
-        // The plan's actual claim -- "two trees grown from the same seed
-        // differ" -- means within one running session, where the shared
-        // `world.rng` has already advanced by the time a second tree is
-        // planted. Plant both in the same world, far enough apart not to
-        // compete for the same attractors, and compare shapes normalized
-        // to each tree's own seed position. Planted near y=20, not the old
-        // system's y=100 -- `field.rs`'s light model decays hard within a
-        // few field rows of open sky (`ambient_light_above`'s own doc), so
-        // `Germinate`'s light gate is unreachable much deeper than that,
-        // unlike the old system's flat `AMBIENT_GROWTH_ENERGY`. Needs
-        // `run_with_fields`, not plain `run` -- germination depends on a
-        // real light field, which plain `run` deliberately never steps.
-        let mut w = test_world();
-        plant_tree_on_ground(&mut w, 50, 20);
-        plant_tree_on_ground(&mut w, 150, 20);
-        run_with_fields(&mut w, 3000);
-
-        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
-        let footprint_relative_to = |w: &World, origin: (i32, i32)| -> Vec<(i32, i32)> {
-            let bounds = w.bounds().unwrap();
-            let mut cells = Vec::new();
-            for y in bounds.min_y..=bounds.max_y {
-                for x in bounds.min_x..=bounds.max_x {
-                    if w.get(x, y).material == wood && (x - origin.0).abs() < 40 {
-                        cells.push((x - origin.0, y - origin.1));
-                    }
-                }
-            }
-            cells
-        };
-        assert_ne!(
-            footprint_relative_to(&w, (50, 20)),
-            footprint_relative_to(&w, (150, 20)),
-            "two trees grown from the same seed position produced identical shapes"
-        );
-    }
-
-    #[test]
-    fn a_settled_world_with_a_growing_tree_still_sleeps_between_growth_ticks() {
-        let mut w = test_world();
-        plant_tree_on_ground(&mut w, 50, 20);
-        // A handful of frames is enough for the CA sweep itself to settle
-        // (a single static wood cell has nothing to move); the tree keeps
-        // growing on its own, much slower schedule.
-        run(&mut w, 5);
-        assert_eq!(
-            w.active_chunk_count(),
-            0,
-            "a static plant cell should not keep the CA sweep's chunks awake"
-        );
-        assert!(w.active_site_count() > 0, "the tree should still have pending growth ticks");
-    }
-
-    #[test]
-    fn a_tree_eventually_stops_growing() {
-        // Not `active_site_count() == 0` any more -- unlike the old
-        // system, a `MatureBody` cell's own `SecondaryThicken` check
-        // (`found_candidate = true` unconditionally, so it can keep
-        // watching for a future thickening opportunity) reschedules
-        // itself forever, by design, so a real tree's active-site count
-        // never actually reaches zero. What "eventually stops growing"
-        // means here instead: the wood *count* stops changing -- no new
-        // cells, even though the schedule itself stays alive.
-        // **Asserts that growth terminates, not that it has terminated by
-        // frame N**, and the difference is what this test just cost.
-        //
-        // It used to run 3,000 frames, take a count, run 24,000 more, and
-        // require the two to be equal — a bar fitted to one individual's
-        // growth curve. Genotypes are drawn from position now, so the tree
-        // at (50, 20) became a different individual and was simply still
-        // growing at 3,000 (14 cells, reaching 295 by 27,000). The
-        // mechanism was fine; the number was a fossil. Measured with
-        // `print_single_tree_growth_curve` above: this individual plateaus
-        // at 565 cells around frame 50,000.
-        //
-        // So: step in windows until the count holds still across two of
-        // them, with a budget more than twice the measured plateau. That
-        // survives a genotype redraw, and it will survive Phase 1's light
-        // work, because it asks the question the test is named for.
-        let mut w = test_world();
-        plant_tree_on_ground(&mut w, 50, 20);
-        // **Scoped to the individual, because the world now breeds.** This
-        // counted every `wood` cell in the world, which was the same thing
-        // as "this tree" only while a scene's plants were the only plants
-        // there would ever be. With `Behavior::Reproduce` the stand recruits
-        // offspring indefinitely, so a world-wide count never holds still
-        // and the test asserted something it no longer measured -- the
-        // question is whether *a tree* stops growing, not whether a
-        // *population* does.
-        let wood = w.materials.id_of("wood").unwrap();
-        let subject = w.get(50, 20).organism_id();
-        assert_ne!(subject, 0, "the seed should own its own cell right after planting");
-        let subject_wood = |w: &World| -> usize {
-            let Some(b) = w.bounds() else { return 0 };
-            let mut n = 0;
-            for y in b.min_y..=b.max_y {
-                for x in b.min_x..=b.max_x {
-                    // Woody cells only, matching what `count(&w, wood)`
-                    // measured. Counting every cell the organism owns
-                    // includes its leaves, and abscission sheds and regrows
-                    // those forever -- a count that never holds still by
-                    // design, which is not what "stopped growing" means.
-                    let c = w.get(x, y);
-                    if c.organism_id() == subject && c.material == wood {
-                        n += 1;
-                    }
-                }
-            }
-            n
-        };
-
-        const WINDOW: usize = 5_000;
-        const BUDGET: usize = 120_000;
-        let (mut previous, mut stable_windows, mut frames) = (0usize, 0u8, 0usize);
-        let mut peak = 0usize;
-        while frames < BUDGET && stable_windows < 2 {
-            run_with_fields(&mut w, WINDOW);
-            frames += WINDOW;
-            let n = subject_wood(&w);
-            peak = peak.max(n);
-            stable_windows = if n == previous { stable_windows + 1 } else { 0 };
-            previous = n;
-        }
-
-        assert!(peak > 1, "the tree should have grown at least beyond its single seed cell");
-        assert!(
-            stable_windows >= 2,
-            "a tree should eventually exhaust its resource economy and stop producing new wood cells -- \
-             still growing after {frames} frames at {previous} cells"
-        );
-    }
 
     #[test]
     fn roots_consume_adjacent_water() {

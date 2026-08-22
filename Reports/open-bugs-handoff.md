@@ -470,7 +470,7 @@ soil moisture), or accepting dry ground as real and giving worldgen a
 reason to place trees where water is. Those are three different games, and
 picking between them is a design decision, not a merge resolution.
 
-### V. A tree with no seedlings under it never stops growing — **OPEN, 2026-08-22. Emergent, and possibly correct.**
+### V. ~~A tree with no seedlings under it never stops growing~~ — **ACCEPTED AND RETIRED, 2026-08-22, by owner decision.**
 
 `a_tree_eventually_stops_growing` was passing after the worldgen work and
 fails once seeds wait for water: the subject reaches **1,718 cells and is
@@ -493,14 +493,29 @@ was competition from its own offspring, it was measuring crowding and
 calling it economy. That is this file's recurring shape: a guard that passes
 for a reason other than the one it is named for.
 
-**Not tuned, deliberately.** Three things could be done and only the owner
-should pick: accept unbounded growth for a solitary well-watered tree as
-correct and retire the claim; treat self-suppression as the bug and let
-seedlings establish in a parent's shadow; or bound growth by something that
-is genuinely the tree's own economy. Note the emergent behaviour here is
-real — **a mature tree drying the soil around it and suppressing its own
-seedlings is what happens in a real stand** — so the first reading is not a
-cop-out.
+**The owner accepted it:** a solitary, well-watered tree growing without
+bound is correct, and a mature tree drying the ground and suppressing its
+own seedlings is what a real stand does. The claim is retired rather than
+tuned, and `a_tree_eventually_stops_growing` is gone.
+
+**No replacement guard shipped, and that is the interesting part.** Two
+were written and both had their premise falsified by the first run:
+
+- *"A tree grows less on less water"* is **false as stated**. Over 12,000
+  frames on the same bed, the thirsty arm grew **982 cells against the
+  watered arm's 734.** Not noise: `break_root_tips` is gated on
+  `water_status < 0.95`, so a water-stressed plant re-initiates root tips
+  and invests in roots — exactly as a real plant raises its root:shoot
+  ratio under drought. The same mechanism §A is about.
+- Counting **wood alone inverts it a second way** (299 watered against 428
+  thirsty), because a well-watered plant spends a larger share on foliage.
+
+So **growth here is not monotone in water**, and any future guard must say
+which quantity it means — shoot mass, total mass, or time-to-plateau — and
+be measured before it is asserted. `plant_tree_on_ground_with_moisture`
+exists so that comparison is one argument away when someone has a premise
+worth testing. The full account sits where the test was, in
+`plant.rs`'s test module.
 
 **Unverified:** the competition mechanism is inferred from the control plus
 the population count (22 live organisms at failure, which includes dormant
