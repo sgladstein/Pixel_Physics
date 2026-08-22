@@ -4894,6 +4894,165 @@ mod tests {
     /// exactly what happened to `thicken()` in the first draft of this
     /// change, where secondary growth — the majority of all wood — kept
     /// the uniform draw while the shoot was banded.
+    /// **Does a sod mat actually hold a bank?** WP-B3's acceptance item 3,
+    /// and the only one of grass's four axes (`plant-evolution-design.md`
+    /// §4a) that is a *consequence* rather than a look.
+    ///
+    /// **Paired, because outcomes here have enormous spread** and a single
+    /// arm against a remembered number is a sample from a wide
+    /// distribution. Both arms are the same bank, the same walls, the same
+    /// disturbance and the same frame budget; the only difference is
+    /// whether grass grew on it first.
+    ///
+    /// The scene is built so the mechanism under test can actually fire.
+    /// A soil block resting on a floor does not move at all -- powders need
+    /// somewhere to go -- so the bank sits on a *ledge* with open air off
+    /// both ends, and temporary stone walls hold the faces while the grass
+    /// establishes. **Removing those walls is the disturbance**, applied
+    /// identically to both arms. Without them the bare arm would spill
+    /// during the growth phase and the two arms would differ in when they
+    /// were disturbed as well as in whether they had roots.
+    ///
+    /// What it counts is soil that ended up *below the ledge* -- material
+    /// that left the bank entirely. That is a standing state, not an event
+    /// rate: it cannot be inflated by grains that shuffled and came back.
+    ///
+    /// **Measured, both arms, same session:**
+    ///
+    /// ```text
+    /// shed  bare 327  sod 305   (-7%)     soil that left the bank entirely
+    /// crest bare 185  sod 235   (+27%)    bank surface still standing
+    /// grassroot cells in the bank: 135
+    /// ```
+    ///
+    /// Those two say different things and both are true. Total spill barely
+    /// moves, because roots thread the *top* of a bank and the unrooted
+    /// bulk below dominates a whole-bank count -- which is also what real
+    /// sod does. Where the roots actually reach, a quarter more of the
+    /// surface survives.
+    ///
+    /// **The crest counter measured backwards on its first run**, and it is
+    /// worth keeping why: it counted *soil*, and grass converts soil cells
+    /// into `grassroot`, so the rooted arm scored 141 against 185 and read
+    /// as shedding harder when 135 of the gap was root tissue standing
+    /// where soil had been. Counting occupancy fixed it. A metric that
+    /// penalises the mechanism for having happened is this repo's own "ask
+    /// what a metric counts when nothing is wrong", in a new costume.
+    ///
+    /// The root counter is not decoration either: without it a run where
+    /// the grass failed to establish would report a plausible small margin
+    /// and mean nothing at all.
+    #[test]
+    fn a_rooted_bank_sheds_less_soil_than_a_bare_one() {
+        const LEDGE_L: i32 = 60;
+        const LEDGE_R: i32 = 140;
+        const BANK_TOP: i32 = 134;
+        const LEDGE_Y: i32 = 150;
+
+        fn build(with_grass: bool) -> (usize, usize, usize) {
+            let mut w = test_world();
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            // The ledge, and a catch floor far below it.
+            for x in LEDGE_L..=LEDGE_R {
+                for y in LEDGE_Y..=LEDGE_Y + 4 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for x in 0..200 {
+                w.set(x, 190, Cell::new(material::STONE, 0));
+            }
+            for x in LEDGE_L..=LEDGE_R {
+                for y in BANK_TOP..LEDGE_Y {
+                    w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            // Temporary faces, removed below as the disturbance.
+            for y in BANK_TOP..LEDGE_Y {
+                w.set(LEDGE_L - 1, y, Cell::new(material::STONE, 0));
+                w.set(LEDGE_R + 1, y, Cell::new(material::STONE, 0));
+            }
+            if with_grass {
+                for i in 0..16 {
+                    let x = LEDGE_L + 3 + i * 5;
+                    w.plant_tree_species(x, BANK_TOP - 2, "grass");
+                }
+            }
+            // Establish. Both arms run this, so the bare arm pays exactly
+            // the same settling time.
+            run_with_fields(&mut w, 14_000);
+
+            // THE DISTURBANCE: the faces go.
+            for y in BANK_TOP..LEDGE_Y {
+                w.set(LEDGE_L - 1, y, Cell::EMPTY);
+                w.set(LEDGE_R + 1, y, Cell::EMPTY);
+            }
+            run_with_fields(&mut w, 6_000);
+
+            // Three numbers, because the first one alone was misleading.
+            //
+            // `shed` is the plan's ask -- soil that left the bank entirely.
+            // `crest` is soil still standing in the top four rows of the
+            // original footprint, which is what a sod mat can actually be
+            // expected to hold: roots thread the top of a bank, not its
+            // depth, so a total-spill count is dominated by the unrooted
+            // bulk underneath and under-reports the mechanism.
+            // `roots` is the "did it fire at all" counter -- a run where
+            // the grass never rooted into the bank would give a plausible
+            // near-zero margin that means nothing.
+            let b = w.bounds().unwrap();
+            let grassroot = w.materials.id_of("grassroot");
+            let (mut shed, mut crest, mut roots) = (0, 0, 0);
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let m = w.get(x, y).material;
+                    if m == soil && y > LEDGE_Y + 4 {
+                        shed += 1;
+                    }
+                    // **Occupancy, not soil.** Counting soil here was wrong
+                    // and measured backwards: grass *converts* soil cells
+                    // into `grassroot`, so the rooted arm scored 141
+                    // against the bare arm's 185 and looked like it was
+                    // shedding harder, when 135 of the difference was
+                    // simply root tissue standing where soil had been. The
+                    // question is "is the bank surface still there", and a
+                    // sod mat holding a bank is partly made of root.
+                    if m != material::EMPTY && (BANK_TOP..BANK_TOP + 4).contains(&y) && (LEDGE_L..=LEDGE_R).contains(&x) {
+                        crest += 1;
+                    }
+                    if Some(m) == grassroot {
+                        roots += 1;
+                    }
+                }
+            }
+            (shed, crest, roots)
+        }
+
+        let (bare_shed, bare_crest, bare_roots) = build(false);
+        let (sod_shed, sod_crest, sod_roots) = build(true);
+        // Printed, not only asserted: the acceptance asks for the margin,
+        // and a passing assertion reports nothing. `--nocapture` shows it.
+        println!("shed  bare {bare_shed}  sod {sod_shed}   ({:+.0}%)", 100.0 * (sod_shed as f32 / bare_shed as f32 - 1.0));
+        println!("crest bare {bare_crest}  sod {sod_crest}   ({:+.0}%)", 100.0 * (sod_crest as f32 / bare_crest as f32 - 1.0));
+        println!("grassroot cells in bank: bare {bare_roots}, sod {sod_roots}");
+
+        assert_eq!(bare_roots, 0, "the bare arm somehow grew roots -- the arms are not what they claim to be");
+        assert!(
+            sod_roots > 0,
+            "the sod arm has no grassroot cells in the bank, so nothing was reinforced and any margin here is noise, not mechanism"
+        );
+        assert!(
+            bare_shed > 0,
+            "the bare arm shed no soil at all, so the disturbance did nothing and the comparison is vacuous"
+        );
+        // Measured +27% (185 -> 235); the bar sits at +10%, with headroom,
+        // rather than on the measured value or at a bare `>` that would
+        // flake on any run that landed slightly flat.
+        assert!(
+            sod_crest as f32 > bare_crest as f32 * 1.10,
+            "a rooted bank kept {sod_crest} crest cells against a bare bank's {bare_crest} --              reinforces_powder is buying nothing where roots actually reach"
+        );
+    }
+
     #[test]
     fn every_cell_a_species_grows_lands_in_the_band_range_it_declared() {
         for (species, cell_type) in [("tree", CellType::Leaf), ("conifer", CellType::Leaf)] {

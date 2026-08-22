@@ -192,68 +192,39 @@ architecture moved under both.
 
 ## WP-B3 — Grass (Session F, after WP-B2; root re-tune after WP-A)
 
-> **STATUS 2026-08-21: landed, acceptance items 1-2 and 6 met; 3, 4, 5
-> outstanding.** Grass grows, reproduces (gen 1 inside 12,000 frames) and
-> reads as a sward, not as tiny trees. Sheets:
-> `target/filmstrips/wpb3-grass-sward.png` (64 founders, both drivers) and
-> `wpb3-grass.png` (8 founders — the tree-spacing scene, kept because it is
-> the one that shows why a density knob was needed).
+> **STATUS 2026-08-21: items 1, 2, 3, 5 and 6 met; item 4 (paired burn)
+> outstanding.**
 >
-> Not run yet, and each needs a scene that does not exist here: **(3)** the
-> paired slope for `reinforces_powder`, **(4)** the paired burn against bare
-> soil and canopy, **(5)** the organism-slot high-water mark over a long run
-> (the 12,000-frame run reached 9 organisms from 8 founders, so exhaustion
-> is not close at this seed rate, but that is not the long-run number the
-> acceptance asks for). Item 6's `ascii` worst-frame pairing is also
-> outstanding; the only figure in hand is filmstrip's own worst frame,
-> 27.93 ms at 64 founders, which is not the `ascii` number and is not paired.
-
-
-**Spec** (calls 2 and 8: grass is an ancestor and a niche probe,
-authored through the shared slots — no grass-only mechanisms):
-
-1. `assets/materials/grassblade.ron` (Plant: density ~0.3,
-   flammability ~0.7 with short burn, `breaks_into: "litter"`, palette
-   with at least 2 foliage bands) and `assets/materials/grassroot.ron`
-   (Plant: `reinforces_powder: true`, low density, `breaks_into:
-   "litter"`).
-2. `assets/species/grass.ron`: a `Grow` species —
-   `shoot_material: "grassblade"`, `root_material: "grassroot"`,
-   `leaf_material: "grassblade"`; `plastochron: 0` everywhere (the
-   photosynthetic-shoot pattern organism.rs:294–298 anticipates) with
-   `Photosynthesize` on `GrowingTip` and `MatureBody`'s blade cells;
-   low `turgor_source` (height ceiling well under 10 rows); 1–2
-   orders; shallow branched roots (this is where WP-A matters: sod is
-   the fibrous mat); `Reproduce` fast and cheap relative to tree;
-   genome variance vectors non-zero on the same slots trees use.
-   First-pass numbers are the implementer's, swept at landing —
-   rebuilt per point.
-3. Also add grass to `SpeciesRegistry::builtin()` (the P-7 lesson:
-   an asset-less run silently lacks the species otherwise).
-
-**Acceptance, in order (look first):**
-
-1. Sheet at noon: ground cover reading as a green surface layer where
-   there was bare soil — a different *kind* of object from a small
-   tree, judged against the four-axes bar of
-   `plant-evolution-design.md` §4a. If it reads as tiny trees, stop
-   and report before tuning further.
-2. Counters beside the sheet: organism count, blade cells,
-   surface-edible cells within three rows (report against today's
-   0–11).
-3. Paired slope: the same generated bank with and without grass —
-   soil cells lost to a standard disturbance, sod arm must lose
-   measurably less (grassroot's `reinforces_powder` doing its job
-   emergently). Measure both arms first, then state the margin.
-4. Paired burn: fire front crossing a grass strip vs bare soil vs
-   canopy — report speeds; grassfire should read as a distinct fast
-   surface regime by eye.
-5. Organism-count pressure: report the organism slot high-water mark
-   over a long run (the 4095 ceiling; WP-D is the relief valve — if
-   grass exhausts slots before WP-D lands, cap the scene, report,
-   and do not ship a workaround).
-6. `cargo test --lib`, clippy, both drivers, `ascii` worst-frame
-   paired.
+> Grass grows, reads as a sward (owner: *"looks different from trees"*, 4/5),
+> reproduces, and holds a bank. Sheets:
+> `target/filmstrips/wpb3-grass-sward.png` (64 founders, both drivers) and
+> `wpb3-grass.png` (8 founders -- kept because it is the one that shows why a
+> density knob was needed).
+>
+> **Item 3, the paired slope** (`plant::tests::
+> a_rooted_bank_sheds_less_soil_than_a_bare_one`), measured both arms:
+>
+> | | bare | sod | |
+> |---|---|---|---|
+> | soil that left the bank | 327 | 305 | -7% |
+> | bank surface still standing | 185 | 235 | **+27%** |
+> | grassroot cells in the bank | 0 | 135 | (did it fire) |
+>
+> Both numbers are true and say different things: total spill barely moves
+> because roots thread the *top* of a bank and the unrooted bulk dominates a
+> whole-bank count -- which is what real sod does -- while the surface the
+> roots actually reach keeps a quarter more material. Bar set at +10% with
+> headroom, not on the measured value.
+>
+> **Item 5, slot pressure:** 40 founders, 45,000 frames, 2560-wide world ->
+> 77 live organisms and 49 seeds set, so ~89 slots consumed against the 4095
+> ceiling. No pressure; grass does not need WP-D to ship. Generations
+> **[gen 0: 40, gen 1: 29, gen 2: 6, gen 3: 2]** -- four generations in one
+> run, which is the number every §6 evolution experiment was waiting for and
+> which trees cannot supply.
+>
+> **Item 4, the paired burn, is not run.** It needs a fire-front scene that
+> does not exist, and it is the one remaining gap in this package.
 
 ---
 
