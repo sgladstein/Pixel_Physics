@@ -1576,6 +1576,16 @@ columns, and residuals add 3.1 spires per 1000 columns inside it against
 draw. Every world gets at least one such stretch, enforced the same way the
 elevation-spread guarantee is.
 
+**Accepted provisionally.** The owner's verdict on the render: *"This is fine
+for now ... My overall desire is for rocks be of all different shapes and sizes
+not rock country with these unusual tall pillar rocks and then barren with no
+boulders, but we can revise the rock formation generation in the future."* The
+distribution question is answered; the open one is **variety of rock form**,
+which lives in `residual.rs`'s aspect draw (the pillars are thin because
+`MIN_ASPECT`/`MAX_ASPECT` make them so) and in `boulders`, whose output is
+driven by `erosion::Deposits` and so leaves quiet regions bare. See
+`region::FORMATION_BARREN`'s comment for the full verdict.
+
 Streaming itself — chunks loading and unloading past the bounds — has not
 started; `ChunkCoord`'s reserved slice-identifier (issue #11) is the one
 piece of it already spoken for, and it must land before the save format. The

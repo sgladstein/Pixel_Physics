@@ -170,6 +170,27 @@ const MAX_TOTAL_REGIONS: i32 = 320;
 /// The knob and the gate own different questions: the gate decides *whether*
 /// there is rock country here, `residual_density` decides how emphatic it is
 /// where there is.
+///
+/// **Accepted provisionally, and the owner has named a different end state.**
+/// Verdict on the card that landed this (`20260822T165724375Z-7046bb`):
+/// *"This is fine for now. We are spending too much time on this. My overall
+/// desire is for rocks be of all different shapes and sizes not rock country
+/// with these unusual tall pillar rocks and then barren with no boulders, but
+/// we can revise the rock formation generation in the future."*
+///
+/// So do not read this gate as settled design. What it fixed was real -- a
+/// uniform thinning that deleted the pass on `rolling` outright -- but the
+/// target is **variety of rock *form* everywhere**, not a binary present/absent
+/// gate over one form. Two specific complaints to answer when that is picked
+/// up, neither of which this constant can reach:
+///
+/// - the residuals themselves are thin pillars, which is `residual.rs`'s
+///   aspect draw (`MIN_ASPECT`/`MAX_ASPECT`), not their distribution;
+/// - barren country reads as empty, because the only other standing-rock pass
+///   is `boulders`, which is driven by `erosion::Deposits` and so puts little
+///   in a region the erosion pass did not work on.
+///
+/// The distribution work is done; the *shape* work is what is left.
 const FORMATION_BARREN: f32 = 0.70;
 
 /// How wide rock country is, in columns of world — the wavelength of the
