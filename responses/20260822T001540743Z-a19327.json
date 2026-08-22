@@ -1,0 +1,11 @@
+{
+  "card_id": "20260822T001540743Z-a19327",
+  "answered_at": "2026-08-22T02:44:34Z",
+  "choice": null,
+  "choice_label": null,
+  "rating": null,
+  "comment": "These also don't look clearly different. You are taking a structure that is already chaotic and variable between the plants and making slight changes that are not clear. Here is some info to think about. Note that I am not asking you to hardcode or specifically design these types of roots, but create a system where these types of morphologys can develop or evolve naturally (and should have different effects on the plant or develop to fill an ecologically niche). \"There are two primary types of root systems—taproots and fibrous roots—both of which develop specialized subtypes to store food and water. Taproots feature a single, dominant central root that can swell into distinct geometric shapes, such as the cone-like conical root (carrots), the spindle-shaped fusiform (radishes), or the top-heavy napiform (turnips). In contrast, fibrous and adventitious systems form dense, shallow networks that modify into clustered or segmented shapes, including the bunched fasciculated roots of dahlias, tip-swollen nodulose roots, and beaded moniliform structures.\n\nBeyond their modifications, fibrous systems themselves vary significantly in scale; shallow fibrous roots (like turf grasses) spread horizontally near the surface to quickly absorb light rain, while deep fibrous roots (like native prairie grasses in a bee lawn) drive their dense networks several feet downward to survive severe drought and stabilize deep soil. When observing these systems, you might also notice structural adaptations based on the environment, such as thick, woody buttress roots supporting tall trees in shallow soil, or exposed aerial roots capturing humidity directly from the air.\"",
+  "annotations": [],
+  "archived": false,
+  "blind_was": null
+}
