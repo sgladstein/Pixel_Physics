@@ -1513,7 +1513,7 @@ fn try_move<S: CellSurface>(surface: &mut S, x: i32, y: i32, tx: i32, ty: i32) -
         // `MAX_SPLASH_SITES`, costs nothing in the hottest path in the
         // engine and rejects exactly the same sites.
         if ty > y && dst_kind == MaterialKind::Liquid && liquid_fill(dst) >= SPLASH_MIN_FILL && surface.rng().chance(SPLASH_CHANCE) {
-            surface.report_splash(x, y);
+            surface.report_splash(x, y, 1.0);
         }
         surface.move_cell(x, y, tx, ty, revisited);
         return true;

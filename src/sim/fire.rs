@@ -613,6 +613,55 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
         }
         return;
     }
+    // **A simmering surface breaks up**, and this is the one part of
+    // boiling that moves water rather than drawing it.
+    //
+    // Asked for from play, of the bubbles: *"Both should cause a surface
+    // disturbance"*, alongside *"how much is this still connected to the
+    // physics of the scene vs is just an animation?"* -- and the honest
+    // answer for the bubbles themselves is *drawn*: `render.rs`'s
+    // `apply_bubbles` is a pure function of position, frame and the cell's
+    // own temperature, with no state and no writes back. So the
+    // disturbance is put here instead of there, where it is a real cell of
+    // water leaving the pool and coming back: `report_splash` debits the
+    // pool and `particle::throw_splashes` launches it, the same path a
+    // boulder's crown uses, so nothing is manufactured and it happens with
+    // the bubbles switched off.
+    //
+    // Ordered cheapest-first on purpose: a float compare against the
+    // boiling point, then the roll, and only then the `get` that asks
+    // whether this cell is at a free surface. Every water cell in the world
+    // pays the first of those and almost nothing pays the third.
+    if boils_into.is_some() && temp >= boiling_point - SIMMER_SPLASH_MARGIN && surface.rng().chance(SIMMER_SPLASH_CHANCE) {
+        // **The hot cell is not the one that pops.** A pool is heated from
+        // below and its surface is the coolest part of it -- `scene=simmer`
+        // holds 385 cells over 100C with every one of them in the bottom
+        // four rows and the surface nine rows above, so a rule that asked
+        // for a hot cell *with air over it* fired exactly zero times. Same
+        // trap `render.rs`'s `boil_below` records for the `Surface` bubble
+        // mode, and the same answer: walk to where the water actually ends.
+        //
+        // Reported at the topmost **full** cell rather than at the very
+        // top of the water: `particle::throw_splashes` will only take a
+        // droplet out of a full cell, and a settled pool's top row is the
+        // remainder of its volume. Aiming at the film means every site is
+        // reported and every one declined, which is what the first version
+        // of this did -- zero droplets on a visibly simmering pan.
+        let mut probe = y;
+        for _ in 0..SIMMER_SPLASH_REACH {
+            let above = surface.get(x, probe - 1);
+            let clear = above.material == super::material::EMPTY
+                || (above.material == cell.material && super::update::liquid_fill(above) < super::material::LIQUID_FULL);
+            if clear {
+                surface.report_splash(x, probe, SIMMER_SPLASH_STRENGTH);
+                break;
+            }
+            if above.material != cell.material {
+                break; // a lid, a crust, another material: nothing to break
+            }
+            probe -= 1;
+        }
+    }
     if temp >= boiling_point {
         // Gated per visit so a heated pool surface stipples into steam over
         // a few frames instead of flipping edge-to-edge in one — see
@@ -699,6 +748,45 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
         }
     }
 }
+/// How near its boiling point a liquid has to be before its free surface
+/// starts throwing droplets, in degrees.
+///
+/// Well below boiling, deliberately: a pan coming to the boil is *visibly*
+/// restless before the first steam leaves it, and this is the same
+/// population `render.rs`'s `BUBBLE_MIN_TEMPERATURE` draws bubbles for --
+/// "a rising bubble is not *in* boiling water, it is in warm water above a
+/// boiling floor". The two want to agree, but they are deliberately not
+/// wired to each other: one is a render mode a player can switch off and
+/// this is not.
+const SIMMER_SPLASH_MARGIN: f32 = 15.0;
+
+/// How likely a free-surface cell that near boiling is to pop, per visit.
+///
+/// Small, and the smallness is the whole tuning: `throw_splashes` fans
+/// **three** droplets out of every site it is given and each one is a whole
+/// cell of water leaving the pool, so a rate that reads as "the surface is
+/// alive" at one site per few frames reads as a fountain at ten. Measured
+/// on `scene=simmer`, a 111-wide pan.
+const SIMMER_SPLASH_CHANCE: f32 = 0.002;
+
+/// How far above a near-boiling cell to look for the free surface it should
+/// break, in cells.
+///
+/// Bounds the cost -- the walk is paid only by a cell that has already
+/// rolled `SIMMER_SPLASH_CHANCE` -- and bounds the *effect*: a lake with a
+/// vent forty rows down does not spit at its surface, which is the right
+/// answer for a rule about a pan coming to the boil. Sixteen covers
+/// `scene=simmer`'s fourteen-deep pan with a little over.
+const SIMMER_SPLASH_REACH: i32 = 16;
+
+/// How hard a simmering pop is thrown, against a boulder's crown at 1.0.
+///
+/// A pan spitting is not a boulder arriving, and sharing the throw made it
+/// look like rain: single drops clearing **ten rows** above the water. At
+/// this strength one drop leaves, hops a little and falls back, which is
+/// what a bubble bursting does.
+const SIMMER_SPLASH_STRENGTH: f32 = 0.35;
+
 
 /// Degrees of stored heat, taken out of the neighbourhood, that boiling one
 /// cell costs.

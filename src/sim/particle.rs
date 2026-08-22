@@ -405,6 +405,10 @@ const SPLASH_OUT: f32 = 1.1;
 /// air at once as much as it is a look decision.
 const SPLASH_DROPLETS: i32 = 3;
 
+/// The reported strength at which a splash becomes a *crown* rather than a
+/// single drop — see `CellSurface::report_splash`.
+const SPLASH_CROWN_STRENGTH: f32 = 0.5;
+
 /// Turn this frame's splash candidates (`World::splash_sites`) into
 /// droplets, taking each droplet's water **out of the pool it came from**.
 ///
@@ -430,10 +434,14 @@ pub fn throw_splashes(world: &mut World, particles: &mut ParticleSystem) {
     // Taken rather than borrowed: the loop needs `&mut World` to empty the
     // cells it takes. Same borrow shape as `ParticleSystem::step`'s drain.
     let sites = std::mem::take(&mut world.splash_sites);
-    for (x, y) in sites {
+    for (x, y, strength) in sites {
         // Droplets fan out from the site, one per column, so a burst reads
-        // as a crown rather than as three grains stacked in one place.
-        for offset in -(SPLASH_DROPLETS / 2)..=(SPLASH_DROPLETS / 2) {
+        // as a crown rather than as three grains stacked in one place --
+        // **unless the event is small**, in which case it is one drop.
+        // Three whole cells of water leaving a simmering pan every time a
+        // bubble bursts is a fountain, not a simmer.
+        let fan = if strength >= SPLASH_CROWN_STRENGTH { SPLASH_DROPLETS / 2 } else { 0 };
+        for offset in -fan..=fan {
             let dx = x + offset;
             let cell = world.get(dx, y);
             if world.materials.kind(cell.material) != super::material::MaterialKind::Liquid {
@@ -442,7 +450,29 @@ pub fn throw_splashes(world: &mut World, particles: &mut ParticleSystem) {
             if super::update::liquid_fill(cell) < SPLASH_MIN_FILL {
                 continue;
             }
-            if !world.in_bounds(dx, y - 1) || world.get(dx, y - 1).material != super::material::EMPTY {
+            // **Air above, or nothing but the pool's own film.**
+            //
+            // The plain air test is what a crown wants -- a droplet needs
+            // somewhere to go -- and on its own it refuses every site on a
+            // *settled* pool, because a settled pool's top row is the
+            // remainder of its volume and is never full. That is already
+            // recorded as the reason
+            // `a_body_entering_water_at_speed_reports_a_crown_and_one_sliding_in_does_not`
+            // counts sites rather than droplets, and it made
+            // `fire.rs`'s simmering-surface pops fire **zero** times on
+            // `scene=simmer`: every site correctly reported, every one
+            // declined.
+            //
+            // A part-filled cell of the same liquid is not a lid. Taking
+            // the full cell under it conserves exactly as before -- a whole
+            // cell out, a whole cell in when the droplet lands -- and the
+            // film falls into the hole on the next sweep.
+            if !world.in_bounds(dx, y - 1) {
+                continue;
+            }
+            let cover = world.get(dx, y - 1);
+            let filmed = cover.material == cell.material && super::update::liquid_fill(cover) < SPLASH_MIN_FILL;
+            if cover.material != super::material::EMPTY && !filmed {
                 continue;
             }
             // Debit first. If anything below this line fails, the cell is
@@ -454,8 +484,8 @@ pub fn throw_splashes(world: &mut World, particles: &mut ParticleSystem) {
             particles.spawn(
                 dx as f32,
                 (y - 1) as f32,
-                SPLASH_OUT * offset as f32,
-                -SPLASH_UP,
+                SPLASH_OUT * offset as f32 * strength,
+                -SPLASH_UP * strength,
                 cell.material,
                 cell.shade,
             );
@@ -581,7 +611,7 @@ mod tests {
         // it would come back whole.
         let mut w = test_world();
         w.set(30, 40, super::super::cell::Cell::new(material::WATER, 0).with_aux(500));
-        w.splash_sites.push((30, 40));
+        w.splash_sites.push((30, 40, 1.0));
         let mut ps = ParticleSystem::new();
         throw_splashes(&mut w, &mut ps);
         assert_eq!(w.get(30, 40).material, material::WATER, "a half-full cell was thrown as a whole droplet");
@@ -591,7 +621,7 @@ mod tests {
         // ...and the full one beside it is taken, so the refusal above is
         // the gate doing its job rather than the whole path being dead.
         w.set(30, 40, super::super::cell::Cell::new(material::WATER, 0));
-        w.splash_sites.push((30, 40));
+        w.splash_sites.push((30, 40, 1.0));
         throw_splashes(&mut w, &mut ps);
         assert_eq!(w.get(30, 40).material, material::EMPTY, "a full cell at a free surface was not thrown");
         assert_eq!(ps.len(), 1);

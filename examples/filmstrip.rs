@@ -3764,11 +3764,11 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             "fastest piece: {peak_speed:.2} cells/frame; everything came to rest between frames {} and {last_rest}",
             first_rest.map_or("-".to_string(), |f| f.to_string())
         );
-        println!("worst full-screen draw: {worst_draw_ms:.2} ms");
-        image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
-            .expect("writing the contact sheet");
-        println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
     }
+    println!("worst full-screen draw: {worst_draw_ms:.2} ms");
+    image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
+        .expect("writing the contact sheet");
+    println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
     (worst_ms, world, peak_bodies, cells_before, cave_before)
 }
 

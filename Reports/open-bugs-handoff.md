@@ -438,6 +438,38 @@ stone / 4 rubble here, 0 / 160 at the parent commit),
 guard for cost 3 and has a paired positive so it cannot pass by the
 mechanism being dead. Each red-checked against its own fix only.
 
+### 1k. A splash droplet loses about 1% of a cell somewhere
+
+Small, measured, cause not found. Worth writing down because the path now
+fires constantly rather than once per boulder.
+
+`scene=simmer`, paired against the identical run with
+`fire::SIMMER_SPLASH_CHANCE` at zero, which holds the ledger at **exactly
+4054.0** at every sample:
+
+| droplets thrown | ledger | shortfall |
+|---|---|---|
+| 0 | 4054.0 | — |
+| 59 | 4053.4 | 0.6 |
+| 173 | 4052.3 | 1.7 |
+| 248 | 4051.5 | 2.5 |
+| 465 | 4049.4 | 4.6 |
+
+That is **~0.01 cell-equivalents per droplet** — a constant fraction of
+each droplet rather than a whole droplet lost one time in a hundred, which
+is the shape that matters for guessing at it. It is stable: once the pan
+cools and the droplets stop, the ledger stops moving.
+
+Ruled out by measurement: `particle::land` dropping a particle for want of
+anywhere to go (instrumented, **zero** occurrences over the whole run).
+`throw_splashes` debits a full cell and `land` writes a full cell, so the
+whole-cell accounting is right on its face.
+
+Not chased further because at the shipped rate it is 0.04% of a pan over
+4,000 frames and it stops with the heat. It would matter for a permanent
+heat source under water — a lava vent under a lake — so measure it there
+before assuming it is negligible in general.
+
 ### 1j. `MAX_LOAD_CELLS_PER_FRAME` does not bound the load model's frame cost
 
 Found while fixing §1h, measured, not fixed.

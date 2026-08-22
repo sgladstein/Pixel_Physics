@@ -316,8 +316,8 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
         // Through `report_splash` rather than pushed straight onto the
         // list, so `MAX_SPLASH_SITES` bounds the merged total and not each
         // worker's share of it.
-        for (x, y) in outcome.splash_sites {
-            CellSurface::report_splash(world, x, y);
+        for (x, y, strength) in outcome.splash_sites {
+            CellSurface::report_splash(world, x, y, strength);
         }
         pending_demotions.extend(outcome.demotions);
         pending_absorptions.extend(outcome.absorptions);
@@ -376,7 +376,7 @@ struct ChunkOutcome {
     /// Candidate splash sites (`CellSurface::report_splash`) — queued here
     /// and merged into `World::splash_sites` by `run_pass`, the same shape
     /// as `pending_active_sites`, because only `World` owns that list.
-    splash_sites: Vec<(i32, i32)>,
+    splash_sites: Vec<(i32, i32, f32)>,
     /// Organism cell-list membership changes from *same-chunk* writes —
     /// `(x, y, was_organism_id, now_organism_id)`.
     ///
@@ -464,7 +464,7 @@ struct ChunkView<'w> {
     /// See `ChunkOutcome::absorptions`'s own doc.
     absorptions: Vec<(i32, i32, u32)>,
     /// See `ChunkOutcome::splash_sites`'s own doc.
-    splash_sites: Vec<(i32, i32)>,
+    splash_sites: Vec<(i32, i32, f32)>,
     /// See `ChunkOutcome::organism_moves`'s own doc.
     organism_moves: Vec<(i32, i32, u16, u16)>,
     /// This worker's private `fire::PhaseCounts` tally, merged into
@@ -730,7 +730,7 @@ impl CellSurface for ChunkView<'_> {
         self.absorptions.push((x, y, fill));
     }
 
-    fn report_splash(&mut self, x: i32, y: i32) {
+    fn report_splash(&mut self, x: i32, y: i32, strength: f32) {
         // Bounded here as well as at the merge, and it has to be: a worker
         // sweeping a chunk of sand over water reports on every full-liquid
         // displacement it rolls, which on ascii's stress scene is a very
@@ -739,7 +739,7 @@ impl CellSurface for ChunkView<'_> {
         // share of it, because a pass has no idea how many of its workers
         // will report anything at all.
         if self.splash_sites.len() < crate::sim::world::MAX_SPLASH_SITES {
-            self.splash_sites.push((x, y));
+            self.splash_sites.push((x, y, strength));
         }
     }
 

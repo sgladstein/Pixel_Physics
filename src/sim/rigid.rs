@@ -1594,7 +1594,7 @@ fn report_entry_splash(world: &mut World, body: &ChunkBody, entry_speed: f32) {
             // The free surface, and only it: `throw_splashes` checks the
             // same thing a frame later and the two have to agree.
             if world.in_bounds(x, y - 1) && world.get(x, y - 1).material == crate::sim::material::EMPTY {
-                crate::sim::surface::CellSurface::report_splash(world, x, y);
+                crate::sim::surface::CellSurface::report_splash(world, x, y, 1.0);
             }
             break; // the topmost liquid in this column is the only candidate
         }

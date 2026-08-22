@@ -140,7 +140,15 @@ pub trait CellSurface {
     /// an undrained frame is discarded rather than accumulating;
     /// `ChunkView` queues and `run_pass` merges, the same shape as
     /// `schedule_active_site`.
-    fn report_splash(&mut self, x: i32, y: i32);
+    /// Report a splash candidate at `(x, y)`, with `strength` scaling how
+    /// hard it is thrown.
+    ///
+    /// **A strength rather than one fixed throw**, because the two things
+    /// that report splashes are not the same event: a boulder breaking the
+    /// surface fans a crown, and a simmering pan spits a single drop that
+    /// barely clears the water. Sharing the boulder's throw made the pan
+    /// look like rain — the drops cleared ten rows.
+    fn report_splash(&mut self, x: i32, y: i32, strength: f32);
 
     /// Record one temperature-triggered transition for the "did it fire at
     /// all" counters (`fire::PhaseCounts`, the `FailureCounts` pattern) —

@@ -2,7 +2,7 @@
 
 *Current as of: this build (boiling costs the heat it takes; a quench
 crust breaks up into slabs rather than grit; warm water shows bubbles, in
-small or large).*
+small or large, and its surface spits).*
 
 Fire spreads by contact: a material touching something already burning has
 a chance, each moment it stays in contact, to catch as well. That chance
@@ -38,9 +38,16 @@ reads as coming to the boil rather than as water that happens to be
 glowing. They start well below boiling — a rising bubble is not *in* boiling
 water, it is in warm water above a boiling floor — so a puddle beside a
 campfire fizzes gently and a pot on a hearth roils. `H` cycles the looks,
-including off: small bubbles (the default), **large** ones — fewer, wider
-and visibly round rather than a scatter of specks — a stream of columns
-leaving one spot on the floor, and bubbles only near the surface.
+including off: small bubbles (the default), **large** ones — fewer, wider,
+visibly round and in two sizes rather than a scatter of identical specks —
+a stream of columns leaving one spot on the floor, and bubbles only near
+the surface.
+
+**And the surface itself breaks up**, whichever of those you have on and
+even with them off, because that part is not drawn: water near boiling
+spits the odd drop clear of the surface, which hops and falls back. It is
+a real cell of water leaving the pool and returning, so a pan that spits
+is a pan that is very slightly emptier while the drop is in the air.
 
 **Boiling costs heat, and that is what limits it.** Turning a cell of water
 to steam draws a large amount of warmth out of whatever is heating it, so a

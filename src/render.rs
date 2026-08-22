@@ -256,16 +256,36 @@ const BUBBLE_SITE: i32 = 2;
 /// deep and the shape is back to reading as a chamfered square.
 const BUBBLE_LARGE_SITE: i32 = 6;
 
-/// Squared radius of the `BubbleMode::Large` disc, in cells, measured from
-/// the site's centre at `(BUBBLE_LARGE_SITE - 1) / 2`.
+/// The two disc sizes a `BubbleMode::Large` site draws, as (squared radius
+/// from the site's centre, cells lit).
 ///
-/// Eight rather than the nine a circle inscribed in the site would use.
-/// Nine trims only the four corners (32 of 36 lit) and still reads square;
-/// eight also drops the eight cells flanking them, leaving an octagon of
-/// `BUBBLE_LARGE_LIT` — round enough at this size, and still a wide enough
-/// bubble to see. Seven takes another ring and the mark goes back to a
-/// plus.
-const BUBBLE_LARGE_RADIUS_SQ: f32 = 8.0;
+/// **Two sizes, because one is a pattern.** Asked for from play: *"Large
+/// should include a mix of this plus 1 pixel smaller bubbles."* A grid of
+/// identical marks reads as a texture however round each mark is; a mix
+/// reads as bubbles.
+///
+/// Eight is the big one's radius, rather than the nine a circle inscribed
+/// in the site would use: nine trims only the four corners (32 of 36 lit)
+/// and still reads square, eight also drops the eight cells flanking them
+/// and leaves an octagon. 3.5 is the small one -- one cell narrower each
+/// way with its own corners off, twelve lit. **4.5 was tried first and is
+/// wrong**: at that radius the mask keeps exactly the inner four-by-four
+/// block, so the small bubble draws a filled *square* -- the shape this
+/// whole mode exists because play rejected.
+///
+/// The lit counts are hardcoded rather than counted, because they divide
+/// the density on the hottest per-pixel path in this file -- and
+/// `the_large_bubble_mask_lights_what_the_density_correction_assumes`
+/// guards both against the mask, so neither can drift.
+const BUBBLE_LARGE_DISCS: [(f32, i32); 2] = [(8.0, 24), (3.5, 12)];
+
+/// Which of `BUBBLE_LARGE_DISCS` a site draws -- a second hash,
+/// independent of the one that decides whether the site lights at all, or
+/// size and presence would be correlated and the small ones would all
+/// arrive together.
+fn large_bubble_disc(sx: i32, sy: i32) -> (f32, i32) {
+    BUBBLE_LARGE_DISCS[usize::from(rng::jitter3(sx, sy, 0x5B) < 0.5)]
+}
 
 /// How much rarer a `BubbleMode::Large` bubble is than the density
 /// correction alone would make it.
@@ -279,22 +299,15 @@ const BUBBLE_LARGE_RADIUS_SQ: f32 = 8.0;
 /// the population is what separates them again.
 const BUBBLE_LARGE_RARITY: f32 = 0.5;
 
-/// How many of a `BubbleMode::Large` site's cells the disc mask lights.
-///
-/// Hardcoded rather than counted, because it divides the density on the
-/// hottest per-pixel path in this file — and guarded by
-/// `the_large_bubble_mask_lights_what_the_density_correction_assumes`, so
-/// it cannot drift away from the mask it describes.
-const BUBBLE_LARGE_LIT: i32 = 24;
 
 const BUBBLE_UNDERSIDE: f32 = 0.30;
 
-/// Whether `(ix, iy)` within a `BubbleMode::Large` site falls inside its
-/// disc. See `BUBBLE_LARGE_RADIUS_SQ`.
-fn large_bubble_covers(ix: i32, iy: i32) -> bool {
+/// Whether `(ix, iy)` within a `BubbleMode::Large` site of squared radius
+/// `radius_sq` falls inside its disc. See `BUBBLE_LARGE_DISCS`.
+fn large_bubble_covers(ix: i32, iy: i32, radius_sq: f32) -> bool {
     let centre = (BUBBLE_LARGE_SITE - 1) as f32 / 2.0;
     let (dx, dy) = (ix as f32 - centre, iy as f32 - centre);
-    dx * dx + dy * dy <= BUBBLE_LARGE_RADIUS_SQ
+    dx * dx + dy * dy <= radius_sq
 }
 
 /// The share of a bubble's brightness that does *not* scale with how hot
@@ -2284,8 +2297,10 @@ impl Renderer {
         // was only supposed to be about shape. That mode is gone and the
         // correction stays, because `Large` needs exactly the same thing:
         // it lights `BUBBLE_LARGE_LIT` of 36.
+        let (sx, sy_site) = (x.div_euclid(block_w), sy.div_euclid(block_h));
+        let disc = large_bubble_disc(sx, sy_site);
         let lit = match self.bubbles {
-            BubbleMode::Large => BUBBLE_LARGE_LIT,
+            BubbleMode::Large => disc.1,
             _ => block_w * block_h,
         };
         let rarity = if self.bubbles == BubbleMode::Large { BUBBLE_LARGE_RARITY } else { 1.0 };
@@ -2304,8 +2319,8 @@ impl Renderer {
         // `World::get`, paid only by `Large` and only by cells the caller
         // has already found to be off ambient.
         let gate = if self.bubbles == BubbleMode::Large {
-            let fx = x.div_euclid(block_w) * block_w + block_w / 2;
-            let fy = (sy.div_euclid(block_h) * block_h + block_h - 1) - scroll;
+            let fx = sx * block_w + block_w / 2;
+            let fy = (sy_site * block_h + block_h - 1) - scroll;
             let foot = world.get(fx, fy);
             if foot.material == cell.material {
                 heat_to_boil(foot.temperature())
@@ -2315,7 +2330,7 @@ impl Renderer {
         } else {
             boil
         };
-        let site = rng::jitter(x.div_euclid(block_w), sy.div_euclid(block_h));
+        let site = rng::jitter(sx, sy_site);
         if site >= density * gate {
             return;
         }
@@ -2329,7 +2344,7 @@ impl Renderer {
         // it is deliberately *not* a bubble but a stream leaving a
         // nucleation site, and rounding it would collapse the difference
         // between the two modes.
-        if self.bubbles == BubbleMode::Large && !large_bubble_covers(ix, iy) {
+        if self.bubbles == BubbleMode::Large && !large_bubble_covers(ix, iy, disc.0) {
             return;
         }
         // Two rows are a dome by being brighter on top; six are not, and a
@@ -3263,9 +3278,34 @@ mod tests {
     /// correction exists to prevent.
     #[test]
     fn the_large_bubble_mask_lights_what_the_density_correction_assumes() {
-        let counted =
-            (0..BUBBLE_LARGE_SITE).flat_map(|ix| (0..BUBBLE_LARGE_SITE).map(move |iy| (ix, iy))).filter(|&(ix, iy)| large_bubble_covers(ix, iy)).count();
-        assert_eq!(counted as i32, BUBBLE_LARGE_LIT, "the disc mask lights {counted} cells, not BUBBLE_LARGE_LIT");
+        for (radius_sq, claimed) in BUBBLE_LARGE_DISCS {
+            let counted = (0..BUBBLE_LARGE_SITE)
+                .flat_map(|ix| (0..BUBBLE_LARGE_SITE).map(move |iy| (ix, iy)))
+                .filter(|&(ix, iy)| large_bubble_covers(ix, iy, radius_sq))
+                .count();
+            assert_eq!(counted as i32, claimed, "the disc at radius^2 {radius_sq} lights {counted} cells, not the {claimed} its entry claims");
+        }
+    }
+
+    /// **Both sizes actually appear.** A mix that is 100:0 is not a mix,
+    /// and nothing else in the file would notice -- the density correction
+    /// is per site, so a broken size hash draws a perfectly respectable
+    /// grid of identical bubbles, which is the artifact this replaced.
+    #[test]
+    fn a_large_bubble_field_holds_both_of_its_sizes() {
+        let mut seen = [0usize; BUBBLE_LARGE_DISCS.len()];
+        for sx in 0..40 {
+            for sy in 0..40 {
+                let disc = large_bubble_disc(sx, sy);
+                let i = BUBBLE_LARGE_DISCS.iter().position(|d| d.0 == disc.0).expect("a disc from the table");
+                seen[i] += 1;
+            }
+        }
+        for (i, count) in seen.iter().enumerate() {
+            // A third of 1,600 either way: far from an even split, and far
+            // from a hash that has collapsed onto one branch.
+            assert!(*count > 1600 / 3, "size {i} came up {count} times in 1,600 sites; the size hash is lopsided");
+        }
     }
 
     /// **Changing a bubble's shape must not change how much boil it

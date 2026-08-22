@@ -456,7 +456,7 @@ pub struct World {
     /// discarded rather than growing, and bounded at `MAX_SPLASH_SITES` so
     /// a blob landing in a lake cannot make the list the expensive part of
     /// the frame.
-    pub splash_sites: Vec<(i32, i32)>,
+    pub splash_sites: Vec<(i32, i32, f32)>,
     /// Cumulative count of splash droplets actually thrown -- the "did it
     /// fire at all" counter for the effect, and a different number from
     /// `splash_sites.len()`, which is only how many candidates the sweep
@@ -2565,9 +2565,9 @@ impl CellSurface for World {
     }
 
     #[inline]
-    fn report_splash(&mut self, x: i32, y: i32) {
+    fn report_splash(&mut self, x: i32, y: i32, strength: f32) {
         if self.splash_sites.len() < MAX_SPLASH_SITES {
-            self.splash_sites.push((x, y));
+            self.splash_sites.push((x, y, strength));
         }
     }
 
