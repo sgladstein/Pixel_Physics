@@ -62,6 +62,37 @@ struct Args {
     /// **Camera magnification** (`Renderer::zoom`), applied while drawing.
     scale: i32,
     stride: i32,
+    /// Render the shots as one **contiguous** span of world instead of
+    /// spreading them across it.
+    ///
+    /// **This exists because the default misled the owner.** A Phase 2
+    /// review card was a three-shot sheet of the 8192-wide world, so the
+    /// tiles showed world x 1109-1620, 3840-4351 and 6570-7081 with 2,219
+    /// unshown columns between each -- and, butted together with no
+    /// separator, it reads as one landscape. The verdict came back naming
+    /// *"the repeating hard boundary at 1/3 and 2/3 of the image"* as the
+    /// **#1 issue** with the world. It was not the world: measured, those
+    /// two joins are the largest and second-largest of all 1,535 adjacent
+    /// column pairs in the image (mean |dRGB| 29.4 and 21.3 against a median
+    /// of 3.2), the skyline steps 61 rows across one of them, and
+    /// `probe_p2_how_sheer_is_the_ground` in `tests/worldgen.rs` puts the
+    /// largest step worldgen produces anywhere in any preset at **5 rows**.
+    ///
+    /// So: when the question is whether the *landscape* flows, ask it of a
+    /// strip. `shots` becomes the length in viewport-widths.
+    strip: bool,
+    /// World column the strip starts at. Defaults to wherever shot 0 would
+    /// have gone without `strip`, so `strip=1` is a like-for-like re-render
+    /// of a sheet that has already been judged.
+    at: Option<i32>,
+    /// Pixels of separator drawn between tiles of a *non-contiguous* sheet.
+    ///
+    /// Defaults to on, and to off under `strip` -- a strip is continuous by
+    /// construction and a gutter would defeat it. White, full height, and
+    /// wide enough to be unmistakable: the failure this prevents is a reader
+    /// taking teleported tiles for one continuous view, which has happened
+    /// once and cost a whole review round.
+    gutter: Option<usize>,
     out: String,
 }
 
@@ -91,6 +122,9 @@ fn main() {
         pan: 0.0,
         scale: 1,
         stride: 1,
+        strip: false,
+        at: None,
+        gutter: None,
         out: "target/filmstrips/viewshot.png".to_string(),
     };
     for arg in std::env::args().skip(1) {
@@ -212,6 +246,12 @@ fn main() {
             // that.
             "scale" => a.scale = v.parse().expect("scale=N"),
             "stride" => a.stride = v.parse().expect("stride=N"),
+            // `strip=1` makes the tiles one contiguous span of world, so the
+            // sheet is a picture of a landscape rather than of several. See
+            // `Args::strip` for the review round this cost.
+            "strip" => a.strip = v != "0",
+            "at" => a.at = Some(v.parse().expect("at=WORLD_X")),
+            "gutter" => a.gutter = Some(v.parse().expect("gutter=PIXELS")),
             // `gif=1` writes one frame per simulated frame of the scroll
             // instead of a contact sheet. `CLAUDE.md`: reach for the
             // animation "when the question is whether something *moves*
@@ -401,7 +441,24 @@ fn main() {
     let (cx0, cy0, cw, ch) = a.crop.unwrap_or((0, 0, vw, vh));
     assert!(cx0 + cw <= vw && cy0 + ch <= vh, "crop {cx0},{cy0},{cw},{ch} is outside the {vw}x{vh} viewport");
     let (tw, th) = (cw * a.zoom, ch * a.zoom);
-    let mut sheet = vec![0u8; tw * th * a.shots * 4];
+    // **A separator between tiles, unless the tiles are genuinely
+    // continuous.** Default 6 px of white, full height. See `Args::strip`
+    // for the review round that a separator-less sheet cost: three
+    // teleported viewport shots butted edge to edge were read as one
+    // landscape, and the joins -- the largest two column-to-column steps in
+    // the whole image, one of them a 61-row jump in the skyline -- were
+    // filed as the world's #1 defect. Under `strip` the tiles really are
+    // adjacent, so the gutter goes away and the picture is honest without
+    // one.
+    let gutter = a.gutter.unwrap_or(if a.strip { 0 } else { 6 });
+    let sheet_w = tw * a.shots + gutter * a.shots.saturating_sub(1);
+    let mut sheet = vec![0u8; sheet_w * th * 4];
+    // White rather than black: black is a colour the world has plenty of
+    // (deep air, night rock) and a black bar can read as a chasm, which is
+    // the same misreading in a different costume.
+    if gutter > 0 {
+        sheet.fill(0xff);
+    }
     let mut frame = vec![0u8; vw * vh * 4];
 
     // Where a system is, if one was asked for. Round 3 made the subject a
@@ -719,6 +776,11 @@ fn main() {
         return;
     }
 
+    // Held across shots by `strip`; see the `set_camera` call below.
+    let mut strip_y = 0i32;
+    // Every tile's camera column, so the summary below can state what the
+    // sheet actually covers and what it leaves out.
+    let mut shot_cameras: Vec<i32> = Vec::with_capacity(a.shots);
     for shot in 0..a.shots {
         // Aimed at the strike when there is one: a bolt lands anywhere in a
         // world sixteen screens wide, so a shot framed anywhere else is a
@@ -752,7 +814,25 @@ fn main() {
         // dropped-residual bug made visible in a still image**, which is
         // unusual enough to be worth exploiting -- so read the spacing from
         // the second tile on, once the rate is flat.
-        if a.pan > 0.0 {
+        if a.strip {
+            // **Contiguous by construction, and pinned in y.** Tile `k`
+            // starts exactly one viewport-width after tile `k-1`, so the
+            // sheet is one unbroken span of `shots * visible_span` columns.
+            //
+            // `set_camera`, not `follow`: `follow` has a dead zone and would
+            // land the camera wherever it felt like within it, which is
+            // precisely the discontinuity a strip exists to remove. The
+            // vertical is taken once, from the first tile, and held -- a
+            // strip whose camera_y tracked each tile's own ground would step
+            // vertically at every join and reintroduce the artifact in the
+            // other axis.
+            let span = renderer.visible_span((WIDTH, HEIGHT)).0;
+            let start = a.at.unwrap_or_else(|| (WORLD_WIDTH as f32 / (2.0 * a.shots as f32)) as i32 - span / 2);
+            if shot == 0 {
+                strip_y = ground - HEIGHT as i32 / 2;
+            }
+            renderer.set_camera(start + shot as i32 * span, strip_y, (WIDTH, HEIGHT), world.bounds());
+        } else if a.pan > 0.0 {
             if shot == 0 {
                 renderer.set_camera(0, ground - HEIGHT as i32 / 2, (WIDTH, HEIGHT), world.bounds());
             }
@@ -763,6 +843,7 @@ fn main() {
             renderer.follow((x, ground), (WIDTH, HEIGHT), world.bounds());
         }
         let (cam_x, cam_y) = (renderer.camera_x, renderer.camera_y);
+        shot_cameras.push(cam_x);
         // Clamped hard against an edge is legitimate at the ends of the
         // world and a bug in the middle, so print the camera rather than
         // asserting: the reader can see which case this is.
@@ -845,24 +926,69 @@ fn main() {
         for y in 0..th {
             for x in 0..tw {
                 let src = ((cy0 + y / a.zoom) * vw + cx0 + x / a.zoom) * 4;
-                let dst = (y * tw * a.shots + shot * tw + x) * 4;
+                let dst = (y * sheet_w + shot * (tw + gutter) + x) * 4;
                 sheet[dst..dst + 4].copy_from_slice(&frame[src..src + 4]);
             }
         }
         // Step between shots so the day advances a little and the sky is not
         // bit-identical in every tile -- a sheet of identical skies hides a
         // sky that is not being redrawn at all.
-        for _ in 0..(a.frame / a.shots.max(1)) {
-            pixel_physics::sim::parallel::step(&mut world);
+        //
+        // **Not under `strip`, where it is the artifact rather than the
+        // check.** The first strip rendered here came out with its three
+        // tiles at dawn, dusk and full night, because a third of `frame`
+        // elapsed between each: the terrain flowed perfectly and the *sky*
+        // stepped at every join, which is the identical misreading this mode
+        // exists to remove, turned through ninety degrees. A strip is one
+        // moment seen wide, so the clock holds still.
+        //
+        // The redraw check survives without it: `recomputed` is printed per
+        // shot and the camera moves a full viewport between tiles, so a
+        // frozen buffer still shows up as a count below `WIDTH * HEIGHT`.
+        if !a.strip {
+            for _ in 0..(a.frame / a.shots.max(1)) {
+                pixel_physics::sim::parallel::step(&mut world);
+            }
         }
     }
 
-    let (sw, sh) = ((tw * a.shots) as u32, th as u32);
+    let (sw, sh) = (sheet_w as u32, th as u32);
     if let Some(dir) = std::path::Path::new(&a.out).parent() {
         std::fs::create_dir_all(dir).expect("creating the output directory");
     }
     image::save_buffer(&a.out, &sheet, sw, sh, image::ColorType::Rgba8).expect("writing the sheet");
-    println!("contact sheet ({sw}x{sh}, {} viewport shots): {}", a.shots, a.out);
+    // **Say in words what the picture is, because the picture cannot.** A
+    // sheet of teleported tiles and a continuous strip look alike at a
+    // glance and mean completely different things, and a reader who assumes
+    // the wrong one files the joins as a defect in the world -- which has
+    // happened. So: name the kind, and for a sheet, name the columns that
+    // are *not* shown between the tiles.
+    if a.strip {
+        let span = renderer.visible_span((WIDTH, HEIGHT)).0;
+        println!(
+            "contiguous strip ({sw}x{sh}, {} viewport widths = world x {}..{}, unbroken): {}",
+            a.shots,
+            shot_cameras.first().copied().unwrap_or(0),
+            shot_cameras.last().copied().unwrap_or(0) + span,
+            a.out
+        );
+    } else {
+        let gaps: Vec<String> = shot_cameras
+            .windows(2)
+            .map(|w| (w[1] - w[0] - renderer.visible_span((WIDTH, HEIGHT)).0).to_string())
+            .collect();
+        println!(
+            "contact sheet ({sw}x{sh}, {} viewport shots, {gutter}px gutter): {}",
+            a.shots, a.out
+        );
+        if !gaps.is_empty() {
+            println!(
+                "  NOT CONTIGUOUS -- the tiles are separate places; unshown between them: {} columns. \
+                 Use `strip=1` when the question is whether the landscape flows.",
+                gaps.join(", ")
+            );
+        }
+    }
     if a.spring > 0 {
         // The counter next to the picture. A fall on screen with emitted=0
         // would be pond water wandering into frame, not the spring working.
